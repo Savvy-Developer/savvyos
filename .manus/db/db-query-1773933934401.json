@@ -1,0 +1,15 @@
+{
+  "query": "SELECT id, status, terminationReason FROM transactions WHERE id = 60002;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, status, terminationReason FROM transactions WHERE id = 60002;",
+  "rows": [
+    {
+      "id": "60002",
+      "status": "terminated",
+      "terminationReason": "Here is a bad reason this terminated"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\tterminationReason\n60002\tterminated\tHere is a bad reason this terminated\n",
+  "stderr": "",
+  "execution_time_ms": 393
+}

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS tags (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(128) NOT NULL UNIQUE,\n  color VARCHAR(32) NOT NULL DEFAULT 'gray',\n  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP\n);\n\nCREATE TABLE IF NOT EXISTS contact_tags (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  contactId INT NOT NULL,\n  tagId INT NOT NULL,\n  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (contactId) REFERENCES contacts(id) ON DELETE CASCADE,\n  FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE,\n  UNIQUE KEY uq_contact_tag (contactId, tagId)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute CREATE TABLE IF NOT EXISTS tags (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(128) NOT NULL UNIQUE,\n  color VARCHAR(32) NOT NULL DEFAULT 'gray',\n  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP\n);\n\nCREATE TABLE IF NOT EXISTS contact_tags (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  contactId INT NOT NULL,\n  tagId INT NOT NULL,\n  createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  FOREIGN KEY (contactId) REFERENCES contacts(id) ON DELETE CASCADE,\n  FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE,\n  UNIQUE KEY uq_contact_tag (contactId, tagId)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 44722
+}

@@ -1,0 +1,42 @@
+{
+  "query": "\nSELECT 'contacts' as tbl, COUNT(*) as cnt FROM contacts\nUNION ALL SELECT 'transactions', COUNT(*) FROM transactions\nUNION ALL SELECT 'agent_connections', COUNT(*) FROM agent_connections\nUNION ALL SELECT 'communications', COUNT(*) FROM communications\nUNION ALL SELECT 'activity_log', COUNT(*) FROM activity_log\nUNION ALL SELECT 'market_match_sessions', COUNT(*) FROM market_match_sessions\nUNION ALL SELECT 'connection_requests', COUNT(*) FROM connection_requests\nUNION ALL SELECT 'transaction_payout_items', COUNT(*) FROM transaction_payout_items;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT 'contacts' as tbl, COUNT(*) as cnt FROM contacts\nUNION ALL SELECT 'transactions', COUNT(*) FROM transactions\nUNION ALL SELECT 'agent_connections', COUNT(*) FROM agent_connections\nUNION ALL SELECT 'communications', COUNT(*) FROM communications\nUNION ALL SELECT 'activity_log', COUNT(*) FROM activity_log\nUNION ALL SELECT 'market_match_sessions', COUNT(*) FROM market_match_sessions\nUNION ALL SELECT 'connection_requests', COUNT(*) FROM connection_requests\nUNION ALL SELECT 'transaction_payout_items', COUNT(*) FROM transaction_payout_items;\n",
+  "rows": [
+    {
+      "tbl": "transactions",
+      "cnt": "0"
+    },
+    {
+      "tbl": "communications",
+      "cnt": "0"
+    },
+    {
+      "tbl": "contacts",
+      "cnt": "0"
+    },
+    {
+      "tbl": "agent_connections",
+      "cnt": "0"
+    },
+    {
+      "tbl": "activity_log",
+      "cnt": "0"
+    },
+    {
+      "tbl": "connection_requests",
+      "cnt": "0"
+    },
+    {
+      "tbl": "market_match_sessions",
+      "cnt": "0"
+    },
+    {
+      "tbl": "transaction_payout_items",
+      "cnt": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "tbl\tcnt\ntransactions\t0\ncommunications\t0\ncontacts\t0\nagent_connections\t0\nactivity_log\t0\nconnection_requests\t0\nmarket_match_sessions\t0\ntransaction_payout_items\t0\n",
+  "stderr": "",
+  "execution_time_ms": 272
+}

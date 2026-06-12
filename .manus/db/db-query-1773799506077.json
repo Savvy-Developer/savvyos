@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE `groups` SET leaderId = 420023 WHERE leaderId IN (750180,750184,750188,750205);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute UPDATE `groups` SET leaderId = 420023 WHERE leaderId IN (750180,750184,750188,750205);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 380
+}

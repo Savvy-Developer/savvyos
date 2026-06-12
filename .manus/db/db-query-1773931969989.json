@@ -1,0 +1,19 @@
+{
+  "query": "SELECT id, transactionNumber, status, contractDate, closingDate, createdAt, updatedAt FROM transactions WHERE id = 60002;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, transactionNumber, status, contractDate, closingDate, createdAt, updatedAt FROM transactions WHERE id = 60002;",
+  "rows": [
+    {
+      "id": "60002",
+      "transactionNumber": "TXN-1773860715510",
+      "status": "active",
+      "contractDate": "2026-03-18 00:00:00",
+      "closingDate": "2026-04-08 00:00:00",
+      "createdAt": "2026-03-18 19:05:15",
+      "updatedAt": "2026-03-18 19:05:15"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttransactionNumber\tstatus\tcontractDate\tclosingDate\tcreatedAt\tupdatedAt\n60002\tTXN-1773860715510\tactive\t2026-03-18 00:00:00\t2026-04-08 00:00:00\t2026-03-18 19:05:15\t2026-03-18 19:05:15\n",
+  "stderr": "",
+  "execution_time_ms": 395
+}

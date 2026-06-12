@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `leadership_feedback` (\n  `id` int AUTO_INCREMENT PRIMARY KEY,\n  `agentUserId` int NOT NULL,\n  `conductedByUserId` int NOT NULL,\n  `meetingDate` timestamp NOT NULL,\n  `summary` text NOT NULL,\n  `strengths` text,\n  `areasForImprovement` text,\n  `goals` text,\n  `followUpDate` timestamp NULL,\n  `rating` int,\n  `isPrivate` boolean NOT NULL DEFAULT false,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `leadership_feedback_agentUserId_users_id_fk` FOREIGN KEY (`agentUserId`) REFERENCES `users`(`id`),\n  CONSTRAINT `leadership_feedback_conductedByUserId_users_id_fk` FOREIGN KEY (`conductedByUserId`) REFERENCES `users`(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute CREATE TABLE IF NOT EXISTS `leadership_feedback` (\n  `id` int AUTO_INCREMENT PRIMARY KEY,\n  `agentUserId` int NOT NULL,\n  `conductedByUserId` int NOT NULL,\n  `meetingDate` timestamp NOT NULL,\n  `summary` text NOT NULL,\n  `strengths` text,\n  `areasForImprovement` text,\n  `goals` text,\n  `followUpDate` timestamp NULL,\n  `rating` int,\n  `isPrivate` boolean NOT NULL DEFAULT false,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `leadership_feedback_agentUserId_users_id_fk` FOREIGN KEY (`agentUserId`) REFERENCES `users`(`id`),\n  CONSTRAINT `leadership_feedback_conductedByUserId_users_id_fk` FOREIGN KEY (`conductedByUserId`) REFERENCES `users`(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1375
+}

@@ -1,0 +1,28 @@
+{
+  "query": "SELECT id, name, email, role, openId, loginMethod, createdAt FROM users WHERE email = 'elana@savvy.realty' ORDER BY id ASC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, email, role, openId, loginMethod, createdAt FROM users WHERE email = 'elana@savvy.realty' ORDER BY id ASC;",
+  "rows": [
+    {
+      "id": "420023",
+      "name": "Elana Eirhart",
+      "email": "elana@savvy.realty",
+      "role": "admin",
+      "openId": "manual_1773452193301_7uwq48r326n",
+      "loginMethod": "manual",
+      "createdAt": "2026-03-14 01:36:33"
+    },
+    {
+      "id": "540006",
+      "name": "Elana Eirhart",
+      "email": "elana@savvy.realty",
+      "role": "agent",
+      "openId": "CUJJTU4TjY95PjJbXdcSBp",
+      "loginMethod": "google",
+      "createdAt": "2026-03-16 14:39:45"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\topenId\tloginMethod\tcreatedAt\n420023\tElana Eirhart\telana@savvy.realty\tadmin\tmanual_1773452193301_7uwq48r326n\tmanual\t2026-03-14 01:36:33\n540006\tElana Eirhart\telana@savvy.realty\tagent\tCUJJTU4TjY95PjJbXdcSBp\tgoogle\t2026-03-16 14:39:45\n",
+  "stderr": "",
+  "execution_time_ms": 373
+}

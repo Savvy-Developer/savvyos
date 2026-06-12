@@ -1,0 +1,14 @@
+{
+  "query": "\nSELECT 'transactions' AS tbl, COUNT(*) AS total FROM transactions;\nSELECT 'transaction_notes' AS tbl, COUNT(*) AS total FROM transaction_notes;\nSELECT 'transaction_documents' AS tbl, COUNT(*) AS total FROM transaction_documents;\nSELECT 'payout_items' AS tbl, COUNT(*) AS total FROM payout_items;\nSELECT 'users' AS tbl, COUNT(*) AS total FROM users;\nSELECT 'users (role=agent)' AS tbl, COUNT(*) AS total FROM users WHERE role = 'agent';\nSELECT 'users (role=isa)' AS tbl, COUNT(*) AS total FROM users WHERE role = 'isa';\nSELECT 'users (role=admin)' AS tbl, COUNT(*) AS total FROM users WHERE role = 'admin';\nSELECT 'agent_connections' AS tbl, COUNT(*) AS total FROM agent_connections;\nSELECT 'pipeline_entries' AS tbl, COUNT(*) AS total FROM pipeline_entries;\nSELECT 'contacts' AS tbl, COUNT(*) AS total FROM contacts;\nSELECT 'properties' AS tbl, COUNT(*) AS total FROM properties;\nSELECT 'listings' AS tbl, COUNT(*) AS total FROM listings;\nSELECT 'coaching_sessions' AS tbl, COUNT(*) AS total FROM coaching_sessions;\nSELECT 'smart_plan_enrollments' AS tbl, COUNT(*) AS total FROM smart_plan_enrollments;\nSELECT 'communication_logs' AS tbl, COUNT(*) AS total FROM communication_logs;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT 'transactions' AS tbl, COUNT(*) AS total FROM transactions;\nSELECT 'transaction_notes' AS tbl, COUNT(*) AS total FROM transaction_notes;\nSELECT 'transaction_documents' AS tbl, COUNT(*) AS total FROM transaction_documents;\nSELECT 'payout_items' AS tbl, COUNT(*) AS total FROM payout_items;\nSELECT 'users' AS tbl, COUNT(*) AS total FROM users;\nSELECT 'users (role=agent)' AS tbl, COUNT(*) AS total FROM users WHERE role = 'agent';\nSELECT 'users (role=isa)' AS tbl, COUNT(*) AS total FROM users WHERE role = 'isa';\nSELECT 'users (role=admin)' AS tbl, COUNT(*) AS total FROM users WHERE role = 'admin';\nSELECT 'agent_connections' AS tbl, COUNT(*) AS total FROM agent_connections;\nSELECT 'pipeline_entries' AS tbl, COUNT(*) AS total FROM pipeline_entries;\nSELECT 'contacts' AS tbl, COUNT(*) AS total FROM contacts;\nSELECT 'properties' AS tbl, COUNT(*) AS total FROM properties;\nSELECT 'listings' AS tbl, COUNT(*) AS total FROM listings;\nSELECT 'coaching_sessions' AS tbl, COUNT(*) AS total FROM coaching_sessions;\nSELECT 'smart_plan_enrollments' AS tbl, COUNT(*) AS total FROM smart_plan_enrollments;\nSELECT 'communication_logs' AS tbl, COUNT(*) AS total FROM communication_logs;\n",
+  "returncode": 1,
+  "logs": [
+    "tbl\ttotal",
+    "transactions\t26",
+    "tbl\ttotal",
+    "transaction_notes\t4",
+    "tbl\ttotal",
+    "transaction_documents\t2",
+    "ERROR 1146 (42S02) at line 5: Table 'rgtcxhr8rpxzsqyxzlccuq.payout_items' doesn't exist"
+  ]
+}

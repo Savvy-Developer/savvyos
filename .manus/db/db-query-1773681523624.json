@@ -1,0 +1,24 @@
+{
+  "query": "SELECT id, firstName, lastName, email, phone FROM contacts WHERE firstName = 'Elle' AND lastName = 'Anderson';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, firstName, lastName, email, phone FROM contacts WHERE firstName = 'Elle' AND lastName = 'Anderson';",
+  "rows": [
+    {
+      "id": "1",
+      "firstName": "Elle",
+      "lastName": "Anderson",
+      "email": "elle@wishtreebnb.com",
+      "phone": "NULL"
+    },
+    {
+      "id": "30001",
+      "firstName": "Elle",
+      "lastName": "Anderson ",
+      "email": "elle@wishtreebnb.com",
+      "phone": "8287078007"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfirstName\tlastName\temail\tphone\n1\tElle\tAnderson\telle@wishtreebnb.com\tNULL\n30001\tElle\tAnderson \telle@wishtreebnb.com\t8287078007\n",
+  "stderr": "",
+  "execution_time_ms": 359
+}

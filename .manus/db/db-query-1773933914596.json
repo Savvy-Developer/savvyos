@@ -1,0 +1,14 @@
+{
+  "query": "SELECT content, LENGTH('Termination reason: ') as prefixLen FROM transaction_notes WHERE content LIKE 'Termination%' LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT content, LENGTH('Termination reason: ') as prefixLen FROM transaction_notes WHERE content LIKE 'Termination%' LIMIT 1;",
+  "rows": [
+    {
+      "content": "Termination reason: Here is a bad reason this terminated",
+      "prefixLen": "20"
+    }
+  ],
+  "messages": [],
+  "stdout": "content\tprefixLen\nTermination reason: Here is a bad reason this terminated\t20\n",
+  "stderr": "",
+  "execution_time_ms": 372
+}

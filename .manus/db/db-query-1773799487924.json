@@ -1,0 +1,50 @@
+{
+  "query": "SELECT id, email, name, role, openId, createdAt FROM users WHERE email = 'elana@savvy.realty' ORDER BY createdAt ASC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, email, name, role, openId, createdAt FROM users WHERE email = 'elana@savvy.realty' ORDER BY createdAt ASC;",
+  "rows": [
+    {
+      "id": "420023",
+      "email": "elana@savvy.realty",
+      "name": "Elana Eirhart",
+      "role": "admin",
+      "openId": "CUJJTU4TjY95PjJbXdcSBp",
+      "createdAt": "2026-03-14 01:36:33"
+    },
+    {
+      "id": "750180",
+      "email": "elana@savvy.realty",
+      "name": "Group Leader 1 ",
+      "role": "agent",
+      "openId": "manual_1773756557103_8t71evmfdyy",
+      "createdAt": "2026-03-17 14:09:17"
+    },
+    {
+      "id": "750184",
+      "email": "elana@savvy.realty",
+      "name": "Group Leader 2 ",
+      "role": "agent",
+      "openId": "manual_1773756574400_l0nji3o56p",
+      "createdAt": "2026-03-17 14:09:34"
+    },
+    {
+      "id": "750188",
+      "email": "elana@savvy.realty",
+      "name": "Agent group 1b",
+      "role": "agent",
+      "openId": "manual_1773756590361_ianl09qfdm",
+      "createdAt": "2026-03-17 14:09:50"
+    },
+    {
+      "id": "750205",
+      "email": "elana@savvy.realty",
+      "name": "Agent group 2a ",
+      "role": "agent",
+      "openId": "manual_1773756641897_61ykugrg5sg",
+      "createdAt": "2026-03-17 14:10:41"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\temail\tname\trole\topenId\tcreatedAt\n420023\telana@savvy.realty\tElana Eirhart\tadmin\tCUJJTU4TjY95PjJbXdcSBp\t2026-03-14 01:36:33\n750180\telana@savvy.realty\tGroup Leader 1 \tagent\tmanual_1773756557103_8t71evmfdyy\t2026-03-17 14:09:17\n750184\telana@savvy.realty\tGroup Leader 2 \tagent\tmanual_1773756574400_l0nji3o56p\t2026-03-17 14:09:34\n750188\telana@savvy.realty\tAgent group 1b\tagent\tmanual_1773756590361_ianl09qfdm\t2026-03-17 14:09:50\n750205\telana@savvy.realty\tAgent group 2a \tagent\tmanual_1773756641897_61ykugrg5sg\t2026-03-17 14:10:41\n",
+  "stderr": "",
+  "execution_time_ms": 373
+}

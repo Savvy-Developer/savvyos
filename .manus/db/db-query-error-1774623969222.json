@@ -1,0 +1,8 @@
+{
+  "query": "\nDELETE FROM agent_goals WHERE agentId = 1860099;\nDELETE FROM agent_profiles WHERE userId = 1860099;\nDELETE FROM market_agent_assignments WHERE agentId = 1860099;\nDELETE FROM users WHERE id = 1860099;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nDELETE FROM agent_goals WHERE agentId = 1860099;\nDELETE FROM agent_profiles WHERE userId = 1860099;\nDELETE FROM market_agent_assignments WHERE agentId = 1860099;\nDELETE FROM users WHERE id = 1860099;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1451 (23000) at line 5: Cannot delete or update a parent row: a foreign key constraint fails (`rgtcxhr8rpxzsqyxzlccuq`.`onboarding_instances`, CONSTRAINT `fk_instances_user` FOREIGN KEY (`agentUserId`) REFERENCES `users` (`id`))"
+  ]
+}

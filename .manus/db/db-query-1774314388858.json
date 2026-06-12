@@ -1,0 +1,80 @@
+{
+  "query": "SELECT id, name, parentId FROM lead_sources ORDER BY parentId, name;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, parentId FROM lead_sources ORDER BY parentId, name;",
+  "rows": [
+    {
+      "id": "30001",
+      "name": "Affiliate Referral",
+      "parentId": "NULL"
+    },
+    {
+      "id": "100",
+      "name": "Online Portals",
+      "parentId": "NULL"
+    },
+    {
+      "id": "120",
+      "name": "Referral",
+      "parentId": "NULL"
+    },
+    {
+      "id": "1",
+      "name": "Referral Partner (Leads in)",
+      "parentId": "NULL"
+    },
+    {
+      "id": "110",
+      "name": "Social Media",
+      "parentId": "NULL"
+    },
+    {
+      "id": "2",
+      "name": "Michael Chang",
+      "parentId": "1"
+    },
+    {
+      "id": "103",
+      "name": "Airbnb",
+      "parentId": "100"
+    },
+    {
+      "id": "102",
+      "name": "Realtor.com",
+      "parentId": "100"
+    },
+    {
+      "id": "101",
+      "name": "Zillow",
+      "parentId": "100"
+    },
+    {
+      "id": "112",
+      "name": "Facebook",
+      "parentId": "110"
+    },
+    {
+      "id": "111",
+      "name": "Instagram",
+      "parentId": "110"
+    },
+    {
+      "id": "122",
+      "name": "Agent Referral",
+      "parentId": "120"
+    },
+    {
+      "id": "121",
+      "name": "Past Client",
+      "parentId": "120"
+    },
+    {
+      "id": "30002",
+      "name": "TOS",
+      "parentId": "30001"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tparentId\n30001\tAffiliate Referral\tNULL\n100\tOnline Portals\tNULL\n120\tReferral\tNULL\n1\tReferral Partner (Leads in)\tNULL\n110\tSocial Media\tNULL\n2\tMichael Chang\t1\n103\tAirbnb\t100\n102\tRealtor.com\t100\n101\tZillow\t100\n112\tFacebook\t110\n111\tInstagram\t110\n122\tAgent Referral\t120\n121\tPast Client\t120\n30002\tTOS\t30001\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}

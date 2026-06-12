@@ -1,0 +1,58 @@
+{
+  "query": "SELECT id, name, email, role, LEFT(openId, 20) as openId_prefix, loginMethod FROM users ORDER BY id ASC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, email, role, LEFT(openId, 20) as openId_prefix, loginMethod FROM users ORDER BY id ASC;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Tyler Coon",
+      "email": "tyler@savvy.realty",
+      "role": "admin",
+      "openId_prefix": "oLMjkdaaGENfmnPpC5P9",
+      "loginMethod": "google"
+    },
+    {
+      "id": "360001",
+      "name": "Dev Admin",
+      "email": "admin@savvyos.dev",
+      "role": "admin",
+      "openId_prefix": "dev_admin_001",
+      "loginMethod": "dev"
+    },
+    {
+      "id": "360002",
+      "name": "Dev ISA",
+      "email": "isa@savvyos.dev",
+      "role": "admin",
+      "openId_prefix": "dev_isa_001",
+      "loginMethod": "dev"
+    },
+    {
+      "id": "360003",
+      "name": "Dev Agent",
+      "email": "agent@savvyos.dev",
+      "role": "agent",
+      "openId_prefix": "dev_agent_001",
+      "loginMethod": "dev"
+    },
+    {
+      "id": "420023",
+      "name": "Elana Eirhart",
+      "email": "elana@savvy.realty",
+      "role": "admin",
+      "openId_prefix": "manual_1773452193301",
+      "loginMethod": "manual"
+    },
+    {
+      "id": "540006",
+      "name": "Elana Eirhart",
+      "email": "elana@savvy.realty",
+      "role": "agent",
+      "openId_prefix": "CUJJTU4TjY95PjJbXdcS",
+      "loginMethod": "google"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\topenId_prefix\tloginMethod\n1\tTyler Coon\ttyler@savvy.realty\tadmin\toLMjkdaaGENfmnPpC5P9\tgoogle\n360001\tDev Admin\tadmin@savvyos.dev\tadmin\tdev_admin_001\tdev\n360002\tDev ISA\tisa@savvyos.dev\tadmin\tdev_isa_001\tdev\n360003\tDev Agent\tagent@savvyos.dev\tagent\tdev_agent_001\tdev\n420023\tElana Eirhart\telana@savvy.realty\tadmin\tmanual_1773452193301\tmanual\n540006\tElana Eirhart\telana@savvy.realty\tagent\tCUJJTU4TjY95PjJbXdcS\tgoogle\n",
+  "stderr": "",
+  "execution_time_ms": 361
+}

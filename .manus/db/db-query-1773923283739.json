@@ -1,0 +1,22 @@
+{
+  "query": "SHOW TABLES LIKE 'transaction_%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SHOW TABLES LIKE 'transaction_%';",
+  "rows": [
+    {
+      "Tables_in_RGtcxHR8RPxZsqyxZLCcuq (transaction_%)": "transaction_documents"
+    },
+    {
+      "Tables_in_RGtcxHR8RPxZsqyxZLCcuq (transaction_%)": "transaction_notes"
+    },
+    {
+      "Tables_in_RGtcxHR8RPxZsqyxZLCcuq (transaction_%)": "transaction_payout_items"
+    },
+    {
+      "Tables_in_RGtcxHR8RPxZsqyxZLCcuq (transaction_%)": "transactions"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_RGtcxHR8RPxZsqyxZLCcuq (transaction_%)\ntransaction_documents\ntransaction_notes\ntransaction_payout_items\ntransactions\n",
+  "stderr": "",
+  "execution_time_ms": 731
+}

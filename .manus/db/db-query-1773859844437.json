@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE contacts ADD COLUMN isaStatus ENUM('new_lead','attempted_contact','nurture','active_client','under_contract','closed','dead') NULL DEFAULT NULL AFTER tags;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute ALTER TABLE contacts ADD COLUMN isaStatus ENUM('new_lead','attempted_contact','nurture','active_client','under_contract','closed','dead') NULL DEFAULT NULL AFTER tags;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1674
+}

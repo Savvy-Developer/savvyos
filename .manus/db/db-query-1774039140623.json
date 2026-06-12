@@ -1,0 +1,33 @@
+{
+  "query": "SELECT id, name FROM markets ORDER BY id; SELECT id, name, marketId FROM users WHERE marketId IS NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name FROM markets ORDER BY id; SELECT id, name, marketId FROM users WHERE marketId IS NOT NULL;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Asheville"
+    },
+    {
+      "id": "2",
+      "name": "Myrtle Beach, SC"
+    },
+    {
+      "id": "3",
+      "name": "Catskills, NY"
+    },
+    {
+      "id": "30001",
+      "name": "30A"
+    }
+  ],
+  "messages": [
+    "id\tname\tmarketId",
+    "360003\tDev Agent\t3",
+    "500002\tJames Rivera\t2",
+    "1080839\tTjoe\t3",
+    "1080850\tTLeah \t3",
+    "1081379\tMr Joe \t30001"
+  ],
+  "stdout": "id\tname\n1\tAsheville\n2\tMyrtle Beach, SC\n3\tCatskills, NY\n30001\t30A\nid\tname\tmarketId\n360003\tDev Agent\t3\n500002\tJames Rivera\t2\n1080839\tTjoe\t3\n1080850\tTLeah \t3\n1081379\tMr Joe \t30001\n",
+  "stderr": "",
+  "execution_time_ms": 113
+}

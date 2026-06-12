@@ -1,0 +1,2 @@
+ALTER TABLE `smart_plans` ADD `triggerLeadSourceIds` json;--> statement-breakpoint
+ALTER TABLE `smart_plans` ADD `triggerScope` enum('new_only','existing_and_new','manual') DEFAULT 'new_only' NOT NULL;

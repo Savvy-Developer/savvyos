@@ -1,0 +1,54 @@
+{
+  "query": "\nSELECT 'agent_goals' AS tbl, COUNT(*) AS total FROM agent_goals;\nSELECT 'contacts' AS tbl, COUNT(*) AS total FROM contacts;\nSELECT 'properties' AS tbl, COUNT(*) AS total FROM properties;\nSELECT 'listings' AS tbl, COUNT(*) AS total FROM listings;\nSELECT 'communications' AS tbl, COUNT(*) AS total FROM communications;\nSELECT 'smart_plan_enrollments' AS tbl, COUNT(*) AS total FROM smart_plan_enrollments;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT 'agent_goals' AS tbl, COUNT(*) AS total FROM agent_goals;\nSELECT 'contacts' AS tbl, COUNT(*) AS total FROM contacts;\nSELECT 'properties' AS tbl, COUNT(*) AS total FROM properties;\nSELECT 'listings' AS tbl, COUNT(*) AS total FROM listings;\nSELECT 'communications' AS tbl, COUNT(*) AS total FROM communications;\nSELECT 'smart_plan_enrollments' AS tbl, COUNT(*) AS total FROM smart_plan_enrollments;\n",
+  "rows": [
+    {
+      "tbl": "agent_goals",
+      "total": "1"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "contacts",
+      "total": "19"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "properties",
+      "total": "10"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "listings",
+      "total": "5"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "communications",
+      "total": "9"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "smart_plan_enrollments",
+      "total": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "tbl\ttotal\nagent_goals\t1\ntbl\ttotal\ncontacts\t19\ntbl\ttotal\nproperties\t10\ntbl\ttotal\nlistings\t5\ntbl\ttotal\ncommunications\t9\ntbl\ttotal\nsmart_plan_enrollments\t0\n",
+  "stderr": "",
+  "execution_time_ms": 86
+}

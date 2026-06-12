@@ -1,0 +1,9 @@
+{
+  "query": "\nINSERT IGNORE INTO users (openId, name, email, role, loginMethod, isActive, lastSignedIn, createdAt, updatedAt)\nVALUES \n  ('dev_admin_001', 'Dev Admin', 'admin@savvyos.dev', 'admin', 'dev', 1, NOW(), NOW(), NOW()),\n  ('dev_isa_001', 'Dev ISA', 'isa@savvyos.dev', 'isa', 'dev', 1, NOW(), NOW(), NOW()),\n  ('dev_agent_001', 'Dev Agent', 'agent@savvyos.dev', 'agent', 'dev', 1, NOW(), NOW(), NOW());\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nINSERT IGNORE INTO users (openId, name, email, role, loginMethod, isActive, lastSignedIn, createdAt, updatedAt)\nVALUES \n  ('dev_admin_001', 'Dev Admin', 'admin@savvyos.dev', 'admin', 'dev', 1, NOW(), NOW(), NOW()),\n  ('dev_isa_001', 'Dev ISA', 'isa@savvyos.dev', 'isa', 'dev', 1, NOW(), NOW(), NOW()),\n  ('dev_agent_001', 'Dev Agent', 'agent@savvyos.dev', 'agent', 'dev', 1, NOW(), NOW(), NOW());\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 447
+}

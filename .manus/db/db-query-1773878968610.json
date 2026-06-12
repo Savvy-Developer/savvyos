@@ -1,0 +1,34 @@
+{
+  "query": "SHOW COLUMNS FROM transactions LIKE '%commission%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SHOW COLUMNS FROM transactions LIKE '%commission%';",
+  "rows": [
+    {
+      "Field": "grossCommissionIncome",
+      "Type": "decimal(12,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "commissionRate",
+      "Type": "decimal(5,4)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "commissionType",
+      "Type": "enum('percentage','flat')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "percentage",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\ngrossCommissionIncome\tdecimal(12,2)\tYES\t\tNULL\t\ncommissionRate\tdecimal(5,4)\tYES\t\tNULL\t\ncommissionType\tenum('percentage','flat')\tNO\t\tpercentage\t\n",
+  "stderr": "",
+  "execution_time_ms": 352
+}

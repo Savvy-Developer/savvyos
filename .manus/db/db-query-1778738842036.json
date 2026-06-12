@@ -1,0 +1,17 @@
+{
+  "query": "SELECT status, COUNT(*) as count FROM duplicate_contact_pairs GROUP BY status;\nSELECT COUNT(*) as total_contacts FROM contacts WHERE archived_at IS NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT status, COUNT(*) as count FROM duplicate_contact_pairs GROUP BY status;\nSELECT COUNT(*) as total_contacts FROM contacts WHERE archived_at IS NULL;",
+  "rows": [
+    {
+      "status": "pending",
+      "count": "3"
+    }
+  ],
+  "messages": [
+    "total_contacts",
+    "296"
+  ],
+  "stdout": "status\tcount\npending\t3\ntotal_contacts\n296\n",
+  "stderr": "",
+  "execution_time_ms": 613
+}

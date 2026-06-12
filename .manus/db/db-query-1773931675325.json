@@ -1,0 +1,122 @@
+{
+  "query": "SHOW COLUMNS FROM users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SHOW COLUMNS FROM users;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "openId",
+      "Type": "varchar(64)",
+      "Null": "NO",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "name",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "email",
+      "Type": "varchar(320)",
+      "Null": "YES",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "loginMethod",
+      "Type": "varchar(64)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "role",
+      "Type": "enum('admin','agent','isa','user')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "agent",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "updatedAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    },
+    {
+      "Field": "lastSignedIn",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "phone",
+      "Type": "varchar(32)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "isActive",
+      "Type": "tinyint(1)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "1",
+      "Extra": ""
+    },
+    {
+      "Field": "title",
+      "Type": "varchar(128)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "reportsToId",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "marketId",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "MUL",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nopenId\tvarchar(64)\tNO\tUNI\tNULL\t\nname\ttext\tYES\t\tNULL\t\nemail\tvarchar(320)\tYES\tUNI\tNULL\t\nloginMethod\tvarchar(64)\tYES\t\tNULL\t\nrole\tenum('admin','agent','isa','user')\tNO\t\tagent\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\nlastSignedIn\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nphone\tvarchar(32)\tYES\t\tNULL\t\nisActive\ttinyint(1)\tNO\t\t1\t\ntitle\tvarchar(128)\tYES\t\tNULL\t\nreportsToId\tint\tYES\t\tNULL\t\nmarketId\tint\tYES\tMUL\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 435
+}

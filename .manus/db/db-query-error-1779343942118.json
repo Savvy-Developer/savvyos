@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT \n  (SELECT COUNT(*) FROM contacts WHERE archived_at IS NULL) AS active_contacts,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs) AS total_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'pending') AS pending_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'dismissed') AS dismissed_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'merged') AS merged_pairs,\n  (SELECT MAX(created_at) FROM duplicate_contact_pairs) AS last_pair_created;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT \n  (SELECT COUNT(*) FROM contacts WHERE archived_at IS NULL) AS active_contacts,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs) AS total_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'pending') AS pending_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'dismissed') AS dismissed_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'merged') AS merged_pairs,\n  (SELECT MAX(created_at) FROM duplicate_contact_pairs) AS last_pair_created;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'created_at' in 'field list'"
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "query": "SELECT id, name, parentId, campaignType, isActive FROM lead_sources ORDER BY parentId, id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, parentId, campaignType, isActive FROM lead_sources ORDER BY parentId, id;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Referral Partner (Leads in)",
+      "parentId": "NULL",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "100",
+      "name": "Online Portals",
+      "parentId": "NULL",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "110",
+      "name": "Social Media",
+      "parentId": "NULL",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "120",
+      "name": "Referral",
+      "parentId": "NULL",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "30001",
+      "name": "Affiliate Referral",
+      "parentId": "NULL",
+      "campaignType": "NULL",
+      "isActive": "1"
+    },
+    {
+      "id": "2",
+      "name": "Michael Chang",
+      "parentId": "1",
+      "campaignType": "NULL",
+      "isActive": "1"
+    },
+    {
+      "id": "101",
+      "name": "Zillow",
+      "parentId": "100",
+      "campaignType": "buyer",
+      "isActive": "1"
+    },
+    {
+      "id": "102",
+      "name": "Realtor.com",
+      "parentId": "100",
+      "campaignType": "buyer",
+      "isActive": "1"
+    },
+    {
+      "id": "103",
+      "name": "Airbnb",
+      "parentId": "100",
+      "campaignType": "seller",
+      "isActive": "1"
+    },
+    {
+      "id": "111",
+      "name": "Instagram",
+      "parentId": "110",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "112",
+      "name": "Facebook",
+      "parentId": "110",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "121",
+      "name": "Past Client",
+      "parentId": "120",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "122",
+      "name": "Agent Referral",
+      "parentId": "120",
+      "campaignType": "both",
+      "isActive": "1"
+    },
+    {
+      "id": "30002",
+      "name": "TOS",
+      "parentId": "30001",
+      "campaignType": "both",
+      "isActive": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tparentId\tcampaignType\tisActive\n1\tReferral Partner (Leads in)\tNULL\tboth\t1\n100\tOnline Portals\tNULL\tboth\t1\n110\tSocial Media\tNULL\tboth\t1\n120\tReferral\tNULL\tboth\t1\n30001\tAffiliate Referral\tNULL\tNULL\t1\n2\tMichael Chang\t1\tNULL\t1\n101\tZillow\t100\tbuyer\t1\n102\tRealtor.com\t100\tbuyer\t1\n103\tAirbnb\t100\tseller\t1\n111\tInstagram\t110\tboth\t1\n112\tFacebook\t110\tboth\t1\n121\tPast Client\t120\tboth\t1\n122\tAgent Referral\t120\tboth\t1\n30002\tTOS\t30001\tboth\t1\n",
+  "stderr": "",
+  "execution_time_ms": 440
+}

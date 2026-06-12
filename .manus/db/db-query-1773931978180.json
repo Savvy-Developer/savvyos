@@ -1,0 +1,14 @@
+{
+  "query": "SELECT id, createdAt FROM transaction_notes WHERE transactionId = 60002; SELECT id, createdAt FROM transaction_documents WHERE transactionId = 60002;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, createdAt FROM transaction_notes WHERE transactionId = 60002; SELECT id, createdAt FROM transaction_documents WHERE transactionId = 60002;",
+  "rows": [
+    {
+      "id": "1",
+      "createdAt": "2026-03-19 14:20:07"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcreatedAt\n1\t2026-03-19 14:20:07\n",
+  "stderr": "",
+  "execution_time_ms": 428
+}

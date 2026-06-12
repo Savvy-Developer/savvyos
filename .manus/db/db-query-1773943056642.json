@@ -1,0 +1,58 @@
+{
+  "query": "SELECT g.id, g.name, g.leaderId, u.name as leaderName FROM `groups` g LEFT JOIN users u ON g.leaderId = u.id; SELECT gm.id, gm.groupId, gm.userId, u.name as memberName FROM group_members gm LEFT JOIN users u ON gm.userId = u.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT g.id, g.name, g.leaderId, u.name as leaderName FROM `groups` g LEFT JOIN users u ON g.leaderId = u.id; SELECT gm.id, gm.groupId, gm.userId, u.name as memberName FROM group_members gm LEFT JOIN users u ON gm.userId = u.id;",
+  "rows": [
+    {
+      "id": "9001",
+      "name": "Smoky Mountains Team",
+      "leaderId": "360003",
+      "leaderName": "Dev Agent"
+    },
+    {
+      "id": "60002",
+      "name": "Powerhouse Group",
+      "leaderId": "420023",
+      "leaderName": "Elana Eirhart"
+    },
+    {
+      "id": "60001",
+      "name": "Asheville STR Team",
+      "leaderId": "420023",
+      "leaderName": "Elana Eirhart"
+    },
+    {
+      "id": "9002",
+      "name": "East Tennessee Team",
+      "leaderId": "500001",
+      "leaderName": "Sarah Mitchell"
+    },
+    {
+      "id": "id",
+      "name": "groupId",
+      "leaderId": "userId",
+      "leaderName": "memberName"
+    },
+    {
+      "id": "30001",
+      "name": "60001",
+      "leaderId": "420023",
+      "leaderName": "Elana Eirhart"
+    },
+    {
+      "id": "60001",
+      "name": "9001",
+      "leaderId": "500002",
+      "leaderName": "James Rivera"
+    },
+    {
+      "id": "60002",
+      "name": "9002",
+      "leaderId": "500003",
+      "leaderName": "Priya Patel"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tleaderId\tleaderName\n9001\tSmoky Mountains Team\t360003\tDev Agent\n60002\tPowerhouse Group\t420023\tElana Eirhart\n60001\tAsheville STR Team\t420023\tElana Eirhart\n9002\tEast Tennessee Team\t500001\tSarah Mitchell\nid\tgroupId\tuserId\tmemberName\n30001\t60001\t420023\tElana Eirhart\n60001\t9001\t500002\tJames Rivera\n60002\t9002\t500003\tPriya Patel\n",
+  "stderr": "",
+  "execution_time_ms": 441
+}

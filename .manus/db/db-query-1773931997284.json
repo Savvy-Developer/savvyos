@@ -1,0 +1,20 @@
+{
+  "query": "SELECT id, createdAt, details FROM activity_log WHERE entityType = 'transaction' AND entityId = 60002;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, createdAt, details FROM activity_log WHERE entityType = 'transaction' AND entityId = 60002;",
+  "rows": [
+    {
+      "id": "60005",
+      "createdAt": "2026-03-18 19:05:15",
+      "details": "{\"txNumber\": \"TXN-1773860715510\"}"
+    },
+    {
+      "id": "90001",
+      "createdAt": "2026-03-19 14:20:07",
+      "details": "{\"noteId\": 1}"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcreatedAt\tdetails\n60005\t2026-03-18 19:05:15\t{\"txNumber\": \"TXN-1773860715510\"}\n90001\t2026-03-19 14:20:07\t{\"noteId\": 1}\n",
+  "stderr": "",
+  "execution_time_ms": 413
+}

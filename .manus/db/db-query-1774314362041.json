@@ -1,0 +1,93 @@
+{
+  "query": "\nSELECT 'users' AS tbl, COUNT(*) AS total FROM users;\nSELECT id, name, email, role FROM users ORDER BY role, name;\nSELECT 'transactions' AS tbl, COUNT(*) AS total FROM transactions;\nSELECT 'contacts' AS tbl, COUNT(*) AS total FROM contacts;\nSELECT 'properties' AS tbl, COUNT(*) AS total FROM properties;\nSELECT 'listings' AS tbl, COUNT(*) AS total FROM listings;\nSELECT 'transaction_payout_items' AS tbl, COUNT(*) AS total FROM transaction_payout_items;\nSELECT 'agent_connections' AS tbl, COUNT(*) AS total FROM agent_connections;\nSELECT 'communications' AS tbl, COUNT(*) AS total FROM communications;\nSELECT 'lead_sources' AS tbl, COUNT(*) AS total FROM lead_sources;\nSELECT 'smart_plans' AS tbl, COUNT(*) AS total FROM smart_plans;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT 'users' AS tbl, COUNT(*) AS total FROM users;\nSELECT id, name, email, role FROM users ORDER BY role, name;\nSELECT 'transactions' AS tbl, COUNT(*) AS total FROM transactions;\nSELECT 'contacts' AS tbl, COUNT(*) AS total FROM contacts;\nSELECT 'properties' AS tbl, COUNT(*) AS total FROM properties;\nSELECT 'listings' AS tbl, COUNT(*) AS total FROM listings;\nSELECT 'transaction_payout_items' AS tbl, COUNT(*) AS total FROM transaction_payout_items;\nSELECT 'agent_connections' AS tbl, COUNT(*) AS total FROM agent_connections;\nSELECT 'communications' AS tbl, COUNT(*) AS total FROM communications;\nSELECT 'lead_sources' AS tbl, COUNT(*) AS total FROM lead_sources;\nSELECT 'smart_plans' AS tbl, COUNT(*) AS total FROM smart_plans;\n",
+  "rows": [
+    {
+      "tbl": "users",
+      "total": "5"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "transactions",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "contacts",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "properties",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "listings",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "transaction_payout_items",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "agent_connections",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "communications",
+      "total": "0"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "lead_sources",
+      "total": "14"
+    },
+    {
+      "tbl": "tbl",
+      "total": "total"
+    },
+    {
+      "tbl": "smart_plans",
+      "total": "1"
+    }
+  ],
+  "messages": [
+    "id\tname\temail\trole",
+    "420023\tElana Eirhart\telana@savvy.realty\tadmin",
+    "1\tTyler Coon\ttyler@savvy.realty\tadmin",
+    "1080761\tJeremy Hooker\tjeremy.hooker@savvy.realty\tisa",
+    "1081775\tMarcy Mathiesen\tmarcy.mathiesen@savvy.realty\tisa",
+    "1080755\tTeylor Bouchard\tteylor@savvy.realty\tisa"
+  ],
+  "stdout": "tbl\ttotal\nusers\t5\nid\tname\temail\trole\n420023\tElana Eirhart\telana@savvy.realty\tadmin\n1\tTyler Coon\ttyler@savvy.realty\tadmin\n1080761\tJeremy Hooker\tjeremy.hooker@savvy.realty\tisa\n1081775\tMarcy Mathiesen\tmarcy.mathiesen@savvy.realty\tisa\n1080755\tTeylor Bouchard\tteylor@savvy.realty\tisa\ntbl\ttotal\ntransactions\t0\ntbl\ttotal\ncontacts\t0\ntbl\ttotal\nproperties\t0\ntbl\ttotal\nlistings\t0\ntbl\ttotal\ntransaction_payout_items\t0\ntbl\ttotal\nagent_connections\t0\ntbl\ttotal\ncommunications\t0\ntbl\ttotal\nlead_sources\t14\ntbl\ttotal\nsmart_plans\t1\n",
+  "stderr": "",
+  "execution_time_ms": 147
+}

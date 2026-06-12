@@ -1,0 +1,8 @@
+{
+  "query": "ALTER TABLE communications\n  ADD COLUMN editedAt TIMESTAMP NULL,\n  ADD COLUMN editedById INT NULL,\n  ADD COLUMN originalBody TEXT NULL,\n  ADD CONSTRAINT fk_comm_editedBy FOREIGN KEY (editedById) REFERENCES users(id);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute ALTER TABLE communications\n  ADD COLUMN editedAt TIMESTAMP NULL,\n  ADD COLUMN editedById INT NULL,\n  ADD COLUMN originalBody TEXT NULL,\n  ADD CONSTRAINT fk_comm_editedBy FOREIGN KEY (editedById) REFERENCES users(id);",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1072 (42000) at line 1: Key column 'editedById' doesn't exist in table"
+  ]
+}

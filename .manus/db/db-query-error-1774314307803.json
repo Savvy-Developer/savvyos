@@ -1,0 +1,8 @@
+{
+  "query": "DELETE FROM users WHERE id NOT IN (1, 420023, 1080761, 1080755, 1081775);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute DELETE FROM users WHERE id NOT IN (1, 420023, 1080761, 1080755, 1081775);",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1451 (23000) at line 1: Cannot delete or update a parent row: a foreign key constraint fails (`rgtcxhr8rpxzsqyxzlccuq`.`agent_goals`, CONSTRAINT `agent_goals_agentId_fk` FOREIGN KEY (`agentId`) REFERENCES `users` (`id`))"
+  ]
+}

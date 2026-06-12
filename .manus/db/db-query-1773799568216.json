@@ -1,0 +1,50 @@
+{
+  "query": "SELECT id, name, role, email FROM users ORDER BY id;\nSELECT id, name, parentId FROM lead_sources ORDER BY id LIMIT 20;\nSELECT COUNT(*) as contact_count FROM contacts;\nSELECT COUNT(*) as transaction_count FROM transactions;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, role, email FROM users ORDER BY id;\nSELECT id, name, parentId FROM lead_sources ORDER BY id LIMIT 20;\nSELECT COUNT(*) as contact_count FROM contacts;\nSELECT COUNT(*) as transaction_count FROM transactions;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Tyler Coon",
+      "role": "admin",
+      "email": "tyler@savvy.realty"
+    },
+    {
+      "id": "360001",
+      "name": "Dev Admin",
+      "role": "admin",
+      "email": "admin@savvyos.dev"
+    },
+    {
+      "id": "360002",
+      "name": "Dev ISA",
+      "role": "isa",
+      "email": "isa@savvyos.dev"
+    },
+    {
+      "id": "360003",
+      "name": "Dev Agent",
+      "role": "agent",
+      "email": "agent@savvyos.dev"
+    },
+    {
+      "id": "420023",
+      "name": "Elana Eirhart",
+      "role": "admin",
+      "email": "elana@savvy.realty"
+    }
+  ],
+  "messages": [
+    "id\tname\tparentId",
+    "1\tReferral Partner\tNULL",
+    "2\tMichael Chang\t1",
+    "30001\tAffiliate Referral\tNULL",
+    "30002\tTOS\t30001",
+    "contact_count",
+    "1",
+    "transaction_count",
+    "1"
+  ],
+  "stdout": "id\tname\trole\temail\n1\tTyler Coon\tadmin\ttyler@savvy.realty\n360001\tDev Admin\tadmin\tadmin@savvyos.dev\n360002\tDev ISA\tisa\tisa@savvyos.dev\n360003\tDev Agent\tagent\tagent@savvyos.dev\n420023\tElana Eirhart\tadmin\telana@savvy.realty\nid\tname\tparentId\n1\tReferral Partner\tNULL\n2\tMichael Chang\t1\n30001\tAffiliate Referral\tNULL\n30002\tTOS\t30001\ncontact_count\n1\ntransaction_count\n1\n",
+  "stderr": "",
+  "execution_time_ms": 487
+}

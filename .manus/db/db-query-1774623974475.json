@@ -1,0 +1,9 @@
+{
+  "query": "\nDELETE FROM onboarding_instance_tasks WHERE instanceId IN (SELECT id FROM onboarding_instances WHERE agentUserId = 1860099);\nDELETE FROM onboarding_instances WHERE agentUserId = 1860099;\nDELETE FROM agent_goals WHERE agentId = 1860099;\nDELETE FROM agent_profiles WHERE userId = 1860099;\nDELETE FROM market_agent_assignments WHERE agentId = 1860099;\nDELETE FROM users WHERE id = 1860099;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nDELETE FROM onboarding_instance_tasks WHERE instanceId IN (SELECT id FROM onboarding_instances WHERE agentUserId = 1860099);\nDELETE FROM onboarding_instances WHERE agentUserId = 1860099;\nDELETE FROM agent_goals WHERE agentId = 1860099;\nDELETE FROM agent_profiles WHERE userId = 1860099;\nDELETE FROM market_agent_assignments WHERE agentId = 1860099;\nDELETE FROM users WHERE id = 1860099;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 146
+}

@@ -1,0 +1,18 @@
+{
+  "query": "SELECT email, COUNT(*) as count, GROUP_CONCAT(id ORDER BY createdAt ASC) as ids, GROUP_CONCAT(openId ORDER BY createdAt ASC SEPARATOR '|') as openIds, MIN(createdAt) as first_created, MAX(createdAt) as last_created\nFROM users\nGROUP BY email\nHAVING COUNT(*) > 1\nORDER BY count DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT email, COUNT(*) as count, GROUP_CONCAT(id ORDER BY createdAt ASC) as ids, GROUP_CONCAT(openId ORDER BY createdAt ASC SEPARATOR '|') as openIds, MIN(createdAt) as first_created, MAX(createdAt) as last_created\nFROM users\nGROUP BY email\nHAVING COUNT(*) > 1\nORDER BY count DESC;",
+  "rows": [
+    {
+      "email": "elana@savvy.realty",
+      "count": "5",
+      "ids": "420023,750180,750184,750188,750205",
+      "openIds": "CUJJTU4TjY95PjJbXdcSBp|manual_1773756557103_8t71evmfdyy|manual_1773756574400_l0nji3o56p|manual_1773756590361_ianl09qfdm|manual_1773756641897_61ykugrg5sg",
+      "first_created": "2026-03-14 01:36:33",
+      "last_created": "2026-03-17 14:10:41"
+    }
+  ],
+  "messages": [],
+  "stdout": "email\tcount\tids\topenIds\tfirst_created\tlast_created\nelana@savvy.realty\t5\t420023,750180,750184,750188,750205\tCUJJTU4TjY95PjJbXdcSBp|manual_1773756557103_8t71evmfdyy|manual_1773756574400_l0nji3o56p|manual_1773756590361_ianl09qfdm|manual_1773756641897_61ykugrg5sg\t2026-03-14 01:36:33\t2026-03-17 14:10:41\n",
+  "stderr": "",
+  "execution_time_ms": 420
+}

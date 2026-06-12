@@ -1,0 +1,20 @@
+{
+  "query": "\nSELECT id, name, email, role FROM users WHERE id NOT IN (1, 420023, 1080761, 1080755, 1081775) ORDER BY role, name;\nSELECT COUNT(*) AS lead_partners FROM lead_partners;\nSELECT id, firstName, lastName, email FROM contacts ORDER BY createdAt LIMIT 20;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT id, name, email, role FROM users WHERE id NOT IN (1, 420023, 1080761, 1080755, 1081775) ORDER BY role, name;\nSELECT COUNT(*) AS lead_partners FROM lead_partners;\nSELECT id, firstName, lastName, email FROM contacts ORDER BY createdAt LIMIT 20;\n",
+  "returncode": 1,
+  "logs": [
+    "id\tname\temail\trole",
+    "360001\tDev Admin\tadmin@savvyos.dev\tadmin",
+    "360003\tDev Agent\tagent@savvyos.dev\tagent",
+    "500002\tJames Rivera\tjames@savvyagents.dev\tagent",
+    "1081379\tMr Joe \tShmo@email.com\tagent",
+    "500003\tPriya Patel\tpriya@savvyagents.dev\tagent",
+    "500001\tSarah Mitchell\tsarah@savvyagents.dev\tagent",
+    "1020208\tTest user\ttest@test.com\tagent",
+    "1080839\tTjoe\tRohne@email.com\tagent",
+    "1080850\tTLeah \tLeahY@email.com\tagent",
+    "360002\tDev ISA\tisa@savvyos.dev\tisa",
+    "500004\tMarcus Thompson\tmarcus@savvyagents.dev\tisa",
+    "ERROR 1146 (42S02) at line 3: Table 'rgtcxhr8rpxzsqyxzlccuq.lead_partners' doesn't exist"
+  ]
+}

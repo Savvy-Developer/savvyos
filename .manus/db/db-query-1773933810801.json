@@ -1,0 +1,16 @@
+{
+  "query": "SELECT t.id, t.transactionNumber, t.status, n.content FROM transactions t LEFT JOIN transaction_notes n ON n.transactionId = t.id AND n.content LIKE '%Termination%' WHERE t.status = 'terminated';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT t.id, t.transactionNumber, t.status, n.content FROM transactions t LEFT JOIN transaction_notes n ON n.transactionId = t.id AND n.content LIKE '%Termination%' WHERE t.status = 'terminated';",
+  "rows": [
+    {
+      "id": "60002",
+      "transactionNumber": "TXN-1773860715510",
+      "status": "terminated",
+      "content": "Termination reason: Here is a bad reason this terminated"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttransactionNumber\tstatus\tcontent\n60002\tTXN-1773860715510\tterminated\tTermination reason: Here is a bad reason this terminated\n",
+  "stderr": "",
+  "execution_time_ms": 440
+}

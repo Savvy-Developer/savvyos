@@ -1,0 +1,28 @@
+{
+  "query": "SELECT id, transactionNumber, commissionRate, commissionType FROM transactions WHERE commissionRate IS NOT NULL LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, transactionNumber, commissionRate, commissionType FROM transactions WHERE commissionRate IS NOT NULL LIMIT 10;",
+  "rows": [
+    {
+      "id": "5001",
+      "transactionNumber": "NULL",
+      "commissionRate": "0.0300",
+      "commissionType": "percentage"
+    },
+    {
+      "id": "5002",
+      "transactionNumber": "NULL",
+      "commissionRate": "0.0300",
+      "commissionType": "percentage"
+    },
+    {
+      "id": "5003",
+      "transactionNumber": "NULL",
+      "commissionRate": "0.0250",
+      "commissionType": "percentage"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttransactionNumber\tcommissionRate\tcommissionType\n5001\tNULL\t0.0300\tpercentage\n5002\tNULL\t0.0300\tpercentage\n5003\tNULL\t0.0250\tpercentage\n",
+  "stderr": "",
+  "execution_time_ms": 605
+}

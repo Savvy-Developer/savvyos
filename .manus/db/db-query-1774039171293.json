@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, name, marketId, marketProfileId FROM users WHERE marketId IS NOT NULL OR marketProfileId IS NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, marketId, marketProfileId FROM users WHERE marketId IS NOT NULL OR marketProfileId IS NOT NULL;",
+  "rows": [
+    {
+      "id": "360003",
+      "name": "Dev Agent",
+      "marketId": "3",
+      "marketProfileId": "3"
+    },
+    {
+      "id": "500002",
+      "name": "James Rivera",
+      "marketId": "2",
+      "marketProfileId": "2"
+    },
+    {
+      "id": "1080839",
+      "name": "Tjoe",
+      "marketId": "3",
+      "marketProfileId": "3"
+    },
+    {
+      "id": "1080850",
+      "name": "TLeah ",
+      "marketId": "3",
+      "marketProfileId": "3"
+    },
+    {
+      "id": "1081379",
+      "name": "Mr Joe ",
+      "marketId": "30001",
+      "marketProfileId": "30001"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tmarketId\tmarketProfileId\n360003\tDev Agent\t3\t3\n500002\tJames Rivera\t2\t2\n1080839\tTjoe\t3\t3\n1080850\tTLeah \t3\t3\n1081379\tMr Joe \t30001\t30001\n",
+  "stderr": "",
+  "execution_time_ms": 65
+}

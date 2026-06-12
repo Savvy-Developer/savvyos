@@ -1,0 +1,9 @@
+{
+  "query": "\nDELETE FROM market_match_sessions;\nDELETE FROM lender_intro_log;\nDELETE FROM task_notes;\nDELETE FROM tasks;\nDELETE FROM activity_log;\nDELETE FROM approval_requests;\nDELETE FROM feedback;\nDELETE FROM documents;\nDELETE FROM transaction_notes;\nDELETE FROM transaction_documents;\nDELETE FROM transaction_payout_items;\nDELETE FROM commission_exceptions;\nDELETE FROM transactions;\nDELETE FROM listing_notes;\nDELETE FROM listings;\nDELETE FROM communications;\nDELETE FROM agent_connections;\nDELETE FROM smart_plan_enrollments;\nDELETE FROM smart_plan_executions;\nDELETE FROM contact_properties;\nDELETE FROM property_ownership;\nDELETE FROM properties;\nDELETE FROM contacts;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nDELETE FROM market_match_sessions;\nDELETE FROM lender_intro_log;\nDELETE FROM task_notes;\nDELETE FROM tasks;\nDELETE FROM activity_log;\nDELETE FROM approval_requests;\nDELETE FROM feedback;\nDELETE FROM documents;\nDELETE FROM transaction_notes;\nDELETE FROM transaction_documents;\nDELETE FROM transaction_payout_items;\nDELETE FROM commission_exceptions;\nDELETE FROM transactions;\nDELETE FROM listing_notes;\nDELETE FROM listings;\nDELETE FROM communications;\nDELETE FROM agent_connections;\nDELETE FROM smart_plan_enrollments;\nDELETE FROM smart_plan_executions;\nDELETE FROM contact_properties;\nDELETE FROM property_ownership;\nDELETE FROM properties;\nDELETE FROM contacts;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 249
+}

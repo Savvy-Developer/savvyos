@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE group_members SET userId = 420023 WHERE userId IN (750180,750184,750188,750205);\nUPDATE tasks SET assignedToId = 420023 WHERE assignedToId IN (750180,750184,750188,750205);\nUPDATE tasks SET createdById = 420023 WHERE createdById IN (750180,750184,750188,750205);\nUPDATE agent_connections SET agentId = 420023 WHERE agentId IN (750180,750184,750188,750205);\nUPDATE transactions SET agentId = 420023 WHERE agentId IN (750180,750184,750188,750205);\nUPDATE contacts SET assignedIsaId = 420023 WHERE assignedIsaId IN (750180,750184,750188,750205);\nDELETE FROM users WHERE id IN (750180,750184,750188,750205);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute UPDATE group_members SET userId = 420023 WHERE userId IN (750180,750184,750188,750205);\nUPDATE tasks SET assignedToId = 420023 WHERE assignedToId IN (750180,750184,750188,750205);\nUPDATE tasks SET createdById = 420023 WHERE createdById IN (750180,750184,750188,750205);\nUPDATE agent_connections SET agentId = 420023 WHERE agentId IN (750180,750184,750188,750205);\nUPDATE transactions SET agentId = 420023 WHERE agentId IN (750180,750184,750188,750205);\nUPDATE contacts SET assignedIsaId = 420023 WHERE assignedIsaId IN (750180,750184,750188,750205);\nDELETE FROM users WHERE id IN (750180,750184,750188,750205);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 672
+}

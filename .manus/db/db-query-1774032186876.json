@@ -1,0 +1,9 @@
+{
+  "query": "\nCREATE TABLE IF NOT EXISTS `lender_intro_log` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `lenderId` int DEFAULT NULL,\n  `lenderName` varchar(255) NOT NULL,\n  `isaId` int DEFAULT NULL,\n  `isaName` varchar(255) NOT NULL,\n  `investorName` varchar(255) NOT NULL,\n  `investorEmail` varchar(320) DEFAULT NULL,\n  `financingType` varchar(64) NOT NULL,\n  `budget` varchar(128) DEFAULT NULL,\n  `timeline` varchar(128) DEFAULT NULL,\n  `sentAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  KEY `lender_intro_log_lenderId_idx` (`lenderId`),\n  CONSTRAINT `lender_intro_log_lenderId_fk` FOREIGN KEY (`lenderId`) REFERENCES `lender_config` (`id`) ON DELETE SET NULL\n);\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nCREATE TABLE IF NOT EXISTS `lender_intro_log` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `lenderId` int DEFAULT NULL,\n  `lenderName` varchar(255) NOT NULL,\n  `isaId` int DEFAULT NULL,\n  `isaName` varchar(255) NOT NULL,\n  `investorName` varchar(255) NOT NULL,\n  `investorEmail` varchar(320) DEFAULT NULL,\n  `financingType` varchar(64) NOT NULL,\n  `budget` varchar(128) DEFAULT NULL,\n  `timeline` varchar(128) DEFAULT NULL,\n  `sentAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  KEY `lender_intro_log_lenderId_idx` (`lenderId`),\n  CONSTRAINT `lender_intro_log_lenderId_fk` FOREIGN KEY (`lenderId`) REFERENCES `lender_config` (`id`) ON DELETE SET NULL\n);\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 422
+}

@@ -1,0 +1,2 @@
+ALTER TABLE `smart_plan_steps` ADD `businessHoursOnly` boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE `smart_plan_steps` ADD `timezone` varchar(64) DEFAULT 'America/New_York' NOT NULL;

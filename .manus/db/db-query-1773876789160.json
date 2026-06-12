@@ -1,0 +1,18 @@
+{
+  "query": "SELECT t.id, t.transactionNumber, t.commissionRate, t.commissionType, c.firstName, c.lastName FROM transactions t LEFT JOIN contacts c ON t.primaryContactId = c.id WHERE c.lastName = 'Wilson' OR c.firstName = 'Jack' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT t.id, t.transactionNumber, t.commissionRate, t.commissionType, c.firstName, c.lastName FROM transactions t LEFT JOIN contacts c ON t.primaryContactId = c.id WHERE c.lastName = 'Wilson' OR c.firstName = 'Jack' LIMIT 5;",
+  "rows": [
+    {
+      "id": "5001",
+      "transactionNumber": "NULL",
+      "commissionRate": "0.0300",
+      "commissionType": "percentage",
+      "firstName": "Jack",
+      "lastName": "Wilson"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttransactionNumber\tcommissionRate\tcommissionType\tfirstName\tlastName\n5001\tNULL\t0.0300\tpercentage\tJack\tWilson\n",
+  "stderr": "",
+  "execution_time_ms": 376
+}

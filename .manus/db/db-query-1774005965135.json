@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `agent_goals` (\n  `id` int AUTO_INCREMENT PRIMARY KEY NOT NULL,\n  `agentId` int NOT NULL,\n  `year` int NOT NULL,\n  `month` int NOT NULL,\n  `gciTarget` decimal(15,2),\n  `closingsTarget` int,\n  `volumeTarget` decimal(15,2),\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `agent_goals_agentId_fk` FOREIGN KEY (`agentId`) REFERENCES `users`(`id`),\n  UNIQUE KEY `agent_goals_unique` (`agentId`, `year`, `month`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute CREATE TABLE IF NOT EXISTS `agent_goals` (\n  `id` int AUTO_INCREMENT PRIMARY KEY NOT NULL,\n  `agentId` int NOT NULL,\n  `year` int NOT NULL,\n  `month` int NOT NULL,\n  `gciTarget` decimal(15,2),\n  `closingsTarget` int,\n  `volumeTarget` decimal(15,2),\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `agent_goals_agentId_fk` FOREIGN KEY (`agentId`) REFERENCES `users`(`id`),\n  UNIQUE KEY `agent_goals_unique` (`agentId`, `year`, `month`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1073
+}

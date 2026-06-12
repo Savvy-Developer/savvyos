@@ -1,0 +1,17 @@
+{
+  "query": "\nSELECT \n  (SELECT COUNT(*) FROM contacts WHERE archived_at IS NULL) AS active_contacts,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs) AS total_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'pending') AS pending_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'dismissed') AS dismissed_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'merged') AS merged_pairs;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nSELECT \n  (SELECT COUNT(*) FROM contacts WHERE archived_at IS NULL) AS active_contacts,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs) AS total_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'pending') AS pending_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'dismissed') AS dismissed_pairs,\n  (SELECT COUNT(*) FROM duplicate_contact_pairs WHERE status = 'merged') AS merged_pairs;\n",
+  "rows": [
+    {
+      "active_contacts": "2344",
+      "total_pairs": "112",
+      "pending_pairs": "112",
+      "dismissed_pairs": "0",
+      "merged_pairs": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "active_contacts\ttotal_pairs\tpending_pairs\tdismissed_pairs\tmerged_pairs\n2344\t112\t112\t0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 271
+}

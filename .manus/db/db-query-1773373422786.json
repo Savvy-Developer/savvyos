@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `lead_sources` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `name` varchar(255) NOT NULL,\n  `parentId` int,\n  `referralPartnerId` int,\n  `campaignType` enum('buyer','seller','both'),\n  `description` text,\n  `isActive` boolean NOT NULL DEFAULT true,\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `lead_sources_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `contacts` ADD COLUMN IF NOT EXISTS `leadSourceId` int;\nALTER TABLE `referral_partners` ADD COLUMN IF NOT EXISTS `partnerType` enum('individual','company','platform') DEFAULT 'individual';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute CREATE TABLE IF NOT EXISTS `lead_sources` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `name` varchar(255) NOT NULL,\n  `parentId` int,\n  `referralPartnerId` int,\n  `campaignType` enum('buyer','seller','both'),\n  `description` text,\n  `isActive` boolean NOT NULL DEFAULT true,\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `lead_sources_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `contacts` ADD COLUMN IF NOT EXISTS `leadSourceId` int;\nALTER TABLE `referral_partners` ADD COLUMN IF NOT EXISTS `partnerType` enum('individual','company','platform') DEFAULT 'individual';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1061
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `smart_plans` MODIFY COLUMN `status` enum('active','paused','draft') NOT NULL DEFAULT 'draft';

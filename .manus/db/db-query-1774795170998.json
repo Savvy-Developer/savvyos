@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE transactions\n  ADD COLUMN buyer_contact_id INT NULL REFERENCES contacts(id),\n  ADD COLUMN buyerCommissionRate DECIMAL(5,4) NULL,\n  ADD COLUMN buyerCommissionType ENUM('percentage','flat') NULL DEFAULT 'percentage',\n  ADD COLUMN buyerNotes TEXT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute ALTER TABLE transactions\n  ADD COLUMN buyer_contact_id INT NULL REFERENCES contacts(id),\n  ADD COLUMN buyerCommissionRate DECIMAL(5,4) NULL,\n  ADD COLUMN buyerCommissionType ENUM('percentage','flat') NULL DEFAULT 'percentage',\n  ADD COLUMN buyerNotes TEXT NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 804
+}

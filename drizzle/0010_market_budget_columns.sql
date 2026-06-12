@@ -1,0 +1,2 @@
+ALTER TABLE `market_profiles` ADD COLUMN IF NOT EXISTS `budgetMin` DECIMAL(15,2) NULL;
+ALTER TABLE `market_profiles` ADD COLUMN IF NOT EXISTS `budgetMax` DECIMAL(15,2) NULL;

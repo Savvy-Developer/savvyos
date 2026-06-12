@@ -1,0 +1,106 @@
+{
+  "query": "SELECT id, name, email, role FROM users ORDER BY role, name;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, email, role FROM users ORDER BY role, name;",
+  "rows": [
+    {
+      "id": "360001",
+      "name": "Dev Admin",
+      "email": "admin@savvyos.dev",
+      "role": "admin"
+    },
+    {
+      "id": "420023",
+      "name": "Elana Eirhart",
+      "email": "elana@savvy.realty",
+      "role": "admin"
+    },
+    {
+      "id": "1",
+      "name": "Tyler Coon",
+      "email": "tyler@savvy.realty",
+      "role": "admin"
+    },
+    {
+      "id": "360003",
+      "name": "Dev Agent",
+      "email": "agent@savvyos.dev",
+      "role": "agent"
+    },
+    {
+      "id": "500002",
+      "name": "James Rivera",
+      "email": "james@savvyagents.dev",
+      "role": "agent"
+    },
+    {
+      "id": "1081379",
+      "name": "Mr Joe ",
+      "email": "Shmo@email.com",
+      "role": "agent"
+    },
+    {
+      "id": "500003",
+      "name": "Priya Patel",
+      "email": "priya@savvyagents.dev",
+      "role": "agent"
+    },
+    {
+      "id": "500001",
+      "name": "Sarah Mitchell",
+      "email": "sarah@savvyagents.dev",
+      "role": "agent"
+    },
+    {
+      "id": "1020208",
+      "name": "Test user",
+      "email": "test@test.com",
+      "role": "agent"
+    },
+    {
+      "id": "1080839",
+      "name": "Tjoe",
+      "email": "Rohne@email.com",
+      "role": "agent"
+    },
+    {
+      "id": "1080850",
+      "name": "TLeah ",
+      "email": "LeahY@email.com",
+      "role": "agent"
+    },
+    {
+      "id": "360002",
+      "name": "Dev ISA",
+      "email": "isa@savvyos.dev",
+      "role": "isa"
+    },
+    {
+      "id": "1080761",
+      "name": "Jeremy Hooker",
+      "email": "jeremy.hooker@savvy.realty",
+      "role": "isa"
+    },
+    {
+      "id": "500004",
+      "name": "Marcus Thompson",
+      "email": "marcus@savvyagents.dev",
+      "role": "isa"
+    },
+    {
+      "id": "1081775",
+      "name": "Marcy Mathiesen",
+      "email": "marcy.mathiesen@savvy.realty",
+      "role": "isa"
+    },
+    {
+      "id": "1080755",
+      "name": "Teylor Bouchard",
+      "email": "teylor@savvy.realty",
+      "role": "isa"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\n360001\tDev Admin\tadmin@savvyos.dev\tadmin\n420023\tElana Eirhart\telana@savvy.realty\tadmin\n1\tTyler Coon\ttyler@savvy.realty\tadmin\n360003\tDev Agent\tagent@savvyos.dev\tagent\n500002\tJames Rivera\tjames@savvyagents.dev\tagent\n1081379\tMr Joe \tShmo@email.com\tagent\n500003\tPriya Patel\tpriya@savvyagents.dev\tagent\n500001\tSarah Mitchell\tsarah@savvyagents.dev\tagent\n1020208\tTest user\ttest@test.com\tagent\n1080839\tTjoe\tRohne@email.com\tagent\n1080850\tTLeah \tLeahY@email.com\tagent\n360002\tDev ISA\tisa@savvyos.dev\tisa\n1080761\tJeremy Hooker\tjeremy.hooker@savvy.realty\tisa\n500004\tMarcus Thompson\tmarcus@savvyagents.dev\tisa\n1081775\tMarcy Mathiesen\tmarcy.mathiesen@savvy.realty\tisa\n1080755\tTeylor Bouchard\tteylor@savvy.realty\tisa\n",
+  "stderr": "",
+  "execution_time_ms": 60
+}

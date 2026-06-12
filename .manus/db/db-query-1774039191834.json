@@ -1,0 +1,13 @@
+{
+  "query": "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'marketId' AND CONSTRAINT_SCHEMA = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'marketId' AND CONSTRAINT_SCHEMA = DATABASE();",
+  "rows": [
+    {
+      "CONSTRAINT_NAME": "users_marketId_fk"
+    }
+  ],
+  "messages": [],
+  "stdout": "CONSTRAINT_NAME\nusers_marketId_fk\n",
+  "stderr": "",
+  "execution_time_ms": 52
+}

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `user_documents` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `userId` int NOT NULL,\n  `uploadedBy` int NOT NULL,\n  `label` varchar(255) NOT NULL DEFAULT 'Document',\n  `file_url` text NOT NULL,\n  `file_key` varchar(500) NOT NULL,\n  `file_name` varchar(500) NOT NULL,\n  `file_size` int,\n  `mime_type` varchar(100),\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  CONSTRAINT `user_documents_userId_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,\n  CONSTRAINT `user_documents_uploadedBy_fk` FOREIGN KEY (`uploadedBy`) REFERENCES `users` (`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute CREATE TABLE IF NOT EXISTS `user_documents` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `userId` int NOT NULL,\n  `uploadedBy` int NOT NULL,\n  `label` varchar(255) NOT NULL DEFAULT 'Document',\n  `file_url` text NOT NULL,\n  `file_key` varchar(500) NOT NULL,\n  `file_name` varchar(500) NOT NULL,\n  `file_size` int,\n  `mime_type` varchar(100),\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  CONSTRAINT `user_documents_userId_fk` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,\n  CONSTRAINT `user_documents_uploadedBy_fk` FOREIGN KEY (`uploadedBy`) REFERENCES `users` (`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1034
+}

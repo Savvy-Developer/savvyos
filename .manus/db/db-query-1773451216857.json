@@ -1,0 +1,31 @@
+{
+  "query": "SELECT id, openId, name, email, role FROM users WHERE openId IN ('dev_admin_001', 'dev_isa_001', 'dev_agent_001');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, openId, name, email, role FROM users WHERE openId IN ('dev_admin_001', 'dev_isa_001', 'dev_agent_001');",
+  "rows": [
+    {
+      "id": "360001",
+      "openId": "dev_admin_001",
+      "name": "Dev Admin",
+      "email": "admin@savvyos.dev",
+      "role": "admin"
+    },
+    {
+      "id": "360002",
+      "openId": "dev_isa_001",
+      "name": "Dev ISA",
+      "email": "isa@savvyos.dev",
+      "role": "isa"
+    },
+    {
+      "id": "360003",
+      "openId": "dev_agent_001",
+      "name": "Dev Agent",
+      "email": "agent@savvyos.dev",
+      "role": "agent"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\topenId\tname\temail\trole\n360001\tdev_admin_001\tDev Admin\tadmin@savvyos.dev\tadmin\n360002\tdev_isa_001\tDev ISA\tisa@savvyos.dev\tisa\n360003\tdev_agent_001\tDev Agent\tagent@savvyos.dev\tagent\n",
+  "stderr": "",
+  "execution_time_ms": 461
+}

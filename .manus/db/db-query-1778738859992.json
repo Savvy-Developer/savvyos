@@ -1,0 +1,43 @@
+{
+  "query": "SELECT \n  d.id,\n  d.matchType,\n  d.confidence,\n  d.status,\n  d.createdAt,\n  CONCAT(a.firstName, ' ', a.lastName) as contactA,\n  a.email as emailA,\n  CONCAT(b.firstName, ' ', b.lastName) as contactB,\n  b.email as emailB\nFROM duplicate_contact_pairs d\nJOIN contacts a ON d.contactAId = a.id\nJOIN contacts b ON d.contactBId = b.id\nWHERE d.status = 'pending'\nORDER BY d.createdAt DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT \n  d.id,\n  d.matchType,\n  d.confidence,\n  d.status,\n  d.createdAt,\n  CONCAT(a.firstName, ' ', a.lastName) as contactA,\n  a.email as emailA,\n  CONCAT(b.firstName, ' ', b.lastName) as contactB,\n  b.email as emailB\nFROM duplicate_contact_pairs d\nJOIN contacts a ON d.contactAId = a.id\nJOIN contacts b ON d.contactBId = b.id\nWHERE d.status = 'pending'\nORDER BY d.createdAt DESC;",
+  "rows": [
+    {
+      "id": "90002",
+      "matchType": "fuzzy_name",
+      "confidence": "100",
+      "status": "pending",
+      "createdAt": "2026-05-13 06:03:47",
+      "contactA": "Test Test ",
+      "emailA": "NULL",
+      "contactB": "Test Test ",
+      "emailB": "NULL"
+    },
+    {
+      "id": "90001",
+      "matchType": "fuzzy_name",
+      "confidence": "100",
+      "status": "pending",
+      "createdAt": "2026-05-13 06:03:47",
+      "contactA": "Test Test ",
+      "emailA": "NULL",
+      "contactB": "Test  Test ",
+      "emailB": "NULL"
+    },
+    {
+      "id": "90003",
+      "matchType": "fuzzy_name",
+      "confidence": "100",
+      "status": "pending",
+      "createdAt": "2026-05-13 06:03:47",
+      "contactA": "Test  Test ",
+      "emailA": "NULL",
+      "contactB": "Test Test ",
+      "emailB": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tmatchType\tconfidence\tstatus\tcreatedAt\tcontactA\temailA\tcontactB\temailB\n90002\tfuzzy_name\t100\tpending\t2026-05-13 06:03:47\tTest Test \tNULL\tTest Test \tNULL\n90001\tfuzzy_name\t100\tpending\t2026-05-13 06:03:47\tTest Test \tNULL\tTest  Test \tNULL\n90003\tfuzzy_name\t100\tpending\t2026-05-13 06:03:47\tTest  Test \tNULL\tTest Test \tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 288
+}

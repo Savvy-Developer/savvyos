@@ -1,0 +1,31 @@
+{
+  "query": "SELECT COUNT(*) as partner_count FROM referral_partners;\nSELECT COUNT(*) as contacts_with_partner FROM contacts WHERE referralPartnerId IS NOT NULL;\nSELECT COUNT(*) as payouts_with_partner FROM transaction_payout_items WHERE payeeReferralPartnerId IS NOT NULL;\nSELECT COUNT(*) as lead_sources_with_partner FROM lead_sources WHERE referralPartnerId IS NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT COUNT(*) as partner_count FROM referral_partners;\nSELECT COUNT(*) as contacts_with_partner FROM contacts WHERE referralPartnerId IS NOT NULL;\nSELECT COUNT(*) as payouts_with_partner FROM transaction_payout_items WHERE payeeReferralPartnerId IS NOT NULL;\nSELECT COUNT(*) as lead_sources_with_partner FROM lead_sources WHERE referralPartnerId IS NOT NULL;",
+  "rows": [
+    {
+      "partner_count": "1"
+    },
+    {
+      "partner_count": "contacts_with_partner"
+    },
+    {
+      "partner_count": "0"
+    },
+    {
+      "partner_count": "payouts_with_partner"
+    },
+    {
+      "partner_count": "0"
+    },
+    {
+      "partner_count": "lead_sources_with_partner"
+    },
+    {
+      "partner_count": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "partner_count\n1\ncontacts_with_partner\n0\npayouts_with_partner\n0\nlead_sources_with_partner\n0\n",
+  "stderr": "",
+  "execution_time_ms": 584
+}

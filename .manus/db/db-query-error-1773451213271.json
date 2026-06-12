@@ -1,0 +1,8 @@
+{
+  "query": "SELECT id, open_id, name, email, role FROM users WHERE open_id IN ('dev_admin_001', 'dev_isa_001', 'dev_agent_001');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, open_id, name, email, role FROM users WHERE open_id IN ('dev_admin_001', 'dev_isa_001', 'dev_agent_001');",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'open_id' in 'where clause'"
+  ]
+}

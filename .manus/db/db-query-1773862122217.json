@@ -1,0 +1,16 @@
+{
+  "query": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'contacts' AND COLUMN_NAME IN ('archived_at', 'isa_status', 'archivedAt', 'isaStatus') ORDER BY COLUMN_NAME;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'contacts' AND COLUMN_NAME IN ('archived_at', 'isa_status', 'archivedAt', 'isaStatus') ORDER BY COLUMN_NAME;",
+  "rows": [
+    {
+      "COLUMN_NAME": "archived_at"
+    },
+    {
+      "COLUMN_NAME": "isa_status"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\narchived_at\nisa_status\n",
+  "stderr": "",
+  "execution_time_ms": 405
+}

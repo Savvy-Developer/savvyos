@@ -1,0 +1,9 @@
+{
+  "query": "SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME\nFROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE\nWHERE REFERENCED_TABLE_NAME = 'referral_partners'\nAND TABLE_SCHEMA = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME\nFROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE\nWHERE REFERENCED_TABLE_NAME = 'referral_partners'\nAND TABLE_SCHEMA = DATABASE();",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 359
+}

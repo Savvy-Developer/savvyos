@@ -1,0 +1,4 @@
+transaction_number,transaction_type,status,agent_email,primary_contact_first_name,primary_contact_last_name,primary_contact_email,primary_contact_phone,property_address,property_city,property_state,property_zip,purchase_price,commission_rate_pct,gci,agent_split_pct,group_leader_split_pct,referral_source_name,referral_payout_pct,contract_date,closing_date,notes
+TXN-EXAMPLE-001,seller,closed,agent@example.com,John,Doe,john.doe@email.com,555-123-4567,123 Main St,Nashville,TN,37201,450000,3,13500,70,,,,2024-03-01,2024-04-15,Example closed seller transaction
+TXN-EXAMPLE-002,buyer,under_contract,agent@example.com,Jane,Smith,jane.smith@email.com,555-987-6543,456 Oak Ave,Brentwood,TN,37027,525000,2.5,13125,60,,Zillow Referral,25,2024-04-01,,Buyer transaction with referral
+TXN-EXAMPLE-003,dual,closed,agent@example.com,Bob,Johnson,bob.j@email.com,555-555-0001,789 Pine Rd,Franklin,TN,37064,380000,3,11400,50,10,,0,2024-02-15,2024-03-30,Dual agency with group leader

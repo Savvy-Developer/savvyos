@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE users ADD COLUMN commissionSplit INT NULL;\nALTER TABLE `groups` ADD COLUMN leaderCommissionSplit INT NULL;\nALTER TABLE group_members ADD COLUMN leaderSplitOverride INT NULL;\nALTER TABLE lead_sources ADD COLUMN referralPercent INT NULL;\nALTER TABLE lead_sources ADD COLUMN isProtected BOOLEAN NOT NULL DEFAULT false;\nALTER TABLE transaction_payout_items MODIFY COLUMN payeeType ENUM('agent','savvy_str_agents','exp','group_leader','referral_partner','isa_bonus','other') NOT NULL;\nALTER TABLE transaction_payout_items ADD COLUMN referralFeePaidBy ENUM('savvy','agent','split','group_leader') NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute ALTER TABLE users ADD COLUMN commissionSplit INT NULL;\nALTER TABLE `groups` ADD COLUMN leaderCommissionSplit INT NULL;\nALTER TABLE group_members ADD COLUMN leaderSplitOverride INT NULL;\nALTER TABLE lead_sources ADD COLUMN referralPercent INT NULL;\nALTER TABLE lead_sources ADD COLUMN isProtected BOOLEAN NOT NULL DEFAULT false;\nALTER TABLE transaction_payout_items MODIFY COLUMN payeeType ENUM('agent','savvy_str_agents','exp','group_leader','referral_partner','isa_bonus','other') NOT NULL;\nALTER TABLE transaction_payout_items ADD COLUMN referralFeePaidBy ENUM('savvy','agent','split','group_leader') NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 8184
+}

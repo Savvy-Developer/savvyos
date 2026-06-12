@@ -1,0 +1,30 @@
+{
+  "query": "SELECT taskType, COUNT(*) as cnt FROM tasks GROUP BY taskType ORDER BY cnt DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT taskType, COUNT(*) as cnt FROM tasks GROUP BY taskType ORDER BY cnt DESC;",
+  "rows": [
+    {
+      "taskType": "follow_up",
+      "cnt": "15"
+    },
+    {
+      "taskType": "other",
+      "cnt": "7"
+    },
+    {
+      "taskType": "document",
+      "cnt": "1"
+    },
+    {
+      "taskType": "email",
+      "cnt": "1"
+    },
+    {
+      "taskType": "call",
+      "cnt": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "taskType\tcnt\nfollow_up\t15\nother\t7\ndocument\t1\nemail\t1\ncall\t1\n",
+  "stderr": "",
+  "execution_time_ms": 334
+}

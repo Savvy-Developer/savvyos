@@ -1,0 +1,26 @@
+{
+  "query": "SHOW COLUMNS FROM transactions LIKE '%contact%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SHOW COLUMNS FROM transactions LIKE '%contact%';",
+  "rows": [
+    {
+      "Field": "primaryContactId",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "seller_contact_id",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nprimaryContactId\tint\tNO\t\tNULL\t\nseller_contact_id\tint\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 350
+}

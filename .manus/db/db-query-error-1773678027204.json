@@ -1,0 +1,8 @@
+{
+  "query": "\n-- Step 1: Update the manual account (id 420023) with Elana's real Google openId and loginMethod\nUPDATE users \nSET openId = 'CUJJTU4TjY95PjJbXdcSBp', loginMethod = 'google', lastSignedIn = NOW()\nWHERE id = 420023 AND openId = 'manual_1773452193301_7uwq48r326n';\n\n-- Step 2: Delete the duplicate OAuth account (id 540006) — no data was associated with it\nDELETE FROM users WHERE id = 540006 AND openId = 'CUJJTU4TjY95PjJbXdcSBp';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \n-- Step 1: Update the manual account (id 420023) with Elana's real Google openId and loginMethod\nUPDATE users \nSET openId = 'CUJJTU4TjY95PjJbXdcSBp', loginMethod = 'google', lastSignedIn = NOW()\nWHERE id = 420023 AND openId = 'manual_1773452193301_7uwq48r326n';\n\n-- Step 2: Delete the duplicate OAuth account (id 540006) — no data was associated with it\nDELETE FROM users WHERE id = 540006 AND openId = 'CUJJTU4TjY95PjJbXdcSBp';\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1062 (23000) at line 3: Duplicate entry '?' for key 'users.users_openId_unique'"
+  ]
+}

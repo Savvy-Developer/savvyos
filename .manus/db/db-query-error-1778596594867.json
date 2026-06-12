@@ -1,0 +1,8 @@
+{
+  "query": "\nDELETE FROM contact_lender_access;\nDELETE FROM connection_requests;\nDELETE FROM agent_connections;\nDELETE FROM communications;\nDELETE FROM activity_log;\nDELETE FROM approval_requests;\nDELETE FROM contact_properties;\nDELETE FROM transaction_documents;\nDELETE FROM transaction_notes;\nDELETE FROM transaction_payout_items;\nDELETE FROM commissions WHERE 1=1;\nDELETE FROM commission_exceptions WHERE contactId IS NOT NULL;\nDELETE FROM lender_intro_log;\nDELETE FROM duplicate_contact_pairs;\nDELETE FROM transactions;\nDELETE FROM contacts;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute \nDELETE FROM contact_lender_access;\nDELETE FROM connection_requests;\nDELETE FROM agent_connections;\nDELETE FROM communications;\nDELETE FROM activity_log;\nDELETE FROM approval_requests;\nDELETE FROM contact_properties;\nDELETE FROM transaction_documents;\nDELETE FROM transaction_notes;\nDELETE FROM transaction_payout_items;\nDELETE FROM commissions WHERE 1=1;\nDELETE FROM commission_exceptions WHERE contactId IS NOT NULL;\nDELETE FROM lender_intro_log;\nDELETE FROM duplicate_contact_pairs;\nDELETE FROM transactions;\nDELETE FROM contacts;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 12: Table 'rgtcxhr8rpxzsqyxzlccuq.commissions' doesn't exist"
+  ]
+}

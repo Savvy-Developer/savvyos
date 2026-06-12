@@ -1,0 +1,36 @@
+{
+  "query": "SELECT * FROM webhook_logs ORDER BY id DESC LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT * FROM webhook_logs ORDER BY id DESC LIMIT 3;",
+  "rows": [
+    {
+      "id": "2",
+      "endpointId": "1",
+      "slug": "market-match-zapier-savvyos",
+      "statusCode": "401",
+      "outcome": "auth_failed",
+      "requestPayload": "{\"email\": \"test2@example.com\", \"name\": \"Test User\", \"phone\": \"555-1234\", \"test\": true}",
+      "responseBody": "{\"error\": \"Invalid signature\", \"ok\": false}",
+      "errorMessage": "NULL",
+      "contactId": "NULL",
+      "sourceIp": "::ffff:127.0.0.1",
+      "createdAt": "2026-05-21 20:38:40"
+    },
+    {
+      "id": "1",
+      "endpointId": "30002",
+      "slug": "calendly-zapier-no-hmac",
+      "statusCode": "200",
+      "outcome": "success",
+      "requestPayload": "{\"email\": \"test@example.com\", \"name\": \"Test User\", \"test\": true}",
+      "responseBody": "{\"action\": \"created\", \"contactId\": 960001, \"message\": \"Contact created: id=960001\", \"ok\": true}",
+      "errorMessage": "NULL",
+      "contactId": "960001",
+      "sourceIp": "::ffff:127.0.0.1",
+      "createdAt": "2026-05-21 20:38:35"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tendpointId\tslug\tstatusCode\toutcome\trequestPayload\tresponseBody\terrorMessage\tcontactId\tsourceIp\tcreatedAt\n2\t1\tmarket-match-zapier-savvyos\t401\tauth_failed\t{\"email\": \"test2@example.com\", \"name\": \"Test User\", \"phone\": \"555-1234\", \"test\": true}\t{\"error\": \"Invalid signature\", \"ok\": false}\tNULL\tNULL\t::ffff:127.0.0.1\t2026-05-21 20:38:40\n1\t30002\tcalendly-zapier-no-hmac\t200\tsuccess\t{\"email\": \"test@example.com\", \"name\": \"Test User\", \"test\": true}\t{\"action\": \"created\", \"contactId\": 960001, \"message\": \"Contact created: id=960001\", \"ok\": true}\tNULL\t960001\t::ffff:127.0.0.1\t2026-05-21 20:38:35\n",
+  "stderr": "",
+  "execution_time_ms": 267
+}

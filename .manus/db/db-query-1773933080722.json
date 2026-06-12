@@ -1,0 +1,91 @@
+{
+  "query": "SELECT id, name, email, role, reportsToId, title, openId FROM users ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2stQR1ySY2c4Vud.1719b3382959 --database RGtcxHR8RPxZsqyxZLCcuq --execute SELECT id, name, email, role, reportsToId, title, openId FROM users ORDER BY id;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Tyler Coon",
+      "email": "tyler@savvy.realty",
+      "role": "admin",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "oLMjkdaaGENfmnPpC5P9t2"
+    },
+    {
+      "id": "360001",
+      "name": "Dev Admin",
+      "email": "admin@savvyos.dev",
+      "role": "admin",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "dev_admin_001"
+    },
+    {
+      "id": "360002",
+      "name": "Dev ISA",
+      "email": "isa@savvyos.dev",
+      "role": "isa",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "dev_isa_001"
+    },
+    {
+      "id": "360003",
+      "name": "Dev Agent",
+      "email": "agent@savvyos.dev",
+      "role": "agent",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "dev_agent_001"
+    },
+    {
+      "id": "420023",
+      "name": "Elana Eirhart",
+      "email": "elana@savvy.realty",
+      "role": "admin",
+      "reportsToId": "1",
+      "title": "Director of Operations",
+      "openId": "CUJJTU4TjY95PjJbXdcSBp"
+    },
+    {
+      "id": "500001",
+      "name": "Sarah Mitchell",
+      "email": "sarah@savvyagents.dev",
+      "role": "agent",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "manual_agent_sarah"
+    },
+    {
+      "id": "500002",
+      "name": "James Rivera",
+      "email": "james@savvyagents.dev",
+      "role": "agent",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "manual_agent_james"
+    },
+    {
+      "id": "500003",
+      "name": "Priya Patel",
+      "email": "priya@savvyagents.dev",
+      "role": "agent",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "manual_agent_priya"
+    },
+    {
+      "id": "500004",
+      "name": "Marcus Thompson",
+      "email": "marcus@savvyagents.dev",
+      "role": "isa",
+      "reportsToId": "NULL",
+      "title": "NULL",
+      "openId": "manual_isa_marcus"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\treportsToId\ttitle\topenId\n1\tTyler Coon\ttyler@savvy.realty\tadmin\tNULL\tNULL\toLMjkdaaGENfmnPpC5P9t2\n360001\tDev Admin\tadmin@savvyos.dev\tadmin\tNULL\tNULL\tdev_admin_001\n360002\tDev ISA\tisa@savvyos.dev\tisa\tNULL\tNULL\tdev_isa_001\n360003\tDev Agent\tagent@savvyos.dev\tagent\tNULL\tNULL\tdev_agent_001\n420023\tElana Eirhart\telana@savvy.realty\tadmin\t1\tDirector of Operations\tCUJJTU4TjY95PjJbXdcSBp\n500001\tSarah Mitchell\tsarah@savvyagents.dev\tagent\tNULL\tNULL\tmanual_agent_sarah\n500002\tJames Rivera\tjames@savvyagents.dev\tagent\tNULL\tNULL\tmanual_agent_james\n500003\tPriya Patel\tpriya@savvyagents.dev\tagent\tNULL\tNULL\tmanual_agent_priya\n500004\tMarcus Thompson\tmarcus@savvyagents.dev\tisa\tNULL\tNULL\tmanual_isa_marcus\n",
+  "stderr": "",
+  "execution_time_ms": 442
+}
