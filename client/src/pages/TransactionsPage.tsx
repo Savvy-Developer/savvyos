@@ -48,7 +48,7 @@ function ContactPicker({
   const [newPhone, setNewPhone] = useState("");
 
   const { data: searchData } = trpc.contacts.list.useQuery(
-    { search: search || undefined, limit: 50 },
+    { search: search || undefined, limit: 25 },
     { enabled: search.length >= 2 }
   );
   const contacts = (searchData?.rows ?? []).filter(r =>
@@ -110,7 +110,7 @@ function ContactPicker({
                 </div>
               ) : (
                 <>
-                  {contacts.slice(0, 10).map((r) => (
+                  {contacts.slice(0, 25).map((r) => (
                     <button
                       key={r.contact.id}
                       className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 border-b last:border-0"

@@ -177,10 +177,37 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
         like(contacts.firstName, `%${search}%`),
         like(contacts.lastName, `%${search}%`),
         like(contacts.email, `%${search}%`),
-        like(contacts.phone, `%${search}%`)
+        like(contacts.phone, `%${search}%`),
+        sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${search}%`}`
       )
     );
   }
+  // Relevance ordering when a search term is provided:
+  // 0=exact name match, 1=name starts-with, 2=name contains, 3=email contains, 4=other
+  const orderExprs: any[] = [];
+  if (search) {
+    const s = search.toLowerCase();
+    const startsWith = `${s}%`;
+    const contains = `%${s}%`;
+    orderExprs.push(sql`CASE
+      WHEN LOWER(${contacts.firstName}) = ${s}
+        OR LOWER(${contacts.lastName}) = ${s}
+        OR LOWER(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})) = ${s}
+      THEN 0
+      WHEN LOWER(${contacts.firstName}) LIKE ${startsWith}
+        OR LOWER(${contacts.lastName}) LIKE ${startsWith}
+        OR LOWER(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})) LIKE ${startsWith}
+      THEN 1
+      WHEN LOWER(${contacts.firstName}) LIKE ${contains}
+        OR LOWER(${contacts.lastName}) LIKE ${contains}
+        OR LOWER(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})) LIKE ${contains}
+      THEN 2
+      WHEN LOWER(${contacts.email}) LIKE ${contains}
+      THEN 3
+      ELSE 4
+    END`);
+  }
+  orderExprs.push(sortOrder === "asc" ? asc(contacts.firstName) : desc(contacts.createdAt));
   if (isaId === -1) {
     conditions.push(isNull(contacts.assignedIsaId));
   } else if (isaId) {
@@ -240,7 +267,7 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
           .from(contacts)
           .leftJoin(users, eq(contacts.assignedIsaId, users.id))
           .where(where)
-          .orderBy(sortOrder === "asc" ? asc(contacts.firstName) : desc(contacts.createdAt))
+          .orderBy(...orderExprs)
           .limit(limit)
           .offset(offset),
       ]);
@@ -269,7 +296,7 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
       .leftJoin(agentAlias, eq(agentConnections.agentId, agentAlias.id))
       .where(where)
       .groupBy(contacts.id, assignedIsaAlias.id)
-      .orderBy(sortOrder === "asc" ? asc(contacts.firstName) : desc(contacts.createdAt))
+      .orderBy(...orderExprs)
       .limit(limit)
       .offset(offset),
   ]);
