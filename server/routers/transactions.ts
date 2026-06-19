@@ -1268,7 +1268,7 @@ export const transactionsRouter = router({
       await db.delete(activityLog).where(and(eq(activityLog.entityType, "transaction"), eq(activityLog.entityId, input.id)));
       // Clear listing reference if this transaction came from a listing conversion
       if (tx.transaction.listingId) {
-        await db.update(listings).set({ transactionId: null } as any).where(eq(listings.id, tx.transaction.listingId!));
+        await db.update(listings).set({ convertedTransactionId: null }).where(eq(listings.id, tx.transaction.listingId!));
       }
       // Delete the transaction itself
       await db.delete(transactions).where(eq(transactions.id, input.id));
