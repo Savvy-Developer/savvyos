@@ -227,7 +227,7 @@ function PropertyPicker({
 
   return (
     <div>
-      <Label>Property <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
+      <Label>Property <span className="text-destructive">*</span></Label>
       {!showCreate ? (
         <>
           <div className="relative mt-1">
@@ -678,11 +678,11 @@ export default function TransactionsPage() {
   }
 
   const canAdvanceStep1 = useCallback(() => {
-    if (form.mode === "buy") return !!buyerContact && (!isAdmin || !!selectedAgent);
-    if (form.mode === "sell") return !!sellerContact && (!isAdmin || !!selectedAgent);
-    if (form.mode === "dual") return !!buyerContact && !!sellerContact && buyerContact.id !== sellerContact.id && (!isAdmin || !!selectedAgent);
+    if (form.mode === "buy") return !!buyerContact && !!selectedProperty && (!isAdmin || !!selectedAgent);
+    if (form.mode === "sell") return !!sellerContact && !!selectedProperty && (!isAdmin || !!selectedAgent);
+    if (form.mode === "dual") return !!buyerContact && !!sellerContact && buyerContact.id !== sellerContact.id && !!selectedProperty && (!isAdmin || !!selectedAgent);
     return false;
-  }, [form.mode, buyerContact, sellerContact, selectedAgent, isAdmin]);
+  }, [form.mode, buyerContact, sellerContact, selectedProperty, selectedAgent, isAdmin]);
 
   async function handleCreate() {
     // Belt-and-suspenders: canAdvanceStep1 already gates the UI, but validate here too
@@ -696,6 +696,10 @@ export default function TransactionsPage() {
     }
     if (form.mode === "dual" && buyerContact && sellerContact && buyerContact.id === sellerContact.id) {
       toast.error("Buyer and seller contacts must be different people");
+      return;
+    }
+    if (!selectedProperty) {
+      toast.error("A property is required before creating this transaction");
       return;
     }
     const agentId = isAdmin ? selectedAgent?.id : undefined;

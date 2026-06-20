@@ -63,7 +63,7 @@ export const transactionsRouter = router({
     .input(z.object({
       agentId: z.number().optional(), // admin can specify; agents/ISAs default to self
       primaryContactId: z.number(),
-      propertyId: z.number().optional().nullable(),
+      propertyId: z.number({ error: "A property is required" }),
       listingId: z.number().optional().nullable(),
       sellerContactId: z.number().optional().nullable(),
       transactionType: z.enum(["buyer","seller","dual"]),

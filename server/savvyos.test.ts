@@ -192,6 +192,7 @@ describe("transactions", () => {
     const result = await caller.transactions.create({
       agentId: 1,
       primaryContactId: 1,
+      propertyId: 1,
       transactionType: "buyer",
       status: "active",
       purchasePrice: "500000",
