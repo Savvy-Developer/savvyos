@@ -494,7 +494,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
   const conditions = [];
   if (agentId) conditions.push(eq(transactions.agentId, agentId));
   if (status) conditions.push(eq(transactions.status, status as any));
-  if (search) conditions.push(or(like(transactions.transactionNumber, `%${search}%`), like(contacts.firstName, `%${search}%`), like(contacts.lastName, `%${search}%`)));
+  if (search) conditions.push(or(like(transactions.transactionNumber, `%${search}%`), like(contacts.firstName, `%${search}%`), like(contacts.lastName, `%${search}%`), sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${search}%`}`, like(properties.address, `%${search}%`), like(properties.city, `%${search}%`)));
   if (contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${contractDateFrom}`);
   if (contractDateTo) conditions.push(sql`${transactions.contractDate} <= ${contractDateTo}`);
   if (closingDateFrom) conditions.push(sql`${transactions.closingDate} >= ${closingDateFrom}`);
@@ -523,7 +523,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [countResult, rows] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(transactions).leftJoin(contacts, eq(transactions.primaryContactId, contacts.id)).where(where),
+    db.select({ count: sql<number>`count(*)` }).from(transactions).leftJoin(contacts, eq(transactions.primaryContactId, contacts.id)).leftJoin(properties, eq(transactions.propertyId, properties.id)).where(where),
     (() => {
       const txParentLS = aliasedTable(leadSources, 'txParentLS');
       return db.select({ transaction: transactions, agent: users, contact: contacts, property: properties, leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId }, parentLeadSource: { id: txParentLS.id, name: txParentLS.name } })
