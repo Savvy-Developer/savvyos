@@ -4,7 +4,8 @@
  */
 
 import { and, eq, gte, lte, sql, isNull, isNotNull, ne, inArray } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import {
   transactions,
   transactionPayoutItems,
@@ -26,10 +27,20 @@ import {
   properties,
 } from "../drizzle/schema";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: mysql.Pool | null = null;
+let _db: MySql2Database<Record<string, unknown>> | null = null;
 async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
-    _db = drizzle(process.env.DATABASE_URL);
+    // Pooled connection — a single connection serializes all queries and hangs under load.
+    _pool = mysql.createPool({
+      uri: process.env.DATABASE_URL,
+      connectionLimit: 10,
+      maxIdle: 10,
+      idleTimeout: 60000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+    });
+    _db = drizzle(_pool);
   }
   return _db!;
 }
