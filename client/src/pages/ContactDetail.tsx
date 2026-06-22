@@ -496,6 +496,7 @@ export default function ContactDetail() {
       setAssignOpen(false);
       setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false });
       utils.agentConnections.list.invalidate();
+      utils.contacts.list.invalidate();
       celebrate("connection_made");
     },
     onError: (e) => toast.error(e.message),

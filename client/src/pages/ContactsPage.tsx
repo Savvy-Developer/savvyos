@@ -183,6 +183,7 @@ export default function ContactsPage() {
       setAssignOpen(false);
       setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false });
       utils.contacts.list.invalidate();
+      utils.agentConnections.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
