@@ -116,17 +116,32 @@ export default function AgentConnectionDetail() {
   const stage = PIPELINE_STAGES.find(s => s.value === connection.pipelineStatus);
 
   const handleSaveBuyBox = () => {
+    // Empty form fields come through as "" — convert to null, and parse the
+    // numeric fields, so we never send "" to a number/decimal column or to a
+    // z.number() input (which would fail validation / the DB insert).
+    const intOrNull = (v: any) => {
+      if (v === "" || v == null) return null;
+      const n = parseInt(String(v), 10);
+      return Number.isNaN(n) ? null : n;
+    };
+    const strOrNull = (v: any) => (v === "" || v == null ? null : String(v));
+    const csvToArr = (v: any) =>
+      typeof v === "string"
+        ? v.split(",").map((s: string) => s.trim()).filter(Boolean)
+        : (v ?? []);
     const sanitized = {
-      ...buyBoxForm,
-      maxSqft: buyBoxForm.maxSqft !== "" && buyBoxForm.maxSqft != null
-        ? parseInt(String(buyBoxForm.maxSqft), 10) || null
-        : null,
-      targetCities: typeof buyBoxForm.targetCities === "string"
-        ? buyBoxForm.targetCities.split(",").map((s: string) => s.trim()).filter(Boolean)
-        : (buyBoxForm.targetCities ?? []),
-      targetZips: typeof buyBoxForm.targetZips === "string"
-        ? buyBoxForm.targetZips.split(",").map((s: string) => s.trim()).filter(Boolean)
-        : (buyBoxForm.targetZips ?? []),
+      propertyType: strOrNull(buyBoxForm.propertyType),
+      minPrice: strOrNull(buyBoxForm.minPrice),
+      maxPrice: strOrNull(buyBoxForm.maxPrice),
+      minBeds: intOrNull(buyBoxForm.minBeds),
+      maxBeds: intOrNull(buyBoxForm.maxBeds),
+      minBaths: strOrNull(buyBoxForm.minBaths),
+      minSqft: intOrNull(buyBoxForm.minSqft),
+      maxSqft: intOrNull(buyBoxForm.maxSqft),
+      targetCities: csvToArr(buyBoxForm.targetCities),
+      targetZips: csvToArr(buyBoxForm.targetZips),
+      strRequirements: strOrNull(buyBoxForm.strRequirements),
+      investmentNotes: strOrNull(buyBoxForm.investmentNotes),
     };
     updateConn.mutate({ id, data: { buyBox: sanitized } });
   };
