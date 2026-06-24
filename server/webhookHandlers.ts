@@ -107,6 +107,25 @@ async function resolveLeadSourceId(
   return defaultId ?? null;
 }
 
+/**
+ * Inbound leads must always carry a lead source for attribution. When a webhook
+ * payload doesn't specify one and the endpoint has no default configured, fall
+ * back to a dedicated, system-protected "Unattributed (Webhook)" source instead
+ * of leaving leadSourceId null.
+ */
+async function getOrCreateFallbackLeadSourceId(): Promise<number> {
+  const db = await getDb();
+  const FALLBACK_NAME = "Unattributed (Webhook)";
+  const [existing] = await db
+    .select({ id: leadSources.id })
+    .from(leadSources)
+    .where(eq(leadSources.name, FALLBACK_NAME))
+    .limit(1);
+  if (existing) return existing.id;
+  const [result] = await db.insert(leadSources).values({ name: FALLBACK_NAME, isProtected: true });
+  return (result as any).insertId as number;
+}
+
 async function findExistingContact(email?: string, phone?: string): Promise<number | null> {
   if (!email && !phone) return null;
   const db = await getDb();
@@ -202,7 +221,8 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     contactId = existingId;
     action = "updated";
   } else {
-    // Create new contact
+    // Create new contact — guarantee a lead source so every inbound lead is attributed.
+    const newLeadSourceId = leadSourceId ?? (await getOrCreateFallbackLeadSourceId());
     const [result] = await db.insert(contacts).values({
       firstName,
       lastName: lastName || "",
@@ -215,7 +235,7 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
       state: (p.state as string) || null,
       zip: (p.zip as string) || null,
       notes: (p.notes as string) || null,
-      leadSourceId: leadSourceId || null,
+      leadSourceId: newLeadSourceId,
       spouseFirstName: (p.spouseFirstName as string) || null,
       spouseLastName: (p.spouseLastName as string) || null,
       spouseEmail: (p.spouseEmail as string) || null,

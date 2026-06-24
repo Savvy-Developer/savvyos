@@ -212,6 +212,7 @@ export default function ContactsPage() {
 
   function handleCreate() {
     if (!form.firstName || !form.lastName) { toast.error("First and last name are required"); return; }
+    if (!form.leadSourceId) { toast.error("Please select a lead source (Details tab) — every lead needs a source for attribution."); return; }
     if (form.email && !isValidEmail(form.email)) { toast.error("Please enter a valid email address (e.g. name@example.com)"); return; }
     if (form.secondaryEmail && !isValidEmail(form.secondaryEmail)) { toast.error("Please enter a valid secondary email address"); return; }
     if (form.spouseEmail && !isValidEmail(form.spouseEmail)) { toast.error("Please enter a valid spouse email address"); return; }
@@ -742,7 +743,7 @@ export default function ContactsPage() {
 
             <TabsContent value="details" className="space-y-4">
               <div>
-                <Label>Lead Source</Label>
+                <Label>Lead Source <span className="text-destructive">*</span></Label>
                 <LeadSourcePicker
                   className="mt-1"
                   value={form.leadSourceId}
