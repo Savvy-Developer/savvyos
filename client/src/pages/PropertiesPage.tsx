@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,8 +20,8 @@ const PROPERTY_TYPES = ["single_family","multi_family","condo","townhouse","cabi
 export default function PropertiesPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const [search, setSearch] = useState("");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [search, setSearch] = usePersistentState("properties.search", "");
+  const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("properties.sortOrder", "desc");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ address: "", city: "", state: "", zip: "", propertyType: "single_family", beds: "", baths: "", sqft: "", listPrice: "", notes: "" });
 

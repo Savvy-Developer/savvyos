@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -580,19 +581,19 @@ export default function TransactionsPage() {
 
   const [open, setOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [marketFilter, setMarketFilter] = useState("all");
-  const [agentFilter, setAgentFilter] = useState("all");
-  const [txSearch, setTxSearch] = useState("");
-  const [txPage, setTxPage] = useState(1);
-  const [closingDateFrom, setClosingDateFrom] = useState("");
-  const [closingDateTo, setClosingDateTo] = useState("");
-  const [contractDateFrom, setContractDateFrom] = useState("");
-  const [contractDateTo, setContractDateTo] = useState("");
-  const [showDateFilters, setShowDateFilters] = useState(false);
-  const [leadSourceFilter, setLeadSourceFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [statusFilter, setStatusFilter] = usePersistentState("transactions.statusFilter", "all");
+  const [marketFilter, setMarketFilter] = usePersistentState("transactions.marketFilter", "all");
+  const [agentFilter, setAgentFilter] = usePersistentState("transactions.agentFilter", "all");
+  const [txSearch, setTxSearch] = usePersistentState("transactions.search", "");
+  const [txPage, setTxPage] = usePersistentState("transactions.page", 1);
+  const [closingDateFrom, setClosingDateFrom] = usePersistentState("transactions.closingDateFrom", "");
+  const [closingDateTo, setClosingDateTo] = usePersistentState("transactions.closingDateTo", "");
+  const [contractDateFrom, setContractDateFrom] = usePersistentState("transactions.contractDateFrom", "");
+  const [contractDateTo, setContractDateTo] = usePersistentState("transactions.contractDateTo", "");
+  const [showDateFilters, setShowDateFilters] = usePersistentState("transactions.showDateFilters", false);
+  const [leadSourceFilter, setLeadSourceFilter] = usePersistentState("transactions.leadSourceFilter", "all");
+  const [typeFilter, setTypeFilter] = usePersistentState("transactions.typeFilter", "all");
+  const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("transactions.sortOrder", "desc");
 
   // Wizard state
   const [form, setForm] = useState<CreateForm>(defaultForm());

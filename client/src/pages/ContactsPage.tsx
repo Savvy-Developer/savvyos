@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,10 +102,11 @@ function AgentConnectionsPopover({ contactId, count }: { contactId: number; coun
 export default function ContactsPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const [search, setSearch] = useState("");
-  const [isaFilter, setIsaFilter] = useState<string>(user?.role === "isa" ? String(user.id) : "all");
-  const [isaStatusFilter, setIsaStatusFilter] = useState<string>("all");
-  const [leadSourceFilter, setLeadSourceFilter] = useState<string>("all");
+  // Filters persist across navigation (open a record → back) so they don't reset.
+  const [search, setSearch] = usePersistentState("contacts.search", "");
+  const [isaFilter, setIsaFilter] = usePersistentState<string>("contacts.isaFilter", user?.role === "isa" ? String(user.id) : "all");
+  const [isaStatusFilter, setIsaStatusFilter] = usePersistentState<string>("contacts.isaStatusFilter", "all");
+  const [leadSourceFilter, setLeadSourceFilter] = usePersistentState<string>("contacts.leadSourceFilter", "all");
 
   const handleSearchChange = (val: string) => { setSearch(val); setPage(1); };
   const handleIsaFilterChange = (val: string) => { setIsaFilter(val); setPage(1); };
@@ -122,8 +124,8 @@ export default function ContactsPage() {
   const [bulkIsaOpen, setBulkIsaOpen] = useState(false);
   const [bulkIsaId, setBulkIsaId] = useState<string>("none");
 
-  const [page, setPage] = useState(1);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = usePersistentState("contacts.page", 1);
+  const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("contacts.sortOrder", "desc");
   const utils = trpc.useUtils();
 
   // Duplicate detection: debounce email/phone inputs by 600ms

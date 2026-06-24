@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,14 +58,14 @@ type BuyBoxForm = {
 export default function PipelinePage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const [selectedStage, setSelectedStage] = useState("all");
-  const [selectedAgentId, setSelectedAgentId] = useState("all");
-  const [selectedIsaId, setSelectedIsaId] = useState<string>((user as any)?.role === "isa" ? String((user as any)?.id) : "all");
-  const [selectedLeadSourceId, setSelectedLeadSourceId] = useState<string>("all");
-  const [pipelineSearch, setPipelineSearch] = useState("");
-  const [followUpFrom, setFollowUpFrom] = useState("");
-  const [followUpTo, setFollowUpTo] = useState("");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [selectedStage, setSelectedStage] = usePersistentState("pipeline.selectedStage", "all");
+  const [selectedAgentId, setSelectedAgentId] = usePersistentState("pipeline.selectedAgentId", "all");
+  const [selectedIsaId, setSelectedIsaId] = usePersistentState<string>("pipeline.selectedIsaId", (user as any)?.role === "isa" ? String((user as any)?.id) : "all");
+  const [selectedLeadSourceId, setSelectedLeadSourceId] = usePersistentState<string>("pipeline.selectedLeadSourceId", "all");
+  const [pipelineSearch, setPipelineSearch] = usePersistentState("pipeline.search", "");
+  const [followUpFrom, setFollowUpFrom] = usePersistentState("pipeline.followUpFrom", "");
+  const [followUpTo, setFollowUpTo] = usePersistentState("pipeline.followUpTo", "");
+  const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("pipeline.sortOrder", "desc");
   const [editOpen, setEditOpen] = useState(false);
   const [buyBoxOpen, setBuyBoxOpen] = useState(false);
   const [editConn, setEditConn] = useState<any>(null);

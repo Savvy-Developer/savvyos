@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,8 +80,8 @@ export default function ListingsPage() {
   const isAdmin = user?.role === "admin";
   const canCreate = isAdmin || user?.role === "agent";
 
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = usePersistentState("listings.statusFilter", "all");
+  const [search, setSearch] = usePersistentState("listings.search", "");
   const [createOpen, setCreateOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [convertListing, setConvertListing] = useState<any>(null);
@@ -96,13 +97,13 @@ export default function ListingsPage() {
   const [newPropertyForm, setNewPropertyForm] = useState(EMPTY_PROPERTY_FORM);
 
   // Date filter state
-  const [filterAgentId, setFilterAgentId] = useState("");
-  const [listingDateFrom, setListingDateFrom] = useState("");
-  const [listingDateTo, setListingDateTo] = useState("");
-  const [expirationDateFrom, setExpirationDateFrom] = useState("");
-  const [expirationDateTo, setExpirationDateTo] = useState("");
-  const [showDateFilters, setShowDateFilters] = useState(false);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [filterAgentId, setFilterAgentId] = usePersistentState("listings.filterAgentId", "");
+  const [listingDateFrom, setListingDateFrom] = usePersistentState("listings.listingDateFrom", "");
+  const [listingDateTo, setListingDateTo] = usePersistentState("listings.listingDateTo", "");
+  const [expirationDateFrom, setExpirationDateFrom] = usePersistentState("listings.expirationDateFrom", "");
+  const [expirationDateTo, setExpirationDateTo] = usePersistentState("listings.expirationDateTo", "");
+  const [showDateFilters, setShowDateFilters] = usePersistentState("listings.showDateFilters", false);
+  const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("listings.sortOrder", "desc");
 
   // Termination modal state
   const [terminateOpen, setTerminateOpen] = useState(false);
