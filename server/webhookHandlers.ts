@@ -10,7 +10,7 @@
  *  3. Admins can then select the new handler type when creating an endpoint
  */
 
-import { getDb as _getDb } from "./db";
+import { getDb as _getDb, logActivity } from "./db";
 
 async function getDb() {
   const db = await _getDb();
@@ -244,6 +244,16 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     contactId = (result as any).insertId;
     action = "created";
   }
+
+  // Record how/where this lead entered the system so the contact history isn't
+  // blank for webhook-ingested leads (this is what powers the relationship history).
+  await logActivity({
+    userId: null,
+    action: action === "created" ? "contact_created" : "contact_updated",
+    entityType: "contact",
+    entityId: contactId,
+    details: { via: "webhook", endpoint: endpoint.name, slug: endpoint.slug },
+  });
 
   // Assign to agent if specified
   const agentId = await resolveAgentId(
