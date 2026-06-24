@@ -462,12 +462,16 @@ export async function getProperties(
 
   // Pre-aggregate per-propertyId once per related table, then LEFT JOIN. Replaces
   // 6 per-row correlated subqueries with 3 grouped scans — one pass each.
+  // NOTE: each CTE's aggregate columns get a UNIQUE name (txCnt/txNames,
+  // lCnt/lNames, cpCnt/cpNames). Drizzle references `sql``.as()` CTE columns
+  // unqualified in the outer SELECT, so reusing "cnt"/"names" across all three
+  // CTEs produces an ambiguous-column error (MySQL 1052) and a 500.
   const txAgg = db.$with("txAgg").as(
     db
       .select({
         propertyId: transactions.propertyId,
-        cnt: sql<number>`COUNT(*)`.as("cnt"),
-        names: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${transactions.id} SEPARATOR ', '), ', ', 3)`.as("names"),
+        txCnt: sql<number>`COUNT(*)`.as("txCnt"),
+        txNames: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${transactions.id} SEPARATOR ', '), ', ', 3)`.as("txNames"),
       })
       .from(transactions)
       .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
@@ -477,8 +481,8 @@ export async function getProperties(
     db
       .select({
         propertyId: listings.propertyId,
-        cnt: sql<number>`COUNT(*)`.as("cnt"),
-        names: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${listings.id} SEPARATOR ', '), ', ', 3)`.as("names"),
+        lCnt: sql<number>`COUNT(*)`.as("lCnt"),
+        lNames: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${listings.id} SEPARATOR ', '), ', ', 3)`.as("lNames"),
       })
       .from(listings)
       .leftJoin(contacts, eq(listings.contactId, contacts.id))
@@ -488,8 +492,8 @@ export async function getProperties(
     db
       .select({
         propertyId: contactProperties.propertyId,
-        cnt: sql<number>`COUNT(*)`.as("cnt"),
-        names: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${contactProperties.id} SEPARATOR ', '), ', ', 3)`.as("names"),
+        cpCnt: sql<number>`COUNT(*)`.as("cpCnt"),
+        cpNames: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${contactProperties.id} SEPARATOR ', '), ', ', 3)`.as("cpNames"),
       })
       .from(contactProperties)
       .leftJoin(contacts, eq(contactProperties.contactId, contacts.id))
@@ -500,12 +504,12 @@ export async function getProperties(
     .with(txAgg, lAgg, cpAgg)
     .select({
       property: properties,
-      transactionCount: sql<number>`COALESCE(${txAgg.cnt}, 0)`,
-      listingCount: sql<number>`COALESCE(${lAgg.cnt}, 0)`,
-      contactCount: sql<number>`COALESCE(${cpAgg.cnt}, 0)`,
-      transactionNames: txAgg.names,
-      listingNames: lAgg.names,
-      contactNames: cpAgg.names,
+      transactionCount: sql<number>`COALESCE(${txAgg.txCnt}, 0)`,
+      listingCount: sql<number>`COALESCE(${lAgg.lCnt}, 0)`,
+      contactCount: sql<number>`COALESCE(${cpAgg.cpCnt}, 0)`,
+      transactionNames: txAgg.txNames,
+      listingNames: lAgg.lNames,
+      contactNames: cpAgg.cpNames,
     })
     .from(properties)
     .leftJoin(txAgg, eq(txAgg.propertyId, properties.id))
