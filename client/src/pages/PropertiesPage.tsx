@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
-import { Plus, Building2, Search, ArrowRightLeft, List, Users, Upload, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
+import { Plus, Building2, Search, ArrowRightLeft, List, Users, Upload, ArrowUpAZ, ArrowDownAZ, Loader2, AlertTriangle } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLocation } from "wouter";
@@ -48,7 +48,7 @@ export default function PropertiesPage() {
     { key: "ownerPhone", label: "Owner Phone", example: "555-987-6543" },
   ];
 
-  const { data: propertiesData, refetch } = trpc.properties.list.useQuery({ search: search || undefined, sortOrder });
+  const { data: propertiesData, refetch, isLoading, isError, error } = trpc.properties.list.useQuery({ search: search || undefined, sortOrder });
   const properties = propertiesData as Array<{ property: any; transactionCount: number; listingCount: number; contactCount: number; transactionNames: string | null; listingNames: string | null; contactNames: string | null }> | undefined;
   const create = trpc.properties.create.useMutation({
     onSuccess: (data) => {
@@ -121,7 +121,23 @@ export default function PropertiesPage() {
               </tr>
             </thead>
             <tbody>
-              {!properties || properties.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin" />
+                    <p>Loading properties…</p>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12">
+                    <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-destructive opacity-70" />
+                    <p className="text-destructive">Failed to load properties.</p>
+                    {error?.message && <p className="text-xs text-muted-foreground mt-1">{error.message}</p>}
+                    <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Retry</Button>
+                  </td>
+                </tr>
+              ) : !properties || properties.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-12 text-muted-foreground">
                     <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />

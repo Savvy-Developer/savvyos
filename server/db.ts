@@ -447,25 +447,74 @@ export async function updateAgentConnection(id: number, data: Partial<typeof age
 }
 
 // ─── Properties ───────────────────────────────────────────────────────────────
-export async function getProperties(search?: string, sortOrder: "asc" | "desc" = "desc") {
+export async function getProperties(
+  search?: string,
+  sortOrder: "asc" | "desc" = "desc",
+  page = 1,
+  limit = 100,
+) {
   const db = await getDb();
   if (!db) return [];
   const where = search
     ? or(like(properties.address, `%${search}%`), like(properties.city, `%${search}%`))
     : undefined;
+  const offset = Math.max(0, (page - 1) * limit);
+
+  // Pre-aggregate per-propertyId once per related table, then LEFT JOIN. Replaces
+  // 6 per-row correlated subqueries with 3 grouped scans — one pass each.
+  const txAgg = db.$with("txAgg").as(
+    db
+      .select({
+        propertyId: transactions.propertyId,
+        cnt: sql<number>`COUNT(*)`.as("cnt"),
+        names: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${transactions.id} SEPARATOR ', '), ', ', 3)`.as("names"),
+      })
+      .from(transactions)
+      .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
+      .groupBy(transactions.propertyId),
+  );
+  const lAgg = db.$with("lAgg").as(
+    db
+      .select({
+        propertyId: listings.propertyId,
+        cnt: sql<number>`COUNT(*)`.as("cnt"),
+        names: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${listings.id} SEPARATOR ', '), ', ', 3)`.as("names"),
+      })
+      .from(listings)
+      .leftJoin(contacts, eq(listings.contactId, contacts.id))
+      .groupBy(listings.propertyId),
+  );
+  const cpAgg = db.$with("cpAgg").as(
+    db
+      .select({
+        propertyId: contactProperties.propertyId,
+        cnt: sql<number>`COUNT(*)`.as("cnt"),
+        names: sql<string | null>`SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) ORDER BY ${contactProperties.id} SEPARATOR ', '), ', ', 3)`.as("names"),
+      })
+      .from(contactProperties)
+      .leftJoin(contacts, eq(contactProperties.contactId, contacts.id))
+      .groupBy(contactProperties.propertyId),
+  );
+
   return db
+    .with(txAgg, lAgg, cpAgg)
     .select({
       property: properties,
-      transactionCount: sql<number>`(SELECT COUNT(*) FROM transactions WHERE transactions.propertyId = ${properties.id})`,
-      listingCount: sql<number>`(SELECT COUNT(*) FROM listings WHERE listings.propertyId = ${properties.id})`,
-      contactCount: sql<number>`(SELECT COUNT(*) FROM contact_properties WHERE contact_properties.propertyId = ${properties.id})`,
-      transactionNames: sql<string | null>`(SELECT GROUP_CONCAT(CONCAT(c.firstName, ' ', c.lastName) SEPARATOR ', ') FROM (SELECT co.firstName, co.lastName FROM transactions t LEFT JOIN contacts co ON t.primaryContactId = co.id WHERE t.propertyId = ${properties.id} LIMIT 3) c)`,
-      listingNames: sql<string | null>`(SELECT GROUP_CONCAT(CONCAT(c.firstName, ' ', c.lastName) SEPARATOR ', ') FROM (SELECT co.firstName, co.lastName FROM listings l LEFT JOIN contacts co ON l.contactId = co.id WHERE l.propertyId = ${properties.id} LIMIT 3) c)`,
-      contactNames: sql<string | null>`(SELECT GROUP_CONCAT(CONCAT(c.firstName, ' ', c.lastName) SEPARATOR ', ') FROM (SELECT co.firstName, co.lastName FROM contact_properties cp LEFT JOIN contacts co ON cp.contactId = co.id WHERE cp.propertyId = ${properties.id} LIMIT 3) c)`,
+      transactionCount: sql<number>`COALESCE(${txAgg.cnt}, 0)`,
+      listingCount: sql<number>`COALESCE(${lAgg.cnt}, 0)`,
+      contactCount: sql<number>`COALESCE(${cpAgg.cnt}, 0)`,
+      transactionNames: txAgg.names,
+      listingNames: lAgg.names,
+      contactNames: cpAgg.names,
     })
     .from(properties)
+    .leftJoin(txAgg, eq(txAgg.propertyId, properties.id))
+    .leftJoin(lAgg, eq(lAgg.propertyId, properties.id))
+    .leftJoin(cpAgg, eq(cpAgg.propertyId, properties.id))
     .where(where)
-    .orderBy(sortOrder === "asc" ? asc(properties.address) : desc(properties.createdAt));
+    .orderBy(sortOrder === "asc" ? asc(properties.address) : desc(properties.createdAt))
+    .limit(limit)
+    .offset(offset);
 }
 
 export async function getPropertyById(id: number) {

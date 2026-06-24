@@ -10,6 +10,7 @@ import {
   json,
   bigint,
   foreignKey,
+  index,
 } from "drizzle-orm/mysql-core";
 
 /// ─── Markets ──────────────────────────────────────────────────────────────────
@@ -220,7 +221,9 @@ export const properties = mysqlTable("properties", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  createdAtIdx: index("properties_createdAt_idx").on(table.createdAt),
+}));
 
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = typeof properties.$inferInsert;

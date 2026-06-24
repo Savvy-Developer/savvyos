@@ -16,9 +16,16 @@ import { aliasedTable, eq, desc, or, and } from "drizzle-orm";
 
 export const propertiesRouter = router({
   list: protectedProcedure
-    .input(z.object({ search: z.string().optional(), sortOrder: z.enum(["asc", "desc"]).default("desc") }).optional())
+    .input(
+      z.object({
+        search: z.string().optional(),
+        sortOrder: z.enum(["asc", "desc"]).default("desc"),
+        page: z.number().int().min(1).default(1),
+        limit: z.number().int().min(1).max(500).default(100),
+      }).optional(),
+    )
     .query(async ({ input }) => {
-      return getProperties(input?.search, input?.sortOrder ?? "desc");
+      return getProperties(input?.search, input?.sortOrder ?? "desc", input?.page ?? 1, input?.limit ?? 100);
     }),
 
   get: protectedProcedure
