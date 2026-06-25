@@ -16,6 +16,15 @@ import { sendTransactionalEmail } from "./_core/resendEmail";
 let isRunning = false;
 
 export async function checkOverdueOnboardingTasks(): Promise<void> {
+  // Onboarding overdue-task reminder emails are disabled by request (they were
+  // generating confusing/redundant email). Off by default; set the env flag
+  // ONBOARDING_OVERDUE_EMAILS=on to re-enable. Gating here covers BOTH the daily
+  // scheduler and the manual trigger in the onboarding router.
+  if (process.env.ONBOARDING_OVERDUE_EMAILS !== "on") {
+    console.log("[OnboardingOverdueScheduler] Overdue reminder emails disabled (ONBOARDING_OVERDUE_EMAILS != 'on') — skipping run.");
+    return;
+  }
+
   if (isRunning) return;
   isRunning = true;
 
