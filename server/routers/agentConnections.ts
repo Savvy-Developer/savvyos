@@ -30,6 +30,35 @@ const buyBoxInput = z.object({
   investmentNotes: z.string().optional().nullable(),
 });
 
+// Buy box numeric fields arrive as user-typed strings that can include
+// thousands separators or currency symbols (e.g. "250,000", "$300,000").
+// The decimal/int columns reject those, so strip everything except digits
+// (plus a decimal point for decimals) and coerce blanks to null before the
+// DB write. Only transforms keys actually present so partial updates don't
+// clobber existing values.
+function normalizeBuyBox(b: any): any {
+  if (!b) return b;
+  const dec = (v: any) => {
+    if (v === null || v === undefined || v === "") return null;
+    const c = String(v).replace(/[^0-9.]/g, "");
+    return c === "" || c === "." ? null : c;
+  };
+  const int = (v: any) => {
+    if (v === null || v === undefined || v === "") return null;
+    const c = String(v).replace(/[^0-9]/g, "");
+    return c === "" ? null : parseInt(c, 10);
+  };
+  const out = { ...b };
+  if ("minPrice" in b) out.minPrice = dec(b.minPrice);
+  if ("maxPrice" in b) out.maxPrice = dec(b.maxPrice);
+  if ("minBaths" in b) out.minBaths = dec(b.minBaths);
+  if ("minBeds" in b) out.minBeds = int(b.minBeds);
+  if ("maxBeds" in b) out.maxBeds = int(b.maxBeds);
+  if ("minSqft" in b) out.minSqft = int(b.minSqft);
+  if ("maxSqft" in b) out.maxSqft = int(b.maxSqft);
+  return out;
+}
+
 export const agentConnectionsRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -98,7 +127,7 @@ export const agentConnectionsRouter = router({
         pipelineStatus: input.pipelineStatus ?? "new_lead",
         followUpDate: input.followUpDate ? new Date(input.followUpDate) : null,
         agentNotes: input.agentNotes,
-        ...input.buyBox,
+        ...normalizeBuyBox(input.buyBox),
       } as any);
 
       // ISA follow-up task — assign to the contact's ISA if one is assigned;
@@ -187,7 +216,7 @@ export const agentConnectionsRouter = router({
       await updateAgentConnection(input.id, {
         ...rest,
         followUpDate: followUpDate ? new Date(followUpDate) : null,
-        ...buyBox,
+        ...normalizeBuyBox(buyBox),
       } as any);
       await logActivity({
         userId: ctx.user.id,
