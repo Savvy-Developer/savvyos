@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
 import { PipelineStatusBadge, IsaStatusBadge } from "@/components/StatusBadge";
+import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -856,23 +857,11 @@ export default function PipelinePage() {
                 )}
                 <div>
                   <Label>Lead Source</Label>
-                  <Select value={addContactForm.leadSourceId} onValueChange={(v) => setAddContactForm(f => ({ ...f, leadSourceId: v }))}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select lead source..." /></SelectTrigger>
-                    <SelectContent>
-                      {(leadSourcesData as any[]).map((src: any) => (
-                        src.children?.length > 0 ? (
-                          <SelectGroup key={src.id}>
-                            <SelectLabel>{src.name}</SelectLabel>
-                            {src.children.map((child: any) => (
-                              <SelectItem key={child.id} value={String(child.id)}>{child.name}</SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ) : (
-                          <SelectItem key={src.id} value={String(src.id)}>{src.name}</SelectItem>
-                        )
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <LeadSourcePicker
+                    className="mt-1"
+                    value={addContactForm.leadSourceId ? Number(addContactForm.leadSourceId) : null}
+                    onChange={(id) => setAddContactForm(f => ({ ...f, leadSourceId: id ? String(id) : "" }))}
+                  />
                 </div>
                 <div>
                   <Label>Pipeline Stage</Label>
