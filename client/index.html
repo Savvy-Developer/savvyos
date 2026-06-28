@@ -16,6 +16,31 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      // Self-heal stale deploys: if the app's module bundle fails to load
+      // (its content-hash no longer exists after a deploy), the page would
+      // otherwise render blank. Force one fresh reload to pull current HTML+JS.
+      (function () {
+        window.addEventListener(
+          "error",
+          function (e) {
+            var t = e && e.target;
+            if (
+              t &&
+              t.tagName === "SCRIPT" &&
+              t.src &&
+              t.src.indexOf("/assets/") !== -1
+            ) {
+              if (!sessionStorage.getItem("savvyos_reloaded_stale")) {
+                sessionStorage.setItem("savvyos_reloaded_stale", "1");
+                location.reload();
+              }
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <script
       defer

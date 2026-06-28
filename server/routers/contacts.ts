@@ -73,6 +73,12 @@ export const contactsRouter = router({
   create: protectedProcedure
     .input(contactInput)
     .mutation(async ({ input, ctx }) => {
+      // Every lead must be reachable: require at least an email or a phone.
+      const hasEmail = !!input.email?.trim();
+      const hasPhone = !!input.phone?.trim();
+      if (!hasEmail && !hasPhone) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A lead needs at least an email or a phone number." });
+      }
       // Check for duplicate email or phone
       const db = await getDb();
       if (db) {

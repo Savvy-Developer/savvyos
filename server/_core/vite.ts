@@ -58,10 +58,28 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  app.use(
+    express.static(distPath, {
+      setHeaders(res, filePath) {
+        // The HTML entrypoint must never be cached: it references content-hashed
+        // asset bundles that change on every deploy. A stale index.html points at
+        // a bundle hash that no longer exists -> 404 -> blank white page.
+        if (filePath.endsWith("index.html")) {
+          res.setHeader(
+            "Cache-Control",
+            "no-cache, no-store, must-revalidate"
+          );
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          // Hashed assets are immutable: safe (and good for perf) to cache forever.
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    })
+  );
 
-  // fall through to index.html if the file doesn't exist
+  // fall through to index.html if the file doesn't exist (SPA routes)
   app.use("*", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

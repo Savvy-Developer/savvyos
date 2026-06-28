@@ -11,6 +11,7 @@ import {
   bigint,
   foreignKey,
   index,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 /// ─── Markets ──────────────────────────────────────────────────────────────────
@@ -884,7 +885,12 @@ export const agentGoals = mysqlTable("agent_goals", {
   volumeTarget: decimal("volumeTarget", { precision: 15, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  // One goal row per agent/year/month. This unique key is what makes
+  // upsertAgentGoal's onDuplicateKeyUpdate actually update instead of
+  // inserting a duplicate (the missing key is why saved goals didn't stick).
+  agentYearMonthUnq: uniqueIndex("agent_goals_agent_year_month_unq").on(table.agentId, table.year, table.month),
+}));
 export type AgentGoal = typeof agentGoals.$inferSelect;
 export type InsertAgentGoal = typeof agentGoals.$inferInsert;
 
