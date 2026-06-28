@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { users } from "../../drizzle/schema";
+import { users, contacts } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { sendTransactionalEmail, EmailType } from "./resendEmail";
 
@@ -19,12 +19,29 @@ export async function sendEmailAlert(
     const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (!user) return;
 
+    // Resolve the contact name from contactId when the caller didn't pass a
+    // name. Callers like the "lead_assigned" alert only pass contactId, which
+    // left the email's Contact field blank ("—") and the subject as "New
+    // Contact". Looking it up here fixes it for every caller centrally.
+    let contactName = context.contactName as string | undefined;
+    if (!contactName && context.contactId != null) {
+      const [contact] = await db
+        .select({ firstName: contacts.firstName, lastName: contacts.lastName })
+        .from(contacts)
+        .where(eq(contacts.id, Number(context.contactId)))
+        .limit(1);
+      if (contact) {
+        contactName =
+          `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || undefined;
+      }
+    }
+
     // Send Savvy-branded email via Resend if the user has an email address
     if (user.email) {
       await sendTransactionalEmail(type, {
         recipientName: user.name ?? undefined,
         recipientEmail: user.email,
-        contactName: context.contactName as string | undefined,
+        contactName,
         agentName: context.agentName as string | undefined,
         transactionNumber: context.transactionNumber as string | undefined,
         transactionType: context.transactionType as string | undefined,
