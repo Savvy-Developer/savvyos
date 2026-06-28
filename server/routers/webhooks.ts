@@ -10,6 +10,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { notifyOwner } from "../_core/notification";
 import { sendTransactionalEmail } from "../_core/resendEmail";
+import { triggerGhlContactSync } from "../_core/ghlSync";
 import { getDb } from "../db";
 import { webhookEndpoints, webhookLogs, users, leadSources, contacts } from "../../drizzle/schema";
 import { eq, desc, and, like, isNull, or, count, sql } from "drizzle-orm";
@@ -364,6 +365,10 @@ export const webhooksRouter = router({
           leadSourceId,
         });
         contactId = (result as any).insertId;
+        // Outbound GHL sync — fire-and-forget. Only fires on the create branch,
+        // mirroring the inbound webhook chokepoint, so partner re-submits for
+        // an existing contact don't rewrite tags.
+        triggerGhlContactSync(contactId);
       }
 
       // Notify admins

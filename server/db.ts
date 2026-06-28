@@ -345,7 +345,11 @@ export async function createContact(data: typeof contacts.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const [result] = await db.insert(contacts).values(data);
-  return (result as any).insertId as number;
+  const insertId = (result as any).insertId as number;
+  // Outbound GHL sync — fire-and-forget; never blocks contact creation. See
+  // server/_core/ghlSync.ts for the chokepoint design.
+  void import("./_core/ghlSync").then((m) => m.triggerGhlContactSync(insertId));
+  return insertId;
 }
 
 export async function updateContact(id: number, data: Partial<typeof contacts.$inferInsert>) {

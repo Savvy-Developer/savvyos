@@ -11,6 +11,7 @@
  */
 
 import { getDb as _getDb, logActivity } from "./db";
+import { triggerGhlContactSync } from "./_core/ghlSync";
 
 async function getDb() {
   const db = await _getDb();
@@ -243,6 +244,12 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     });
     contactId = (result as any).insertId;
     action = "created";
+    // Outbound GHL sync for the newly-created webhook lead. Fire-and-forget;
+    // never blocks the webhook response. Skipped for the "updated" branch
+    // because GHL upsert already dedupes by email, so the upstream Zapier
+    // flow + a re-upsert for an updated contact would just rewrite the same
+    // tag — preserving the "no behavior change on existing webhook" promise.
+    triggerGhlContactSync(contactId);
   }
 
   // Record how/where this lead entered the system so the contact history isn't

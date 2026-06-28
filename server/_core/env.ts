@@ -8,4 +8,8 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   resendApiKey: process.env.RESEND_API_KEY ?? "",
+  // GoHighLevel (LeadConnector) — outbound contact sync. Sync is no-op when
+  // GHL_LOCATION_TOKEN is empty (e.g. local dev) — see server/_core/ghlSync.ts.
+  ghlLocationToken: process.env.GHL_LOCATION_TOKEN ?? "",
+  ghlLocationId: process.env.GHL_LOCATION_ID ?? "2ZPnQStoB9ZVXSwFdfEw",
 };
