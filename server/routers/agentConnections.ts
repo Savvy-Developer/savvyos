@@ -173,7 +173,26 @@ export const agentConnectionsRouter = router({
 
       // Email alert to agent
       try {
-        await sendEmailAlert("lead_assigned", input.agentId, { connectionId: id, contactId: input.contactId });
+        const db2 = await getDb();
+        let contactName: string | undefined = undefined;
+        let notes: string | undefined = undefined;
+        if (db2) {
+          const [contact] = await db2
+            .select()
+            .from(contacts)
+            .where(eq(contacts.id, input.contactId))
+            .limit(1);
+          if (contact) {
+            contactName = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || undefined;
+            notes = input.agentNotes ?? contact.notes ?? undefined;
+          }
+        }
+        await sendEmailAlert("lead_assigned", input.agentId, {
+          connectionId: id,
+          contactId: input.contactId,
+          contactName,
+          notes,
+        });
       } catch (_) {}
 
       // Introduce client to agent via email (CC the agent)
