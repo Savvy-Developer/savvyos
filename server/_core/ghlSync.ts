@@ -51,26 +51,27 @@ function sleep(ms: number) {
   return new Promise<void>((res) => setTimeout(res, ms));
 }
 
-/** Resolve the parent → child lead source label that we'll send to GHL. */
-async function resolveLeadSourceName(leadSourceId: number | null | undefined): Promise<string | null> {
+/**
+ * Resolve the leaf lead-source name we'll send to GHL.
+ *
+ * Returns just the sub-source name (e.g. "Fello"), not the parent → child
+ * path. The existing Zaps apply bare partner names as tags, so this stays
+ * symmetric — GHL automations that key off the tag string keep matching
+ * regardless of which path (Zap or SavvyOS direct sync) created the row.
+ *
+ * Exported so the diagnostic testSync uses the same resolver and the two
+ * paths can't drift apart.
+ */
+export async function resolveLeadSourceName(leadSourceId: number | null | undefined): Promise<string | null> {
   if (!leadSourceId) return null;
   const db = await getDb();
   if (!db) return null;
   const [row] = await db
-    .select({ name: leadSources.name, parentId: leadSources.parentId })
+    .select({ name: leadSources.name })
     .from(leadSources)
     .where(eq(leadSources.id, leadSourceId))
     .limit(1);
-  if (!row) return null;
-  if (row.parentId) {
-    const [parent] = await db
-      .select({ name: leadSources.name })
-      .from(leadSources)
-      .where(eq(leadSources.id, row.parentId))
-      .limit(1);
-    if (parent) return `${parent.name} → ${row.name}`;
-  }
-  return row.name;
+  return row?.name ?? null;
 }
 
 /**

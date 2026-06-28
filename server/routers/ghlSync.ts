@@ -12,9 +12,9 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { contacts, leadSources } from "../../drizzle/schema";
+import { contacts } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
-import { upsertContactToGhl } from "../_core/ghlSync";
+import { upsertContactToGhl, resolveLeadSourceName } from "../_core/ghlSync";
 import { ENV } from "../_core/env";
 
 export const ghlSyncRouter = router({
@@ -56,26 +56,7 @@ export const ghlSyncRouter = router({
         .limit(1);
       if (!c) throw new TRPCError({ code: "NOT_FOUND", message: `contact ${input.contactId} not found` });
 
-      let leadSourceName: string | null = null;
-      if (c.leadSourceId) {
-        const [row] = await db
-          .select({ name: leadSources.name, parentId: leadSources.parentId })
-          .from(leadSources)
-          .where(eq(leadSources.id, c.leadSourceId))
-          .limit(1);
-        if (row) {
-          if (row.parentId) {
-            const [parent] = await db
-              .select({ name: leadSources.name })
-              .from(leadSources)
-              .where(eq(leadSources.id, row.parentId))
-              .limit(1);
-            leadSourceName = parent ? `${parent.name} → ${row.name}` : row.name;
-          } else {
-            leadSourceName = row.name;
-          }
-        }
-      }
+      const leadSourceName = await resolveLeadSourceName(c.leadSourceId);
 
       const result = await upsertContactToGhl({
         email: c.email,
