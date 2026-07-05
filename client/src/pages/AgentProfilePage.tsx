@@ -421,7 +421,7 @@ export default function AgentProfilePage() {
       {/* Header card */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-center">
+          <div className="flex flex-col sm:flex-row gap-6 items-start">
             <Avatar className="h-20 w-20">
               {agentCoreProfile?.profilePhotoUrl && (
                 <AvatarImage src={agentCoreProfile.profilePhotoUrl} alt={agentData.name ?? ""} className="object-cover" />
@@ -480,9 +480,9 @@ export default function AgentProfilePage() {
                 )}
               </div>
             </div>
-            {isAdmin && (
-              <div className="flex gap-2 mt-4 sm:mt-0 shrink-0 flex-wrap">
-                {!isProtectedAccount && !isSelf && (
+            {(isAdmin || (isSelf && agentData.role === "agent")) && (
+              <div className="flex flex-wrap gap-2 mt-4 sm:mt-0 shrink-0 max-w-full">
+                {isAdmin && !isProtectedAccount && !isSelf && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -507,7 +507,7 @@ export default function AgentProfilePage() {
                     )}
                   </Button>
                 )}
-                {agentData.role === "agent" && (
+                {isAdmin && agentData.role === "agent" && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -517,49 +517,51 @@ export default function AgentProfilePage() {
                     <LogOut className="h-4 w-4 mr-1.5" /> Offboard Agent
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditProfileForm({
-                      name: agentData.name ?? "",
-                      title: agentData.title ?? "",
-                      email: agentData.email ?? "",
-                      phone: agentData.phone ?? "",
-                      commissionSplit: agentData.commissionSplit != null ? String(agentData.commissionSplit) : "",
-                      callBookingLink: (agentData as any).callBookingLink ?? "",
-                    });
-                    setEditProfileOpen(true);
-                  }}
-                >
-                  <Pencil className="h-4 w-4 mr-1.5" /> Edit Profile
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                  onClick={() => { resetFeedbackForm(); setEditFeedbackId(null); setOneOnOneOpen(true); }}
-                >
-                  <MessageSquarePlus className="h-4 w-4 mr-1.5" /> Leadership 1-on-1
-                </Button>
-              </div>
-            )}
-            {/* Request Connection button — visible to admins and the agent themselves */}
-            {(isAdmin || isSelf) && agentData.role === "agent" && (
-              <div className={`flex gap-2 mt-4 sm:mt-0 shrink-0 ${isAdmin ? "" : ""}`}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                  onClick={() => {
-                    setReqConnSearch("");
-                    setReqConnSelectedContact(null);
-                    setReqConnPipelineStatus("new_lead");
-                    setReqConnOpen(true);
-                  }}
-                >
-                  <GitMerge className="h-4 w-4 mr-1.5" /> Request Connection
-                </Button>
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditProfileForm({
+                        name: agentData.name ?? "",
+                        title: agentData.title ?? "",
+                        email: agentData.email ?? "",
+                        phone: agentData.phone ?? "",
+                        commissionSplit: agentData.commissionSplit != null ? String(agentData.commissionSplit) : "",
+                        callBookingLink: (agentData as any).callBookingLink ?? "",
+                      });
+                      setEditProfileOpen(true);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4 mr-1.5" /> Edit Profile
+                  </Button>
+                )}
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                    onClick={() => { resetFeedbackForm(); setEditFeedbackId(null); setOneOnOneOpen(true); }}
+                  >
+                    <MessageSquarePlus className="h-4 w-4 mr-1.5" /> Leadership 1-on-1
+                  </Button>
+                )}
+                {/* Request Connection button — visible to admins and the agent themselves */}
+                {agentData.role === "agent" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                    onClick={() => {
+                      setReqConnSearch("");
+                      setReqConnSelectedContact(null);
+                      setReqConnPipelineStatus("new_lead");
+                      setReqConnOpen(true);
+                    }}
+                  >
+                    <GitMerge className="h-4 w-4 mr-1.5" /> Request Connection
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -604,8 +606,8 @@ export default function AgentProfilePage() {
         </div>
       )}
 
-      {/* Quick stats — GCI/Transactions only for agents */}
-      <div className={`grid gap-4 ${agentData.role === "agent" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2"}`}>
+      {/* Quick stats — GCI/Transactions/Contacts only for agents */}
+      <div className={`grid gap-4 ${agentData.role === "agent" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-1 sm:grid-cols-2 max-w-sm"}`}>
         {agentData.role === "agent" && (
           <Card>
             <CardContent className="pt-4">
@@ -636,19 +638,21 @@ export default function AgentProfilePage() {
             </CardContent>
           </Card>
         )}
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100">
-                <Users className="h-5 w-5 text-green-600" />
+        {agentData.role === "agent" && (
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-green-100">
+                  <Users className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Assigned Contacts</p>
+                  <p className="text-lg font-bold">{contactTotal}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Assigned Contacts</p>
-                <p className="text-lg font-bold">{contactTotal}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
@@ -665,7 +669,7 @@ export default function AgentProfilePage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue={agentData.role === "agent" ? "transactions" : "contacts"}>
+      <Tabs defaultValue={agentData.role === "agent" ? "transactions" : "tasks"}>
         <TabsList>
           {agentData.role === "agent" && (
             <TabsTrigger value="transactions">
@@ -673,10 +677,12 @@ export default function AgentProfilePage() {
               Transactions ({txTotal})
             </TabsTrigger>
           )}
-          <TabsTrigger value="contacts">
-            <Users className="h-4 w-4 mr-1.5" />
-            Contacts ({contactTotal})
-          </TabsTrigger>
+          {agentData.role === "agent" && (
+            <TabsTrigger value="contacts">
+              <Users className="h-4 w-4 mr-1.5" />
+              Contacts ({contactTotal})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="tasks">
             <CheckSquare className="h-4 w-4 mr-1.5" />
             Tasks ({taskTotal})
