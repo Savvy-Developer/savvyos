@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -177,6 +177,11 @@ export default function AgentProfilePage() {
 
   const { data: agent, isLoading: agentLoading } = trpc.users.getById.useQuery(
     { id: agentId },
+    { enabled: !!agentId }
+  );
+
+  const { data: agentCoreProfile } = trpc.users.getCoreProfile.useQuery(
+    { userId: agentId },
     { enabled: !!agentId }
   );
 
@@ -418,6 +423,9 @@ export default function AgentProfilePage() {
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-center">
             <Avatar className="h-20 w-20">
+              {agentCoreProfile?.profilePhotoUrl && (
+                <AvatarImage src={agentCoreProfile.profilePhotoUrl} alt={agentData.name ?? ""} className="object-cover" />
+              )}
               <AvatarFallback className="bg-primary/10 text-primary font-bold text-2xl">
                 {getInitials(agentData.name)}
               </AvatarFallback>

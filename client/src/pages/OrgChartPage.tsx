@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   ChevronRight,
   ChevronDown,
@@ -29,6 +30,7 @@ type OrgUser = {
   marketName: string | null;
   groupName: string | null;
   openId: string;
+  profilePhotoUrl?: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -124,13 +126,16 @@ function OrgNode({
         `}
       >
         {/* Avatar */}
-        <div
-          className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
-            ROLE_AVATAR[user.role] ?? "bg-gray-100 text-gray-600"
-          }`}
-        >
-          {initials(user.name)}
-        </div>
+        <Avatar className="w-9 h-9 shrink-0">
+          {user.profilePhotoUrl && (
+            <AvatarImage src={user.profilePhotoUrl} alt={user.name ?? ""} className="object-cover" />
+          )}
+          <AvatarFallback
+            className={`text-sm font-bold ${ROLE_AVATAR[user.role] ?? "bg-gray-100 text-gray-600"}`}
+          >
+            {initials(user.name)}
+          </AvatarFallback>
+        </Avatar>
 
         {/* Main info */}
         <div className="flex-1 min-w-0">

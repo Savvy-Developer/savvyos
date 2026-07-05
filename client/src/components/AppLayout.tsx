@@ -3,7 +3,7 @@ import DevRoleSwitcher from "./DevRoleSwitcher";
 import FeedbackDialog from "./FeedbackDialog";
 import DevLoginScreen from "./DevLoginScreen";
 import { SimulateAsButton, SimulationBanner, WorkAsAgentBanner } from "./SimulateAsButton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -245,7 +245,7 @@ function SidebarNav({
   currentPath: string;
   collapsed: boolean;
   onNavigate: (path: string) => void;
-  user: { name?: string | null };
+  user: { name?: string | null; profilePhotoUrl?: string | null };
   roleLabel: string;
   roleBadgeClass: string;
   logout: () => void;
@@ -254,6 +254,7 @@ function SidebarNav({
   const initials = user.name
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
+  const avatarUrl = (user as any).profilePhotoUrl ?? null;
 
   return (
     <div className="flex flex-col h-full select-none">
@@ -343,6 +344,7 @@ function SidebarNav({
               className="flex items-center gap-2.5 w-full rounded-lg px-2 py-2 hover:bg-sidebar-accent transition-colors text-left"
             >
               <Avatar className="h-8 w-8 shrink-0">
+                {avatarUrl && <AvatarImage src={avatarUrl} alt={user.name ?? ""} className="object-cover" />}
                 <AvatarFallback className="bg-[oklch(0.74_0.14_200)] text-[oklch(0.08_0_0)] text-xs font-semibold">
                   {initials}
                 </AvatarFallback>
@@ -363,6 +365,10 @@ function SidebarNav({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="top" className="w-48">
+            <DropdownMenuItem onClick={() => (window.location.href = "/profile")} className="cursor-pointer">
+              <Settings className="h-4 w-4 mr-2" />
+              My Profile
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="text-destructive cursor-pointer">
               <LogOut className="h-4 w-4 mr-2" />
@@ -432,6 +438,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { data: myOverdueTaskData } = trpc.tasks.myOverdueCount.useQuery(
     undefined,
     { enabled: !!user, refetchInterval: 60000 }
+  );
+  // Fetch the logged-in user's profile photo for the sidebar avatar
+  const { data: myCoreProfile } = trpc.users.getMyCoreProfile.useQuery(
+    undefined,
+    { enabled: !!user, staleTime: 60000 }
   );
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
@@ -518,7 +529,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     navGroups,
     currentPath,
     collapsed,
-    user,
+    user: { ...user, profilePhotoUrl: (myCoreProfile as any)?.profilePhotoUrl ?? null },
     roleLabel,
     roleBadgeClass,
     logout,

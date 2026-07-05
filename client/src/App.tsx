@@ -71,6 +71,7 @@ import PartnerLinksPage from "./pages/PartnerLinksPage";
 import GoalsPage from "./pages/GoalsPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import RequestConnectionPage from "./pages/RequestConnectionPage";
+import ProfilePage from "./pages/ProfilePage";
 import DevRoleSwitcher from "./components/DevRoleSwitcher";
 import DevLoginScreen from "./components/DevLoginScreen";
 import LoginPage from "./pages/LoginPage";
@@ -174,6 +175,7 @@ function Router() {
           <Route path="/referral-partners" component={ReferralPartnersPage} />
           <Route path="/my-onboarding" component={MyOnboardingPage} />
           <Route path="/org-chart" component={OrgChartPage} />
+          <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />
           <Route path="/market-match-config">{() => <AdminOrIsaRoute><MarketMatchConfigPage /></AdminOrIsaRoute>}</Route>

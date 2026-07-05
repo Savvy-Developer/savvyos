@@ -468,6 +468,12 @@ export const usersRouter = router({
       const leaderGroupMap = new Map(
         leaderRows.filter((g) => g.leaderId != null).map((g) => [g.leaderId!, g.name])
       );
+      // Profile photo lookup
+      const photoRows = await db
+        .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
+        .from(userProfiles);
+      const photoMap = new Map(photoRows.map((r) => [r.userId, r.profilePhotoUrl]));
+
       return (all as any[]).map((u: any) => ({
         id: u.id as number,
         name: u.name as string | null,
@@ -480,6 +486,35 @@ export const usersRouter = router({
         marketName: u.marketProfileId ? (mktMap.get(u.marketProfileId) ?? null) : null,
         groupName: groupMap.get(u.id) ?? leaderGroupMap.get(u.id) ?? null,
         openId: u.openId as string,
+        profilePhotoUrl: photoMap.get(u.id) ?? null,
       }));
+    }),
+
+  // Update the logged-in user's own profile photo
+  updateAvatar: protectedProcedure
+    .input(z.object({ avatarUrl: z.string().url() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const existing = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, ctx.user.id))
+        .limit(1);
+      if (existing.length > 0) {
+        await db.update(userProfiles).set({ profilePhotoUrl: input.avatarUrl }).where(eq(userProfiles.userId, ctx.user.id));
+      } else {
+        await db.insert(userProfiles).values({ userId: ctx.user.id, profilePhotoUrl: input.avatarUrl });
+      }
+      return { success: true };
+    }),
+
+  // Get the logged-in user's own core profile (for the Profile page)
+  getMyCoreProfile: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const rows = await db.select().from(userProfiles).where(eq(userProfiles.userId, ctx.user.id)).limit(1);
+      return rows[0] ?? null;
     }),
 });
