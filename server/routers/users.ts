@@ -163,10 +163,36 @@ export const usersRouter = router({
         .from(userDocuments)
         .groupBy(userDocuments.userId);
       const countMap = new Map(counts.map((c: any) => [c.userId, Number(c.count)]));
+      // Get profile photos
+      const photos = await db
+        .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
+        .from(userProfiles);
+      const photoMap = new Map(photos.map((p) => [p.userId, p.profilePhotoUrl]));
       return (users as any[]).map((u: any) => ({
         ...u,
         documentCount: countMap.get(u.id) ?? 0,
+        profilePhotoUrl: photoMap.get(u.id) ?? null,
       }));
+    }),
+
+  // Admin: upload headshot on behalf of any user
+  adminUpdateAvatar: protectedProcedure
+    .input(z.object({ userId: z.number(), avatarUrl: z.string().url() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const existing = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, input.userId))
+        .limit(1);
+      if (existing.length > 0) {
+        await db.update(userProfiles).set({ profilePhotoUrl: input.avatarUrl }).where(eq(userProfiles.userId, input.userId));
+      } else {
+        await db.insert(userProfiles).values({ userId: input.userId, profilePhotoUrl: input.avatarUrl });
+      }
+      return { success: true };
     }),
 
   create: protectedProcedure

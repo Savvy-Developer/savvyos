@@ -90,6 +90,7 @@ export function registerUploadRoutes(app: express.Application) {
   });
 
   // POST /api/upload/headshot — user profile photo (2MB, images only)
+  // Optional body field: targetUserId (admin only) to upload on behalf of another user
   app.post("/api/upload/headshot", headshotUpload.single("file"), async (req: any, res: any) => {
     try {
       // Authenticate the request
@@ -99,11 +100,19 @@ export function registerUploadRoutes(app: express.Application) {
 
       if (!req.file) return res.status(400).json({ error: "No file provided" });
 
+      // Admins can upload on behalf of another user by passing targetUserId
+      let targetUserId = user.id;
+      if (req.body?.targetUserId) {
+        if (user.role !== "admin") return res.status(403).json({ error: "Only admins can upload on behalf of other users" });
+        targetUserId = Number(req.body.targetUserId);
+        if (isNaN(targetUserId)) return res.status(400).json({ error: "Invalid targetUserId" });
+      }
+
       const ext =
         req.file.mimetype === "image/png" ? "png"
         : req.file.mimetype === "image/webp" ? "webp"
         : "jpg";
-      const fileKey = `headshots/${user.id}_${nanoid(8)}.${ext}`;
+      const fileKey = `headshots/${targetUserId}_${nanoid(8)}.${ext}`;
       const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
 
       // Upsert profilePhotoUrl in user_profiles
@@ -112,12 +121,12 @@ export function registerUploadRoutes(app: express.Application) {
         const existing = await db
           .select({ id: userProfiles.id })
           .from(userProfiles)
-          .where(eq(userProfiles.userId, user.id))
+          .where(eq(userProfiles.userId, targetUserId))
           .limit(1);
         if (existing.length > 0) {
-          await db.update(userProfiles).set({ profilePhotoUrl: url }).where(eq(userProfiles.userId, user.id));
+          await db.update(userProfiles).set({ profilePhotoUrl: url }).where(eq(userProfiles.userId, targetUserId));
         } else {
-          await db.insert(userProfiles).values({ userId: user.id, profilePhotoUrl: url });
+          await db.insert(userProfiles).values({ userId: targetUserId, profilePhotoUrl: url });
         }
       }
 

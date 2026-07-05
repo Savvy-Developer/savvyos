@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,17 +27,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
-import { Plus, Pencil, Trash2, Users, Eye, Search, Filter, UserCheck, Link2, Link2Off, KeyRound } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Eye, Search, Filter, UserCheck, Link2, Link2Off, KeyRound, Upload, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
 
 type UserRow = {
   id: number;
+  profilePhotoUrl?: string | null;
   name: string | null;
   email: string | null;
   phone: string | null;
@@ -110,6 +111,20 @@ export default function UsersPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [creatingMarket, setCreatingMarket] = useState(false);
 
+  // Admin headshot upload state
+  const [headshotPreview, setHeadshotPreview] = useState<string | null>(null);
+  const [headshotFile, setHeadshotFile] = useState<File | null>(null);
+  const [headshotDragOver, setHeadshotDragOver] = useState(false);
+  const [headshotUploadState, setHeadshotUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [headshotError, setHeadshotError] = useState<string | null>(null);
+  const headshotInputRef = useRef<HTMLInputElement>(null);
+  const adminUpdateAvatarMutation = trpc.users.adminUpdateAvatar.useMutation({
+    onSuccess: () => {
+      utils.users.listWithDocCounts.invalidate();
+      utils.users.orgChart.invalidate();
+    },
+  });
+
   const createMarketMutation = trpc.markets.create.useMutation({
     onSuccess: (newMarket) => {
       utils.markets.list.invalidate();
@@ -181,6 +196,11 @@ export default function UsersPage() {
     });
     setCreatingMarket(false);
     setEditTarget(u);
+    // Reset headshot upload state for this edit session
+    setHeadshotPreview(null);
+    setHeadshotFile(null);
+    setHeadshotUploadState("idle");
+    setHeadshotError(null);
   }
 
   const isTyler = (me as any)?.email === "tyler@savvy.realty";
@@ -420,6 +440,141 @@ export default function UsersPage() {
           )}
         </div>
         )}
+        {isEdit && (
+          <div className="border-t pt-3 space-y-3">
+            <Label className="text-sm font-medium">Profile Photo</Label>
+            {/* Current photo preview */}
+            <div className="flex items-center gap-3">
+              <Avatar className="h-12 w-12 ring-2 ring-border">
+                {(headshotPreview ?? editTarget?.profilePhotoUrl) && (
+                  <AvatarImage
+                    src={headshotPreview ?? editTarget?.profilePhotoUrl ?? ""}
+                    alt={editTarget?.name ?? ""}
+                    className="object-cover"
+                  />
+                )}
+                <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                  {editTarget?.name ? editTarget.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "?"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-xs text-muted-foreground">
+                {editTarget?.profilePhotoUrl && !headshotPreview
+                  ? "Current photo on file"
+                  : headshotPreview
+                  ? "New photo selected — click Save Photo to apply"
+                  : "No photo uploaded yet"}
+              </div>
+            </div>
+            {/* Drag-and-drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setHeadshotDragOver(true); }}
+              onDragLeave={() => setHeadshotDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setHeadshotDragOver(false);
+                const file = e.dataTransfer.files[0];
+                if (!file) return;
+                if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+                  setHeadshotError("Only JPG, PNG, and WEBP images are allowed.");
+                  setHeadshotUploadState("error");
+                  return;
+                }
+                if (file.size > 2 * 1024 * 1024) {
+                  setHeadshotError("File must be under 2MB.");
+                  setHeadshotUploadState("error");
+                  return;
+                }
+                setHeadshotError(null);
+                setHeadshotUploadState("idle");
+                setHeadshotFile(file);
+                const reader = new FileReader();
+                reader.onload = (ev) => setHeadshotPreview(ev.target?.result as string);
+                reader.readAsDataURL(file);
+              }}
+              onClick={() => headshotInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${
+                headshotDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
+              }`}
+            >
+              <input
+                ref={headshotInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+                    setHeadshotError("Only JPG, PNG, and WEBP images are allowed.");
+                    setHeadshotUploadState("error");
+                    return;
+                  }
+                  if (file.size > 2 * 1024 * 1024) {
+                    setHeadshotError("File must be under 2MB.");
+                    setHeadshotUploadState("error");
+                    return;
+                  }
+                  setHeadshotError(null);
+                  setHeadshotUploadState("idle");
+                  setHeadshotFile(file);
+                  const reader = new FileReader();
+                  reader.onload = (ev) => setHeadshotPreview(ev.target?.result as string);
+                  reader.readAsDataURL(file);
+                }}
+              />
+              <Upload className="h-5 w-5 mx-auto mb-1.5 text-muted-foreground" />
+              <p className="text-xs font-medium text-foreground">{headshotDragOver ? "Drop here" : "Drag & drop or click to upload"}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">JPG, PNG, WEBP — max 2MB</p>
+            </div>
+            {/* Save photo button */}
+            {headshotFile && (
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  type="button"
+                  disabled={headshotUploadState === "uploading"}
+                  onClick={async () => {
+                    if (!headshotFile || !editTarget) return;
+                    setHeadshotUploadState("uploading");
+                    setHeadshotError(null);
+                    try {
+                      const fd = new FormData();
+                      fd.append("file", headshotFile);
+                      fd.append("targetUserId", String(editTarget.id));
+                      const res = await fetch("/api/upload/headshot", { method: "POST", body: fd });
+                      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error ?? "Upload failed"); }
+                      const { url } = await res.json();
+                      await adminUpdateAvatarMutation.mutateAsync({ userId: editTarget.id, avatarUrl: url });
+                      setHeadshotUploadState("success");
+                      setHeadshotFile(null);
+                      toast.success(`Photo updated for ${editTarget.name ?? "user"}`);
+                    } catch (err: any) {
+                      setHeadshotError(err.message ?? "Upload failed");
+                      setHeadshotUploadState("error");
+                    }
+                  }}
+                >
+                  {headshotUploadState === "uploading" ? (
+                    <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</>
+                  ) : "Save Photo"}
+                </Button>
+                <Button size="sm" variant="ghost" type="button" onClick={() => { setHeadshotFile(null); setHeadshotPreview(null); setHeadshotUploadState("idle"); }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+            {headshotUploadState === "success" && (
+              <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Photo saved successfully.
+              </div>
+            )}
+            {headshotUploadState === "error" && headshotError && (
+              <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />{headshotError}
+              </div>
+            )}
+          </div>
+        )}
         {isEdit && isTyler && (
           <div className="border-t pt-3">
             <div className="flex items-center gap-2">
@@ -572,6 +727,9 @@ export default function UsersPage() {
                     <TableCell>
                       <div className="flex items-center gap-2.5">
                         <Avatar className="h-8 w-8">
+                          {(u as any).profilePhotoUrl && (
+                            <AvatarImage src={(u as any).profilePhotoUrl} alt={u.name ?? ""} className="object-cover" />
+                          )}
                           <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
                             {initials}
                           </AvatarFallback>
