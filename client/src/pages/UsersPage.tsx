@@ -119,9 +119,10 @@ export default function UsersPage() {
   const [headshotError, setHeadshotError] = useState<string | null>(null);
   const headshotInputRef = useRef<HTMLInputElement>(null);
   const adminUpdateAvatarMutation = trpc.users.adminUpdateAvatar.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       utils.users.listWithDocCounts.invalidate();
       utils.users.orgChart.invalidate();
+      utils.users.getCoreProfile.invalidate({ userId: variables.userId });
     },
   });
 
@@ -547,6 +548,7 @@ export default function UsersPage() {
                       await adminUpdateAvatarMutation.mutateAsync({ userId: editTarget.id, avatarUrl: url });
                       setHeadshotUploadState("success");
                       setHeadshotFile(null);
+                      setEditTarget((prev) => prev ? { ...prev, profilePhotoUrl: url } : prev);
                       toast.success(`Photo updated for ${editTarget.name ?? "user"}`);
                     } catch (err: any) {
                       setHeadshotError(err.message ?? "Upload failed");

@@ -421,8 +421,8 @@ export default function AgentProfilePage() {
       {/* Header card */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-start">
-            <Avatar className="h-20 w-20">
+          <div className="flex flex-col sm:flex-row gap-6 items-start flex-wrap">
+            <Avatar className="h-20 w-20 shrink-0">
               {agentCoreProfile?.profilePhotoUrl && (
                 <AvatarImage src={agentCoreProfile.profilePhotoUrl} alt={agentData.name ?? ""} className="object-cover" />
               )}
@@ -430,7 +430,7 @@ export default function AgentProfilePage() {
                 {getInitials(agentData.name)}
               </AvatarFallback>
             </Avatar>
-            <div className="flex-1 space-y-1">
+            <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-2xl font-bold">{agentData.name ?? "—"}</h1>
                 <Badge variant="outline" className="capitalize">
@@ -481,7 +481,7 @@ export default function AgentProfilePage() {
               </div>
             </div>
             {(isAdmin || (isSelf && agentData.role === "agent")) && (
-              <div className="flex flex-wrap gap-2 mt-4 sm:mt-0 shrink-0 max-w-full">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0">
                 {isAdmin && !isProtectedAccount && !isSelf && (
                   <Button
                     variant="outline"
