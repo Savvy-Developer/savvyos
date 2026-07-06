@@ -345,6 +345,41 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "edit";
       break;
 
+    // ── Smart Plans ──────────────────────────────────────────────────────────
+    case "smart_plan_created":
+      title = "Smart Plan created";
+      lines = details.name ? [`Plan: "${details.name}"`] : [];
+      icon = "plus";
+      break;
+    case "smart_plan_published":
+      title = "Smart Plan published";
+      lines = details.name ? [`Plan: "${details.name}"`] : [];
+      icon = "check";
+      break;
+    case "smart_plan_updated":
+      title = "Smart Plan updated";
+      icon = "edit";
+      break;
+    case "smart_plan_deleted":
+      title = "Smart Plan deleted";
+      icon = "alert";
+      break;
+    // ── Market Match ──────────────────────────────────────────────────────────
+    case "market_match_session_started":
+      title = "Market Match call started";
+      lines = details.contactName ? [`Contact: ${details.contactName}`] : [];
+      icon = "plus";
+      break;
+    case "market_match_session_completed":
+      title = "Market Match call completed";
+      icon = "check";
+      break;
+    // ── User Login ────────────────────────────────────────────────────────────
+    case "user_login":
+      title = "Logged in";
+      lines = [];
+      icon = "info";
+      break;
     // ── Fallback ──────────────────────────────────────────────────────────────
     default:
       title = action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

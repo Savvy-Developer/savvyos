@@ -52,6 +52,7 @@ import {
   getMarketById,
   updateMarketGoal,
   getAgentMonthlyGci,
+  getGlobalActivityLog,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
@@ -87,6 +88,25 @@ export const analyticsRouter = router({
     .query(async ({ input }) =>
       getActivityLog(input?.entityType, input?.entityId, input?.limit ?? 50, input?.contactId)
     ),
+
+  // ─── Admin: Global Activity Timeline ─────────────────────────────────────
+  /** Paginated global activity log for the /admin/activity timeline page */
+  globalActivityLog: protectedProcedure
+    .input(z.object({
+      page: z.number().min(1).default(1),
+      limit: z.number().min(1).max(100).default(50),
+      userId: z.number().optional(),
+      entityTypes: z.array(z.string()).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Admin only");
+      return getGlobalActivityLog({
+        page: input?.page ?? 1,
+        limit: input?.limit ?? 50,
+        userId: input?.userId,
+        entityTypes: input?.entityTypes,
+      });
+    }),
 
   // ─── Deep analytics ───────────────────────────────────────────────────────
 

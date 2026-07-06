@@ -25,7 +25,7 @@ import {
 } from "../marketMatch.db";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { usStates, usCounties, marketCounties } from "../../drizzle/schema";
-import { getDb } from "../db";
+import { getDb, logActivity } from "../db";
 import { eq, asc } from "drizzle-orm";
 
 // ─── Investor Profile Schema ──────────────────────────────────────────────────
@@ -243,6 +243,7 @@ export const marketMatchRouter = router({
         contactId: input.contactId,
         isaId: ctx.user.id,
       });
+      void logActivity({ userId: ctx.user.id, action: "market_match_session_started", entityType: "contact", entityId: input.contactId, details: { sessionId } });
       return { sessionId, contact };
     }),
 
@@ -568,11 +569,11 @@ Generate the following in JSON:
       if (ctx.user.role === "isa" && session.isaId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      const { sessionId, ...rest } = input;
+            const { sessionId, ...rest } = input;
       await completeMarketMatchSession(sessionId, rest);
+      void logActivity({ userId: ctx.user.id, action: "market_match_session_completed", entityType: "contact", entityId: session.contactId, details: { sessionId, recommendedAgentId: input.recommendedAgentId } });
       return { success: true };
     }),
-
   // ─── Call History ────────────────────────────────────────────────────────
   recentSessions: isaOrAdminProcedure
     .input(z.object({ limit: z.number().min(1).max(100).optional() }))

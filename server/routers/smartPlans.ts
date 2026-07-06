@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
-import { getDb } from "../db";
+import { getDb, logActivity } from "../db";
 import {
   smartPlans,
   smartPlanSteps,
@@ -102,7 +102,9 @@ export const smartPlansRouter = router({
         triggerScope: input.triggerScope ?? "new_only",
         status: input.status ?? "draft",
       });
-      return { id: (result as any).insertId as number };
+      const newId = (result as any).insertId as number;
+      await logActivity({ userId: ctx.user.id, action: "smart_plan_created", entityType: "smart_plan", entityId: newId, details: { name: input.name } });
+      return { id: newId };
     }),
 
   // Create a draft plan (returns id immediately for wizard flow)
@@ -125,7 +127,9 @@ export const smartPlansRouter = router({
         triggerScope: input.triggerScope ?? "new_only",
         status: "draft",
       });
-      return { id: (result as any).insertId as number };
+      const draftId = (result as any).insertId as number;
+      await logActivity({ userId: ctx.user.id, action: "smart_plan_created", entityType: "smart_plan", entityId: draftId, details: { name: input.name, status: "draft" } });
+      return { id: draftId };
     }),
 
   // Count existing contacts that would be enrolled (for confirmation dialog)
@@ -160,6 +164,7 @@ export const smartPlansRouter = router({
         .where(eq(smartPlanSteps.planId, input.id));
       if (steps.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Plan must have at least one step before publishing." });
       await db.update(smartPlans).set({ status: "active" }).where(eq(smartPlans.id, input.id));
+      await logActivity({ userId: ctx.user.id, action: "smart_plan_published", entityType: "smart_plan", entityId: input.id });
       return { success: true };
     }),
 
@@ -170,6 +175,7 @@ export const smartPlansRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await db.update(smartPlans).set(input.data).where(eq(smartPlans.id, input.id));
+      await logActivity({ userId: ctx.user.id, action: "smart_plan_updated", entityType: "smart_plan", entityId: input.id });
       return { success: true };
     }),
 
@@ -190,6 +196,7 @@ export const smartPlansRouter = router({
       await db.delete(smartPlanEnrollments).where(eq(smartPlanEnrollments.planId, input.id));
       await db.delete(smartPlanSteps).where(eq(smartPlanSteps.planId, input.id));
       await db.delete(smartPlans).where(eq(smartPlans.id, input.id));
+      await logActivity({ userId: ctx.user.id, action: "smart_plan_deleted", entityType: "smart_plan", entityId: input.id });
       return { success: true };
     }),
 

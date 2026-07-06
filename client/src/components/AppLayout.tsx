@@ -52,6 +52,7 @@ import {
   LayoutDashboard,
   Link2,
   Target,
+  Activity,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -200,6 +201,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
         { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
         { icon: Users, label: "Leadership Dashboard", path: "/leadership-dashboard" },
+        { icon: Activity, label: "Activity Log", path: "/admin/activity" },
       ],
     },
     {

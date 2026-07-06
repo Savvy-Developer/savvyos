@@ -69,6 +69,7 @@ import EmailNotificationsPage from "./pages/EmailNotificationsPage";
 import PartnerLeadForm from "./pages/PartnerLeadForm";
 import PartnerLinksPage from "./pages/PartnerLinksPage";
 import GoalsPage from "./pages/GoalsPage";
+import ActivityTimelinePage from "./pages/admin/ActivityTimelinePage";
 import OnboardingPage from "./pages/OnboardingPage";
 import RequestConnectionPage from "./pages/RequestConnectionPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -194,6 +195,7 @@ function Router() {
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
           <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
+          <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>

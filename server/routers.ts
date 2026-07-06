@@ -147,6 +147,7 @@ export const appRouter = router({
         const token = await sdk.createSessionToken(user.openId, { name: user.name ?? user.email ?? "" });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        void db.logActivity({ userId: user.id, action: "user_login", entityType: "user", entityId: user.id, details: { email: user.email, name: user.name } });
         return { success: true };
       }),
 

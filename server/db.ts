@@ -2577,3 +2577,38 @@ export async function getAgentMonthlyGci(year: number) {
     .groupBy(transactions.agentId, sql`MONTH(${transactions.closingDate})`);
   return rows;
 }
+
+// ─── Global Activity Log (admin timeline) ─────────────────────────────────────
+export async function getGlobalActivityLog(opts: {
+  page?: number;
+  limit?: number;
+  userId?: number;
+  entityTypes?: string[];
+}) {
+  const db = await getDb();
+  if (!db) return { rows: [], total: 0 };
+  const page = opts.page ?? 1;
+  const limit = Math.min(opts.limit ?? 50, 100);
+  const offset = (page - 1) * limit;
+  const conditions: any[] = [];
+  if (opts.userId) conditions.push(eq(activityLog.userId, opts.userId));
+  if (opts.entityTypes && opts.entityTypes.length > 0) {
+    conditions.push(inArray(activityLog.entityType as any, opts.entityTypes));
+  }
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const [rows, countResult] = await Promise.all([
+    db
+      .select({ log: activityLog, user: users })
+      .from(activityLog)
+      .leftJoin(users, eq(activityLog.userId, users.id))
+      .where(where)
+      .orderBy(desc(activityLog.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(activityLog)
+      .where(where),
+  ]);
+  return { rows, total: Number(countResult[0]?.count ?? 0) };
+}

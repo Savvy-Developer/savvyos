@@ -543,4 +543,25 @@ export const usersRouter = router({
       const rows = await db.select().from(userProfiles).where(eq(userProfiles.userId, ctx.user.id)).limit(1);
       return rows[0] ?? null;
     }),
+
+  /** Admin: list all active users with their profile photos (for activity timeline filter) */
+  listWithPhotos: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) return [];
+      const allUsers = await getAllUsers();
+      const photos = await db
+        .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
+        .from(userProfiles);
+      const photoMap = new Map(photos.map((p) => [p.userId, p.profilePhotoUrl]));
+      return (allUsers as any[]).map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        isActive: u.isActive,
+        profilePhotoUrl: photoMap.get(u.id) ?? null,
+      })).filter((u: any) => u.isActive);
+    }),
 });
