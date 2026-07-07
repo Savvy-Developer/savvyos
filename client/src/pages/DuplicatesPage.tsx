@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
   Phone,
   Mail,
   MapPin,
+  Loader2,
 } from "lucide-react";
 
 type ContactSummary = {
@@ -365,6 +366,7 @@ export default function DuplicatesPage() {
   const PAGE_SIZE = 20;
 
   const [mergeTarget, setMergeTarget] = useState<PairRow | null>(null);
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
   const statsQuery = trpc.duplicates.getStats.useQuery();
   const pairsQuery = trpc.duplicates.listPairs.useQuery({
@@ -373,14 +375,55 @@ export default function DuplicatesPage() {
     pageSize: PAGE_SIZE,
   });
 
-  const scanMutation = trpc.duplicates.scan.useMutation({
-    onSuccess: (data) => {
-      toast.success(`Scan complete — ${data.detected} pairs detected, ${data.inserted} new pairs added for review.`);
+  // Poll the latest scan job on mount to resume tracking if a job is running
+  const latestJobQuery = trpc.duplicates.getLatestScanJob.useQuery(undefined, {
+    refetchInterval: activeJobId ? false : 0,
+  });
+  useEffect(() => {
+    const job = latestJobQuery.data as any;
+    if (job && job.status === "running" && !activeJobId) {
+      setActiveJobId(job.id);
+    }
+  }, [latestJobQuery.data]);
+
+  // Poll the active job for progress
+  const jobStatusQuery = trpc.duplicates.getScanJob.useQuery(
+    { jobId: activeJobId! },
+    {
+      enabled: activeJobId !== null,
+      refetchInterval: (data: any) => {
+        if (!data) return 2000;
+        if ((data as any)?.status === "running") return 2000;
+        return false;
+      },
+    }
+  );
+  useEffect(() => {
+    const job = jobStatusQuery.data as any;
+    if (!job) return;
+    if (job.status === "completed") {
+      toast.success(`Scan complete — ${job.detected} pairs detected, ${job.inserted} new pairs added.`);
       utils.duplicates.listPairs.invalidate();
       utils.duplicates.getStats.invalidate();
+    } else if (job.status === "failed") {
+      toast.error(`Scan failed: ${job.errorMessage ?? "Unknown error"}`);
+    }
+  }, [(jobStatusQuery.data as any)?.status]);
+
+  const activeJob = jobStatusQuery.data as any;
+  const isScanning = activeJob?.status === "running";
+
+  const scanMutation = trpc.duplicates.scan.useMutation({
+    onSuccess: (data: any) => {
+      if (data.alreadyRunning) {
+        toast.info("A scan is already running — tracking progress below.");
+      } else {
+        toast.success("Scan started in the background — tracking progress below.");
+      }
+      setActiveJobId(data.jobId);
     },
     onError: (err) => {
-      toast.error(`Scan failed: ${err.message}`);
+      toast.error(`Scan failed to start: ${err.message}`);
     },
   });
 
@@ -420,13 +463,73 @@ export default function DuplicatesPage() {
         </div>
         <Button
           onClick={() => scanMutation.mutate()}
-          disabled={scanMutation.isPending}
+          disabled={scanMutation.isPending || isScanning}
           className="flex items-center gap-2"
         >
-          <RefreshCw className={`h-4 w-4 ${scanMutation.isPending ? "animate-spin" : ""}`} />
-          {scanMutation.isPending ? "Scanning…" : "Run Scan"}
+          <RefreshCw className={`h-4 w-4 ${(scanMutation.isPending || isScanning) ? "animate-spin" : ""}`} />
+          {isScanning ? "Scanning…" : scanMutation.isPending ? "Starting…" : "Run Scan"}
         </Button>
       </div>
+
+      {/* Scan Progress */}
+      {activeJob && (activeJob.status === "running" || activeJob.status === "completed" || activeJob.status === "failed") && (
+        <div className={`rounded-lg border p-4 mb-6 ${
+          activeJob.status === "running" ? "bg-blue-50 border-blue-200" :
+          activeJob.status === "completed" ? "bg-green-50 border-green-200" :
+          "bg-red-50 border-red-200"
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {activeJob.status === "running" ? (
+                <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+              ) : activeJob.status === "completed" ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+              ) : (
+                <AlertCircle className="h-4 w-4 text-red-600" />
+              )}
+              <span className="text-sm font-medium">
+                {activeJob.status === "running" ? "Scan in progress…" :
+                 activeJob.status === "completed" ? "Scan complete" :
+                 "Scan failed"}
+              </span>
+              <span className="text-xs text-muted-foreground capitalize">
+                Phase: {activeJob.phase?.replace(/_/g, " ")}
+              </span>
+            </div>
+            {activeJob.status !== "running" && (
+              <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setActiveJobId(null)}>Dismiss</button>
+            )}
+          </div>
+          {activeJob.total > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{activeJob.processed.toLocaleString()} / {activeJob.total.toLocaleString()} contacts processed</span>
+                <span>{Math.round((activeJob.processed / activeJob.total) * 100)}%</span>
+              </div>
+              <div className="w-full bg-white/60 rounded-full h-2 border">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    activeJob.status === "completed" ? "bg-green-500" :
+                    activeJob.status === "failed" ? "bg-red-500" :
+                    "bg-blue-500"
+                  }`}
+                  style={{ width: `${Math.round((activeJob.processed / activeJob.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+            <span>{activeJob.detected} pairs detected</span>
+            <span>{activeJob.inserted} new pairs inserted</span>
+            {activeJob.errorMessage && activeJob.status !== "failed" && (
+              <span className="text-amber-600">{activeJob.errorMessage}</span>
+            )}
+          </div>
+          {activeJob.status === "failed" && activeJob.errorMessage && (
+            <p className="text-xs text-red-600 mt-1">{activeJob.errorMessage}</p>
+          )}
+        </div>
+      )}
 
       {/* Stats cards */}
       {stats && (

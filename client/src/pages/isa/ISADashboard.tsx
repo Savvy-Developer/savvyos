@@ -84,9 +84,10 @@ export default function ISADashboard() {
   const { data: teamMembers } = trpc.users.list.useQuery({});
   const agents = (teamMembers ?? []).filter((u) => u.role === "agent");
 
-  const { data: pipeline } = trpc.agentConnections.list.useQuery(
-    selectedAgentId !== "all" ? { agentId: parseInt(selectedAgentId) } : {}
+  const { data: pipelineData } = trpc.agentConnections.list.useQuery(
+    selectedAgentId !== "all" ? { agentId: parseInt(selectedAgentId), limit: 200 } : { limit: 200 }
   );
+  const pipeline = pipelineData?.rows;
 
   const utils = trpc.useUtils();
   const updateTask = trpc.tasks.update.useMutation({
@@ -181,7 +182,7 @@ export default function ISADashboard() {
               </div>
             </CardHeader>
             <CardContent className="pt-0">
-              {!pipeline || pipeline.length === 0 ? (
+              {!pipeline || (pipeline as any[]).length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No pipeline entries found.</p>

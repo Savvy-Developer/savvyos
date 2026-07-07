@@ -32,7 +32,8 @@ export default function AdminApprovalsPage() {
   );
 
   const { data: users = [] } = trpc.users.list.useQuery({});
-  const { data: connections = [] } = trpc.agentConnections.list.useQuery({});
+  const { data: connectionsData } = trpc.agentConnections.list.useQuery({ limit: 200 });
+  const connections = connectionsData?.rows ?? [];
 
   const review = trpc.approvalRequests.review.useMutation({
     onSuccess: () => {

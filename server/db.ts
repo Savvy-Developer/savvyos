@@ -369,9 +369,9 @@ export async function deleteContact(id: number) {
 }
 
 // ─── Agent Connections ────────────────────────────────────────────────────────
-export async function getAgentConnections(agentId?: number, contactId?: number, status?: string, isaId?: number, search?: string, followUpDateFrom?: Date, followUpDateTo?: Date, sortOrder: "asc" | "desc" = "desc") {
+export async function getAgentConnections(agentId?: number, contactId?: number, status?: string, isaId?: number, search?: string, followUpDateFrom?: Date, followUpDateTo?: Date, sortOrder: "asc" | "desc" = "desc", page: number = 1, limit: number = 50) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return { rows: [], total: 0, page, limit };
   const conditions = [];
   if (agentId) conditions.push(eq(agentConnections.agentId, agentId));
   if (contactId) conditions.push(eq(agentConnections.contactId, contactId));
@@ -394,7 +394,14 @@ export async function getAgentConnections(agentId?: number, contactId?: number, 
   if (followUpDateTo) conditions.push(lte(agentConnections.followUpDate, followUpDateTo));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const pipelineParentLS = aliasedTable(leadSources, 'pipelineParentLS');
-  return db
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(agentConnections)
+    .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+    .where(where);
+  const total = Number(countRow?.count ?? 0);
+  const offset = (page - 1) * limit;
+  const rows = await db
     .select({
       connection: agentConnections,
       contact: contacts,
@@ -408,7 +415,10 @@ export async function getAgentConnections(agentId?: number, contactId?: number, 
     .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
     .leftJoin(pipelineParentLS, eq(leadSources.parentId, pipelineParentLS.id))
     .where(where)
-    .orderBy(sortOrder === "asc" ? asc(contacts.firstName) : desc(agentConnections.updatedAt));
+    .orderBy(sortOrder === "asc" ? asc(contacts.firstName) : desc(agentConnections.updatedAt))
+    .limit(limit)
+    .offset(offset);
+  return { rows, total, page, limit };
 }
 
 export async function getAgentConnectionById(id: number) {
@@ -557,7 +567,7 @@ export async function getPropertyOwnership(propertyId: number) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
-export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc") {
+export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date") {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -604,7 +614,21 @@ export async function getTransactions(agentId?: number, status?: string, search?
         .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
         .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
         .where(where)
-        .orderBy(sortOrder === "asc" ? asc(contacts.firstName) : desc(transactions.updatedAt))
+        .orderBy((() => {
+          const d = (col: any) => sortOrder === "asc" ? asc(col) : desc(col);
+          switch (sortBy) {
+            case "contact": return d(contacts.firstName);
+            case "property": return d(properties.address);
+            case "agent": return d(users.name);
+            case "type": return d(transactions.transactionType);
+            case "price": return d(transactions.purchasePrice);
+            case "gci": return d(transactions.grossCommissionIncome);
+            case "status": return d(transactions.status);
+            case "contract_date": return d(transactions.contractDate);
+            case "closing_date":
+            default: return sortOrder === "asc" ? asc(transactions.closingDate) : desc(transactions.closingDate);
+          }
+        })())
         .limit(limit)
         .offset(offset);
     })(),

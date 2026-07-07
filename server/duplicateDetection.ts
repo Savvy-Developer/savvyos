@@ -6,13 +6,14 @@
  *  2. Exact phone match (normalized to digits only)
  *  3. Exact first+last+address match (case-insensitive, normalized)
  *  4. Fuzzy name match using Jaro-Winkler similarity (≥ 0.92 threshold)
+ *     — only run when total contacts ≤ FUZZY_MAX_CONTACTS to avoid O(n²) crash
  *
- * Returns a list of candidate pairs with matchType and confidence score.
+ * The scan runs in the background and reports progress via the duplicate_scan_jobs table.
  */
 
 import { getDb } from "./db";
-import { contacts, duplicateContactPairs } from "../drizzle/schema";
-import { sql } from "drizzle-orm";
+import { contacts, duplicateContactPairs, duplicateScanJobs } from "../drizzle/schema";
+import { eq, sql } from "drizzle-orm";
 
 // ─── Jaro-Winkler similarity ──────────────────────────────────────────────────
 
@@ -97,16 +98,81 @@ export interface DuplicatePairCandidate {
   confidence: number; // 0-100
 }
 
-// ─── Detection ────────────────────────────────────────────────────────────────
+// ─── Background Scan ──────────────────────────────────────────────────────────
 
 /**
- * Scan the entire contacts table and return all duplicate pair candidates.
- * Excludes archived contacts and already-merged pairs.
+ * Maximum number of contacts for which fuzzy O(n²) matching is enabled.
+ * Above this threshold, only exact matches are performed to prevent crashes.
  */
-export async function detectAllDuplicates(): Promise<DuplicatePairCandidate[]> {
-  // Load all non-archived contacts
+const FUZZY_MAX_CONTACTS = 5000;
+
+/** Batch size for inserting duplicate pairs */
+const INSERT_BATCH_SIZE = 100;
+
+/** Yield control to event loop (prevents blocking) */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Run the full duplicate scan in the background.
+ * Updates the job record with progress as it goes.
+ * Returns the job ID immediately.
+ */
+export async function startBackgroundScan(): Promise<number> {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) throw new Error("DB unavailable");
+
+  // Create a new job record
+  const [result] = await db.insert(duplicateScanJobs).values({
+    status: "running",
+    phase: "starting",
+    processed: 0,
+    total: 0,
+    detected: 0,
+    inserted: 0,
+  });
+  const jobId = (result as any).insertId as number;
+
+  // Run the scan asynchronously (do not await)
+  runScanJob(jobId).catch(async (err) => {
+    try {
+      const db2 = await getDb();
+      if (db2) {
+        await db2.update(duplicateScanJobs).set({
+          status: "failed",
+          phase: "error",
+          errorMessage: String(err?.message ?? err),
+          completedAt: new Date(),
+        }).where(eq(duplicateScanJobs.id, jobId));
+      }
+    } catch { /* ignore */ }
+  });
+
+  return jobId;
+}
+
+async function runScanJob(jobId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  async function updateJob(fields: Partial<{
+    phase: string;
+    processed: number;
+    total: number;
+    detected: number;
+    inserted: number;
+    status: "running" | "completed" | "failed";
+    completedAt: Date;
+    errorMessage: string;
+  }>) {
+    await db!.update(duplicateScanJobs).set(fields).where(eq(duplicateScanJobs.id, jobId));
+  }
+
+  // ── Phase 1: Load contacts ────────────────────────────────────────────────
+  await updateJob({ phase: "loading_contacts" });
+  await yieldToEventLoop();
+
   const allContacts = await db
     .select({
       id: contacts.id,
@@ -121,17 +187,11 @@ export async function detectAllDuplicates(): Promise<DuplicatePairCandidate[]> {
     .from(contacts)
     .where(sql`${contacts.archivedAt} IS NULL`);
 
-  const pairs: DuplicatePairCandidate[] = [];
-  const seen = new Set<string>();
+  const total = allContacts.length;
+  await updateJob({ phase: "building_indexes", total });
+  await yieldToEventLoop();
 
-  function addPair(aId: number, bId: number, matchType: MatchType, confidence: number) {
-    const key = `${Math.min(aId, bId)}-${Math.max(aId, bId)}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    pairs.push({ contactAId: Math.min(aId, bId), contactBId: Math.max(aId, bId), matchType, confidence });
-  }
-
-  // Build lookup maps for exact matches
+  // ── Phase 2: Build lookup maps ────────────────────────────────────────────
   const emailMap = new Map<string, number[]>();
   const phoneMap = new Map<string, number[]>();
   const nameAddrMap = new Map<string, number[]>();
@@ -145,7 +205,6 @@ export async function detectAllDuplicates(): Promise<DuplicatePairCandidate[]> {
 
     const phone = normalizePhone(c.phone);
     if (phone.length >= 10) {
-      // Use last 10 digits to normalize country codes
       const normalized = phone.slice(-10);
       if (!phoneMap.has(normalized)) phoneMap.set(normalized, []);
       phoneMap.get(normalized)!.push(c.id);
@@ -160,6 +219,20 @@ export async function detectAllDuplicates(): Promise<DuplicatePairCandidate[]> {
       if (!nameAddrMap.has(key)) nameAddrMap.set(key, []);
       nameAddrMap.get(key)!.push(c.id);
     }
+  }
+
+  // ── Phase 3: Exact matching ───────────────────────────────────────────────
+  await updateJob({ phase: "exact_matching", processed: 0 });
+  await yieldToEventLoop();
+
+  const pairs: DuplicatePairCandidate[] = [];
+  const seen = new Set<string>();
+
+  function addPair(aId: number, bId: number, matchType: MatchType, confidence: number) {
+    const key = `${Math.min(aId, bId)}-${Math.max(aId, bId)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ contactAId: Math.min(aId, bId), contactBId: Math.max(aId, bId), matchType, confidence });
   }
 
   // Exact email duplicates
@@ -189,53 +262,197 @@ export async function detectAllDuplicates(): Promise<DuplicatePairCandidate[]> {
     }
   }
 
-  // Fuzzy name matching (Jaro-Winkler ≥ 0.92 on full name)
-  // Only run on contacts that haven't already been paired by exact match
+  await updateJob({ phase: "exact_matching", processed: total, detected: pairs.length });
+  await yieldToEventLoop();
+
+  // ── Phase 4: Fuzzy name matching (only for small datasets) ────────────────
   const FUZZY_THRESHOLD = 0.92;
-  for (let i = 0; i < allContacts.length; i++) {
-    const a = allContacts[i];
-    const fullA = normalizeName(`${a.firstName} ${a.lastName}`);
-    if (!fullA.trim()) continue;
+  if (total <= FUZZY_MAX_CONTACTS) {
+    await updateJob({ phase: "fuzzy_matching", processed: 0 });
 
-    for (let j = i + 1; j < allContacts.length; j++) {
-      const b = allContacts[j];
-      const key = `${Math.min(a.id, b.id)}-${Math.max(a.id, b.id)}`;
-      if (seen.has(key)) continue; // already captured by exact match
+    // Process in chunks of 100 to yield control
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < allContacts.length; i += CHUNK_SIZE) {
+      const chunk = allContacts.slice(i, Math.min(i + CHUNK_SIZE, allContacts.length));
+      for (const a of chunk) {
+        const fullA = normalizeName(`${a.firstName} ${a.lastName}`);
+        if (!fullA.trim()) continue;
 
-      const fullB = normalizeName(`${b.firstName} ${b.lastName}`);
-      if (!fullB.trim()) continue;
+        for (let j = allContacts.indexOf(a) + 1; j < allContacts.length; j++) {
+          const b = allContacts[j];
+          const key = `${Math.min(a.id, b.id)}-${Math.max(a.id, b.id)}`;
+          if (seen.has(key)) continue;
 
-      const sim = jaroWinkler(fullA, fullB);
-      if (sim >= FUZZY_THRESHOLD) {
-        const confidence = Math.round(sim * 100);
-        addPair(a.id, b.id, "fuzzy_name", confidence);
+          const fullB = normalizeName(`${b.firstName} ${b.lastName}`);
+          if (!fullB.trim()) continue;
+
+          const sim = jaroWinkler(fullA, fullB);
+          if (sim >= FUZZY_THRESHOLD) {
+            addPair(a.id, b.id, "fuzzy_name", Math.round(sim * 100));
+          }
+        }
       }
+      await updateJob({ processed: Math.min(i + CHUNK_SIZE, total), detected: pairs.length });
+      await yieldToEventLoop();
     }
+  } else {
+    await updateJob({
+      phase: "fuzzy_skipped",
+      processed: total,
+      detected: pairs.length,
+      errorMessage: `Fuzzy name matching skipped — dataset too large (${total} contacts > ${FUZZY_MAX_CONTACTS} limit). Exact matches only.`,
+    });
+    await yieldToEventLoop();
+  }
+
+  // ── Phase 5: Persist pairs in batches ────────────────────────────────────
+  await updateJob({ phase: "persisting", processed: 0 });
+  await yieldToEventLoop();
+
+  // Load existing pairs to avoid duplicates
+  const existing = await db
+    .select({ contactAId: duplicateContactPairs.contactAId, contactBId: duplicateContactPairs.contactBId })
+    .from(duplicateContactPairs);
+  const existingSet = new Set(existing.map((p: { contactAId: number; contactBId: number }) => `${p.contactAId}-${p.contactBId}`));
+
+  const toInsert = pairs.filter((p) => !existingSet.has(`${p.contactAId}-${p.contactBId}`));
+  let inserted = 0;
+
+  for (let i = 0; i < toInsert.length; i += INSERT_BATCH_SIZE) {
+    const batch = toInsert.slice(i, i + INSERT_BATCH_SIZE);
+    if (batch.length > 0) {
+      await db.insert(duplicateContactPairs).values(
+        batch.map((p) => ({
+          contactAId: p.contactAId,
+          contactBId: p.contactBId,
+          matchType: p.matchType,
+          confidence: p.confidence,
+          status: "pending" as const,
+        }))
+      );
+      inserted += batch.length;
+      await updateJob({ processed: i + batch.length, inserted });
+      await yieldToEventLoop();
+    }
+  }
+
+  // ── Done ──────────────────────────────────────────────────────────────────
+  await updateJob({
+    status: "completed",
+    phase: "done",
+    processed: total,
+    detected: pairs.length,
+    inserted,
+    completedAt: new Date(),
+  });
+}
+
+/**
+ * Get the current status of a scan job.
+ */
+export async function getScanJob(jobId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [job] = await db.select().from(duplicateScanJobs).where(eq(duplicateScanJobs.id, jobId));
+  return job ?? null;
+}
+
+/**
+ * Get the most recent scan job.
+ */
+export async function getLatestScanJob() {
+  const db = await getDb();
+  if (!db) return null;
+  const [job] = await db
+    .select()
+    .from(duplicateScanJobs)
+    .orderBy(sql`${duplicateScanJobs.startedAt} DESC`)
+    .limit(1);
+  return job ?? null;
+}
+
+// ─── Legacy synchronous API (kept for backward compatibility) ─────────────────
+
+/**
+ * @deprecated Use startBackgroundScan() instead.
+ */
+export async function detectAllDuplicates(): Promise<DuplicatePairCandidate[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const allContacts = await db
+    .select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      phone: contacts.phone,
+      address: contacts.address,
+      city: contacts.city,
+      state: contacts.state,
+    })
+    .from(contacts)
+    .where(sql`${contacts.archivedAt} IS NULL`);
+
+  const pairs: DuplicatePairCandidate[] = [];
+  const seen = new Set<string>();
+
+  function addPair(aId: number, bId: number, matchType: MatchType, confidence: number) {
+    const key = `${Math.min(aId, bId)}-${Math.max(aId, bId)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ contactAId: Math.min(aId, bId), contactBId: Math.max(aId, bId), matchType, confidence });
+  }
+
+  const emailMap = new Map<string, number[]>();
+  const phoneMap = new Map<string, number[]>();
+  const nameAddrMap = new Map<string, number[]>();
+
+  for (const c of allContacts) {
+    const email = normalizeEmail(c.email);
+    if (email) {
+      if (!emailMap.has(email)) emailMap.set(email, []);
+      emailMap.get(email)!.push(c.id);
+    }
+    const phone = normalizePhone(c.phone);
+    if (phone.length >= 10) {
+      const normalized = phone.slice(-10);
+      if (!phoneMap.has(normalized)) phoneMap.set(normalized, []);
+      phoneMap.get(normalized)!.push(c.id);
+    }
+    const fn = normalizeName(c.firstName);
+    const ln = normalizeName(c.lastName);
+    const addr = normalizeAddress(c.address);
+    const city = normalizeName(c.city);
+    if (fn && ln && (addr || city)) {
+      const key = `${fn}|${ln}|${addr}|${city}`;
+      if (!nameAddrMap.has(key)) nameAddrMap.set(key, []);
+      nameAddrMap.get(key)!.push(c.id);
+    }
+  }
+
+  for (const ids of Array.from(emailMap.values())) {
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) addPair(ids[i], ids[j], "email", 100);
+  }
+  for (const ids of Array.from(phoneMap.values())) {
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) addPair(ids[i], ids[j], "phone", 95);
+  }
+  for (const ids of Array.from(nameAddrMap.values())) {
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) addPair(ids[i], ids[j], "name_address", 90);
   }
 
   return pairs;
 }
 
-/**
- * Persist detected pairs to the DB, skipping pairs that already exist.
- * Returns the count of newly inserted pairs.
- */
 export async function persistDuplicatePairs(pairs: DuplicatePairCandidate[]): Promise<number> {
   if (pairs.length === 0) return 0;
-
-  // Load existing pairs to avoid re-inserting
   const db = await getDb();
   if (!db) return 0;
   const existing = await db
     .select({ contactAId: duplicateContactPairs.contactAId, contactBId: duplicateContactPairs.contactBId })
     .from(duplicateContactPairs);
-
   const existingSet = new Set(existing.map((p: { contactAId: number; contactBId: number }) => `${p.contactAId}-${p.contactBId}`));
-
   const toInsert = pairs.filter((p) => !existingSet.has(`${p.contactAId}-${p.contactBId}`));
-
   if (toInsert.length === 0) return 0;
-
   await db.insert(duplicateContactPairs).values(
     toInsert.map((p) => ({
       contactAId: p.contactAId,
@@ -245,6 +462,5 @@ export async function persistDuplicatePairs(pairs: DuplicatePairCandidate[]): Pr
       status: "pending" as const,
     }))
   );
-
   return toInsert.length;
 }

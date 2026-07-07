@@ -252,7 +252,7 @@ export default function LeadershipDashboardPage() {
                         <td className="py-3 px-4">
                           <button
                             className="font-medium hover:underline text-left"
-                            onClick={() => navigate(`/users/${row.feedback.agentUserId}`)}
+                            onClick={() => navigate(`/agents/${row.feedback.agentUserId}`)}
                           >
                             {row.agent?.name ?? "Unknown"}
                           </button>
@@ -275,7 +275,7 @@ export default function LeadershipDashboardPage() {
                         <td className="py-3 px-4">
                           <Button
                             size="sm" variant="ghost" className="h-7 px-2"
-                            onClick={() => navigate(`/users/${row.feedback.agentUserId}`)}
+                            onClick={() => navigate(`/agents/${row.feedback.agentUserId}`)}
                           >
                             <ChevronRight className="h-4 w-4" />
                           </Button>

@@ -67,6 +67,8 @@ export default function PipelinePage() {
   const [followUpFrom, setFollowUpFrom] = usePersistentState("pipeline.followUpFrom", "");
   const [followUpTo, setFollowUpTo] = usePersistentState("pipeline.followUpTo", "");
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("pipeline.sortOrder", "desc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [editOpen, setEditOpen] = useState(false);
   const [buyBoxOpen, setBuyBoxOpen] = useState(false);
   const [editConn, setEditConn] = useState<any>(null);
@@ -90,14 +92,23 @@ export default function PipelinePage() {
   });
 
   const isaIdParam = selectedIsaId === "all" ? undefined : selectedIsaId === "unassigned" ? -1 : Number(selectedIsaId);
-  const { data: connections, refetch } = trpc.agentConnections.list.useQuery({
-    agentId: (user as any)?.role === "agent" ? (user as any)?.id : undefined,
+  const statusParam = selectedStage === "all" ? undefined : selectedStage;
+  const agentIdParam = selectedAgentId === "all" ? undefined : Number(selectedAgentId);
+  const leadSourceIdParam = selectedLeadSourceId === "all" ? undefined : Number(selectedLeadSourceId);
+  const { data: connectionsData, refetch } = trpc.agentConnections.list.useQuery({
+    agentId: (user as any)?.role === "agent" ? (user as any)?.id : agentIdParam,
     isaId: isaIdParam,
+    status: statusParam,
     search: pipelineSearch.trim() || undefined,
     followUpDateFrom: followUpFrom || undefined,
     followUpDateTo: followUpTo || undefined,
     sortOrder,
+    page: currentPage,
+    limit: PAGE_SIZE,
   });
+  const connections = connectionsData?.rows ?? [];
+  const totalConnections = connectionsData?.total ?? 0;
+  const totalPages = Math.ceil(totalConnections / PAGE_SIZE);
   const { data: agents = [] } = trpc.users.list.useQuery(
     { role: "agent" },
     { enabled: (user as any)?.role !== "agent" }
@@ -167,23 +178,24 @@ export default function PipelinePage() {
     onError: (e) => toast.error(e.message),
   });
 
-  // Client-side filters that aren't sent to backend (agent, lead source, stage)
-  const preFiltered = (connections ?? []).filter((c) => {
-    const agentOk = selectedAgentId === "all" || String(c.connection.agentId) === selectedAgentId;
+  // Client-side lead source filter only (stage, agent, ISA, search are now server-side)
+  const filtered = connections.filter((c) => {
     const leadSourceOk = selectedLeadSourceId === "all" || String((c as any).contact?.leadSourceId) === selectedLeadSourceId;
-    return agentOk && leadSourceOk;
+    return leadSourceOk;
   });
 
-  const filtered = preFiltered.filter((c) => {
-    const stageOk = selectedStage === "all" || c.connection.pipelineStatus === selectedStage;
-    return stageOk;
-  });
-
-  // Stage counts reflect all active filters (search, agent, ISA, lead source, follow-up date)
+  // Stage counts: use total from server for the selected stage, show 0 for others when filtered
   const stageCounts = PIPELINE_STAGES.reduce((acc, s) => {
-    acc[s.value] = preFiltered.filter((c) => c.connection.pipelineStatus === s.value).length;
+    if (selectedStage === s.value) {
+      acc[s.value] = totalConnections;
+    } else {
+      acc[s.value] = connections.filter((c) => c.connection.pipelineStatus === s.value).length;
+    }
     return acc;
   }, {} as Record<string, number>);
+
+  // Reset to page 1 when filters change
+  function resetPage() { setCurrentPage(1); }
 
   function openEdit(conn: any) {
     setEditConn(conn);
@@ -259,7 +271,7 @@ export default function PipelinePage() {
         {PIPELINE_STAGES.map((s) => (
           <button
             key={s.value}
-            onClick={() => setSelectedStage(selectedStage === s.value ? "all" : s.value)}
+            onClick={() => { setSelectedStage(selectedStage === s.value ? "all" : s.value); resetPage(); }}
             className={`p-3 rounded-lg border text-left transition-all ${
               selectedStage === s.value
                 ? "border-primary bg-primary/5 shadow-sm"
@@ -348,8 +360,8 @@ export default function PipelinePage() {
               </SelectContent>
             </Select>
           </div>
-          {(selectedAgentId !== "all" || selectedIsaId !== "all" || selectedLeadSourceId !== "all" || pipelineSearch || followUpFrom || followUpTo) && (
-            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSelectedAgentId("all"); setSelectedIsaId("all"); setSelectedLeadSourceId("all"); setPipelineSearch(""); setFollowUpFrom(""); setFollowUpTo(""); }}>
+          {(selectedAgentId !== "all" || selectedIsaId !== "all" || selectedLeadSourceId !== "all" || pipelineSearch || followUpFrom || followUpTo || selectedStage !== "all") && (
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSelectedAgentId("all"); setSelectedIsaId("all"); setSelectedLeadSourceId("all"); setPipelineSearch(""); setFollowUpFrom(""); setFollowUpTo(""); setSelectedStage("all"); resetPage(); }}>
               Clear filters
             </Button>
           )}
@@ -396,30 +408,16 @@ export default function PipelinePage() {
         </div>
       </div>
 
-      {/* Stage Filter Pills */}
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <button
-          onClick={() => setSelectedStage("all")}
-          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-            selectedStage === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-          }`}
-        >
-          All ({preFiltered.length})
-        </button>
-        {PIPELINE_STAGES.map((s) => (
-          <button
-            key={s.value}
-            onClick={() => setSelectedStage(s.value)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              selectedStage === s.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            {s.label} {stageCounts[s.value] ? `(${stageCounts[s.value]})` : ""}
-          </button>
-        ))}
-      </div>
+
 
       {/* Pipeline Table */}
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm text-muted-foreground">
+          {totalConnections > 0 ? (
+            <>Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, totalConnections)} of <strong>{totalConnections.toLocaleString()}</strong> entries{selectedStage !== "all" ? ` in "${PIPELINE_STAGES.find(s => s.value === selectedStage)?.label}"` : ""}</>
+          ) : "No entries found"}
+        </p>
+      </div>
       <Card>
         <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
@@ -581,6 +579,66 @@ export default function PipelinePage() {
             </tbody>
           </table></div></CardContent>
       </Card>
+
+      {/* Pagination Footer */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-sm text-muted-foreground">
+            Page {currentPage} of {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+            >
+              «
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              ‹ Prev
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+                const page = start + i;
+                return (
+                  <Button
+                    key={page}
+                    variant={page === currentPage ? "default" : "outline"}
+                    size="sm"
+                    className="w-8 h-8 p-0"
+                    onClick={() => setCurrentPage(page)}
+                  >
+                    {page}
+                  </Button>
+                );
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next ›
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+            >
+              »
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Edit Stage Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

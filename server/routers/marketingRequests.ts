@@ -7,7 +7,7 @@ import {
   marketingRequestAttachments,
   users,
 } from "../../drizzle/schema";
-import { eq, desc, and, inArray, ne } from "drizzle-orm";
+import { eq, desc, and, inArray, ne, or, sql } from "drizzle-orm";
 import { storagePut } from "../storage";
 
 function randomSuffix() {
@@ -240,6 +240,22 @@ export const marketingRequestsRouter = router({
         .where(eq(marketingRequests.id, input.id));
 
       return { success: true, fileUrl };
+    }),
+
+  // Admin: count of new + in_progress requests for nav badge
+  pendingCount: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") return { count: 0 };
+      const db = await getDb();
+      if (!db) return { count: 0 };
+      const [row] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(marketingRequests)
+        .where(or(
+          eq(marketingRequests.status, "new"),
+          eq(marketingRequests.status, "in_progress")
+        ));
+      return { count: Number(row?.count ?? 0) };
     }),
 
   // Agent: cancel their own request

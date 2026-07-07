@@ -594,6 +594,44 @@ export default function TransactionsPage() {
   const [leadSourceFilter, setLeadSourceFilter] = usePersistentState("transactions.leadSourceFilter", "all");
   const [typeFilter, setTypeFilter] = usePersistentState("transactions.typeFilter", "all");
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("transactions.sortOrder", "desc");
+  const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
+  const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
+
+  function handleColumnSort(col: string) {
+    if (sortColumn === col) {
+      setSortOrder(o => o === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(col);
+      setSortOrder("desc");
+    }
+    setTxPage(1);
+  }
+
+  function SortIcon({ col }: { col: string }) {
+    if (sortColumn !== col) return <span className="ml-1 opacity-30 text-xs">↕</span>;
+    return <span className="ml-1 text-xs">{sortOrder === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  function calcAggregate(values: number[], mode: typeof aggregateMode): string {
+    const nums = values.filter(n => !isNaN(n) && isFinite(n));
+    if (nums.length === 0) return "—";
+    if (mode === "count") return nums.length.toLocaleString();
+    if (mode === "sum") {
+      const s = nums.reduce((a, b) => a + b, 0);
+      return `$${Math.round(s).toLocaleString()}`;
+    }
+    if (mode === "avg") {
+      const a = nums.reduce((a, b) => a + b, 0) / nums.length;
+      return `$${Math.round(a).toLocaleString()}`;
+    }
+    if (mode === "median") {
+      const sorted = [...nums].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const m = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      return `$${Math.round(m).toLocaleString()}`;
+    }
+    return "—";
+  }
 
   // Wizard state
   const [form, setForm] = useState<CreateForm>(defaultForm());
@@ -621,6 +659,7 @@ export default function TransactionsPage() {
     leadSourceId: leadSourceIdParam,
     transactionType: typeParam,
     sortOrder,
+    sortBy: sortColumn,
   });
   const { data: markets = [] } = trpc.markets.list.useQuery();
   const { data: leadSourcesData } = trpc.leadSources.list.useQuery();
@@ -808,17 +847,8 @@ export default function TransactionsPage() {
         }
       />
 
-      {/* Search bar */}
+      {/* Search bar + Clear Filters */}
       <div className="flex gap-2 mb-4">
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0 gap-1.5"
-          onClick={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
-          title={sortOrder === "asc" ? "Sorted A → Z" : "Sorted Z → A"}
-        >
-          {sortOrder === "asc" ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></> : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
-        </Button>
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -828,6 +858,21 @@ export default function TransactionsPage() {
             className="pl-9"
           />
         </div>
+        {(statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" || marketFilter !== "all" || leadSourceFilter !== "all" || txSearch || closingDateFrom || closingDateTo || contractDateFrom || contractDateTo) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              setStatusFilter("all"); setTypeFilter("all"); setAgentFilter("all");
+              setMarketFilter("all"); setLeadSourceFilter("all"); setTxSearch("");
+              setClosingDateFrom(""); setClosingDateTo(""); setContractDateFrom(""); setContractDateTo("");
+              setShowDateFilters(false); setTxPage(1);
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
       </div>
 
       {/* Status filters */}
@@ -968,14 +1013,30 @@ export default function TransactionsPage() {
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
                 <tr>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Contact</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Property</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Agent</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Type</th>
-                  <th className="text-right py-3 px-4 text-muted-foreground font-medium">Price</th>
-                  <th className="text-right py-3 px-4 text-muted-foreground font-medium">GCI</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Status</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Closing</th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("contact")}>
+                    Contact<SortIcon col="contact" />
+                  </th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("property")}>
+                    Property<SortIcon col="property" />
+                  </th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("agent")}>
+                    Agent<SortIcon col="agent" />
+                  </th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("type")}>
+                    Type<SortIcon col="type" />
+                  </th>
+                  <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("price")}>
+                    Price<SortIcon col="price" />
+                  </th>
+                  <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("gci")}>
+                    GCI<SortIcon col="gci" />
+                  </th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("status")}>
+                    Status<SortIcon col="status" />
+                  </th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("closing_date")}>
+                    Closing<SortIcon col="closing_date" />
+                  </th>
                   <th className="py-3 px-4"></th>
                 </tr>
               </thead>
@@ -1015,6 +1076,46 @@ export default function TransactionsPage() {
                   ))
                 )}
               </tbody>
+              {/* Aggregation Footer */}
+              {filtered.length > 0 && (
+                <tfoot className="border-t bg-muted/50">
+                  <tr>
+                    <td colSpan={4} className="py-2 px-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground font-medium">Page {aggregateMode === "count" ? "count" : aggregateMode}:</span>
+                        <div className="flex gap-1">
+                          {(["sum", "avg", "median", "count"] as const).map((m) => (
+                            <button
+                              key={m}
+                              onClick={() => setAggregateMode(m)}
+                              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                                aggregateMode === m ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                              }`}
+                            >
+                              {m.charAt(0).toUpperCase() + m.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2 px-4 text-right font-semibold text-sm">
+                      {calcAggregate(
+                        filtered.map(({ transaction }: any) => parseFloat(transaction.purchasePrice ?? "0")),
+                        aggregateMode
+                      )}
+                    </td>
+                    <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-600">
+                      {calcAggregate(
+                        filtered.map(({ transaction }: any) => parseFloat(transaction.grossCommissionIncome ?? "0")),
+                        aggregateMode
+                      )}
+                    </td>
+                    <td colSpan={3} className="py-2 px-4 text-xs text-muted-foreground">
+                      {filtered.length} rows on this page
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </CardContent>

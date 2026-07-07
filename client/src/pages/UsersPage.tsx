@@ -542,7 +542,7 @@ export default function UsersPage() {
                       const fd = new FormData();
                       fd.append("file", headshotFile);
                       fd.append("targetUserId", String(editTarget.id));
-                      const res = await fetch("/api/upload/headshot", { method: "POST", body: fd });
+                      const res = await fetch("/api/upload/headshot", { method: "POST", body: fd, credentials: "include" });
                       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error ?? "Upload failed"); }
                       const { url } = await res.json();
                       await adminUpdateAvatarMutation.mutateAsync({ userId: editTarget.id, avatarUrl: url });
@@ -689,8 +689,8 @@ export default function UsersPage() {
         <span className="text-sm text-muted-foreground ml-auto">{userList.length} member{userList.length !== 1 ? "s" : ""}</span>
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
-        <Table>
+      <div className="rounded-lg border bg-card overflow-hidden overflow-x-auto">
+        <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -774,7 +774,7 @@ export default function UsersPage() {
                     <TableCell className="text-muted-foreground text-sm">
                       {(u as any).commissionSplit ? `${(u as any).commissionSplit}/${100 - (u as any).commissionSplit}` : "—"}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{getMarketName(u.marketProfileId) ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm max-w-[140px]"><div className="truncate" title={getMarketName(u.marketProfileId) ?? ""}>{getMarketName(u.marketProfileId) ?? "—"}</div></TableCell>
                     <TableCell className="text-muted-foreground text-sm">{getReportsToName(u.reportsToId) ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {u.lastSignedIn ? safeFormat(u.lastSignedIn, "MMM d, yyyy") : "—"}

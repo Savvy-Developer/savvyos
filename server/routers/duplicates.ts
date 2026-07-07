@@ -16,7 +16,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { contacts, duplicateContactPairs, users } from "../../drizzle/schema";
 import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
-import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
+import { startBackgroundScan, getScanJob, getLatestScanJob, detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { mergeContacts } from "../contactMerge";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -27,11 +27,28 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
 });
 
 export const duplicatesRouter = router({
-  // ─── Scan ─────────────────────────────────────────────────────────────────
+  // ─── Scan (background) ───────────────────────────────────────────────────
   scan: adminProcedure.mutation(async () => {
-    const pairs = await detectAllDuplicates();
-    const inserted = await persistDuplicatePairs(pairs);
-    return { detected: pairs.length, inserted };
+    // Check if a scan is already running
+    const latest = await getLatestScanJob();
+    if (latest && latest.status === "running") {
+      return { jobId: latest.id, alreadyRunning: true };
+    }
+    const jobId = await startBackgroundScan();
+    return { jobId, alreadyRunning: false };
+  }),
+
+  // ─── Scan Job Status ──────────────────────────────────────────────────────
+  getScanJob: adminProcedure
+    .input(z.object({ jobId: z.number().int() }))
+    .query(async ({ input }) => {
+      const job = await getScanJob(input.jobId);
+      if (!job) throw new TRPCError({ code: "NOT_FOUND" });
+      return job;
+    }),
+
+  getLatestScanJob: adminProcedure.query(async () => {
+    return getLatestScanJob();
   }),
 
   // ─── Stats ────────────────────────────────────────────────────────────────

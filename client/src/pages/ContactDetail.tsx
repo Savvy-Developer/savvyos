@@ -418,7 +418,8 @@ export default function ContactDetail() {
 
   const utils = trpc.useUtils();
   const { data: contactData, refetch } = trpc.contacts.get.useQuery({ id: contactId });
-  const { data: connections } = trpc.agentConnections.list.useQuery({ contactId });
+  const { data: connectionsData } = trpc.agentConnections.list.useQuery({ contactId, limit: 50 });
+  const connections = connectionsData?.rows;
   const { data: transactionsData } = trpc.transactions.list.useQuery({ limit: 100 });
   const transactions = transactionsData?.rows ?? [];
   const { data: comms, refetch: refetchComms } = trpc.communications.list.useQuery({ contactId });
@@ -849,13 +850,13 @@ export default function ContactDetail() {
                   </Button>
                 )}
               </div>
-              {!connections || connections.length === 0 ? (
+              {!connections || (connections as any[]).length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   No agent connections yet.{canAssign ? " Use 'Assign to Agent' to add one." : ""}
                 </p>
               ) : (
                 <div className="space-y-1.5">
-                  {connections.map(({ connection, agent }) => (
+                  {(connections as any[]).map(({ connection, agent }) => (
                     <AgentConnectionCard
                       key={connection.id}
                       connection={connection}

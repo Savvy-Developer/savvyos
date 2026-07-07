@@ -51,10 +51,11 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
 function AgentConnectionsPopover({ contactId, count }: { contactId: number; count: number }) {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
-  const { data, isLoading } = trpc.agentConnections.list.useQuery(
-    { contactId },
+  const { data: connectionsData, isLoading } = trpc.agentConnections.list.useQuery(
+    { contactId, limit: 50 },
     { enabled: open }
   );
+  const data = connectionsData?.rows;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -73,11 +74,11 @@ function AgentConnectionsPopover({ contactId, count }: { contactId: number; coun
         </div>
         {isLoading ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">Loading...</div>
-        ) : !data || data.length === 0 ? (
+        ) : !data || (data as any[]).length === 0 ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">No connections found.</div>
         ) : (
           <div className="divide-y">
-            {data.map(({ connection, agent }: any) => (
+            {(data as any[]).map(({ connection, agent }: any) => (
               <button
                 key={connection.id}
                 className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-muted/50 text-left transition-colors"

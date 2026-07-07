@@ -43,6 +43,7 @@ export const knowledgeBaseRouter = router({
         type: z.enum(["sop", "reference", "training"]),
         description: z.string().optional(),
         sortOrder: z.number().int().default(0),
+        visibleToRoles: z.string().default("admin,agent,isa"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -54,6 +55,7 @@ export const knowledgeBaseRouter = router({
         type: input.type,
         description: input.description ?? null,
         sortOrder: input.sortOrder,
+        visibleToRoles: input.visibleToRoles,
       });
       return { id: (result as any).insertId };
     }),
@@ -66,6 +68,7 @@ export const knowledgeBaseRouter = router({
         type: z.enum(["sop", "reference", "training"]).optional(),
         description: z.string().nullable().optional(),
         sortOrder: z.number().int().optional(),
+        visibleToRoles: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

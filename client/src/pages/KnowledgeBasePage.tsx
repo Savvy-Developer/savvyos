@@ -57,6 +57,7 @@ type Category = {
   type: "sop" | "reference" | "training";
   description: string | null;
   sortOrder: number;
+  visibleToRoles: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -114,6 +115,10 @@ function CategoryDialog({
   const [type, setType] = useState<"sop" | "reference" | "training">(existing?.type ?? "reference");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [sortOrder, setSortOrder] = useState(existing?.sortOrder ?? 0);
+  const [catRoles, setCatRoles] = useState(() => {
+    const r = parseRoles(existing?.visibleToRoles ?? "admin,agent,isa");
+    return { admin: true, agent: r.includes("agent"), isa: r.includes("isa") };
+  });
 
   const utils = trpc.useUtils();
   const create = trpc.kb.createCategory.useMutation({
@@ -127,10 +132,11 @@ function CategoryDialog({
 
   const handleSave = () => {
     if (!name.trim()) { toast.error("Name is required"); return; }
+    const visibleToRoles = buildRolesString(catRoles);
     if (existing) {
-      update.mutate({ id: existing.id, name: name.trim(), type, description: description || null, sortOrder });
+      update.mutate({ id: existing.id, name: name.trim(), type, description: description || null, sortOrder, visibleToRoles });
     } else {
-      create.mutate({ name: name.trim(), type, description: description || undefined, sortOrder });
+      create.mutate({ name: name.trim(), type, description: description || undefined, sortOrder, visibleToRoles });
     }
   };
 
@@ -165,6 +171,33 @@ function CategoryDialog({
           <div className="space-y-1">
             <Label>Sort Order</Label>
             <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(Number(e.target.value))} className="w-24" />
+          </div>
+          {/* Visibility — same pattern as articles */}
+          <div className="space-y-2">
+            <Label>Visible to roles</Label>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <Checkbox checked disabled id="cat-role-admin" />
+                <label htmlFor="cat-role-admin" className="text-sm text-muted-foreground">Admin (always)</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="cat-role-agent"
+                  checked={catRoles.agent}
+                  onCheckedChange={(c) => setCatRoles((r) => ({ ...r, agent: !!c }))}
+                />
+                <label htmlFor="cat-role-agent" className="text-sm">Agent</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="cat-role-isa"
+                  checked={catRoles.isa}
+                  onCheckedChange={(c) => setCatRoles((r) => ({ ...r, isa: !!c }))}
+                />
+                <label htmlFor="cat-role-isa" className="text-sm">ISA</label>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Controls which roles can see this category and its articles.</p>
           </div>
         </div>
         <DialogFooter>

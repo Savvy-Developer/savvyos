@@ -518,7 +518,8 @@ export default function AgentDashboard() {
   const { data: myTransactionsData } = trpc.transactions.list.useQuery({ limit: 100 });
   const myTransactions = myTransactionsData?.rows ?? [];
 
-  const { data: myPipeline } = trpc.agentConnections.list.useQuery({});
+  const { data: myPipelineData } = trpc.agentConnections.list.useQuery({ limit: 200 });
+  const myPipeline = myPipelineData?.rows;
   const { data: myTasksData } = trpc.tasks.list.useQuery({ status: "pending", limit: 100 });
   const myTasks = myTasksData?.rows ?? [];
   const { data: myGoalsData } = trpc.analytics.myGoals.useQuery(

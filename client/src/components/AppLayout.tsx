@@ -168,7 +168,7 @@ function buildIsaNav(pendingConnReqs: number): NavGroup[] {
     },
   ];
 }
-function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0): NavGroup[] {
+function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
@@ -212,7 +212,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
-        { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin" },
+        { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
         { icon: Target, label: "Goals", path: "/goals" },
       ],
     },
@@ -436,6 +436,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin" || role === "isa", refetchInterval: 30000 }
   );
+  // Fetch pending marketing requests count for admin badge
+  const { data: pendingMarketingData } = trpc.marketingRequests.pendingCount.useQuery(
+    undefined,
+    { enabled: role === "admin", refetchInterval: 60000 }
+  );
   // Fetch my overdue task count for Tasks badge
   const { data: myOverdueTaskData } = trpc.tasks.myOverdueCount.useQuery(
     undefined,
@@ -460,6 +465,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const unpaidPayouts = (unpaidPayoutsData as any)?.count ?? 0;
   const pendingConnReqs = (pendingConnReqsData as any)?.count ?? 0;
   const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
+  const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const isTyler = (user as any)?.email === "tyler@savvy.realty";
@@ -494,7 +500,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const baseNavGroups =
     role === "admin"
-      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount)
+      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount)
       : role === "isa"
       ? buildIsaNav(pendingConnReqs)
       : role === "agent_support"

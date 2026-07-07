@@ -70,6 +70,8 @@ export const agentConnectionsRouter = router({
       followUpDateFrom: z.string().optional(),
       followUpDateTo: z.string().optional(),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
+      page: z.number().int().min(1).default(1),
+      limit: z.number().int().min(1).max(200).default(50),
     }).optional())
     .query(async ({ input, ctx }) => {
       // Agents only see their own connections
@@ -83,6 +85,8 @@ export const agentConnectionsRouter = router({
         input?.followUpDateFrom ? new Date(input.followUpDateFrom) : undefined,
         input?.followUpDateTo ? new Date(input.followUpDateTo) : undefined,
         input?.sortOrder ?? "desc",
+        input?.page ?? 1,
+        input?.limit ?? 50,
       );
     }),
 

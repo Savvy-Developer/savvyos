@@ -45,10 +45,11 @@ export const transactionsRouter = router({
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
+      sortBy: z.string().optional(),
     }))
     .query(async ({ input, ctx }) => {
       const agentId = ctx.user.role === "agent" ? ctx.user.id : input.agentId;
-      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder);
+      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date");
     }),
 
   get: protectedProcedure

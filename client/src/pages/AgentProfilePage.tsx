@@ -405,10 +405,10 @@ export default function AgentProfilePage() {
   const tasks = (taskData as any)?.rows ?? [];
   const taskTotal = (taskData as any)?.total ?? 0;
 
-  // Compute quick stats
-  const closedTx = transactions.filter((t: any) => t.status === "closed");
-  const totalGci = closedTx.reduce((sum: number, t: any) => sum + parseFloat(t.gci ?? "0"), 0);
-  const activeTx = transactions.filter((t: any) => ["under_contract"].includes(t.status));
+  // Compute quick stats — transactions rows are nested: { transaction, contact, property, agent }
+  const closedTx = transactions.filter((t: any) => (t.transaction ?? t).status === "closed");
+  const totalGci = closedTx.reduce((sum: number, t: any) => sum + parseFloat((t.transaction ?? t).grossCommissionIncome ?? "0"), 0);
+  const activeTx = transactions.filter((t: any) => ["under_contract"].includes((t.transaction ?? t).status));
   const pendingTasks = tasks.filter((t: any) => t.status !== "completed");
 
   return (
@@ -421,15 +421,54 @@ export default function AgentProfilePage() {
       {/* Header card */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-start flex-wrap">
-            <Avatar className="h-20 w-20 shrink-0">
-              {agentCoreProfile?.profilePhotoUrl && (
-                <AvatarImage src={agentCoreProfile.profilePhotoUrl} alt={agentData.name ?? ""} className="object-cover" />
+          {/* Top row: avatar + info */}
+          <div className="flex flex-col sm:flex-row gap-5 items-start">
+            {/* Avatar with optional headshot upload for admins */}
+            <div className="relative shrink-0 group">
+              <Avatar className="h-20 w-20">
+                {agentCoreProfile?.profilePhotoUrl && (
+                  <AvatarImage src={agentCoreProfile.profilePhotoUrl} alt={agentData.name ?? ""} className="object-cover" />
+                )}
+                <AvatarFallback className="bg-primary/10 text-primary font-bold text-2xl">
+                  {getInitials(agentData.name)}
+                </AvatarFallback>
+              </Avatar>
+              {isAdmin && (
+                <label
+                  className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
+                  title="Upload headshot"
+                >
+                  <Upload className="h-5 w-5 text-white" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const formData = new FormData();
+                      formData.append("file", file);
+                      formData.append("targetUserId", String(agentId));
+                      try {
+                        const res = await fetch("/api/upload/headshot", {
+                          method: "POST",
+                          body: formData,
+                          credentials: "include",
+                        });
+                        if (!res.ok) throw new Error(await res.text());
+                        const { url } = await res.json();
+                        await utils.users.getCoreProfile.invalidate({ userId: agentId });
+                        toast.success("Headshot updated");
+                      } catch (err: any) {
+                        toast.error(err.message ?? "Upload failed");
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
               )}
-              <AvatarFallback className="bg-primary/10 text-primary font-bold text-2xl">
-                {getInitials(agentData.name)}
-              </AvatarFallback>
-            </Avatar>
+            </div>
+            {/* Name, role, contact info */}
             <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-2xl font-bold">{agentData.name ?? "—"}</h1>
@@ -480,91 +519,92 @@ export default function AgentProfilePage() {
                 )}
               </div>
             </div>
-            {(isAdmin || (isSelf && agentData.role === "agent")) && (
-              <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0">
-                {isAdmin && !isProtectedAccount && !isSelf && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={agentData.isActive
-                      ? "text-amber-600 border-amber-200 hover:bg-amber-50"
-                      : "text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                    }
-                    disabled={toggleActiveMut.isPending}
-                    onClick={() => {
-                      const action = agentData.isActive ? "deactivate" : "activate";
-                      if (window.confirm(`Are you sure you want to ${action} ${agentData.name ?? "this user"}?`)) {
-                        toggleActiveMut.mutate({ userId: agentId, isActive: !agentData.isActive });
-                      }
-                    }}
-                  >
-                    {toggleActiveMut.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                    ) : agentData.isActive ? (
-                      <><UserX className="h-4 w-4 mr-1.5" /> Deactivate</>
-                    ) : (
-                      <><UserCheck className="h-4 w-4 mr-1.5" /> Activate</>
-                    )}
-                  </Button>
-                )}
-                {isAdmin && agentData.role === "agent" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-red-600 border-red-200 hover:bg-red-50"
-                    onClick={() => { setSelectedTemplateId(""); setOffboardDialogOpen(true); }}
-                  >
-                    <LogOut className="h-4 w-4 mr-1.5" /> Offboard Agent
-                  </Button>
-                )}
-                {isAdmin && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setEditProfileForm({
-                        name: agentData.name ?? "",
-                        title: agentData.title ?? "",
-                        email: agentData.email ?? "",
-                        phone: agentData.phone ?? "",
-                        commissionSplit: agentData.commissionSplit != null ? String(agentData.commissionSplit) : "",
-                        callBookingLink: (agentData as any).callBookingLink ?? "",
-                      });
-                      setEditProfileOpen(true);
-                    }}
-                  >
-                    <Pencil className="h-4 w-4 mr-1.5" /> Edit Profile
-                  </Button>
-                )}
-                {isAdmin && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                    onClick={() => { resetFeedbackForm(); setEditFeedbackId(null); setOneOnOneOpen(true); }}
-                  >
-                    <MessageSquarePlus className="h-4 w-4 mr-1.5" /> Leadership 1-on-1
-                  </Button>
-                )}
-                {/* Request Connection button — visible to admins and the agent themselves */}
-                {agentData.role === "agent" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                    onClick={() => {
-                      setReqConnSearch("");
-                      setReqConnSelectedContact(null);
-                      setReqConnPipelineStatus("new_lead");
-                      setReqConnOpen(true);
-                    }}
-                  >
-                    <GitMerge className="h-4 w-4 mr-1.5" /> Request Connection
-                  </Button>
-                )}
-              </div>
-            )}
           </div>
+          {/* Action buttons row — always below the info, wraps cleanly */}
+          {(isAdmin || (isSelf && agentData.role === "agent")) && (
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
+              {isAdmin && !isProtectedAccount && !isSelf && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={agentData.isActive
+                    ? "text-amber-600 border-amber-200 hover:bg-amber-50"
+                    : "text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                  }
+                  disabled={toggleActiveMut.isPending}
+                  onClick={() => {
+                    const action = agentData.isActive ? "deactivate" : "activate";
+                    if (window.confirm(`Are you sure you want to ${action} ${agentData.name ?? "this user"}?`)) {
+                      toggleActiveMut.mutate({ userId: agentId, isActive: !agentData.isActive });
+                    }
+                  }}
+                >
+                  {toggleActiveMut.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  ) : agentData.isActive ? (
+                    <><UserX className="h-4 w-4 mr-1.5" /> Deactivate</>
+                  ) : (
+                    <><UserCheck className="h-4 w-4 mr-1.5" /> Activate</>
+                  )}
+                </Button>
+              )}
+              {isAdmin && agentData.role === "agent" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => { setSelectedTemplateId(""); setOffboardDialogOpen(true); }}
+                >
+                  <LogOut className="h-4 w-4 mr-1.5" /> Offboard Agent
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditProfileForm({
+                      name: agentData.name ?? "",
+                      title: agentData.title ?? "",
+                      email: agentData.email ?? "",
+                      phone: agentData.phone ?? "",
+                      commissionSplit: agentData.commissionSplit != null ? String(agentData.commissionSplit) : "",
+                      callBookingLink: (agentData as any).callBookingLink ?? "",
+                    });
+                    setEditProfileOpen(true);
+                  }}
+                >
+                  <Pencil className="h-4 w-4 mr-1.5" /> Edit Profile
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                  onClick={() => { resetFeedbackForm(); setEditFeedbackId(null); setOneOnOneOpen(true); }}
+                >
+                  <MessageSquarePlus className="h-4 w-4 mr-1.5" /> Leadership 1-on-1
+                </Button>
+              )}
+              {/* Request Connection button — visible to admins and the agent themselves */}
+              {agentData.role === "agent" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                  onClick={() => {
+                    setReqConnSearch("");
+                    setReqConnSelectedContact(null);
+                    setReqConnPipelineStatus("new_lead");
+                    setReqConnOpen(true);
+                  }}
+                >
+                  <GitMerge className="h-4 w-4 mr-1.5" /> Request Connection
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -735,36 +775,41 @@ export default function AgentProfilePage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((tx: any) => (
+                    transactions.map((row: any) => {
+                      const txObj = row.transaction ?? row;
+                      const contactObj = row.contact ?? {};
+                      const propertyObj = row.property ?? {};
+                      return (
                       <TableRow
-                        key={tx.id}
+                        key={txObj.id}
                         className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => navigate(`/transactions/${tx.id}`)}
+                        onClick={() => navigate(`/transactions/${txObj.id}`)}
                       >
                         <TableCell>
-                          {tx.contactFirstName
-                            ? `${tx.contactFirstName} ${tx.contactLastName ?? ""}`.trim()
+                          {contactObj.firstName
+                            ? `${contactObj.firstName} ${contactObj.lastName ?? ""}`.trim()
                             : "—"}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {tx.propertyAddress ?? "—"}
+                          {propertyObj.address ?? "—"}
                         </TableCell>
                         <TableCell>
                           <Badge
                             variant="outline"
-                            className={`capitalize text-xs ${STATUS_COLORS[tx.status] ?? ""}`}
+                            className={`capitalize text-xs ${STATUS_COLORS[txObj.status] ?? ""}`}
                           >
-                            {tx.status?.replace(/_/g, " ")}
+                            {txObj.status?.replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell>{formatCurrency(tx.gci)}</TableCell>
+                        <TableCell>{formatCurrency(txObj.grossCommissionIncome)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {tx.closingDate
-                            ? safeFormat(tx.closingDate, "MMM d, yyyy")
+                          {txObj.closingDate
+                            ? safeFormat(txObj.closingDate, "MMM d, yyyy")
                             : "—"}
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -819,7 +864,9 @@ export default function AgentProfilePage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    contacts.map((c: any) => (
+                    contacts.map((row: any) => {
+                      const c = row.contact ?? row;
+                      return (
                       <TableRow
                         key={c.id}
                         className="cursor-pointer hover:bg-muted/50"
@@ -845,7 +892,8 @@ export default function AgentProfilePage() {
                           {c.leadSourceName ?? "—"}
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>

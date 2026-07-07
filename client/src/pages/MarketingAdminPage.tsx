@@ -352,28 +352,33 @@ function RequestDetailDialog({
 
 // ─── Main Admin Page ──────────────────────────────────────────────────────────
 
-const STATUS_FILTER_OPTIONS: { value: Status | "all"; label: string }[] = [
+type StatusFilter = Status | "all" | "active";
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "active", label: "New & In Progress" },
   { value: "all", label: "All Requests" },
-  { value: "new", label: "New" },
-  { value: "in_progress", label: "In Progress" },
+  { value: "new", label: "New Only" },
+  { value: "in_progress", label: "In Progress Only" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
 export default function MarketingAdminPage() {
-  const [statusFilter, setStatusFilter] = useState<Status | "all">("new");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [viewId, setViewId] = useState<number | null>(null);
   const [respondId, setRespondId] = useState<number | null>(null);
   const [respondStatus, setRespondStatus] = useState<Status>("new");
   const utils = trpc.useUtils();
 
-  const isActiveFilter = statusFilter === "new" || statusFilter === "in_progress" || statusFilter === "all";
+  const isActiveFilter = statusFilter === "new" || statusFilter === "in_progress" || statusFilter === "all" || statusFilter === "active";
 
   const { data: rows = [], isLoading } = trpc.marketingRequests.list.useQuery({
     statusFilter:
       statusFilter === "all"
         ? undefined
-        : [statusFilter],
+        : statusFilter === "active"
+        ? ["new", "in_progress"]
+        : [statusFilter as Status],
     includeCompleted: statusFilter === "completed" || statusFilter === "cancelled" || statusFilter === "all",
   });
 
@@ -399,7 +404,7 @@ export default function MarketingAdminPage() {
         <div className="flex items-center gap-2">
           <Select
             value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as Status | "all")}
+            onValueChange={(v) => setStatusFilter(v as StatusFilter)}
           >
             <SelectTrigger className="w-44">
               <SelectValue />

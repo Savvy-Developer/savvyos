@@ -1224,6 +1224,7 @@ export const kbCategories = mysqlTable("kb_categories", {
   type: mysqlEnum("type", ["sop", "reference", "training"]).notNull().default("reference"),
   description: text("description"),
   sortOrder: int("sortOrder").notNull().default(0),
+  visibleToRoles: varchar("visibleToRoles", { length: 64 }).notNull().default("admin,agent,isa"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1363,3 +1364,18 @@ export const marketCounties = mysqlTable("market_counties", {
 });
 export type MarketCounty = typeof marketCounties.$inferSelect;
 
+
+// ─── Duplicate Scan Jobs ───────────────────────────────────────────────────────
+export const duplicateScanJobs = mysqlTable("duplicate_scan_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  status: mysqlEnum("status", ["running", "completed", "failed"]).notNull().default("running"),
+  phase: varchar("phase", { length: 64 }).notNull().default("starting"),
+  processed: int("processed").notNull().default(0),
+  total: int("total").notNull().default(0),
+  detected: int("detected").notNull().default(0),
+  inserted: int("inserted").notNull().default(0),
+  errorMessage: text("errorMessage"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+export type DuplicateScanJob = typeof duplicateScanJobs.$inferSelect;
