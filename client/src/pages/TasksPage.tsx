@@ -48,54 +48,50 @@ export default function TasksPage() {
 
   const queryStatus = statusFilter === "overdue" ? undefined : (statusFilter !== "all" ? statusFilter : undefined);
 
-  // Admin "All Tasks" - paginated listAll (only when viewMode === "all")
+  // For admins: use a single listAll query for BOTH modes.
+  // In "My Tasks" mode, pass assignedToId = userId to scope to the current user.
+  // In "All Tasks" mode, pass no assignedToId (or the dropdown filter value) to see everything.
+  // This avoids the dual-query / stale-cache inversion problem.
+  const adminQueryAssignedTo = isAdmin
+    ? viewMode === "my"
+      ? (userId ?? undefined)                              // My Tasks → scope to self
+      : assignedFilter ? parseInt(assignedFilter) : undefined  // All Tasks → optional dropdown filter
+    : undefined;
+
   const { data: adminTasksData } = trpc.tasks.listAll.useQuery({
     status: queryStatus,
-    assignedToId: assignedFilter ? parseInt(assignedFilter) : undefined,
+    assignedToId: adminQueryAssignedTo,
     createdFrom: createdFrom || undefined,
     createdTo: createdTo || undefined,
     page,
     limit: PAGE_SIZE,
-   }, { enabled: showAllTasks });
+  }, { enabled: isAdmin });
 
-  // My Tasks: scoped to current user (used for both admin "My Tasks" view and non-admin)
-  // For admins, explicitly pass assignedToId = userId so the backend filters correctly.
-  // Without this, admins get all tasks because the backend only auto-scopes for non-admins.
-  const { data: myTasksData } = trpc.tasks.list.useQuery({
-    assignedToId: isAdmin ? (userId ?? undefined) : undefined,
+  // Non-admin users always use tasks.list (backend auto-scopes to ctx.user.id)
+  const { data: nonAdminTasksData } = trpc.tasks.list.useQuery({
     status: queryStatus as any,
     dueDateFrom: dueDateFrom || undefined,
     dueDateTo: dueDateTo || undefined,
     page,
     limit: PAGE_SIZE,
-  }, { enabled: !showAllTasks });
+  }, { enabled: !isAdmin });
 
   // Overdue badge count for nav
   const { data: overdueData } = trpc.tasks.myOverdueCount.useQuery();
   const myOverdueCount = overdueData?.count ?? 0;
 
   // Resolve which data set to use
-  let rawRows: any[] = [];
-  let total = 0;
-  if (showAllTasks) {
-    rawRows = adminTasksData?.rows ?? [];
-    total = adminTasksData?.total ?? 0;
-    // Apply client-side filters not yet in listAll (priority, due date)
-    rawRows = rawRows.filter(({ task }: any) => {
-      if (priorityFilter && task.priority !== priorityFilter) return false;
-      if (dueDateFrom && task.dueDate && new Date(task.dueDate) < new Date(dueDateFrom)) return false;
-      if (dueDateTo && task.dueDate && new Date(task.dueDate) > new Date(dueDateTo + "T23:59:59")) return false;
-      return true;
-    });
-  } else {
-    rawRows = myTasksData?.rows ?? [];
-    // Priority filter still client-side
-    rawRows = rawRows.filter(({ task }: any) => {
-      if (priorityFilter && task.priority !== priorityFilter) return false;
-      return true;
-    });
-    total = myTasksData?.total ?? 0;
-  }
+  const sourceData = isAdmin ? adminTasksData : nonAdminTasksData;
+  let rawRows: any[] = sourceData?.rows ?? [];
+  let total = sourceData?.total ?? 0;
+
+  // Client-side filters (priority, due date range) applied on top
+  rawRows = rawRows.filter(({ task }: any) => {
+    if (priorityFilter && task.priority !== priorityFilter) return false;
+    if (dueDateFrom && task.dueDate && new Date(task.dueDate) < new Date(dueDateFrom)) return false;
+    if (dueDateTo && task.dueDate && new Date(task.dueDate) > new Date(dueDateTo + "T23:59:59")) return false;
+    return true;
+  });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -248,6 +244,7 @@ export default function TasksPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {isAdmin ? (
                 <>
+                  {showAllTasks && (
                   <div>
                     <Label className="text-xs">Assigned To</Label>
                     <Select value={assignedFilter || "all"} onValueChange={(v) => { setAssignedFilter(v === "all" ? "" : v); resetPage(); }}>
@@ -262,6 +259,7 @@ export default function TasksPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  )}
                   <div>
                     <Label className="text-xs">Priority</Label>
                     <Select value={priorityFilter || "all"} onValueChange={(v) => { setPriorityFilter(v === "all" ? "" : v); resetPage(); }}>
