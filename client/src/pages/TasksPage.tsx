@@ -59,7 +59,10 @@ export default function TasksPage() {
    }, { enabled: showAllTasks });
 
   // My Tasks: scoped to current user (used for both admin "My Tasks" view and non-admin)
+  // For admins, explicitly pass assignedToId = userId so the backend filters correctly.
+  // Without this, admins get all tasks because the backend only auto-scopes for non-admins.
   const { data: myTasksData } = trpc.tasks.list.useQuery({
+    assignedToId: isAdmin ? (userId ?? undefined) : undefined,
     status: queryStatus as any,
     dueDateFrom: dueDateFrom || undefined,
     dueDateTo: dueDateTo || undefined,
@@ -350,7 +353,24 @@ export default function TasksPage() {
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <ClipboardList className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p>No tasks found</p>
+              <p className="font-medium">
+                {showAllTasks
+                  ? "No tasks found"
+                  : "You have no tasks assigned to you"}
+              </p>
+              <p className="text-xs mt-1">
+                {showAllTasks
+                  ? hasActiveFilters
+                    ? "No tasks match the current filters."
+                    : statusFilter !== "all"
+                    ? `No tasks with status "${statusFilter.replace("_", " ")}".`
+                    : "There are no tasks in the system yet."
+                  : hasActiveFilters
+                  ? "No tasks match the current filters."
+                  : statusFilter !== "all"
+                  ? `You have no ${statusFilter.replace("_", " ")} tasks.`
+                  : "Tasks assigned to you will appear here."}
+              </p>
               {hasActiveFilters && (
                 <button onClick={clearFilters} className="text-xs text-primary hover:underline mt-2">
                   Clear filters and try again
