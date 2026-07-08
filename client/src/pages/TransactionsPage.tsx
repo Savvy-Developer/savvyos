@@ -596,6 +596,7 @@ export default function TransactionsPage() {
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("transactions.sortOrder", "desc");
   const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
+  const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
 
   function handleColumnSort(col: string) {
     if (sortColumn === col) {
@@ -650,7 +651,7 @@ export default function TransactionsPage() {
   const leadSourceIdParam = leadSourceFilter === "all" ? undefined : Number(leadSourceFilter);
   const typeParam = typeFilter === "all" ? undefined : typeFilter as "buyer" | "seller" | "dual";
   const { data: transactionsData, refetch } = trpc.transactions.list.useQuery({
-    page: txPage, limit: 25, marketId: marketIdParam, search: txSearch || undefined, status: statusParam,
+    page: txPage, limit: txLimit, marketId: marketIdParam, search: txSearch || undefined, status: statusParam,
     agentId: agentIdParam,
     contractDateFrom: contractDateFrom || undefined,
     contractDateTo: contractDateTo || undefined,
@@ -666,7 +667,7 @@ export default function TransactionsPage() {
   const leadSourcesList = (leadSourcesData ?? []) as any[];
   const transactions = transactionsData?.rows ?? [];
   const txTotal = transactionsData?.total ?? 0;
-  const txTotalPages = Math.ceil(txTotal / 25);
+  const txTotalPages = Math.ceil(txTotal / txLimit);
   const { data: agents } = trpc.users.list.useQuery({ role: "agent" }, { enabled: isAdmin });
   const { data: listingsData } = trpc.listings.list.useQuery(
     { search: listingSearch || undefined },
@@ -1111,7 +1112,7 @@ export default function TransactionsPage() {
                       )}
                     </td>
                     <td colSpan={3} className="py-2 px-4 text-xs text-muted-foreground">
-                      {filtered.length} rows on this page
+                      {filtered.length} row{filtered.length !== 1 ? "s" : ""} (this page)
                     </td>
                   </tr>
                 </tfoot>
@@ -1122,19 +1123,46 @@ export default function TransactionsPage() {
       </Card>
 
       {/* Pagination */}
-      {txTotalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
+      {txTotal > 0 && (
+        <div className="flex items-center justify-between mt-4 flex-wrap gap-3">
           <p className="text-sm text-muted-foreground">
-            Showing {((txPage - 1) * 25) + 1}–{Math.min(txPage * 25, txTotal)} of {txTotal} transactions
+            {txTotal > txLimit
+              ? `Showing ${((txPage - 1) * txLimit) + 1}–${Math.min(txPage * txLimit, txTotal)} of ${txTotal} transactions`
+              : `${txTotal} transaction${txTotal !== 1 ? "s" : ""}`}
           </p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={txPage <= 1} onClick={() => setTxPage(p => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm text-muted-foreground flex items-center px-2">Page {txPage} of {txTotalPages}</span>
-            <Button size="sm" variant="outline" disabled={txPage >= txTotalPages} onClick={() => setTxPage(p => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-3">
+            {/* Rows per page */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Rows per page</span>
+              <Select
+                value={String(txLimit)}
+                onValueChange={(v) => {
+                  setTxLimit(Number(v));
+                  setTxPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-20 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[25, 50, 75, 100].map((n) => (
+                    <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Prev / Next */}
+            {txTotalPages > 1 && (
+              <div className="flex gap-2 items-center">
+                <Button size="sm" variant="outline" disabled={txPage <= 1} onClick={() => setTxPage(p => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground px-2">Page {txPage} of {txTotalPages}</span>
+                <Button size="sm" variant="outline" disabled={txPage >= txTotalPages} onClick={() => setTxPage(p => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
