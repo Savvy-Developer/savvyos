@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/safeFormat";
 import { Star, Users, CalendarDays, TrendingUp, ChevronRight, Search, Filter, MessageSquarePlus, Loader2 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
@@ -241,10 +241,10 @@ export default function LeadershipDashboardPage() {
                 <tbody>
                   {filtered.map((row) => {
                     const meetingDate = row.feedback.meetingDate
-                      ? format(new Date(row.feedback.meetingDate), "MMM d, yyyy")
+                      ? safeFormatDate(row.feedback.meetingDate, "MMM d, yyyy")
                       : "—";
                     const followUpDate = row.feedback.followUpDate
-                      ? format(new Date(row.feedback.followUpDate), "MMM d, yyyy")
+                      ? safeFormatDate(row.feedback.followUpDate, "MMM d, yyyy")
                       : null;
                     const isOverdue = followUpDate && new Date(row.feedback.followUpDate!) < new Date();
                     return (

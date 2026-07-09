@@ -42,7 +42,7 @@ import {
   Layers,
   HelpCircle,
 } from "lucide-react";
-import { format } from "date-fns";
+import { safeFormatET, safeFormatDate } from "@/lib/safeFormat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -389,7 +389,7 @@ function RequestDetailDialog({
               {data.request.dueDate && (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Due Date</p>
-                  <p className="text-sm">{format(new Date(data.request.dueDate), "MMM d, yyyy")}</p>
+                  <p className="text-sm">{safeFormatDate(data.request.dueDate, "MMM d, yyyy")}</p>
                 </div>
               )}
               {data.attachments.length > 0 && (
@@ -437,7 +437,7 @@ function RequestDetailDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Submitted {format(new Date(data.request.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                Submitted {safeFormatET(data.request.createdAt)}
               </p>
             </div>
             <DialogFooter>
@@ -502,7 +502,7 @@ function RequestCard({
               <p className="font-medium text-sm truncate">{req.title}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {REQUEST_TYPE_LABELS[req.requestType as RequestType]} ·{" "}
-                {format(new Date(req.createdAt), "MMM d, yyyy")}
+                {safeFormatET(req.createdAt, { month: "short", day: "numeric", year: "numeric" })}
               </p>
             </div>
           </div>

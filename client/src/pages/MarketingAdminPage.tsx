@@ -39,7 +39,7 @@ import {
   Eye,
   Megaphone,
 } from "lucide-react";
-import { format } from "date-fns";
+import { safeFormatET, safeFormatDate } from "@/lib/safeFormat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -289,7 +289,7 @@ function RequestDetailDialog({
               {data.request.dueDate && (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Due Date</p>
-                  <p className="text-sm">{format(new Date(data.request.dueDate), "MMM d, yyyy")}</p>
+                  <p className="text-sm">{safeFormatDate(data.request.dueDate, "MMM d, yyyy")}</p>
                 </div>
               )}
               {data.attachments.length > 0 && (
@@ -334,7 +334,7 @@ function RequestDetailDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Submitted {format(new Date(data.request.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                Submitted {safeFormatET(data.request.createdAt)}
               </p>
             </div>
             <DialogFooter>
@@ -467,14 +467,14 @@ export default function MarketingAdminPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {req.dueDate
-                      ? format(new Date(req.dueDate), "MMM d")
+                      ? safeFormatDate(req.dueDate, "MMM d")
                       : "—"}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={req.status as Status} />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {format(new Date(req.createdAt), "MMM d, yyyy")}
+                    {safeFormatET(req.createdAt, { month: "short", day: "numeric", year: "numeric" })}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">

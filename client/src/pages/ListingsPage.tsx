@@ -15,10 +15,9 @@ import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
 import { Plus, Building2, ArrowRightLeft, Search, XCircle, Clock, MessageSquare, Send, Loader2, ChevronRight, AlertTriangle, Filter, X, Upload, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
-import { format } from "date-fns";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
-import { safeFormat } from "@/lib/safeFormat";
+import { safeFormat, safeFormatDate } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatStreet, formatCityStateZip } from "@/lib/format";
 
@@ -266,8 +265,8 @@ export default function ListingsPage() {
       propertyId,
       listingStatus: form.listingStatus,
       listPrice: parsePriceInput(form.listPrice) || null,
-      listDate: form.listDate ? new Date(form.listDate).toISOString() : null,
-      expirationDate: form.expirationDate ? new Date(form.expirationDate).toISOString() : null,
+      listDate: form.listDate || null,
+      expirationDate: form.expirationDate || null,
       mlsNumber: form.mlsNumber || null,
       notes: form.notes || null,
     });
@@ -548,11 +547,15 @@ export default function ListingsPage() {
                         </span>
                       </td>
                       <td className="py-2 px-4 text-muted-foreground text-xs">
-                        {item.listing.listDate ? safeFormat(item.listing.listDate, "MMM d, yyyy") : "—"}
+                        {item.listing.listDate ? safeFormatDate(item.listing.listDate, "MMM d, yyyy") : "—"}
                       </td>
                       <td className="py-2 px-4 text-xs">
                         {item.listing.expirationDate ? (() => {
-                          const expDate = new Date(item.listing.expirationDate);
+                          // Parse as UTC-aware date to avoid timezone rollover
+                          const s = String(item.listing.expirationDate);
+                          const expDate = /^\d{4}-\d{2}-\d{2} /.test(s)
+                            ? new Date(s.replace(" ", "T") + "Z")
+                            : new Date(s);
                           const now = new Date();
                           const daysUntil = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
                           const isExpired = daysUntil < 0 && item.listing.listingStatus === "active";
@@ -564,7 +567,7 @@ export default function ListingsPage() {
                               "text-muted-foreground"
                             }`}>
                               {(isExpired || isExpiringSoon) && <AlertTriangle className="h-3 w-3 flex-shrink-0" />}
-                              {format(expDate, "MMM d, yyyy")}
+                              {safeFormatDate(item.listing.expirationDate, "MMM d, yyyy")}
                               {isExpired && (
                                 <span className="ml-1 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Expired</span>
                               )}
