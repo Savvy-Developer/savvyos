@@ -37,7 +37,9 @@ export const marketingRequestsRouter = router({
         description: input.description,
         requestType: input.requestType,
         priority: input.priority,
-        dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+        // Parse as noon UTC (12:00:00Z) to prevent midnight-UTC values from rolling
+        // back to the previous day when read in negative-offset timezones (EST/EDT).
+        dueDate: input.dueDate ? new Date(`${input.dueDate}T12:00:00Z`) : undefined,
         status: "new",
       });
       return { id: (result as any).insertId as number };

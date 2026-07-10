@@ -1,16 +1,14 @@
 import { format, isValid } from "date-fns";
 
 /**
- * Safely format a date value. Returns "—" if the value is null, undefined, or invalid.
- *
- * IMPORTANT: MySQL/TiDB returns timestamps WITHOUT a timezone suffix (e.g. "2026-07-08 21:43:23").
- * `new Date("2026-07-08 21:43:23")` is parsed as LOCAL time by most browsers, which is wrong —
- * the DB stores UTC. We normalise by replacing the space with "T" and appending "Z" so the
- * browser always treats the value as UTC before applying any local-timezone rendering.
+ * Normalise a raw DB value to a UTC Date object.
+ * MySQL/TiDB returns timestamps WITHOUT a timezone suffix (e.g. "2026-07-08 21:43:23").
+ * `new Date("2026-07-08 21:43:23")` is parsed as LOCAL time by most browsers — wrong.
+ * We normalise by replacing the space with "T" and appending "Z" so the value is always UTC.
  */
 function toUtcDate(dateVal: unknown): Date | null {
   if (dateVal == null || dateVal === "") return null;
-  if (dateVal instanceof Date) return dateVal;
+  if (dateVal instanceof Date) return isValid(dateVal) ? dateVal : null;
   let s = String(dateVal);
   // MySQL format "YYYY-MM-DD HH:MM:SS" → treat as UTC
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
@@ -21,29 +19,53 @@ function toUtcDate(dateVal: unknown): Date | null {
 }
 
 /**
- * Format a date-only value (e.g. listDate, closingDate) using date-fns.
- * Date-only strings like "2025-07-09" are parsed as midnight UTC by the JS engine,
- * which rolls back to the previous day in negative-offset timezones (EST/EDT).
- * We work around this by shifting to local noon before formatting.
+ * Extract the YYYY-MM-DD date string in Eastern Time from a UTC Date.
+ * Used so that date-only fields (listDate, dueDate, etc.) display the correct
+ * calendar day even when stored as midnight UTC (which is the previous day in ET).
+ */
+function utcToEtDateString(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d); // returns "YYYY-MM-DD"
+}
+
+/**
+ * Format a date-only value (e.g. listDate, closingDate, dueDate).
+ *
+ * Handles two cases:
+ *  1. Pure date string "YYYY-MM-DD" — parse as local noon to avoid UTC rollover.
+ *  2. DB timestamp with time component "YYYY-MM-DD HH:MM:SS" — parse as UTC,
+ *     then extract the date portion in Eastern Time before formatting.
+ *     This prevents midnight-UTC values from rolling back to the previous day in EST.
  */
 export function safeFormatDate(dateVal: unknown, fmt: string, fallback = "—"): string {
   if (dateVal == null || dateVal === "") return fallback;
+
   let d: Date;
+
   if (dateVal instanceof Date) {
     d = dateVal;
   } else {
     const s = String(dateVal);
-    // Pure date string "YYYY-MM-DD" — parse as local noon to avoid UTC rollover
+
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      // Pure date string — parse as local noon to avoid UTC rollover
       const [y, m, day] = s.split("-").map(Number);
       d = new Date(y, m - 1, day, 12, 0, 0);
     } else {
-      // Has time component — treat as UTC then render in local time
+      // Has time component — parse as UTC, then get the ET date string
       const utc = toUtcDate(s);
       if (!utc) return fallback;
-      d = utc;
+      // Re-parse the ET date string as local noon so date-fns format works correctly
+      const etDate = utcToEtDateString(utc); // "YYYY-MM-DD"
+      const [y, m, day] = etDate.split("-").map(Number);
+      d = new Date(y, m - 1, day, 12, 0, 0);
     }
   }
+
   return isValid(d) ? format(d, fmt) : fallback;
 }
 

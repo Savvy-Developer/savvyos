@@ -122,8 +122,9 @@ export const listingsRouter = router({
         propertyId: input.propertyId ?? null,
         listingStatus: input.listingStatus ?? "active",
         listPrice: input.listPrice ?? null,
-        listDate: input.listDate ? new Date(input.listDate) : null,
-        expirationDate: input.expirationDate ? new Date(input.expirationDate) : null,
+        // Parse as noon UTC to prevent midnight-UTC values rolling back to the previous day in EST/EDT
+        listDate: input.listDate ? new Date(`${input.listDate.slice(0, 10)}T12:00:00Z`) : null,
+        expirationDate: input.expirationDate ? new Date(`${input.expirationDate.slice(0, 10)}T12:00:00Z`) : null,
         mlsNumber: input.mlsNumber ?? null,
         notes: input.notes ?? null,
       } as any);
@@ -183,9 +184,10 @@ export const listingsRouter = router({
       const { listDate, expirationDate, terminationDate, ...rest } = input.data;
       await updateListing(input.id, {
         ...rest,
-        listDate: listDate ? new Date(listDate) : undefined,
-        expirationDate: expirationDate ? new Date(expirationDate) : undefined,
-        terminationDate: terminationDate ? new Date(terminationDate) : undefined,
+        // Parse as noon UTC to prevent midnight-UTC values rolling back to the previous day in EST/EDT
+        listDate: listDate ? new Date(`${listDate.slice(0, 10)}T12:00:00Z`) : undefined,
+        expirationDate: expirationDate ? new Date(`${expirationDate.slice(0, 10)}T12:00:00Z`) : undefined,
+        terminationDate: terminationDate ? new Date(`${terminationDate.slice(0, 10)}T12:00:00Z`) : undefined,
       } as any);
       // Build changes diff
       const changes: Record<string, { from: any; to: any }> = {};
@@ -201,14 +203,20 @@ export const listingsRouter = router({
           changes.agentId = { from: old.agentId ?? "\u2014", to: input.data.agentId ?? "\u2014" };
         if (input.data.listingStatus !== undefined && input.data.listingStatus !== old.listingStatus)
           changes.listingStatus = { from: old.listingStatus, to: input.data.listingStatus };
+        // Helper: extract YYYY-MM-DD from a DB timestamp string (stored as noon UTC)
+        const toDateStr = (v: unknown) => {
+          if (!v) return "—";
+          const s = String(v).replace(" ", "T") + (String(v).endsWith("Z") ? "" : "Z");
+          return new Date(s).toISOString().slice(0, 10);
+        };
         if (listDate !== undefined) {
-          const oldDate = old.listDate ? new Date(old.listDate).toISOString().slice(0, 10) : "\u2014";
-          const newDate = listDate ? new Date(listDate).toISOString().slice(0, 10) : "\u2014";
+          const oldDate = old.listDate ? toDateStr(old.listDate) : "—";
+          const newDate = listDate ? listDate.slice(0, 10) : "—";
           if (oldDate !== newDate) changes.listDate = { from: oldDate, to: newDate };
         }
         if (expirationDate !== undefined) {
-          const oldDate = old.expirationDate ? new Date(old.expirationDate).toISOString().slice(0, 10) : "\u2014";
-          const newDate = expirationDate ? new Date(expirationDate).toISOString().slice(0, 10) : "\u2014";
+          const oldDate = old.expirationDate ? toDateStr(old.expirationDate) : "—";
+          const newDate = expirationDate ? expirationDate.slice(0, 10) : "—";
           if (oldDate !== newDate) changes.expirationDate = { from: oldDate, to: newDate };
         }
       }
