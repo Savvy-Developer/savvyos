@@ -201,11 +201,17 @@ export const listingsRouter = router({
           changes.agentId = { from: old.agentId ?? "\u2014", to: input.data.agentId ?? "\u2014" };
         if (input.data.listingStatus !== undefined && input.data.listingStatus !== old.listingStatus)
           changes.listingStatus = { from: old.listingStatus, to: input.data.listingStatus };
-        // Helper: extract YYYY-MM-DD from a DB timestamp string (stored as noon UTC)
+        // Helper: extract YYYY-MM-DD from a DB date/timestamp value.
+        // DATE columns return "YYYY-MM-DD" strings directly — no conversion needed.
         const toDateStr = (v: unknown) => {
           if (!v) return "—";
-          const s = String(v).replace(" ", "T") + (String(v).endsWith("Z") ? "" : "Z");
-          return new Date(s).toISOString().slice(0, 10);
+          const s = String(v);
+          // Pure date string "YYYY-MM-DD" — return as-is
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+          // Timestamp with time component — parse as UTC
+          const normalized = s.replace(" ", "T") + (s.endsWith("Z") ? "" : "Z");
+          const d = new Date(normalized);
+          return isNaN(d.getTime()) ? "—" : d.toISOString().slice(0, 10);
         };
         if (listDate !== undefined) {
           const oldDate = old.listDate ? toDateStr(old.listDate) : "—";
@@ -234,7 +240,7 @@ export const listingsRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       await updateListing(input.id, {
         listingStatus: "terminated",
-        terminationDate: new Date(input.terminationDate),
+        terminationDate: input.terminationDate.slice(0, 10),
       } as any);
       await logActivity({ userId: ctx.user.id, action: "listing_terminated", entityType: "listing", entityId: input.id, details: { terminationDate: input.terminationDate } });
       return { success: true };

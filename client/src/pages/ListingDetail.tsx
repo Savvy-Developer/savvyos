@@ -70,7 +70,7 @@ function formatListingActivity(entry: any): { icon: React.ReactNode; label: stri
       return { icon: <Edit2 className="h-3.5 w-3.5 text-blue-600" />, label: "Listing Updated", description: parts || "Details changed", color: "bg-blue-100" };
     }
     case "listing_terminated":
-      return { icon: <XCircle className="h-3.5 w-3.5 text-red-600" />, label: "Listing Terminated", description: d.terminationDate ? `Termination date: ${new Date(d.terminationDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "", color: "bg-red-100" };
+      return { icon: <XCircle className="h-3.5 w-3.5 text-red-600" />, label: "Listing Terminated", description: d.terminationDate ? `Termination date: ${safeFormat(d.terminationDate, "MMM d, yyyy")}` : "", color: "bg-red-100" };
     case "listing_converted_to_transaction":
       return { icon: <ArrowRightLeft className="h-3.5 w-3.5 text-purple-600" />, label: "Converted to Transaction", description: d.transactionId ? `Transaction #${d.transactionId}` : "", color: "bg-purple-100" };
     case "listing_back_to_active": {
