@@ -122,9 +122,8 @@ export const listingsRouter = router({
         propertyId: input.propertyId ?? null,
         listingStatus: input.listingStatus ?? "active",
         listPrice: input.listPrice ?? null,
-        // Parse as noon UTC to prevent midnight-UTC values rolling back to the previous day in EST/EDT
-        listDate: input.listDate ? new Date(`${input.listDate.slice(0, 10)}T12:00:00Z`) : null,
-        expirationDate: input.expirationDate ? new Date(`${input.expirationDate.slice(0, 10)}T12:00:00Z`) : null,
+        listDate: input.listDate ? input.listDate.slice(0, 10) : null,
+        expirationDate: input.expirationDate ? input.expirationDate.slice(0, 10) : null,
         mlsNumber: input.mlsNumber ?? null,
         notes: input.notes ?? null,
       } as any);
@@ -184,10 +183,9 @@ export const listingsRouter = router({
       const { listDate, expirationDate, terminationDate, ...rest } = input.data;
       await updateListing(input.id, {
         ...rest,
-        // Parse as noon UTC to prevent midnight-UTC values rolling back to the previous day in EST/EDT
-        listDate: listDate ? new Date(`${listDate.slice(0, 10)}T12:00:00Z`) : undefined,
-        expirationDate: expirationDate ? new Date(`${expirationDate.slice(0, 10)}T12:00:00Z`) : undefined,
-        terminationDate: terminationDate ? new Date(`${terminationDate.slice(0, 10)}T12:00:00Z`) : undefined,
+        listDate: listDate ? listDate.slice(0, 10) : undefined,
+        expirationDate: expirationDate ? expirationDate.slice(0, 10) : undefined,
+        terminationDate: terminationDate ? terminationDate.slice(0, 10) : undefined,
       } as any);
       // Build changes diff
       const changes: Record<string, { from: any; to: any }> = {};

@@ -1343,12 +1343,12 @@ export async function getListings(opts?: {
       )
     );
   }
-  if (listingDateFrom) conditions.push(gte(listings.listDate, new Date(listingDateFrom)));
-  if (listingDateTo) conditions.push(lte(listings.listDate, new Date(listingDateTo)));
-  if (expirationDateFrom) conditions.push(gte(listings.expirationDate, new Date(expirationDateFrom)));
-  if (expirationDateTo) conditions.push(lte(listings.expirationDate, new Date(expirationDateTo)));
-  if (terminationDateFrom) conditions.push(gte(listings.terminationDate, new Date(terminationDateFrom)));
-  if (terminationDateTo) conditions.push(lte(listings.terminationDate, new Date(terminationDateTo)));
+  if (listingDateFrom) conditions.push(gte(listings.listDate, listingDateFrom));
+  if (listingDateTo) conditions.push(lte(listings.listDate, listingDateTo));
+  if (expirationDateFrom) conditions.push(gte(listings.expirationDate, expirationDateFrom));
+  if (expirationDateTo) conditions.push(lte(listings.expirationDate, expirationDateTo));
+  if (terminationDateFrom) conditions.push(gte(listings.terminationDate, terminationDateFrom));
+  if (terminationDateTo) conditions.push(lte(listings.terminationDate, terminationDateTo));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
    const agentAlias = aliasedTable(users, "listingAgent");
   const contactAlias = aliasedTable(contacts, "listingContact");
