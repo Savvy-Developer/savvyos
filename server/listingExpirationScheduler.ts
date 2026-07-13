@@ -18,6 +18,8 @@ export async function checkExpiredListings(): Promise<void> {
 
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  // Today as YYYY-MM-DD string for comparing against DATE (string-mode) columns
+  const todayStr = now.toISOString().slice(0, 10);
 
   // Find active listings past their expiration date that haven't been reminded in the last 24h
   const expiredRows = await db
@@ -35,7 +37,7 @@ export async function checkExpiredListings(): Promise<void> {
       and(
         eq(listings.listingStatus, "active"),
         isNotNull(listings.expirationDate),
-        lt(listings.expirationDate, now),
+        lt(listings.expirationDate, todayStr),
         or(
           isNull(listings.lastExpirationReminderSent),
           lt(listings.lastExpirationReminderSent, oneDayAgo)
@@ -70,12 +72,17 @@ export async function checkExpiredListings(): Promise<void> {
       ? `$${Number(listing.listPrice).toLocaleString("en-US")}`
       : undefined;
 
+    // listing.expirationDate is a plain "YYYY-MM-DD" string (DATE mode: "string")
+    // Parse as local noon to avoid UTC midnight rolling back one day
     const expirationDate = listing.expirationDate
-      ? new Date(listing.expirationDate).toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        })
+      ? (() => {
+          const [y, m, d] = listing.expirationDate.split("-").map(Number);
+          return new Date(y, m - 1, d, 12, 0, 0).toLocaleDateString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          });
+        })()
       : undefined;
 
     try {
