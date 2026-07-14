@@ -66,6 +66,7 @@ export const agentConnectionsRouter = router({
       contactId: z.number().optional(),
       status: z.string().optional(),
       isaId: z.number().optional(),
+      leadSourceId: z.number().optional(),
       search: z.string().optional(),
       followUpDateFrom: z.string().optional(),
       followUpDateTo: z.string().optional(),
@@ -74,20 +75,24 @@ export const agentConnectionsRouter = router({
       limit: z.number().int().min(1).max(200).default(50),
     }).optional())
     .query(async ({ input, ctx }) => {
-      // Agents only see their own connections
-      const agentId = ctx.user.role === "agent" ? ctx.user.id : input?.agentId;
-      return getAgentConnections(
-        agentId,
-        input?.contactId,
-        input?.status,
-        input?.isaId,
-        input?.search || undefined,
-        input?.followUpDateFrom ? new Date(input.followUpDateFrom) : undefined,
-        input?.followUpDateTo ? new Date(input.followUpDateTo) : undefined,
-        input?.sortOrder ?? "desc",
-        input?.page ?? 1,
-        input?.limit ?? 50,
-      );
+      // Agents are always hard-scoped to their own connections. Admin and ISA
+      // users can apply the optional agent facet without changing that rule.
+      const followUpDateTo = input?.followUpDateTo ? new Date(input.followUpDateTo) : undefined;
+      if (followUpDateTo) followUpDateTo.setHours(23, 59, 59, 999);
+      return getAgentConnections({
+        scopeAgentId: ctx.user.role === "agent" ? ctx.user.id : undefined,
+        agentId: ctx.user.role === "agent" ? undefined : input?.agentId,
+        contactId: input?.contactId,
+        status: input?.status,
+        isaId: input?.isaId,
+        leadSourceId: input?.leadSourceId,
+        search: input?.search || undefined,
+        followUpDateFrom: input?.followUpDateFrom ? new Date(input.followUpDateFrom) : undefined,
+        followUpDateTo,
+        sortOrder: input?.sortOrder ?? "desc",
+        page: input?.page ?? 1,
+        limit: input?.limit ?? 50,
+      });
     }),
 
   get: protectedProcedure

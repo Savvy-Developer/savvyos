@@ -369,56 +369,170 @@ export async function deleteContact(id: number) {
 }
 
 // ─── Agent Connections ────────────────────────────────────────────────────────
-export async function getAgentConnections(agentId?: number, contactId?: number, status?: string, isaId?: number, search?: string, followUpDateFrom?: Date, followUpDateTo?: Date, sortOrder: "asc" | "desc" = "desc", page: number = 1, limit: number = 50) {
+type AgentConnectionListFilters = {
+  scopeAgentId?: number;
+  agentId?: number;
+  contactId?: number;
+  status?: string;
+  isaId?: number;
+  leadSourceId?: number;
+  search?: string;
+  followUpDateFrom?: Date;
+  followUpDateTo?: Date;
+  sortOrder?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+};
+
+export async function getAgentConnections(filters: AgentConnectionListFilters = {}) {
   const db = await getDb();
-  if (!db) return { rows: [], total: 0, page, limit };
-  const conditions = [];
-  if (agentId) conditions.push(eq(agentConnections.agentId, agentId));
-  if (contactId) conditions.push(eq(agentConnections.contactId, contactId));
-  if (status) conditions.push(eq(agentConnections.pipelineStatus, status as any));
-  if (isaId === -1) {
-    conditions.push(isNull(contacts.assignedIsaId));
-  } else if (isaId) {
-    conditions.push(eq(contacts.assignedIsaId, isaId));
+  const page = filters.page ?? 1;
+  const limit = filters.limit ?? 50;
+  if (!db) {
+    return {
+      rows: [], total: 0, page, limit,
+      stageCounts: {}, agentCounts: {}, isaCounts: {}, leadSourceCounts: {},
+      fullPipelineTotal: 0,
+      stats: {
+        total: 0, openCount: 0, overdueFollowUps: 0, dueToday: 0,
+        avgAgeDays: 0, oldestAgeDays: 0, staleCount: 0,
+        agingBuckets: { fresh: 0, idle: 0, stale: 0, aging: 0, critical: 0 },
+      },
+    };
   }
-  if (search) {
-    const s = `%${search}%`;
-    conditions.push(or(
+
+  const baseConditions: any[] = [];
+  if (filters.scopeAgentId) baseConditions.push(eq(agentConnections.agentId, filters.scopeAgentId));
+  if (filters.agentId) baseConditions.push(eq(agentConnections.agentId, filters.agentId));
+  if (filters.contactId) baseConditions.push(eq(agentConnections.contactId, filters.contactId));
+  if (filters.isaId === -1) {
+    baseConditions.push(isNull(contacts.assignedIsaId));
+  } else if (filters.isaId) {
+    baseConditions.push(eq(contacts.assignedIsaId, filters.isaId));
+  }
+  if (filters.leadSourceId === -1) {
+    baseConditions.push(isNull(contacts.leadSourceId));
+  } else if (filters.leadSourceId) {
+    baseConditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
+  }
+  if (filters.search) {
+    const s = `%${filters.search}%`;
+    baseConditions.push(or(
       like(contacts.firstName, s),
       like(contacts.lastName, s),
       like(contacts.email, s),
       like(contacts.phone, s),
     ));
   }
-  if (followUpDateFrom) conditions.push(gte(agentConnections.followUpDate, followUpDateFrom));
-  if (followUpDateTo) conditions.push(lte(agentConnections.followUpDate, followUpDateTo));
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const pipelineParentLS = aliasedTable(leadSources, 'pipelineParentLS');
-  const [countRow] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(agentConnections)
-    .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
-    .where(where);
-  const total = Number(countRow?.count ?? 0);
+  if (filters.followUpDateFrom) baseConditions.push(gte(agentConnections.followUpDate, filters.followUpDateFrom));
+  if (filters.followUpDateTo) baseConditions.push(lte(agentConnections.followUpDate, filters.followUpDateTo));
+
+  const resultConditions = [...baseConditions];
+  if (filters.status) resultConditions.push(eq(agentConnections.pipelineStatus, filters.status as any));
+  const baseWhere = baseConditions.length > 0 ? and(...baseConditions) : undefined;
+  const resultWhere = resultConditions.length > 0 ? and(...resultConditions) : undefined;
+  const scopeWhere = filters.scopeAgentId ? eq(agentConnections.agentId, filters.scopeAgentId) : undefined;
   const offset = (page - 1) * limit;
-  const rows = await db
-    .select({
+  const pipelineParentLS = aliasedTable(leadSources, "pipelineParentLS");
+
+  // Stage counts intentionally exclude only the active stage filter. This keeps
+  // every stage card accurate and switchable while honoring all other filters.
+  const [countRows, rows, stageRows, agentFacetRows, isaFacetRows, leadSourceFacetRows, summaryRows] = await Promise.all([
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(agentConnections)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(resultWhere),
+    db.select({
       connection: agentConnections,
       contact: contacts,
       agent: users,
       leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
       parentLeadSource: { id: pipelineParentLS.id, name: pipelineParentLS.name },
     })
-    .from(agentConnections)
-    .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
-    .leftJoin(users, eq(agentConnections.agentId, users.id))
-    .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
-    .leftJoin(pipelineParentLS, eq(leadSources.parentId, pipelineParentLS.id))
-    .where(where)
-    .orderBy(sortOrder === "asc" ? asc(contacts.firstName) : desc(agentConnections.updatedAt))
-    .limit(limit)
-    .offset(offset);
-  return { rows, total, page, limit };
+      .from(agentConnections)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .leftJoin(users, eq(agentConnections.agentId, users.id))
+      .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+      .leftJoin(pipelineParentLS, eq(leadSources.parentId, pipelineParentLS.id))
+      .where(resultWhere)
+      .orderBy(filters.sortOrder === "asc" ? asc(contacts.firstName) : desc(agentConnections.updatedAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ status: agentConnections.pipelineStatus, count: sql<number>`COUNT(*)` })
+      .from(agentConnections)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(baseWhere)
+      .groupBy(agentConnections.pipelineStatus),
+    db.select({ id: agentConnections.agentId, count: sql<number>`COUNT(*)` })
+      .from(agentConnections)
+      .where(scopeWhere)
+      .groupBy(agentConnections.agentId),
+    db.select({ id: contacts.assignedIsaId, count: sql<number>`COUNT(*)` })
+      .from(agentConnections)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(scopeWhere)
+      .groupBy(contacts.assignedIsaId),
+    db.select({ id: contacts.leadSourceId, count: sql<number>`COUNT(*)` })
+      .from(agentConnections)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(scopeWhere)
+      .groupBy(contacts.leadSourceId),
+    db.select({
+      total: sql<number>`COUNT(*)`,
+      openCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN 1 ELSE 0 END), 0)`,
+      overdueFollowUps: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.followUpDate} < CURDATE() AND ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN 1 ELSE 0 END), 0)`,
+      dueToday: sql<number>`COALESCE(SUM(CASE WHEN DATE(${agentConnections.followUpDate}) = CURDATE() AND ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN 1 ELSE 0 END), 0)`,
+      avgAgeDays: sql<number>`COALESCE(AVG(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN GREATEST(DATEDIFF(NOW(), ${agentConnections.updatedAt}), 0) END), 0)`,
+      oldestAgeDays: sql<number>`COALESCE(MAX(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN GREATEST(DATEDIFF(NOW(), ${agentConnections.updatedAt}), 0) END), 0)`,
+      staleCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) >= 7 THEN 1 ELSE 0 END), 0)`,
+      freshCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 0 AND 2 THEN 1 ELSE 0 END), 0)`,
+      idleCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 3 AND 6 THEN 1 ELSE 0 END), 0)`,
+      agingCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 7 AND 13 THEN 1 ELSE 0 END), 0)`,
+      olderCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 14 AND 29 THEN 1 ELSE 0 END), 0)`,
+      criticalCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) >= 30 THEN 1 ELSE 0 END), 0)`,
+    })
+      .from(agentConnections)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(resultWhere),
+  ]);
+
+  const toCountMap = (items: Array<{ id: number | null; count: number }>) => Object.fromEntries(
+    items.map((item) => [item.id == null ? "unassigned" : String(item.id), Number(item.count)]),
+  );
+  const stageCounts = Object.fromEntries(stageRows.map((item) => [item.status, Number(item.count)]));
+  const agentCounts = toCountMap(agentFacetRows);
+  const isaCounts = toCountMap(isaFacetRows);
+  const leadSourceCounts = toCountMap(leadSourceFacetRows);
+  const fullPipelineTotal = Object.values(agentCounts).reduce((sum, count) => sum + count, 0);
+  const summary = summaryRows[0];
+
+  return {
+    rows,
+    total: Number(countRows[0]?.count ?? 0),
+    page,
+    limit,
+    stageCounts,
+    agentCounts,
+    isaCounts,
+    leadSourceCounts,
+    fullPipelineTotal,
+    stats: {
+      total: Number(summary?.total ?? 0),
+      openCount: Number(summary?.openCount ?? 0),
+      overdueFollowUps: Number(summary?.overdueFollowUps ?? 0),
+      dueToday: Number(summary?.dueToday ?? 0),
+      avgAgeDays: Number(summary?.avgAgeDays ?? 0),
+      oldestAgeDays: Number(summary?.oldestAgeDays ?? 0),
+      staleCount: Number(summary?.staleCount ?? 0),
+      agingBuckets: {
+        fresh: Number(summary?.freshCount ?? 0),
+        idle: Number(summary?.idleCount ?? 0),
+        stale: Number(summary?.agingCount ?? 0),
+        aging: Number(summary?.olderCount ?? 0),
+        critical: Number(summary?.criticalCount ?? 0),
+      },
+    },
+  };
 }
 
 export async function getAgentConnectionById(id: number) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,13 +10,14 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import PageHeader from "@/components/PageHeader";
 import { PipelineStatusBadge, IsaStatusBadge } from "@/components/StatusBadge";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Home, ChevronRight, Edit2, UserPlus, Search, Clock, AlertTriangle, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
+import { Home, ChevronRight, ChevronDown, Edit2, UserPlus, Search, Clock, AlertTriangle, ArrowUpAZ, ArrowDownAZ, BarChart3, CalendarClock } from "lucide-react";
 import { formatPhone, isValidPhone, isValidEmail } from "@/lib/inputFormatters";
 import { formatEmail } from "@/lib/format";
 import { safeFormat } from "@/lib/safeFormat";
@@ -67,6 +68,7 @@ export default function PipelinePage() {
   const [followUpFrom, setFollowUpFrom] = usePersistentState("pipeline.followUpFrom", "");
   const [followUpTo, setFollowUpTo] = usePersistentState("pipeline.followUpTo", "");
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("pipeline.sortOrder", "desc");
+  const [statsOpen, setStatsOpen] = usePersistentState("pipeline.statsOpen", false);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 50;
   const [editOpen, setEditOpen] = useState(false);
@@ -94,10 +96,11 @@ export default function PipelinePage() {
   const isaIdParam = selectedIsaId === "all" ? undefined : selectedIsaId === "unassigned" ? -1 : Number(selectedIsaId);
   const statusParam = selectedStage === "all" ? undefined : selectedStage;
   const agentIdParam = selectedAgentId === "all" ? undefined : Number(selectedAgentId);
-  const leadSourceIdParam = selectedLeadSourceId === "all" ? undefined : Number(selectedLeadSourceId);
+  const leadSourceIdParam = selectedLeadSourceId === "all" ? undefined : selectedLeadSourceId === "unassigned" ? -1 : Number(selectedLeadSourceId);
   const { data: connectionsData, refetch } = trpc.agentConnections.list.useQuery({
     agentId: (user as any)?.role === "agent" ? (user as any)?.id : agentIdParam,
     isaId: isaIdParam,
+    leadSourceId: leadSourceIdParam,
     status: statusParam,
     search: pipelineSearch.trim() || undefined,
     followUpDateFrom: followUpFrom || undefined,
@@ -118,6 +121,12 @@ export default function PipelinePage() {
     { enabled: (user as any)?.role !== "agent" }
   );
   const { data: leadSourcesData = [] } = trpc.leadSources.listFlat.useQuery();
+  const stageCounts = connectionsData?.stageCounts ?? {};
+  const agentCounts = connectionsData?.agentCounts ?? {};
+  const isaCounts = connectionsData?.isaCounts ?? {};
+  const leadSourceCounts = connectionsData?.leadSourceCounts ?? {};
+  const fullPipelineTotal = connectionsData?.fullPipelineTotal ?? 0;
+  const pipelineStats = connectionsData?.stats;
 
   const createContact = trpc.contacts.create.useMutation();
   const createConnection = trpc.agentConnections.create.useMutation();
@@ -178,23 +187,12 @@ export default function PipelinePage() {
     onError: (e) => toast.error(e.message),
   });
 
-  // Client-side lead source filter only (stage, agent, ISA, search are now server-side)
-  const filtered = connections.filter((c) => {
-    const leadSourceOk = selectedLeadSourceId === "all" || String((c as any).contact?.leadSourceId) === selectedLeadSourceId;
-    return leadSourceOk;
-  });
+  // Reset pagination whenever the result scope changes so a prior page number
+  // cannot make a valid filtered result look empty.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedStage, selectedAgentId, selectedIsaId, selectedLeadSourceId, pipelineSearch, followUpFrom, followUpTo, sortOrder]);
 
-  // Stage counts: use total from server for the selected stage, show 0 for others when filtered
-  const stageCounts = PIPELINE_STAGES.reduce((acc, s) => {
-    if (selectedStage === s.value) {
-      acc[s.value] = totalConnections;
-    } else {
-      acc[s.value] = connections.filter((c) => c.connection.pipelineStatus === s.value).length;
-    }
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Reset to page 1 when filters change
   function resetPage() { setCurrentPage(1); }
 
   function openEdit(conn: any) {
@@ -294,9 +292,11 @@ export default function PipelinePage() {
                 <SelectValue placeholder="All agents" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All agents</SelectItem>
+                <SelectItem value="all">All agents ({fullPipelineTotal.toLocaleString()})</SelectItem>
                 {(agents as any[]).map((a: any) => (
-                  <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.name} ({Number(agentCounts[String(a.id)] ?? 0).toLocaleString()})
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -308,10 +308,12 @@ export default function PipelinePage() {
                 <SelectValue placeholder="All ISAs" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All ISAs</SelectItem>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
+                <SelectItem value="all">All ISAs ({fullPipelineTotal.toLocaleString()})</SelectItem>
+                <SelectItem value="unassigned">Unassigned ({Number(isaCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
                 {(isas as any[]).map((u: any) => (
-                  <SelectItem key={u.id} value={String(u.id)}>{u.name ?? `ISA #${u.id}`}</SelectItem>
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.name ?? `ISA #${u.id}`} ({Number(isaCounts[String(u.id)] ?? 0).toLocaleString()})
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -323,7 +325,8 @@ export default function PipelinePage() {
                 <SelectValue placeholder="All Lead Sources" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Lead Sources</SelectItem>
+                <SelectItem value="all">All Lead Sources ({fullPipelineTotal.toLocaleString()})</SelectItem>
+                <SelectItem value="unassigned">Unassigned ({Number(leadSourceCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
                 {(() => {
                   const allSources = leadSourcesData as any[];
                   const parents = allSources.filter((ls) => !ls.ls.parentId);
@@ -335,22 +338,31 @@ export default function PipelinePage() {
                         const subs = children.filter((c) => c.ls.parentId === parent.ls.id);
                         return subs.length > 0 ? (
                           <SelectGroup key={parent.ls.id}>
-                            <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">{parent.ls.name}</SelectLabel>
+                            <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">
+                              {parent.ls.name} ({(
+                                Number(leadSourceCounts[String(parent.ls.id)] ?? 0)
+                                + subs.reduce((sum, sub) => sum + Number(leadSourceCounts[String(sub.ls.id)] ?? 0), 0)
+                              ).toLocaleString()})
+                            </SelectLabel>
                             {subs.map((sub) => (
                               <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-5">
-                                {sub.ls.name}
+                                {sub.ls.name} ({Number(leadSourceCounts[String(sub.ls.id)] ?? 0).toLocaleString()})
                               </SelectItem>
                             ))}
                           </SelectGroup>
                         ) : (
-                          <SelectItem key={parent.ls.id} value={String(parent.ls.id)}>{parent.ls.name}</SelectItem>
+                          <SelectItem key={parent.ls.id} value={String(parent.ls.id)}>
+                            {parent.ls.name} ({Number(leadSourceCounts[String(parent.ls.id)] ?? 0).toLocaleString()})
+                          </SelectItem>
                         );
                       })}
                       {orphans.length > 0 && (
                         <SelectGroup>
                           <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">Other</SelectLabel>
                           {orphans.map((ls) => (
-                            <SelectItem key={ls.ls.id} value={String(ls.ls.id)}>{ls.ls.name}</SelectItem>
+                            <SelectItem key={ls.ls.id} value={String(ls.ls.id)}>
+                              {ls.ls.name} ({Number(leadSourceCounts[String(ls.ls.id)] ?? 0).toLocaleString()})
+                            </SelectItem>
                           ))}
                         </SelectGroup>
                       )}
@@ -409,6 +421,69 @@ export default function PipelinePage() {
       </div>
 
 
+      {/* Filter-aware insights — collapsed by default to preserve page density */}
+      <Collapsible open={statsOpen} onOpenChange={setStatsOpen} className="mb-3">
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm" className="h-8 w-full justify-between px-3 text-xs">
+            <span className="flex items-center gap-2">
+              <BarChart3 className="h-3.5 w-3.5 text-primary" />
+              Pipeline insights
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                {(pipelineStats?.total ?? totalConnections).toLocaleString()} in current view
+              </Badge>
+            </span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${statsOpen ? "rotate-180" : ""}`} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Card className="mt-2 border-primary/15 bg-muted/10">
+            <CardContent className="p-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+                {[
+                  { label: "Total", value: pipelineStats?.total ?? 0 },
+                  { label: "Open", value: pipelineStats?.openCount ?? 0 },
+                  { label: "Avg. age", value: `${Math.round(pipelineStats?.avgAgeDays ?? 0)}d` },
+                  { label: "Oldest", value: `${pipelineStats?.oldestAgeDays ?? 0}d` },
+                  { label: "Stale 7+d", value: pipelineStats?.staleCount ?? 0, warn: (pipelineStats?.staleCount ?? 0) > 0 },
+                  { label: "Overdue", value: pipelineStats?.overdueFollowUps ?? 0, warn: (pipelineStats?.overdueFollowUps ?? 0) > 0 },
+                  { label: "Due today", value: pipelineStats?.dueToday ?? 0 },
+                ].map((metric) => (
+                  <div key={metric.label} className="rounded-md border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{metric.label}</p>
+                    <p className={`mt-0.5 text-lg font-bold ${metric.warn ? "text-orange-600 dark:text-orange-400" : "text-foreground"}`}>
+                      {typeof metric.value === "number" ? metric.value.toLocaleString() : metric.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground lg:w-32">
+                  <CalendarClock className="h-3.5 w-3.5" /> Aging of open leads
+                </div>
+                <div className="grid flex-1 grid-cols-5 gap-1.5">
+                  {[
+                    { key: "fresh", label: "0–2d", tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+                    { key: "idle", label: "3–6d", tone: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
+                    { key: "stale", label: "7–13d", tone: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
+                    { key: "aging", label: "14–29d", tone: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+                    { key: "critical", label: "30+d", tone: "bg-rose-200 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300" },
+                  ].map((bucket) => {
+                    const value = Number(pipelineStats?.agingBuckets?.[bucket.key as keyof typeof pipelineStats.agingBuckets] ?? 0);
+                    const openCount = Math.max(pipelineStats?.openCount ?? 0, 1);
+                    return (
+                      <div key={bucket.key} className={`rounded-md px-2 py-1.5 text-center ${bucket.tone}`} title={`${Math.round((value / openCount) * 100)}% of open leads`}>
+                        <p className="text-sm font-bold">{value.toLocaleString()}</p>
+                        <p className="text-[10px] font-medium">{bucket.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] text-muted-foreground">Age is measured from the lead’s most recent pipeline update. Terminal stages are excluded from aging and follow-up alerts.</p>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Pipeline Table */}
       <div className="flex items-center justify-between mb-2">
@@ -437,14 +512,14 @@ export default function PipelinePage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {connections.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-muted-foreground">
+                  <td colSpan={(user as any)?.role === "agent" ? 7 : 8} className="text-center py-10 text-muted-foreground">
                     No pipeline entries found
                   </td>
                 </tr>
               ) : (
-                filtered.map((row) => {
+                connections.map((row) => {
                   const { connection, contact, agent } = row;
                   // Aging indicator
                   const now = Date.now();
