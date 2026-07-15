@@ -59,7 +59,7 @@ export default function RequestConnectionPage() {
 
   const requestConnMut = trpc.connectionRequests.create.useMutation({
     onSuccess: () => {
-      toast.success("Connection request submitted — an admin or ISA will review it shortly.");
+      toast.success("Connection created! The contact has been added to your pipeline.");
       setSearch("");
       setSelectedContact(null);
       setPipelineStatus("new_lead");
@@ -79,7 +79,7 @@ export default function RequestConnectionPage() {
           Request a Lead Connection
         </h1>
         <p className="text-muted-foreground mt-1">
-          Search for a contact in the CRM and request to have them added to your pipeline. An admin or ISA will review and approve the request.
+          Search for a contact in the CRM and connect them to your pipeline instantly.
         </p>
       </div>
 

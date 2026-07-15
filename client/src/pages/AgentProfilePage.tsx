@@ -155,7 +155,7 @@ export default function AgentProfilePage() {
 
   const requestConnMut = trpc.connectionRequests.create.useMutation({
     onSuccess: () => {
-      toast.success("Connection request submitted — an admin or ISA will review it");
+      toast.success("Connection created successfully!");
       setReqConnOpen(false);
       setReqConnSearch("");
       setReqConnSelectedContact(null);
@@ -1748,7 +1748,7 @@ export default function AgentProfilePage() {
                   <SelectItem value="closed">Closed</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">An admin or ISA will review and approve this request before the connection is created.</p>
+              <p className="text-xs text-muted-foreground">The connection will be created immediately and added to this agent's pipeline.</p>
             </div>
           </div>
           <DialogFooter>

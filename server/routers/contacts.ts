@@ -879,13 +879,21 @@ export const connectionRequestsRouter = router({
         .where(and(eq(agentConnectionsTable.agentId, ctx.user.id), eq(agentConnectionsTable.contactId, input.contactId)))
         .limit(1);
       if (connExists.length > 0) throw new TRPCError({ code: "CONFLICT", message: "You already have a connection with this contact" });
-      await db.insert(connectionRequestsTable).values({
+      // Auto-approve: create the connection immediately and record the request as approved
+      const [insertedReq] = await db.insert(connectionRequestsTable).values({
         agentId: ctx.user.id,
         contactId: input.contactId,
         requestedPipelineStatus: input.requestedPipelineStatus,
-        status: "pending",
+        status: "approved",
+        reviewedAt: new Date(),
+      }).$returningId();
+      // Create the actual agent connection
+      await db.insert(agentConnectionsTable).values({
+        agentId: ctx.user.id,
+        contactId: input.contactId,
+        pipelineStatus: input.requestedPipelineStatus as any,
       });
-      return { success: true };
+      return { success: true, autoApproved: true };
     }),
 
   list: protectedProcedure

@@ -192,7 +192,7 @@ export default function ContactsPage() {
   });
 
   const requestConnMut = trpc.connectionRequests.create.useMutation({
-    onSuccess: () => { toast.success("Connection request submitted — an admin or ISA will review it"); setCreateOpen(false); setForm(emptyForm); },
+    onSuccess: () => { toast.success("Connection created successfully!"); setCreateOpen(false); setForm(emptyForm); },
     onError: (e) => toast.error(e.message),
   });
 
