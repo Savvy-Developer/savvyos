@@ -252,6 +252,23 @@ export default function TransactionDetail() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkDragOver, setBulkDragOver] = useState(false);
   const bulkFileInputRef = useRef<HTMLInputElement>(null);
+  // addBulkFiles must be declared here (above early returns) because useCallback is a hook
+  const addBulkFiles = useCallback((newFiles: FileList | File[]) => {
+    const arr = Array.from(newFiles);
+    const valid = arr.filter(f => f.size <= 16 * 1024 * 1024);
+    const oversized = arr.filter(f => f.size > 16 * 1024 * 1024);
+    if (oversized.length) toast.error(`${oversized.length} file(s) skipped — max 16 MB each`);
+    setBulkFiles(prev => [
+      ...prev,
+      ...valid.map(f => ({
+        id: `${f.name}-${f.size}-${Date.now()}-${Math.random()}`,
+        file: f,
+        label: "other" as const,
+        customLabel: "",
+        status: "pending" as const,
+      })),
+    ]);
+  }, []);
 
   // Notes state
   const [noteContent, setNoteContent] = useState("");
@@ -338,6 +355,124 @@ export default function TransactionDetail() {
     onError: (e) => toast.error(e.message),
   });
 
+  const addTerminationNote = trpc.transactions.addNote.useMutation({
+    onSuccess: () => { refetchNotes(); },
+  });
+
+  const addPayout = trpc.transactions.addPayout.useMutation({
+    onSuccess: (data) => {
+      toast.success("Payout added");
+      if (!data.valid && data.total > 100) toast.warning(`Payout total is ${data.total.toFixed(1)}% — exceeds 100%`);
+      setPayoutOpen(false);
+      setPayoutForm({ payeeType: "agent", payeeUserId: "", payeeReferralPartnerId: "", payeeName: "", percentage: "", amount: "", notes: "" });
+      refetchPayouts();
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const markPaid = trpc.transactions.updatePayout.useMutation({
+    onSuccess: () => { toast.success("Marked as paid"); refetchPayouts(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const uploadDoc = trpc.transactions.uploadDocument.useMutation({
+    onSuccess: () => { toast.success("Document uploaded"); refetchDocs(); setDocCustomLabel(""); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const bulkUploadDocs = trpc.transactions.bulkUploadDocuments.useMutation({
+    onSuccess: (data) => {
+      toast.success(`${data.count} document${data.count === 1 ? "" : "s"} uploaded successfully`);
+      refetchDocs();
+      setBulkFiles([]);
+    },
+    onError: (err) => toast.error(err.message ?? "Bulk upload failed"),
+  });
+
+  const renameDoc = trpc.transactions.renameDocument.useMutation({
+    onSuccess: () => { toast.success("Document renamed"); refetchDocs(); setRenameDocId(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteDoc = trpc.transactions.deleteDocument.useMutation({
+    onSuccess: () => { toast.success("Document deleted"); refetchDocs(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const requestException = trpc.commissionExceptions.request.useMutation({
+    onSuccess: () => {
+      toast.success("Exception request submitted — an admin will review it shortly");
+      setExceptionOpen(false);
+      setExceptionForm({ reason: "", agentSplitPct: "", brokerageSplitPct: "", teamLeaderSplitPct: "0", referralSplitPct: "0" });
+      refetchExceptions();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const addNote = trpc.transactions.addNote.useMutation({
+    onSuccess: () => { toast.success("Note added"); refetchNotes(); setNoteContent(""); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const recalculateSplits = trpc.transactions.recalculateSplits.useMutation({
+    onSuccess: (data) => {
+      if ((data as any).skipped) {
+        toast.warning(`Splits not recalculated: ${(data as any).skipReason}`);
+      } else if ((data as any).flagResolved) {
+        toast.success("Commission splits recalculated — integrity alert cleared");
+      } else {
+        toast.success("Commission splits recalculated");
+      }
+      refetchPayouts();
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updatePayoutOverride = trpc.transactions.updatePayoutOverride.useMutation({
+    onSuccess: (data) => {
+      if ((data as any).flagResolved) {
+        toast.success("Payout item updated — integrity alert cleared");
+      } else {
+        toast.success("Payout item updated");
+      }
+      refetchPayouts();
+      refetch();
+      setOverrideOpen(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideItem, setOverrideItem] = useState<{ id: number; payeeName: string; percentage: string; amount: string; notes: string } | null>(null);
+  const [overrideForm, setOverrideForm] = useState({ percentage: "", amount: "", note: "" });
+
+  const tx = txData?.transaction;
+  const gci = tx ? Number(tx.grossCommissionIncome ?? 0) : 0;
+
+  const previewAgentId = editForm.agentId ? Number(editForm.agentId) : (tx?.agentId ?? 0);
+  const previewGci = useMemo(() => {
+    const raw = parseCurrencyInput(editForm.grossCommissionIncome ?? "");
+    return raw ? parseFloat(raw) : (tx ? Number(tx.grossCommissionIncome ?? 0) : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editForm.grossCommissionIncome, tx]);
+  const previewReferralPct = useMemo(() => {
+    if (editForm.referralPayoutPct) {
+      const raw = parseFloat(editForm.referralPayoutPct);
+      return isNaN(raw) ? null : raw;
+    }
+    return tx?.referralPayoutPct ? Number(tx.referralPayoutPct) * 100 : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editForm.referralPayoutPct, tx]);
+  const { data: splitPreview, isLoading: splitPreviewLoading } = trpc.transactions.getCommissionPreview.useQuery(
+    { agentId: previewAgentId, gci: previewGci, referralPayoutPct: previewReferralPct },
+    { enabled: splitPreviewOpen && previewAgentId > 0 && previewGci > 0 }
+  );
+
+  // ── Early return — all hooks must be above this line ─────────────────────────────────
+  if (!tx) return <div className="p-6 text-muted-foreground">Loading...</div>;
+
   function openBuyerEditDialog() {
     if (!tx) return;
     const displayRate = tx.buyerCommissionRate
@@ -400,10 +535,6 @@ export default function TransactionDetail() {
     updateBuyerSide.mutate({ id: txId, data });
   }
 
-  const addTerminationNote = trpc.transactions.addNote.useMutation({
-    onSuccess: () => { refetchNotes(); },
-  });
-
   function handleStatusUpdate() {
     if (newStatus === "terminated") {
       setStatusOpen(false);
@@ -431,120 +562,6 @@ export default function TransactionDetail() {
     setTerminationReason("");
   }
 
-  const addPayout = trpc.transactions.addPayout.useMutation({
-    onSuccess: (data) => {
-      toast.success("Payout added");
-      if (!data.valid && data.total > 100) toast.warning(`Payout total is ${data.total.toFixed(1)}% — exceeds 100%`);
-      setPayoutOpen(false);
-      setPayoutForm({ payeeType: "agent", payeeUserId: "", payeeReferralPartnerId: "", payeeName: "", percentage: "", amount: "", notes: "" });
-      refetchPayouts();
-      refetch(); // refresh transaction to reflect any flag changes
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const markPaid = trpc.transactions.updatePayout.useMutation({
-    onSuccess: () => { toast.success("Marked as paid"); refetchPayouts(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const uploadDoc = trpc.transactions.uploadDocument.useMutation({
-    onSuccess: () => { toast.success("Document uploaded"); refetchDocs(); setDocCustomLabel(""); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const bulkUploadDocs = trpc.transactions.bulkUploadDocuments.useMutation({
-    onSuccess: (data) => {
-      toast.success(`${data.count} document${data.count === 1 ? "" : "s"} uploaded successfully`);
-      refetchDocs();
-      setBulkFiles([]);
-    },
-    onError: (err) => toast.error(err.message ?? "Bulk upload failed"),
-  });
-  const renameDoc = trpc.transactions.renameDocument.useMutation({
-    onSuccess: () => { toast.success("Document renamed"); refetchDocs(); setRenameDocId(null); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const deleteDoc = trpc.transactions.deleteDocument.useMutation({
-    onSuccess: () => { toast.success("Document deleted"); refetchDocs(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const requestException = trpc.commissionExceptions.request.useMutation({
-    onSuccess: () => {
-      toast.success("Exception request submitted — an admin will review it shortly");
-      setExceptionOpen(false);
-      setExceptionForm({ reason: "", agentSplitPct: "", brokerageSplitPct: "", teamLeaderSplitPct: "0", referralSplitPct: "0" });
-      refetchExceptions();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const addNote = trpc.transactions.addNote.useMutation({
-    onSuccess: () => { toast.success("Note added"); refetchNotes(); setNoteContent(""); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const recalculateSplits = trpc.transactions.recalculateSplits.useMutation({
-    onSuccess: (data) => {
-      if ((data as any).skipped) {
-        toast.warning(`Splits not recalculated: ${(data as any).skipReason}`);
-      } else if ((data as any).flagResolved) {
-        toast.success("Commission splits recalculated — integrity alert cleared");
-      } else {
-        toast.success("Commission splits recalculated");
-      }
-      refetchPayouts();
-      refetch(); // refresh transaction to clear integrity flag banner
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const updatePayoutOverride = trpc.transactions.updatePayoutOverride.useMutation({
-    onSuccess: (data) => {
-      if ((data as any).flagResolved) {
-        toast.success("Payout item updated — integrity alert cleared");
-      } else {
-        toast.success("Payout item updated");
-      }
-      refetchPayouts();
-      refetch(); // refresh transaction to clear integrity flag banner
-      setOverrideOpen(false);
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  const [overrideItem, setOverrideItem] = useState<{ id: number; payeeName: string; percentage: string; amount: string; notes: string } | null>(null);
-  const [overrideForm, setOverrideForm] = useState({ percentage: "", amount: "", note: "" });
-
-  const tx = txData?.transaction;
-  const gci = tx ? Number(tx.grossCommissionIncome ?? 0) : 0;
-
-  // Commission split preview — computed from current edit form values
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const previewAgentId = editForm.agentId ? Number(editForm.agentId) : (tx?.agentId ?? 0);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const previewGci = useMemo(() => {
-    const raw = parseCurrencyInput(editForm.grossCommissionIncome ?? "");
-    return raw ? parseFloat(raw) : (tx ? Number(tx.grossCommissionIncome ?? 0) : 0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.grossCommissionIncome, tx]);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const previewReferralPct = useMemo(() => {
-    if (editForm.referralPayoutPct) {
-      const raw = parseFloat(editForm.referralPayoutPct);
-      return isNaN(raw) ? null : raw;
-    }
-    return tx?.referralPayoutPct ? Number(tx.referralPayoutPct) * 100 : null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editForm.referralPayoutPct, tx]);
-  const { data: splitPreview, isLoading: splitPreviewLoading } = trpc.transactions.getCommissionPreview.useQuery(
-    { agentId: previewAgentId, gci: previewGci, referralPayoutPct: previewReferralPct },
-    { enabled: splitPreviewOpen && previewAgentId > 0 && previewGci > 0 }
-  );
-
   const autoAmount = payoutForm.percentage && gci
     ? ((parseFloat(payoutForm.percentage) / 100) * gci).toFixed(2)
     : "";
@@ -552,8 +569,6 @@ export default function TransactionDetail() {
   const agent = txData?.agent;
   const property = txData?.property;
   const buyerContact = txData?.buyerContact;
-
-  if (!tx) return <div className="p-6 text-muted-foreground">Loading...</div>;
 
   const totalPct = (payouts?.items ?? []).reduce((s, { payout: p }) => s + Number(p.percentage), 0);
 
@@ -722,23 +737,6 @@ export default function TransactionDetail() {
   }
 
   // ─── Bulk upload handlers ────────────────────────────────────────────────
-  const addBulkFiles = useCallback((newFiles: FileList | File[]) => {
-    const arr = Array.from(newFiles);
-    const valid = arr.filter(f => f.size <= 16 * 1024 * 1024);
-    const oversized = arr.filter(f => f.size > 16 * 1024 * 1024);
-    if (oversized.length) toast.error(`${oversized.length} file(s) skipped — max 16 MB each`);
-    setBulkFiles(prev => [
-      ...prev,
-      ...valid.map(f => ({
-        id: `${f.name}-${f.size}-${Date.now()}-${Math.random()}`,
-        file: f,
-        label: "other" as const,
-        customLabel: "",
-        status: "pending" as const,
-      })),
-    ]);
-  }, []);
-
   function removeBulkFile(id: string) {
     setBulkFiles(prev => prev.filter(f => f.id !== id));
   }
