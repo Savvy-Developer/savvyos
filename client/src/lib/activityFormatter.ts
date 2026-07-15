@@ -1,6 +1,15 @@
 /**
  * Converts raw activity log entries into clean, human-readable descriptions.
  * Each action type has its own formatter that interprets the `details` object.
+ *
+ * Rich details fields (added in the Activity Log enrichment pass):
+ *   actorName   — display name of the user who performed the action
+ *   actorRole   — role of the actor ("admin" | "agent" | "isa")
+ *   agentName   — display name of the agent involved
+ *   contactName — display name of the contact involved
+ *   propertyAddress — formatted address of the property involved
+ *   txNumber    — transaction number (for transaction events)
+ *   oldStatus / newStatus — for status-change events
  */
 
 const FIELD_LABELS: Record<string, string> = {
@@ -120,7 +129,7 @@ function formatContactUpdated(details: Record<string, unknown>): string[] {
   }
 
   // Legacy flat format fallback: { fieldName: newValue }
-  const skipFields = new Set(["id", "createdAt", "updatedAt", "note"]);
+  const skipFields = new Set(["id", "createdAt", "updatedAt", "note", "actorName", "actorRole", "agentName", "contactName", "propertyAddress", "txNumber"]);
   for (const [field, newValue] of Object.entries(details)) {
     if (skipFields.has(field)) continue;
     const label = FIELD_LABELS[field] ?? field.replace(/([A-Z])/g, " $1").toLowerCase();
@@ -135,6 +144,14 @@ function formatContactUpdated(details: Record<string, unknown>): string[] {
     lines.push(`${label} updated to ${formatValue(field, newValue)}`);
   }
   return lines;
+}
+
+/** Build a context suffix like " for contact [Name]" or " — Agent [Name]" */
+function agentContactSuffix(details: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (details.agentName) parts.push(`Agent: ${details.agentName}`);
+  if (details.contactName) parts.push(`Contact: ${details.contactName}`);
+  return parts.join(" · ");
 }
 
 export interface ActivityEntry {
@@ -162,7 +179,10 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
   const { log, user } = entry;
   const action = log.action ?? "";
   const details = (log.details ?? {}) as Record<string, unknown>;
-  const actor = user?.name ?? "System";
+
+  // Prefer the enriched actorName stored in details; fall back to the joined user row
+  const actor = (details.actorName as string | undefined) ?? user?.name ?? "System";
+
   const timestamp = log.createdAt
     ? new Date(log.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
     : "";
@@ -180,24 +200,74 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       break;
 
     case "contact_updated": {
-      title = "Contact updated";
+      // Rich title: "[Actor] updated contact [ContactName]"
+      if (details.contactName) {
+        title = `${actor} updated contact ${details.contactName}`;
+      } else {
+        title = "Contact updated";
+      }
       lines = formatContactUpdated(details);
       icon = "edit";
       break;
     }
 
-    // ── Agent Connections ─────────────────────────────────────────────────────
-    case "agent_connection_created":
-      title = "Assigned to agent";
-      lines = details.agentName ? [`Agent: ${details.agentName}`] : [];
-      icon = "link";
+    case "contact_archived":
+      title = details.contactName ? `${actor} archived contact ${details.contactName}` : "Contact archived";
+      icon = "alert";
       break;
 
+    case "contacts_bulk_assign_isa": {
+      title = "Bulk ISA assignment";
+      const isaName = details.isaName as string | undefined;
+      const count = details.count as number | undefined;
+      const parts: string[] = [];
+      if (isaName) parts.push(`ISA: ${isaName}`);
+      if (count !== undefined) parts.push(`${count} contact${count === 1 ? "" : "s"} assigned`);
+      lines = parts.length > 0 ? parts : ["Contacts reassigned"];
+      icon = "edit";
+      break;
+    }
+
+    // ── Agent Connections ─────────────────────────────────────────────────────
+    case "agent_connection_created": {
+      // Rich title: "[Actor] connected Agent [AgentName] to Contact [ContactName]"
+      if (details.agentName && details.contactName) {
+        title = `${actor} connected Agent ${details.agentName} to Contact ${details.contactName}`;
+      } else if (details.agentName) {
+        title = `${actor} assigned Agent ${details.agentName}`;
+      } else {
+        title = "Assigned to agent";
+      }
+      lines = [];
+      icon = "link";
+      break;
+    }
+
     case "agent_connection_updated": {
-      title = "Agent connection updated";
-      if (details.status) {
-        const label = PIPELINE_STATUS_LABELS[String(details.status)] ?? String(details.status);
-        lines = [`Pipeline status changed to ${label}`];
+      // Rich title: "[Actor] updated [AgentName]'s pipeline status from [old] to [new] for [ContactName]"
+      const oldStatus = details.oldStatus as string | undefined;
+      const newStatus = details.newStatus as string | undefined;
+      const oldLabel = oldStatus ? (PIPELINE_STATUS_LABELS[oldStatus] ?? oldStatus) : null;
+      const newLabel = newStatus ? (PIPELINE_STATUS_LABELS[newStatus] ?? newStatus) : null;
+
+      if (details.agentName && details.contactName && oldLabel && newLabel) {
+        title = `${actor} updated ${details.agentName}'s pipeline status`;
+        lines = [
+          `Contact: ${details.contactName}`,
+          `Status: ${oldLabel} → ${newLabel}`,
+        ];
+      } else if (details.agentName && oldLabel && newLabel) {
+        title = `${actor} updated ${details.agentName}'s pipeline status`;
+        lines = [`${oldLabel} → ${newLabel}`];
+      } else if (newLabel) {
+        title = "Agent connection updated";
+        lines = [`Pipeline status changed to ${newLabel}`];
+      } else {
+        title = "Agent connection updated";
+        if (details.status) {
+          const label = PIPELINE_STATUS_LABELS[String(details.status)] ?? String(details.status);
+          lines = [`Pipeline status changed to ${label}`];
+        }
       }
       icon = "edit";
       break;
@@ -232,17 +302,41 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       break;
 
     // ── Transactions ──────────────────────────────────────────────────────────
-    case "transaction_created":
-      title = "Transaction created";
-      lines = details.transactionNumber ? [`Transaction #${details.transactionNumber}`] : [];
+    case "transaction_created": {
+      // Rich title: "[Actor] created transaction [#TxNum] for Agent [AgentName] / Contact [ContactName]"
+      const txNum = details.txNumber ?? details.transactionNumber;
+      if (details.agentName && details.contactName) {
+        title = `${actor} created transaction${txNum ? ` #${txNum}` : ""}`;
+        const txCreateLines: string[] = [];
+        txCreateLines.push(`Agent: ${details.agentName}`);
+        txCreateLines.push(`Contact: ${details.contactName}`);
+        if (details.propertyAddress && details.propertyAddress !== "Unknown Property") {
+          txCreateLines.push(`Property: ${details.propertyAddress}`);
+        }
+        lines = txCreateLines;
+      } else {
+        title = "Transaction created";
+        lines = txNum ? [`Transaction #${txNum}`] : [];
+      }
       icon = "plus";
       break;
+    }
 
     case "transaction_updated": {
-      title = "Transaction updated";
+      // Rich title: "[Actor] updated transaction [#TxNum]"
+      const txNumUpd = details.txNumber ?? details.transactionNumber;
+      if (details.agentName || details.contactName) {
+        title = `${actor} updated transaction${txNumUpd ? ` #${txNumUpd}` : ""}`;
+      } else {
+        title = "Transaction updated";
+      }
+
       // New diff-based format: { changes: [{ field, from, to }] }
       if (Array.isArray(details.changes)) {
         const txLines: string[] = [];
+        // Add context lines first if available
+        if (details.agentName) txLines.push(`Agent: ${details.agentName}`);
+        if (details.contactName) txLines.push(`Contact: ${details.contactName}`);
         for (const change of details.changes as Array<{ field: string; from: unknown; to: unknown }>) {
           const { field, from, to } = change;
           const isEmpty = (v: unknown) => v === null || v === undefined || v === "";
@@ -258,6 +352,8 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       } else {
         // Legacy format fallback
         const txLines: string[] = [];
+        if (details.agentName) txLines.push(`Agent: ${details.agentName}`);
+        if (details.contactName) txLines.push(`Contact: ${details.contactName}`);
         if (details.status) {
           const label = TRANSACTION_STATUS_LABELS[String(details.status)] ?? String(details.status);
           txLines.push(`Status changed to ${label}`);
@@ -312,16 +408,90 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
     }
 
     // ── Listings ──────────────────────────────────────────────────────────────
-    case "listing_created":
-      title = "Listing created";
-      lines = details.address ? [String(details.address)] : [];
+    case "listing_created": {
+      // Rich title: "[Actor] created listing for Agent [AgentName] / Contact [ContactName]"
+      if (details.agentName && details.contactName) {
+        title = `${actor} created listing`;
+        const lstLines: string[] = [];
+        lstLines.push(`Agent: ${details.agentName}`);
+        lstLines.push(`Contact: ${details.contactName}`);
+        if (details.propertyAddress && details.propertyAddress !== "Unknown Property") {
+          lstLines.push(`Property: ${details.propertyAddress}`);
+        }
+        if (details.mlsNumber) lstLines.push(`MLS #${details.mlsNumber}`);
+        lines = lstLines;
+      } else {
+        title = "Listing created";
+        const lstLines: string[] = [];
+        if (details.propertyAddress && details.propertyAddress !== "Unknown Property") lstLines.push(String(details.propertyAddress));
+        else if (details.address) lstLines.push(String(details.address));
+        if (details.mlsNumber) lstLines.push(`MLS #${details.mlsNumber}`);
+        lines = lstLines;
+      }
       icon = "plus";
       break;
+    }
 
-    case "listing_updated":
-      title = "Listing updated";
+    case "listing_updated": {
+      // Rich title: "[Actor] updated listing"
+      if (details.agentName || details.contactName) {
+        title = `${actor} updated listing`;
+      } else {
+        title = "Listing updated";
+      }
+      const lstUpdLines: string[] = [];
+      if (details.agentName) lstUpdLines.push(`Agent: ${details.agentName}`);
+      if (details.contactName) lstUpdLines.push(`Contact: ${details.contactName}`);
+      if (details.propertyAddress && details.propertyAddress !== "Unknown Property") {
+        lstUpdLines.push(`Property: ${details.propertyAddress}`);
+      }
+      // Show field changes if present
+      if (details.changes && typeof details.changes === "object" && !Array.isArray(details.changes)) {
+        const changesObj = details.changes as Record<string, { from: unknown; to: unknown }>;
+        for (const [field, { from, to }] of Object.entries(changesObj)) {
+          const fieldLabel = FIELD_LABELS[field] ?? field.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+          const isEmpty = (v: unknown) => v === null || v === undefined || v === "" || v === "—";
+          if (isEmpty(from) && !isEmpty(to)) {
+            lstUpdLines.push(`${fieldLabel} set to ${to}`);
+          } else if (!isEmpty(from) && isEmpty(to)) {
+            lstUpdLines.push(`${fieldLabel} cleared (was ${from})`);
+          } else if (!isEmpty(from) || !isEmpty(to)) {
+            lstUpdLines.push(`${fieldLabel}: ${from} → ${to}`);
+          }
+        }
+      }
+      lines = lstUpdLines.length > 0 ? lstUpdLines : ["Listing details updated"];
       icon = "edit";
       break;
+    }
+
+    case "listing_terminated": {
+      if (details.agentName || details.contactName) {
+        title = `${actor} terminated listing`;
+      } else {
+        title = "Listing terminated";
+      }
+      const termLines: string[] = [];
+      if (details.agentName) termLines.push(`Agent: ${details.agentName}`);
+      if (details.contactName) termLines.push(`Contact: ${details.contactName}`);
+      if (details.propertyAddress && details.propertyAddress !== "Unknown Property") {
+        termLines.push(`Property: ${details.propertyAddress}`);
+      }
+      if (details.terminationDate) termLines.push(`Termination date: ${details.terminationDate}`);
+      lines = termLines;
+      icon = "alert";
+      break;
+    }
+
+    case "listing_expired": {
+      title = details.agentName ? `${actor} marked listing expired` : "Listing marked expired";
+      const expLines: string[] = [];
+      if (details.agentName) expLines.push(`Agent: ${details.agentName}`);
+      if (details.contactName) expLines.push(`Contact: ${details.contactName}`);
+      lines = expLines;
+      icon = "alert";
+      break;
+    }
 
     case "listing_converted_to_transaction":
       title = "Listing converted to transaction";
@@ -364,6 +534,7 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       title = "Smart Plan deleted";
       icon = "alert";
       break;
+
     // ── Market Match ──────────────────────────────────────────────────────────
     case "market_match_session_started":
       title = "Market Match call started";
@@ -374,13 +545,15 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       title = "Market Match call completed";
       icon = "check";
       break;
+
     // ── User Login ────────────────────────────────────────────────────────────
     case "user_login":
       title = "Logged in";
       lines = [];
       icon = "info";
       break;
-    // ── Fallback ──────────────────────────────────────────────────────────────
+
+    // ── Fallback ─────────────────────────────────────────────────────────────
     default:
       title = action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
       icon = "info";

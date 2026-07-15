@@ -90,12 +90,37 @@ export const transactionsRouter = router({
         closingDate: input.closingDate ? new Date(input.closingDate) : null,
       } as any);
 
+      // Enrich activity log with names of all involved parties
+      let txContactName = "Unknown Contact";
+      let txAgentName = "Unknown Agent";
+      let txPropertyAddress = "Unknown Property";
+      try {
+        const dbEnrich = await getDb();
+        if (dbEnrich) {
+          const [cRow] = await dbEnrich.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, input.primaryContactId)).limit(1);
+          if (cRow) txContactName = `${cRow.firstName ?? ""} ${cRow.lastName ?? ""}`.trim() || "Unknown Contact";
+          const [aRow] = await dbEnrich.select({ name: users.name }).from(users).where(eq(users.id, agentId)).limit(1);
+          if (aRow) txAgentName = aRow.name ?? "Unknown Agent";
+          if (input.propertyId) {
+            const { properties: propertiesTable } = await import("../../drizzle/schema");
+            const [pRow] = await dbEnrich.select({ address: propertiesTable.address, city: propertiesTable.city, state: propertiesTable.state }).from(propertiesTable).where(eq(propertiesTable.id, input.propertyId)).limit(1);
+            if (pRow) txPropertyAddress = [pRow.address, pRow.city, pRow.state].filter(Boolean).join(", ") || "Unknown Property";
+          }
+        }
+      } catch (_) {}
       await logActivity({
         userId: ctx.user.id,
         action: "transaction_created",
         entityType: "transaction",
         entityId: id,
-        details: { txNumber },
+        details: {
+          txNumber,
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: txAgentName,
+          contactName: txContactName,
+          propertyAddress: txPropertyAddress,
+        },
       });
       // Auto-generate commission payout items if GCI is set
       let autoPayoutResult: { skipped: boolean; skipReason?: string; result?: any } = { skipped: true };
@@ -284,7 +309,14 @@ export const transactionsRouter = router({
         action: "transaction_updated",
         entityType: "transaction",
         entityId: input.id,
-        details: changes.length > 0 ? { changes } : { status: input.data.status },
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: txForEmail?.agent ? (txForEmail.agent as any).name ?? "Unknown Agent" : "Unknown Agent",
+          contactName: txForEmail?.contact ? `${txForEmail.contact.firstName ?? ""} ${txForEmail.contact.lastName ?? ""}`.trim() : "Unknown Contact",
+          txNumber: txForEmail?.transaction.transactionNumber,
+          ...(changes.length > 0 ? { changes } : { note: "No tracked fields changed" }),
+        },
       });
 
       // Notify on status change (non-closed statuses)

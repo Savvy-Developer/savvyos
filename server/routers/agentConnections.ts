@@ -173,11 +173,30 @@ export const agentConnectionsRouter = router({
         // If no ISA is assigned, skip creating the task silently
       }
 
+      // Enrich activity log with names of all involved parties
+      let activityContactName = "Unknown Contact";
+      let activityAgentName = "Unknown Agent";
+      try {
+        const db2 = await getDb();
+        if (db2) {
+          const [contactRow] = await db2.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, input.contactId)).limit(1);
+          if (contactRow) activityContactName = `${contactRow.firstName ?? ""} ${contactRow.lastName ?? ""}`.trim() || "Unknown Contact";
+          const [agentRow] = await db2.select({ name: users.name }).from(users).where(eq(users.id, input.agentId)).limit(1);
+          if (agentRow) activityAgentName = agentRow.name ?? "Unknown Agent";
+        }
+      } catch (_) {}
       await logActivity({
         userId: ctx.user.id,
         action: "agent_connection_created",
         entityType: "agent_connection",
         entityId: id,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: activityAgentName,
+          contactName: activityContactName,
+          pipelineStatus: input.pipelineStatus ?? "new_lead",
+        },
       });
 
       // Email alert to agent
@@ -241,6 +260,29 @@ export const agentConnectionsRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const { buyBox, followUpDate, ...rest } = input.data;
+      // Fetch old connection to get agent/contact names and old status for the log
+      let oldStatus: string | undefined;
+      let updateAgentName = "Unknown Agent";
+      let updateContactName = "Unknown Contact";
+      try {
+        const conn = await getAgentConnectionById(input.id);
+        if (conn) {
+          oldStatus = (conn as any).pipelineStatus ?? (conn as any).agentConnection?.pipelineStatus;
+          const db2 = await getDb();
+          if (db2) {
+            const agentId = (conn as any).agentId ?? (conn as any).agentConnection?.agentId;
+            const contactId = (conn as any).contactId ?? (conn as any).agentConnection?.contactId;
+            if (agentId) {
+              const [agentRow] = await db2.select({ name: users.name }).from(users).where(eq(users.id, agentId)).limit(1);
+              if (agentRow) updateAgentName = agentRow.name ?? "Unknown Agent";
+            }
+            if (contactId) {
+              const [contactRow] = await db2.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, contactId)).limit(1);
+              if (contactRow) updateContactName = `${contactRow.firstName ?? ""} ${contactRow.lastName ?? ""}`.trim() || "Unknown Contact";
+            }
+          }
+        }
+      } catch (_) {}
       await updateAgentConnection(input.id, {
         ...rest,
         followUpDate: followUpDate ? new Date(followUpDate) : null,
@@ -251,7 +293,14 @@ export const agentConnectionsRouter = router({
         action: "agent_connection_updated",
         entityType: "agent_connection",
         entityId: input.id,
-        details: { status: input.data.pipelineStatus },
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: updateAgentName,
+          contactName: updateContactName,
+          oldStatus,
+          newStatus: input.data.pipelineStatus,
+        },
       });
       return { success: true };
     }),

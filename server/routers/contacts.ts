@@ -193,12 +193,39 @@ export const contactsRouter = router({
         }
       }
 
+      // Resolve assignedIsaId to name in the diff for readability
+      const db3 = await getDb();
+      if (db3) {
+        for (const change of changes) {
+          if (change.field === "Assigned ISA") {
+            if (change.from && typeof change.from === "number") {
+              const [r] = await db3.select({ name: users.name }).from(users).where(eq(users.id, change.from as number)).limit(1);
+              change.from = r?.name ?? `ISA #${change.from}`;
+            } else if (!change.from) {
+              change.from = "(none)";
+            }
+            if (change.to && typeof change.to === "number") {
+              const [r] = await db3.select({ name: users.name }).from(users).where(eq(users.id, change.to as number)).limit(1);
+              change.to = r?.name ?? `ISA #${change.to}`;
+            } else if (!change.to) {
+              change.to = "(none)";
+            }
+          }
+        }
+      }
+      const contactForLog = (oldContact as any)?.contact ?? oldContact ?? {};
+      const contactDisplayName = `${contactForLog.firstName ?? ""} ${contactForLog.lastName ?? ""}`.trim() || "Unknown Contact";
       await logActivity({
         userId: ctx.user.id,
         action: "contact_updated",
         entityType: "contact",
         entityId: input.id,
-        details: changes.length > 0 ? { changes } : { note: "No fields changed" },
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          contactName: contactDisplayName,
+          ...(changes.length > 0 ? { changes } : { note: "No fields changed" }),
+        },
       });
       return { success: true };
     }),
@@ -278,12 +305,29 @@ export const contactsRouter = router({
           updateData.isaStatus = null;
         }
         await updateContact(id, updateData as any);
+        // Resolve ISA IDs to names for the activity log
+        let fromIsaName: string = oldData.assignedIsaId ? `ISA #${oldData.assignedIsaId}` : "(none)";
+        let toIsaName: string = input.isaId ? `ISA #${input.isaId}` : "(none)";
+        try {
+          if (oldData.assignedIsaId) {
+            const [r] = await db.select({ name: users.name }).from(users).where(eq(users.id, oldData.assignedIsaId)).limit(1);
+            if (r?.name) fromIsaName = r.name;
+          }
+          if (input.isaId) {
+            const [r] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.isaId)).limit(1);
+            if (r?.name) toIsaName = r.name;
+          }
+        } catch (_) {}
         await logActivity({
           userId: ctx.user.id,
           action: "contact_updated",
           entityType: "contact",
           entityId: id,
-          details: { changes: [{ field: "Assigned ISA", from: oldData.assignedIsaId, to: input.isaId }] },
+          details: {
+            actorName: ctx.user.name ?? "Unknown",
+            actorRole: ctx.user.role,
+            changes: [{ field: "Assigned ISA", from: fromIsaName, to: toIsaName }],
+          },
         });
         updated++;
       }

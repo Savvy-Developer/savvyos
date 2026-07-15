@@ -127,12 +127,40 @@ export const listingsRouter = router({
         mlsNumber: input.mlsNumber ?? null,
         notes: input.notes ?? null,
       } as any);
+      // Enrich activity log with names of all involved parties
+      let lstContactName = "Unknown Contact";
+      let lstAgentName = "Unknown Agent";
+      let lstPropertyAddress = "Unknown Property";
+      try {
+        const dbEnrich = await getDb();
+        if (dbEnrich) {
+          const [cRow] = await dbEnrich.select({ firstName: contactsTable.firstName, lastName: contactsTable.lastName }).from(contactsTable).where(eq(contactsTable.id, input.contactId)).limit(1);
+          if (cRow) lstContactName = `${cRow.firstName ?? ""} ${cRow.lastName ?? ""}`.trim() || "Unknown Contact";
+          if (agentId) {
+            const [aRow] = await dbEnrich.select({ name: users.name }).from(users).where(eq(users.id, agentId)).limit(1);
+            if (aRow) lstAgentName = aRow.name ?? "Unknown Agent";
+          }
+          if (input.propertyId) {
+            const [pRow] = await dbEnrich.select({ address: propertiesTable.address, city: propertiesTable.city, state: propertiesTable.state }).from(propertiesTable).where(eq(propertiesTable.id, input.propertyId)).limit(1);
+            if (pRow) lstPropertyAddress = [pRow.address, pRow.city, pRow.state].filter(Boolean).join(", ") || "Unknown Property";
+          } else if (input.address) {
+            lstPropertyAddress = [input.address, input.city, input.state].filter(Boolean).join(", ") || "Unknown Property";
+          }
+        }
+      } catch (_) {}
       await logActivity({
         userId: ctx.user.id,
         action: "listing_created",
         entityType: "listing",
         entityId: id,
-        details: { mlsNumber: input.mlsNumber, contactId: input.contactId },
+        details: {
+          mlsNumber: input.mlsNumber,
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: lstAgentName,
+          contactName: lstContactName,
+          propertyAddress: lstPropertyAddress,
+        },
       });
       // Notify agent of new listing
       if (agentId) {
@@ -224,12 +252,43 @@ export const listingsRouter = router({
           if (oldDate !== newDate) changes.expirationDate = { from: oldDate, to: newDate };
         }
       }
+      // Enrich with actor/agent/contact names
+      let updContactName = "Unknown Contact";
+      let updAgentName = "Unknown Agent";
+      let updPropertyAddress = "Unknown Property";
+      try {
+        const dbEnrich = await getDb();
+        if (dbEnrich) {
+          const contactId = input.data.contactId ?? oldListing?.listing.contactId;
+          if (contactId) {
+            const [cRow] = await dbEnrich.select({ firstName: contactsTable.firstName, lastName: contactsTable.lastName }).from(contactsTable).where(eq(contactsTable.id, contactId)).limit(1);
+            if (cRow) updContactName = `${cRow.firstName ?? ""} ${cRow.lastName ?? ""}`.trim() || "Unknown Contact";
+          }
+          const agentIdUpd = input.data.agentId ?? oldListing?.listing.agentId;
+          if (agentIdUpd) {
+            const [aRow] = await dbEnrich.select({ name: users.name }).from(users).where(eq(users.id, agentIdUpd)).limit(1);
+            if (aRow) updAgentName = aRow.name ?? "Unknown Agent";
+          }
+          const propId = input.data.propertyId ?? oldListing?.listing.propertyId;
+          if (propId) {
+            const [pRow] = await dbEnrich.select({ address: propertiesTable.address, city: propertiesTable.city, state: propertiesTable.state }).from(propertiesTable).where(eq(propertiesTable.id, propId)).limit(1);
+            if (pRow) updPropertyAddress = [pRow.address, pRow.city, pRow.state].filter(Boolean).join(", ") || "Unknown Property";
+          }
+        }
+      } catch (_) {}
       await logActivity({
         userId: ctx.user.id,
         action: "listing_updated",
         entityType: "listing",
         entityId: input.id,
-        details: { changes },
+        details: {
+          changes,
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: updAgentName,
+          contactName: updContactName,
+          propertyAddress: updPropertyAddress,
+        },
       });
       return { success: true };
     }),
@@ -242,7 +301,44 @@ export const listingsRouter = router({
         listingStatus: "terminated",
         terminationDate: input.terminationDate.slice(0, 10),
       } as any);
-      await logActivity({ userId: ctx.user.id, action: "listing_terminated", entityType: "listing", entityId: input.id, details: { terminationDate: input.terminationDate } });
+      // Enrich with actor/property context
+      let termPropertyAddress = "Unknown Property";
+      let termAgentName = "Unknown Agent";
+      let termContactName = "Unknown Contact";
+      try {
+        const dbEnrich = await getDb();
+        if (dbEnrich) {
+          const termListing = await getListingById(input.id);
+          if (termListing) {
+            if (termListing.listing.agentId) {
+              const [aRow] = await dbEnrich.select({ name: users.name }).from(users).where(eq(users.id, termListing.listing.agentId)).limit(1);
+              if (aRow) termAgentName = aRow.name ?? "Unknown Agent";
+            }
+            if (termListing.listing.contactId) {
+              const [cRow] = await dbEnrich.select({ firstName: contactsTable.firstName, lastName: contactsTable.lastName }).from(contactsTable).where(eq(contactsTable.id, termListing.listing.contactId)).limit(1);
+              if (cRow) termContactName = `${cRow.firstName ?? ""} ${cRow.lastName ?? ""}`.trim() || "Unknown Contact";
+            }
+            if (termListing.listing.propertyId) {
+              const [pRow] = await dbEnrich.select({ address: propertiesTable.address, city: propertiesTable.city, state: propertiesTable.state }).from(propertiesTable).where(eq(propertiesTable.id, termListing.listing.propertyId)).limit(1);
+              if (pRow) termPropertyAddress = [pRow.address, pRow.city, pRow.state].filter(Boolean).join(", ") || "Unknown Property";
+            }
+          }
+        }
+      } catch (_) {}
+      await logActivity({
+        userId: ctx.user.id,
+        action: "listing_terminated",
+        entityType: "listing",
+        entityId: input.id,
+        details: {
+          terminationDate: input.terminationDate,
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          agentName: termAgentName,
+          contactName: termContactName,
+          propertyAddress: termPropertyAddress,
+        },
+      });
       return { success: true };
     }),
 
