@@ -451,34 +451,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: !!user, staleTime: 60000 }
   );
-  if (loading) return <DashboardLayoutSkeleton />;
-  if (!user) {
-    if (import.meta.env.VITE_DEV_LOGIN_ENABLED === "true") return <DevLoginScreen />;
-    window.location.href = "/login";
-    return null;
-  }
 
-  const pending = typeof pendingCount === "object" && pendingCount !== null ? (pendingCount as any).count : (pendingCount ?? 0);
-  const pendingFb = typeof pendingFeedbackCount === "number" ? pendingFeedbackCount : 0;
-  const pendingExc = (pendingExceptionsData as any)?.count ?? 0;
-  const flaggedTx = (flaggedTxData as any)?.count ?? 0;
-  const unpaidPayouts = (unpaidPayoutsData as any)?.count ?? 0;
-  const pendingConnReqs = (pendingConnReqsData as any)?.count ?? 0;
-  const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
-  const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
-  const hasActiveOnboarding = onboardingStatus?.active ?? false;
-  const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
+  // Derived values needed to conditionally enable PM inbox queries
   const isTyler = (user as any)?.email === "tyler@savvy.realty";
   const isPmUser = isTyler || role === "admin";
 
-  // PM Inbox unread count
+  // PM Inbox unread count — must be above early returns
   const { data: inboxCount, refetch: refetchInbox } = trpc.pm.inbox.unreadCount.useQuery(
     undefined,
     { enabled: isPmUser, refetchInterval: 30000 }
   );
-  const unreadPmCount = (inboxCount as any)?.count ?? 0;
 
-  // PM Inbox panel state
+  // PM Inbox panel state — must be above early returns
   const [inboxOpen, setInboxOpen] = useState(false);
   const inboxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -497,6 +481,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
   const markNoteRead = trpc.pm.notes.markRead.useMutation({ onSuccess: () => { refetchInbox(); } });
   const markNoteUnread = trpc.pm.notes.markUnread.useMutation({ onSuccess: () => { refetchInbox(); } });
+
+  // ── Early returns (all hooks must be above this line) ──────────────────────
+  if (loading) return <DashboardLayoutSkeleton />;
+  if (!user) {
+    if (import.meta.env.VITE_DEV_LOGIN_ENABLED === "true") return <DevLoginScreen />;
+    window.location.href = "/login";
+    return null;
+  }
+
+  const pending = typeof pendingCount === "object" && pendingCount !== null ? (pendingCount as any).count : (pendingCount ?? 0);
+  const pendingFb = typeof pendingFeedbackCount === "number" ? pendingFeedbackCount : 0;
+  const pendingExc = (pendingExceptionsData as any)?.count ?? 0;
+  const flaggedTx = (flaggedTxData as any)?.count ?? 0;
+  const unpaidPayouts = (unpaidPayoutsData as any)?.count ?? 0;
+  const pendingConnReqs = (pendingConnReqsData as any)?.count ?? 0;
+  const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
+  const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
+  const hasActiveOnboarding = onboardingStatus?.active ?? false;
+  const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
+  const unreadPmCount = (inboxCount as any)?.count ?? 0;
 
   const baseNavGroups =
     role === "admin"
