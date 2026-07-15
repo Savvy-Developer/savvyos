@@ -531,6 +531,51 @@ export const transactionsRouter = router({
       return { success: true };
     }),
 
+  // ─── Bulk Document Upload ─────────────────────────────────────────────────
+  bulkUploadDocuments: protectedProcedure
+    .input(z.object({
+      transactionId: z.number(),
+      files: z.array(z.object({
+        fileName: z.string(),
+        fileUrl: z.string().url(),
+        fileKey: z.string(),
+        mimeType: z.string().optional().nullable(),
+        fileSize: z.number().optional().nullable(),
+        label: z.enum(["appraisal", "closing_disclosure", "home_inspection", "other"]),
+        customLabel: z.string().optional().nullable(),
+      })).min(1).max(20),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const inserted: number[] = [];
+      for (const file of input.files) {
+        const id = await createTransactionDocument({
+          transactionId: input.transactionId,
+          uploadedBy: ctx.user.id,
+          fileName: file.fileName,
+          fileUrl: file.fileUrl,
+          fileKey: file.fileKey,
+          mimeType: file.mimeType ?? null,
+          fileSize: file.fileSize ?? null,
+          label: file.label,
+          customLabel: file.customLabel ?? null,
+        });
+        inserted.push(id);
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "documents_bulk_uploaded",
+        entityType: "transaction",
+        entityId: input.transactionId,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          count: input.files.length,
+          fileNames: input.files.map(f => f.fileName),
+        },
+      });
+      return { inserted, count: inserted.length };
+    }),
+
   // ─── Transaction Notes ────────────────────────────────────────────────────
   getNotes: protectedProcedure
     .input(z.object({ transactionId: z.number() }))

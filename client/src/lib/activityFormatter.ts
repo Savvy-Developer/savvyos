@@ -62,6 +62,13 @@ const TRANSACTION_STATUS_LABELS: Record<string, string> = {
   terminated: "Terminated",
 };
 
+const DOCUMENT_LABELS_MAP: Record<string, string> = {
+  appraisal: "Appraisal",
+  closing_disclosure: "Closing Disclosure",
+  home_inspection: "Home Inspection",
+  other: "Other",
+};
+
 const PRIORITY_LABELS: Record<string, string> = {
   low: "Low",
   medium: "Medium",
@@ -363,6 +370,27 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
         lines = txLines.length > 0 ? txLines : ["Transaction details updated"];
       }
       icon = "edit";
+      break;
+    }
+
+    case "document_uploaded":
+      title = details.fileName ? `Document uploaded: ${details.fileName}` : "Document uploaded";
+      lines = details.label ? [`Type: ${DOCUMENT_LABELS_MAP[String(details.label)] ?? details.label}`] : [];
+      icon = "plus";
+      break;
+
+    case "documents_bulk_uploaded": {
+      const bulkCount = details.count as number | undefined;
+      title = `${actor} bulk uploaded ${bulkCount ?? "multiple"} document${bulkCount === 1 ? "" : "s"}`;
+      const bulkLines: string[] = [];
+      if (Array.isArray(details.fileNames)) {
+        const names = details.fileNames as string[];
+        const preview = names.slice(0, 5);
+        bulkLines.push(...preview.map((n: string) => `• ${n}`));
+        if (names.length > 5) bulkLines.push(`…and ${names.length - 5} more`);
+      }
+      lines = bulkLines;
+      icon = "plus";
       break;
     }
 

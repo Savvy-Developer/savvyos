@@ -50,6 +50,24 @@ export function registerUploadRoutes(app: express.Application) {
     }
   });
 
+  // POST /api/upload/transaction-documents-bulk — multi-file transaction document upload
+  app.post("/api/upload/transaction-documents-bulk", upload.array("files", 20), async (req: any, res: any) => {
+    try {
+      const files: Express.Multer.File[] = req.files ?? [];
+      if (!files.length) return res.status(400).json({ error: "No files provided" });
+      const results: Array<{ originalName: string; fileUrl: string; fileKey: string; mimeType: string; fileSize: number }> = [];
+      for (const file of files) {
+        const fileKey = `transaction-docs/${nanoid(12)}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const { url } = await storagePut(fileKey, file.buffer, file.mimetype);
+        results.push({ originalName: file.originalname, fileUrl: url, fileKey, mimeType: file.mimetype, fileSize: file.size });
+      }
+      return res.json({ files: results });
+    } catch (err: any) {
+      console.error("[BulkTransactionDocUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/listing-document — listing document upload
   app.post("/api/upload/listing-document", upload.single("file"), async (req: any, res: any) => {
     try {

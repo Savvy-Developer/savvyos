@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import PageHeader from "@/components/PageHeader";
 import { TransactionStatusBadge, PriorityBadge } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Plus, DollarSign, Edit2, Link2, Info, Upload, FileText, Trash2, Send, MessageSquare, Pencil, Search, Loader2, Download, Eye, MoreHorizontal, History, TrendingUp, Home, Building2, Calendar, ArrowRight, RefreshCw, Users } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Plus, DollarSign, Edit2, Link2, Info, Upload, FileText, Trash2, Send, MessageSquare, Pencil, Search, Loader2, Download, Eye, MoreHorizontal, History, TrendingUp, Home, Building2, Calendar, ArrowRight, RefreshCw, Users, X, FolderOpen } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { formatActivityEntry } from "@/lib/activityFormatter";
 import { useLocation, useParams, Link } from "wouter";
@@ -239,6 +239,19 @@ export default function TransactionDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [renameDocId, setRenameDocId] = useState<number | null>(null);
   const [renameDocName, setRenameDocName] = useState("");
+  // Bulk upload state
+  type BulkFile = {
+    id: string;
+    file: File;
+    label: "appraisal" | "closing_disclosure" | "home_inspection" | "other";
+    customLabel: string;
+    status: "pending" | "uploading" | "done" | "error";
+    error?: string;
+  };
+  const [bulkFiles, setBulkFiles] = useState<BulkFile[]>([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkDragOver, setBulkDragOver] = useState(false);
+  const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
   // Notes state
   const [noteContent, setNoteContent] = useState("");
@@ -440,6 +453,14 @@ export default function TransactionDetail() {
     onError: (e) => toast.error(e.message),
   });
 
+  const bulkUploadDocs = trpc.transactions.bulkUploadDocuments.useMutation({
+    onSuccess: (data) => {
+      toast.success(`${data.count} document${data.count === 1 ? "" : "s"} uploaded successfully`);
+      refetchDocs();
+      setBulkFiles([]);
+    },
+    onError: (err) => toast.error(err.message ?? "Bulk upload failed"),
+  });
   const renameDoc = trpc.transactions.renameDocument.useMutation({
     onSuccess: () => { toast.success("Document renamed"); refetchDocs(); setRenameDocId(null); },
     onError: (e) => toast.error(e.message),
@@ -697,6 +718,76 @@ export default function TransactionDetail() {
     } finally {
       setDocUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  // ─── Bulk upload handlers ────────────────────────────────────────────────
+  const addBulkFiles = useCallback((newFiles: FileList | File[]) => {
+    const arr = Array.from(newFiles);
+    const valid = arr.filter(f => f.size <= 16 * 1024 * 1024);
+    const oversized = arr.filter(f => f.size > 16 * 1024 * 1024);
+    if (oversized.length) toast.error(`${oversized.length} file(s) skipped — max 16 MB each`);
+    setBulkFiles(prev => [
+      ...prev,
+      ...valid.map(f => ({
+        id: `${f.name}-${f.size}-${Date.now()}-${Math.random()}`,
+        file: f,
+        label: "other" as const,
+        customLabel: "",
+        status: "pending" as const,
+      })),
+    ]);
+  }, []);
+
+  function removeBulkFile(id: string) {
+    setBulkFiles(prev => prev.filter(f => f.id !== id));
+  }
+
+  function setBulkFileLabel(id: string, label: BulkFile["label"]) {
+    setBulkFiles(prev => prev.map(f => f.id === id ? { ...f, label } : f));
+  }
+
+  function setBulkFileCustomLabel(id: string, customLabel: string) {
+    setBulkFiles(prev => prev.map(f => f.id === id ? { ...f, customLabel } : f));
+  }
+
+  async function handleBulkUploadSubmit() {
+    if (!bulkFiles.length) return;
+    // Validate custom labels
+    const missingCustom = bulkFiles.filter(f => f.label === "other" && !f.customLabel.trim());
+    if (missingCustom.length) {
+      toast.error(`Please enter a custom label for ${missingCustom.length} file(s) marked as "Other"`);
+      return;
+    }
+    setBulkUploading(true);
+    setBulkFiles(prev => prev.map(f => ({ ...f, status: "uploading" as const })));
+    try {
+      // Upload all files to S3 in one multipart request
+      const formData = new FormData();
+      for (const bf of bulkFiles) formData.append("files", bf.file);
+      const res = await fetch("/api/upload/transaction-documents-bulk", { method: "POST", body: formData });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error ?? "Upload to S3 failed");
+      }
+      const { files: uploaded } = await res.json() as { files: Array<{ originalName: string; fileUrl: string; fileKey: string; mimeType: string; fileSize: number }> };
+      // Map S3 results back to bulk file entries by index (order preserved)
+      const fileMetas = bulkFiles.map((bf, i) => ({
+        fileName: bf.file.name,
+        fileUrl: uploaded[i].fileUrl,
+        fileKey: uploaded[i].fileKey,
+        mimeType: bf.file.type || null,
+        fileSize: bf.file.size,
+        label: bf.label,
+        customLabel: bf.label === "other" ? bf.customLabel.trim() : null,
+      }));
+      await bulkUploadDocs.mutateAsync({ transactionId: txId, files: fileMetas });
+      setBulkFiles(prev => prev.map(f => ({ ...f, status: "done" as const })));
+    } catch (err: any) {
+      setBulkFiles(prev => prev.map(f => ({ ...f, status: "error" as const, error: err.message ?? "Failed" })));
+      toast.error(err.message ?? "Bulk upload failed");
+    } finally {
+      setBulkUploading(false);
     }
   }
 
@@ -1321,44 +1412,165 @@ export default function TransactionDetail() {
             {/* Documents Tab */}
             <TabsContent value="documents">
               <div className="space-y-4">
-                {/* Upload section */}
+
+                {/* ── Bulk Upload Card ─────────────────────────────────────── */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold">Upload Document</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <Label>Document Type</Label>
-                        <Select value={docLabel} onValueChange={setDocLabel}>
-                          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {DOCUMENT_LABELS.map(l => (
-                              <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {docLabel === "other" && (
-                        <div>
-                          <Label>Custom Label *</Label>
-                          <Input className="mt-1" value={docCustomLabel} onChange={e => setDocCustomLabel(e.target.value)} placeholder="e.g. Survey, Title Commitment..." />
-                        </div>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-semibold">Upload Documents</CardTitle>
+                      {bulkFiles.length > 0 && (
+                        <span className="text-xs text-muted-foreground">{bulkFiles.length} file{bulkFiles.length !== 1 ? "s" : ""} queued</span>
                       )}
                     </div>
-                    <div>
-                      <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls" />
-                      <Button
-                        variant="outline"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={docUploading}
-                        className="w-full border-dashed"
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        {docUploading ? "Uploading..." : "Choose File to Upload"}
-                      </Button>
-                      <p className="text-xs text-muted-foreground mt-1">PDF, Word, Excel, or image files up to 16MB</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+
+                    {/* Drag-and-drop zone */}
+                    <div
+                      className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
+                        bulkDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
+                      }`}
+                      onClick={() => bulkFileInputRef.current?.click()}
+                      onDragOver={e => { e.preventDefault(); setBulkDragOver(true); }}
+                      onDragLeave={() => setBulkDragOver(false)}
+                      onDrop={e => {
+                        e.preventDefault();
+                        setBulkDragOver(false);
+                        if (e.dataTransfer.files.length) addBulkFiles(e.dataTransfer.files);
+                      }}
+                    >
+                      <input
+                        ref={bulkFileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+                        onChange={e => { if (e.target.files?.length) { addBulkFiles(e.target.files); e.target.value = ""; } }}
+                      />
+                      <FolderOpen className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-sm font-medium text-foreground/70">
+                        {bulkDragOver ? "Drop files here" : "Drag & drop files, or click to browse"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">PDF, Word, Excel, or images · up to 16 MB each · up to 20 files at once</p>
                     </div>
+
+                    {/* Queued file list with per-file label picker */}
+                    {bulkFiles.length > 0 && (
+                      <div className="space-y-2">
+                        {bulkFiles.map(bf => (
+                          <div key={bf.id} className="flex items-start gap-2 p-2 rounded-lg border bg-muted/20">
+                            {/* Status icon */}
+                            <div className="mt-1 shrink-0">
+                              {bf.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                              {bf.status === "error" && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                              {bf.status === "uploading" && <Loader2 className="h-4 w-4 text-primary animate-spin" />}
+                              {bf.status === "pending" && <FileText className="h-4 w-4 text-muted-foreground" />}
+                            </div>
+                            {/* File info + label */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{bf.file.name}</p>
+                              <p className="text-xs text-muted-foreground">{formatFileSize(bf.file.size)}</p>
+                              {bf.status === "error" && <p className="text-xs text-red-500 mt-0.5">{bf.error}</p>}
+                              {bf.status === "pending" && (
+                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                  <Select
+                                    value={bf.label}
+                                    onValueChange={val => setBulkFileLabel(bf.id, val as BulkFile["label"])}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs w-44">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {DOCUMENT_LABELS.map(l => (
+                                        <SelectItem key={l.value} value={l.value} className="text-xs">{l.label}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {bf.label === "other" && (
+                                    <Input
+                                      className="h-7 text-xs w-44"
+                                      placeholder="Custom label..."
+                                      value={bf.customLabel}
+                                      onChange={e => setBulkFileCustomLabel(bf.id, e.target.value)}
+                                    />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            {/* Remove button */}
+                            {bf.status === "pending" && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0 shrink-0 mt-0.5"
+                                onClick={() => removeBulkFile(bf.id)}
+                                title="Remove"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Action row */}
+                        <div className="flex items-center justify-between pt-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs"
+                            onClick={() => setBulkFiles([])}
+                            disabled={bulkUploading}
+                          >
+                            Clear all
+                          </Button>
+                          <Button
+                            onClick={handleBulkUploadSubmit}
+                            disabled={bulkUploading || bulkFiles.every(f => f.status !== "pending")}
+                            size="sm"
+                          >
+                            {bulkUploading ? (
+                              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
+                            ) : (
+                              <><Upload className="h-4 w-4 mr-2" />Upload {bulkFiles.filter(f => f.status === "pending").length} File{bulkFiles.filter(f => f.status === "pending").length !== 1 ? "s" : ""}</>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Single-file fallback (legacy) */}
+                    <details className="group">
+                      <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                        Upload a single file with a pre-set label
+                      </summary>
+                      <div className="mt-2 space-y-2 pl-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Document Type</Label>
+                            <Select value={docLabel} onValueChange={setDocLabel}>
+                              <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {DOCUMENT_LABELS.map(l => (
+                                  <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {docLabel === "other" && (
+                            <div>
+                              <Label className="text-xs">Custom Label *</Label>
+                              <Input className="mt-1 h-8 text-xs" value={docCustomLabel} onChange={e => setDocCustomLabel(e.target.value)} placeholder="e.g. Survey, Title Commitment..." />
+                            </div>
+                          )}
+                        </div>
+                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls" />
+                        <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={docUploading} className="border-dashed text-xs">
+                          <Upload className="h-3.5 w-3.5 mr-1.5" />
+                          {docUploading ? "Uploading..." : "Choose Single File"}
+                        </Button>
+                      </div>
+                    </details>
+
                   </CardContent>
                 </Card>
 
