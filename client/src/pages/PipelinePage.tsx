@@ -14,10 +14,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import PageHeader from "@/components/PageHeader";
 import { PipelineStatusBadge, IsaStatusBadge } from "@/components/StatusBadge";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
+import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Home, ChevronRight, ChevronDown, Edit2, UserPlus, Search, Clock, AlertTriangle, ArrowUpAZ, ArrowDownAZ, BarChart3, CalendarClock } from "lucide-react";
+import { Home, ChevronRight, ChevronDown, Edit2, UserPlus, Search, Clock, AlertTriangle, ArrowUpAZ, ArrowDownAZ, BarChart3, CalendarClock, Mail } from "lucide-react";
 import { formatPhone, isValidPhone, isValidEmail } from "@/lib/inputFormatters";
 import { formatEmail } from "@/lib/format";
 import { safeFormat } from "@/lib/safeFormat";
@@ -74,6 +75,8 @@ export default function PipelinePage() {
   const [editOpen, setEditOpen] = useState(false);
   const [buyBoxOpen, setBuyBoxOpen] = useState(false);
   const [editConn, setEditConn] = useState<any>(null);
+  const [selectedEmailConnectionIds, setSelectedEmailConnectionIds] = useState<Set<number>>(new Set());
+  const [massEmailOpen, setMassEmailOpen] = useState(false);
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [addContactForm, setAddContactForm] = useState({
     firstName: "", lastName: "", email: "", phone: "", pipelineStatus: "new_lead", leadSourceId: "",
@@ -250,17 +253,66 @@ export default function PipelinePage() {
     return c.minPrice || c.maxPrice || c.propertyType || (c.targetCities && c.targetCities.length > 0);
   }
 
+  function isEmailEligible(row: any) {
+    const status = row?.connection?.pipelineStatus;
+    const email = row?.contact?.email?.trim();
+    return Boolean(email && row?.contact?.emailStatus === "valid" && status !== "new_lead" && status !== "dead");
+  }
+
+  const eligibleConnectionIds = connections.filter(isEmailEligible).map((row: any) => row.connection.id);
+  const selectedEmailIds = Array.from(selectedEmailConnectionIds);
+  const allEligibleSelected = eligibleConnectionIds.length > 0 && eligibleConnectionIds.every((id) => selectedEmailConnectionIds.has(id));
+  const someEligibleSelected = eligibleConnectionIds.some((id) => selectedEmailConnectionIds.has(id)) && !allEligibleSelected;
+
+  function toggleEmailSelection(connectionId: number) {
+    setSelectedEmailConnectionIds((current) => {
+      const next = new Set(current);
+      if (next.has(connectionId)) {
+        next.delete(connectionId);
+        return next;
+      }
+      if (next.size >= 250) {
+        toast.error("A maximum of 250 contacts can be selected for a mass email.");
+        return current;
+      }
+      next.add(connectionId);
+      return next;
+    });
+  }
+
+  function toggleAllEligibleEmailSelection() {
+    setSelectedEmailConnectionIds((current) => {
+      const next = new Set(current);
+      const unselectedOnPage = eligibleConnectionIds.filter((id) => !next.has(id));
+      if (unselectedOnPage.length === 0) {
+        eligibleConnectionIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      const availableSlots = Math.max(0, 250 - next.size);
+      if (unselectedOnPage.length > availableSlots) {
+        toast.error(`Only ${availableSlots} additional contact${availableSlots === 1 ? "" : "s"} can be selected (250 maximum).`);
+      }
+      unselectedOnPage.slice(0, availableSlots).forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
   return (
     <div>
       <PageHeader
         title="Pipeline"
         subtitle="Track and manage leads through every stage of the agent pipeline"
         actions={
-          (user as any)?.role === "agent" ? (
-            <Button size="sm" onClick={() => setAddContactOpen(true)}>
-              <UserPlus className="h-4 w-4 mr-1.5" /> Add Contact
+          <div className="flex items-center gap-2">
+            {(user as any)?.role === "agent" && (
+              <Button size="sm" onClick={() => setAddContactOpen(true)}>
+                <UserPlus className="h-4 w-4 mr-1.5" /> Add Contact
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setMassEmailOpen(true)} disabled={selectedEmailIds.length === 0}>
+              <Mail className="h-4 w-4 mr-1.5" /> Mass Email{selectedEmailIds.length > 0 ? ` (${selectedEmailIds.length})` : ""}
             </Button>
-          ) : undefined
+          </div>
         }
       />
 
@@ -497,6 +549,17 @@ export default function PipelinePage() {
         <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
               <tr>
+                <th className="w-10 py-3 px-2 text-center text-muted-foreground font-medium">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all eligible contacts on this page"
+                    checked={allEligibleSelected}
+                    ref={(element) => { if (element) element.indeterminate = someEligibleSelected; }}
+                    onChange={toggleAllEligibleEmailSelection}
+                    disabled={eligibleConnectionIds.length === 0}
+                    className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
+                  />
+                </th>
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Contact</th>
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Agent</th>
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Stage</th>
@@ -514,7 +577,7 @@ export default function PipelinePage() {
             <tbody>
               {connections.length === 0 ? (
                 <tr>
-                  <td colSpan={(user as any)?.role === "agent" ? 7 : 8} className="text-center py-10 text-muted-foreground">
+                  <td colSpan={(user as any)?.role === "agent" ? 8 : 9} className="text-center py-10 text-muted-foreground">
                     No pipeline entries found
                   </td>
                 </tr>
@@ -535,8 +598,21 @@ export default function PipelinePage() {
                   const buyBoxSummary = connection.minPrice || connection.maxPrice
                     ? `$${Number(connection.minPrice ?? 0).toLocaleString()}–$${Number(connection.maxPrice ?? 0).toLocaleString()}`
                     : connection.propertyType ?? null;
+                  const emailEligible = isEmailEligible(row);
                   return (
                     <tr key={connection.id} className="border-b last:border-0 hover:bg-muted/20">
+                      <td className="py-3 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${contact?.firstName ?? ""} ${contact?.lastName ?? ""} for email`}
+                          checked={selectedEmailConnectionIds.has(connection.id)}
+                          disabled={!emailEligible}
+                          title={emailEligible ? "Select for mass email" : "Email selection requires a valid email and a status other than New or Dead"}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => toggleEmailSelection(connection.id)}
+                          className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <button
                           className="font-medium hover:text-primary text-left"
@@ -654,6 +730,24 @@ export default function PipelinePage() {
             </tbody>
           </table></div></CardContent>
       </Card>
+
+      {selectedEmailIds.length > 0 && (
+        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm"><strong>{selectedEmailIds.length}</strong> eligible contact{selectedEmailIds.length === 1 ? "" : "s"} selected for mass email.</p>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedEmailConnectionIds(new Set())}>Clear selection</Button>
+            <Button size="sm" onClick={() => setMassEmailOpen(true)}><Mail className="h-4 w-4 mr-1.5" /> Mass Email</Button>
+          </div>
+        </div>
+      )}
+
+      <PipelineEmailComposer
+        open={massEmailOpen}
+        onOpenChange={setMassEmailOpen}
+        connectionIds={selectedEmailIds}
+        mode="mass"
+        onSent={() => { setSelectedEmailConnectionIds(new Set()); refetch(); }}
+      />
 
       {/* Pagination Footer */}
       {totalPages > 1 && (

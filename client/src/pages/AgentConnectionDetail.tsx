@@ -17,6 +17,7 @@ import {
   PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink
 } from "lucide-react";
 import SmartPlanContactTab from "@/components/SmartPlanContactTab";
+import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
 
@@ -49,6 +50,7 @@ export default function AgentConnectionDetail() {
   const [editingStage, setEditingStage] = useState(false);
   const [addCommDialog, setAddCommDialog] = useState(false);
   const [addTaskDialog, setAddTaskDialog] = useState(false);
+  const [sendEmailOpen, setSendEmailOpen] = useState(false);
 
   const [buyBoxForm, setBuyBoxForm] = useState<Record<string, any>>({});
   const [stageForm, setStageForm] = useState({ pipelineStatus: "", followUpDate: "", agentNotes: "" });
@@ -116,6 +118,12 @@ export default function AgentConnectionDetail() {
   const { connection, contact, agent, isa, leadSource, parentLeadSource } = conn as any;
   const contactTransactions = txns?.filter((t: any) => t.transaction?.primaryContactId === contact?.id || t.contact?.id === contact?.id) ?? [];
   const stage = PIPELINE_STAGES.find(s => s.value === connection.pipelineStatus);
+  const emailEligible = Boolean(
+    contact?.email?.trim()
+    && contact?.emailStatus === "valid"
+    && connection.pipelineStatus !== "new_lead"
+    && connection.pipelineStatus !== "dead",
+  );
 
   const handleSaveBuyBox = () => {
     // Empty form fields come through as "" — convert to null, and parse the
@@ -202,6 +210,15 @@ export default function AgentConnectionDetail() {
           </p>
         </div>
         <Badge className={`${stage?.color} border-0 text-sm px-3 py-1`}>{stage?.label ?? connection.pipelineStatus}</Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setSendEmailOpen(true)}
+          disabled={!emailEligible}
+          title={emailEligible ? "Send an email to this contact" : "Email is available only for deliverable contacts in a status other than New or Dead"}
+        >
+          <Mail className="h-4 w-4 mr-1" /> Send Email
+        </Button>
         <Button variant="outline" size="sm" onClick={startEditStage}>
           <Edit2 className="h-4 w-4 mr-1" /> Update Stage
         </Button>
@@ -579,6 +596,14 @@ export default function AgentConnectionDetail() {
           </Tabs>
         </div>
       </div>
+
+      <PipelineEmailComposer
+        open={sendEmailOpen}
+        onOpenChange={setSendEmailOpen}
+        connectionIds={[connection.id]}
+        mode="single"
+        onSent={() => utils.communications.list.invalidate({ agentConnectionId: id })}
+      />
 
       {/* Update Stage Dialog */}
       <Dialog open={editingStage} onOpenChange={setEditingStage}>

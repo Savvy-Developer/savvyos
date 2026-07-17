@@ -1089,6 +1089,100 @@ export const emailTemplates = mysqlTable("email_templates", {
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
 
+// ─── Pipeline Outreach Email ──────────────────────────────────────────────────
+// These templates are separate from the transactional email template overrides
+// above. Pipeline templates contain complete WYSIWYG HTML and are owned by the
+// user who created them. Admins may share a template with any combination of
+// admin, agent, and ISA roles; agents and ISAs can only retain personal templates.
+export const pipelineEmailTemplates = mysqlTable(
+  "pipeline_email_templates",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 160 }).notNull(),
+    subject: varchar("subject", { length: 512 }).notNull(),
+    htmlBody: text("htmlBody").notNull(),
+    ownerId: int("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    // Comma-separated audience roles. Empty means personal to owner; non-empty
+    // rows are only allowed when the owner is an admin.
+    visibleToRoles: varchar("visibleToRoles", { length: 64 }).notNull().default(""),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    index("pipeline_email_templates_owner_idx").on(table.ownerId),
+    index("pipeline_email_templates_roles_idx").on(table.visibleToRoles),
+  ],
+);
+export type PipelineEmailTemplate = typeof pipelineEmailTemplates.$inferSelect;
+export type InsertPipelineEmailTemplate = typeof pipelineEmailTemplates.$inferInsert;
+
+// One row per logged-in user and Eastern-calendar day. attemptedCount is reserved
+// before calling Resend, so concurrent requests cannot exceed the 250-per-day
+// sender cap even if an individual provider request later fails.
+export const pipelineEmailDailyQuotas = mysqlTable(
+  "pipeline_email_daily_quotas",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    senderUserId: int("senderUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    sendDate: varchar("sendDate", { length: 10 }).notNull(), // YYYY-MM-DD, America/New_York
+    attemptedCount: int("attemptedCount").notNull().default(0),
+    deliveredCount: int("deliveredCount").notNull().default(0),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("pipeline_email_daily_quota_user_day_unique").on(table.senderUserId, table.sendDate),
+  ],
+);
+export type PipelineEmailDailyQuota = typeof pipelineEmailDailyQuotas.$inferSelect;
+
+// A batch represents either a single Pipeline email or a mass-email action.
+// It makes the operation traceable without storing provider credentials or raw
+// request metadata in the activity log.
+export const pipelineEmailBatches = mysqlTable(
+  "pipeline_email_batches",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    senderUserId: int("senderUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
+    templateId: int("templateId").references(() => pipelineEmailTemplates.id, { onDelete: "set null" }),
+    subject: varchar("subject", { length: 512 }).notNull(),
+    recipientCount: int("recipientCount").notNull(),
+    deliveredCount: int("deliveredCount").notNull().default(0),
+    failedCount: int("failedCount").notNull().default(0),
+    status: mysqlEnum("status", ["sending", "completed", "partial", "failed"]).notNull().default("sending"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  (table) => [
+    index("pipeline_email_batches_sender_created_idx").on(table.senderUserId, table.createdAt),
+  ],
+);
+export type PipelineEmailBatch = typeof pipelineEmailBatches.$inferSelect;
+
+// Per-recipient delivery outcomes provide a contact-level audit trail and link
+// to the pre-existing communications record created for every successful send.
+export const pipelineEmailSends = mysqlTable(
+  "pipeline_email_sends",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    batchId: int("batchId").notNull().references(() => pipelineEmailBatches.id, { onDelete: "cascade" }),
+    senderUserId: int("senderUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
+    contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+    agentConnectionId: int("agentConnectionId").notNull().references(() => agentConnections.id, { onDelete: "restrict" }),
+    recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+    status: mysqlEnum("status", ["sending", "sent", "failed"]).notNull().default("sending"),
+    resendMessageId: varchar("resendMessageId", { length: 255 }),
+    errorMessage: text("errorMessage"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    sentAt: timestamp("sentAt"),
+  },
+  (table) => [
+    index("pipeline_email_sends_batch_idx").on(table.batchId),
+    index("pipeline_email_sends_contact_idx").on(table.contactId, table.createdAt),
+  ],
+);
+export type PipelineEmailSend = typeof pipelineEmailSends.$inferSelect;
+
 // ─── Connection Requests ──────────────────────────────────────────────────────
 // When an agent tries to add a contact that already exists, they submit a
 // connection request instead. ISAs/admins can approve or deny it.
