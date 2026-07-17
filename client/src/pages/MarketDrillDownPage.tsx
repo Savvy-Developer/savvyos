@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
+import { useAppBack } from "@/lib/navigationHistory";
 
 const fmt$ = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
@@ -54,6 +55,7 @@ function GciProgressBar({ current, goal }: { current: number; goal: number | nul
 export default function MarketDrillDownPage() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/analytics?tab=markets");
   const marketId = Number(id);
 
   const { data, isLoading, refetch } = trpc.analytics.marketDrillDown.useQuery({ marketId });
@@ -96,7 +98,7 @@ export default function MarketDrillDownPage() {
     return (
       <div className="p-8 text-center text-muted-foreground">
         Market not found.
-        <Button variant="link" onClick={() => navigate("/analytics")}>Back to Analytics</Button>
+        <Button variant="link" onClick={goBack}>Back</Button>
       </div>
     );
   }
@@ -105,7 +107,7 @@ export default function MarketDrillDownPage() {
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/analytics?tab=markets")}>
+        <Button variant="ghost" size="icon" onClick={goBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">

@@ -22,6 +22,7 @@ import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail } from "@
 import { formatStreet, formatCityStateZip, formatEmail } from "@/lib/format";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useCelebration } from "@/hooks/useCelebration";
+import { useAppBack } from "@/lib/navigationHistory";
 
 // ─── Transaction History Timeline ─────────────────────────────────────────────────────────
 const TX_HISTORY_OUTCOME_COLORS: Record<string, string> = {
@@ -194,6 +195,7 @@ function toDateInputValue(d: any): string {
 export default function TransactionDetail() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/transactions");
   const txId = parseInt(id ?? "0");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -803,7 +805,7 @@ export default function TransactionDetail() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/transactions")}>
+        <Button variant="ghost" size="sm" onClick={goBack}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
       </div>

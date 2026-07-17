@@ -55,6 +55,7 @@ import {
 import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import React from "react";
+import { useAppBack } from "@/lib/navigationHistory";
 
 function formatListingActivity(entry: any): { icon: React.ReactNode; label: string; description: string; color: string } {
   // activityLog returns { log, user } objects
@@ -121,6 +122,7 @@ export default function ListingDetail() {
   const params = useParams<{ id: string }>();
   const listingId = parseInt(params.id ?? "0", 10);
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/listings");
   const { user } = useAuth();
   const role = (user as any)?.role as string;
   const isAdminUser = role === "admin";
@@ -430,8 +432,8 @@ export default function ListingDetail() {
   if (error || !data) {
     return (
       <div className="p-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/listings")} className="mb-4">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Listings
+        <Button variant="ghost" size="sm" onClick={goBack} className="mb-4">
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back
         </Button>
         <p className="text-destructive">Listing not found.</p>
       </div>
@@ -455,8 +457,8 @@ export default function ListingDetail() {
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       {/* Back + Header */}
       <div>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/listings")} className="mb-3 -ml-2">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Listings
+        <Button variant="ghost" size="sm" onClick={goBack} className="mb-3 -ml-2">
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back
         </Button>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>

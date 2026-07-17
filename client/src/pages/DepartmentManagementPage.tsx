@@ -15,10 +15,12 @@ import {
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Building2, ArrowLeft } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import { useAppBack } from "@/lib/navigationHistory";
 
 export default function DepartmentManagementPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/projects");
 
   // Redirect non-admins
   if (user && user.role !== "admin") {
@@ -67,10 +69,10 @@ export default function DepartmentManagementPage() {
   return (
     <div>
       <button
-        onClick={() => navigate("/projects")}
+        onClick={goBack}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Projects
+        <ArrowLeft className="h-4 w-4" /> Back
       </button>
 
       <PageHeader

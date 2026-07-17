@@ -25,6 +25,7 @@ import { safeFormat } from "@/lib/safeFormat";
 import { useCelebration } from "@/hooks/useCelebration";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
+import { useAppBack } from "@/lib/navigationHistory";
 
 // ─── US Timezone Options ─────────────────────────────────────────────────────
 const US_TIMEZONES = [
@@ -351,6 +352,7 @@ function AiSummaryCard({ contactId }: { contactId: number }) {
 export default function ContactDetail() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/contacts");
   const { user } = useAuth();
   const contactId = parseInt(id ?? "0");
 
@@ -659,7 +661,7 @@ export default function ContactDetail() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/contacts")}>
+        <Button variant="ghost" size="sm" onClick={goBack}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
       </div>

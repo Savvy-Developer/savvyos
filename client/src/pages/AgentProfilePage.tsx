@@ -85,6 +85,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
+import { useAppBack } from "@/lib/navigationHistory";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -123,6 +124,7 @@ export default function AgentProfilePage() {
   const { id } = useParams<{ id: string }>();
   const agentId = parseInt(id ?? "0", 10);
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/org-chart");
   const { user: currentUser } = useAuth();
   const [txPage, setTxPage] = useState(1);
   const [contactPage, setContactPage] = useState(1);
@@ -383,7 +385,7 @@ export default function AgentProfilePage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <p className="text-muted-foreground">Agent not found.</p>
-        <Button variant="outline" onClick={() => navigate(-1 as any)}>Go Back</Button>
+        <Button variant="outline" onClick={goBack}>Go Back</Button>
       </div>
     );
   }
@@ -414,7 +416,7 @@ export default function AgentProfilePage() {
   return (
     <div className="space-y-6">
       {/* Back button */}
-      <Button variant="ghost" size="sm" onClick={() => navigate(-1 as any)} className="-ml-2">
+      <Button variant="ghost" size="sm" onClick={goBack} className="-ml-2">
         <ArrowLeft className="h-4 w-4 mr-1" /> Back
       </Button>
 

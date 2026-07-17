@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import SmartPlanContactTab from "@/components/SmartPlanContactTab";
 import { safeFormat } from "@/lib/safeFormat";
+import { useAppBack } from "@/lib/navigationHistory";
 
 const PIPELINE_STAGES = [
   { value: "new_lead", label: "New Lead", color: "bg-slate-100 text-slate-700" },
@@ -40,6 +41,7 @@ const COMM_TYPES = [
 export default function AgentConnectionDetail() {
   const [, params] = useRoute("/pipeline/:id");
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/pipeline");
   const { user } = useAuth();
   const id = parseInt(params?.id ?? "0");
 
@@ -107,7 +109,7 @@ export default function AgentConnectionDetail() {
   if (!conn) return (
     <div className="p-8 text-center">
       <p className="text-muted-foreground">Connection not found.</p>
-      <Button variant="outline" className="mt-4" onClick={() => navigate("/pipeline")}>Back to Pipeline</Button>
+      <Button variant="outline" className="mt-4" onClick={goBack}>Back</Button>
     </div>
   );
 
@@ -188,7 +190,7 @@ export default function AgentConnectionDetail() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/pipeline")}>
+        <Button variant="ghost" size="sm" onClick={goBack}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Pipeline
         </Button>
         <div className="flex-1">

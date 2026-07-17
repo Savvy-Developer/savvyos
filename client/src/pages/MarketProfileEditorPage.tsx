@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAppBack } from "@/lib/navigationHistory";
 
 // ─── Types & Constants ────────────────────────────────────────────────────────
 
@@ -461,6 +462,7 @@ function StepIndicator({ currentStep, completedSteps }: { currentStep: number; c
 
 export default function MarketProfileEditorPage({ marketId }: { marketId?: number }) {
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/market-match-config");
   const isEdit = !!marketId;
   const draftKey = DRAFT_KEY(marketId ? String(marketId) : "new");
 
@@ -590,7 +592,7 @@ export default function MarketProfileEditorPage({ marketId }: { marketId?: numbe
   function handleBack() {
     if (step === 1) {
       if (isDirty && !confirm("You have unsaved changes. Leave anyway?")) return;
-      navigate("/market-match-config");
+      goBack();
     } else {
       setStep(s => s - 1);
     }
@@ -817,7 +819,7 @@ export default function MarketProfileEditorPage({ marketId }: { marketId?: numbe
         <div className="flex items-center justify-between mt-8 pt-6 border-t">
           <Button variant="outline" onClick={handleBack} className="gap-1.5">
             <ArrowLeft className="h-4 w-4" />
-            {step === 1 ? "Back to Hub" : "Previous"}
+            {step === 1 ? "Back" : "Previous"}
           </Button>
 
           <div className="flex items-center gap-2">

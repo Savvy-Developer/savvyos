@@ -25,6 +25,7 @@ import {
   User,
   ExternalLink,
 } from "lucide-react";
+import { useAppBack } from "@/lib/navigationHistory";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
@@ -36,6 +37,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function TaskDetailPage() {
   const [, params] = useRoute("/tasks/:id");
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/tasks");
   const { user } = useAuth();
   const taskId = params?.id ? parseInt(params.id) : 0;
   const role = (user as any)?.role;
@@ -139,8 +141,8 @@ export default function TaskDetailPage() {
     return (
       <div className="text-center py-24">
         <p className="text-muted-foreground mb-4">Task not found</p>
-        <Button variant="outline" onClick={() => navigate("/tasks")}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Back to Tasks
+        <Button variant="outline" onClick={goBack}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
       </div>
     );
@@ -150,10 +152,10 @@ export default function TaskDetailPage() {
     <div className="max-w-3xl mx-auto">
       {/* Back button */}
       <button
-        onClick={() => navigate("/tasks")}
+        onClick={goBack}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Tasks
+        <ArrowLeft className="h-4 w-4" /> Back
       </button>
 
       {/* Task Header */}

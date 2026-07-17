@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useLocation, useParams, Link } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
+import { useAppBack } from "@/lib/navigationHistory";
 
 const TX_STATUS_COLORS: Record<string, string> = {
   under_contract: "bg-blue-100 text-blue-700",
@@ -167,6 +168,7 @@ function HistoryTimeline({ events }: { events: HistoryEvent[] }) {
 export default function PropertyDetail() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/properties");
   const propId = parseInt(id ?? "0");
 
   const { data: property } = trpc.properties.get.useQuery({ id: propId });
@@ -189,7 +191,7 @@ export default function PropertyDetail() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/properties")}>
+        <Button variant="ghost" size="sm" onClick={goBack}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
       </div>

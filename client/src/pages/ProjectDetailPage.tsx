@@ -23,6 +23,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
+import { useAppBack } from "@/lib/navigationHistory";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -356,6 +357,7 @@ function WeeklyUpdateForm({ projectId, onSubmitted }: { projectId: number; onSub
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const goBack = useAppBack("/projects");
   const projectId = Number(id);
 
   const { user } = useAuth();
@@ -527,10 +529,10 @@ export default function ProjectDetailPage() {
     <div>
       {/* Back button */}
       <button
-        onClick={() => navigate("/projects")}
+        onClick={goBack}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Projects
+        <ArrowLeft className="h-4 w-4" /> Back
       </button>
 
       {/* Project Header */}
