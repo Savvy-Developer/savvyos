@@ -1,11 +1,12 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Camera, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import RichEmailEditor from "@/components/RichEmailEditor";
+import { Upload, Camera, X, CheckCircle2, AlertCircle, Loader2, FileSignature, Save } from "lucide-react";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
@@ -46,12 +47,38 @@ export default function ProfilePage() {
 
   const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [emailSignatureHtml, setEmailSignatureHtml] = useState("");
+  const [signatureState, setSignatureState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [signatureError, setSignatureError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentPhoto = preview ?? profileQuery.data?.profilePhotoUrl ?? null;
+  const hasEmailSignature = emailSignatureHtml
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim().length > 0;
+
+  useEffect(() => {
+    if (!profileQuery.isLoading) {
+      setEmailSignatureHtml(profileQuery.data?.emailSignatureHtml ?? "");
+    }
+  }, [profileQuery.data?.emailSignatureHtml, profileQuery.isLoading]);
+
+  const updateEmailSignatureMutation = trpc.users.updateMyEmailSignature.useMutation({
+    onSuccess: () => {
+      setSignatureState("success");
+      setSignatureError(null);
+      utils.users.getMyCoreProfile.invalidate();
+    },
+    onError: (error) => {
+      setSignatureState("error");
+      setSignatureError(error.message ?? "Unable to save your Email Signature.");
+    },
+  });
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -125,6 +152,21 @@ export default function ProfilePage() {
     setUploadState("idle");
     setErrorMsg(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleSaveEmailSignature = async () => {
+    if (!hasEmailSignature) {
+      setSignatureState("error");
+      setSignatureError("Add your name and contact details before saving your Email Signature.");
+      return;
+    }
+    setSignatureState("saving");
+    setSignatureError(null);
+    try {
+      await updateEmailSignatureMutation.mutateAsync({ html: emailSignatureHtml });
+    } catch {
+      // The mutation's onError handler renders the user-facing error state.
+    }
   };
 
   if (!user) return null;
@@ -241,6 +283,58 @@ export default function ProfilePage() {
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {errorMsg}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Email Signature Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileSignature className="h-4 w-4" />
+            Email Signature
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
+            <strong>Required for Pipeline email.</strong> This signature is automatically appended to every Pipeline email you send. You cannot send a Pipeline email until it is saved.
+          </div>
+          <RichEmailEditor
+            value={emailSignatureHtml}
+            onChange={(html) => {
+              setEmailSignatureHtml(html);
+              if (signatureState !== "idle") setSignatureState("idle");
+              setSignatureError(null);
+            }}
+            placeholder="Add your name, title, phone number, and links…"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {hasEmailSignature ? "Your saved signature will be appended after the email message." : "A non-empty Email Signature is required before you can send Pipeline email."}
+            </p>
+            <Button
+              type="button"
+              onClick={handleSaveEmailSignature}
+              disabled={!hasEmailSignature || signatureState === "saving" || updateEmailSignatureMutation.isPending}
+            >
+              {signatureState === "saving" || updateEmailSignatureMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Saving…</>
+              ) : (
+                <><Save className="h-4 w-4 mr-1.5" />Save Email Signature</>
+              )}
+            </Button>
+          </div>
+          {signatureState === "success" && (
+            <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Email Signature saved. It will now be appended to your Pipeline emails.
+            </div>
+          )}
+          {signatureState === "error" && signatureError && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {signatureError}
             </div>
           )}
         </CardContent>

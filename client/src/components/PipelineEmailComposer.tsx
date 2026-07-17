@@ -16,7 +16,11 @@ const CUSTOM_TEMPLATE_VALUE = "__custom__";
 type AudienceRole = "admin" | "agent" | "isa";
 
 function plainTextFromHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function audienceLabel(roles: AudienceRole[], isOwner: boolean): string {
@@ -59,6 +63,9 @@ export default function PipelineEmailComposer({
   const { data: quota, isLoading: quotaLoading } = trpc.pipelineEmail.quota.useQuery(undefined, {
     enabled: open,
   });
+  const { data: myProfile, isLoading: profileLoading } = trpc.users.getMyCoreProfile.useQuery(undefined, {
+    enabled: open,
+  });
 
   const selectedTemplate = useMemo(
     () => templates.find((template: any) => template.id === selectedTemplateId) ?? null,
@@ -66,9 +73,12 @@ export default function PipelineEmailComposer({
   );
   const recipientCount = connectionIds.length;
   const remaining = quota?.remaining ?? 0;
+  const hasEmailSignature = plainTextFromHtml(myProfile?.emailSignatureHtml ?? "").length > 0;
   const overBatchLimit = recipientCount > DAILY_LIMIT;
   const overDailyLimit = recipientCount > remaining;
   const canSubmit = !quotaLoading
+    && !profileLoading
+    && hasEmailSignature
     && recipientCount > 0
     && !overBatchLimit
     && !overDailyLimit
@@ -191,13 +201,27 @@ export default function PipelineEmailComposer({
           <div className="space-y-4 py-1">
             <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm flex flex-wrap items-center justify-between gap-2">
               <span>
-                <strong>{recipientCount}</strong> selected recipient{recipientCount === 1 ? "" : "s"}. Pipeline email is available only for deliverable contacts in statuses other than <strong>New</strong> or <strong>Dead</strong>.
+                <strong>{recipientCount}</strong> selected recipient{recipientCount === 1 ? "" : "s"}. Pipeline email is available for contacts with an email address in any status other than <strong>New</strong> or <strong>Dead</strong>.
               </span>
               <Badge variant="outline" className="whitespace-nowrap">
                 {quotaLoading ? "Checking daily limit…" : `${remaining} of ${DAILY_LIMIT} sends remaining today`}
               </Badge>
             </div>
 
+            {!profileLoading && !hasEmailSignature && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 flex flex-wrap items-center justify-between gap-2">
+                <span><strong>Email Signature required.</strong> Save your personal signature in My Profile before sending.</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-300 bg-white hover:bg-amber-100"
+                  onClick={() => { onOpenChange(false); window.location.href = "/profile"; }}
+                >
+                  Set Email Signature
+                </Button>
+              </div>
+            )}
             {overBatchLimit && (
               <p className="text-sm text-destructive">Mass email is limited to {DAILY_LIMIT} selected contacts per send.</p>
             )}
@@ -248,7 +272,7 @@ export default function PipelineEmailComposer({
                 />
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Personalization tags are available below the editor. A WiseStamp signature can be appended automatically after the account integration is connected.
+                Personalization tags are available below the editor. Your saved Email Signature is automatically appended after the message and is required before sending.
               </p>
             </div>
 

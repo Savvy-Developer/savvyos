@@ -13,6 +13,7 @@ import {
   pipelineEmailDailyQuotas,
   pipelineEmailSends,
   pipelineEmailTemplates,
+  userProfiles,
   users,
 } from "../../drizzle/schema";
 
@@ -129,8 +130,9 @@ function replaceMergeTags(value: string, recipient: PipelineRecipient, senderNam
   }, value);
 }
 
-function buildOutboundHtml(bodyHtml: string): string {
+function buildOutboundHtml(bodyHtml: string, signatureHtml: string): string {
   const safeBody = sanitizeOutboundHtml(bodyHtml);
+  const safeSignature = sanitizeOutboundHtml(signatureHtml);
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -140,6 +142,7 @@ function buildOutboundHtml(bodyHtml: string): string {
   <body style="margin:0;padding:0;background:#ffffff;color:#1f2937;font-family:Arial,Helvetica,sans-serif;">
     <div style="max-width:680px;margin:0 auto;padding:28px 24px;font-size:15px;line-height:1.6;">
       ${safeBody}
+      <div style="margin-top:28px;">${safeSignature}</div>
       <div style="margin-top:36px;padding-top:18px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px;line-height:1.5;">
         <p style="margin:0 0 6px;">You are receiving this email because you are a contact of Savvy STR Agents.</p>
         <p style="margin:0;"><a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color:#4b5563;text-decoration:underline;">Unsubscribe</a> &nbsp;|&nbsp; Savvy STR Agents</p>
@@ -149,8 +152,9 @@ function buildOutboundHtml(bodyHtml: string): string {
 </html>`;
 }
 
-function buildOutboundText(bodyHtml: string): string {
-  return `${stripHtml(bodyHtml)}\n\n---\nYou are receiving this email because you are a contact of Savvy STR Agents.\nTo unsubscribe, visit: {{{RESEND_UNSUBSCRIBE_URL}}}`;
+function buildOutboundText(bodyHtml: string, signatureHtml: string): string {
+  const signatureText = stripHtml(signatureHtml);
+  return `${stripHtml(bodyHtml)}${signatureText ? `\n\n${signatureText}` : ""}\n\n---\nYou are receiving this email because you are a contact of Savvy STR Agents.\nTo unsubscribe, visit: {{{RESEND_UNSUBSCRIBE_URL}}}`;
 }
 
 async function sendViaResend(params: {
@@ -287,8 +291,7 @@ async function getAuthorizedRecipients(
   const ineligible = rows.filter((row) => {
     const email = row.contact.email?.trim();
     return !ELIGIBLE_PIPELINE_STATUSES.has(row.connection.pipelineStatus)
-      || !email
-      || row.contact.emailStatus !== "valid";
+      || !email;
   });
   if (ineligible.length > 0) {
     const examples = ineligible
@@ -298,7 +301,7 @@ async function getAuthorizedRecipients(
       .join(", ");
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `${ineligible.length} selected contact${ineligible.length === 1 ? " is" : "s are"} not eligible for email. Contacts must have a valid email address, be deliverable, and be in a status other than New or Dead${examples ? ` (${examples})` : ""}.`,
+      message: `${ineligible.length} selected contact${ineligible.length === 1 ? " is" : "s are"} not eligible for email. Contacts must have an email address and be in a status other than New or Dead${examples ? ` (${examples})` : ""}.`,
     });
   }
 
@@ -425,8 +428,14 @@ export const pipelineEmailRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
       const [sender] = await db
-        .select({ id: users.id, name: users.name, email: users.email })
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          emailSignatureHtml: userProfiles.emailSignatureHtml,
+        })
         .from(users)
+        .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
         .where(eq(users.id, ctx.user.id))
         .limit(1);
       const replyTo = sender?.email?.trim();
@@ -434,6 +443,13 @@ export const pipelineEmailRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Your SavvyOS profile needs a valid email address before you can send Pipeline email.",
+        });
+      }
+      const emailSignatureHtml = sanitizeOutboundHtml(sender?.emailSignatureHtml ?? "");
+      if (!stripHtml(emailSignatureHtml)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Add and save your Email Signature in My Profile before sending Pipeline email.",
         });
       }
 
@@ -473,8 +489,8 @@ export const pipelineEmailRouter = router({
           to: recipient.contact.email!.trim(),
           replyTo,
           subject: renderedSubject,
-          html: buildOutboundHtml(renderedBody),
-          text: buildOutboundText(renderedBody),
+          html: buildOutboundHtml(renderedBody, emailSignatureHtml),
+          text: buildOutboundText(renderedBody, emailSignatureHtml),
         });
 
         if (result.success) {

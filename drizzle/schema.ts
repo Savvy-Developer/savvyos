@@ -780,6 +780,8 @@ export const userProfiles = mysqlTable("user_profiles", {
   profilePhotoUrl: text("profilePhotoUrl"),
   dateOfBirth: timestamp("dateOfBirth"),
   personalEmail: varchar("personalEmail", { length: 320 }),
+  // Rich HTML signature appended to outbound Pipeline email after the sender's message.
+  emailSignatureHtml: text("emailSignatureHtml"),
   primaryPhone: varchar("primaryPhone", { length: 32 }),
   secondaryPhone: varchar("secondaryPhone", { length: 32 }),
   timeZone: varchar("timeZone", { length: 64 }),

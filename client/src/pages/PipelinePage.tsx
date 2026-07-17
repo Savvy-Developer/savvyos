@@ -256,7 +256,7 @@ export default function PipelinePage() {
   function isEmailEligible(row: any) {
     const status = row?.connection?.pipelineStatus;
     const email = row?.contact?.email?.trim();
-    return Boolean(email && row?.contact?.emailStatus === "valid" && status !== "new_lead" && status !== "dead");
+    return Boolean(email && status !== "new_lead" && status !== "dead");
   }
 
   const eligibleConnectionIds = connections.filter(isEmailEligible).map((row: any) => row.connection.id);

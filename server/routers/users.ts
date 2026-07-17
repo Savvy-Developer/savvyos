@@ -57,6 +57,25 @@ const coreProfileSchema = z.object({
   internalNotes: z.string().optional().nullable(),
 });
 
+function sanitizeEmailSignatureHtml(value: string): string {
+  return value
+    .replace(/<\s*(script|iframe|object|embed|form|base|meta|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(script|iframe|object|embed|form|base|meta)[^>]*\/?\s*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]+)/gi, " $1=\"#\"")
+    .trim();
+}
+
+function hasMeaningfulEmailSignature(value: string): boolean {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim()
+    .length > 0;
+}
+
 const agentProfileSchema = z.object({
   userId: z.number(),
   licenseNumber: z.string().optional().nullable(),
@@ -536,7 +555,7 @@ export const usersRouter = router({
     }),
 
   // Get the logged-in user's own core profile (for the Profile page)
-  getMyCoreProfile: protectedProcedure
+    getMyCoreProfile: protectedProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return null;
@@ -544,6 +563,33 @@ export const usersRouter = router({
       return rows[0] ?? null;
     }),
 
+  // Every sender maintains their own signature; it is required by the Pipeline email service.
+  updateMyEmailSignature: protectedProcedure
+    .input(z.object({ html: z.string().max(100_000) }))
+    .mutation(async ({ input, ctx }) => {
+      const emailSignatureHtml = sanitizeEmailSignatureHtml(input.html);
+      if (!hasMeaningfulEmailSignature(emailSignatureHtml)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Your Email Signature cannot be empty." });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const existing = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, ctx.user.id))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db.update(userProfiles)
+          .set({ emailSignatureHtml })
+          .where(eq(userProfiles.userId, ctx.user.id));
+      } else {
+        await db.insert(userProfiles).values({ userId: ctx.user.id, emailSignatureHtml });
+      }
+
+      return { success: true, emailSignatureHtml };
+    }),
   /** Admin: list all active users with their profile photos (for activity timeline filter) */
   listWithPhotos: protectedProcedure
     .query(async ({ ctx }) => {

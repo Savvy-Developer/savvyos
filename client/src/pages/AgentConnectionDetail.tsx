@@ -120,7 +120,6 @@ export default function AgentConnectionDetail() {
   const stage = PIPELINE_STAGES.find(s => s.value === connection.pipelineStatus);
   const emailEligible = Boolean(
     contact?.email?.trim()
-    && contact?.emailStatus === "valid"
     && connection.pipelineStatus !== "new_lead"
     && connection.pipelineStatus !== "dead",
   );
