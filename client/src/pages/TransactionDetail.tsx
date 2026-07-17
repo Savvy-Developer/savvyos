@@ -179,6 +179,26 @@ const DOCUMENT_LABELS = [
 function parsePriceInput(value: string) {
   return parseCurrencyInput(value);
 }
+
+function calculatePercentageAmount(percentage: string | number | null | undefined, baseAmount: number): string {
+  const percent = typeof percentage === "string" ? parseFloat(percentage) : Number(percentage);
+  if (!Number.isFinite(percent) || percent < 0 || !Number.isFinite(baseAmount) || baseAmount <= 0) return "";
+  return ((percent / 100) * baseAmount).toFixed(2);
+}
+
+/** Referral payouts use whole percentages. Normalize older fractional values such as 0.25 to 25. */
+function normalizeReferralPayoutPercentage(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const percent = typeof value === "string" ? parseFloat(value) : Number(value);
+  if (!Number.isFinite(percent)) return null;
+  return percent > 0 && percent < 1 ? Number((percent * 100).toFixed(2)) : percent;
+}
+
+function referralPercentageInputValue(value: string | number | null | undefined): string {
+  const percent = normalizeReferralPayoutPercentage(value);
+  return percent === null ? "" : String(percent);
+}
+
 const formatPhone = _formatPhone;
 
 function toDateInputValue(d: any): string {
@@ -461,10 +481,9 @@ export default function TransactionDetail() {
   }, [editForm.grossCommissionIncome, tx]);
   const previewReferralPct = useMemo(() => {
     if (editForm.referralPayoutPct) {
-      const raw = parseFloat(editForm.referralPayoutPct);
-      return isNaN(raw) ? null : raw;
+      return normalizeReferralPayoutPercentage(editForm.referralPayoutPct);
     }
-    return tx?.referralPayoutPct ? Number(tx.referralPayoutPct) * 100 : null;
+    return normalizeReferralPayoutPercentage(tx?.referralPayoutPct);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editForm.referralPayoutPct, tx]);
   const { data: splitPreview, isLoading: splitPreviewLoading } = trpc.transactions.getCommissionPreview.useQuery(
@@ -564,9 +583,8 @@ export default function TransactionDetail() {
     setTerminationReason("");
   }
 
-  const autoAmount = payoutForm.percentage && gci
-    ? ((parseFloat(payoutForm.percentage) / 100) * gci).toFixed(2)
-    : "";
+  const autoAmount = calculatePercentageAmount(payoutForm.percentage, gci);
+  const overrideAutoAmount = calculatePercentageAmount(overrideForm.percentage, gci);
   const contact = txData?.contact;
   const agent = txData?.agent;
   const property = txData?.property;
@@ -597,7 +615,7 @@ export default function TransactionDetail() {
       closingDate: toDateInputValue(tx.closingDate),
       notes: tx.notes ?? "",
       referralSourceName: tx.referralSourceName ?? "",
-      referralPayoutPct: tx.referralPayoutPct ? String(Number(tx.referralPayoutPct) * 100) : "",
+      referralPayoutPct: referralPercentageInputValue(tx.referralPayoutPct),
     });
     setEditContactSearch("");
     setEditPropertySearch("");
@@ -684,11 +702,19 @@ export default function TransactionDetail() {
       data.referralSourceName = editForm.referralSourceName || null;
     }
 
-    // Referral payout %
-    const rawReferralPct = editForm.referralPayoutPct ? parseFloat(editForm.referralPayoutPct) : null;
-    const currentReferralPct = tx.referralPayoutPct ? Number(tx.referralPayoutPct) * 100 : null;
-    if (rawReferralPct !== currentReferralPct) {
-      data.referralPayoutPct = rawReferralPct != null ? rawReferralPct / 100 : null;
+    // Referral payout % is stored and submitted as a whole-number percentage (for example, 25 = 25%).
+    const referralPctInput = String(editForm.referralPayoutPct ?? "").trim();
+    const rawReferralPct = referralPctInput ? normalizeReferralPayoutPercentage(referralPctInput) : null;
+    if ((referralPctInput && rawReferralPct === null) || (rawReferralPct !== null && (rawReferralPct < 0 || rawReferralPct > 100))) {
+      toast.error("Referral payout must be a percentage from 0 to 100.");
+      return;
+    }
+    const currentReferralPct = normalizeReferralPayoutPercentage(tx.referralPayoutPct);
+    const currentStoredReferralPct = tx.referralPayoutPct === null || tx.referralPayoutPct === undefined
+      ? null
+      : Number(tx.referralPayoutPct);
+    if (rawReferralPct !== currentReferralPct || rawReferralPct !== currentStoredReferralPct) {
+      data.referralPayoutPct = rawReferralPct;
     }
 
     if (Object.keys(data).length === 0) {
@@ -931,7 +957,7 @@ export default function TransactionDetail() {
                     <span className="flex items-center gap-1.5">
                       <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Referral</span>
                       {(tx as any).referralSourceName}
-                      {(tx as any).referralPayoutPct && <span className="text-xs text-muted-foreground">({(Number((tx as any).referralPayoutPct) * 100).toFixed(1)}%)</span>}
+                      {(tx as any).referralPayoutPct && <span className="text-xs text-muted-foreground">({(normalizeReferralPayoutPercentage((tx as any).referralPayoutPct) ?? 0).toFixed(1)}%)</span>}
                     </span>
                   </div>
                 )}
@@ -1338,7 +1364,14 @@ export default function TransactionDetail() {
                           max={100}
                           step={0.1}
                           value={overrideForm.percentage}
-                          onChange={e => setOverrideForm(f => ({ ...f, percentage: e.target.value }))}
+                          onChange={e => {
+                            const percentage = e.target.value;
+                            setOverrideForm(f => ({
+                              ...f,
+                              percentage,
+                              amount: calculatePercentageAmount(percentage, gci),
+                            }));
+                          }}
                         />
                       </div>
                       <div>
@@ -1350,7 +1383,7 @@ export default function TransactionDetail() {
                           step={0.01}
                           value={overrideForm.amount}
                           onChange={e => setOverrideForm(f => ({ ...f, amount: e.target.value }))}
-                          placeholder={overrideForm.percentage && gci ? ((parseFloat(overrideForm.percentage) / 100) * gci).toFixed(2) : ""}
+                          placeholder={overrideAutoAmount}
                         />
                       </div>
                     </div>
@@ -2109,9 +2142,9 @@ export default function TransactionDetail() {
                   </div>
                 </div>
               </div>
-              {editForm.referralPayoutPct && parseFloat(editForm.referralPayoutPct) > 0 && gci > 0 && (
+              {previewReferralPct !== null && previewReferralPct > 0 && gci > 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Referral amount: <span className="font-semibold">${(gci * parseFloat(editForm.referralPayoutPct) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  Referral amount: <span className="font-semibold">${(gci * previewReferralPct / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   {" "}&mdash; deducted from Savvy first (20% floor), then Group Leader, then Agent.
                 </p>
               )}

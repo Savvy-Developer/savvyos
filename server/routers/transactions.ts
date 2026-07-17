@@ -30,6 +30,18 @@ import { transactionPayoutItems, transactions, listings, contacts, properties, c
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
 import { eq, and, sql, desc, aliasedTable, or } from "drizzle-orm";
 
+const wholePercentageSchema = z.coerce
+  .number({ error: "Percentage must be a number from 0 to 100." })
+  .finite("Percentage must be a finite number.")
+  .min(0, "Percentage must be at least 0.")
+  .max(100, "Percentage must be at most 100.");
+
+/** Referral payout values are stored as whole percentages (25 = 25%). */
+function normalizeReferralPayoutPercentage(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  return value > 0 && value < 1 ? Number((value * 100).toFixed(2)) : value;
+}
+
 const transactionExportFiltersSchema = z.object({
   agentId: z.number().optional(),
   status: z.enum(["under_contract", "closed", "terminated"]).optional(),
@@ -164,14 +176,16 @@ export const transactionsRouter = router({
       commissionType: z.enum(["percentage","flat"]).optional(),
       notes: z.string().optional().nullable(),
       referralSourceName: z.string().optional().nullable(),
-      referralPayoutPct: z.number().min(0).max(100).optional().nullable(),
+      referralPayoutPct: wholePercentageSchema.optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
       // Non-admins always create transactions for themselves
       const agentId = ctx.user.role === "admin" && input.agentId ? input.agentId : ctx.user.id;
       const txNumber = `TXN-${Date.now()}`;
+      const referralPayoutPct = normalizeReferralPayoutPercentage(input.referralPayoutPct);
       const id = await createTransaction({
         ...input,
+        referralPayoutPct,
         agentId,
         transactionNumber: txNumber,
         contractDate: input.contractDate ? new Date(input.contractDate) : null,
@@ -222,7 +236,7 @@ export const transactionsRouter = router({
               primaryContactId: input.primaryContactId,
               gci,
               referralSourceName: input.referralSourceName,
-              referralPayoutPct: input.referralPayoutPct,
+              referralPayoutPct,
             });
             if (!autoPayoutResult.skipped && autoPayoutResult.result) {
               const payoutSummary = autoPayoutResult.result.payouts.map((p: any) => ({
@@ -279,7 +293,7 @@ export const transactionsRouter = router({
         buyerNotes: z.string().optional().nullable(),
         // Referral payout fields
         referralSourceName: z.string().optional().nullable(),
-        referralPayoutPct: z.number().min(0).max(100).optional().nullable(),
+        referralPayoutPct: wholePercentageSchema.optional().nullable(),
       }),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -287,9 +301,10 @@ export const transactionsRouter = router({
       const txBefore = await getTransactionById(input.id);
       const before = txBefore?.transaction;
 
-      const { contractDate, closingDate, terminationReason, ...rest } = input.data;
+      const { contractDate, closingDate, terminationReason, referralPayoutPct, ...rest } = input.data;
       const updateData: Record<string, any> = { ...rest };
       if (terminationReason !== undefined) updateData.terminationReason = terminationReason;
+      if (referralPayoutPct !== undefined) updateData.referralPayoutPct = normalizeReferralPayoutPercentage(referralPayoutPct);
       if (contractDate !== undefined) updateData.contractDate = contractDate ? new Date(contractDate) : null;
       if (closingDate !== undefined) updateData.closingDate = closingDate ? new Date(closingDate) : null;
       await updateTransaction(input.id, updateData as any);
@@ -958,9 +973,9 @@ export const transactionsRouter = router({
         primaryContactId,
         gci,
         referralSourceName: tx.transaction.referralSourceName ?? null,
-        referralPayoutPct: tx.transaction.referralPayoutPct
-          ? parseFloat(String(tx.transaction.referralPayoutPct))
-          : null,
+        referralPayoutPct: normalizeReferralPayoutPercentage(
+          tx.transaction.referralPayoutPct ? parseFloat(String(tx.transaction.referralPayoutPct)) : null
+        ),
       });
 
       // Auto-resolve integrity flag after recalculation
@@ -1354,7 +1369,7 @@ export const transactionsRouter = router({
     .input(z.object({
       agentId: z.number(),
       gci: z.number().min(0),
-      referralPayoutPct: z.number().min(0).max(100).optional().nullable(),
+      referralPayoutPct: wholePercentageSchema.optional().nullable(),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -1399,7 +1414,7 @@ export const transactionsRouter = router({
         agentSplit: agent.commissionSplit,
         isInGroup: !!membership && !!groupLeaderSplit,
         groupLeaderSplit,
-        referralPercent: input.referralPayoutPct ?? 0,
+        referralPercent: normalizeReferralPayoutPercentage(input.referralPayoutPct) ?? 0,
         gci: input.gci,
       });
 
