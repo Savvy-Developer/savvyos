@@ -20,7 +20,7 @@ import EmailTestPage from "./EmailTestPage";
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
 type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Mentioned User";
-type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Recognition";
+type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Recognition" | "Reporting";
 type TriggerType = "Event" | "Scheduled";
 
 interface NotifMeta {
@@ -42,6 +42,8 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "transaction_created", name: "Transaction Created", description: "Notifies the agent when a new transaction is created and linked to them.", trigger: "New transaction created with an assigned agent", triggerType: "Event", recipient: "Agent", category: "Transactions" },
   { id: "transaction_status_changed", name: "Transaction Status Changed", description: "Notifies the agent when the status of one of their transactions changes.", trigger: "Transaction status updated", triggerType: "Event", recipient: "Agent", category: "Transactions" },
   { id: "transaction_closed", name: "Transaction Closed", description: "Notifies the agent when their transaction is marked as Closed.", trigger: "Transaction status set to 'closed'", triggerType: "Event", recipient: "Agent", category: "Transactions" },
+  // ── Reporting ──────────────────────────────────────────────────────────────
+  { id: "agent_production_report", name: "Agent Production Report", description: "Sends all active administrators a table of current under-contract and closed production by agent.", trigger: "Every Friday at 6:00 PM Eastern", triggerType: "Scheduled", recipient: "Admin", category: "Reporting" },
   // ── Commission ────────────────────────────────────────────────────────────
   { id: "commission_calculated", name: "Commission Calculated", description: "Notifies the payee when their commission payout has been calculated.", trigger: "Commission payout record created for a payee", triggerType: "Event", recipient: "Agent", category: "Commission" },
   { id: "payout_integrity_fail", name: "Payout Integrity Failure", description: "Alerts when a payout calculation fails integrity checks.", trigger: "Payout integrity check fails during transaction update", triggerType: "Event", recipient: "Agent + Admin", category: "Commission" },
@@ -62,7 +64,7 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "birthday_recognition", name: "Birthday Recognition Email", description: "Sends a birthday recognition email to agents who have opted in via their Extended Profile (Birthday Recognition Opt-In toggle). The agent's birthday is set in their profile.", trigger: "Nightly scheduler — fires on the agent's birthday (matching month/day)", triggerType: "Scheduled", recipient: "Agent", category: "Recognition" },
   { id: "anniversary_recognition", name: "Work Anniversary Recognition Email", description: "Sends a work anniversary recognition email to agents who have opted in via their Extended Profile (Anniversary Recognition Opt-In toggle). The work anniversary date is set in their profile.", trigger: "Nightly scheduler — fires on the agent's Work Anniversary Date (matching month/day)", triggerType: "Scheduled", recipient: "Agent", category: "Recognition" },
 ];
-const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Recognition"];
+const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Recognition", "Reporting"];
 const CATEGORY_COLORS: Record<Category, string> = {
   "Transactions": "bg-blue-100 text-blue-700",
   "Listings": "bg-purple-100 text-purple-700",
@@ -73,6 +75,7 @@ const CATEGORY_COLORS: Record<Category, string> = {
   "Commission": "bg-rose-100 text-rose-700",
   "Projects": "bg-orange-100 text-orange-700",
   "Recognition": "bg-pink-100 text-pink-700",
+  "Reporting": "bg-sky-100 text-sky-700",
 };
 
 const RECIPIENT_COLORS: Record<Recipient, string> = {

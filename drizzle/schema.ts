@@ -1363,6 +1363,30 @@ export const emailNotificationSettings = mysqlTable("email_notification_settings
 });
 export type EmailNotificationSetting = typeof emailNotificationSettings.$inferSelect;
 
+// ─── Scheduled Report Runs ────────────────────────────────────────────────────
+// A unique report/date record prevents duplicate delivery across process restarts
+// and provides an auditable delivery outcome for scheduled reports.
+export const scheduledReportRuns = mysqlTable(
+  "scheduled_report_runs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    reportKey: varchar("reportKey", { length: 64 }).notNull(),
+    reportDate: varchar("reportDate", { length: 10 }).notNull(), // YYYY-MM-DD in the report timezone
+    status: mysqlEnum("status", ["running", "sent", "partial", "failed", "skipped"]).notNull().default("running"),
+    recipientCount: int("recipientCount").notNull().default(0),
+    successfulRecipientCount: int("successfulRecipientCount").notNull().default(0),
+    errorMessage: text("errorMessage"),
+    startedAt: timestamp("startedAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  (table) => [
+    uniqueIndex("scheduled_report_runs_key_date_unique").on(table.reportKey, table.reportDate),
+    index("scheduled_report_runs_status_idx").on(table.status),
+  ],
+);
+export type ScheduledReportRun = typeof scheduledReportRuns.$inferSelect;
+export type InsertScheduledReportRun = typeof scheduledReportRuns.$inferInsert;
+
 // ─── US Location Reference Tables ─────────────────────────────────────────────
 export const usStates = mysqlTable("us_states", {
   code: varchar("code", { length: 2 }).primaryKey(), // e.g. "FL"

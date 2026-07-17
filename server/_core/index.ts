@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { processSmartPlanSteps } from "../smartPlanScheduler";
 import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
+import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
@@ -136,6 +137,9 @@ async function startServer() {
 
   // Onboarding overdue task alerts: daily at 8am
   scheduleOnboardingOverdueCheck();
+
+  // Agent production report: Friday at 6:00 PM Eastern
+  scheduleAgentProductionReport();
 }
 
 startServer().catch(console.error);

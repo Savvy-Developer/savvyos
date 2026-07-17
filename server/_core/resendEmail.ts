@@ -38,6 +38,7 @@ export type EmailType =
   | "connection_request_approved"
   | "pm_mention"
   | "partner_lead_confirmation"
+  | "agent_production_report"
   | "password_reset";
 
 interface EmailContext {
@@ -83,10 +84,14 @@ interface EmailContext {
   // Partner-specific fields
   partnerName?: string;
   partnerEmail?: string;
+  // Agent production report-specific fields
+  reportDate?: string;
+  reportAsOf?: string;
+  reportTableHtml?: string;
 }
 
 // ─── Shared Layout Wrapper ────────────────────────────────────────────────────
-function emailLayout(content: string, previewText = ""): string {
+function emailLayout(content: string, previewText = "", maxWidth = 560): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -100,7 +105,7 @@ function emailLayout(content: string, previewText = ""): string {
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${BODY_BG};">
     <tr>
       <td align="center" style="padding:40px 16px 32px;">
-        <table width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;">
+        <table width="${maxWidth}" cellpadding="0" cellspacing="0" border="0" style="max-width:${maxWidth}px;width:100%;">
 
           <!-- Logo header — white card -->
           <tr>
@@ -467,6 +472,21 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
+  agent_production_report: (ctx) => ({
+    subject: `Agent Production Report (${ctx.reportDate ?? "Weekly"})`,
+    html: emailLayout(
+      `${heading("Agent Production Report")}
+      ${subheading(ctx.reportAsOf ? `As of ${ctx.reportAsOf}` : "Weekly Production Summary")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Here is the current SavvyOS production snapshot for every active agent.")}
+      ${ctx.reportTableHtml ?? bodyText("Production data is not available for this report.")}
+      <p style="margin:18px 0 0;font-size:11px;line-height:1.5;color:${MUTED};">Current Under Contract reflects transactions currently in the Under Contract stage. New Under Contract uses contract dates from the prior seven days. Closed metrics use closing dates for each stated period.</p>
+      ${ctaButton("Open SavvyOS", APP_URL + "/analytics")}`,
+      `Agent production report for ${ctx.reportDate ?? "this week"}`,
+      1200,
+    ),
+  }),
+
   partner_lead_confirmation: (ctx) => ({
     subject: `Lead Received: ${ctx.contactName ?? "Your Client"} — Savvy STR Agents`,
     html: emailLayout(
@@ -485,21 +505,35 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
   }),
 };
 
+export interface EmailDeliveryOptions {
+  /** Prevent duplicate API delivery when a scheduler retries the same email. */
+  idempotencyKey?: string;
+  /** Dynamic reports retain their generated subject and table instead of a generic override. */
+  allowTemplateOverride?: boolean;
+}
+
+export interface EmailDeliveryResult {
+  sent: boolean;
+  skipped: boolean;
+  reason?: string;
+}
+
 /**
- * Send a transactional email via Resend.
- * Falls back silently if RESEND_API_KEY is not configured.
+ * Send a transactional email via Resend. Existing callers can ignore the
+ * result; schedulers can use it to persist a truthful delivery outcome.
  */
 export async function sendTransactionalEmail(
   type: EmailType,
-  ctx: EmailContext
-): Promise<void> {
+  ctx: EmailContext,
+  options: EmailDeliveryOptions = {},
+): Promise<EmailDeliveryResult> {
   const resend = getResend();
   if (!resend) {
     console.warn("[Resend] API key not configured — skipping email");
-    return;
+    return { sent: false, skipped: true, reason: "Resend API key is not configured" };
   }
 
-  // Check if this notification type is disabled via the admin Email Notifications toggle
+  // Check if this notification type is disabled via the admin Email Notifications toggle.
   try {
     const settingDb = await getDb();
     if (settingDb) {
@@ -510,36 +544,39 @@ export async function sendTransactionalEmail(
         .limit(1);
       if (setting && !setting.isEnabled) {
         console.info(`[Resend] Email type "${type}" is disabled via admin settings — skipping`);
-        return;
+        return { sent: false, skipped: true, reason: "Email notification is disabled" };
       }
     }
   } catch (settingErr) {
-    // Non-fatal: if we can't read the setting, default to sending
+    // Non-fatal: if we can't read the setting, default to sending.
     console.warn("[Resend] Could not check notification setting:", settingErr);
   }
 
   try {
     const hardcoded = TEMPLATES[type](ctx);
-    // Check for admin-edited template override in DB
     let subject = hardcoded.subject;
     let html = hardcoded.html;
-    try {
-      const db = await getDb();
-      if (db) {
-        const [override] = await db.select().from(emailTemplates).where(eq(emailTemplates.emailType, type)).limit(1);
-        if (override) {
-          subject = override.subject;
-          // Replace the bodyText paragraph in the HTML with the override body
-          const escapedBody = override.bodyText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-          html = hardcoded.html.replace(
-            /<p style="[^"]*color:[^"]*#6B7280[^"]*">[^<]*<\/p>/,
-            `<p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 20px;">${escapedBody}</p>`
-          );
+
+    // Check for an admin-edited template override unless this is a live data report.
+    if (options.allowTemplateOverride !== false) {
+      try {
+        const db = await getDb();
+        if (db) {
+          const [override] = await db.select().from(emailTemplates).where(eq(emailTemplates.emailType, type)).limit(1);
+          if (override) {
+            subject = override.subject;
+            const escapedBody = override.bodyText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+            html = hardcoded.html.replace(
+              /<p style="[^"]*color:[^"]*#6B7280[^"]*">[^<]*<\/p>/,
+              `<p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 20px;">${escapedBody}</p>`,
+            );
+          }
         }
+      } catch (dbErr) {
+        console.warn("[Resend] Could not load template override:", dbErr);
       }
-    } catch (dbErr) {
-      console.warn("[Resend] Could not load template override:", dbErr);
     }
+
     const sendOptions: Parameters<typeof resend.emails.send>[0] = {
       from: FROM_ADDRESS,
       to: ctx.recipientEmail,
@@ -547,12 +584,21 @@ export async function sendTransactionalEmail(
       html,
       ...(ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
     };
-    const result = await resend.emails.send(sendOptions);
+    const result = await resend.emails.send(
+      sendOptions,
+      options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
+    );
     if (result.error) {
+      const reason = result.error.message ?? "Resend rejected the email";
       console.error("[Resend] Send error:", result.error);
+      return { sent: false, skipped: false, reason };
     }
+
+    return { sent: true, skipped: false };
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
     console.error("[Resend] Failed to send email:", err);
+    return { sent: false, skipped: false, reason };
   }
 }
 
