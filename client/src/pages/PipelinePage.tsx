@@ -607,7 +607,7 @@ export default function PipelinePage() {
                           aria-label={`Select ${contact?.firstName ?? ""} ${contact?.lastName ?? ""} for email`}
                           checked={selectedEmailConnectionIds.has(connection.id)}
                           disabled={!emailEligible}
-                          title={emailEligible ? "Select for mass email" : "Email selection requires a valid email and a status other than New or Dead"}
+                          title={emailEligible ? "Select for mass email" : "Email selection requires an email address and a status other than New or Dead"}
                           onClick={(event) => event.stopPropagation()}
                           onChange={() => toggleEmailSelection(connection.id)}
                           className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"

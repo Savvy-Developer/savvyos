@@ -214,7 +214,7 @@ export default function AgentConnectionDetail() {
           size="sm"
           onClick={() => setSendEmailOpen(true)}
           disabled={!emailEligible}
-          title={emailEligible ? "Send an email to this contact" : "Email is available only for deliverable contacts in a status other than New or Dead"}
+          title={emailEligible ? "Send an email to this contact" : "Email is available only for contacts with an email address in a status other than New or Dead"}
         >
           <Mail className="h-4 w-4 mr-1" /> Send Email
         </Button>
