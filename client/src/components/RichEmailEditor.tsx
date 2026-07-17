@@ -199,15 +199,18 @@ export default function RichEmailEditor({ value, onChange, placeholder, classNam
       {/* Merge tag helper */}
       <div className="flex flex-wrap gap-1.5 p-2 border-t bg-muted/20">
         <span className="text-xs text-muted-foreground mr-1 self-center">Merge tags:</span>
-        {["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{agent_name}}", "{{lead_source}}"].map((tag) => (
+        {["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{agent_name}}", "{{sender_name}}", "{{lead_source}}"].map((tag) => (
           <button
             key={tag}
             type="button"
             className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded hover:bg-primary/20 transition-colors font-mono"
             onClick={() => {
               if (isHtmlMode) {
-                setRawHtml((prev) => prev + tag);
-                onChange(rawHtml + tag);
+                setRawHtml((prev) => {
+                  const next = prev + tag;
+                  onChange(next);
+                  return next;
+                });
               } else {
                 editor.chain().focus().insertContent(tag).run();
               }

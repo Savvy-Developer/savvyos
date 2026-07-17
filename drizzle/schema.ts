@@ -1089,6 +1089,80 @@ export const emailTemplates = mysqlTable("email_templates", {
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
 
+// ─── Pipeline Email Templates ─────────────────────────────────────────────────
+// User-composed templates for direct and mass email from Pipeline. These are
+// intentionally separate from the transactional notification overrides above.
+export const pipelineEmailTemplates = mysqlTable(
+  "pipeline_email_templates",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 255 }).notNull(),
+    subject: varchar("subject", { length: 512 }).notNull(),
+    bodyHtml: text("bodyHtml").notNull(),
+    createdById: int("createdById").notNull().references(() => users.id, { onDelete: "cascade" }),
+    isPersonal: boolean("isPersonal").default(true).notNull(),
+    visibleToAdmins: boolean("visibleToAdmins").default(false).notNull(),
+    visibleToAgents: boolean("visibleToAgents").default(false).notNull(),
+    visibleToIsas: boolean("visibleToIsas").default(false).notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("pipeline_email_templates_createdBy_idx").on(table.createdById),
+    index("pipeline_email_templates_visibility_idx").on(
+      table.isPersonal,
+      table.visibleToAdmins,
+      table.visibleToAgents,
+      table.visibleToIsas
+    ),
+  ]
+);
+export type PipelineEmailTemplate = typeof pipelineEmailTemplates.$inferSelect;
+export type InsertPipelineEmailTemplate = typeof pipelineEmailTemplates.$inferInsert;
+
+// A reservation-based counter makes the 250-email daily cap concurrency safe.
+// Reserved recipients count against the cap even if the downstream provider
+// rejects a request, preventing repeated failures from bypassing the limit.
+export const pipelineEmailDailyUsage = mysqlTable(
+  "pipeline_email_daily_usage",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    usageDate: date("usageDate", { mode: "string" }).notNull(),
+    reservedCount: int("reservedCount").default(0).notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pipeline_email_daily_usage_user_date_uq").on(table.userId, table.usageDate),
+  ]
+);
+export type PipelineEmailDailyUsage = typeof pipelineEmailDailyUsage.$inferSelect;
+
+export const pipelineEmailDeliveries = mysqlTable(
+  "pipeline_email_deliveries",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    batchId: varchar("batchId", { length: 64 }).notNull(),
+    senderUserId: int("senderUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    agentConnectionId: int("agentConnectionId").notNull().references(() => agentConnections.id, { onDelete: "cascade" }),
+    contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+    recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+    subject: varchar("subject", { length: 512 }).notNull(),
+    status: mysqlEnum("status", ["reserved", "accepted", "failed"]).default("reserved").notNull(),
+    resendEmailId: varchar("resendEmailId", { length: 255 }),
+    errorMessage: text("errorMessage"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("pipeline_email_deliveries_batch_idx").on(table.batchId),
+    index("pipeline_email_deliveries_sender_created_idx").on(table.senderUserId, table.createdAt),
+    index("pipeline_email_deliveries_connection_idx").on(table.agentConnectionId),
+  ]
+);
+export type PipelineEmailDelivery = typeof pipelineEmailDeliveries.$inferSelect;
+
 // ─── Connection Requests ──────────────────────────────────────────────────────
 // When an agent tries to add a contact that already exists, they submit a
 // connection request instead. ISAs/admins can approve or deny it.
