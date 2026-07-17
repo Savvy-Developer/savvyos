@@ -35,6 +35,7 @@ import { Plus, Pencil, Trash2, Users, Eye, Search, Filter, UserCheck, Link2, Lin
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
+import RichEmailEditor from "@/components/RichEmailEditor";
 
 type UserRow = {
   id: number;
@@ -108,6 +109,8 @@ export default function UsersPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
+  const [signatureTarget, setSignatureTarget] = useState<UserRow | null>(null);
+  const [signatureHtml, setSignatureHtml] = useState("");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [creatingMarket, setCreatingMarket] = useState(false);
 
@@ -172,6 +175,27 @@ export default function UsersPage() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const updateSignatureMutation = trpc.users.updateEmailSignatureForUser.useMutation({
+    onSuccess: (_result, variables) => {
+      utils.users.getCoreProfile.invalidate({ userId: variables.userId });
+      toast.success("Email Signature saved for team member");
+      setSignatureTarget(null);
+      setSignatureHtml("");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  async function openSignatureEditor(user: UserRow) {
+    setSignatureTarget(user);
+    setSignatureHtml("");
+    try {
+      const profile = await utils.users.getCoreProfile.fetch({ userId: user.id });
+      setSignatureHtml((profile as any)?.emailSignatureHtml ?? "");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Could not load this user’s Email Signature");
+    }
+  }
 
   function openAdd() {
     setForm(EMPTY_FORM);
@@ -794,6 +818,14 @@ export default function UsersPage() {
                             <UserCheck className="h-4 w-4 text-teal-600" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit Email Signature"
+                          onClick={() => { void openSignatureEditor(u); }}
+                        >
+                          <Pencil className="h-4 w-4 text-indigo-600" />
+                        </Button>
                         <Button variant="ghost" size="icon" title="Set Password" onClick={() => { setPwTarget(u); setNewPassword(""); setConfirmPassword(""); }}>
                           <KeyRound className="h-4 w-4" />
                         </Button>
@@ -819,6 +851,51 @@ export default function UsersPage() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog
+        open={!!signatureTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSignatureTarget(null);
+            setSignatureHtml("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Email Signature — {signatureTarget?.name ?? "Team Member"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This signature is appended to every Pipeline email sent by this user. A saved signature is required before they can send Pipeline email.
+            </p>
+            <RichEmailEditor
+              value={signatureHtml}
+              onChange={setSignatureHtml}
+              placeholder="Add the user’s name, title, contact details, and any approved branding."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSignatureTarget(null); setSignatureHtml(""); }}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                updateSignatureMutation.isPending ||
+                !signatureHtml.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim()
+              }
+              onClick={() => {
+                if (!signatureTarget) return;
+                updateSignatureMutation.mutate({ userId: signatureTarget.id, html: signatureHtml });
+              }}
+            >
+              {updateSignatureMutation.isPending ? "Saving..." : "Save Email Signature"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Add Dialog ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

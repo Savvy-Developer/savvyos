@@ -766,6 +766,12 @@ export const userDocuments = mysqlTable("user_documents", {
   fileName: varchar("file_name", { length: 500 }).notNull(),
   fileSize: int("file_size"),
   mimeType: varchar("mime_type", { length: 100 }),
+  category: varchar("category", { length: 100 }).default("Other"),
+  // AI-generated, administrator-visible synopsis. The original document remains authoritative.
+  aiSummary: text("aiSummary"),
+  aiSummaryGeneratedAt: timestamp("aiSummaryGeneratedAt"),
+  aiSummaryStatus: varchar("aiSummaryStatus", { length: 32 }).default("not_requested").notNull(),
+  aiSummaryError: text("aiSummaryError"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type UserDocument = typeof userDocuments.$inferSelect;
@@ -782,6 +788,9 @@ export const userProfiles = mysqlTable("user_profiles", {
   personalEmail: varchar("personalEmail", { length: 320 }),
   // Rich HTML signature appended to outbound Pipeline email after the sender's message.
   emailSignatureHtml: text("emailSignatureHtml"),
+  // An administrator-generated summary of the user’s recent SavvyOS performance and activity.
+  coachingSummary: text("coachingSummary"),
+  coachingSummaryGeneratedAt: timestamp("coachingSummaryGeneratedAt"),
   primaryPhone: varchar("primaryPhone", { length: 32 }),
   secondaryPhone: varchar("secondaryPhone", { length: 32 }),
   timeZone: varchar("timeZone", { length: 64 }),

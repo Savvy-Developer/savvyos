@@ -68,6 +68,7 @@ import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatEmail } from "@/lib/format";
 import { format } from "date-fns";
 import UserExtendedProfileTab from "@/components/UserExtendedProfileTab";
+import UserCoachingDashboard from "@/components/UserCoachingDashboard";
 import { safeFormat } from "@/lib/safeFormat";
 import { toast } from "sonner";
 import {
@@ -736,6 +737,12 @@ export default function AgentProfilePage() {
             </TabsTrigger>
           )}
           {isAdmin && (
+            <TabsTrigger value="coach-portal">
+              <BarChart3 className="h-4 w-4 mr-1.5" />
+              Coach Portal
+            </TabsTrigger>
+          )}
+          {isAdmin && (
             <TabsTrigger value="leadership">
               <MessageSquarePlus className="h-4 w-4 mr-1.5" />
               1-on-1s ({(feedbackList as any[]).length})
@@ -1165,6 +1172,13 @@ export default function AgentProfilePage() {
             </Card>
           </div>
         </TabsContent>
+
+        {/* Coach Portal Tab */}
+        {isAdmin && (
+          <TabsContent value="coach-portal" className="mt-4">
+            <UserCoachingDashboard userId={agentId} />
+          </TabsContent>
+        )}
 
         {/* Leadership 1-on-1 Tab */}
         {isAdmin && (
