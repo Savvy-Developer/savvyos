@@ -19,6 +19,8 @@ import {
 import SmartPlanContactTab from "@/components/SmartPlanContactTab";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
+import PipelineEmailComposer from "@/components/PipelineEmailComposer";
+import { isValidEmail } from "@/lib/inputFormatters";
 
 const PIPELINE_STAGES = [
   { value: "new_lead", label: "New Lead", color: "bg-slate-100 text-slate-700" },
@@ -49,6 +51,7 @@ export default function AgentConnectionDetail() {
   const [editingStage, setEditingStage] = useState(false);
   const [addCommDialog, setAddCommDialog] = useState(false);
   const [addTaskDialog, setAddTaskDialog] = useState(false);
+  const [emailComposerOpen, setEmailComposerOpen] = useState(false);
 
   const [buyBoxForm, setBuyBoxForm] = useState<Record<string, any>>({});
   const [stageForm, setStageForm] = useState({ pipelineStatus: "", followUpDate: "", agentNotes: "" });
@@ -116,6 +119,7 @@ export default function AgentConnectionDetail() {
   const { connection, contact, agent, isa, leadSource, parentLeadSource } = conn as any;
   const contactTransactions = txns?.filter((t: any) => t.transaction?.primaryContactId === contact?.id || t.contact?.id === contact?.id) ?? [];
   const stage = PIPELINE_STAGES.find(s => s.value === connection.pipelineStatus);
+  const emailEligible = connection.pipelineStatus !== "new_lead" && connection.pipelineStatus !== "dead" && isValidEmail(contact?.email ?? "");
 
   const handleSaveBuyBox = () => {
     // Empty form fields come through as "" — convert to null, and parse the
@@ -202,6 +206,15 @@ export default function AgentConnectionDetail() {
           </p>
         </div>
         <Badge className={`${stage?.color} border-0 text-sm px-3 py-1`}>{stage?.label ?? connection.pipelineStatus}</Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!emailEligible}
+          title={emailEligible ? "Send Email" : "Email is unavailable for New/Dead contacts or contacts without a valid email address"}
+          onClick={() => setEmailComposerOpen(true)}
+        >
+          <Mail className="h-4 w-4 mr-1" /> Send Email
+        </Button>
         <Button variant="outline" size="sm" onClick={startEditStage}>
           <Edit2 className="h-4 w-4 mr-1" /> Update Stage
         </Button>
@@ -611,6 +624,19 @@ export default function AgentConnectionDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PipelineEmailComposer
+        open={emailComposerOpen}
+        onOpenChange={setEmailComposerOpen}
+        recipients={[{
+          connectionId: connection.id,
+          name: `${contact?.firstName ?? ""} ${contact?.lastName ?? ""}`.trim() || "Contact",
+        }]}
+        onSent={() => {
+          void utils.communications.list.invalidate({ agentConnectionId: id });
+          void utils.agentConnections.get.invalidate({ id });
+        }}
+      />
 
       {/* Add Communication Dialog */}
       <Dialog open={addCommDialog} onOpenChange={setAddCommDialog}>

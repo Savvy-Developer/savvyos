@@ -42,6 +42,7 @@ import { agentSupportRouter, WORK_AS_COOKIE as AS_WORK_COOKIE } from "./routers/
 import { duplicatesRouter } from "./routers/duplicates";
 import { webhooksRouter } from "./routers/webhooks";
 import { ghlSyncRouter } from "./routers/ghlSync";
+import { pipelineEmailRouter } from "./routers/pipelineEmail";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -227,6 +228,7 @@ export const appRouter = router({
   duplicates: duplicatesRouter,
   webhooks: webhooksRouter,
   ghlSync: ghlSyncRouter,
+  pipelineEmail: pipelineEmailRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
