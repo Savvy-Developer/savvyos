@@ -18,13 +18,35 @@ import {
   updateTransaction,
   validatePayoutIntegrity,
   validateAndAutoResolveFlag,
+  createTransactionExportHistory,
+  getTransactionExportHistory,
+  getTransactionsForExport,
 } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { generateAutoPayouts } from "../autoPayouts";
 import { getDb } from "../db";
-import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups } from "../../drizzle/schema";
+import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
+import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
 import { eq, and, sql, desc, aliasedTable, or } from "drizzle-orm";
+
+const transactionExportFiltersSchema = z.object({
+  agentId: z.number().optional(),
+  status: z.enum(["under_contract", "closed", "terminated"]).optional(),
+  transactionType: z.enum(["buyer", "seller", "dual"]).optional(),
+  search: z.string().trim().max(200).optional(),
+  marketId: z.number().optional(),
+  contractDateFrom: z.string().optional(),
+  contractDateTo: z.string().optional(),
+  closingDateFrom: z.string().optional(),
+  closingDateTo: z.string().optional(),
+  flagNoClosingDate: z.boolean().optional(),
+  flagPastClosingDate: z.boolean().optional(),
+  flagPayoutIntegrity: z.boolean().optional(),
+  leadSourceId: z.number().optional(),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
+  sortBy: z.enum(["contact", "property", "agent", "type", "price", "gci", "status", "contract_date", "closing_date"]).default("closing_date"),
+});
 
 export const transactionsRouter = router({
   list: protectedProcedure
@@ -51,6 +73,72 @@ export const transactionsRouter = router({
       const agentId = ctx.user.role === "agent" ? ctx.user.id : input.agentId;
       return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date");
     }),
+
+  exportPreview: adminProcedure
+    .input(transactionExportFiltersSchema)
+    .query(async ({ input }) => {
+      const rows = await getTransactionsForExport(input);
+      return { rowCount: rows.length };
+    }),
+
+  exportCsv: adminProcedure
+    .input(transactionExportFiltersSchema)
+    .mutation(async ({ input, ctx }) => {
+      const rows = await getTransactionsForExport(input);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      const labels: { agentName?: string; marketName?: string; leadSourceName?: string } = {};
+      if (input.agentId) {
+        const [agent] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.agentId)).limit(1);
+        labels.agentName = agent?.name ?? undefined;
+      }
+      if (input.marketId) {
+        const [market] = await db.select({ name: markets.name }).from(markets).where(eq(markets.id, input.marketId)).limit(1);
+        labels.marketName = market?.name ?? undefined;
+      }
+      if (input.leadSourceId) {
+        const [leadSource] = await db.select({ name: leadSources.name }).from(leadSources).where(eq(leadSources.id, input.leadSourceId)).limit(1);
+        labels.leadSourceName = leadSource?.name ?? undefined;
+      }
+
+      const filterSummary = buildTransactionExportFilterSummary(input, labels);
+      const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+      const fileName = `transactions-${timestamp}.csv`;
+      const transactionIds = rows.map((row) => row.transaction.id);
+      const historyId = await createTransactionExportHistory({
+        exportedById: ctx.user.id,
+        format: "csv",
+        fileName,
+        rowCount: rows.length,
+        filters: { ...input, labels },
+        filterSummary,
+        columns: [...TRANSACTION_EXPORT_COLUMNS],
+        transactionIds,
+      });
+
+      await logActivity({
+        userId: ctx.user.id,
+        action: "transactions_exported",
+        entityType: "transaction_export",
+        entityId: historyId,
+        details: { fileName, rowCount: rows.length, filterSummary },
+      });
+
+      return {
+        historyId,
+        fileName,
+        rowCount: rows.length,
+        csv: buildTransactionCsv(rows),
+      };
+    }),
+
+  exportHistory: adminProcedure
+    .input(z.object({
+      page: z.number().min(1).default(1),
+      limit: z.number().min(1).max(100).default(20),
+    }))
+    .query(({ input }) => getTransactionExportHistory(input.page, input.limit)),
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))

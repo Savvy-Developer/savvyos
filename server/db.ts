@@ -16,6 +16,7 @@ import {
   propertyOwnership,
   tasks,
   transactionPayoutItems,
+  transactionExports,
   transactions,
   users,
   leadSources,
@@ -746,6 +747,127 @@ export async function getTransactions(agentId?: number, status?: string, search?
         .limit(limit)
         .offset(offset);
     })(),
+  ]);
+  return { rows, total: Number(countResult[0]?.count ?? 0), page, limit };
+}
+
+export type TransactionExportFilters = {
+  agentId?: number;
+  status?: string;
+  transactionType?: string;
+  search?: string;
+  marketId?: number;
+  contractDateFrom?: string;
+  contractDateTo?: string;
+  closingDateFrom?: string;
+  closingDateTo?: string;
+  flagNoClosingDate?: boolean;
+  flagPastClosingDate?: boolean;
+  flagPayoutIntegrity?: boolean;
+  leadSourceId?: number;
+  sortOrder?: "asc" | "desc";
+  sortBy?: string;
+};
+
+/** Fetches the complete filtered transaction dataset for an admin CSV export. */
+export async function getTransactionsForExport(filters: TransactionExportFilters) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [];
+  if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
+  if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
+  if (filters.search) {
+    conditions.push(or(
+      like(transactions.transactionNumber, `%${filters.search}%`),
+      like(contacts.firstName, `%${filters.search}%`),
+      like(contacts.lastName, `%${filters.search}%`),
+      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${filters.search}%`}`,
+      like(properties.address, `%${filters.search}%`),
+      like(properties.city, `%${filters.search}%`),
+    ));
+  }
+  if (filters.contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${filters.contractDateFrom}`);
+  if (filters.contractDateTo) conditions.push(sql`${transactions.contractDate} <= ${filters.contractDateTo}`);
+  if (filters.closingDateFrom) conditions.push(sql`${transactions.closingDate} >= ${filters.closingDateFrom}`);
+  if (filters.closingDateTo) conditions.push(sql`${transactions.closingDate} <= ${filters.closingDateTo}`);
+  if (filters.flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
+  if (filters.flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
+  if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
+  if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
+  if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
+
+  if (filters.marketId) {
+    const marketAgents = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.marketProfileId, filters.marketId));
+    const marketAgentIds = marketAgents.map((agent) => agent.id);
+    if (marketAgentIds.length === 0) return [];
+    conditions.push(inArray(transactions.agentId, marketAgentIds));
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const txParentLS = aliasedTable(leadSources, "exportParentLeadSource");
+  const sortOrder = filters.sortOrder ?? "desc";
+  const sortBy = filters.sortBy ?? "closing_date";
+  const direction = (column: any) => sortOrder === "asc" ? asc(column) : desc(column);
+  let orderBy;
+  switch (sortBy) {
+    case "contact": orderBy = direction(contacts.firstName); break;
+    case "property": orderBy = direction(properties.address); break;
+    case "agent": orderBy = direction(users.name); break;
+    case "type": orderBy = direction(transactions.transactionType); break;
+    case "price": orderBy = direction(transactions.purchasePrice); break;
+    case "gci": orderBy = direction(transactions.grossCommissionIncome); break;
+    case "status": orderBy = direction(transactions.status); break;
+    case "contract_date": orderBy = direction(transactions.contractDate); break;
+    case "closing_date":
+    default: orderBy = direction(transactions.closingDate); break;
+  }
+
+  return db
+    .select({
+      transaction: transactions,
+      agent: users,
+      contact: contacts,
+      property: properties,
+      leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
+      parentLeadSource: { id: txParentLS.id, name: txParentLS.name },
+    })
+    .from(transactions)
+    .leftJoin(users, eq(transactions.agentId, users.id))
+    .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
+    .leftJoin(properties, eq(transactions.propertyId, properties.id))
+    .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+    .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
+    .where(where)
+    .orderBy(orderBy);
+}
+
+export async function createTransactionExportHistory(data: typeof transactionExports.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [result] = await db.insert(transactionExports).values(data);
+  return (result as any).insertId as number;
+}
+
+export async function getTransactionExportHistory(page = 1, limit = 20) {
+  const db = await getDb();
+  if (!db) return { rows: [], total: 0, page, limit };
+  const offset = (page - 1) * limit;
+  const [countResult, rows] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(transactionExports),
+    db
+      .select({
+        export: transactionExports,
+        exportedBy: { id: users.id, name: users.name, email: users.email },
+      })
+      .from(transactionExports)
+      .leftJoin(users, eq(transactionExports.exportedById, users.id))
+      .orderBy(desc(transactionExports.createdAt))
+      .limit(limit)
+      .offset(offset),
   ]);
   return { rows, total: Number(countResult[0]?.count ?? 0), page, limit };
 }

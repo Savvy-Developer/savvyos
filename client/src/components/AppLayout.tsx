@@ -21,6 +21,7 @@ import {
   ClipboardList,
   DollarSign,
   FileText,
+  FileDown,
   GitBranch,
   Home,
   LogOut,
@@ -190,6 +191,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "Transactions",
       items: [
         { icon: FileText, label: "All Transactions", path: "/transactions" },
+        { icon: FileDown, label: "Transaction Exports", path: "/transaction-reporting" },
         { icon: Building2, label: "Listings", path: "/listings" },
         { icon: Building2, label: "Properties", path: "/properties" },
         { icon: DollarSign, label: "Commission & Payouts", path: "/commission", badge: (unpaidPayouts > 0 || flaggedTx > 0 || pendingExceptions > 0) ? (unpaidPayouts + flaggedTx + pendingExceptions) : undefined },

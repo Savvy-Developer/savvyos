@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
 import { useLocation } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
+import { toast } from "sonner";
 import {
   Table,
   TableBody,
@@ -20,37 +22,57 @@ import {
 } from "@/components/ui/table";
 import {
   AlertTriangle,
-  Calendar,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Download,
+  FileSpreadsheet,
   Filter,
+  History,
+  Loader2,
   Search,
+  ShieldCheck,
   X,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
-  active: "bg-blue-100 text-blue-700",
   under_contract: "bg-amber-100 text-amber-700",
   closed: "bg-emerald-100 text-emerald-700",
   terminated: "bg-red-100 text-red-700",
 };
 
-const formatCurrency = (val: string | number | null | undefined) => {
-  if (!val) return "—";
-  const n = typeof val === "string" ? parseFloat(val) : val;
-  if (isNaN(n)) return "—";
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+type StatusFilter = "all" | "under_contract" | "closed" | "terminated";
+type TypeFilter = "all" | "buyer" | "seller" | "dual";
+
+const formatCurrency = (value: string | number | null | undefined) => {
+  if (!value) return "—";
+  const amount = typeof value === "string" ? Number.parseFloat(value) : value;
+  if (Number.isNaN(amount)) return "—";
+  return `$${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 };
+
+function triggerCsvDownload(csv: string, fileName: string) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 export default function TransactionReportingPage() {
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
 
-  // Filter state
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [marketFilter, setMarketFilter] = useState("all");
+  const [leadSourceFilter, setLeadSourceFilter] = useState("all");
   const [contractDateFrom, setContractDateFrom] = useState("");
   const [contractDateTo, setContractDateTo] = useState("");
   const [closingDateFrom, setClosingDateFrom] = useState("");
@@ -58,29 +80,24 @@ export default function TransactionReportingPage() {
   const [flagNoClosingDate, setFlagNoClosingDate] = useState(false);
   const [flagPastClosingDate, setFlagPastClosingDate] = useState(false);
   const [flagPayoutIntegrity, setFlagPayoutIntegrity] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
   const [page, setPage] = useState(1);
-
-  // Pre-apply payout integrity filter if navigated from nav badge
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("flagged") === "1") {
-      setFlagPayoutIntegrity(true);
-    }
-  }, []);
+  const [historyPage, setHistoryPage] = useState(1);
   const limit = 50;
+  const historyLimit = 15;
 
-  // Data queries
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" });
   const { data: markets = [] } = trpc.markets.list.useQuery();
+  const { data: leadSourcesData = [] } = trpc.leadSources.list.useQuery();
+  const leadSources = (leadSourcesData as any[]).map((row: any) => row.ls ?? row);
 
-  const queryInput = useMemo(() => ({
-    page,
-    limit,
+  const exportInput = useMemo(() => ({
     search: search || undefined,
     status: statusFilter === "all" ? undefined : statusFilter,
+    transactionType: typeFilter === "all" ? undefined : typeFilter,
     agentId: agentFilter === "all" ? undefined : Number(agentFilter),
     marketId: marketFilter === "all" ? undefined : Number(marketFilter),
+    leadSourceId: leadSourceFilter === "all" ? undefined : Number(leadSourceFilter),
     contractDateFrom: contractDateFrom || undefined,
     contractDateTo: contractDateTo || undefined,
     closingDateFrom: closingDateFrom || undefined,
@@ -88,29 +105,45 @@ export default function TransactionReportingPage() {
     flagNoClosingDate: flagNoClosingDate || undefined,
     flagPastClosingDate: flagPastClosingDate || undefined,
     flagPayoutIntegrity: flagPayoutIntegrity || undefined,
-  }), [page, search, statusFilter, agentFilter, marketFilter, contractDateFrom, contractDateTo, closingDateFrom, closingDateTo, flagNoClosingDate, flagPastClosingDate, flagPayoutIntegrity]);
+    sortOrder: "desc" as const,
+    sortBy: "closing_date" as const,
+  }), [search, statusFilter, typeFilter, agentFilter, marketFilter, leadSourceFilter, contractDateFrom, contractDateTo, closingDateFrom, closingDateTo, flagNoClosingDate, flagPastClosingDate, flagPayoutIntegrity]);
 
+  const queryInput = useMemo(() => ({ ...exportInput, page, limit }), [exportInput, page]);
   const { data: txData, isLoading } = trpc.transactions.list.useQuery(queryInput);
   const rows = txData?.rows ?? [];
   const total = txData?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
-  // Count flags
-  const noClosingDateCount = rows.filter((r: any) => !r.transaction.closingDate).length;
-  const pastClosingDateCount = rows.filter((r: any) => {
-    if (!r.transaction.closingDate) return false;
-    const cd = new Date(r.transaction.closingDate);
-    return cd < new Date() && !["closed", "terminated"].includes(r.transaction.status);
-  }).length;
+  const { data: historyData, isLoading: historyLoading } = trpc.transactions.exportHistory.useQuery({
+    page: historyPage,
+    limit: historyLimit,
+  });
+  const historyRows = historyData?.rows ?? [];
+  const historyTotal = historyData?.total ?? 0;
+  const historyPages = Math.ceil(historyTotal / historyLimit);
 
-  const hasActiveFilters = statusFilter !== "all" || agentFilter !== "all" || marketFilter !== "all" ||
-    contractDateFrom || contractDateTo || closingDateFrom || closingDateTo || flagNoClosingDate || flagPastClosingDate || flagPayoutIntegrity || search;
+  const exportCsv = trpc.transactions.exportCsv.useMutation({
+    onSuccess: async (result) => {
+      triggerCsvDownload(result.csv, result.fileName);
+      await utils.transactions.exportHistory.invalidate();
+      toast.success(`${result.rowCount.toLocaleString()} transaction${result.rowCount === 1 ? "" : "s"} exported`);
+    },
+    onError: (error) => toast.error(error.message || "Transaction export failed"),
+  });
+
+  const hasActiveFilters = statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" ||
+    marketFilter !== "all" || leadSourceFilter !== "all" || Boolean(contractDateFrom) || Boolean(contractDateTo) ||
+    Boolean(closingDateFrom) || Boolean(closingDateTo) || flagNoClosingDate || flagPastClosingDate ||
+    flagPayoutIntegrity || Boolean(search);
 
   function clearFilters() {
     setSearch("");
     setStatusFilter("all");
+    setTypeFilter("all");
     setAgentFilter("all");
     setMarketFilter("all");
+    setLeadSourceFilter("all");
     setContractDateFrom("");
     setContractDateTo("");
     setClosingDateFrom("");
@@ -121,305 +154,316 @@ export default function TransactionReportingPage() {
     setPage(1);
   }
 
-  function exportCsv() {
-    const headers = ["Property Address", "Status", "Type", "Agent", "Contact", "Purchase Price", "GCI", "Contract Date", "Closing Date", "Lead Source", "Flags"];
-    const csvRows = rows.map((r: any) => {
-      const flags = [];
-      if (!r.transaction.closingDate) flags.push("No Closing Date");
-      if (r.transaction.closingDate && new Date(r.transaction.closingDate) < new Date() && !["closed", "terminated"].includes(r.transaction.status)) flags.push("Past Closing Date");
-      return [
-        r.property?.address ? `${r.property.address}${r.property.city ? `, ${r.property.city}` : ""}` : "",
-        r.transaction.status,
-        r.transaction.transactionType,
-        r.agent?.name || "—",
-        r.contact ? `${r.contact.firstName || ""} ${r.contact.lastName || ""}`.trim() : "—",
-        r.transaction.purchasePrice || "",
-        r.transaction.grossCommissionIncome || "",
-        r.transaction.contractDate ? safeFormat(r.transaction.contractDate, "yyyy-MM-dd") : "",
-        r.transaction.closingDate ? safeFormat(r.transaction.closingDate, "yyyy-MM-dd") : "",
-        flags.join("; "),
-        r.parentLeadSource?.name ? `${r.parentLeadSource.name} › ${r.leadSource?.name || ""}` : (r.leadSource?.name || r.contact?.leadSourceType || ""),
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
-    });
-    const csv = [headers.join(","), ...csvRows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transaction-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  const resetPage = () => setPage(1);
 
   return (
     <div>
       <PageHeader
-        title="Transaction Reporting"
-        subtitle={`${total} transaction${total !== 1 ? "s" : ""} found`}
-        actions={
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
-              <Filter className="h-4 w-4 mr-1" /> {showFilters ? "Hide Filters" : "Filters"}
-            </Button>
-            <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
-              <Download className="h-4 w-4 mr-1" /> Export CSV
-            </Button>
-          </div>
-        }
+        title="Transaction Export Center"
+        subtitle="Filter, review, and export transaction records with a complete admin audit trail."
       />
 
-      {/* Flag Quick Filters */}
-      <div className="flex flex-wrap gap-3 mb-4">
-        <button
-          onClick={() => { setFlagNoClosingDate(!flagNoClosingDate); setFlagPastClosingDate(false); setPage(1); }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-            flagNoClosingDate ? "bg-amber-100 text-amber-800 border-amber-300" : "bg-muted text-muted-foreground border-transparent hover:bg-muted/80"
-          }`}
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          No Closing Date
-        </button>
-        <button
-          onClick={() => { setFlagPastClosingDate(!flagPastClosingDate); setFlagNoClosingDate(false); setPage(1); }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-            flagPastClosingDate ? "bg-red-100 text-red-800 border-red-300" : "bg-muted text-muted-foreground border-transparent hover:bg-muted/80"
-          }`}
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          Past Closing Date
-        </button>
-        <button
-          onClick={() => { setFlagPayoutIntegrity(!flagPayoutIntegrity); setFlagNoClosingDate(false); setFlagPastClosingDate(false); setPage(1); }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-            flagPayoutIntegrity ? "bg-purple-100 text-purple-800 border-purple-300" : "bg-muted text-muted-foreground border-transparent hover:bg-muted/80"
-          }`}
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          Payout Integrity Issues
-        </button>
-        {["all", "under_contract", "closed", "terminated"].map((s) => (
-          <button
-            key={s}
-            onClick={() => { setStatusFilter(s); setPage(1); }}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              statusFilter === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            {s === "all" ? "All Statuses" : s.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-          </button>
-        ))}
-        {hasActiveFilters && (
-          <button onClick={clearFilters} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium text-red-600 hover:bg-red-50 transition-colors">
-            <X className="h-3.5 w-3.5" /> Clear All
-          </button>
-        )}
-      </div>
+      <Tabs defaultValue="export" className="space-y-5">
+        <TabsList>
+          <TabsTrigger value="export" className="gap-2">
+            <FileSpreadsheet className="h-4 w-4" /> Export Transactions
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-2">
+            <History className="h-4 w-4" /> Export History
+            {historyTotal > 0 && <Badge variant="secondary" className="ml-1">{historyTotal}</Badge>}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Search Bar */}
-      <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search by transaction number, contact name..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="pl-9"
-        />
-      </div>
+        <TabsContent value="export" className="space-y-5">
+          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">1</span>
+                      Filter the transaction dataset
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">The preview and downloaded file use the same filters.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {hasActiveFilters && (
+                      <Button variant="ghost" size="sm" onClick={clearFilters}>
+                        <X className="mr-1 h-4 w-4" /> Clear
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => setShowFilters((value) => !value)}>
+                      <Filter className="mr-1 h-4 w-4" /> {showFilters ? "Hide" : "Show"} filters
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              {showFilters && (
+                <CardContent className="space-y-5 border-t pt-5">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(event) => { setSearch(event.target.value); resetPage(); }}
+                      placeholder="Search transaction number, contact, city, or property address"
+                      className="pl-9"
+                    />
+                  </div>
 
-      {/* Advanced Filters Panel */}
-      {showFilters && (
-        <Card className="mb-4">
-          <CardContent className="pt-4 pb-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <Label className="text-xs mb-1.5 block">Agent</Label>
-                <Select value={agentFilter} onValueChange={(v) => { setAgentFilter(v); setPage(1); }}>
-                  <SelectTrigger><SelectValue placeholder="All Agents" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Agents</SelectItem>
-                    {(agents as any[]).map((a: any) => (
-                      <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Market</Label>
-                <Select value={marketFilter} onValueChange={(v) => { setMarketFilter(v); setPage(1); }}>
-                  <SelectTrigger><SelectValue placeholder="All Markets" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Markets</SelectItem>
-                    {(markets as any[]).map((m: any) => (
-                      <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Contract Date From</Label>
-                <Input type="date" value={contractDateFrom} onChange={(e) => { setContractDateFrom(e.target.value); setPage(1); }} />
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Contract Date To</Label>
-                <Input type="date" value={contractDateTo} onChange={(e) => { setContractDateTo(e.target.value); setPage(1); }} />
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Closing Date From</Label>
-                <Input type="date" value={closingDateFrom} onChange={(e) => { setClosingDateFrom(e.target.value); setPage(1); }} />
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Closing Date To</Label>
-                <Input type="date" value={closingDateTo} onChange={(e) => { setClosingDateTo(e.target.value); setPage(1); }} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label>Status</Label>
+                      <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value as StatusFilter); resetPage(); }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All statuses</SelectItem>
+                          <SelectItem value="under_contract">Under Contract</SelectItem>
+                          <SelectItem value="closed">Closed</SelectItem>
+                          <SelectItem value="terminated">Terminated</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Transaction type</Label>
+                      <Select value={typeFilter} onValueChange={(value) => { setTypeFilter(value as TypeFilter); resetPage(); }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All types</SelectItem>
+                          <SelectItem value="buyer">Buyer</SelectItem>
+                          <SelectItem value="seller">Seller</SelectItem>
+                          <SelectItem value="dual">Dual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Agent</Label>
+                      <Select value={agentFilter} onValueChange={(value) => { setAgentFilter(value); resetPage(); }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All agents</SelectItem>
+                          {(agents as any[]).map((agent: any) => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Market</Label>
+                      <Select value={marketFilter} onValueChange={(value) => { setMarketFilter(value); resetPage(); }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All markets</SelectItem>
+                          {(markets as any[]).map((market: any) => <SelectItem key={market.id} value={String(market.id)}>{market.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>Lead source</Label>
+                      <Select value={leadSourceFilter} onValueChange={(value) => { setLeadSourceFilter(value); resetPage(); }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All lead sources</SelectItem>
+                          {leadSources.map((source: any) => (
+                            <SelectItem key={source.id} value={String(source.id)}>
+                              {source.parentId ? `↳ ${source.name}` : source.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
-      {/* Results Table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Property Address</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">GCI</TableHead>
-                  <TableHead>Contract Date</TableHead>
-                  <TableHead>Closing Date</TableHead>
-                  <TableHead>Lead Source</TableHead>
-                  <TableHead>Flags</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">Loading...</TableCell>
-                  </TableRow>
-                ) : rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
-                      No transactions match the current filters.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  rows.map((r: any) => {
-                    const hasNoClosing = !r.transaction.closingDate;
-                    const isPastClosing = r.transaction.closingDate &&
-                      new Date(r.transaction.closingDate) < new Date() &&
-                      !["closed", "terminated"].includes(r.transaction.status);
-                    return (
-                      <TableRow
-                        key={r.transaction.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => navigate(`/transactions/${r.transaction.id}`)}
-                      >
-                        <TableCell className="font-medium">
-                          {r.property?.address
-                            ? <span>{r.property.address}{r.property.city ? <span className="text-muted-foreground text-xs">, {r.property.city}</span> : null}</span>
-                            : <span className="text-muted-foreground text-xs">No address</span>}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className={STATUS_COLORS[r.transaction.status] || ""}>
-                            {r.transaction.status.replace("_", " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="capitalize">{r.transaction.transactionType}</TableCell>
-                        <TableCell>
-                          {r.agent ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); navigate(`/agents/${r.agent.id}`); }}
-                              className="text-primary hover:underline text-left"
-                            >
-                              {r.agent.name}
-                            </button>
-                          ) : "—"}
-                        </TableCell>
-                        <TableCell>
-                          {r.contact ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); navigate(`/contacts/${r.contact.id}`); }}
-                              className="text-primary hover:underline text-left"
-                            >
-                              {r.contact.firstName} {r.contact.lastName}
-                            </button>
-                          ) : "—"}
-                        </TableCell>
-                        <TableCell className="text-right">{formatCurrency(r.transaction.purchasePrice)}</TableCell>
-                        <TableCell className="text-right font-semibold text-primary">
-                          {formatCurrency(r.transaction.grossCommissionIncome)}
-                        </TableCell>
-                        <TableCell>{safeFormat(r.transaction.contractDate, "MMM d, yyyy")}</TableCell>
-                        <TableCell>{safeFormat(r.transaction.closingDate, "MMM d, yyyy")}</TableCell>
-                        <TableCell>
-                          {r.leadSource?.name ? (
-                            <div className="flex items-center gap-1 flex-wrap">
-                              {r.parentLeadSource?.name && (
-                                <>
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
-                                    {r.parentLeadSource.name}
-                                  </span>
-                                  <span className="text-muted-foreground text-xs">›</span>
-                                </>
-                              )}
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-primary/10 text-primary font-semibold whitespace-nowrap">
-                                {r.leadSource.name}
-                              </span>
-                            </div>
-                          ) : r.contact?.leadSourceType ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium">
-                              {r.contact.leadSourceType.replace(/_/g, ' ')}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {hasNoClosing && (
-                              <Badge variant="outline" className="border-amber-300 text-amber-700 text-[10px]">
-                                <AlertTriangle className="h-3 w-3 mr-0.5" /> No Close
-                              </Badge>
-                            )}
-                            {isPastClosing && (
-                              <Badge variant="outline" className="border-red-300 text-red-700 text-[10px]">
-                                <AlertTriangle className="h-3 w-3 mr-0.5" /> Overdue
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="space-y-1.5">
+                      <Label>Contract date from</Label>
+                      <Input type="date" value={contractDateFrom} onChange={(event) => { setContractDateFrom(event.target.value); resetPage(); }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Contract date to</Label>
+                      <Input type="date" value={contractDateTo} onChange={(event) => { setContractDateTo(event.target.value); resetPage(); }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Closing date from</Label>
+                      <Input type="date" value={closingDateFrom} onChange={(event) => { setClosingDateFrom(event.target.value); resetPage(); }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Closing date to</Label>
+                      <Input type="date" value={closingDateTo} onChange={(event) => { setClosingDateTo(event.target.value); resetPage(); }} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 rounded-lg bg-muted/40 p-4 sm:grid-cols-3">
+                    <Label className="flex cursor-pointer items-center justify-between gap-3 rounded-md bg-background px-3 py-2.5 shadow-sm">
+                      <span className="text-sm">Missing closing date</span>
+                      <Switch checked={flagNoClosingDate} onCheckedChange={(checked) => { setFlagNoClosingDate(checked); resetPage(); }} />
+                    </Label>
+                    <Label className="flex cursor-pointer items-center justify-between gap-3 rounded-md bg-background px-3 py-2.5 shadow-sm">
+                      <span className="text-sm">Past-due closing date</span>
+                      <Switch checked={flagPastClosingDate} onCheckedChange={(checked) => { setFlagPastClosingDate(checked); resetPage(); }} />
+                    </Label>
+                    <Label className="flex cursor-pointer items-center justify-between gap-3 rounded-md bg-background px-3 py-2.5 shadow-sm">
+                      <span className="text-sm">Payout integrity issue</span>
+                      <Switch checked={flagPayoutIntegrity} onCheckedChange={(checked) => { setFlagPayoutIntegrity(checked); resetPage(); }} />
+                    </Label>
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+
+            <Card className="h-fit border-primary/20 bg-primary/[0.03]">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">2</span>
+                  Export filtered records
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ready to export</p>
+                  <p className="mt-1 text-3xl font-semibold tabular-nums">{isLoading ? "—" : total.toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground">matching transaction{total === 1 ? "" : "s"}</p>
+                </div>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> Exports every matching record, not only this preview page.</p>
+                  <p className="flex gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> Exporter, filters, exact transaction IDs, and record count are audited.</p>
+                </div>
+                <Button className="w-full" disabled={isLoading || total === 0 || exportCsv.isPending} onClick={() => exportCsv.mutate(exportInput)}>
+                  {exportCsv.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                  {exportCsv.isPending ? "Preparing CSV…" : `Export ${total.toLocaleString()} to CSV`}
+                </Button>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <span className="text-xs text-muted-foreground">
-                Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
-              </span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="flex items-center px-3 text-sm">{page} / {totalPages}</span>
-                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">Filtered preview</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">Review up to 50 records per page before exporting the full result set.</p>
+                </div>
+                {hasActiveFilters && <Badge variant="secondary">Filters applied</Badge>}
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Transaction</TableHead>
+                      <TableHead>Property</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Agent</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-right">GCI</TableHead>
+                      <TableHead>Closing Date</TableHead>
+                      <TableHead>Flags</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      <TableRow><TableCell colSpan={10} className="py-12 text-center text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading preview…</TableCell></TableRow>
+                    ) : rows.length === 0 ? (
+                      <TableRow><TableCell colSpan={10} className="py-12 text-center text-muted-foreground">No transactions match the selected filters.</TableCell></TableRow>
+                    ) : rows.map((row: any) => {
+                      const missingClosing = !row.transaction.closingDate;
+                      const pastClosing = row.transaction.closingDate && new Date(row.transaction.closingDate) < new Date() && !["closed", "terminated"].includes(row.transaction.status);
+                      return (
+                        <TableRow key={row.transaction.id} className="cursor-pointer" onClick={() => navigate(`/transactions/${row.transaction.id}`)}>
+                          <TableCell className="font-medium">{row.transaction.transactionNumber || `#${row.transaction.id}`}</TableCell>
+                          <TableCell>{row.property?.address || "—"}</TableCell>
+                          <TableCell><Badge variant="secondary" className={STATUS_COLORS[row.transaction.status] || ""}>{row.transaction.status.replace(/_/g, " ")}</Badge></TableCell>
+                          <TableCell className="capitalize">{row.transaction.transactionType}</TableCell>
+                          <TableCell>{row.agent?.name || "—"}</TableCell>
+                          <TableCell>{row.contact ? `${row.contact.firstName} ${row.contact.lastName}` : "—"}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(row.transaction.purchasePrice)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(row.transaction.grossCommissionIncome)}</TableCell>
+                          <TableCell>{safeFormat(row.transaction.closingDate, "MMM d, yyyy")}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {missingClosing && <Badge variant="outline" className="border-amber-300 text-amber-700"><AlertTriangle className="mr-1 h-3 w-3" />No close</Badge>}
+                              {pastClosing && <Badge variant="outline" className="border-red-300 text-red-700"><AlertTriangle className="mr-1 h-3 w-3" />Overdue</Badge>}
+                              {row.transaction.payoutIntegrityFlag && <Badge variant="outline" className="border-purple-300 text-purple-700">Payout</Badge>}
+                              {!missingClosing && !pastClosing && !row.transaction.payoutIntegrityFlag && "—"}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <span className="text-xs text-muted-foreground">Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="px-3 text-sm">{page} / {totalPages}</span>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Transaction export audit history</CardTitle>
+              <p className="text-sm text-muted-foreground">A permanent record of who exported which filtered transaction set and how many records were included.</p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Exported</TableHead>
+                      <TableHead>Exported by</TableHead>
+                      <TableHead>File</TableHead>
+                      <TableHead>Applied filters</TableHead>
+                      <TableHead className="text-right">Transactions</TableHead>
+                      <TableHead>Format</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {historyLoading ? (
+                      <TableRow><TableCell colSpan={6} className="py-12 text-center text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading export history…</TableCell></TableRow>
+                    ) : historyRows.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="py-12 text-center text-muted-foreground">No transaction exports have been created yet.</TableCell></TableRow>
+                    ) : historyRows.map((row: any) => (
+                      <TableRow key={row.export.id}>
+                        <TableCell className="whitespace-nowrap">
+                          <div className="font-medium">{safeFormat(row.export.createdAt, "MMM d, yyyy")}</div>
+                          <div className="text-xs text-muted-foreground">{safeFormat(row.export.createdAt, "h:mm a")}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{row.exportedBy?.name || "Unknown admin"}</div>
+                          <div className="text-xs text-muted-foreground">{row.exportedBy?.email || "—"}</div>
+                        </TableCell>
+                        <TableCell className="max-w-[220px] truncate font-mono text-xs">{row.export.fileName}</TableCell>
+                        <TableCell className="min-w-[320px] max-w-[520px] text-sm text-muted-foreground">{row.export.filterSummary}</TableCell>
+                        <TableCell className="text-right text-base font-semibold tabular-nums">{Number(row.export.rowCount).toLocaleString()}</TableCell>
+                        <TableCell><Badge variant="outline" className="uppercase">{row.export.format}</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {historyPages > 1 && (
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <span className="text-xs text-muted-foreground">Showing {(historyPage - 1) * historyLimit + 1}–{Math.min(historyPage * historyLimit, historyTotal)} of {historyTotal}</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="px-3 text-sm">{historyPage} / {historyPages}</span>
+                    <Button variant="outline" size="sm" disabled={historyPage >= historyPages} onClick={() => setHistoryPage((value) => value + 1)}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

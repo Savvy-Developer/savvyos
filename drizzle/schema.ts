@@ -284,6 +284,26 @@ export const transactions = mysqlTable("transactions", {
 export type Transaction = typeof transactions.$inferSelect;
 export type InsertTransaction = typeof transactions.$inferInsert;
 
+// ─── Transaction Export History ───────────────────────────────────────────────
+export const transactionExports = mysqlTable("transaction_exports", {
+  id: int("id").autoincrement().primaryKey(),
+  exportedById: int("exportedById").notNull().references(() => users.id),
+  format: varchar("format", { length: 16 }).default("csv").notNull(),
+  fileName: varchar("fileName", { length: 255 }).notNull(),
+  rowCount: int("rowCount").notNull(),
+  filters: json("filters").$type<Record<string, unknown>>().notNull(),
+  filterSummary: text("filterSummary").notNull(),
+  columns: json("columns").$type<string[]>().notNull(),
+  transactionIds: json("transactionIds").$type<number[]>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  exportedByIdx: index("transaction_exports_exportedBy_idx").on(table.exportedById),
+  createdAtIdx: index("transaction_exports_createdAt_idx").on(table.createdAt),
+}));
+
+export type TransactionExport = typeof transactionExports.$inferSelect;
+export type InsertTransactionExport = typeof transactionExports.$inferInsert;
+
 // ─── Transaction Payout Items ─────────────────────────────────────────────────
 export const transactionPayoutItems = mysqlTable("transaction_payout_items", {
   id: int("id").autoincrement().primaryKey(),
