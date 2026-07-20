@@ -68,6 +68,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean): Na
   const dealsItems: NavItem[] = [
     { icon: FileText, label: "Transactions", path: "/transactions" },
     { icon: Building2, label: "Listings", path: "/listings" },
+    { icon: Building2, label: "Properties", path: "/properties" },
     { icon: Wallet, label: "My Commission", path: "/commission" },
   ];
   if (isGroupLeader) {
