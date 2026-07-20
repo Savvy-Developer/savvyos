@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { DollarSign, CheckCircle2, Clock, TrendingUp, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
+import { usePersistentState } from "@/hooks/usePersistentState";
+import {
+  AggregateMode,
+  AggregateModeSelector,
+  calculateTableAggregate,
+  TablePaginationControls,
+} from "@/components/TableControls";
 
 const PAYEE_TYPE_LABELS: Record<string, string> = {
   agent: "Agent",
@@ -90,6 +97,14 @@ function fmt(val: string | null | undefined) {
   return isNaN(n) ? "—" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function formatAggregateCurrency(value: number) {
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatAggregatePercentage(value: number) {
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+}
+
 export default function PayoutReportPage() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
@@ -99,6 +114,9 @@ export default function PayoutReportPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [payoutAggregateMode, setPayoutAggregateMode] = usePersistentState<AggregateMode>("payouts.aggregateMode", "sum");
+  const [payoutPage, setPayoutPage] = usePersistentState("payouts.page", 1);
+  const [payoutLimit, setPayoutLimit] = usePersistentState<number>("payouts.limit", 25);
 
   const { data: agentList = [] } = trpc.users.list.useQuery({ role: "agent" });
 
@@ -124,6 +142,9 @@ export default function PayoutReportPage() {
   const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", dateFrom, dateTo, paidFilter !== "all"].filter(Boolean).length;
 
   const rows = payouts as PayoutRow[];
+  const payoutTotalPages = Math.max(1, Math.ceil(rows.length / payoutLimit));
+  const currentPayoutPage = Math.min(Math.max(payoutPage, 1), payoutTotalPages);
+  const pageRows = rows.slice((currentPayoutPage - 1) * payoutLimit, currentPayoutPage * payoutLimit);
   const totalAmount = rows.reduce((sum, r) => sum + parseFloat(r.payout.amount ?? "0"), 0);
   const paidAmount = rows.filter((r) => r.payout.isPaid).reduce((sum, r) => sum + parseFloat(r.payout.amount ?? "0"), 0);
   const unpaidAmount = totalAmount - paidAmount;
@@ -156,13 +177,13 @@ export default function PayoutReportPage() {
             variant="outline"
             size="sm"
             className="gap-1.5 h-9"
-            onClick={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
+            onClick={() => { setSortOrder(o => o === "asc" ? "desc" : "asc"); setPayoutPage(1); }}
             title={sortOrder === "asc" ? "Sorted A → Z" : "Sorted Z → A"}
           >
             {sortOrder === "asc" ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></> : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
           </Button>
           {/* Paid/Unpaid */}
-          <Select value={paidFilter} onValueChange={(v) => setPaidFilter(v as any)}>
+          <Select value={paidFilter} onValueChange={(v) => { setPaidFilter(v as "all" | "paid" | "unpaid"); setPayoutPage(1); }}>
             <SelectTrigger className="w-36">
               <SelectValue />
             </SelectTrigger>
@@ -174,7 +195,7 @@ export default function PayoutReportPage() {
           </Select>
 
           {/* Agent filter */}
-          <Select value={agentFilter} onValueChange={setAgentFilter}>
+          <Select value={agentFilter} onValueChange={(value) => { setAgentFilter(value); setPayoutPage(1); }}>
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All Agents" />
             </SelectTrigger>
@@ -187,7 +208,7 @@ export default function PayoutReportPage() {
           </Select>
 
           {/* Payee type filter */}
-          <Select value={payeeTypeFilter} onValueChange={setPayeeTypeFilter}>
+          <Select value={payeeTypeFilter} onValueChange={(value) => { setPayeeTypeFilter(value); setPayoutPage(1); }}>
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All Types" />
             </SelectTrigger>
@@ -205,7 +226,7 @@ export default function PayoutReportPage() {
               type="date"
               className="w-36 h-9 text-sm"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => { setDateFrom(e.target.value); setPayoutPage(1); }}
               placeholder="From"
             />
             <span className="text-muted-foreground text-xs">–</span>
@@ -213,7 +234,7 @@ export default function PayoutReportPage() {
               type="date"
               className="w-36 h-9 text-sm"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => { setDateTo(e.target.value); setPayoutPage(1); }}
               placeholder="To"
             />
           </div>
@@ -223,7 +244,7 @@ export default function PayoutReportPage() {
               variant="ghost"
               size="sm"
               className="text-xs h-9"
-              onClick={() => { setPaidFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setDateFrom(""); setDateTo(""); }}
+              onClick={() => { setPaidFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
             >
               Clear filters
             </Button>
@@ -323,7 +344,7 @@ export default function PayoutReportPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((r) => (
+              pageRows.map((r) => (
                 <TableRow key={r.payout.id}>
                   <TableCell className="font-medium text-sm">
                     {r.property?.address ? (
@@ -405,10 +426,46 @@ export default function PayoutReportPage() {
               ))
             )}
           </TableBody>
+          {pageRows.length > 0 && (
+            <tfoot className="border-t bg-muted/50">
+              <tr>
+                <td colSpan={4} className="py-2 px-4">
+                  <AggregateModeSelector
+                    mode={payoutAggregateMode}
+                    onModeChange={setPayoutAggregateMode}
+                  />
+                </td>
+                <td className="py-2 px-4 text-right font-semibold text-sm">
+                  {calculateTableAggregate(
+                    pageRows.map((row) => parseFloat(row.payout.percentage ?? "0")),
+                    payoutAggregateMode,
+                    formatAggregatePercentage,
+                  )}
+                </td>
+                <td className="py-2 px-4 text-right font-semibold text-sm">
+                  {calculateTableAggregate(
+                    pageRows.map((row) => parseFloat(row.payout.amount ?? "0")),
+                    payoutAggregateMode,
+                    formatAggregateCurrency,
+                  )}
+                </td>
+                <td colSpan={3} className="py-2 px-4 text-xs text-muted-foreground">
+                  {pageRows.length} row{pageRows.length !== 1 ? "s" : ""} (this page)
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </Table>
       </div>
 
-
+      <TablePaginationControls
+        totalRows={rows.length}
+        page={currentPayoutPage}
+        pageSize={payoutLimit}
+        itemLabel="payout"
+        onPageChange={setPayoutPage}
+        onPageSizeChange={(pageSize) => { setPayoutLimit(pageSize); setPayoutPage(1); }}
+      />
     </div>
   );
 }

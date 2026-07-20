@@ -10,9 +10,24 @@ import { TransactionStatusBadge } from "@/components/StatusBadge";
 import { AlertTriangle, CheckCircle2, DollarSign, TrendingUp, Clock, Wallet, Users } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
+import { usePersistentState } from "@/hooks/usePersistentState";
+import {
+  AggregateMode,
+  AggregateModeSelector,
+  calculateTableAggregate,
+  TablePaginationControls,
+} from "@/components/TableControls";
 import PayoutReportPage from "./PayoutReportPage";
 import TransactionReportingPage from "./TransactionReportingPage";
 import CommissionExceptionsPage from "./CommissionExceptionsPage";
+
+function formatAggregateCurrency(value: number) {
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function formatAggregatePercentage(value: number) {
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+}
 
 // ─── Agent View ───────────────────────────────────────────────────────────────
 function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
@@ -22,6 +37,12 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
   const [yearFilter, setYearFilter] = useState<string>(String(currentYear));
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [myPayoutAggregateMode, setMyPayoutAggregateMode] = usePersistentState<AggregateMode>("commissions.myPayouts.aggregateMode", "sum");
+  const [myPayoutPage, setMyPayoutPage] = usePersistentState("commissions.myPayouts.page", 1);
+  const [myPayoutLimit, setMyPayoutLimit] = usePersistentState<number>("commissions.myPayouts.limit", 25);
+  const [myTransactionAggregateMode, setMyTransactionAggregateMode] = usePersistentState<AggregateMode>("commissions.myTransactions.aggregateMode", "sum");
+  const [myTransactionPage, setMyTransactionPage] = usePersistentState("commissions.myTransactions.page", 1);
+  const [myTransactionLimit, setMyTransactionLimit] = usePersistentState<number>("commissions.myTransactions.limit", 25);
 
   // Build year options: current year back 5 years + "All Time"
   const yearOptions = ["all", ...Array.from({ length: 6 }, (_, i) => String(currentYear - i))];
@@ -31,10 +52,17 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
     setYearFilter(y);
     setDateFrom("");
     setDateTo("");
+    setMyPayoutPage(1);
   }
 
   const { data: transactionsData } = trpc.transactions.list.useQuery({ limit: 100 });
+  const { data: myTransactionsData } = trpc.transactions.list.useQuery({
+    page: myTransactionPage,
+    limit: myTransactionLimit,
+  });
   const transactions = transactionsData?.rows ?? [];
+  const myTransactions = myTransactionsData?.rows ?? [];
+  const myTransactionsTotal = myTransactionsData?.total ?? 0;
   const { data: myPayouts } = trpc.payouts.myPayouts.useQuery(
     paidFilter !== undefined ? { paid: paidFilter } : {}
   );
@@ -78,6 +106,12 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
     return sum + (Number(r.transaction.grossCommissionIncome) * Number(r.payout.percentage) / 100);
   }, 0);
   const totalPending = totalEarned - totalPaid;
+  const myPayoutTotalPages = Math.max(1, Math.ceil(filteredPayouts.length / myPayoutLimit));
+  const currentMyPayoutPage = Math.min(Math.max(myPayoutPage, 1), myPayoutTotalPages);
+  const visibleMyPayouts = filteredPayouts.slice(
+    (currentMyPayoutPage - 1) * myPayoutLimit,
+    currentMyPayoutPage * myPayoutLimit,
+  );
 
   return (
     <div>
@@ -156,7 +190,7 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
         <input
           type="date"
           value={dateFrom}
-          onChange={(e) => { setDateFrom(e.target.value); setYearFilter("all"); }}
+          onChange={(e) => { setDateFrom(e.target.value); setYearFilter("all"); setMyPayoutPage(1); }}
           className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           title="Closing date from"
         />
@@ -164,13 +198,13 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
         <input
           type="date"
           value={dateTo}
-          onChange={(e) => { setDateTo(e.target.value); setYearFilter("all"); }}
+          onChange={(e) => { setDateTo(e.target.value); setYearFilter("all"); setMyPayoutPage(1); }}
           className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           title="Closing date to"
         />
         {(dateFrom || dateTo) && (
           <button
-            onClick={() => { setDateFrom(""); setDateTo(""); setYearFilter(String(currentYear)); }}
+            onClick={() => { setDateFrom(""); setDateTo(""); setYearFilter(String(currentYear)); setMyPayoutPage(1); }}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
             Clear
@@ -187,7 +221,7 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
         ].map((opt) => (
           <button
             key={String(opt.value)}
-            onClick={() => setPaidFilter(opt.value)}
+            onClick={() => { setPaidFilter(opt.value); setMyPayoutPage(1); }}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
               paidFilter === opt.value
                 ? "bg-primary text-primary-foreground"
@@ -228,7 +262,7 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
                     </td>
                   </tr>
                 ) : (
-                  filteredPayouts.map(({ payout, transaction, contact }) => {
+                  visibleMyPayouts.map(({ payout, transaction, contact }) => {
                     const amount = transaction?.grossCommissionIncome && payout.percentage
                       ? Number(transaction.grossCommissionIncome) * Number(payout.percentage) / 100
                       : null;
@@ -274,10 +308,50 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
                   })
                 )}
               </tbody>
+              {visibleMyPayouts.length > 0 && (
+                <tfoot className="border-t bg-muted/50">
+                  <tr>
+                    <td colSpan={3} className="py-2 px-4">
+                      <AggregateModeSelector
+                        mode={myPayoutAggregateMode}
+                        onModeChange={setMyPayoutAggregateMode}
+                      />
+                    </td>
+                    <td className="py-2 px-4 text-right font-semibold text-sm">
+                      {calculateTableAggregate(
+                        visibleMyPayouts.map(({ payout }) => Number(payout.percentage ?? 0)),
+                        myPayoutAggregateMode,
+                        formatAggregatePercentage,
+                      )}
+                    </td>
+                    <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-700">
+                      {calculateTableAggregate(
+                        visibleMyPayouts.map(({ payout, transaction }) => (
+                          Number(transaction?.grossCommissionIncome ?? 0) * Number(payout.percentage ?? 0) / 100
+                        )),
+                        myPayoutAggregateMode,
+                        formatAggregateCurrency,
+                      )}
+                    </td>
+                    <td colSpan={2} className="py-2 px-4 text-xs text-muted-foreground">
+                      {visibleMyPayouts.length} row{visibleMyPayouts.length !== 1 ? "s" : ""} (this page)
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </CardContent>
       </Card>
+
+      <TablePaginationControls
+        totalRows={filteredPayouts.length}
+        page={currentMyPayoutPage}
+        pageSize={myPayoutLimit}
+        itemLabel="payout"
+        onPageChange={setMyPayoutPage}
+        onPageSizeChange={(pageSize) => { setMyPayoutLimit(pageSize); setMyPayoutPage(1); }}
+      />
 
       {/* My Transactions Summary */}
       <div className="mt-6">
@@ -296,12 +370,12 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
                 </tr>
               </thead>
               <tbody>
-                {!transactions || transactions.length === 0 ? (
+                {myTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="text-center py-8 text-muted-foreground">No transactions yet</td>
                   </tr>
                 ) : (
-                  transactions.map(({ transaction, contact }) => (
+                  myTransactions.map(({ transaction, contact }) => (
                     <tr key={transaction.id} className="border-b last:border-0 hover:bg-muted/20 cursor-pointer" onClick={() => navigate(`/transactions/${transaction.id}`)}>
                       <td className="py-3 px-4">
                         <p className="font-medium text-foreground">{transaction.transactionNumber}</p>
@@ -322,9 +396,39 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
                   ))
                 )}
               </tbody>
+              {myTransactions.length > 0 && (
+                <tfoot className="border-t bg-muted/50">
+                  <tr>
+                    <td colSpan={2} className="py-2 px-4">
+                      <AggregateModeSelector
+                        mode={myTransactionAggregateMode}
+                        onModeChange={setMyTransactionAggregateMode}
+                      />
+                    </td>
+                    <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-700">
+                      {calculateTableAggregate(
+                        myTransactions.map(({ transaction }) => Number(transaction.grossCommissionIncome ?? 0)),
+                        myTransactionAggregateMode,
+                        formatAggregateCurrency,
+                      )}
+                    </td>
+                    <td colSpan={3} className="py-2 px-4 text-xs text-muted-foreground">
+                      {myTransactions.length} row{myTransactions.length !== 1 ? "s" : ""} (this page)
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </CardContent>
         </Card>
+        <TablePaginationControls
+          totalRows={myTransactionsTotal}
+          page={myTransactionPage}
+          pageSize={myTransactionLimit}
+          itemLabel="transaction"
+          onPageChange={setMyTransactionPage}
+          onPageSizeChange={(pageSize) => { setMyTransactionLimit(pageSize); setMyTransactionPage(1); }}
+        />
       </div>
     </div>
   );
@@ -474,11 +578,20 @@ function AdminCommissionView() {
 function GroupLeaderTab() {
   const [, navigate] = useLocation();
   const [paidFilter, setPaidFilter] = useState<"all" | "paid" | "unpaid">("all");
+  const [groupPayoutAggregateMode, setGroupPayoutAggregateMode] = usePersistentState<AggregateMode>("commissions.groupPayouts.aggregateMode", "sum");
+  const [groupPayoutPage, setGroupPayoutPage] = usePersistentState("commissions.groupPayouts.page", 1);
+  const [groupPayoutLimit, setGroupPayoutLimit] = usePersistentState<number>("commissions.groupPayouts.limit", 25);
   const filterParam = paidFilter === "all" ? undefined : paidFilter === "paid";
   const { data, isLoading } = trpc.payouts.groupLeaderPayouts.useQuery(
     filterParam !== undefined ? { paid: filterParam } : {}
   );
   const payouts = data?.payouts ?? [];
+  const groupPayoutTotalPages = Math.max(1, Math.ceil(payouts.length / groupPayoutLimit));
+  const currentGroupPayoutPage = Math.min(Math.max(groupPayoutPage, 1), groupPayoutTotalPages);
+  const visibleGroupPayouts = payouts.slice(
+    (currentGroupPayoutPage - 1) * groupPayoutLimit,
+    currentGroupPayoutPage * groupPayoutLimit,
+  );
   const group = data?.group;
   const members = data?.members ?? [];
   const totalEarned = payouts.reduce((sum, r) => sum + Number(r.payout.amount ?? 0), 0);
@@ -518,7 +631,7 @@ function GroupLeaderTab() {
 
       <div className="flex items-center gap-2">
         {(["all", "paid", "unpaid"] as const).map((f) => (
-          <button key={f} onClick={() => setPaidFilter(f)}
+          <button key={f} onClick={() => { setPaidFilter(f); setGroupPayoutPage(1); }}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
               paidFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
             }`}>
@@ -540,7 +653,7 @@ function GroupLeaderTab() {
             {payouts.length === 0 ? (
               <tr><td colSpan={5} className="text-center py-10 text-muted-foreground">No group leader payouts found</td></tr>
             ) : (
-              payouts.map(({ payout, transaction, agent }) => (
+              visibleGroupPayouts.map(({ payout, transaction, agent }) => (
                 <tr key={payout.id} className="border-b last:border-0 hover:bg-muted/20">
                   <td className="py-3 px-4">
                     <p className="font-medium">{(transaction as any)?.transactionNumber ?? "—"}</p>
@@ -564,8 +677,39 @@ function GroupLeaderTab() {
               ))
             )}
           </tbody>
+          {visibleGroupPayouts.length > 0 && (
+            <tfoot className="border-t bg-muted/50">
+              <tr>
+                <td colSpan={2} className="py-2 px-4">
+                  <AggregateModeSelector
+                    mode={groupPayoutAggregateMode}
+                    onModeChange={setGroupPayoutAggregateMode}
+                  />
+                </td>
+                <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-700">
+                  {calculateTableAggregate(
+                    visibleGroupPayouts.map(({ payout }) => Number(payout.amount ?? 0)),
+                    groupPayoutAggregateMode,
+                    formatAggregateCurrency,
+                  )}
+                </td>
+                <td colSpan={2} className="py-2 px-4 text-xs text-muted-foreground">
+                  {visibleGroupPayouts.length} row{visibleGroupPayouts.length !== 1 ? "s" : ""} (this page)
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table></div>
       </CardContent></Card>
+
+      <TablePaginationControls
+        totalRows={payouts.length}
+        page={currentGroupPayoutPage}
+        pageSize={groupPayoutLimit}
+        itemLabel="payout"
+        onPageChange={setGroupPayoutPage}
+        onPageSizeChange={(pageSize) => { setGroupPayoutLimit(pageSize); setGroupPayoutPage(1); }}
+      />
 
       <div>
         <h3 className="text-sm font-semibold mb-3">Group Members ({members.length})</h3>
