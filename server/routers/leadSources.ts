@@ -22,6 +22,28 @@ async function getLeadSourceWithCounts() {
   return rows;
 }
 
+async function assertAgreementRequirement(
+  parentId: number | null | undefined,
+  agreementUrl: string | null | undefined,
+) {
+  if (!parentId || agreementUrl) return;
+
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [parent] = await db
+    .select({ requireAgreementForSubSources: leadSources.requireAgreementForSubSources })
+    .from(leadSources)
+    .where(eq(leadSources.id, parentId))
+    .limit(1);
+
+  if (parent?.requireAgreementForSubSources) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "An agreement document is required for sub-sources in this category.",
+    });
+  }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export const leadSourcesRouter = router({
@@ -53,18 +75,22 @@ export const leadSourcesRouter = router({
       description: z.string().nullable().optional(),
       agreementUrl: z.string().nullable().optional(),
       agreementKey: z.string().nullable().optional(),
+      requireAgreementForSubSources: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      const parentId = input.parentId ?? null;
+      await assertAgreementRequirement(parentId, input.agreementUrl);
       const [result] = await db.insert(leadSources).values({
         name: input.name,
-        parentId: input.parentId ?? null,
+        parentId,
         campaignType: input.campaignType ?? null,
         description: input.description ?? null,
         agreementUrl: input.agreementUrl ?? null,
         agreementKey: input.agreementKey ?? null,
+        requireAgreementForSubSources: parentId ? false : input.requireAgreementForSubSources ?? false,
       });
       return { id: (result as any).insertId as number };
     }),
@@ -80,13 +106,27 @@ export const leadSourcesRouter = router({
       isActive: z.boolean().optional(),
       agreementUrl: z.string().nullable().optional(),
       agreementKey: z.string().nullable().optional(),
+      requireAgreementForSubSources: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const { id, ...data } = input;
-      await db.update(leadSources).set(data as any).where(eq(leadSources.id, id));
+      const [existing] = await db
+        .select({ parentId: leadSources.parentId, agreementUrl: leadSources.agreementUrl })
+        .from(leadSources)
+        .where(eq(leadSources.id, id))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Lead source not found." });
+
+      const targetParentId = data.parentId !== undefined ? data.parentId : existing.parentId;
+      const targetAgreementUrl = data.agreementUrl !== undefined ? data.agreementUrl : existing.agreementUrl;
+      await assertAgreementRequirement(targetParentId, targetAgreementUrl);
+
+      const updateData: Record<string, unknown> = { ...data };
+      if (targetParentId !== null) updateData.requireAgreementForSubSources = false;
+      await db.update(leadSources).set(updateData as any).where(eq(leadSources.id, id));
       return { success: true };
     }),
 

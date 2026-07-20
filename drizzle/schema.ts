@@ -95,6 +95,8 @@ export const leadSources = mysqlTable("lead_sources", {
   // Agreement document for sub-sources
   agreementUrl: text("agreementUrl"),
   agreementKey: varchar("agreementKey", { length: 500 }),
+  // Whether new sub-sources in this top-level category must include an agreement document
+  requireAgreementForSubSources: boolean("requireAgreementForSubSources").default(false).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   clickCount: int("clickCount").default(0).notNull(),
   submissionCount: int("submissionCount").default(0).notNull(),

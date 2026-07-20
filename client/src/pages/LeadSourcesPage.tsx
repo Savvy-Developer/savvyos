@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
@@ -31,6 +32,7 @@ type SourceRow = {
     isActive: boolean;
     agreementUrl: string | null;
     agreementKey: string | null;
+    requireAgreementForSubSources: boolean;
   };
   contactCount: number;
 };
@@ -43,11 +45,12 @@ type FormData = {
   description: string;
   agreementUrl: string;
   agreementKey: string;
+  requireAgreementForSubSources: boolean;
 };
 
 const emptyForm: FormData = {
   name: "", campaignType: "none", parentId: "", referralPercent: "", description: "",
-  agreementUrl: "", agreementKey: "",
+  agreementUrl: "", agreementKey: "", requireAgreementForSubSources: false,
 };
 
 // ─── Partner Links Sub-Component ─────────────────────────────────────────────────────
@@ -255,6 +258,7 @@ export default function LeadSourcesPage() {
       description: row.ls.description ?? "",
       agreementUrl: row.ls.agreementUrl ?? "",
       agreementKey: row.ls.agreementKey ?? "",
+      requireAgreementForSubSources: row.ls.requireAgreementForSubSources ?? false,
     });
     setAgreementFile(null);
     setAgreementError(null);
@@ -275,6 +279,8 @@ export default function LeadSourcesPage() {
 
   async function handleSubmit() {
     const isSubSource = !!form.parentId;
+    const selectedParent = isSubSource ? sources.find(source => source.ls.id === Number(form.parentId)) : undefined;
+    const agreementRequired = !!selectedParent?.ls.requireAgreementForSubSources;
     const payload: any = {
       name: form.name.trim(),
       parentId: form.parentId ? Number(form.parentId) : null,
@@ -289,7 +295,6 @@ export default function LeadSourcesPage() {
     }
     if (!payload.name) { toast.error("Name is required"); return; }
 
-    // Agreement upload: mandatory for new sub-sources, optional for edits (unless replacing)
     let agreementUrl = form.agreementUrl || null;
     let agreementKey = form.agreementKey || null;
     if (agreementFile) {
@@ -299,14 +304,15 @@ export default function LeadSourcesPage() {
       if (!uploaded) { toast.error("Agreement upload failed. Please try again."); return; }
       agreementUrl = uploaded.url;
       agreementKey = uploaded.fileKey;
-    } else if (isSubSource && !editingId && !agreementUrl) {
-      // New sub-source with no agreement
-      setAgreementError("An agreement document is required for all sub-sources.");
+    } else if (isSubSource && agreementRequired && !agreementUrl) {
+      setAgreementError("A referral agreement is required for sub-sources in this category.");
       return;
     }
     if (isSubSource) {
       payload.agreementUrl = agreementUrl;
       payload.agreementKey = agreementKey;
+    } else {
+      payload.requireAgreementForSubSources = form.requireAgreementForSubSources;
     }
 
     if (editingId) {
@@ -325,6 +331,8 @@ export default function LeadSourcesPage() {
   }
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const selectedParent = form.parentId ? sources.find(source => source.ls.id === Number(form.parentId)) : undefined;
+  const agreementRequired = !!selectedParent?.ls.requireAgreementForSubSources;
 
   // Whether the form is for a referral partner sub-source
   const showReferralPercent = isReferralPartnerCategory(form.parentId) || (editingId && (() => {
@@ -443,6 +451,11 @@ export default function LeadSourcesPage() {
                       {parent.ls.isProtected && (
                         <Badge variant="outline" className="text-xs gap-1">
                           <Lock className="h-2.5 w-2.5" /> Protected
+                        </Badge>
+                      )}
+                      {parent.ls.requireAgreementForSubSources && (
+                        <Badge variant="outline" className="text-xs gap-1 text-amber-700 border-amber-300 bg-amber-50">
+                          <FileText className="h-2.5 w-2.5" /> Agreement required
                         </Badge>
                       )}
                       {parent.ls.campaignType && (
@@ -591,6 +604,25 @@ export default function LeadSourcesPage() {
               </Select>
             </div>
 
+            {!form.parentId && (
+              <div className="flex items-start justify-between gap-4 rounded-md border bg-muted/20 px-3 py-3">
+                <div className="space-y-1">
+                  <Label htmlFor="require-agreement-for-sub-sources" className="cursor-pointer">
+                    Require agreement for sub-sources
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled, each sub-source in this category must have a referral agreement uploaded.
+                  </p>
+                </div>
+                <Switch
+                  id="require-agreement-for-sub-sources"
+                  checked={form.requireAgreementForSubSources}
+                  onCheckedChange={checked => setForm(current => ({ ...current, requireAgreementForSubSources: checked }))}
+                  aria-label="Require agreement for sub-sources"
+                />
+              </div>
+            )}
+
             {showReferralPercent && (
               <div>
                 <Label className="flex items-center gap-1">
@@ -621,17 +653,17 @@ export default function LeadSourcesPage() {
               />
             </div>
 
-            {/* Agreement upload — mandatory for sub-sources */}
+            {/* Agreement upload — required only when the selected category requires it */}
             {form.parentId && (
               <div>
                 <Label className="flex items-center gap-1">
                   <FileText className="h-3.5 w-3.5" />
-                  Upload Agreement {!editingId && <span className="text-destructive">*</span>}
+                  Upload Agreement {agreementRequired && <span className="text-destructive">*</span>}
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                  {editingId
-                    ? "Upload a new file to replace the existing agreement."
-                    : "Required. Accepted formats: PDF, DOCX, PNG, JPG (max 16 MB)."}
+                  {agreementRequired
+                    ? "Required for this category. Accepted formats: PDF, DOCX, PNG, JPG (max 16 MB)."
+                    : "Optional. Accepted formats: PDF, DOCX, PNG, JPG (max 16 MB)."}
                 </p>
 
                 {/* Existing agreement display */}
