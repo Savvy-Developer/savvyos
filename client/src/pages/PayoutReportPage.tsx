@@ -33,7 +33,7 @@ import {
 
 const PAYEE_TYPE_LABELS: Record<string, string> = {
   agent: "Agent",
-  brokerage: "Brokerage",
+  savvy_str_agents: "Savvy STR Agents",
   group_leader: "Group Leader",
   referral_partner: "Referral Partner",
   isa_bonus: "ISA Bonus",
@@ -42,7 +42,7 @@ const PAYEE_TYPE_LABELS: Record<string, string> = {
 
 const PAYEE_TYPE_COLORS: Record<string, string> = {
   agent: "bg-blue-100 text-blue-800",
-  brokerage: "bg-amber-100 text-amber-800",
+  savvy_str_agents: "bg-amber-100 text-amber-800",
   group_leader: "bg-purple-100 text-purple-800",
   referral_partner: "bg-teal-100 text-teal-800",
   isa_bonus: "bg-pink-100 text-pink-800",
