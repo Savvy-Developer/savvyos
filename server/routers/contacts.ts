@@ -695,6 +695,11 @@ Please write the AI summary now.`;
           z.enum(["referral","paid_lead","paid_partnership","organic","sphere"]).nullable()
         ),
         campaignSource: z.string().optional().nullable(),
+        pipelineStatus: z.preprocess(
+          (v) => (v === "" || v === undefined ? null : v),
+          z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).nullable()
+        ),
+        // Kept as a compatibility fallback for existing API clients and CSV templates.
         isaStatus: z.preprocess(
           (v) => (v === "" || v === undefined ? null : v),
           z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).nullable()
@@ -754,7 +759,7 @@ Please write the AI summary now.`;
             tags: tags ?? null,
             leadSourceType: (row.leadSourceType as any) ?? null,
             campaignSource: row.campaignSource?.trim() || null,
-            isaStatus: (row.isaStatus as any) ?? null,
+            isaStatus: (row.pipelineStatus as any) ?? (row.isaStatus as any) ?? null,
           } as any);
           await logActivity({ userId: ctx.user.id, action: "contact_created", entityType: "contact", entityId: id, details: { name: `${row.firstName} ${row.lastName}`, source: "bulk_upload" } });
           results.push({ row: rowNum, status: "created", name: `${row.firstName} ${row.lastName}` });

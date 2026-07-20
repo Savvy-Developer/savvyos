@@ -299,7 +299,7 @@ export default function ContactsPage() {
     { key: "tags", label: "Tags", example: "buyer,vip" },
     { key: "leadSourceType", label: "Lead Source Type", example: "referral" },
     { key: "campaignSource", label: "Campaign Source", example: "" },
-    { key: "isaStatus", label: "ISA Status", example: "new_lead" },
+    { key: "pipelineStatus", label: "Pipeline Status", aliases: ["ISA Status"], example: "new_lead" },
   ];
 
   return (

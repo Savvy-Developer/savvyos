@@ -15,6 +15,7 @@ import { Upload, Download, CheckCircle2, XCircle, AlertCircle, FileText } from "
 export interface BulkUploadColumn {
   key: string;
   label: string;
+  aliases?: string[];
   required?: boolean;
   example?: string;
 }
@@ -152,9 +153,9 @@ export default function BulkUploadDialog({
         const out: Record<string, string> = {};
         columns.forEach((col) => {
           // Try exact match, then case-insensitive
-          const match = csvHeaders.find(
-            (h) => h === col.label || h.toLowerCase() === col.label.toLowerCase() || h.toLowerCase() === col.key.toLowerCase()
-          );
+          const acceptedHeaders = [col.label, col.key, ...(col.aliases ?? [])]
+            .map((header) => header.toLowerCase());
+          const match = csvHeaders.find((header) => acceptedHeaders.includes(header.toLowerCase()));
           out[col.key] = match ? (row[match] ?? "") : "";
         });
         return out;
