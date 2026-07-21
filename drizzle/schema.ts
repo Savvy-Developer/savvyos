@@ -190,6 +190,9 @@ export const agentConnections = mysqlTable("agent_connections", {
   targetZips: json("targetZips").$type<string[]>(),
   strRequirements: text("strRequirements"),
   investmentNotes: text("investmentNotes"),
+  // This clock is reset only by qualifying agent lead activity. `updatedAt`
+  // remains the generic audit timestamp for all connection writes.
+  agingUpdatedAt: timestamp("agingUpdatedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

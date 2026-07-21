@@ -9,6 +9,7 @@ import {
   getDb,
   logActivity,
   updateContact,
+  resetLeadAgingForAgent,
   archiveContact,
   deleteContact,
 } from "../db";
@@ -18,6 +19,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { invokeLLM } from "../_core/llm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
+import { shouldResetLeadAging } from "../leadAging";
 
 const contactInput = z.object({
   firstName: z.string().min(1),
@@ -191,6 +193,13 @@ export const contactsRouter = router({
             changes.push({ field: FIELD_LABELS[key] ?? key, from: normalizedOld, to: normalizedNew });
           }
         }
+      }
+
+      // Contact details such as names, email, phones, address, spouse details,
+      // and time zone do not count as lead activity. A qualifying agent edit
+      // resets only that agent's connection, never another agent's timer.
+      if (shouldResetLeadAging(ctx.user.role, oldData, updateData)) {
+        await resetLeadAgingForAgent(input.id, ctx.user.id);
       }
 
       // Resolve assignedIsaId to name in the diff for readability

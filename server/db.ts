@@ -35,6 +35,10 @@ import { ENV } from "./_core/env";
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
 
+// Existing records are backfilled during migration. COALESCE keeps aging reports
+// correct if a deployment observes a legacy row before that backfill completes.
+const connectionAgingTimestamp = sql`COALESCE(${agentConnections.agingUpdatedAt}, ${agentConnections.updatedAt})`;
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -483,14 +487,14 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       openCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN 1 ELSE 0 END), 0)`,
       overdueFollowUps: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.followUpDate} < CURDATE() AND ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN 1 ELSE 0 END), 0)`,
       dueToday: sql<number>`COALESCE(SUM(CASE WHEN DATE(${agentConnections.followUpDate}) = CURDATE() AND ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN 1 ELSE 0 END), 0)`,
-      avgAgeDays: sql<number>`COALESCE(AVG(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN GREATEST(DATEDIFF(NOW(), ${agentConnections.updatedAt}), 0) END), 0)`,
-      oldestAgeDays: sql<number>`COALESCE(MAX(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN GREATEST(DATEDIFF(NOW(), ${agentConnections.updatedAt}), 0) END), 0)`,
-      staleCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) >= 7 THEN 1 ELSE 0 END), 0)`,
-      freshCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 0 AND 2 THEN 1 ELSE 0 END), 0)`,
-      idleCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 3 AND 6 THEN 1 ELSE 0 END), 0)`,
-      agingCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 7 AND 13 THEN 1 ELSE 0 END), 0)`,
-      olderCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) BETWEEN 14 AND 29 THEN 1 ELSE 0 END), 0)`,
-      criticalCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${agentConnections.updatedAt}) >= 30 THEN 1 ELSE 0 END), 0)`,
+      avgAgeDays: sql<number>`COALESCE(AVG(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN GREATEST(DATEDIFF(NOW(), ${connectionAgingTimestamp}), 0) END), 0)`,
+      oldestAgeDays: sql<number>`COALESCE(MAX(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') THEN GREATEST(DATEDIFF(NOW(), ${connectionAgingTimestamp}), 0) END), 0)`,
+      staleCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${connectionAgingTimestamp}) >= 7 THEN 1 ELSE 0 END), 0)`,
+      freshCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${connectionAgingTimestamp}) BETWEEN 0 AND 2 THEN 1 ELSE 0 END), 0)`,
+      idleCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${connectionAgingTimestamp}) BETWEEN 3 AND 6 THEN 1 ELSE 0 END), 0)`,
+      agingCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${connectionAgingTimestamp}) BETWEEN 7 AND 13 THEN 1 ELSE 0 END), 0)`,
+      olderCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${connectionAgingTimestamp}) BETWEEN 14 AND 29 THEN 1 ELSE 0 END), 0)`,
+      criticalCount: sql<number>`COALESCE(SUM(CASE WHEN ${agentConnections.pipelineStatus} NOT IN ('closed', 'dead') AND DATEDIFF(NOW(), ${connectionAgingTimestamp}) >= 30 THEN 1 ELSE 0 END), 0)`,
     })
       .from(agentConnections)
       .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
@@ -565,7 +569,10 @@ export async function getAgentConnectionById(id: number) {
 export async function createAgentConnection(data: typeof agentConnections.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const [result] = await db.insert(agentConnections).values(data);
+  const [result] = await db.insert(agentConnections).values({
+    ...data,
+    agingUpdatedAt: data.agingUpdatedAt ?? new Date(),
+  });
   return (result as any).insertId as number;
 }
 
@@ -573,6 +580,19 @@ export async function updateAgentConnection(id: number, data: Partial<typeof age
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(agentConnections).set(data).where(eq(agentConnections.id, id));
+}
+
+/** Resets aging only for the connection owned by the agent who changed the lead. */
+export async function resetLeadAgingForAgent(contactId: number, agentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db
+    .update(agentConnections)
+    .set({ agingUpdatedAt: new Date() })
+    .where(and(
+      eq(agentConnections.contactId, contactId),
+      eq(agentConnections.agentId, agentId),
+    ));
 }
 
 // ─── Properties ───────────────────────────────────────────────────────────────
@@ -2381,14 +2401,14 @@ export async function getPipelineHealthReport(filters?: { agentId?: number; mark
   const stageRows = await db.select({
     stage: agentConnections.pipelineStatus,
     count: sql<number>`COUNT(*)`,
-    avgDaysInStage: sql<number>`COALESCE(AVG(DATEDIFF(NOW(), ${agentConnections.updatedAt})), 0)`,
-    maxDaysInStage: sql<number>`COALESCE(MAX(DATEDIFF(NOW(), ${agentConnections.updatedAt})), 0)`,
+    avgDaysInStage: sql<number>`COALESCE(AVG(DATEDIFF(NOW(), ${connectionAgingTimestamp})), 0)`,
+    maxDaysInStage: sql<number>`COALESCE(MAX(DATEDIFF(NOW(), ${connectionAgingTimestamp})), 0)`,
   }).from(agentConnections)
     .where(stageConds.length > 0 ? and(...stageConds) : undefined)
     .groupBy(agentConnections.pipelineStatus);
   const stalledConds: any[] = [
     sql`pipelineStatus IN ('active_client', 'under_contract')`,
-    sql`DATEDIFF(NOW(), ${agentConnections.updatedAt}) >= 14`,
+    sql`DATEDIFF(NOW(), ${connectionAgingTimestamp}) >= 14`,
   ];
   if (filters?.agentId) stalledConds.push(eq(agentConnections.agentId, filters.agentId));
   const stalledRows = await db.select({
@@ -2396,7 +2416,7 @@ export async function getPipelineHealthReport(filters?: { agentId?: number; mark
     agentId: agentConnections.agentId,
     contactId: agentConnections.contactId,
     stage: agentConnections.pipelineStatus,
-    daysSinceUpdate: sql<number>`DATEDIFF(NOW(), ${agentConnections.updatedAt})`,
+    daysSinceUpdate: sql<number>`DATEDIFF(NOW(), ${connectionAgingTimestamp})`,
     agentName: users.name,
     contactFirstName: contacts.firstName,
     contactLastName: contacts.lastName,
@@ -2404,22 +2424,22 @@ export async function getPipelineHealthReport(filters?: { agentId?: number; mark
     .leftJoin(users, eq(agentConnections.agentId, users.id))
     .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
     .where(and(...stalledConds))
-    .orderBy(sql`DATEDIFF(NOW(), ${agentConnections.updatedAt}) DESC`)
+    .orderBy(sql`DATEDIFF(NOW(), ${connectionAgingTimestamp}) DESC`)
     .limit(50);
   const agingBuckets = await db.select({
     bucketId: sql<number>`CASE 
-      WHEN DATEDIFF(NOW(), updatedAt) <= 7 THEN 1
-      WHEN DATEDIFF(NOW(), updatedAt) <= 14 THEN 2
-      WHEN DATEDIFF(NOW(), updatedAt) <= 30 THEN 3
+      WHEN DATEDIFF(NOW(), ${connectionAgingTimestamp}) <= 7 THEN 1
+      WHEN DATEDIFF(NOW(), ${connectionAgingTimestamp}) <= 14 THEN 2
+      WHEN DATEDIFF(NOW(), ${connectionAgingTimestamp}) <= 30 THEN 3
       ELSE 4
     END`,
     count: sql<number>`COUNT(*)`,
   }).from(agentConnections)
     .where(sql`pipelineStatus NOT IN ('closed', 'dead')`)
     .groupBy(sql`CASE 
-      WHEN DATEDIFF(NOW(), updatedAt) <= 7 THEN 1
-      WHEN DATEDIFF(NOW(), updatedAt) <= 14 THEN 2
-      WHEN DATEDIFF(NOW(), updatedAt) <= 30 THEN 3
+      WHEN DATEDIFF(NOW(), ${connectionAgingTimestamp}) <= 7 THEN 1
+      WHEN DATEDIFF(NOW(), ${connectionAgingTimestamp}) <= 14 THEN 2
+      WHEN DATEDIFF(NOW(), ${connectionAgingTimestamp}) <= 30 THEN 3
       ELSE 4
     END`);
   const bucketLabels: Record<number, string> = { 1: '0-7 days', 2: '8-14 days', 3: '15-30 days', 4: '30+ days' };
@@ -2499,7 +2519,7 @@ export async function getAiInsightsData() {
     volume: sql<number>`COALESCE(SUM(purchasePrice), 0)`,
   }).from(transactions).where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, sixtyDaysAgo), lte(transactions.closingDate, thirtyDaysAgo)));
   const [stalledCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(agentConnections)
-    .where(and(sql`pipelineStatus IN ('active_client', 'under_contract')`, sql`DATEDIFF(NOW(), ${agentConnections.updatedAt}) >= 14`));
+    .where(and(sql`pipelineStatus IN ('active_client', 'under_contract')`, sql`DATEDIFF(NOW(), ${connectionAgingTimestamp}) >= 14`));
   const [overdueFollowUps] = await db.select({ count: sql<number>`COUNT(*)` }).from(agentConnections)
     .where(and(isNotNull(agentConnections.followUpDate), lte(agentConnections.followUpDate, now), sql`pipelineStatus NOT IN ('closed', 'dead')`));
   const agentStats = await db.select({

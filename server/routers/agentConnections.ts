@@ -14,6 +14,7 @@ import { agentConnections, users, contacts } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { sendTransactionalEmail } from "../_core/resendEmail";
+import { NO_EXCLUDED_FIELDS, shouldResetLeadAging } from "../leadAging";
 
 const buyBoxInput = z.object({
   propertyType: z.string().optional().nullable(),
@@ -260,34 +261,44 @@ export const agentConnectionsRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const { buyBox, followUpDate, ...rest } = input.data;
-      // Fetch old connection to get agent/contact names and old status for the log
-      let oldStatus: string | undefined;
+      const conn = await getAgentConnectionById(input.id);
+      if (!conn) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const currentConnection = (conn as any).connection ?? conn;
+      const updateData: Record<string, unknown> = {
+        ...rest,
+        ...(followUpDate !== undefined
+          ? { followUpDate: followUpDate ? new Date(followUpDate) : null }
+          : {}),
+        ...(normalizeBuyBox(buyBox) ?? {}),
+      };
+
+      // The aging clock records agent lead activity, not generic record writes.
+      // Admin and ISA changes are intentionally excluded by the policy helper.
+      if (shouldResetLeadAging(ctx.user.role, currentConnection, updateData, NO_EXCLUDED_FIELDS)) {
+        updateData.agingUpdatedAt = new Date();
+      }
+
+      // Fetch names and old status for the activity log.
+      let oldStatus: string | undefined = currentConnection.pipelineStatus;
       let updateAgentName = "Unknown Agent";
       let updateContactName = "Unknown Contact";
       try {
-        const conn = await getAgentConnectionById(input.id);
-        if (conn) {
-          oldStatus = (conn as any).pipelineStatus ?? (conn as any).agentConnection?.pipelineStatus;
-          const db2 = await getDb();
-          if (db2) {
-            const agentId = (conn as any).agentId ?? (conn as any).agentConnection?.agentId;
-            const contactId = (conn as any).contactId ?? (conn as any).agentConnection?.contactId;
-            if (agentId) {
-              const [agentRow] = await db2.select({ name: users.name }).from(users).where(eq(users.id, agentId)).limit(1);
-              if (agentRow) updateAgentName = agentRow.name ?? "Unknown Agent";
-            }
-            if (contactId) {
-              const [contactRow] = await db2.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, contactId)).limit(1);
-              if (contactRow) updateContactName = `${contactRow.firstName ?? ""} ${contactRow.lastName ?? ""}`.trim() || "Unknown Contact";
-            }
+        const db2 = await getDb();
+        if (db2) {
+          const agentId = currentConnection.agentId;
+          const contactId = currentConnection.contactId;
+          if (agentId) {
+            const [agentRow] = await db2.select({ name: users.name }).from(users).where(eq(users.id, agentId)).limit(1);
+            if (agentRow) updateAgentName = agentRow.name ?? "Unknown Agent";
+          }
+          if (contactId) {
+            const [contactRow] = await db2.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, contactId)).limit(1);
+            if (contactRow) updateContactName = `${contactRow.firstName ?? ""} ${contactRow.lastName ?? ""}`.trim() || "Unknown Contact";
           }
         }
       } catch (_) {}
-      await updateAgentConnection(input.id, {
-        ...rest,
-        followUpDate: followUpDate ? new Date(followUpDate) : null,
-        ...normalizeBuyBox(buyBox),
-      } as any);
+      await updateAgentConnection(input.id, updateData as any);
       await logActivity({
         userId: ctx.user.id,
         action: "agent_connection_updated",
