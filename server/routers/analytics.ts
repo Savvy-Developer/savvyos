@@ -56,6 +56,11 @@ import {
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
+import {
+  getAnalyticsWorkspace,
+  getCachedAnalyticsInsights,
+  refreshAnalyticsInsights,
+} from "../analytics/workspace";
 
 const dateRangeInput = z.object({
   dateFrom: z.string().optional(),
@@ -559,4 +564,79 @@ Return only valid JSON array.`;
   agentMonthlyGci: protectedProcedure
     .input(z.object({ year: z.number() }))
     .query(async ({ input }) => getAgentMonthlyGci(input.year)),
+
+  // ─── Analytics Workspace v1 ───────────────────────────────────────────────
+  // New consolidated reporting surface. All row-level evidence is scope-bound on
+  // the server; client filters never confer access to records outside the viewer's
+  // permitted book of business.
+  workspace: protectedProcedure
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      agentId: z.number().int().positive().optional(),
+      marketProfileId: z.number().int().positive().optional(),
+      leadSourceId: z.number().int().positive().optional(),
+      status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => getAnalyticsWorkspace(ctx.user, {
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId,
+      marketProfileId: input?.marketProfileId,
+      leadSourceId: input?.leadSourceId,
+      status: input?.status ?? "all",
+    })),
+
+  /** Return the latest scope-specific AI analysis without consuming model calls. */
+  workspaceInsights: protectedProcedure
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      agentId: z.number().int().positive().optional(),
+      marketProfileId: z.number().int().positive().optional(),
+      leadSourceId: z.number().int().positive().optional(),
+      status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => getCachedAnalyticsInsights(ctx.user, {
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId,
+      marketProfileId: input?.marketProfileId,
+      leadSourceId: input?.leadSourceId,
+      status: input?.status ?? "all",
+    })),
+
+  /**
+   * Generate a scoped cached explanation. Every authenticated viewer is limited
+   * by the reporting service's server-side scope; only administrators may force
+   * a real-time regeneration before the seven-day cache expires.
+   */
+  refreshWorkspaceInsights: protectedProcedure
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      agentId: z.number().int().positive().optional(),
+      marketProfileId: z.number().int().positive().optional(),
+      leadSourceId: z.number().int().positive().optional(),
+      status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+      force: z.boolean().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (input?.force && ctx.user.role !== "admin") {
+        throw new Error("Only administrators can force a real-time AI analysis refresh.");
+      }
+      return refreshAnalyticsInsights({
+        viewer: ctx.user,
+        filters: {
+          dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+          dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+          agentId: input?.agentId,
+          marketProfileId: input?.marketProfileId,
+          leadSourceId: input?.leadSourceId,
+          status: input?.status ?? "all",
+        },
+        force: input?.force ?? false,
+        reason: "manual",
+      });
+    }),
 });

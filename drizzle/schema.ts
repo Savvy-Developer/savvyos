@@ -1497,6 +1497,36 @@ export const scheduledReportRuns = mysqlTable(
 export type ScheduledReportRun = typeof scheduledReportRuns.$inferSelect;
 export type InsertScheduledReportRun = typeof scheduledReportRuns.$inferInsert;
 
+// ─── Analytics Insight Cache ─────────────────────────────────────────────────
+// Durable cache for evidence-grounded Analytics & Reporting explanations. The
+// cache is scoped to the viewer and filters so agents never receive an admin's
+// company-wide insight payload, and expires after a weekly refresh window.
+export const analyticsInsightCaches = mysqlTable("analytics_insight_caches", {
+  id: int("id").autoincrement().primaryKey(),
+  // The deterministic v1 scope key is under 255 characters; keeping the indexed
+  // column at 255 avoids utf8mb4 unique-index length limits on MySQL.
+  scopeKey: varchar("scopeKey", { length: 255 }).notNull().unique(),
+  ownerUserId: int("ownerUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  viewerRole: mysqlEnum("viewerRole", ["admin", "agent", "isa", "agent_support"]).notNull(),
+  filters: json("filters").$type<Record<string, unknown>>().notNull(),
+  insightPayload: json("insightPayload").$type<Record<string, unknown>>().notNull(),
+  facts: json("facts").$type<Record<string, unknown>>().notNull(),
+  status: mysqlEnum("status", ["refreshing", "ready", "failed"]).notNull().default("refreshing"),
+  refreshReason: mysqlEnum("refreshReason", ["automatic", "manual", "scheduled"]).notNull().default("automatic"),
+  model: varchar("model", { length: 128 }),
+  errorMessage: text("errorMessage"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  expiresAtIdx: index("analytics_insight_caches_expiresAt_idx").on(table.expiresAt),
+  ownerIdx: index("analytics_insight_caches_owner_idx").on(table.ownerUserId),
+  statusIdx: index("analytics_insight_caches_status_idx").on(table.status),
+}));
+export type AnalyticsInsightCache = typeof analyticsInsightCaches.$inferSelect;
+export type InsertAnalyticsInsightCache = typeof analyticsInsightCaches.$inferInsert;
+
 // ─── US Location Reference Tables ─────────────────────────────────────────────
 export const usStates = mysqlTable("us_states", {
   code: varchar("code", { length: 2 }).primaryKey(), // e.g. "FL"

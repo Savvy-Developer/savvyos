@@ -12,6 +12,7 @@ import { processSmartPlanSteps } from "../smartPlanScheduler";
 import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
+import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
@@ -97,6 +98,23 @@ async function startServer() {
     }
   });
 
+  // Analytics insight cache refresh. This endpoint mirrors the internal
+  // scheduler and is available to a Railway cron or secured operator run.
+  app.post("/api/scheduled/analytics-insights-refresh", async (req, res) => {
+    try {
+      const internalSecret = process.env.SCHEDULED_TASK_SECRET;
+      const headerSecret = req.headers["x-scheduled-task-secret"] as string | undefined;
+      if (!internalSecret || headerSecret !== internalSecret) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const result = await refreshDueAnalyticsInsights();
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[AnalyticsInsights] Scheduled endpoint error:", err.message);
+      return res.status(500).json({ error: "Analytics insight refresh failed", detail: err.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
@@ -140,6 +158,10 @@ async function startServer() {
 
   // Agent production report: Friday at 6:00 PM Eastern
   scheduleAgentProductionReport();
+
+  // Analytics insight cache: poll daily and refresh each previously generated
+  // authorized scope once its seven-day TTL expires.
+  scheduleAnalyticsInsightRefresh();
 }
 
 startServer().catch(console.error);

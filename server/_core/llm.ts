@@ -56,6 +56,8 @@ export type ToolChoice =
   | ToolChoiceExplicit;
 
 export type InvokeParams = {
+  /** Optional explicit model. Existing call sites retain the legacy default. */
+  model?: string;
   messages: Message[];
   tools?: Tool[];
   toolChoice?: ToolChoice;
@@ -66,6 +68,8 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  /** OpenAI GPT-5-series reasoning control, forwarded unchanged to the proxy. */
+  reasoning?: { effort: "minimal" | "low" | "medium" | "high" };
 };
 
 export type ToolCall = {
@@ -209,10 +213,18 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://api.openai.com/v1/chat/completions";
+const resolveApiUrl = () => {
+  if (!ENV.forgeApiUrl || ENV.forgeApiUrl.trim().length === 0) {
+    return "https://api.openai.com/v1/chat/completions";
+  }
+  // Forge deployments conventionally provide the service root, whereas standard
+  // OpenAI-compatible environment variables commonly already end in `/v1`.
+  // Support both forms without generating a `/v1/v1/...` request URL.
+  const base = ENV.forgeApiUrl.replace(/\/$/, "");
+  return base.endsWith("/v1")
+    ? `${base}/chat/completions`
+    : `${base}/v1/chat/completions`;
+};
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
@@ -269,6 +281,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
   const {
+    model,
     messages,
     tools,
     toolChoice,
@@ -277,10 +290,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    reasoning,
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gpt-4o-mini",
+    model: model ?? "gpt-4o-mini",
     messages: messages.map(normalizeMessage),
   };
 
@@ -296,7 +310,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_completion_tokens = 4096;
+  payload.max_completion_tokens = params.maxTokens ?? params.max_tokens ?? 4096;
+  if (reasoning) payload.reasoning = reasoning;
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,

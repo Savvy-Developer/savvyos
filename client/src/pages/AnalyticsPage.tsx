@@ -1,1494 +1,503 @@
-import { useState, useMemo, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import PageHeader from "@/components/PageHeader";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import PageHeader from "@/components/PageHeader";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, Legend, AreaChart, Area, FunnelChart, Funnel, LabelList,
-} from "recharts";
-import { ArrowUpRight, ArrowDownRight, Minus, Brain, AlertTriangle, TrendingUp, TrendingDown,
-  Lightbulb, Target, Zap, RefreshCw, Clock, Users, DollarSign, Activity, Edit2, CheckCircle2, Trophy,
-  Building2, BarChart2, UserCheck, Layers, Wallet, ListTodo, MapPin, UserPlus, Database, ChevronRight,
-} from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
-import BusinessOverviewTab from "./analytics/BusinessOverviewTab";
-import AgentPerformanceTab from "./analytics/AgentPerformanceTab";
-import GroupPerformanceTab from "./analytics/GroupPerformanceTab";
-import MarketIntelligenceTab from "./analytics/MarketIntelligenceTab";
-import CommissionPayoutsTab from "./analytics/CommissionPayoutsTab";
-import TaskAnalyticsTab from "./analytics/TaskAnalyticsTab";
-import IsaPipelineTab from "./analytics/IsaPipelineTab";
-import LeadSourceAnalyticsTab from "./analytics/LeadSourceAnalyticsTab";
-import OnboardingReportTab from "./analytics/OnboardingReportTab";
-import DatabaseHealthTab from "./analytics/DatabaseHealthTab";
-import FinancialPerformanceTab from "./analytics/FinancialPerformanceTab";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart3,
+  Brain,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  Database,
+  DollarSign,
+  ExternalLink,
+  Filter,
+  Landmark,
+  Lightbulb,
+  LineChart as LineChartIcon,
+  ListChecks,
+  MapPin,
+  RefreshCw,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  UserCheck,
+  Users,
+  Wallet,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-const COLORS = ["#1e3a5f", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#dc2626", "#0891b2", "#be185d"];
-const PIPELINE_LABELS: Record<string, string> = {
-  new_lead: "New Lead", attempted_contact: "Attempted", nurture: "Nurture",
-  active_client: "Active", under_contract: "Under Contract", closed: "Closed", dead: "Dead",
-};
-const ISA_STAGE_COLORS: Record<string, string> = {
-  new_lead: "#2563eb", attempted_contact: "#7c3aed", nurture: "#d97706",
-  active_client: "#16a34a", under_contract: "#0891b2", closed: "#1e3a5f", dead: "#9ca3af",
+type ViewId = "scorecard" | "transactions" | "sources" | "pipeline" | "people" | "growth" | "quality";
+type DrillKind = "transactions" | "pipeline" | "tasks" | "people" | "sources" | "dataQuality";
+
+type DrillState = {
+  title: string;
+  description: string;
+  kind: DrillKind;
+  rows: any[];
 };
 
-function fmt$(v: number) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
-  return `$${v.toLocaleString()}`;
+const NAVIGATION: Array<{ id: ViewId; label: string; shortLabel: string; description: string; icon: typeof BarChart3 }> = [
+  { id: "scorecard", label: "Executive Scorecard & Attention", shortLabel: "Executive", description: "Business outcomes, risks, trends, and the weekly intelligence brief.", icon: BarChart3 },
+  { id: "transactions", label: "Transactions & Financials", shortLabel: "Finance", description: "Transaction-level production, commission economics, and financial integrity.", icon: Wallet },
+  { id: "sources", label: "Lead Sources & Partnerships", shortLabel: "Sources", description: "Observed source yield, production, and attribution coverage.", icon: Landmark },
+  { id: "pipeline", label: "Pipeline & Follow-Up", shortLabel: "Pipeline", description: "Pipeline stages, aging, overdue follow-ups, and execution queues.", icon: ListChecks },
+  { id: "people", label: "People & Execution", shortLabel: "People", description: "Production, trends, tasks, pipeline, activity, and coaching context by person.", icon: Users },
+  { id: "growth", label: "Growth, Onboarding & Coaching", shortLabel: "Growth", description: "Goals, onboarding progress, coaching cadence, and market readiness.", icon: Target },
+  { id: "quality", label: "Data Trust & Administration", shortLabel: "Data Trust", description: "Data-quality exceptions that affect reporting confidence and execution.", icon: Database },
+];
+
+const CHART_COLORS = ["#155e75", "#0f766e", "#2563eb", "#7c3aed", "#d97706", "#dc2626", "#0891b2", "#be185d"];
+const PIPELINE_COLORS: Record<string, string> = {
+  new_lead: "#2563eb",
+  attempted_contact: "#7c3aed",
+  nurture: "#d97706",
+  active_client: "#0f766e",
+  under_contract: "#0891b2",
+  closed: "#15803d",
+  dead: "#94a3b8",
+};
+
+function money(value: unknown, compact = false): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  if (compact && Math.abs(number) >= 1_000_000) return `$${(number / 1_000_000).toFixed(1)}M`;
+  if (compact && Math.abs(number) >= 1_000) return `$${(number / 1_000).toFixed(0)}k`;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(number);
 }
-function fmtPct(v: number) { return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`; }
-function fmtNum(v: number) { return v.toLocaleString(); }
 
-function EmptyChart({ message }: { message: string }) {
+function integer(value: unknown): string {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number.toLocaleString() : "—";
+}
+
+function percent(value: unknown, digits = 1): string {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${(number * 100).toFixed(digits)}%` : "—";
+}
+
+function signedPercent(value: unknown): string {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "No comparable prior period";
+  return `${number >= 0 ? "+" : ""}${number.toFixed(1)}% vs. prior period`;
+}
+
+function dateLabel(value: unknown): string {
+  if (!value) return "Not recorded";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
+}
+
+function relativeAge(value: unknown): string {
+  if (!value) return "Not recorded";
+  const timestamp = new Date(String(value)).getTime();
+  if (Number.isNaN(timestamp)) return "Not recorded";
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+  return days === 0 ? "Today" : `${days}d ago`;
+}
+
+function truncate(value: unknown, length = 50): string {
+  const stringValue = String(value ?? "");
+  return stringValue.length > length ? `${stringValue.slice(0, length - 1)}…` : stringValue;
+}
+
+function toDateInput(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function resolvePreset(preset: string) {
+  const today = new Date();
+  const to = toDateInput(today);
+  if (preset === "all") return { dateFrom: "", dateTo: "" };
+  const from = new Date(today);
+  if (preset === "ytd") {
+    from.setMonth(0, 1);
+  } else if (preset === "last30") {
+    from.setDate(from.getDate() - 30);
+  } else if (preset === "last90") {
+    from.setDate(from.getDate() - 90);
+  } else if (preset === "last12") {
+    from.setFullYear(from.getFullYear() - 1);
+  }
+  return { dateFrom: toDateInput(from), dateTo: to };
+}
+
+function TrendPill({ value }: { value: unknown }) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return <span className="text-xs text-muted-foreground">No comparable prior period</span>;
+  const positive = number >= 0;
   return (
-    <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">{message}</div>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${positive ? "text-emerald-700" : "text-rose-700"}`}>
+      {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+      {signedPercent(number)}
+    </span>
   );
 }
 
-function DateRangeFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-36 h-8 text-xs">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="all">All Time</SelectItem>
-        <SelectItem value="ytd">Year to Date</SelectItem>
-        <SelectItem value="last12">Last 12 Months</SelectItem>
-        <SelectItem value="last6">Last 6 Months</SelectItem>
-        <SelectItem value="last3">Last 3 Months</SelectItem>
-        <SelectItem value="last30">Last 30 Days</SelectItem>
-      </SelectContent>
-    </Select>
-  );
-}
-
-function useDateRange(range: string) {
-  return useMemo(() => {
-    const now = new Date();
-    if (range === "all") return {};
-    const from = new Date(now);
-    if (range === "ytd") { from.setMonth(0); from.setDate(1); }
-    else if (range === "last12") from.setMonth(from.getMonth() - 12);
-    else if (range === "last6") from.setMonth(from.getMonth() - 6);
-    else if (range === "last3") from.setMonth(from.getMonth() - 3);
-    else if (range === "last30") from.setDate(from.getDate() - 30);
-    return { dateFrom: from.toISOString(), dateTo: now.toISOString() };
-  }, [range]);
-}
-
-function KpiCard({ label, value, sub, trend, icon }: {
-  label: string; value: string | number; sub?: string;
-  trend?: "up" | "down" | "flat"; icon?: React.ReactNode;
+function MetricCard({
+  label,
+  value,
+  note,
+  trend,
+  icon: Icon,
+  onClick,
+  accent = "teal",
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  trend?: unknown;
+  icon: typeof DollarSign;
+  onClick?: () => void;
+  accent?: "teal" | "blue" | "amber" | "rose" | "violet";
 }) {
+  const accentMap = {
+    teal: "bg-teal-50 text-teal-700 border-teal-100",
+    blue: "bg-blue-50 text-blue-700 border-blue-100",
+    amber: "bg-amber-50 text-amber-700 border-amber-100",
+    rose: "bg-rose-50 text-rose-700 border-rose-100",
+    violet: "bg-violet-50 text-violet-700 border-violet-100",
+  };
   return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground font-medium mb-1">{label}</p>
-            <p className="text-2xl font-bold text-foreground">{value}</p>
-            {sub && (
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                {trend === "up" && <ArrowUpRight className="h-3 w-3 text-green-500" />}
-                {trend === "down" && <ArrowDownRight className="h-3 w-3 text-red-500" />}
-                {trend === "flat" && <Minus className="h-3 w-3 text-muted-foreground" />}
-                {sub}
-              </p>
-            )}
+    <Card
+      className={`transition-all ${onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus-within:ring-2 focus-within:ring-primary/25" : ""}`}
+      onClick={onClick}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
+            <div className="mt-1.5 min-h-4">{trend !== undefined ? <TrendPill value={trend} /> : note ? <span className="text-xs text-muted-foreground">{note}</span> : null}</div>
           </div>
-          {icon && <div className="text-muted-foreground/40 ml-2">{icon}</div>}
+          <span className={`rounded-xl border p-2.5 ${accentMap[accent]}`}><Icon className="h-4 w-4" /></span>
         </div>
+        {onClick && <div className="mt-3 flex items-center text-[11px] font-medium text-primary">View evidence <ChevronRight className="ml-0.5 h-3.5 w-3.5" /></div>}
       </CardContent>
     </Card>
   );
 }
 
-function TrendBadge({ value, suffix = "%" }: { value: number; suffix?: string }) {
-  if (Math.abs(value) < 0.5) return <Badge variant="secondary" className="text-xs">Flat</Badge>;
-  if (value > 0) return <Badge className="text-xs bg-green-100 text-green-700 border-green-200">{`+${value.toFixed(1)}${suffix}`}</Badge>;
-  return <Badge className="text-xs bg-red-100 text-red-700 border-red-200">{`${value.toFixed(1)}${suffix}`}</Badge>;
-}
-
-// ─── Executive Dashboard Tab ──────────────────────────────────────────────────
-function ExecutiveDashboardTab({ agentId }: { agentId?: number }) {
-  const [range, setRange] = useState("ytd");
-  const dates = useDateRange(range);
-  const { data: exec, isLoading } = trpc.analytics.executiveDashboard.useQuery({ ...dates, agentId });
-  const { data: trends } = trpc.analytics.trendComparisons.useQuery({ agentId });
-  const { data: gciTrend } = trpc.analytics.monthlyGciTrend.useQuery({ months: 12, agentId });
-
-  const chartData = useMemo(() => (gciTrend ?? []).map((r: any) => ({
-    month: r.month,
-    gci: Number(r.gci ?? 0),
-    closings: Number(r.closings ?? 0),
-  })), [gciTrend]);
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading executive dashboard...</div>;
-
-  const mtd = exec?.mtd ?? { closings: 0, volume: 0, gci: 0, avgPrice: 0 };
-  const ytd = exec?.ytd ?? { closings: 0, volume: 0, gci: 0, avgPrice: 0 };
-
+function SectionHeader({ title, description, action }: { title: string; description?: string; action?: React.ReactNode }) {
   return (
-    <div className="space-y-6">
-      {/* Filter bar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-sm text-muted-foreground font-medium">Period:</span>
-        <DateRangeFilter value={range} onChange={setRange} />
-      </div>
-
-      {/* MTD KPIs */}
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Month to Date</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard label="MTD Closings" value={mtd.closings} icon={<Target className="h-5 w-5" />} />
-          <KpiCard label="MTD GCI" value={fmt$(mtd.gci)} icon={<DollarSign className="h-5 w-5" />} />
-          <KpiCard label="MTD Volume" value={fmt$(mtd.volume)} icon={<Activity className="h-5 w-5" />} />
-          <KpiCard label="MTD Avg Price" value={fmt$(mtd.avgPrice)} icon={<TrendingUp className="h-5 w-5" />} />
-        </div>
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {description && <p className="mt-0.5 max-w-3xl text-sm text-muted-foreground">{description}</p>}
       </div>
-
-      {/* YTD KPIs */}
-      <div>
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Year to Date</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard label="YTD Closings" value={ytd.closings} icon={<Target className="h-5 w-5" />} />
-          <KpiCard label="YTD GCI" value={fmt$(ytd.gci)} icon={<DollarSign className="h-5 w-5" />} />
-          <KpiCard label="YTD Volume" value={fmt$(ytd.volume)} icon={<Activity className="h-5 w-5" />} />
-          <KpiCard label="YTD Avg Price" value={fmt$(ytd.avgPrice)} icon={<TrendingUp className="h-5 w-5" />} />
-        </div>
-      </div>
-
-      {/* Efficiency KPIs */}
-      <div>
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Efficiency Metrics</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard label="Pipeline Value" value={fmt$(exec?.pipeline.value ?? 0)} sub={`${exec?.pipeline.count ?? 0} deals`} icon={<Zap className="h-5 w-5" />} />
-          <KpiCard label="Revenue / Lead" value={fmt$(exec?.revenuePerLead ?? 0)} sub="YTD GCI ÷ total contacts" icon={<Users className="h-5 w-5" />} />
-          <KpiCard label="Revenue / Agent" value={fmt$(exec?.revenuePerAgent ?? 0)} sub="YTD GCI ÷ active agents" icon={<DollarSign className="h-5 w-5" />} />
-          <KpiCard label="Pipeline Coverage" value={`${((exec?.pipelineCoverageRatio ?? 0) * 100).toFixed(0)}%`} sub="pipeline ÷ YTD volume" icon={<Activity className="h-5 w-5" />} />
-        </div>
-      </div>
-
-      {/* Trend comparisons */}
-      {trends && (
-        <div>
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Period-over-Period Trends</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              { label: "Week over Week", data: trends.weekOverWeek },
-              { label: "Month over Month", data: trends.monthOverMonth },
-              { label: "Year over Year", data: trends.yearOverYear },
-            ].map(({ label, data }) => (
-              <Card key={label}>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">{label}</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">GCI</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{fmt$(data.current.gci)}</span>
-                      <TrendBadge value={data.gciChange} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Closings</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{data.current.closings}</span>
-                      <TrendBadge value={data.closingsChange} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Volume</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{fmt$(data.current.volume)}</span>
-                      <TrendBadge value={data.volumeChange} />
-                    </div>
-                  </div>
-                  <div className="pt-1 border-t text-xs text-muted-foreground">
-                    Prior: {fmt$(data.previous.gci)} GCI · {data.previous.closings} closings
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Monthly GCI trend chart */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">12-Month GCI Trend</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {chartData.length === 0 ? <EmptyChart message="No data yet" /> : (
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="gciGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmt$(v)} />
-                <Tooltip formatter={(v: number) => [fmt$(v), "GCI"]} />
-                <Area type="monotone" dataKey="gci" stroke="#2563eb" fill="url(#gciGrad)" strokeWidth={2} dot={{ r: 3 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+      {action}
     </div>
   );
 }
 
-// ─── Sales Funnel Tab ─────────────────────────────────────────────────────────
-function SalesFunnelTab({ agentId }: { agentId?: number }) {
-  const { data: funnel, isLoading } = trpc.analytics.salesFunnel.useQuery({ agentId });
-  const { data: txTypes } = trpc.analytics.transactionTypeBreakdown.useQuery({});
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading sales funnel...</div>;
-  if (!funnel) return <EmptyChart message="No funnel data available" />;
-
-  const stages = funnel.stages ?? [];
-  const maxCount = Math.max(...stages.map((s: any) => s.count), 1);
-
-  const txTypeData = (txTypes ?? []).map((t: any) => ({
-    name: t.type === "buyer" ? "Buyer" : t.type === "seller" ? "Seller" : "Dual",
-    gci: Number(t.totalGci ?? 0),
-    count: Number(t.count ?? 0),
-  }));
-
-  return (
-    <div className="space-y-6">
-      {/* Funnel KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total in Pipeline" value={fmtNum(funnel.totalLeads)} icon={<Users className="h-5 w-5" />} />
-        <KpiCard label="Lead → Close Rate" value={`${funnel.leadToCloseRate?.toFixed(1) ?? 0}%`} icon={<Target className="h-5 w-5" />} />
-        <KpiCard label="Avg Days to Close" value={`${Math.round(funnel.avgDaysToClose ?? 0)}d`} icon={<Clock className="h-5 w-5" />} />
-        <KpiCard label="Closed Deals" value={stages.find((s: any) => s.key === "closed")?.count ?? 0} icon={<TrendingUp className="h-5 w-5" />} />
-      </div>
-
-      {/* Visual funnel */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Pipeline Stage Conversion Funnel</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 py-2">
-            {stages.map((s: any, i: number) => (
-              <div key={s.key}>
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="font-medium">{s.label}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-muted-foreground">{fmtNum(s.count)} contacts</span>
-                    {i > 0 && (
-                      <span className={`font-semibold ${s.conversionFromPrev < 30 ? "text-red-500" : s.conversionFromPrev < 60 ? "text-amber-500" : "text-green-600"}`}>
-                        {s.conversionFromPrev.toFixed(0)}% from prev
-                      </span>
-                    )}
-                    <span className="text-muted-foreground">{s.conversionFromTop.toFixed(0)}% of total</span>
-                  </div>
-                </div>
-                <div className="h-8 bg-muted/30 rounded-lg overflow-hidden">
-                  <div
-                    className="h-full rounded-lg transition-all flex items-center pl-3"
-                    style={{
-                      width: `${Math.max((s.count / maxCount) * 100, 2)}%`,
-                      backgroundColor: COLORS[i % COLORS.length],
-                    }}
-                  >
-                    {s.count > 0 && <span className="text-white text-xs font-medium">{s.count}</span>}
-                  </div>
-                </div>
-                {i > 0 && s.dropOff > 0 && (
-                  <p className="text-xs text-red-400 mt-0.5 ml-1">▼ {s.dropOff} dropped off</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Transaction type breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">GCI by Transaction Type</CardTitle></CardHeader>
-          <CardContent>
-            {txTypeData.length === 0 ? <EmptyChart message="No transactions yet" /> : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={txTypeData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmt$(v)} />
-                  <Tooltip formatter={(v: number) => [fmt$(v), "GCI"]} />
-                  <Bar dataKey="gci" radius={[4, 4, 0, 0]}>
-                    {txTypeData.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Deal Count by Type</CardTitle></CardHeader>
-          <CardContent>
-            {txTypeData.length === 0 ? <EmptyChart message="No transactions yet" /> : (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={txTypeData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                    {txTypeData.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: number) => [v, "Deals"]} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 px-5 text-center"><p className="font-medium">{title}</p><p className="mt-1 max-w-md text-sm text-muted-foreground">{description}</p></div>;
 }
 
-// ─── Lead Source ROI Tab ──────────────────────────────────────────────────────
-function LeadSourceROITab({ agentId }: { agentId?: number }) {
-  const [range, setRange] = useState("ytd");
-  const dates = useDateRange(range);
-  const [sortBy, setSortBy] = useState<"totalGci" | "leads" | "conversionRate" | "revenuePerLead">("totalGci");
-  const { data: roiData, isLoading } = trpc.analytics.leadSourceROI.useQuery({ ...dates, agentId });
-  const { data: funnelData } = trpc.analytics.leadSourceFunnel.useQuery({ ...dates, agentId });
-
-  const sorted = useMemo(() => {
-    if (!roiData) return [];
-    return [...roiData].sort((a: any, b: any) => Number(b[sortBy]) - Number(a[sortBy]));
-  }, [roiData, sortBy]);
-
-  const totalGci = sorted.reduce((s: number, r: any) => s + r.totalGci, 0);
-  const totalLeads = sorted.reduce((s: number, r: any) => s + r.leads, 0);
-  const totalClosed = sorted.reduce((s: number, r: any) => s + r.closed, 0);
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading lead source ROI...</div>;
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-sm text-muted-foreground font-medium">Period:</span>
-        <DateRangeFilter value={range} onChange={setRange} />
-        <span className="text-sm text-muted-foreground font-medium ml-4">Sort by:</span>
-        <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-          <SelectTrigger className="w-40 h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="totalGci">Total GCI</SelectItem>
-            <SelectItem value="leads">Total Leads</SelectItem>
-            <SelectItem value="conversionRate">Conversion Rate</SelectItem>
-            <SelectItem value="revenuePerLead">Revenue / Lead</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Summary KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total GCI (All Sources)" value={fmt$(totalGci)} icon={<DollarSign className="h-5 w-5" />} />
-        <KpiCard label="Total Leads" value={fmtNum(totalLeads)} icon={<Users className="h-5 w-5" />} />
-        <KpiCard label="Total Closed" value={fmtNum(totalClosed)} icon={<Target className="h-5 w-5" />} />
-        <KpiCard label="Overall Conversion" value={totalLeads > 0 ? `${((totalClosed / totalLeads) * 100).toFixed(1)}%` : "0%"} icon={<TrendingUp className="h-5 w-5" />} />
-      </div>
-
-      {/* ROI Table */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Lead Source Performance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {sorted.length === 0 ? <EmptyChart message="No lead source data yet" /> : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="text-left py-2 pr-4 font-medium">Source</th>
-                    <th className="text-right py-2 px-2 font-medium">Leads</th>
-                    <th className="text-right py-2 px-2 font-medium">Closed</th>
-                    <th className="text-right py-2 px-2 font-medium">Conv. Rate</th>
-                    <th className="text-right py-2 px-2 font-medium">Total GCI</th>
-                    <th className="text-right py-2 px-2 font-medium">Rev / Lead</th>
-                    <th className="text-right py-2 pl-2 font-medium">Avg Deal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((row: any, i: number) => (
-                    <tr key={row.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="py-2 pr-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                          <span className="font-medium">{row.name}</span>
-                          {row.parentId && <span className="text-xs text-muted-foreground">(sub)</span>}
-                        </div>
-                      </td>
-                      <td className="text-right py-2 px-2">{fmtNum(row.leads)}</td>
-                      <td className="text-right py-2 px-2">{fmtNum(row.closed)}</td>
-                      <td className="text-right py-2 px-2">
-                        <span className={`font-medium ${row.conversionRate >= 10 ? "text-green-600" : row.conversionRate >= 5 ? "text-amber-600" : "text-red-500"}`}>
-                          {row.conversionRate.toFixed(1)}%
-                        </span>
-                      </td>
-                      <td className="text-right py-2 px-2 font-semibold">{fmt$(row.totalGci)}</td>
-                      <td className="text-right py-2 px-2">{fmt$(row.revenuePerLead)}</td>
-                      <td className="text-right py-2 pl-2">{fmt$(row.avgDealSize)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Bar chart: GCI by source */}
-      {sorted.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">GCI by Lead Source</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={sorted.slice(0, 10)} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => fmt$(v)} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={100} />
-                <Tooltip formatter={(v: number) => [fmt$(v), "GCI"]} />
-                <Bar dataKey="totalGci" radius={[0, 4, 4, 0]}>
-                  {sorted.slice(0, 10).map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+function TableShell({ children }: { children: React.ReactNode }) {
+  return <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">{children}</table></div>;
 }
 
-// ─── Pipeline Health Tab ──────────────────────────────────────────────────────
-function PipelineHealthTab({ agentId }: { agentId?: number }) {
-  const [, navigate] = useLocation();
-  const { data: health, isLoading } = trpc.analytics.pipelineHealth.useQuery({ agentId });
-  const { data: velocity } = trpc.analytics.pipelineVelocity.useQuery();
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading pipeline health...</div>;
-  if (!health) return <EmptyChart message="No pipeline data available" />;
-
-  const agingData = [
-    { bucket: "0-7 days", count: 0 },
-    { bucket: "8-14 days", count: 0 },
-    { bucket: "15-30 days", count: 0 },
-    { bucket: "30+ days", count: 0 },
-  ].map(b => {
-    const found = health.agingBuckets?.find((a: any) => a.bucket === b.bucket);
-    return { ...b, count: found ? Number(found.count) : 0 };
-  });
-
-  const stageBreakdown = health.stageBreakdown ?? [];
-
-  return (
-    <div className="space-y-6">
-      {/* Health KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard
-          label="Pipeline Value"
-          value={fmt$(health.pipelineValue ?? 0)}
-          sub={`${health.pipelineCount ?? 0} under contract`}
-          icon={<DollarSign className="h-5 w-5" />}
-        />
-        <KpiCard
-          label="Stalled Deals"
-          value={health.totalStalled ?? 0}
-          sub="14+ days no update"
-          trend={health.totalStalled > 5 ? "down" : "flat"}
-          icon={<AlertTriangle className="h-5 w-5" />}
-        />
-        <KpiCard
-          label="Avg Days in Active"
-          value={`${Math.round(stageBreakdown.find((s: any) => s.stage === "active_client")?.avgDaysInStage ?? 0)}d`}
-          icon={<Clock className="h-5 w-5" />}
-        />
-        <KpiCard
-          label="Avg Days Under Contract"
-          value={`${Math.round(stageBreakdown.find((s: any) => s.stage === "under_contract")?.avgDaysInStage ?? 0)}d`}
-          icon={<Clock className="h-5 w-5" />}
-        />
-      </div>
-
-      {/* Aging heatmap */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Pipeline Aging Distribution</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={agingData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip formatter={(v: number) => [v, "Contacts"]} />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {agingData.map((_, i) => (
-                    <Cell key={i} fill={i === 0 ? "#16a34a" : i === 1 ? "#d97706" : i === 2 ? "#ea580c" : "#dc2626"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Avg days by stage */}
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Avg Days in Stage</CardTitle></CardHeader>
-          <CardContent>
-            {stageBreakdown.length === 0 ? <EmptyChart message="No stage data" /> : (
-              <div className="space-y-2 py-2">
-                {stageBreakdown.filter((s: any) => s.stage !== "dead").map((s: any) => (
-                  <div key={s.stage} className="flex items-center gap-3">
-                    <span className="text-xs w-28 text-muted-foreground">{PIPELINE_LABELS[s.stage] ?? s.stage}</span>
-                    <div className="flex-1 h-5 bg-muted/30 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.min((s.avgDaysInStage / 60) * 100, 100)}%`,
-                          backgroundColor: s.avgDaysInStage > 30 ? "#dc2626" : s.avgDaysInStage > 14 ? "#d97706" : "#2563eb",
-                        }}
-                      />
-                    </div>
-                    <span className="text-xs font-medium w-12 text-right">{Math.round(s.avgDaysInStage)}d avg</span>
-                    <span className="text-xs text-muted-foreground w-8 text-right">{s.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Stalled deals table */}
-      {(health.stalledDeals ?? []).length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Stalled Deals (14+ Days)</CardTitle>
-              <Badge variant="destructive" className="text-xs">{health.totalStalled} stalled</Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="text-left py-2 pr-4 font-medium">Contact</th>
-                    <th className="text-left py-2 px-2 font-medium">Agent</th>
-                    <th className="text-left py-2 px-2 font-medium">Stage</th>
-                    <th className="text-right py-2 pl-2 font-medium">Days Stalled</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(health.stalledDeals ?? []).slice(0, 20).map((deal: any) => (
-                    <tr
-                      key={deal.id}
-                      className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
-                      onClick={() => deal.contactId && navigate(`/contacts/${deal.contactId}`)}
-                      title={deal.contactId ? "View contact" : undefined}
-                    >
-                      <td className="py-2 pr-4 font-medium text-primary hover:underline">{deal.contactFirstName} {deal.contactLastName}</td>
-                      <td className="py-2 px-2 text-muted-foreground">{deal.agentName ?? "—"}</td>
-                      <td className="py-2 px-2">
-                        <Badge variant="outline" className="text-xs">{PIPELINE_LABELS[deal.stage] ?? deal.stage}</Badge>
-                      </td>
-                      <td className="text-right py-2 pl-2">
-                        <span className={`font-semibold ${deal.daysSinceUpdate > 30 ? "text-red-500" : "text-amber-500"}`}>
-                          {deal.daysSinceUpdate}d
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+function TableHead({ children }: { children: React.ReactNode }) {
+  return <thead className="border-b bg-muted/35 text-[11px] uppercase tracking-wide text-muted-foreground"><tr>{children}</tr></thead>;
 }
 
-// ─── Goal Setting Dialog ──────────────────────────────────────────────────────
-type GoalDialogAgent = { agentId: number; agentName: string; gciTarget?: number | null; closingsTarget?: number | null; volumeTarget?: number | null };
-
-function GoalDialog({ agent, year, month, onClose, onSaved }: {
-  agent: GoalDialogAgent;
-  year: number;
-  month: number;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [gci, setGci] = useState(agent.gciTarget != null ? String(agent.gciTarget) : "");
-  const [closings, setClosings] = useState(agent.closingsTarget != null ? String(agent.closingsTarget) : "");
-  const [volume, setVolume] = useState(agent.volumeTarget != null ? String(agent.volumeTarget) : "");
-  const utils = trpc.useUtils();
-  const setGoal = trpc.analytics.setGoal.useMutation({
-    onSuccess: () => {
-      toast.success(`Goals saved for ${agent.agentName}`);
-      utils.analytics.agentProductionWithGoals.invalidate();
-      onSaved();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const MONTH_NAMES = ["Annual","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
+function DrilldownDialog({ drill, onClose, navigate }: { drill: DrillState | null; onClose: () => void; navigate: (path: string) => void }) {
+  if (!drill) return null;
+  const rows = drill.rows ?? [];
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-sm">
+    <Dialog open={Boolean(drill)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[85vh] max-w-6xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Target className="h-4 w-4" />
-            Set Goals — {agent.agentName}
-          </DialogTitle>
-          <p className="text-xs text-muted-foreground">{MONTH_NAMES[month]} {year}</p>
+          <DialogTitle>{drill.title}</DialogTitle>
+          <DialogDescription>{drill.description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs">GCI Target ($)</Label>
-            <Input type="number" placeholder="e.g. 50000" value={gci} onChange={(e) => setGci(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Closings Target</Label>
-            <Input type="number" placeholder="e.g. 5" value={closings} onChange={(e) => setClosings(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Volume Target ($)</Label>
-            <Input type="number" placeholder="e.g. 2000000" value={volume} onChange={(e) => setVolume(e.target.value)} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
-          <Button
-            size="sm"
-            disabled={setGoal.isPending}
-            onClick={() => setGoal.mutate({
-              agentId: agent.agentId,
-              year,
-              month,
-              gciTarget: gci ? Number(gci) : null,
-              closingsTarget: closings ? Number(closings) : null,
-              volumeTarget: volume ? Number(volume) : null,
-            })}
-          >
-            {setGoal.isPending ? "Saving..." : "Save Goals"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function BulkGoalDialog({ agents, year, month, onClose, onSaved }: {
-  agents: { agentId: number; agentName: string }[];
-  year: number;
-  month: number;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [gci, setGci] = useState("");
-  const [closings, setClosings] = useState("");
-  const [volume, setVolume] = useState("");
-  const utils = trpc.useUtils();
-  const setBulk = trpc.analytics.setBulkGoals.useMutation({
-    onSuccess: () => {
-      toast.success(`Goals set for all ${agents.length} agents`);
-      utils.analytics.agentProductionWithGoals.invalidate();
-      onSaved();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const MONTH_NAMES = ["Annual","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Set Goals for All Agents
-          </DialogTitle>
-          <p className="text-xs text-muted-foreground">{MONTH_NAMES[month]} {year} — applies to {agents.length} agents</p>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs">GCI Target ($) per agent</Label>
-            <Input type="number" placeholder="e.g. 50000" value={gci} onChange={(e) => setGci(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Closings Target per agent</Label>
-            <Input type="number" placeholder="e.g. 5" value={closings} onChange={(e) => setClosings(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Volume Target ($) per agent</Label>
-            <Input type="number" placeholder="e.g. 2000000" value={volume} onChange={(e) => setVolume(e.target.value)} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
-          <Button
-            size="sm"
-            disabled={setBulk.isPending}
-            onClick={() => setBulk.mutate({
-              agentIds: agents.map(a => a.agentId),
-              year,
-              month,
-              gciTarget: gci ? Number(gci) : null,
-              closingsTarget: closings ? Number(closings) : null,
-              volumeTarget: volume ? Number(volume) : null,
-            })}
-          >
-            {setBulk.isPending ? "Saving..." : "Apply to All"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function GoalProgressBar({ label, value, target, formatter = (v: number) => String(v) }: {
-  label: string; value: number; target: number | null | undefined;
-  formatter?: (v: number) => string;
-}) {
-  if (!target) return null;
-  const pct = Math.min(Math.round((value / target) * 100), 100);
-  const over = value >= target;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className={over ? "text-green-600 font-semibold" : "text-foreground"}>
-          {formatter(value)} / {formatter(target)}
-          {over && <CheckCircle2 className="inline h-3 w-3 ml-1 text-green-500" />}
-        </span>
-      </div>
-      <Progress value={pct} className={`h-1.5 ${over ? "[&>div]:bg-green-500" : ""}`} />
-      <div className="text-right text-xs text-muted-foreground">{pct}%</div>
-    </div>
-  );
-}
-
-// ─── Agent Production Tab ─────────────────────────────────────────────────────
-function AgentProductionTab() {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(0); // 0 = annual
-  const [goalAgent, setGoalAgent] = useState<GoalDialogAgent | null>(null);
-  const [showBulkDialog, setShowBulkDialog] = useState(false);
-
-  const { data: agents, isLoading, refetch } = trpc.analytics.agentProductionWithGoals.useQuery({ year, month });
-  const agentList = agents ?? [];
-
-  const MONTH_NAMES = ["Annual","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const yearOptions = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
-
-  const handleGoalSaved = useCallback(() => {
-    setGoalAgent(null);
-    setShowBulkDialog(false);
-    refetch();
-  }, [refetch]);
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading agent production...</div>;
-
-  const totalGci = agentList.reduce((s: number, a: any) => s + a.gci, 0);
-  const totalClosings = agentList.reduce((s: number, a: any) => s + a.closings, 0);
-  const totalPipeline = agentList.reduce((s: number, a: any) => s + a.activePipeline, 0);
-  const agentsWithGoals = agentList.filter((a: any) => a.gciTarget || a.closingsTarget).length;
-
-  return (
-    <div className="space-y-6">
-      {/* Controls */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-muted-foreground font-medium">Period:</span>
-          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-            <SelectTrigger className="w-24 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {yearOptions.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-            <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {MONTH_NAMES.map((m, i) => <SelectItem key={i} value={String(i)}>{m}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => setShowBulkDialog(true)}>
-            <Users className="h-3 w-3" /> Set Goals for All
-          </Button>
-        </div>
-      </div>
-
-      {/* KPI summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Active Agents" value={agentList.length} icon={<Users className="h-5 w-5" />} />
-        <KpiCard label="Total GCI" value={fmt$(totalGci)} icon={<DollarSign className="h-5 w-5" />} />
-        <KpiCard label="Total Closings" value={totalClosings} icon={<CheckCircle2 className="h-5 w-5" />} />
-        <KpiCard label="Goals Set" value={`${agentsWithGoals} / ${agentList.length}`} icon={<Target className="h-5 w-5" />} />
-      </div>
-
-      {/* Leaderboard with goal progress */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Trophy className="h-4 w-4 text-amber-500" /> Agent Leaderboard
-              <span className="text-xs text-muted-foreground font-normal">
-                {MONTH_NAMES[month]} {year}
-              </span>
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {agentList.length === 0 ? <EmptyChart message="No agent data yet" /> : (
-            <div className="space-y-4">
-              {agentList.map((a: any, i: number) => {
-                const hasGoal = a.gciTarget || a.closingsTarget || a.volumeTarget;
-                const gciPct = a.gciPct;
-                const closingsPct = a.closingsPct;
-                return (
-                  <div key={a.agentId} className="border rounded-lg p-4 hover:bg-muted/20 transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${
-                          i === 0 ? "bg-amber-500" : i === 1 ? "bg-gray-400" : i === 2 ? "bg-amber-700" : "bg-muted-foreground"
-                        }`}>{i + 1}</div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm">{a.agentName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {a.closings} closed · {fmt$(a.gci)} GCI · {a.activePipeline} active
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {hasGoal && (
-                          <div className="flex items-center gap-1">
-                            {gciPct !== null && (
-                              <Badge className={`text-xs ${
-                                gciPct >= 100 ? "bg-green-100 text-green-700 border-green-200" :
-                                gciPct >= 75 ? "bg-blue-100 text-blue-700 border-blue-200" :
-                                gciPct >= 50 ? "bg-amber-100 text-amber-700 border-amber-200" :
-                                "bg-red-100 text-red-700 border-red-200"
-                              }`}>{gciPct}% GCI</Badge>
-                            )}
-                            {closingsPct !== null && (
-                              <Badge className={`text-xs ${
-                                closingsPct >= 100 ? "bg-green-100 text-green-700 border-green-200" :
-                                closingsPct >= 75 ? "bg-blue-100 text-blue-700 border-blue-200" :
-                                "bg-amber-100 text-amber-700 border-amber-200"
-                              }`}>{closingsPct}% closes</Badge>
-                            )}
-                          </div>
-                        )}
-                        <Button
-                          variant="ghost" size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                          onClick={() => setGoalAgent({ agentId: a.agentId, agentName: a.agentName, gciTarget: a.gciTarget, closingsTarget: a.closingsTarget, volumeTarget: a.volumeTarget })}
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                    {hasGoal && (
-                      <div className="mt-3 space-y-2 pt-3 border-t">
-                        <GoalProgressBar label="GCI" value={a.gci} target={a.gciTarget} formatter={fmt$} />
-                        <GoalProgressBar label="Closings" value={a.closings} target={a.closingsTarget} />
-                        <GoalProgressBar label="Volume" value={a.volume} target={a.volumeTarget} formatter={fmt$} />
-                      </div>
-                    )}
-                  </div>
-                );
+        {rows.length === 0 ? <EmptyState title="No records in this selection" description="The selected filters did not return an underlying record for this metric." /> : (
+          <TableShell>
+            <TableHead>
+              {drill.kind === "transactions" && <><th className="px-3 py-2 text-left">Transaction</th><th className="px-3 py-2 text-left">Client</th><th className="px-3 py-2 text-left">Agent</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-right">GCI</th><th className="px-3 py-2 text-right">Company</th><th className="px-3 py-2 text-right">Open</th></>}
+              {drill.kind === "pipeline" && <><th className="px-3 py-2 text-left">Contact</th><th className="px-3 py-2 text-left">Agent</th><th className="px-3 py-2 text-left">Stage</th><th className="px-3 py-2 text-left">Last activity</th><th className="px-3 py-2 text-left">Follow-up</th><th className="px-3 py-2 text-right">Open</th></>}
+              {drill.kind === "tasks" && <><th className="px-3 py-2 text-left">Task</th><th className="px-3 py-2 text-left">Assignee</th><th className="px-3 py-2 text-left">Due</th><th className="px-3 py-2 text-left">Related record</th><th className="px-3 py-2 text-right">Open</th></>}
+              {drill.kind === "people" && <><th className="px-3 py-2 text-left">Person</th><th className="px-3 py-2 text-left">Role</th><th className="px-3 py-2 text-right">Current GCI</th><th className="px-3 py-2 text-right">Stalled</th><th className="px-3 py-2 text-left">Last coaching</th><th className="px-3 py-2 text-right">Open</th></>}
+              {(drill.kind === "sources" || drill.kind === "dataQuality") && <><th className="px-3 py-2 text-left">Exception / source</th><th className="px-3 py-2 text-left">Details</th><th className="px-3 py-2 text-right">Count</th></>}
+            </TableHead>
+            <tbody className="divide-y">
+              {rows.slice(0, 150).map((row, index) => {
+                if (drill.kind === "transactions") return <tr key={row.id ?? index} className="hover:bg-muted/30"><td className="px-3 py-3 font-medium">{row.transactionNumber}</td><td className="px-3 py-3"><button className="text-primary hover:underline" onClick={() => navigate(`/contacts/${row.contactId}`)}>{row.contactName}</button></td><td className="px-3 py-3">{row.agentName}</td><td className="px-3 py-3"><Badge variant="secondary">{row.status}</Badge></td><td className="px-3 py-3 text-right font-medium">{money(row.grossCommissionIncome)}</td><td className="px-3 py-3 text-right">{money(row.companyDollars)}</td><td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/transactions/${row.id}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>;
+                if (drill.kind === "pipeline") return <tr key={row.connectionId ?? index} className="hover:bg-muted/30"><td className="px-3 py-3"><button className="font-medium text-primary hover:underline" onClick={() => navigate(`/contacts/${row.contactId}`)}>{row.contactName}</button></td><td className="px-3 py-3">{row.agentName}</td><td className="px-3 py-3"><Badge variant="secondary">{row.stageLabel}</Badge></td><td className="px-3 py-3">{row.ageDays}d ago</td><td className="px-3 py-3">{dateLabel(row.followUpDate)}</td><td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/contacts/${row.contactId}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>;
+                if (drill.kind === "tasks") return <tr key={row.id ?? index} className="hover:bg-muted/30"><td className="px-3 py-3 font-medium">{row.title}</td><td className="px-3 py-3">{row.assigneeName}</td><td className="px-3 py-3">{dateLabel(row.dueDate)}</td><td className="px-3 py-3">{row.contactId ? <button className="text-primary hover:underline" onClick={() => navigate(`/contacts/${row.contactId}`)}>{row.contactName}</button> : row.transactionId ? row.transactionNumber : "—"}</td><td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/tasks/${row.id}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>;
+                if (drill.kind === "people") return <tr key={row.userId ?? index} className="hover:bg-muted/30"><td className="px-3 py-3"><button className="font-medium text-primary hover:underline" onClick={() => navigate(`/agents/${row.userId}`)}>{row.name}</button></td><td className="px-3 py-3 capitalize">{row.role}</td><td className="px-3 py-3 text-right">{money(row.production?.currentGci)}</td><td className="px-3 py-3 text-right">{integer(row.execution?.stalledPipeline)}</td><td className="px-3 py-3">{dateLabel(row.coaching?.lastCoachingAt)}</td><td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/agents/${row.userId}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>;
+                return <tr key={row.key ?? row.sourceId ?? index}><td className="px-3 py-3 font-medium">{row.label ?? row.sourceName ?? "Exception"}</td><td className="px-3 py-3 text-muted-foreground">{row.metricWarning ?? row.severity ?? "Review the underlying records"}</td><td className="px-3 py-3 text-right font-semibold">{integer(row.count ?? row.leadCount ?? 0)}</td></tr>;
               })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* GCI bar chart */}
-      {agentList.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">GCI by Agent</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={agentList.slice(0, 10)}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="agentName" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmt$(v)} />
-                <Tooltip formatter={(v: number) => [fmt$(v), "GCI"]} />
-                <Bar dataKey="gci" name="GCI" radius={[4, 4, 0, 0]}>
-                  {agentList.slice(0, 10).map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Goal dialogs */}
-      {goalAgent && (
-        <GoalDialog
-          agent={goalAgent}
-          year={year}
-          month={month}
-          onClose={() => setGoalAgent(null)}
-          onSaved={handleGoalSaved}
-        />
-      )}
-      {showBulkDialog && (
-        <BulkGoalDialog
-          agents={agentList.map((a: any) => ({ agentId: a.agentId, agentName: a.agentName }))}
-          year={year}
-          month={month}
-          onClose={() => setShowBulkDialog(false)}
-          onSaved={handleGoalSaved}
-        />
-      )}
-    </div>
+            </tbody>
+          </TableShell>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
-// ─── ISA Performance Tab ──────────────────────────────────────────────────────
-function IsaPerformanceTab() {
-  const [range, setRange] = useState("ytd");
-  const dates = useDateRange(range);
-  const { data: isas, isLoading } = trpc.analytics.isaPerformance.useQuery(dates);
-  const { data: funnelByIsa } = trpc.analytics.isaStatusFunnelByIsa.useQuery();
-
-  const stageBarData = useMemo(() => {
-    if (!funnelByIsa) return [];
-    const stages = ["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed"];
-    return stages.map(stage => {
-      const row: Record<string, string | number> = { stage: PIPELINE_LABELS[stage] ?? stage };
-      (funnelByIsa as any[]).forEach((isa: any) => {
-        row[isa.isaName] = isa.stages?.[stage] ?? 0;
-      });
-      return row;
-    });
-  }, [funnelByIsa]);
-
-  const isaNames = useMemo(() => (funnelByIsa as any[] ?? []).map((i: any) => i.isaName), [funnelByIsa]);
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading ISA performance...</div>;
-  const isaList = isas ?? [];
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground font-medium">Period:</span>
-        <DateRangeFilter value={range} onChange={setRange} />
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total ISAs" value={isaList.length} />
-        <KpiCard label="Leads Assigned" value={isaList.reduce((s: number, i: any) => s + i.leadsAssigned, 0)} />
-        <KpiCard label="Converted to Active" value={isaList.reduce((s: number, i: any) => s + i.converted, 0)} />
-        <KpiCard label="Avg Conversion Rate" value={`${isaList.length > 0 ? (isaList.reduce((s: number, i: any) => s + i.conversionRate, 0) / isaList.length).toFixed(1) : 0}%`} />
-      </div>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">ISA Performance Breakdown</CardTitle></CardHeader>
-        <CardContent>
-          {isaList.length === 0 ? <EmptyChart message="No ISA data yet" /> : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="text-left py-2 pr-4 font-medium">ISA</th>
-                    <th className="text-right py-2 px-2 font-medium">Assigned</th>
-                    <th className="text-right py-2 px-2 font-medium">Attempted</th>
-                    <th className="text-right py-2 px-2 font-medium">Converted</th>
-                    <th className="text-right py-2 pl-2 font-medium">Conv. Rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isaList.map((isa: any) => (
-                    <tr key={isa.isaId} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="py-2 pr-4 font-medium">{isa.isaName}</td>
-                      <td className="text-right py-2 px-2">{isa.leadsAssigned}</td>
-                      <td className="text-right py-2 px-2">{isa.attempted}</td>
-                      <td className="text-right py-2 px-2">{isa.converted}</td>
-                      <td className="text-right py-2 pl-2">
-                        <span className={`font-semibold ${isa.conversionRate >= 20 ? "text-green-600" : isa.conversionRate >= 10 ? "text-amber-600" : "text-red-500"}`}>
-                          {isa.conversionRate?.toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      {isaNames.length > 0 && stageBarData.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Pipeline Status by ISA</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={stageBarData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="stage" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip />
-                <Legend />
-                {isaNames.map((name: string, i: number) => (
-                  <Bar key={name} dataKey={name} stackId="a" fill={COLORS[i % COLORS.length]} radius={i === isaNames.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-// ─── AI Insights Tab ──────────────────────────────────────────────────────────
-const INSIGHT_ICONS: Record<string, React.ReactNode> = {
-  warning: <AlertTriangle className="h-4 w-4 text-amber-500" />,
-  opportunity: <Lightbulb className="h-4 w-4 text-blue-500" />,
-  coaching: <Target className="h-4 w-4 text-purple-500" />,
-  anomaly: <Activity className="h-4 w-4 text-red-500" />,
-  success: <TrendingUp className="h-4 w-4 text-green-500" />,
-};
-const INSIGHT_COLORS: Record<string, string> = {
-  warning: "border-amber-200 bg-amber-50 dark:bg-amber-950/20",
-  opportunity: "border-blue-200 bg-blue-50 dark:bg-blue-950/20",
-  coaching: "border-purple-200 bg-purple-50 dark:bg-purple-950/20",
-  anomaly: "border-red-200 bg-red-50 dark:bg-red-950/20",
-  success: "border-green-200 bg-green-50 dark:bg-green-950/20",
-};
-const PRIORITY_BADGE: Record<string, string> = {
-  high: "bg-red-100 text-red-700",
-  medium: "bg-amber-100 text-amber-700",
-  low: "bg-gray-100 text-gray-600",
-};
-
-function AiInsightsTab() {
-  const [insights, setInsights] = useState<any[]>([]);
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const generateMutation = trpc.analytics.aiInsights.useMutation({
-    onSuccess: (data) => {
-      setInsights(data.insights ?? []);
-      setGeneratedAt(data.generatedAt);
-      setLoading(false);
-    },
-    onError: () => setLoading(false),
-  });
-
-  const handleGenerate = () => {
-    setLoading(true);
-    generateMutation.mutate();
+function IntelligencePanel({ data, canRefresh, forceRefreshAllowed, onRefresh, refreshing, onNavigate }: { data: any; canRefresh: boolean; forceRefreshAllowed: boolean; onRefresh: () => void; refreshing: boolean; onNavigate: (kind: DrillKind) => void }) {
+  const insights = data?.insights ?? [];
+  const hasInsights = insights.length > 0;
+  const typeVisual: Record<string, { icon: typeof Lightbulb; className: string }> = {
+    warning: { icon: AlertTriangle, className: "bg-rose-50 border-rose-100 text-rose-800" },
+    opportunity: { icon: Lightbulb, className: "bg-blue-50 border-blue-100 text-blue-800" },
+    coaching: { icon: UserCheck, className: "bg-violet-50 border-violet-100 text-violet-800" },
+    success: { icon: CheckCircle2, className: "bg-emerald-50 border-emerald-100 text-emerald-800" },
+    data_quality: { icon: Database, className: "bg-amber-50 border-amber-100 text-amber-800" },
   };
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base font-semibold">AI-Powered Business Insights</h3>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Analyzes last 30 days of performance data to surface anomalies, opportunities, and coaching recommendations.
-          </p>
+    <Card className="border-primary/15 bg-gradient-to-br from-primary/[0.035] via-background to-teal-50/50">
+      <CardHeader className="pb-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex gap-3">
+            <div className="rounded-xl bg-primary p-2.5 text-primary-foreground"><Brain className="h-5 w-5" /></div>
+            <div>
+              <CardTitle className="text-base">Evidence-grounded intelligence brief</CardTitle>
+              <CardDescription className="mt-1">Generated on first view for an authorized scope, cached by filter scope, refreshed at least weekly, and explicitly linked to evidence rather than treated as a source of truth.</CardDescription>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {data?.generatedAt && <span className="text-xs text-muted-foreground">Generated {relativeAge(data.generatedAt)}</span>}
+            {canRefresh && (!hasInsights || forceRefreshAllowed) && <Button size="sm" variant="outline" onClick={onRefresh} disabled={refreshing}><RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />{refreshing ? "Generating" : hasInsights ? "Refresh now" : "Generate analysis"}</Button>}
+          </div>
         </div>
-        <Button onClick={handleGenerate} disabled={loading} className="gap-2">
-          {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-          {loading ? "Analyzing..." : insights.length > 0 ? "Refresh Insights" : "Generate Insights"}
-        </Button>
-      </div>
-
-      {generatedAt && (
-        <p className="text-xs text-muted-foreground">
-          Last generated: {new Date(generatedAt).toLocaleString()}
-        </p>
-      )}
-
-      {insights.length === 0 && !loading && (
-        <Card className="border-dashed">
-          <CardContent className="py-12 text-center">
-            <Brain className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">No insights generated yet</p>
-            <p className="text-xs text-muted-foreground mt-1">Click "Generate Insights" to analyze your brokerage performance data with AI.</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {insights.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {insights.map((insight: any, i: number) => (
-            <Card key={i} className={`border ${INSIGHT_COLORS[insight.type] ?? ""}`}>
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex-shrink-0">{INSIGHT_ICONS[insight.type] ?? <Lightbulb className="h-4 w-4" />}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-sm">{insight.title}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${PRIORITY_BADGE[insight.priority] ?? ""}`}>
-                        {insight.priority}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-2">{insight.description}</p>
-                    <div className="flex items-start gap-1.5">
-                      <Zap className="h-3 w-3 text-muted-foreground mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-muted-foreground italic">{insight.action}</p>
-                    </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {data?.summary && <p className="rounded-lg border bg-background/70 p-3 text-sm leading-6 text-muted-foreground">{data.summary}</p>}
+        {insights.length === 0 ? <EmptyState title="Preparing the intelligence brief" description={canRefresh ? "This exact, authorized filter scope is being analyzed and then cached for reuse. If it does not appear, use Generate analysis to retry." : "The operational reports below remain available for this authorized scope."} /> : (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {insights.map((insight: any, index: number) => {
+              const visual = typeVisual[insight.type] ?? typeVisual.opportunity;
+              const Icon = visual.icon;
+              return <div key={`${insight.title}-${index}`} className="rounded-xl border bg-background p-4 shadow-sm">
+                <div className="flex gap-3">
+                  <span className={`h-fit rounded-lg border p-2 ${visual.className}`}><Icon className="h-4 w-4" /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{insight.title}</h3><Badge variant={insight.priority === "high" ? "destructive" : "secondary"}>{insight.priority} priority</Badge><span className="text-[11px] text-muted-foreground">{insight.confidence} confidence</span></div>
+                    <p className="mt-2 text-sm leading-5">{insight.observation}</p>
+                    <p className="mt-2 text-sm leading-5 text-muted-foreground"><span className="font-medium text-foreground">Why it may matter: </span>{insight.explanation}</p>
+                    <div className="mt-3 rounded-md bg-muted/45 p-2.5 text-xs"><span className="font-semibold">Owner: </span>{insight.owner}<br /><span className="font-semibold">Next action: </span>{insight.action}</div>
+                    {insight.connectedSignals?.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{insight.connectedSignals.map((signal: string) => <Badge key={signal} variant="outline" className="text-[10px]">{signal}</Badge>)}</div>}
+                    {insight.evidence?.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{insight.evidence.map((evidence: any, evidenceIndex: number) => <button key={`${evidence.label}-${evidenceIndex}`} onClick={() => onNavigate(evidence.drilldown)} className="rounded border bg-muted/20 px-2 py-1 text-left text-[11px] transition-colors hover:border-primary/40 hover:bg-primary/5"><span className="text-muted-foreground">{evidence.label}: </span><span className="font-semibold">{evidence.value}</span><span className="ml-1 text-primary">View</span></button>)}</div>}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+              </div>;
+            })}
+          </div>
+        )}
+        {data?.dataQualityNote && <p className="border-t pt-3 text-xs leading-5 text-muted-foreground"><span className="font-semibold">Confidence note:</span> {data.dataQualityNote}</p>}
+      </CardContent>
+    </Card>
   );
 }
 
-// ─── Overview Tab (enhanced) ──────────────────────────────────────────────────
-function OverviewTab() {
-  const [range, setRange] = useState("ytd");
-  const dates = useDateRange(range);
-  const { data: overview } = trpc.analytics.overview.useQuery();
-  const { data: monthlyRevenue } = trpc.analytics.monthlyRevenue.useQuery({ months: 12 });
-  const { data: pipelineByStatus } = trpc.analytics.pipelineByStatus.useQuery();
-  const { data: txTypes } = trpc.analytics.transactionTypeBreakdown.useQuery(dates);
-
-  const revenueChartData = useMemo(() => (monthlyRevenue ?? []).map((r: any) => ({
-    month: r.month,
-    revenue: Number(r.revenue ?? 0),
-  })), [monthlyRevenue]);
-
-  const pipelineData = useMemo(() => (pipelineByStatus ?? []).map((r: any) => ({
-    name: PIPELINE_LABELS[r.status] ?? r.status,
-    value: Number(r.count ?? 0),
-  })), [pipelineByStatus]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground font-medium">Period:</span>
-        <DateRangeFilter value={range} onChange={setRange} />
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total Contacts" value={overview?.totalContacts ?? 0} icon={<Users className="h-5 w-5" />} />
-        <KpiCard label="Active Pipeline" value={overview?.activePipeline ?? 0} icon={<Activity className="h-5 w-5" />} />
-        <KpiCard label="Closed Deals" value={overview?.closedTransactions ?? 0} icon={<Target className="h-5 w-5" />} />
-        <KpiCard label="Total GCI" value={fmt$(Number(overview?.totalRevenue ?? 0))} icon={<DollarSign className="h-5 w-5" />} />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Monthly Revenue Trend</CardTitle></CardHeader>
-          <CardContent>
-            {revenueChartData.length === 0 ? <EmptyChart message="No revenue data yet" /> : (
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={revenueChartData}>
-                  <defs>
-                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.15} />
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmt$(v)} />
-                  <Tooltip formatter={(v: number) => [fmt$(v), "Revenue"]} />
-                  <Area type="monotone" dataKey="revenue" stroke="#2563eb" fill="url(#revGrad)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Pipeline by Stage</CardTitle></CardHeader>
-          <CardContent>
-            {pipelineData.length === 0 ? <EmptyChart message="No pipeline data yet" /> : (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={pipelineData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                    {pipelineData.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: number) => [v, "Contacts"]} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+function ExecutiveView({ workspace, insights, canRefreshInsights, forceRefreshAllowed, onRefresh, refreshing, openDrill, navigateTo }: { workspace: any; insights: any; canRefreshInsights: boolean; forceRefreshAllowed: boolean; onRefresh: () => void; refreshing: boolean; openDrill: (title: string, description: string, kind: DrillKind, rows: any[]) => void; navigateTo: (kind: DrillKind) => void }) {
+  const summary = workspace.summary;
+  const trend = workspace.trend ?? [];
+  const canSeeFinance = Boolean(workspace.scope?.canSeeFinance);
+  const sourceChart = (workspace.sources ?? []).slice(0, 6).map((source: any) => ({ name: truncate(source.sourceName, 16), gci: Number(source.gci ?? 0), leads: Number(source.leadCount ?? 0) }));
+  return <div className="space-y-6">
+    <SectionHeader title="Executive Scorecard & Attention" description="Start with outcomes, then open the underlying records. Every positive or negative movement must be interpreted with its comparable period and evidence." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label="Closed GCI" value={money(summary.gci, true)} trend={summary.gciTrendPct} icon={DollarSign} accent="teal" onClick={() => openDrill("Closed GCI evidence", "Transactions included in the selected date range and scope.", "transactions", workspace.transactions.rows.filter((row: any) => row.status === "closed"))} />
+      <MetricCard label="Closings" value={integer(summary.closings)} trend={summary.closingsTrendPct} icon={CheckCircle2} accent="blue" onClick={() => openDrill("Closed transactions", "Every transaction supporting the selected closings total.", "transactions", workspace.transactions.rows.filter((row: any) => row.status === "closed"))} />
+      <MetricCard label="Closed volume" value={money(summary.volume, true)} trend={summary.volumeTrendPct} icon={Building2} accent="violet" onClick={() => openDrill("Closed-volume evidence", "Transaction-level records behind the selected volume total.", "transactions", workspace.transactions.rows.filter((row: any) => row.status === "closed"))} />
+      <MetricCard label={canSeeFinance ? "Company dollars" : "Company-dollar detail"} value={canSeeFinance ? money(summary.companyDollars, true) : "Restricted"} note={canSeeFinance ? "Payout items to Savvy STR Agents" : "Payout economics are available only to authorized financial roles."} icon={Wallet} accent="amber" onClick={canSeeFinance ? () => openDrill("Company-dollar evidence", "Payout-based company dollars by transaction. Review payout integrity flags before treating this as finalized economics.", "transactions", workspace.transactions.rows) : undefined} />
     </div>
-  );
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label="Under-contract records" value={integer(summary.underContractCount)} note={`${money(summary.pipelineValue, true)} purchase-price value`} icon={Target} accent="blue" onClick={() => openDrill("Under-contract records", "Current under-contract records in the selected scope; purchase price is not a revenue forecast.", "transactions", workspace.transactions.rows.filter((row: any) => row.status === "under_contract"))} />
+      <MetricCard label="Stalled pipeline" value={integer(workspace.pipeline.stalledCount)} note="Active 14+ days without qualifying activity" icon={AlertTriangle} accent="rose" onClick={() => openDrill("Stalled pipeline", "Active pipeline records with no qualifying activity for at least 14 days.", "pipeline", workspace.pipeline.staleRecords)} />
+      <MetricCard label="Overdue follow-ups" value={integer(workspace.pipeline.overdueFollowUpCount)} note="Active records with an overdue follow-up date" icon={CalendarClock} accent="amber" onClick={() => openDrill("Overdue follow-ups", "Active pipeline records whose recorded follow-up date is in the past.", "pipeline", workspace.pipeline.overdueFollowUps)} />
+      <MetricCard label="Overdue tasks" value={integer(workspace.tasks.overdueCount)} note="Open tasks past their due date" icon={ClipboardCheck} accent="rose" onClick={() => openDrill("Overdue tasks", "Open tasks past their recorded due date.", "tasks", workspace.tasks.overdue)} />
+    </div>
+    <IntelligencePanel data={insights} canRefresh={canRefreshInsights} forceRefreshAllowed={forceRefreshAllowed} onRefresh={onRefresh} refreshing={refreshing} onNavigate={navigateTo} />
+    <div className="grid gap-4 xl:grid-cols-3">
+      <Card className="xl:col-span-2"><CardHeader><CardTitle className="text-base">Closed production trend</CardTitle><CardDescription>Monthly closed GCI and volume. The selection controls the date window; no trend is drawn for records without a closing date.</CardDescription></CardHeader><CardContent>{trend.length === 0 ? <EmptyState title="No closed production in this window" description="Change the period or filters to compare available transaction history." /> : <ResponsiveContainer width="100%" height={300}><AreaChart data={trend}><defs><linearGradient id="gciArea" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#0f766e" stopOpacity={0.34}/><stop offset="95%" stopColor="#0f766e" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="month" tick={{ fontSize: 11 }}/><YAxis tickFormatter={(value) => money(value, true)} tick={{ fontSize: 11 }}/><Tooltip formatter={(value: number) => money(value)} /><Area type="monotone" dataKey="gci" name="Closed GCI" stroke="#0f766e" strokeWidth={2.5} fill="url(#gciArea)" /></AreaChart></ResponsiveContainer>}</CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">Decision context</CardTitle><CardDescription>Distribution of current operating attention.</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-2 gap-3 text-center"><div className="rounded-lg bg-muted/50 p-3"><p className="text-xl font-semibold">{integer(workspace.pipeline.activeCount)}</p><p className="text-xs text-muted-foreground">Active pipeline</p></div><div className="rounded-lg bg-muted/50 p-3"><p className="text-xl font-semibold">{integer(workspace.dataQuality.total)}</p><p className="text-xs text-muted-foreground">Data exceptions</p></div></div><div className="border-t pt-3 text-sm text-muted-foreground"><p><span className="font-medium text-foreground">Average GCI:</span> {money(summary.averageGci)}</p><p className="mt-2"><span className="font-medium text-foreground">Median closed GCI:</span> {money(summary.medianGci)}</p><p className="mt-2 text-xs">Averages are sensitive to a small number of large deals; use the median with the transaction drill-down before judging normal deal size.</p></div></CardContent></Card>
+    </div>
+    <Card><CardHeader><CardTitle className="text-base">Top sources by selected-period closed GCI</CardTitle><CardDescription>Observed yield, not marketing ROI: SavvyOS does not currently store spend or cohort attribution sufficient for return-on-ad-spend claims.</CardDescription></CardHeader><CardContent>{sourceChart.length === 0 ? <EmptyState title="No attributed source outcomes" description="There are no source-attributed closings in the selected scope." /> : <ResponsiveContainer width="100%" height={260}><BarChart data={sourceChart} layout="vertical" margin={{ left: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={false}/><XAxis type="number" tickFormatter={(value) => money(value, true)} tick={{ fontSize: 11 }}/><YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }}/><Tooltip formatter={(value: number) => money(value)} /><Bar dataKey="gci" name="Closed GCI" fill="#2563eb" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer>}</CardContent></Card>
+  </div>;
 }
 
-// ─── Market Performance Tab ───────────────────────────────────────────────────
-function MarketPerformanceTab() {
-  const [, navigate] = useLocation();
-  const { data: markets, isLoading } = trpc.analytics.marketPerformance.useQuery();
-  const { data: monthlyTrend } = trpc.analytics.marketMonthlyTrend.useQuery({ months: 12 });
-
-  const marketList = markets ?? [];
-
-  const trendChartData = useMemo(() => {
-    if (!monthlyTrend) return [];
-    const months = Array.from(new Set((monthlyTrend as any[]).map((r: any) => r.month))).sort();
-    const mNames = Array.from(new Set((monthlyTrend as any[]).map((r: any) => r.marketName)));
-    return months.map(month => {
-      const row: Record<string, string | number> = { month };
-      mNames.forEach(name => {
-        const found = (monthlyTrend as any[]).find((r: any) => r.month === month && r.marketName === name);
-        row[name as string] = found ? Number(found.gci ?? 0) : 0;
-      });
-      return row;
-    });
-  }, [monthlyTrend]);
-
-  const marketNames = useMemo(() => Array.from(new Set((monthlyTrend as any[] ?? []).map((r: any) => r.marketName))), [monthlyTrend]);
-
-  if (isLoading) return <div className="text-sm text-muted-foreground p-4">Loading market data...</div>;
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total Markets" value={marketList.length} />
-        <KpiCard label="Total GCI" value={fmt$(marketList.reduce((s: number, m: any) => s + Number(m.totalGci ?? 0), 0))} />
-        <KpiCard label="Total Deals" value={marketList.reduce((s: number, m: any) => s + Number(m.closedDeals ?? 0), 0)} />
-        <KpiCard label="Total Agents" value={marketList.reduce((s: number, m: any) => s + Number(m.agentCount ?? 0), 0)} />
-      </div>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Market Performance — click a row to drill down</CardTitle></CardHeader>
-        <CardContent>
-          {marketList.length === 0 ? <EmptyChart message="No market data yet" /> : (
-            <div className="space-y-3">
-              {/* Progress bars for markets with goals */}
-              {marketList.some((m: any) => m.annualGciGoal != null) && (
-                <div className="space-y-2 pb-2 border-b">
-                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Annual GCI Goal Progress</p>
-                  {marketList.filter((m: any) => m.annualGciGoal != null).map((m: any) => {
-                    const goal = Number(m.annualGciGoal);
-                    const gci = Number(m.totalGci ?? 0);
-                    const pct = Math.min(Math.round((gci / goal) * 100), 100);
-                    const color = pct >= 100 ? "bg-green-500" : pct >= 70 ? "bg-blue-500" : pct >= 40 ? "bg-amber-500" : "bg-red-400";
-                    return (
-                      <div key={m.marketId} className="space-y-0.5 cursor-pointer" onClick={() => navigate(`/analytics/market/${m.marketId}`)}>
-                        <div className="flex justify-between text-xs">
-                          <span className="font-medium">{m.marketName}</span>
-                          <span className="text-muted-foreground">{pct}% — {fmt$(gci)} / {fmt$(goal)}</span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-xs text-muted-foreground">
-                      <th className="text-left py-2 pr-4 font-medium">Market</th>
-                      <th className="text-right py-2 px-2 font-medium">Agents</th>
-                      <th className="text-right py-2 px-2 font-medium">Closed</th>
-                      <th className="text-right py-2 px-2 font-medium">GCI</th>
-                      <th className="text-right py-2 px-2 font-medium">Goal</th>
-                      <th className="text-right py-2 pl-2 font-medium">Avg Deal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {marketList.map((m: any) => (
-                      <tr
-                        key={m.marketId}
-                        className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
-                        onClick={() => navigate(`/analytics/market/${m.marketId}`)}
-                      >
-                        <td className="py-2 pr-4 font-medium text-primary hover:underline">{m.marketName}</td>
-                        <td className="text-right py-2 px-2">{m.agentCount}</td>
-                        <td className="text-right py-2 px-2">{m.closedDeals}</td>
-                        <td className="text-right py-2 px-2 font-semibold">{fmt$(Number(m.totalGci ?? 0))}</td>
-                        <td className="text-right py-2 px-2 text-muted-foreground">{m.annualGciGoal ? fmt$(Number(m.annualGciGoal)) : "—"}</td>
-                        <td className="text-right py-2 pl-2">{fmt$(Number(m.avgDealSize ?? 0))}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      {trendChartData.length > 0 && marketNames.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Monthly GCI by Market</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={trendChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => fmt$(v)} />
-                <Tooltip formatter={(v: number) => [fmt$(v), ""]} />
-                <Legend />
-                {marketNames.map((name: string, i: number) => (
-                  <Line key={name} type="monotone" dataKey={name} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
+function TransactionsView({ workspace, openDrill, navigate }: { workspace: any; openDrill: (title: string, description: string, kind: DrillKind, rows: any[]) => void; navigate: (path: string) => void }) {
+  const transactions = workspace.transactions;
+  const rows = transactions.rows ?? [];
+  const aggregates = transactions.aggregates ?? {};
+  const canSeeFinance = Boolean(workspace.scope?.canSeeFinance);
+  return <div className="space-y-6">
+    <SectionHeader title="Transactions & Financials" description="This page separates production totals from payout economics. All totals can be opened to their transaction records; payout figures carry integrity context rather than pretending every commission is finalized." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label="Transactions in selection" value={integer(aggregates.count)} note="All statuses included by the selected filter" icon={ListChecks} accent="blue" onClick={() => openDrill("All selected transactions", "The complete transaction register for this reporting selection.", "transactions", rows)} />
+      <MetricCard label="Total GCI" value={money(aggregates.totalGci, true)} note="Sum of transaction GCI" icon={DollarSign} accent="teal" onClick={() => openDrill("GCI transaction register", "Underlying transactions for the total GCI sum.", "transactions", rows)} />
+      <MetricCard label="Average / median GCI" value={`${money(aggregates.averageGci, true)} / ${money(aggregates.medianGci, true)}`} note="Use median to reduce outlier influence" icon={LineChartIcon} accent="violet" onClick={() => openDrill("GCI distribution records", "Transaction-level evidence for the average and median calculations.", "transactions", rows)} />
+      <MetricCard label={canSeeFinance ? "Total company dollars" : "Company-dollar detail"} value={canSeeFinance ? money(aggregates.totalCompanyDollars, true) : "Restricted"} note={canSeeFinance ? "Sum of Savvy payout items" : "Payout economics are available only to authorized financial roles."} icon={Wallet} accent="amber" onClick={canSeeFinance ? () => openDrill("Company-dollar records", "Payout-derived company dollars; inspect flags and transaction details for exceptions.", "transactions", rows) : undefined} />
     </div>
-  );
+    <Card><CardHeader><CardTitle className="text-base">Transaction register</CardTitle><CardDescription>Click a client, agent, or transaction to reach the underlying SavvyOS record. Sorting remains available in the full transaction workspace; this is a linked analytical register.</CardDescription></CardHeader><CardContent>{rows.length === 0 ? <EmptyState title="No transactions match this selection" description="Change the period, status, user, market, or source filter to inspect another set of records." /> : <TableShell><TableHead><th className="px-3 py-2 text-left">Transaction</th><th className="px-3 py-2 text-left">Client</th><th className="px-3 py-2 text-left">Agent</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-right">Price</th><th className="px-3 py-2 text-right">GCI</th>{canSeeFinance && <th className="px-3 py-2 text-right">Company $</th>}<th className="px-3 py-2 text-right">Open</th></TableHead><tbody className="divide-y">{rows.map((row: any) => <tr key={row.id} className="transition-colors hover:bg-muted/35"><td className="px-3 py-3 font-medium"><button className="text-primary hover:underline" onClick={() => navigate(`/transactions/${row.id}`)}>{row.transactionNumber}</button><p className="mt-0.5 text-xs text-muted-foreground">{dateLabel(row.closingDate ?? row.contractDate)}</p></td><td className="px-3 py-3"><button className="text-primary hover:underline" onClick={() => navigate(`/contacts/${row.contactId}`)}>{row.contactName}</button></td><td className="px-3 py-3"><button className="text-primary hover:underline" onClick={() => navigate(`/agents/${row.agentId}`)}>{row.agentName}</button></td><td className="px-3 py-3 text-muted-foreground">{row.sourceName}</td><td className="px-3 py-3"><Badge variant={row.status === "closed" ? "default" : "secondary"}>{row.status.replaceAll("_", " ")}</Badge>{canSeeFinance && row.payoutIntegrityFlag && <Badge variant="destructive" className="ml-1">Payout flag</Badge>}</td><td className="px-3 py-3 text-right">{money(row.purchasePrice)}</td><td className="px-3 py-3 text-right font-medium">{money(row.grossCommissionIncome)}</td>{canSeeFinance && <td className="px-3 py-3 text-right">{money(row.companyDollars)}</td>}<td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/transactions/${row.id}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>)}</tbody></TableShell>}</CardContent></Card>
+  </div>;
 }
 
-// ─── Report Category Definitions ─────────────────────────────────────────────
-type ReportCategory = {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-  adminOnly?: boolean;
-  description: string;
-};
+function SourcesView({ workspace, setLeadSourceId, goTransactions }: { workspace: any; setLeadSourceId: (value: string) => void; goTransactions: () => void }) {
+  const sources = workspace.sources ?? [];
+  const totalLeads = sources.reduce((sum: number, source: any) => sum + Number(source.leadCount ?? 0), 0);
+  const totalGci = sources.reduce((sum: number, source: any) => sum + Number(source.gci ?? 0), 0);
+  return <div className="space-y-6">
+    <SectionHeader title="Lead Sources & Partnerships" description="Use this page to compare observed lead volume, closed production, average deal economics, and attributed yield. It does not call any metric ROI unless SavvyOS has spend and a valid cohort-attribution model." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Attributed leads" value={integer(totalLeads)} note="Contacts created in the selected period" icon={Users} accent="blue" /><MetricCard label="Attributed closed GCI" value={money(totalGci, true)} note="Transactions closed in the selected period" icon={DollarSign} accent="teal" /><MetricCard label="Sources with outcomes" value={integer(sources.filter((source: any) => Number(source.closings) > 0).length)} note="At least one observed closing" icon={CheckCircle2} accent="violet" /><MetricCard label="Unattributed data risk" value={integer(workspace.dataQuality.issues.find((issue: any) => issue.key === "missingSource")?.count)} note="Contacts without a recorded source" icon={AlertTriangle} accent="amber" /></div>
+    <Card><CardHeader><CardTitle className="text-base">Source outcome table</CardTitle><CardDescription>“Observed close yield” is selected-period closings ÷ selected-period leads, shown with an explicit timing limitation. Click a row to apply the source filter and inspect linked transactions.</CardDescription></CardHeader><CardContent>{sources.length === 0 ? <EmptyState title="No source records match this selection" description="Source outcomes will appear when contacts and closed transactions have recorded attribution." /> : <TableShell><TableHead><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-left">Parent</th><th className="px-3 py-2 text-right">Leads</th><th className="px-3 py-2 text-right">Closings</th><th className="px-3 py-2 text-right">Closed GCI</th><th className="px-3 py-2 text-right">GCI / lead</th><th className="px-3 py-2 text-right">Observed yield</th><th className="px-3 py-2 text-right">Explore</th></TableHead><tbody className="divide-y">{sources.map((source: any) => <tr key={source.sourceId ?? source.sourceName} className="cursor-pointer transition-colors hover:bg-muted/35" onClick={() => { if (source.sourceId) { setLeadSourceId(String(source.sourceId)); goTransactions(); } }}><td className="px-3 py-3 font-medium">{source.sourceName}<p className="mt-0.5 max-w-[270px] text-xs font-normal text-muted-foreground">{source.metricWarning}</p></td><td className="px-3 py-3 text-muted-foreground">{source.parentSourceName ?? "—"}</td><td className="px-3 py-3 text-right">{integer(source.leadCount)}</td><td className="px-3 py-3 text-right">{integer(source.closings)}</td><td className="px-3 py-3 text-right font-medium">{money(source.gci)}</td><td className="px-3 py-3 text-right">{source.revenuePerLead === null ? "—" : money(source.revenuePerLead)}</td><td className="px-3 py-3 text-right">{source.observedCloseYield === null ? "—" : percent(source.observedCloseYield)}</td><td className="px-3 py-3 text-right"><ChevronRight className="ml-auto h-4 w-4 text-primary" /></td></tr>)}</tbody></TableShell>}</CardContent></Card>
+  </div>;
+}
 
-const REPORT_CATEGORIES: ReportCategory[] = [
-  { id: "executive", label: "Executive Dashboard", icon: <Building2 className="h-4 w-4" />, description: "KPIs, GCI trend, pipeline overview" },
-  { id: "business", label: "Business Overview", icon: <BarChart2 className="h-4 w-4" />, adminOnly: true, description: "Revenue, volume, closings by period" },
-  { id: "agents", label: "Agent Performance", icon: <Users className="h-4 w-4" />, adminOnly: true, description: "Production, rankings, pipeline by agent" },
-  { id: "groups", label: "Group Performance", icon: <Layers className="h-4 w-4" />, adminOnly: true, description: "Team GCI, volume, member breakdown" },
-  { id: "markets", label: "Market Intelligence", icon: <MapPin className="h-4 w-4" />, adminOnly: true, description: "Market-level GCI, agents, goals" },
-  { id: "commissions", label: "Commissions & Payouts", icon: <Wallet className="h-4 w-4" />, adminOnly: true, description: "Pending, paid, split analysis" },
-  { id: "tasks", label: "Task Analytics", icon: <ListTodo className="h-4 w-4" />, description: "Completion rates, overdue, by assignee" },
-  { id: "isa", label: "ISA & Pipeline", icon: <UserCheck className="h-4 w-4" />, adminOnly: true, description: "ISA performance, pipeline funnel" },
-  { id: "lead-sources", label: "Lead Source ROI", icon: <TrendingUp className="h-4 w-4" />, adminOnly: true, description: "Contact volume, GCI per source" },
-  { id: "onboarding", label: "Onboarding", icon: <UserPlus className="h-4 w-4" />, adminOnly: true, description: "Agent onboarding progress & completion" },
-  { id: "db-health", label: "Database Health", icon: <Database className="h-4 w-4" />, adminOnly: true, description: "Record counts, data quality, duplicates" },
-  { id: "financial-performance", label: "Financial Performance", icon: <DollarSign className="h-4 w-4" />, adminOnly: true, description: "GCI, net commission, company dollars, master metrics table" },
-  // Legacy tabs kept for continuity
-  { id: "funnel", label: "Sales Funnel", icon: <Activity className="h-4 w-4" />, description: "Stage conversion funnel" },
-  { id: "lead-roi", label: "Lead ROI (Legacy)", icon: <DollarSign className="h-4 w-4" />, description: "Legacy lead source ROI view" },
-  { id: "pipeline-health", label: "Pipeline Health", icon: <Activity className="h-4 w-4" />, description: "Pipeline health indicators" },
-  { id: "overview", label: "Overview", icon: <BarChart2 className="h-4 w-4" />, description: "Contact & deal overview" },
-  { id: "ai-insights", label: "AI Insights", icon: <Brain className="h-4 w-4" />, adminOnly: true, description: "AI-powered recommendations" },
-];
+function PipelineView({ workspace, openDrill, navigate }: { workspace: any; openDrill: (title: string, description: string, kind: DrillKind, rows: any[]) => void; navigate: (path: string) => void }) {
+  const pipeline = workspace.pipeline;
+  const funnel = pipeline.funnel ?? [];
+  const pieData = funnel.filter((stage: any) => Number(stage.count) > 0);
+  return <div className="space-y-6">
+    <SectionHeader title="Pipeline & Follow-Up" description="The operating page for active records. It prioritizes dated commitments and aging over dashboard theater, and every exception opens to the associated contact record." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Active pipeline" value={integer(pipeline.activeCount)} note="Excludes closed and dead stages" icon={Activity} accent="blue" onClick={() => openDrill("Active pipeline records", "All active connection records in the selected scope.", "pipeline", pipeline.allRecords.filter((record: any) => !["closed", "dead"].includes(record.stage)))} /><MetricCard label="Stalled 14+ days" value={integer(pipeline.stalledCount)} note="No qualifying activity since the aging date" icon={AlertTriangle} accent="rose" onClick={() => openDrill("Stalled pipeline", "Open these contacts and set a clearly owned next step.", "pipeline", pipeline.staleRecords)} /><MetricCard label="Overdue follow-ups" value={integer(pipeline.overdueFollowUpCount)} note="Follow-up date is past due" icon={CalendarClock} accent="amber" onClick={() => openDrill("Overdue follow-ups", "Contacts with a recorded but overdue follow-up date.", "pipeline", pipeline.overdueFollowUps)} /><MetricCard label="Overdue tasks" value={integer(workspace.tasks.overdueCount)} note="Separate explicit work commitments" icon={ClipboardCheck} accent="rose" onClick={() => openDrill("Overdue tasks", "Open tasks past their due date in the current scope.", "tasks", workspace.tasks.overdue)} /></div>
+    <div className="grid gap-4 xl:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">Pipeline by stage</CardTitle><CardDescription>Current-state counts—not conversion rates. Stage history is not stored sufficiently to claim stage-to-stage conversion timing.</CardDescription></CardHeader><CardContent>{funnel.length === 0 ? <EmptyState title="No pipeline records" description="No connections match the selected filters." /> : <ResponsiveContainer width="100%" height={300}><BarChart data={funnel}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0}/><YAxis allowDecimals={false} tick={{ fontSize: 11 }}/><Tooltip /><Bar dataKey="count" name="Current records" radius={[4, 4, 0, 0]}>{funnel.map((entry: any) => <Cell key={entry.stage} fill={PIPELINE_COLORS[entry.stage] ?? "#64748b"} />)}</Bar></BarChart></ResponsiveContainer>}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">Current stage mix</CardTitle><CardDescription>Use with the action queues to identify where records are concentrating.</CardDescription></CardHeader><CardContent>{pieData.length === 0 ? <EmptyState title="No active stage data" description="No connection records match this selection." /> : <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={pieData} dataKey="count" nameKey="label" outerRadius={92} label={({ label, percent: pct }) => `${label} ${(pct * 100).toFixed(0)}%`}>{pieData.map((entry: any) => <Cell key={entry.stage} fill={PIPELINE_COLORS[entry.stage] ?? "#64748b"} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>}</CardContent></Card></div>
+    <Card><CardHeader><CardTitle className="text-base">Immediate action queue</CardTitle><CardDescription>Records are intentionally not summarized away. Click a contact to open the exact CRM record and resolve the gap.</CardDescription></CardHeader><CardContent>{pipeline.staleRecords.length === 0 && pipeline.overdueFollowUps.length === 0 ? <EmptyState title="No stalled or overdue pipeline exception" description="Continue maintaining dated follow-ups so the system can identify future risks." /> : <TableShell><TableHead><th className="px-3 py-2 text-left">Contact</th><th className="px-3 py-2 text-left">Agent</th><th className="px-3 py-2 text-left">Stage</th><th className="px-3 py-2 text-right">Idle days</th><th className="px-3 py-2 text-left">Follow-up</th><th className="px-3 py-2 text-left">Risk</th><th className="px-3 py-2 text-right">Open</th></TableHead><tbody className="divide-y">{[...pipeline.staleRecords, ...pipeline.overdueFollowUps].filter((row: any, index: number, list: any[]) => list.findIndex((candidate: any) => candidate.connectionId === row.connectionId) === index).slice(0, 75).map((row: any) => <tr key={row.connectionId} className="hover:bg-muted/35"><td className="px-3 py-3"><button className="font-medium text-primary hover:underline" onClick={() => navigate(`/contacts/${row.contactId}`)}>{row.contactName}</button><p className="text-xs text-muted-foreground">{row.sourceName}</p></td><td className="px-3 py-3">{row.agentName}</td><td className="px-3 py-3"><Badge variant="secondary">{row.stageLabel}</Badge></td><td className="px-3 py-3 text-right">{row.ageDays}</td><td className="px-3 py-3">{dateLabel(row.followUpDate)}</td><td className="px-3 py-3"><Badge variant={row.ageDays >= 14 ? "destructive" : "secondary"}>{row.ageDays >= 14 ? "Stalled" : "Follow-up overdue"}</Badge></td><td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/contacts/${row.contactId}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>)}</tbody></TableShell>}</CardContent></Card>
+  </div>;
+}
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+function PeopleView({ workspace, openDrill, navigate }: { workspace: any; openDrill: (title: string, description: string, kind: DrillKind, rows: any[]) => void; navigate: (path: string) => void }) {
+  const people = workspace.people ?? [];
+  const atRisk = people.filter((person: any) => Number(person.execution?.stalledPipeline) > 0 || Number(person.execution?.overdueTasks) > 0 || (person.production?.gciTrendPct ?? 0) < -10);
+  return <div className="space-y-6">
+    <SectionHeader title="People & Execution" description="A coachable, evidence-linked scorecard. This page connects production and trend to current pipeline, tasks, recorded activity, coaching context, onboarding, and goals without asserting that one signal caused another." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="People in current scope" value={integer(people.length)} note="Active people visible to this viewer" icon={Users} accent="blue" onClick={() => openDrill("People in scope", "All active people included in this viewer's authorized analytics scope.", "people", people)} /><MetricCard label="With stalled pipeline" value={integer(people.filter((person: any) => Number(person.execution?.stalledPipeline) > 0).length)} note="Review assigned records before coaching" icon={AlertTriangle} accent="rose" onClick={() => openDrill("People with stalled pipeline", "People with one or more 14+ day inactive pipeline records.", "people", people.filter((person: any) => Number(person.execution?.stalledPipeline) > 0))} /><MetricCard label="Coached in recorded history" value={integer(people.filter((person: any) => person.coaching?.lastCoachingAt).length)} note="Leadership-feedback records only" icon={UserCheck} accent="violet" onClick={() => openDrill("People with coaching history", "People with at least one recorded leadership-feedback entry.", "people", people.filter((person: any) => person.coaching?.lastCoachingAt))} /><MetricCard label="Needs attention" value={integer(atRisk.length)} note="Negative trend, stalled pipeline, or overdue work" icon={Target} accent="amber" onClick={() => openDrill("People needing attention", "These flags initiate review; they do not determine a person's performance or a causal diagnosis.", "people", atRisk)} /></div>
+    <Card><CardHeader><CardTitle className="text-base">Linked person scorecards</CardTitle><CardDescription>Production reflects selected-period closed transactions; prior production is the comparable preceding date window. Recorded activity is communications authored in the selected period and should not be treated as all work performed.</CardDescription></CardHeader><CardContent>{people.length === 0 ? <EmptyState title="No people in scope" description="The current role and filters do not return active people." /> : <TableShell><TableHead><th className="px-3 py-2 text-left">Person</th><th className="px-3 py-2 text-left">Market / role</th><th className="px-3 py-2 text-right">Current GCI</th><th className="px-3 py-2 text-right">Trend</th><th className="px-3 py-2 text-right">Pipeline</th><th className="px-3 py-2 text-right">Work</th><th className="px-3 py-2 text-left">Last coaching</th><th className="px-3 py-2 text-right">Open</th></TableHead><tbody className="divide-y">{people.map((person: any) => <tr key={person.userId} className="transition-colors hover:bg-muted/35"><td className="px-3 py-3"><button className="font-medium text-primary hover:underline" onClick={() => navigate(`/agents/${person.userId}`)}>{person.name}</button><p className="text-xs text-muted-foreground">{person.title ?? ""}</p></td><td className="px-3 py-3"><p className="capitalize">{person.role}</p><p className="text-xs text-muted-foreground">{person.marketName ?? "No market"}</p></td><td className="px-3 py-3 text-right"><p className="font-medium">{money(person.production?.currentGci)}</p><p className="text-xs text-muted-foreground">{integer(person.production?.currentClosings)} closing(s)</p></td><td className="px-3 py-3 text-right"><TrendPill value={person.production?.gciTrendPct} /></td><td className="px-3 py-3 text-right"><p>{integer(person.execution?.activePipeline)} active</p><p className={`text-xs ${Number(person.execution?.stalledPipeline) > 0 ? "text-rose-700" : "text-muted-foreground"}`}>{integer(person.execution?.stalledPipeline)} stalled</p></td><td className="px-3 py-3 text-right"><p>{integer(person.execution?.openTasks)} open</p><p className={`text-xs ${Number(person.execution?.overdueTasks) > 0 ? "text-rose-700" : "text-muted-foreground"}`}>{integer(person.execution?.overdueTasks)} overdue</p></td><td className="px-3 py-3"><p>{dateLabel(person.coaching?.lastCoachingAt)}</p><p className="text-xs text-muted-foreground">{person.coaching?.lastCoachName ? `by ${person.coaching.lastCoachName}` : "No recorded coach"}</p></td><td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => navigate(`/agents/${person.userId}`)}><ExternalLink className="h-3.5 w-3.5" /></Button></td></tr>)}</tbody></TableShell>}</CardContent></Card>
+  </div>;
+}
+
+function GrowthView({ workspace, navigate }: { workspace: any; navigate: (path: string) => void }) {
+  const people = workspace.people ?? [];
+  const growth = workspace.growth;
+  const attainmentRows = growth?.annualGoalCoverage?.attainment ?? [];
+  const onboarding = growth?.onboarding ?? [];
+  const markets = growth?.markets ?? [];
+  return <div className="space-y-6">
+    <SectionHeader title="Growth, Onboarding & Coaching" description="A current-data view of goal coverage, onboarding work, recorded coaching cadence, and market configuration. It avoids inventing recruiting funnel, appointment, or license-status metrics that SavvyOS does not presently store." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Annual GCI goal coverage" value={`${integer(growth?.annualGoalCoverage?.peopleWithAnnualGciTargets)} / ${integer(growth?.annualGoalCoverage?.activePeople)}`} note="People with an annual goal record" icon={Target} accent="teal" /><MetricCard label="In-progress onboarding" value={integer(onboarding.length)} note="Instances / remaining tasks currently recorded" icon={ClipboardCheck} accent="blue" /><MetricCard label="Recorded coaching follow-ups" value={integer(people.filter((person: any) => person.coaching?.nextFollowUpDate).length)} note="Future follow-up date on leadership feedback" icon={UserCheck} accent="violet" /><MetricCard label="Configured markets" value={integer(markets.length)} note="Market-profile records visible to administrators" icon={MapPin} accent="amber" /></div>
+    <div className="grid gap-4 xl:grid-cols-2"><Card><CardHeader><CardTitle className="text-base">Annual goal progress</CardTitle><CardDescription>Annual target attainment uses selected-period closed production against the current-year annual goal. It is not a full-year forecast.</CardDescription></CardHeader><CardContent className="space-y-4">{attainmentRows.length === 0 ? <EmptyState title="No goal records" description="Set annual goals to enable goal-coverage and attainment review." /> : attainmentRows.map((row: any) => <button key={row.userId} onClick={() => navigate(`/agents/${row.userId}`)} className="block w-full rounded-lg border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/25"><div className="flex items-center justify-between gap-3"><div><p className="font-medium">{row.name}</p><p className="text-xs text-muted-foreground">Target {row.gciTarget === null ? "not set" : money(row.gciTarget)}</p></div><span className="font-semibold">{row.gciAttainment === null ? "—" : percent(row.gciAttainment, 0)}</span></div><Progress className="mt-2 h-2" value={Math.max(0, Math.min(100, Number(row.gciAttainment ?? 0) * 100))} /></button>)}</CardContent></Card><Card><CardHeader><CardTitle className="text-base">Onboarding & coaching follow-through</CardTitle><CardDescription>These fields are only as current as the recorded onboarding and leadership-feedback workflows.</CardDescription></CardHeader><CardContent>{onboarding.length === 0 ? <EmptyState title="No active onboarding exception" description="No person in this scope has an in-progress onboarding status or remaining onboarding task." /> : <div className="space-y-2">{onboarding.map((person: any) => <button key={person.userId} onClick={() => navigate(`/agents/${person.userId}`)} className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/25"><div><p className="font-medium">{person.name}</p><p className="text-xs text-muted-foreground">{person.onboarding.status ?? "No status"} · {integer(person.onboarding.remainingTasks)} remaining task(s)</p></div><ChevronRight className="h-4 w-4 text-primary" /></button>)}</div>}</CardContent></Card></div>
+    {markets.length > 0 && <Card><CardHeader><CardTitle className="text-base">Market configuration & readiness</CardTitle><CardDescription>Configuration evidence from existing market and agent-profile records. “Licenses expiring soon” reflects a stored expiration date only; it is not a statement of license validity.</CardDescription></CardHeader><CardContent><TableShell><TableHead><th className="px-3 py-2 text-left">Market</th><th className="px-3 py-2 text-left">Region</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-right">Assigned agents</th><th className="px-3 py-2 text-right">Annual GCI target</th><th className="px-3 py-2 text-right">License dates within 90d</th></TableHead><tbody className="divide-y">{markets.map((market: any) => <tr key={market.id}><td className="px-3 py-3 font-medium">{market.name}<p className="text-xs text-muted-foreground">{market.state}</p></td><td className="px-3 py-3">{market.region ?? "—"}</td><td className="px-3 py-3"><Badge variant="secondary">{market.status}</Badge></td><td className="px-3 py-3 text-right">{integer(market.assignedAgents)}</td><td className="px-3 py-3 text-right">{market.annualGciGoal === null ? "—" : money(market.annualGciGoal)}</td><td className="px-3 py-3 text-right">{integer(market.licensesExpiringSoon)}</td></tr>)}</tbody></TableShell></CardContent></Card>}
+  </div>;
+}
+
+function QualityView({ workspace, openDrill }: { workspace: any; openDrill: (title: string, description: string, kind: DrillKind, rows: any[]) => void }) {
+  const issues = workspace.dataQuality?.issues ?? [];
+  const severityClass: Record<string, string> = { high: "bg-rose-50 text-rose-700 border-rose-100", medium: "bg-amber-50 text-amber-700 border-amber-100", low: "bg-blue-50 text-blue-700 border-blue-100" };
+  return <div className="space-y-6">
+    <SectionHeader title="Data Trust & Administration" description="Report confidence comes from complete records and operational hygiene. These are not vanity scores: each exception is tied to a repair path and its downstream reporting impact." />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Total surfaced exceptions" value={integer(workspace.dataQuality?.total)} note="Sum of current quality and execution exceptions" icon={Database} accent="amber" onClick={() => openDrill("All data-quality exceptions", "Aggregate exception counts currently detected in the selected scope.", "dataQuality", issues)} /><MetricCard label="Financial integrity flags" value={integer(issues.filter((issue: any) => ["missingGci", "payoutIntegrityFlags", "missingPayouts"].includes(issue.key)).reduce((sum: number, issue: any) => sum + Number(issue.count ?? 0), 0))} note="Can change finance interpretation" icon={Wallet} accent="rose" /><MetricCard label="Attribution gaps" value={integer(issues.filter((issue: any) => ["missingSource", "missingContactMethod"].includes(issue.key)).reduce((sum: number, issue: any) => sum + Number(issue.count ?? 0), 0))} note="Limits source-level interpretation" icon={Landmark} accent="amber" /><MetricCard label="Execution gaps" value={integer(issues.filter((issue: any) => ["stalePipeline", "overdueTasks"].includes(issue.key)).reduce((sum: number, issue: any) => sum + Number(issue.count ?? 0), 0))} note="Priority operating work" icon={Activity} accent="blue" /></div>
+    <Card><CardHeader><CardTitle className="text-base">Exception register and repair priorities</CardTitle><CardDescription>Click an issue to open the appropriate record group. Some categories currently support aggregate evidence only; the application preserves that limitation rather than creating an unsupported record list.</CardDescription></CardHeader><CardContent>{issues.length === 0 ? <EmptyState title="No quality exceptions surfaced" description="Continue reviewing data coverage; absence of a detected issue is not proof of complete or accurate data." /> : <div className="divide-y rounded-lg border">{issues.map((issue: any) => <button key={issue.key} className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-muted/30" onClick={() => {
+      const kind = issue.drilldown as DrillKind;
+      const rows = kind === "transactions" ? workspace.transactions.rows : kind === "pipeline" ? workspace.pipeline.staleRecords : kind === "tasks" ? workspace.tasks.overdue : kind === "people" ? workspace.people : kind === "sources" ? workspace.sources : issues;
+      openDrill(issue.label, "Review linked records or the current aggregate evidence and repair the source workflow.", kind, rows);
+    }}><span className={`rounded-lg border px-2 py-1 text-xs font-semibold capitalize ${severityClass[issue.severity] ?? severityClass.low}`}>{issue.severity}</span><div className="min-w-0 flex-1"><p className="font-medium">{issue.label}</p><p className="mt-0.5 text-xs text-muted-foreground">{issue.count > 0 ? "Open evidence and repair the data or operational workflow at the source." : "No current exception in this selection."}</p></div><span className="text-xl font-semibold">{integer(issue.count)}</span><ChevronRight className="h-4 w-4 text-primary" /></button>)}</div>}</CardContent></Card>
+  </div>;
+}
+
 export default function AnalyticsPage() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
   const isAdmin = user?.role === "admin";
-  const [activeCategory, setActiveCategory] = useState("executive");
-  const [globalAgentId, setGlobalAgentId] = useState<number | undefined>(undefined);
-  const { data: agentUsers } = trpc.users.list.useQuery({ role: "agent" }, { enabled: isAdmin });
+  const [view, setView] = useState<ViewId>("scorecard");
+  const [rangePreset, setRangePreset] = useState("ytd");
+  const [dateFrom, setDateFrom] = useState(() => resolvePreset("ytd").dateFrom);
+  const [dateTo, setDateTo] = useState(() => resolvePreset("ytd").dateTo);
+  const [agentId, setAgentId] = useState("all");
+  const [marketId, setMarketId] = useState("all");
+  const [leadSourceId, setLeadSourceId] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [drill, setDrill] = useState<DrillState | null>(null);
+  const autoInsightScopes = useRef(new Set<string>());
 
-  const visibleCategories = REPORT_CATEGORIES.filter((c) => !c.adminOnly || isAdmin);
-  const activeInfo = visibleCategories.find((c) => c.id === activeCategory);
+  const queryInput = useMemo(() => ({
+    dateFrom: dateFrom ? new Date(`${dateFrom}T00:00:00`).toISOString() : undefined,
+    dateTo: dateTo ? new Date(`${dateTo}T23:59:59.999`).toISOString() : undefined,
+    agentId: agentId === "all" ? undefined : Number(agentId),
+    marketProfileId: marketId === "all" ? undefined : Number(marketId),
+    leadSourceId: leadSourceId === "all" ? undefined : Number(leadSourceId),
+    status: status as "all" | "closed" | "under_contract" | "terminated",
+  }), [dateFrom, dateTo, agentId, marketId, leadSourceId, status]);
 
-  return (
-    <div>
-      <PageHeader
-        title="Analytics & Reports"
-        subtitle="Deep business intelligence across agents, groups, markets, commissions, ISA, and more"
-      />
-      <div className="flex gap-6">
-        {/* Left sidebar */}
-        <aside className="w-56 flex-shrink-0">
-          <nav className="space-y-0.5">
-            {visibleCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left ${
-                  activeCategory === cat.id
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                {cat.icon}
-                <span className="truncate">{cat.label}</span>
-              </button>
-            ))}
-          </nav>
-        </aside>
+  const workspaceQuery = trpc.analytics.workspace.useQuery(queryInput, { refetchInterval: 60_000, staleTime: 30_000 });
+  const insightsQuery = trpc.analytics.workspaceInsights.useQuery(queryInput, { refetchInterval: 300_000, staleTime: 60_000 });
+  const refreshInsight = trpc.analytics.refreshWorkspaceInsights.useMutation({
+    onSuccess: () => {
+      utils.analytics.workspaceInsights.invalidate(queryInput);
+    },
+  });
 
-        {/* Main content */}
-        <div className="flex-1 min-w-0">
-          {/* Category header */}
-          {activeInfo && (
-            <div className="mb-4 pb-3 border-b border-border">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-semibold flex items-center gap-2">
-                    {activeInfo.icon}
-                    {activeInfo.label}
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">{activeInfo.description}</p>
-                </div>
-                {(activeCategory === "executive" || activeCategory === "funnel" || activeCategory === "lead-roi" || activeCategory === "pipeline-health") && isAdmin && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Agent:</span>
-                    <Select
-                      value={globalAgentId !== undefined ? String(globalAgentId) : "all"}
-                      onValueChange={(v) => setGlobalAgentId(v === "all" ? undefined : Number(v))}
-                    >
-                      <SelectTrigger className="w-40 h-7 text-xs">
-                        <SelectValue placeholder="All Agents" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Agents</SelectItem>
-                        {(agentUsers ?? []).map((a: any) => (
-                          <SelectItem key={a.id} value={String(a.id)}>
-                            {a.name || `Agent #${a.id}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {globalAgentId !== undefined && (
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setGlobalAgentId(undefined)}>Clear</Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+  const workspace = workspaceQuery.data as any;
+  const canRefreshInsights = Boolean(workspace?.scope?.canRefreshInsights);
+  const insightScopeKey = useMemo(() => JSON.stringify(queryInput), [queryInput]);
 
-          {/* Tab content */}
-          {activeCategory === "executive" && <ExecutiveDashboardTab agentId={globalAgentId} />}
-          {activeCategory === "business" && <BusinessOverviewTab />}
-          {activeCategory === "agents" && <AgentPerformanceTab />}
-          {activeCategory === "groups" && <GroupPerformanceTab />}
-          {activeCategory === "markets" && <MarketIntelligenceTab />}
-          {activeCategory === "commissions" && <CommissionPayoutsTab />}
-          {activeCategory === "tasks" && <TaskAnalyticsTab />}
-          {activeCategory === "isa" && <IsaPipelineTab />}
-          {activeCategory === "lead-sources" && <LeadSourceAnalyticsTab />}
-          {activeCategory === "onboarding" && <OnboardingReportTab />}
-          {activeCategory === "db-health" && <DatabaseHealthTab />}
-          {activeCategory === "financial-performance" && <FinancialPerformanceTab />}
-          {activeCategory === "funnel" && <SalesFunnelTab agentId={globalAgentId} />}
-          {activeCategory === "lead-roi" && <LeadSourceROITab agentId={globalAgentId} />}
-          {activeCategory === "pipeline-health" && <PipelineHealthTab agentId={globalAgentId} />}
-          {activeCategory === "overview" && <OverviewTab />}
-          {activeCategory === "ai-insights" && <AiInsightsTab />}
-        </div>
-      </div>
-    </div>
-  );
+  // A new authorized scope receives one cache-building request on first view.
+  // A ref prevents render/refetch loops; after that, the seven-day cache and
+  // administrator-only forced refresh govern model usage.
+  useEffect(() => {
+    const cached = insightsQuery.data as any;
+    const hasCachedBrief = Boolean(cached?.insights?.length);
+    if (!canRefreshInsights || workspaceQuery.isLoading || insightsQuery.isLoading || refreshInsight.isPending || hasCachedBrief || autoInsightScopes.current.has(insightScopeKey)) return;
+    autoInsightScopes.current.add(insightScopeKey);
+    refreshInsight.mutate({ ...queryInput, force: false });
+  }, [canRefreshInsights, insightScopeKey, insightsQuery.data, insightsQuery.isLoading, queryInput, refreshInsight, workspaceQuery.isLoading]);
+  const activeNav = NAVIGATION.find((item) => item.id === view) ?? NAVIGATION[0];
+  const openDrill = (title: string, description: string, kind: DrillKind, rows: any[]) => setDrill({ title, description, kind, rows });
+  const onPresetChange = (next: string) => {
+    setRangePreset(next);
+    if (next !== "custom") {
+      const range = resolvePreset(next);
+      setDateFrom(range.dateFrom);
+      setDateTo(range.dateTo);
+    }
+  };
+  const navigateEvidence = (kind: DrillKind) => {
+    const pageByKind: Record<DrillKind, ViewId> = { transactions: "transactions", pipeline: "pipeline", tasks: "pipeline", people: "people", sources: "sources", dataQuality: "quality" };
+    setView(pageByKind[kind]);
+  };
+
+  return <div className="space-y-5">
+    <PageHeader title="Analytics & Reporting" subtitle="A linked decision workspace: outcomes → operating evidence → accountable action. Metrics are scope-controlled, filter-aware, and drillable to SavvyOS records." />
+    <Card className="border-primary/15"><CardContent className="p-4"><div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><div className="space-y-1"><Label className="text-xs">Reporting period</Label><Select value={rangePreset} onValueChange={onPresetChange}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ytd">Year to date</SelectItem><SelectItem value="last30">Last 30 days</SelectItem><SelectItem value="last90">Last 90 days</SelectItem><SelectItem value="last12">Last 12 months</SelectItem><SelectItem value="all">All history</SelectItem><SelectItem value="custom">Custom dates</SelectItem></SelectContent></Select></div><div className="space-y-1"><Label className="text-xs">From</Label><Input type="date" value={dateFrom} onChange={(event) => { setRangePreset("custom"); setDateFrom(event.target.value); }} className="h-9" /></div><div className="space-y-1"><Label className="text-xs">To</Label><Input type="date" value={dateTo} onChange={(event) => { setRangePreset("custom"); setDateTo(event.target.value); }} className="h-9" /></div><div className="space-y-1"><Label className="text-xs">Person</Label><Select value={agentId} onValueChange={setAgentId}><SelectTrigger className="h-9"><SelectValue placeholder="All visible people" /></SelectTrigger><SelectContent><SelectItem value="all">All visible people</SelectItem>{(workspace?.availableFilters?.agents ?? []).map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1"><Label className="text-xs">Market</Label><Select value={marketId} onValueChange={setMarketId} disabled={!isAdmin}><SelectTrigger className="h-9"><SelectValue placeholder="All visible markets" /></SelectTrigger><SelectContent><SelectItem value="all">All visible markets</SelectItem>{(workspace?.availableFilters?.markets ?? []).map((market: any) => <SelectItem key={market.id} value={String(market.id)}>{market.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1"><Label className="text-xs">Source / status</Label><div className="flex gap-1"><Select value={leadSourceId} onValueChange={setLeadSourceId}><SelectTrigger className="h-9 min-w-0 flex-1"><SelectValue placeholder="Source" /></SelectTrigger><SelectContent><SelectItem value="all">All sources</SelectItem>{(workspace?.availableFilters?.sources ?? []).map((source: any) => <SelectItem key={source.id} value={String(source.id)}>{source.name}</SelectItem>)}</SelectContent></Select><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-[105px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="closed">Closed</SelectItem><SelectItem value="under_contract">Under contract</SelectItem><SelectItem value="terminated">Terminated</SelectItem></SelectContent></Select></div></div></div><Button variant="outline" className="self-start xl:self-auto" onClick={() => { setRangePreset("ytd"); const range = resolvePreset("ytd"); setDateFrom(range.dateFrom); setDateTo(range.dateTo); setAgentId("all"); setMarketId("all"); setLeadSourceId("all"); setStatus("all"); }}><Filter className="mr-1.5 h-4 w-4" />Reset</Button></div><p className="mt-3 text-xs text-muted-foreground">{workspace?.scope?.label ?? "Loading authorized scope…"} · Filters narrow this viewer’s authorized scope; they never expand access. Financial payout detail is controlled by role.</p></CardContent></Card>
+    {workspaceQuery.isLoading ? <div className="grid min-h-80 place-items-center rounded-xl border bg-muted/20"><div className="text-center"><RefreshCw className="mx-auto h-6 w-6 animate-spin text-primary" /><p className="mt-3 text-sm text-muted-foreground">Building the connected analytics workspace…</p></div></div> : workspaceQuery.error ? <Card className="border-rose-200"><CardContent className="p-6"><div className="flex gap-3"><AlertTriangle className="h-5 w-5 text-rose-600" /><div><p className="font-semibold">Analytics workspace could not be loaded.</p><p className="mt-1 text-sm text-muted-foreground">{workspaceQuery.error.message}</p><Button className="mt-3" size="sm" onClick={() => workspaceQuery.refetch()}>Try again</Button></div></div></CardContent></Card> : workspace && <div className="flex flex-col gap-5 2xl:flex-row"><aside className="2xl:w-64 2xl:shrink-0"><nav className="grid gap-1 sm:grid-cols-2 lg:grid-cols-4 2xl:block">{NAVIGATION.map((item) => { const Icon = item.icon; const active = item.id === view; return <button key={item.id} onClick={() => setView(item.id)} className={`rounded-lg p-3 text-left transition-colors 2xl:mb-1 2xl:w-full ${active ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted"}`}><div className="flex items-center gap-2"><Icon className="h-4 w-4" /><span className="text-sm font-medium 2xl:hidden">{item.shortLabel}</span><span className="hidden text-sm font-medium 2xl:block">{item.shortLabel}</span></div><p className={`mt-1 hidden text-xs leading-4 2xl:block ${active ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{item.description}</p></button>; })}</nav></aside><main className="min-w-0 flex-1"><div className="mb-5 border-b pb-4"><div className="flex items-start gap-3"><span className="rounded-lg bg-primary/10 p-2 text-primary"><activeNav.icon className="h-5 w-5" /></span><div><h1 className="text-xl font-semibold tracking-tight">{activeNav.label}</h1><p className="mt-1 text-sm text-muted-foreground">{activeNav.description}</p></div></div></div>{view === "scorecard" && <ExecutiveView workspace={workspace} insights={insightsQuery.data} canRefreshInsights={canRefreshInsights} forceRefreshAllowed={isAdmin} onRefresh={() => refreshInsight.mutate({ ...queryInput, force: isAdmin })} refreshing={refreshInsight.isPending} openDrill={openDrill} navigateTo={navigateEvidence} />}{view === "transactions" && <TransactionsView workspace={workspace} openDrill={openDrill} navigate={navigate} />}{view === "sources" && <SourcesView workspace={workspace} setLeadSourceId={setLeadSourceId} goTransactions={() => setView("transactions")} />}{view === "pipeline" && <PipelineView workspace={workspace} openDrill={openDrill} navigate={navigate} />}{view === "people" && <PeopleView workspace={workspace} openDrill={openDrill} navigate={navigate} />}{view === "growth" && <GrowthView workspace={workspace} navigate={navigate} />}{view === "quality" && <QualityView workspace={workspace} openDrill={openDrill} />}</main></div>}
+    <DrilldownDialog drill={drill} onClose={() => setDrill(null)} navigate={navigate} />
+  </div>;
 }
