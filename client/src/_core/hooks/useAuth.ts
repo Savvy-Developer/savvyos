@@ -15,7 +15,11 @@ export function useAuth(options?: UseAuthOptions) {
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
-    refetchOnWindowFocus: false,
+    // Re-check auth state on window focus so session status stays accurate
+    // after a deploy or long idle period. The global QueryClient default also
+    // sets refetchOnWindowFocus: true, but we're explicit here for clarity.
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({

@@ -2,6 +2,13 @@ import { z } from "zod";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 
+// Stamped at server startup. Railway injects RAILWAY_GIT_COMMIT_SHA at
+// runtime; we fall back to a timestamp so local dev still gets a unique id.
+const BUILD_ID =
+  process.env.RAILWAY_GIT_COMMIT_SHA ??
+  process.env.RAILWAY_DEPLOYMENT_ID ??
+  String(Date.now());
+
 export const systemRouter = router({
   health: publicProcedure
     .input(
@@ -11,6 +18,7 @@ export const systemRouter = router({
     )
     .query(() => ({
       ok: true,
+      buildId: BUILD_ID,
     })),
 
   notifyOwner: adminProcedure
