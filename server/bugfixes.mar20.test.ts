@@ -3,27 +3,21 @@ import { readFileSync } from "fs";
 
 // ─── Bug Fix Tests: March 20 ──────────────────────────────────────────────────
 
-describe("ISA Performance Tab — React hooks order (fix for React error #310)", () => {
-  it("stageBarData useMemo is placed before the isLoading early return", () => {
+describe("ISA coverage dashboard — stable render contract", () => {
+  it("uses the rebuilt ISA coverage component instead of the removed legacy tab", () => {
     const content = readFileSync("client/src/pages/AnalyticsPage.tsx", "utf-8");
-    const isaTabStart = content.indexOf("function IsaPerformanceTab()");
-    expect(isaTabStart).toBeGreaterThan(-1);
-    const section = content.slice(isaTabStart, isaTabStart + 2000);
-    const useMemoPos = section.indexOf("const stageBarData = useMemo");
-    const earlyReturnPos = section.indexOf("if (isLoading) return");
-    expect(useMemoPos).toBeGreaterThan(-1);
-    expect(earlyReturnPos).toBeGreaterThan(-1);
-    expect(useMemoPos).toBeLessThan(earlyReturnPos);
+    expect(content).toContain("function IsaDashboard");
+    expect(content).not.toContain("function IsaPerformanceTab()");
   });
 
-  it("isaNames useMemo is placed before the isLoading early return", () => {
+  it("renders assignment coverage and ISA-book data without component-local conditional hooks", () => {
     const content = readFileSync("client/src/pages/AnalyticsPage.tsx", "utf-8");
-    const isaTabStart = content.indexOf("function IsaPerformanceTab()");
-    const section = content.slice(isaTabStart, isaTabStart + 2000);
-    const isaNamesMemoPos = section.indexOf("const isaNames = useMemo");
-    const earlyReturnPos = section.indexOf("if (isLoading) return");
-    expect(isaNamesMemoPos).toBeGreaterThan(-1);
-    expect(isaNamesMemoPos).toBeLessThan(earlyReturnPos);
+    const start = content.indexOf("function IsaDashboard");
+    const end = content.indexOf("function MarketsDashboard", start);
+    const section = content.slice(start, end);
+    expect(section).toContain("assignmentCoverage");
+    expect(section).toContain("isaBooks");
+    expect(section).not.toMatch(/use(?:Memo|State|Effect)\(/);
   });
 });
 

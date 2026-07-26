@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -471,7 +471,7 @@ const calcGci = (price: string, rate: string, type: "percentage" | "flat"): stri
 };
 
 export default function TransactionsPage() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
 
@@ -597,6 +597,44 @@ export default function TransactionsPage() {
   const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
+  const appliedAnalyticsLink = useRef<string | null>(null);
+
+  // Analytics uses this small, explicit URL contract to send users to the
+  // canonical operational Transactions page. The URL is intentionally applied
+  // once per distinct link so subsequent local filter changes remain under the
+  // user’s control and no navigation/render loop is introduced.
+  useEffect(() => {
+    const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : "";
+    const params = new URLSearchParams(query);
+    if (params.get("analytics") !== "1" || appliedAnalyticsLink.current === query) return;
+
+    const date = (key: string) => {
+      const value = params.get(key) ?? "";
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+    };
+    const identifier = (key: string) => {
+      const value = params.get(key) ?? "";
+      return /^\d+$/.test(value) ? value : "all";
+    };
+    const nextStatus = params.get("status") ?? "all";
+    const permittedStatuses = ["all", "closed", "under_contract", "terminated"];
+    const nextClosingFrom = date("closingDateFrom");
+    const nextClosingTo = date("closingDateTo");
+    const nextContractFrom = date("contractDateFrom");
+    const nextContractTo = date("contractDateTo");
+
+    setStatusFilter(permittedStatuses.includes(nextStatus) ? nextStatus : "all");
+    setMarketFilter(identifier("marketId"));
+    setAgentFilter(identifier("agentId"));
+    setLeadSourceFilter(identifier("leadSourceId"));
+    setClosingDateFrom(nextClosingFrom);
+    setClosingDateTo(nextClosingTo);
+    setContractDateFrom(nextContractFrom);
+    setContractDateTo(nextContractTo);
+    setShowDateFilters(Boolean(nextClosingFrom || nextClosingTo || nextContractFrom || nextContractTo));
+    setTxPage(1);
+    appliedAnalyticsLink.current = query;
+  }, [location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage]);
 
   function handleColumnSort(col: string) {
     if (sortColumn === col) {

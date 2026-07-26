@@ -69,6 +69,47 @@ export type AnalyticsInsightPayload = {
   insights: AnalyticsInsight[];
 };
 
+type TransactionDistribution = {
+  count: number;
+  totalGci: number;
+  totalVolume: number;
+  averageGci: number;
+  medianGci: number | null;
+  averageVolume: number;
+  medianVolume: number | null;
+};
+
+type CanonicalTransactionMetrics = {
+  definitionVersion: "transactions-v1";
+  snapshot: {
+    asOf: string;
+    underContractCount: number;
+    underContractVolume: number;
+    underContractGci: number;
+    missingExpectedCloseDateCount: number;
+    pastExpectedCloseDateCount: number;
+  };
+  flow: TransactionDistribution & {
+    dateField: "closingDate";
+    dateFrom: string;
+    dateTo: string;
+    prior: TransactionDistribution;
+  };
+  forecast: Array<{
+    bucket: "overdue" | "next_30" | "days_31_60" | "days_61_90" | "days_91_plus" | "missing_expected_close";
+    count: number;
+    volume: number;
+    gci: number;
+  }>;
+  reconciliation: {
+    sourcePage: "Transactions";
+    sourcePageStatus: "under_contract";
+    canonicalCount: number;
+    analyticsCount: number;
+    status: "pass" | "mismatch";
+  };
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_MS = 7 * DAY_MS;
 const CACHE_STALE_RUN_MS = 15 * 60 * 1000;
@@ -137,7 +178,10 @@ function quoteColumn(alias: string, column: string): SQL {
 }
 
 function numericListClause(alias: string, column: string, values?: number[]): SQL | undefined {
-  if (!values || values.length === 0) return undefined;
+  // `undefined` means no portfolio restriction (company scope). An explicit
+  // empty list means the viewer has no authorized records and must resolve to
+  // zero rows, never to the company-wide default.
+  if (values === undefined) return undefined;
   const unique = Array.from(new Set(values.filter((id) => Number.isInteger(id) && id > 0)));
   if (!unique.length) return sql`1 = 0`;
   return sql`${quoteColumn(alias, column)} IN (${sql.join(unique.map((id) => sql`${id}`), sql`, `)})`;
@@ -148,13 +192,20 @@ function combineWhere(clauses: Array<SQL | undefined>): SQL {
   return usable.length ? sql`WHERE ${sql.join(usable, sql` AND `)}` : sql``;
 }
 
-async function runRows<T extends Row = Row>(query: SQL): Promise<T[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const result = await (db as any).execute(query);
+function rowsFromResult<T extends Row = Row>(result: unknown): T[] {
   if (Array.isArray(result) && Array.isArray(result[0])) return result[0] as T[];
   if (Array.isArray(result)) return result as T[];
   return [];
+}
+
+async function runRowsWith<T extends Row = Row>(executor: { execute: (query: SQL) => Promise<unknown> }, query: SQL): Promise<T[]> {
+  return rowsFromResult<T>(await executor.execute(query));
+}
+
+async function runRows<T extends Row = Row>(query: SQL): Promise<T[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return runRowsWith<T>(db as unknown as { execute: (query: SQL) => Promise<unknown> }, query);
 }
 
 async function resolveScope(viewer: AnalyticsViewer, requested: AnalyticsFilters): Promise<AnalyticsScope> {
@@ -180,17 +231,10 @@ async function resolveScope(viewer: AnalyticsViewer, requested: AnalyticsFilters
     label = "Assigned agent portfolios";
   }
 
-  if (requested.marketProfileId) {
-    const marketRows = await runRows<{ agentId: number }>(sql`
-      SELECT \`agentId\` AS agentId
-      FROM \`market_agent_assignments\`
-      WHERE \`marketProfileId\` = ${requested.marketProfileId}
-    `);
-    const marketAgentIds = marketRows.map((row) => asNumber(row.agentId));
-    agentIds = agentIds === undefined
-      ? marketAgentIds
-      : agentIds.filter((id) => marketAgentIds.includes(id));
-  }
+  // Market filtering is applied by the same owner-market condition used by the
+  // Transactions source page (`users.marketProfileId`). Do not first convert a
+  // market into assignment records: that would create a second, narrower market
+  // definition and make the analytics count disagree with Transactions.
 
   if (requested.agentId) {
     if (agentIds !== undefined && !agentIds.includes(requested.agentId)) {
@@ -208,7 +252,7 @@ async function resolveScope(viewer: AnalyticsViewer, requested: AnalyticsFilters
     viewerId: viewer.id,
     agentIds,
     isaId,
-    canSeeFinance: viewer.role === "admin" || viewer.role === "agent",
+    canSeeFinance: viewer.role === "admin" || viewer.role === "agent_support",
     // Every authenticated viewer may generate a cached brief only for the
     // server-enforced scope above. Forced regeneration remains admin-only in
     // the router so routine views reuse their seven-day cache.
@@ -217,16 +261,45 @@ async function resolveScope(viewer: AnalyticsViewer, requested: AnalyticsFilters
   };
 }
 
-function transactionWhere(filters: AnalyticsFilters, scope: AnalyticsScope, range = filters): SQL {
-  const effectiveStatus = filters.status && filters.status !== "all" ? filters.status : undefined;
-  return combineWhere([
+function transactionScopeClauses(filters: AnalyticsFilters, scope: AnalyticsScope): Array<SQL | undefined> {
+  return [
     numericListClause("t", "agentId", scope.agentIds),
     scope.isaId ? sql`${quoteColumn("c", "assignedIsaId")} = ${scope.isaId}` : undefined,
     filters.marketProfileId ? sql`${quoteColumn("u", "marketProfileId")} = ${filters.marketProfileId}` : undefined,
     filters.leadSourceId ? sql`${quoteColumn("c", "leadSourceId")} = ${filters.leadSourceId}` : undefined,
-    effectiveStatus ? sql`${quoteColumn("t", "status")} = ${effectiveStatus}` : undefined,
-    range.dateFrom ? sql`COALESCE(${quoteColumn("t", "closingDate")}, ${quoteColumn("t", "contractDate")}, ${quoteColumn("t", "createdAt")}) >= ${range.dateFrom}` : undefined,
-    range.dateTo ? sql`COALESCE(${quoteColumn("t", "closingDate")}, ${quoteColumn("t", "contractDate")}, ${quoteColumn("t", "createdAt")}) <= ${range.dateTo}` : undefined,
+  ];
+}
+
+/**
+ * Transaction definitions are intentionally explicit. A status snapshot has no
+ * reporting-period predicate; a closed-flow metric has only a closing-date
+ * predicate; and a contract-flow metric has only a contract-date predicate.
+ * This is the same separation exposed by the Transactions source page.
+ */
+function transactionSnapshotWhere(filters: AnalyticsFilters, scope: AnalyticsScope, status: "under_contract" | "terminated"): SQL {
+  return combineWhere([
+    ...transactionScopeClauses(filters, scope),
+    sql`${quoteColumn("t", "status")} = ${status}`,
+  ]);
+}
+
+function closedFlowWhere(filters: AnalyticsFilters, scope: AnalyticsScope, range = filters): SQL {
+  return combineWhere([
+    ...transactionScopeClauses(filters, scope),
+    sql`${quoteColumn("t", "status")} = ${"closed"}`,
+    sql`${quoteColumn("t", "closingDate")} IS NOT NULL`,
+    range.dateFrom ? sql`${quoteColumn("t", "closingDate")} >= ${range.dateFrom}` : undefined,
+    range.dateTo ? sql`${quoteColumn("t", "closingDate")} <= ${range.dateTo}` : undefined,
+  ]);
+}
+
+function contractFlowWhere(filters: AnalyticsFilters, scope: AnalyticsScope, range = filters): SQL {
+  return combineWhere([
+    ...transactionScopeClauses(filters, scope),
+    sql`${quoteColumn("t", "status")} = ${"under_contract"}`,
+    sql`${quoteColumn("t", "contractDate")} IS NOT NULL`,
+    range.dateFrom ? sql`${quoteColumn("t", "contractDate")} >= ${range.dateFrom}` : undefined,
+    range.dateTo ? sql`${quoteColumn("t", "contractDate")} <= ${range.dateTo}` : undefined,
   ]);
 }
 
@@ -238,6 +311,16 @@ function connectionWhere(filters: AnalyticsFilters, scope: AnalyticsScope): SQL 
     filters.leadSourceId ? sql`${quoteColumn("c", "leadSourceId")} = ${filters.leadSourceId}` : undefined,
     filters.dateFrom ? sql`${quoteColumn("ac", "createdAt")} >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`${quoteColumn("ac", "createdAt")} <= ${filters.dateTo}` : undefined,
+  ]);
+}
+
+function activePipelineSnapshotWhere(filters: AnalyticsFilters, scope: AnalyticsScope): SQL {
+  return combineWhere([
+    numericListClause("ac", "agentId", scope.agentIds),
+    scope.isaId ? sql`${quoteColumn("c", "assignedIsaId")} = ${scope.isaId}` : undefined,
+    filters.marketProfileId ? sql`${quoteColumn("u", "marketProfileId")} = ${filters.marketProfileId}` : undefined,
+    filters.leadSourceId ? sql`${quoteColumn("c", "leadSourceId")} = ${filters.leadSourceId}` : undefined,
+    sql`${quoteColumn("ac", "pipelineStatus")} NOT IN ('closed', 'dead')`,
   ]);
 }
 
@@ -255,6 +338,12 @@ function contactWhere(filters: AnalyticsFilters, scope: AnalyticsScope): SQL {
   return combineWhere([
     agentContactScope,
     scope.isaId ? sql`${quoteColumn("c", "assignedIsaId")} = ${scope.isaId}` : undefined,
+    filters.marketProfileId ? sql`EXISTS (
+      SELECT 1 FROM \`agent_connections\` ac_market
+      INNER JOIN \`users\` u_market ON u_market.\`id\` = ac_market.\`agentId\`
+      WHERE ac_market.\`contactId\` = c.\`id\`
+        AND u_market.\`marketProfileId\` = ${filters.marketProfileId}
+    )` : undefined,
     filters.leadSourceId ? sql`${quoteColumn("c", "leadSourceId")} = ${filters.leadSourceId}` : undefined,
     filters.dateFrom ? sql`${quoteColumn("c", "createdAt")} >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`${quoteColumn("c", "createdAt")} <= ${filters.dateTo}` : undefined,
@@ -266,6 +355,11 @@ function taskWhere(filters: AnalyticsFilters, scope: AnalyticsScope): SQL {
   const taskOwnerIds = scope.isaId ? [scope.isaId] : scope.agentIds;
   return combineWhere([
     numericListClause("tk", "assignedToId", taskOwnerIds),
+    filters.marketProfileId ? sql`EXISTS (
+      SELECT 1 FROM \`users\` task_owner
+      WHERE task_owner.\`id\` = tk.\`assignedToId\`
+        AND task_owner.\`marketProfileId\` = ${filters.marketProfileId}
+    )` : undefined,
     filters.dateFrom ? sql`COALESCE(${quoteColumn("tk", "completedAt")}, ${quoteColumn("tk", "dueDate")}, ${quoteColumn("tk", "createdAt")}) >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`COALESCE(${quoteColumn("tk", "completedAt")}, ${quoteColumn("tk", "dueDate")}, ${quoteColumn("tk", "createdAt")}) <= ${filters.dateTo}` : undefined,
   ]);
@@ -279,7 +373,6 @@ function normalizeTransaction(row: Row, includePayouts: boolean) {
     type: String(row.transactionType ?? "unknown"),
     contractDate: toIso(row.contractDate),
     closingDate: toIso(row.closingDate),
-    amountDate: toIso(row.amountDate),
     purchasePrice: asNumber(row.purchasePrice),
     grossCommissionIncome: asNumber(row.grossCommissionIncome),
     // Payout-derived economics are deliberately omitted from data payloads for
@@ -314,7 +407,14 @@ function calculateTransactionAggregates(rows: ReturnType<typeof normalizeTransac
 }
 
 async function getTransactions(filters: AnalyticsFilters, scope: AnalyticsScope) {
-  const where = transactionWhere(filters, scope);
+  // Evidence rows use one transparent metric definition at a time. In the
+  // default state we surface closed-flow evidence because it is the date-bound
+  // production dataset; under-contract and terminated states are snapshots.
+  const where = filters.status === "under_contract"
+    ? transactionSnapshotWhere(filters, scope, "under_contract")
+    : filters.status === "terminated"
+      ? transactionSnapshotWhere(filters, scope, "terminated")
+      : closedFlowWhere(filters, scope);
   const rows = await runRows(sql`
     SELECT
       t.\`id\` AS id,
@@ -323,7 +423,6 @@ async function getTransactions(filters: AnalyticsFilters, scope: AnalyticsScope)
       t.\`transactionType\` AS transactionType,
       t.\`contractDate\` AS contractDate,
       t.\`closingDate\` AS closingDate,
-      COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`) AS amountDate,
       t.\`purchasePrice\` AS purchasePrice,
       t.\`grossCommissionIncome\` AS grossCommissionIncome,
       t.\`payoutIntegrityFlag\` AS payoutIntegrityFlag,
@@ -350,17 +449,165 @@ async function getTransactions(filters: AnalyticsFilters, scope: AnalyticsScope)
       GROUP BY \`transactionId\`
     ) pay ON pay.\`transactionId\` = t.\`id\`
     ${where}
-    ORDER BY COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`) DESC
-    LIMIT ${MAX_RECORDS}
+    ORDER BY t.\`closingDate\` DESC, t.\`contractDate\` DESC, t.\`createdAt\` DESC
   `);
 
   const normalized = rows.map((row) => normalizeTransaction(row, scope.canSeeFinance));
   return { rows: normalized, aggregates: calculateTransactionAggregates(normalized) };
 }
 
+type CanonicalMetricRow = {
+  id: unknown;
+  closingDate: unknown;
+  purchasePrice: unknown;
+  grossCommissionIncome: unknown;
+};
+
+function summarizeCanonicalRows(rows: CanonicalMetricRow[]): TransactionDistribution {
+  const gci = rows.map((row) => asNumber(row.grossCommissionIncome));
+  const volume = rows.map((row) => asNumber(row.purchasePrice));
+  const count = rows.length;
+  const totalGci = gci.reduce((sum, value) => sum + value, 0);
+  const totalVolume = volume.reduce((sum, value) => sum + value, 0);
+  return {
+    count,
+    totalGci,
+    totalVolume,
+    averageGci: count ? totalGci / count : 0,
+    medianGci: median(gci),
+    averageVolume: count ? totalVolume / count : 0,
+    medianVolume: median(volume),
+  };
+}
+
+async function getCanonicalTransactionMetrics(filters: AnalyticsFilters, scope: AnalyticsScope): Promise<CanonicalTransactionMetrics> {
+  // Snapshot: every current under-contract transaction in the authorized scope.
+  // It intentionally ignores the reporting-period flow range because a current
+  // inventory snapshot is not a historical closing/contract-date measure.
+  const snapshotWhere = transactionSnapshotWhere(filters, scope, "under_contract");
+  // Keep a separate COUNT path for reconciliation. Both reads execute in one
+  // database transaction so the indicator compares the same data snapshot,
+  // rather than two requests that can diverge while records are being updated.
+  const snapshotRowsQuery = sql`
+    SELECT t.\`id\` AS id, t.\`closingDate\` AS closingDate,
+           t.\`purchasePrice\` AS purchasePrice,
+           t.\`grossCommissionIncome\` AS grossCommissionIncome
+    FROM \`transactions\` t
+    LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+    LEFT JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+    ${snapshotWhere}
+  `;
+  const sourcePageCountQuery = sql`
+    SELECT COUNT(*) AS count
+    FROM \`transactions\` t
+    LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+    LEFT JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+    ${snapshotWhere}
+  `;
+  const db = await getDb();
+  const [snapshotRows, sourcePageCountRows] = db
+    ? await (db as any).transaction(async (tx: { execute: (query: SQL) => Promise<unknown> }) => {
+        const rows = await runRowsWith<CanonicalMetricRow>(tx, snapshotRowsQuery);
+        const countRows = await runRowsWith<{ count: unknown }>(tx, sourcePageCountQuery);
+        return [rows, countRows] as [CanonicalMetricRow[], Array<{ count: unknown }>];
+      })
+    : [[], []] as [CanonicalMetricRow[], Array<{ count: unknown }>];
+  const sourcePageCount = asNumber(sourcePageCountRows[0]?.count);
+
+  // Flow: closed transactions measured only by the actual closing date. This
+  // remains comparable across selected and prior periods and never mixes
+  // contract, creation, and closing dates in one metric.
+  const getClosedFlowRows = async (range: { dateFrom?: Date; dateTo?: Date }) => {
+    const where = combineWhere([
+      ...transactionScopeClauses(filters, scope),
+      sql`${quoteColumn("t", "status")} = ${"closed"}`,
+      sql`${quoteColumn("t", "closingDate")} IS NOT NULL`,
+      range.dateFrom ? sql`${quoteColumn("t", "closingDate")} >= ${range.dateFrom}` : undefined,
+      range.dateTo ? sql`${quoteColumn("t", "closingDate")} <= ${range.dateTo}` : undefined,
+    ]);
+    return runRows<CanonicalMetricRow>(sql`
+      SELECT t.\`id\` AS id, t.\`closingDate\` AS closingDate,
+             t.\`purchasePrice\` AS purchasePrice,
+             t.\`grossCommissionIncome\` AS grossCommissionIncome
+      FROM \`transactions\` t
+      LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+      LEFT JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+      ${where}
+    `);
+  };
+
+  const priorRange = previousRange(filters);
+  const [flowRows, priorRows] = await Promise.all([
+    getClosedFlowRows(filters),
+    getClosedFlowRows(priorRange),
+  ]);
+  const flow = summarizeCanonicalRows(flowRows);
+  const prior = summarizeCanonicalRows(priorRows);
+
+  const today = new Date();
+  const horizon30 = new Date(today.getTime() + 30 * DAY_MS);
+  const horizon60 = new Date(today.getTime() + 60 * DAY_MS);
+  const horizon90 = new Date(today.getTime() + 90 * DAY_MS);
+  const buckets: CanonicalTransactionMetrics["forecast"] = [
+    "overdue", "next_30", "days_31_60", "days_61_90", "days_91_plus", "missing_expected_close",
+  ].map((bucket) => ({ bucket, count: 0, volume: 0, gci: 0 } as CanonicalTransactionMetrics["forecast"][number]));
+  const bucketFor = (closingDate: unknown): CanonicalTransactionMetrics["forecast"][number]["bucket"] => {
+    const parsed = asDate(closingDate);
+    if (!parsed) return "missing_expected_close";
+    if (parsed.getTime() < today.getTime()) return "overdue";
+    if (parsed.getTime() <= horizon30.getTime()) return "next_30";
+    if (parsed.getTime() <= horizon60.getTime()) return "days_31_60";
+    if (parsed.getTime() <= horizon90.getTime()) return "days_61_90";
+    return "days_91_plus";
+  };
+  for (const row of snapshotRows) {
+    const bucket = buckets.find((candidate) => candidate.bucket === bucketFor(row.closingDate));
+    if (!bucket) continue;
+    bucket.count += 1;
+    bucket.volume += asNumber(row.purchasePrice);
+    bucket.gci += asNumber(row.grossCommissionIncome);
+  }
+
+  const snapshot = summarizeCanonicalRows(snapshotRows);
+  const missingExpectedCloseDateCount = snapshotRows.filter((row) => !asDate(row.closingDate)).length;
+  const pastExpectedCloseDateCount = snapshotRows.filter((row) => {
+    const closingDate = asDate(row.closingDate);
+    return Boolean(closingDate && closingDate.getTime() < today.getTime());
+  }).length;
+
+  return {
+    definitionVersion: "transactions-v1",
+    snapshot: {
+      asOf: today.toISOString(),
+      underContractCount: snapshot.count,
+      underContractVolume: snapshot.totalVolume,
+      underContractGci: snapshot.totalGci,
+      missingExpectedCloseDateCount,
+      pastExpectedCloseDateCount,
+    },
+    flow: {
+      ...flow,
+      dateField: "closingDate",
+      dateFrom: filters.dateFrom?.toISOString() ?? "all",
+      dateTo: filters.dateTo?.toISOString() ?? today.toISOString(),
+      prior,
+    },
+    forecast: buckets,
+    // This is a live comparison of two independent aggregate paths that use the
+    // exact Transactions-page status and scope definition. It is deliberately
+    // computed at request time, not a seeded expected value.
+    reconciliation: {
+      sourcePage: "Transactions",
+      sourcePageStatus: "under_contract",
+      canonicalCount: sourcePageCount,
+      analyticsCount: snapshot.count,
+      status: sourcePageCount === snapshot.count ? "pass" : "mismatch",
+    },
+  };
+}
+
 async function getClosedPeriodMetrics(filters: AnalyticsFilters, scope: AnalyticsScope, range: { dateFrom?: Date; dateTo?: Date }) {
-  const closedFilters: AnalyticsFilters = { ...filters, status: "closed" };
-  const where = transactionWhere(closedFilters, scope, range);
+  const where = closedFlowWhere(filters, scope, range);
   const rows = await runRows(sql`
     SELECT
       COUNT(*) AS closings,
@@ -384,8 +631,7 @@ async function getClosedPeriodMetrics(filters: AnalyticsFilters, scope: Analytic
 }
 
 async function getTrend(filters: AnalyticsFilters, scope: AnalyticsScope) {
-  const closedFilters: AnalyticsFilters = { ...filters, status: "closed" };
-  const where = transactionWhere(closedFilters, scope);
+  const where = closedFlowWhere(filters, scope);
   const rows = await runRows(sql`
     SELECT
       DATE_FORMAT(t.\`closingDate\`, '%Y-%m') AS month,
@@ -412,8 +658,7 @@ async function getTrend(filters: AnalyticsFilters, scope: AnalyticsScope) {
 
 async function getSources(filters: AnalyticsFilters, scope: AnalyticsScope) {
   const leadsWhere = contactWhere(filters, scope);
-  const transactionFilters: AnalyticsFilters = { ...filters, status: "closed" };
-  const transactionFilter = transactionWhere(transactionFilters, scope);
+  const transactionFilter = closedFlowWhere(filters, scope);
 
   const rows = await runRows(sql`
     SELECT
@@ -598,10 +843,75 @@ async function getTasks(filters: AnalyticsFilters, scope: AnalyticsScope) {
   };
 }
 
-function peopleWhere(scope: AnalyticsScope): SQL {
+async function getIsaCoverage(filters: AnalyticsFilters, scope: AnalyticsScope) {
+  const contactBase = contactWhere(filters, scope);
+  const [coverage] = await runRows(sql`
+    SELECT
+      COUNT(*) AS totalContacts,
+      SUM(CASE WHEN c.\`assignedIsaId\` IS NOT NULL THEN 1 ELSE 0 END) AS assignedContacts,
+      SUM(CASE WHEN c.\`assignedIsaId\` IS NULL THEN 1 ELSE 0 END) AS unassignedContacts,
+      AVG(TIMESTAMPDIFF(DAY, c.\`createdAt\`, NOW())) AS averageContactAgeDays
+    FROM \`contacts\` c
+    ${contactBase}
+  `);
+  const rows = await runRows(sql`
+    SELECT
+      isa.\`id\` AS isaId,
+      isa.\`name\` AS isaName,
+      COUNT(DISTINCT c.\`id\`) AS assignedContacts,
+      COUNT(DISTINCT CASE WHEN ac.\`pipelineStatus\` NOT IN ('closed', 'dead') THEN c.\`id\` END) AS activeContacts,
+      COUNT(DISTINCT CASE WHEN ac.\`followUpDate\` < NOW()
+        AND ac.\`pipelineStatus\` NOT IN ('closed', 'dead') THEN c.\`id\` END) AS overdueFollowUps,
+      AVG(TIMESTAMPDIFF(DAY, c.\`createdAt\`, NOW())) AS averageContactAgeDays
+    FROM \`contacts\` c
+    INNER JOIN \`users\` isa ON isa.\`id\` = c.\`assignedIsaId\`
+    LEFT JOIN \`agent_connections\` ac ON ac.\`contactId\` = c.\`id\`
+    ${contactBase}
+      AND c.\`assignedIsaId\` IS NOT NULL
+      AND isa.\`role\` = 'isa'
+    GROUP BY isa.\`id\`, isa.\`name\`
+    ORDER BY assignedContacts DESC, overdueFollowUps DESC, isa.\`name\` ASC
+    LIMIT 100
+  `);
+  const totalContacts = asNumber(coverage?.totalContacts);
+  const assignedContacts = asNumber(coverage?.assignedContacts);
+  return {
+    totalContacts,
+    assignedContacts,
+    unassignedContacts: asNumber(coverage?.unassignedContacts),
+    assignmentCoverage: totalContacts ? assignedContacts / totalContacts : null,
+    averageContactAgeDays: asNullableNumber(coverage?.averageContactAgeDays),
+    isaBooks: rows.map((row) => ({
+      isaId: asNumber(row.isaId),
+      isaName: String(row.isaName ?? "Unassigned ISA"),
+      assignedContacts: asNumber(row.assignedContacts),
+      activeContacts: asNumber(row.activeContacts),
+      overdueFollowUps: asNumber(row.overdueFollowUps),
+      averageContactAgeDays: asNullableNumber(row.averageContactAgeDays),
+    })),
+  };
+}
+
+async function getClosedFlowFinance(filters: AnalyticsFilters, scope: AnalyticsScope) {
+  if (!scope.canSeeFinance) return null;
+  const where = closedFlowWhere(filters, scope);
+  const [row] = await runRows(sql`
+    SELECT COALESCE(SUM(CASE WHEN pay.\`payeeType\` IN ('savvy_str_agents', 'exp')
+      THEN COALESCE(pay.\`amount\`, 0) ELSE 0 END), 0) AS companyDollars
+    FROM \`transactions\` t
+    INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+    INNER JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+    LEFT JOIN \`transaction_payout_items\` pay ON pay.\`transactionId\` = t.\`id\`
+    ${where}
+  `);
+  return { companyDollars: asNumber(row?.companyDollars) };
+}
+
+function peopleWhere(filters: AnalyticsFilters, scope: AnalyticsScope): SQL {
   const personIds = scope.isaId ? [scope.isaId] : scope.agentIds;
   return combineWhere([
     numericListClause("u", "id", personIds),
+    filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
     sql`u.\`isActive\` = 1`,
     scope.isaId ? sql`u.\`id\` = ${scope.isaId}` : sql`u.\`role\` IN ('agent', 'isa', 'agent_support')`,
   ]);
@@ -706,7 +1016,7 @@ async function getPeople(filters: AnalyticsFilters, scope: AnalyticsScope) {
       LEFT JOIN \`onboarding_instance_tasks\` oit ON oit.\`instanceId\` = oi.\`id\`
       GROUP BY oi.\`agentUserId\`
     ) ob ON ob.userId = u.\`id\`
-    ${peopleWhere(scope)}
+    ${peopleWhere(filters, scope)}
     ORDER BY currentGci DESC, stalledPipeline DESC, overdueTasks DESC, u.\`name\` ASC
     LIMIT 150
   `);
@@ -765,11 +1075,11 @@ async function getPeople(filters: AnalyticsFilters, scope: AnalyticsScope) {
 }
 
 async function getDataQuality(filters: AnalyticsFilters, scope: AnalyticsScope) {
-  const transactionBase = transactionWhere({ ...filters, status: "closed" }, scope);
+  const transactionBase = closedFlowWhere(filters, scope);
   const contactBase = contactWhere(filters, scope);
   const connectionBase = connectionWhere(filters, scope);
   const taskBase = taskWhere(filters, scope);
-  const peopleBase = peopleWhere(scope);
+  const peopleBase = peopleWhere(filters, scope);
 
   const [closedTransactionIssues] = await runRows(sql`
     SELECT
@@ -886,6 +1196,174 @@ async function getMarketConfiguration(scope: AnalyticsScope) {
   }));
 }
 
+async function getMarketPerformance(filters: AnalyticsFilters, scope: AnalyticsScope) {
+  // An ISA’s authorized scope is contact-based rather than market-based. Do not
+  // infer market visibility from that relationship.
+  if (scope.role === "isa") return [];
+  const closedWhere = closedFlowWhere(filters, scope);
+  const snapshotWhere = transactionSnapshotWhere(filters, scope, "under_contract");
+  const pipelineWhere = activePipelineSnapshotWhere(filters, scope);
+  const outerWhere = combineWhere([
+    filters.marketProfileId ? sql`mp.\`id\` = ${filters.marketProfileId}` : undefined,
+    scope.agentIds !== undefined ? sql`EXISTS (
+      SELECT 1 FROM \`users\` market_access
+      WHERE market_access.\`marketProfileId\` = mp.\`id\`
+        AND ${numericListClause("market_access", "id", scope.agentIds) ?? sql`1 = 0`}
+    )` : undefined,
+  ]);
+  const capacityScope = numericListClause("maa", "agentId", scope.agentIds);
+  const rows = await runRows(sql`
+    SELECT
+      mp.\`id\` AS marketId,
+      mp.\`name\` AS marketName,
+      mp.\`state\` AS state,
+      mp.\`region\` AS region,
+      mp.\`status\` AS status,
+      mp.\`annualGciGoal\` AS annualGciGoal,
+      COALESCE(closed.\`closings\`, 0) AS closings,
+      COALESCE(closed.\`gci\`, 0) AS gci,
+      COALESCE(closed.\`volume\`, 0) AS volume,
+      COALESCE(snapshot.\`underContractCount\`, 0) AS underContractCount,
+      COALESCE(snapshot.\`underContractGci\`, 0) AS underContractGci,
+      COALESCE(capacity.\`assignedAgents\`, 0) AS assignedAgents,
+      COALESCE(capacity.\`availableAgents\`, 0) AS availableAgents,
+      COALESCE(capacity.\`maxLeadCapacity\`, 0) AS maxLeadCapacity,
+      COALESCE(capacity.\`currentLeadCount\`, 0) AS currentLeadCount,
+      COALESCE(pipeline.\`activePipeline\`, 0) AS activePipeline
+    FROM \`market_profiles\` mp
+    LEFT JOIN (
+      SELECT u.\`marketProfileId\` AS marketId,
+        COUNT(*) AS closings,
+        SUM(t.\`grossCommissionIncome\`) AS gci,
+        SUM(t.\`purchasePrice\`) AS volume
+      FROM \`transactions\` t
+      INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+      INNER JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+      ${closedWhere}
+      GROUP BY u.\`marketProfileId\`
+    ) closed ON closed.\`marketId\` = mp.\`id\`
+    LEFT JOIN (
+      SELECT u.\`marketProfileId\` AS marketId,
+        COUNT(*) AS underContractCount,
+        SUM(t.\`grossCommissionIncome\`) AS underContractGci
+      FROM \`transactions\` t
+      INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+      INNER JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+      ${snapshotWhere}
+      GROUP BY u.\`marketProfileId\`
+    ) snapshot ON snapshot.\`marketId\` = mp.\`id\`
+    LEFT JOIN (
+      SELECT maa.\`marketProfileId\` AS marketId,
+        COUNT(DISTINCT maa.\`agentId\`) AS assignedAgents,
+        SUM(CASE WHEN maa.\`isAvailable\` = 1 THEN 1 ELSE 0 END) AS availableAgents,
+        SUM(COALESCE(maa.\`maxLeadCapacity\`, 0)) AS maxLeadCapacity,
+        SUM(COALESCE(maa.\`currentLeadCount\`, 0)) AS currentLeadCount
+      FROM \`market_agent_assignments\` maa
+      ${combineWhere([capacityScope])}
+      GROUP BY maa.\`marketProfileId\`
+    ) capacity ON capacity.\`marketId\` = mp.\`id\`
+    LEFT JOIN (
+      SELECT u.\`marketProfileId\` AS marketId,
+        COUNT(*) AS activePipeline
+      FROM \`agent_connections\` ac
+      INNER JOIN \`users\` u ON u.\`id\` = ac.\`agentId\`
+      INNER JOIN \`contacts\` c ON c.\`id\` = ac.\`contactId\`
+      ${pipelineWhere}
+      GROUP BY u.\`marketProfileId\`
+    ) pipeline ON pipeline.\`marketId\` = mp.\`id\`
+    ${outerWhere}
+    ORDER BY gci DESC, underContractGci DESC, mp.\`name\` ASC
+    LIMIT 100
+  `);
+  return rows.map((row) => {
+    const annualGciGoal = asNullableNumber(row.annualGciGoal);
+    const gci = asNumber(row.gci);
+    const maxLeadCapacity = asNumber(row.maxLeadCapacity);
+    const currentLeadCount = asNumber(row.currentLeadCount);
+    return {
+      marketId: asNumber(row.marketId),
+      marketName: String(row.marketName ?? "Unnamed market"),
+      state: String(row.state ?? ""),
+      region: row.region ? String(row.region) : null,
+      status: String(row.status ?? "active"),
+      annualGciGoal,
+      gci,
+      volume: asNumber(row.volume),
+      closings: asNumber(row.closings),
+      goalAttainment: annualGciGoal && annualGciGoal > 0 ? gci / annualGciGoal : null,
+      underContractCount: asNumber(row.underContractCount),
+      underContractGci: asNumber(row.underContractGci),
+      assignedAgents: asNumber(row.assignedAgents),
+      availableAgents: asNumber(row.availableAgents),
+      maxLeadCapacity,
+      currentLeadCount,
+      capacityUtilization: maxLeadCapacity > 0 ? currentLeadCount / maxLeadCapacity : null,
+      activePipeline: asNumber(row.activePipeline),
+    };
+  });
+}
+
+async function getTeamLeaderPerformance(filters: AnalyticsFilters, scope: AnalyticsScope) {
+  if (scope.role === "isa") return [];
+  const closedWhere = closedFlowWhere(filters, scope);
+  const snapshotWhere = transactionSnapshotWhere(filters, scope, "under_contract");
+  const groupScope = combineWhere([
+    numericListClause("gm", "userId", scope.agentIds),
+    filters.marketProfileId ? sql`member.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
+  ]);
+  const rows = await runRows(sql`
+    SELECT
+      g.\`id\` AS groupId,
+      g.\`name\` AS groupName,
+      leader.\`id\` AS leaderId,
+      leader.\`name\` AS leaderName,
+      COUNT(DISTINCT gm.\`userId\`) AS memberCount,
+      COALESCE(SUM(closed.\`closings\`), 0) AS closings,
+      COALESCE(SUM(closed.\`gci\`), 0) AS gci,
+      COALESCE(SUM(closed.\`volume\`), 0) AS volume,
+      COALESCE(SUM(snapshot.\`underContractCount\`), 0) AS underContractCount,
+      COALESCE(SUM(snapshot.\`underContractGci\`), 0) AS underContractGci
+    FROM \`groups\` g
+    LEFT JOIN \`users\` leader ON leader.\`id\` = g.\`leaderId\`
+    LEFT JOIN \`group_members\` gm ON gm.\`groupId\` = g.\`id\`
+    LEFT JOIN \`users\` member ON member.\`id\` = gm.\`userId\`
+    LEFT JOIN (
+      SELECT t.\`agentId\` AS agentId, COUNT(*) AS closings,
+        SUM(t.\`grossCommissionIncome\`) AS gci, SUM(t.\`purchasePrice\`) AS volume
+      FROM \`transactions\` t
+      INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+      INNER JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+      ${closedWhere}
+      GROUP BY t.\`agentId\`
+    ) closed ON closed.\`agentId\` = gm.\`userId\`
+    LEFT JOIN (
+      SELECT t.\`agentId\` AS agentId, COUNT(*) AS underContractCount,
+        SUM(t.\`grossCommissionIncome\`) AS underContractGci
+      FROM \`transactions\` t
+      INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+      INNER JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
+      ${snapshotWhere}
+      GROUP BY t.\`agentId\`
+    ) snapshot ON snapshot.\`agentId\` = gm.\`userId\`
+    ${groupScope}
+    GROUP BY g.\`id\`, g.\`name\`, leader.\`id\`, leader.\`name\`
+    ORDER BY gci DESC, underContractGci DESC, g.\`name\` ASC
+    LIMIT 100
+  `);
+  return rows.map((row) => ({
+    groupId: asNumber(row.groupId),
+    groupName: String(row.groupName ?? "Unnamed group"),
+    leaderId: asNullableNumber(row.leaderId),
+    leaderName: row.leaderName ? String(row.leaderName) : "Unassigned leader",
+    memberCount: asNumber(row.memberCount),
+    closings: asNumber(row.closings),
+    gci: asNumber(row.gci),
+    volume: asNumber(row.volume),
+    underContractCount: asNumber(row.underContractCount),
+    underContractGci: asNumber(row.underContractGci),
+  }));
+}
+
 export async function getAnalyticsWorkspace(viewer: AnalyticsViewer, rawFilters: AnalyticsFilters) {
   const filters: AnalyticsFilters = {
     ...rawFilters,
@@ -894,12 +1372,10 @@ export async function getAnalyticsWorkspace(viewer: AnalyticsViewer, rawFilters:
     dateTo: rawFilters.dateTo ?? new Date(),
   };
   const scope = await resolveScope(viewer, filters);
-  const prior = previousRange(filters);
 
-  const [transactions, current, priorMetrics, trend, sources, pipeline, tasks, people, dataQuality, availableFilters, markets] = await Promise.all([
+  const [transactions, canonicalTransactions, trend, sources, pipeline, tasks, people, dataQuality, availableFilters, isaCoverage, finance, marketPerformance, teamLeaders] = await Promise.all([
     getTransactions(filters, scope),
-    getClosedPeriodMetrics(filters, scope, filters),
-    getClosedPeriodMetrics(filters, scope, prior),
+    getCanonicalTransactionMetrics(filters, scope),
     getTrend(filters, scope),
     getSources(filters, scope),
     getPipeline(filters, scope),
@@ -907,30 +1383,32 @@ export async function getAnalyticsWorkspace(viewer: AnalyticsViewer, rawFilters:
     getPeople(filters, scope),
     getDataQuality(filters, scope),
     getFilters(scope),
-    getMarketConfiguration(scope),
+    getIsaCoverage(filters, scope),
+    getClosedFlowFinance(filters, scope),
+    getMarketPerformance(filters, scope),
+    getTeamLeaderPerformance(filters, scope),
   ]);
 
-  const underContract = transactions.rows.filter((transaction) => transaction.status === "under_contract");
-  const pipelineValue = underContract.reduce((sum, transaction) => sum + transaction.purchasePrice, 0);
   const summary = {
-    closings: current.closings,
-    gci: current.gci,
-    volume: current.volume,
-    averageGci: current.averageGci,
-    averageVolume: current.averageVolume,
-    medianGci: transactions.aggregates.medianGci,
-    medianVolume: transactions.aggregates.medianVolume,
-    companyDollars: transactions.aggregates.totalCompanyDollars,
-    underContractCount: underContract.length,
-    pipelineValue,
-    gciTrendPct: safePercent(current.gci, priorMetrics.gci),
-    closingsTrendPct: safePercent(current.closings, priorMetrics.closings),
-    volumeTrendPct: safePercent(current.volume, priorMetrics.volume),
-    prior: priorMetrics,
+    closings: canonicalTransactions.flow.count,
+    gci: canonicalTransactions.flow.totalGci,
+    volume: canonicalTransactions.flow.totalVolume,
+    averageGci: canonicalTransactions.flow.averageGci,
+    averageVolume: canonicalTransactions.flow.averageVolume,
+    medianGci: canonicalTransactions.flow.medianGci,
+    medianVolume: canonicalTransactions.flow.medianVolume,
+    companyDollars: finance?.companyDollars ?? null,
+    underContractCount: canonicalTransactions.snapshot.underContractCount,
+    pipelineValue: canonicalTransactions.snapshot.underContractVolume,
+    pipelineGci: canonicalTransactions.snapshot.underContractGci,
+    gciTrendPct: safePercent(canonicalTransactions.flow.totalGci, canonicalTransactions.flow.prior.totalGci),
+    closingsTrendPct: safePercent(canonicalTransactions.flow.count, canonicalTransactions.flow.prior.count),
+    volumeTrendPct: safePercent(canonicalTransactions.flow.totalVolume, canonicalTransactions.flow.prior.totalVolume),
+    prior: canonicalTransactions.flow.prior,
   };
 
   return {
-    version: "analytics-workspace-v1",
+    version: "analytics-workspace-v2",
     generatedAt: new Date().toISOString(),
     scope: {
       label: scope.label,
@@ -950,12 +1428,16 @@ export async function getAnalyticsWorkspace(viewer: AnalyticsViewer, rawFilters:
     },
     availableFilters,
     summary,
+    canonicalTransactions,
     trend,
     transactions,
     sources,
     pipeline,
     tasks,
     people,
+    isa: isaCoverage,
+    markets: marketPerformance,
+    teamLeaders,
     growth: {
       annualGoalCoverage: {
         peopleWithAnnualGciTargets: people.filter((person) => person.production.annualGciTarget !== null).length,
@@ -970,7 +1452,7 @@ export async function getAnalyticsWorkspace(viewer: AnalyticsViewer, rawFilters:
         })),
       },
       onboarding: people.filter((person) => person.onboarding.status === "in_progress" || person.onboarding.remainingTasks > 0),
-      markets,
+      markets: marketPerformance,
     },
     dataQuality,
     drilldowns: {
@@ -1030,6 +1512,15 @@ function buildInsightFacts(workspace: Awaited<ReturnType<typeof getAnalyticsWork
       completionRate: workspace.tasks.completionRate,
     },
     topSources: workspace.sources.slice(0, 8),
+    isaCoverage: {
+      totalContacts: workspace.isa.totalContacts,
+      assignedContacts: workspace.isa.assignedContacts,
+      unassignedContacts: workspace.isa.unassignedContacts,
+      assignmentCoverage: workspace.isa.assignmentCoverage,
+      books: workspace.isa.isaBooks.slice(0, 20),
+    },
+    markets: workspace.markets.slice(0, 20),
+    teamLeaders: workspace.teamLeaders.slice(0, 20),
     people: workspace.people.slice(0, 25).map((person) => ({
       name: person.name,
       role: person.role,
