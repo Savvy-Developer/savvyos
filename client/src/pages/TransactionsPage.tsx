@@ -598,6 +598,11 @@ export default function TransactionsPage() {
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
   const appliedAnalyticsLink = useRef<string | null>(null);
+  const analyticsReturnUrl = (() => {
+    const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : "";
+    const candidate = new URLSearchParams(query).get("returnTo");
+    return candidate && candidate.startsWith("/analytics") && !candidate.startsWith("//") ? candidate : null;
+  })();
 
   // Analytics uses this small, explicit URL contract to send users to the
   // canonical operational Transactions page. The URL is intentionally applied
@@ -622,11 +627,14 @@ export default function TransactionsPage() {
     const nextClosingTo = date("closingDateTo");
     const nextContractFrom = date("contractDateFrom");
     const nextContractTo = date("contractDateTo");
+    const nextType = params.get("transactionType") ?? "all";
+    const permittedTypes = ["all", "buyer", "seller", "dual"];
 
     setStatusFilter(permittedStatuses.includes(nextStatus) ? nextStatus : "all");
     setMarketFilter(identifier("marketId"));
     setAgentFilter(identifier("agentId"));
     setLeadSourceFilter(identifier("leadSourceId"));
+    setTypeFilter(permittedTypes.includes(nextType) ? nextType : "all");
     setClosingDateFrom(nextClosingFrom);
     setClosingDateTo(nextClosingTo);
     setContractDateFrom(nextContractFrom);
@@ -634,7 +642,7 @@ export default function TransactionsPage() {
     setShowDateFilters(Boolean(nextClosingFrom || nextClosingTo || nextContractFrom || nextContractTo));
     setTxPage(1);
     appliedAnalyticsLink.current = query;
-  }, [location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage]);
+  }, [location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage, setTypeFilter]);
 
   function handleColumnSort(col: string) {
     if (sortColumn === col) {
@@ -871,18 +879,25 @@ export default function TransactionsPage() {
         title="Transactions"
         subtitle="Manage all active and closed real estate transactions"
         actions={
-          user?.role !== "agent" ? (
-            <div className="flex gap-2">
-              {isAdmin && (
-                <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
-                  <Upload className="h-4 w-4 mr-1" /> Bulk Upload
-                </Button>
-              )}
-              <Button onClick={() => { resetDialog(); setOpen(true); }} size="sm">
-                <Plus className="h-4 w-4 mr-1" /> New Transaction
+          <div className="flex gap-2">
+            {analyticsReturnUrl && (
+              <Button variant="outline" size="sm" onClick={() => navigate(analyticsReturnUrl)}>
+                <ChevronLeft className="h-4 w-4 mr-1" /> Back to report
               </Button>
-            </div>
-          ) : undefined
+            )}
+            {user?.role !== "agent" && (
+              <div className="flex gap-2">
+                {isAdmin && (
+                  <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+                    <Upload className="h-4 w-4 mr-1" /> Bulk Upload
+                  </Button>
+                )}
+                <Button onClick={() => { resetDialog(); setOpen(true); }} size="sm">
+                  <Plus className="h-4 w-4 mr-1" /> New Transaction
+                </Button>
+              </div>
+            )}
+          </div>
         }
       />
 

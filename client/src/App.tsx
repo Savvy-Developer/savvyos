@@ -21,6 +21,7 @@ import PropertiesPage from "./pages/PropertiesPage";
 import PropertyDetail from "./pages/PropertyDetail";
 import TasksPage from "./pages/TasksPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
+import TransactionIntelligencePage from "./pages/TransactionIntelligencePage";
 import PipelinePage from "./pages/PipelinePage";
 import CommissionPage from "./pages/CommissionPage";
 import GroupLeaderCommissionsPage from "./pages/GroupLeaderCommissionsPage";
@@ -149,7 +150,8 @@ function Router() {
           <Route path="/tasks" component={TasksPage} />
           <Route path="/my-tasks" component={MyTasksPage} />
           <Route path="/tasks/:id" component={TaskDetailPage} />
-          <Route path="/analytics" component={AnalyticsPage} />
+          <Route path="/analytics/legacy">{() => <AdminRoute><AnalyticsPage /></AdminRoute>}</Route>
+          <Route path="/analytics">{() => <AdminRoute><TransactionIntelligencePage /></AdminRoute>}</Route>
           <Route path="/commission" component={CommissionPage} />
           <Route path="/group-leader-commissions" component={GroupLeaderCommissionsPage} />
           <Route path="/group-leader-dashboard" component={GroupLeaderDashboard} />

@@ -1,4 +1,4 @@
-import { and, eq, lte, sql, type SQL } from "drizzle-orm";
+import { and, eq, lte, notLike, sql, type SQL } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import {
   agentSupportAssignments,
@@ -1855,7 +1855,10 @@ export async function refreshDueAnalyticsInsights(): Promise<{ refreshed: number
   const due = await db
     .select()
     .from(analyticsInsightCaches)
-    .where(lte(analyticsInsightCaches.expiresAt, new Date()))
+    .where(and(
+      lte(analyticsInsightCaches.expiresAt, new Date()),
+      notLike(analyticsInsightCaches.scopeKey, "transaction-intelligence-v1|%"),
+    ))
     .limit(20);
   for (const entry of due) {
     const [owner] = await db

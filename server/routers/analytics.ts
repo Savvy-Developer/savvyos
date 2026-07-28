@@ -61,11 +61,25 @@ import {
   getCachedAnalyticsInsights,
   refreshAnalyticsInsights,
 } from "../analytics/workspace";
+import {
+  getCachedTransactionIntelligenceInsights,
+  getTransactionIntelligenceReport,
+  refreshTransactionIntelligenceInsights,
+} from "../analytics/transactionIntelligence";
 
 const dateRangeInput = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
 }).optional();
+
+const transactionIntelligenceInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  agentId: z.number().int().positive().optional(),
+  marketProfileId: z.number().int().positive().optional(),
+  leadSourceId: z.number().int().positive().optional(),
+  transactionType: z.enum(["buyer", "seller", "dual"]).optional(),
+});
 
 function parseDates(input?: { dateFrom?: string; dateTo?: string }) {
   return {
@@ -564,6 +578,52 @@ Return only valid JSON array.`;
   agentMonthlyGci: protectedProcedure
     .input(z.object({ year: z.number() }))
     .query(async ({ input }) => getAgentMonthlyGci(input.year)),
+
+  /**
+   * Transaction Intelligence & Economics: the first focused deep report.
+   * This is administrator-only by current reporting policy. Closed actuals are
+   * driven by closing date while under-contract rows are a live snapshot.
+   */
+  transactionIntelligence: protectedProcedure
+    .input(transactionIntelligenceInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Transaction Intelligence is currently available to administrators only.");
+      }
+      return getTransactionIntelligenceReport(input ?? {});
+    }),
+
+  /** Return the latest evidence-grounded Transaction Intelligence brief without a model call. */
+  transactionIntelligenceInsights: protectedProcedure
+    .input(transactionIntelligenceInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Transaction Intelligence is currently available to administrators only.");
+      }
+      return getCachedTransactionIntelligenceInsights(ctx.user, input ?? {});
+    }),
+
+  /** Generate or refresh the focused report's scoped, cached intelligence brief. */
+  refreshTransactionIntelligenceInsights: protectedProcedure
+    .input(transactionIntelligenceInput.extend({ force: z.boolean().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Transaction Intelligence is currently available to administrators only.");
+      }
+      return refreshTransactionIntelligenceInsights({
+        viewer: ctx.user,
+        filters: {
+          dateFrom: input?.dateFrom,
+          dateTo: input?.dateTo,
+          agentId: input?.agentId,
+          marketProfileId: input?.marketProfileId,
+          leadSourceId: input?.leadSourceId,
+          transactionType: input?.transactionType,
+        },
+        force: input?.force ?? false,
+        reason: input?.force ? "manual" : "automatic",
+      });
+    }),
 
   // ─── Analytics Workspace v1 ───────────────────────────────────────────────
   // New consolidated reporting surface. All row-level evidence is scope-bound on
