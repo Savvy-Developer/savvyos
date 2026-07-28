@@ -36,6 +36,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Transaction evidence");
     expect(content).toContain("summary.closedUnits");
     expect(content).toContain("summary.change?.grossCommission");
+    expect(content).toContain("const [search, setSearch] = useState(() => window.location.search)");
+    expect(content).toContain("setSearch(serialized ? `?${serialized}` : \"\")");
     expect(service).toContain("terminationRate");
     expect(service).toContain("closedUnits: closed");
     expect(service).toContain("priorScope");

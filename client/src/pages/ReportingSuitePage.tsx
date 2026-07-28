@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   AlertTriangle,
@@ -237,8 +237,15 @@ function LoadingReport() {
 }
 
 export default function ReportingSuitePage() {
-  const [location, navigate] = useLocation();
-  const params = useMemo(() => new URLSearchParams(location.includes("?") ? location.slice(location.indexOf("?") + 1) : ""), [location]);
+  const [, navigate] = useLocation();
+  // Wouter exposes the pathname here; keep query-string report state explicitly reactive.
+  const [search, setSearch] = useState(() => window.location.search);
+  useEffect(() => {
+    const syncSearch = () => setSearch(window.location.search);
+    window.addEventListener("popstate", syncSearch);
+    return () => window.removeEventListener("popstate", syncSearch);
+  }, []);
+  const params = useMemo(() => new URLSearchParams(search.startsWith("?") ? search.slice(1) : search), [search]);
   const activeReport = (params.get("report") ?? "agents") as ReportKind;
   const today = localDay(new Date());
   const baseFilters = useMemo(() => ({
@@ -263,6 +270,7 @@ export default function ReportingSuitePage() {
       else next.set(key, value);
     });
     const serialized = next.toString();
+    setSearch(serialized ? `?${serialized}` : "");
     navigate(`/analytics${serialized ? `?${serialized}` : ""}`, { replace: true });
   };
 
