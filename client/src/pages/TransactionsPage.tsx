@@ -1088,6 +1088,11 @@ export default function TransactionsPage() {
                   <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("gci")}>
                     GCI<SortIcon col="gci" />
                   </th>
+                  {isAdmin && (
+                    <th className="text-right py-3 px-4 text-muted-foreground font-medium select-none">
+                      Savvy Net
+                    </th>
+                  )}
                   <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("status")}>
                     Status<SortIcon col="status" />
                   </th>
@@ -1100,13 +1105,13 @@ export default function TransactionsPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="text-center py-12 text-muted-foreground">
+                    <td colSpan={isAdmin ? 10 : 9} className="text-center py-12 text-muted-foreground">
                       <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
                       <p>No transactions found</p>
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(({ transaction, contact, agent, property }: any) => (
+                  filtered.map(({ transaction, contact, agent, property, savvyNet }: any) => (
                     <tr key={transaction.id} className="border-b last:border-0 hover:bg-muted/20 cursor-pointer" onClick={() => navigate(`/transactions/${transaction.id}`)}>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-1.5">
@@ -1119,6 +1124,9 @@ export default function TransactionsPage() {
                       <td className="py-3 px-4 text-muted-foreground capitalize">{transaction.transactionType}</td>
                       <td className="py-3 px-4 text-right">{formatCurrency(transaction.purchasePrice)}</td>
                       <td className="py-3 px-4 text-right font-medium text-emerald-600">{formatCurrency(transaction.grossCommissionIncome)}</td>
+                      {isAdmin && (
+                        <td className="py-3 px-4 text-right font-medium text-blue-600">{savvyNet ? formatCurrency(savvyNet) : <span className="text-muted-foreground/50 font-normal">—</span>}</td>
+                      )}
                       <td className="py-3 px-4">
                         <TransactionStatusBadge status={transaction.status} />
                         {transaction.status === "terminated" && transaction.terminationReason && (
@@ -1167,6 +1175,14 @@ export default function TransactionsPage() {
                         aggregateMode
                       )}
                     </td>
+                    {isAdmin && (
+                      <td className="py-2 px-4 text-right font-semibold text-sm text-blue-600">
+                        {calcAggregate(
+                          filtered.map(({ savvyNet }: any) => parseFloat(savvyNet ?? "0")),
+                          aggregateMode
+                        )}
+                      </td>
+                    )}
                     <td colSpan={3} className="py-2 px-4 text-xs text-muted-foreground">
                       {filtered.length} row{filtered.length !== 1 ? "s" : ""} (this page)
                     </td>

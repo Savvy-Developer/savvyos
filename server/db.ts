@@ -741,7 +741,15 @@ export async function getTransactions(agentId?: number, status?: string, search?
     db.select({ count: sql<number>`count(*)` }).from(transactions).leftJoin(contacts, eq(transactions.primaryContactId, contacts.id)).leftJoin(properties, eq(transactions.propertyId, properties.id)).where(where),
     (() => {
       const txParentLS = aliasedTable(leadSources, 'txParentLS');
-      return db.select({ transaction: transactions, agent: users, contact: contacts, property: properties, leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId }, parentLeadSource: { id: txParentLS.id, name: txParentLS.name } })
+      return db.select({
+          transaction: transactions,
+          agent: users,
+          contact: contacts,
+          property: properties,
+          leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
+          parentLeadSource: { id: txParentLS.id, name: txParentLS.name },
+          savvyNet: sql<string>`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), NULL)`,
+        })
         .from(transactions)
         .leftJoin(users, eq(transactions.agentId, users.id))
         .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
@@ -2831,9 +2839,9 @@ export async function updateMarketGoal(marketId: number, annualGciGoal: number |
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db
-    .update(markets)
+    .update(marketProfiles)
     .set({ annualGciGoal: annualGciGoal?.toString() as any, updatedAt: new Date() })
-    .where(eq(markets.id, marketId));
+    .where(eq(marketProfiles.id, marketId));
 }
 
 /** Monthly GCI breakdown for all agents in a given year — used for sparklines on Goals page */
