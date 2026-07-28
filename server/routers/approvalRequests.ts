@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { approvalRequests, agentConnections } from "../../drizzle/schema";
+import { approvalRequests, agentConnections, communications, tasks } from "../../drizzle/schema";
 
 export const approvalRequestsRouter = router({
   /** Count pending approval requests (for admin nav badge) */
@@ -22,7 +22,7 @@ export const approvalRequestsRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
-      let rows = await db.select().from(approvalRequests).orderBy(approvalRequests.createdAt);
+      let rows = await db.select().from(approvalRequests).orderBy(desc(approvalRequests.createdAt));
       if (ctx.user.role === "isa") {
         rows = rows.filter((r) => r.requestedById === ctx.user.id);
       }
@@ -95,6 +95,13 @@ export const approvalRequestsRouter = router({
 
       // If approved, execute the action
       if (input.decision === "approved" && request.type === "delete_agent_connection") {
+        // Null out FK references in child tables before deleting to avoid constraint violations
+        await db.update(communications)
+          .set({ relatedAgentConnectionId: null })
+          .where(eq(communications.relatedAgentConnectionId, request.targetId));
+        await db.update(tasks)
+          .set({ relatedAgentConnectionId: null })
+          .where(eq(tasks.relatedAgentConnectionId, request.targetId));
         await db.delete(agentConnections).where(eq(agentConnections.id, request.targetId));
       }
 
