@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ export default function TaskDetailPage() {
   const [, navigate] = useLocation();
   const goBack = useAppBack("/tasks");
   const { user } = useAuth();
+  const goToContact = useAgentContactNav();
   const taskId = params?.id ? parseInt(params.id) : 0;
   const role = (user as any)?.role;
   const isAdmin = role === "admin";
@@ -242,13 +244,7 @@ export default function TaskDetailPage() {
                     <ExternalLink className="h-4 w-4 text-muted-foreground" />
                     <button
                       className="text-primary hover:underline"
-                      onClick={() => {
-                        if (role === "agent" && (task as any).relatedAgentConnectionId) {
-                          navigate(`/pipeline/${(task as any).relatedAgentConnectionId}`);
-                        } else if (role !== "agent") {
-                          navigate(`/contacts/${contact.id}`);
-                        }
-                      }}
+                      onClick={() => goToContact(contact.id)}
                     >
                       {contact.firstName} {contact.lastName}
                     </button>

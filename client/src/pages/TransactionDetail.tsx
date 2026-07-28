@@ -21,6 +21,7 @@ import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail } from "@/lib/inputFormatters";
 import { formatStreet, formatCityStateZip, formatEmail } from "@/lib/format";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { useCelebration } from "@/hooks/useCelebration";
 import { useAppBack } from "@/lib/navigationHistory";
 
@@ -66,7 +67,7 @@ function txEventDotColor(type: TxHistoryEvent["type"]): string {
   return "bg-slate-400";
 }
 
-function TransactionHistoryTabContent({ transactionId, isAgent = false }: { transactionId: number; isAgent?: boolean }) {
+function TransactionHistoryTabContent({ transactionId, isAgent = false, goToContact }: { transactionId: number; isAgent?: boolean; goToContact?: (id: number) => void }) {
   const { data: historyData, isLoading } = trpc.transactions.getHistory.useQuery(
     { transactionId },
     { enabled: !!transactionId }
@@ -158,7 +159,7 @@ function TransactionHistoryTabContent({ transactionId, isAgent = false }: { tran
                 </div>
               );
               if (event.contactId) {
-                if (isAgent) return <div key={event.id}>{content}</div>;
+                if (isAgent && goToContact) return <div key={event.id} className="cursor-pointer" onClick={() => goToContact(event.contactId!)}>{content}</div>;
                 return <Link key={event.id} href={`/contacts/${event.contactId}`}>{content}</Link>;
               }
               if (event.listingId) return <Link key={event.id} href={`/listings/${event.listingId}`}>{content}</Link>;
@@ -223,6 +224,7 @@ export default function TransactionDetail() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isAgent = user?.role === "agent";
+  const goToContact = useAgentContactNav();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const deleteMutation = trpc.transactions.delete.useMutation({
@@ -910,8 +912,8 @@ export default function TransactionDetail() {
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">Contact</p>
                 <p
-                  className={isAgent ? "font-semibold text-base" : "font-semibold text-base cursor-pointer hover:text-primary transition-colors"}
-                  onClick={() => { if (!isAgent && contact?.id) navigate(`/contacts/${contact.id}`); }}
+                  className="font-semibold text-base cursor-pointer hover:text-primary transition-colors"
+                  onClick={() => { if (contact?.id) goToContact(contact.id); }}
                 >
                   {contact?.firstName} {contact?.lastName}
                 </p>
@@ -1001,8 +1003,8 @@ export default function TransactionDetail() {
                   <div>
                     <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">Buyer</p>
                     <p
-                      className={isAgent ? "font-semibold text-base" : "font-semibold text-base cursor-pointer hover:text-primary transition-colors"}
-                      onClick={() => { if (!isAgent) navigate(`/contacts/${buyerContact.id}`); }}
+                      className="font-semibold text-base cursor-pointer hover:text-primary transition-colors"
+                      onClick={() => goToContact(buyerContact.id)}
                     >
                       {buyerContact.firstName} {buyerContact.lastName}
                     </p>
@@ -1783,7 +1785,7 @@ export default function TransactionDetail() {
 
             {/* History / Audit Tab */}
             <TabsContent value="history">
-              <TransactionHistoryTabContent transactionId={txId} isAgent={isAgent} />
+              <TransactionHistoryTabContent transactionId={txId} isAgent={isAgent} goToContact={goToContact} />
             </TabsContent>
           </Tabs>
         </div>

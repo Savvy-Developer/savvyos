@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -127,6 +128,7 @@ export default function AgentProfilePage() {
   const [, navigate] = useLocation();
   const goBack = useAppBack("/org-chart");
   const { user: currentUser } = useAuth();
+  const goToContact = useAgentContactNav();
   const [txPage, setTxPage] = useState(1);
   const [contactPage, setContactPage] = useState(1);
   const [taskPage, setTaskPage] = useState(1);
@@ -878,8 +880,8 @@ export default function AgentProfilePage() {
                       return (
                       <TableRow
                         key={c.id}
-                        className={currentUser?.role === "agent" ? "" : "cursor-pointer hover:bg-muted/50"}
-                        onClick={() => { if (currentUser?.role !== "agent") navigate(`/contacts/${c.id}`); }}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => goToContact(c.id)}
                       >
                         <TableCell className="font-medium">
                           {c.firstName} {c.lastName}
@@ -961,8 +963,8 @@ export default function AgentProfilePage() {
                       <TableRow key={task.id} className="hover:bg-muted/50">
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell
-                          className={currentUser?.role === "agent" ? "text-sm text-muted-foreground" : "text-sm text-muted-foreground cursor-pointer hover:text-primary"}
-                          onClick={() => { if (currentUser?.role !== "agent" && task.relatedContactId) navigate(`/contacts/${task.relatedContactId}`); }}
+                          className={task.relatedContactId ? "text-sm text-muted-foreground cursor-pointer hover:text-primary" : "text-sm text-muted-foreground"}
+                          onClick={() => { if (task.relatedContactId) goToContact(task.relatedContactId); }}
                         >
                           {task.contactFirstName
                             ? `${task.contactFirstName} ${task.contactLastName ?? ""}`.trim()

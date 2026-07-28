@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Plus, Building2, ArrowRightLeft, Search, XCircle, Clock, MessageSquare, Send, Loader2, ChevronRight, AlertTriangle, Filter, X, Upload, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { useLocation } from "wouter";
 import { safeFormat, safeFormatDate } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
@@ -78,6 +79,7 @@ export default function ListingsPage() {
   const [, navigate] = useLocation();
   const isAdmin = user?.role === "admin";
   const canCreate = isAdmin || user?.role === "agent";
+  const goToContact = useAgentContactNav();
 
   const [statusFilter, setStatusFilter] = usePersistentState("listings.statusFilter", "all");
   const [search, setSearch] = usePersistentState("listings.search", "");
@@ -536,7 +538,7 @@ export default function ListingsPage() {
                       </td>
                       <td className="py-2 px-4 text-sm text-muted-foreground">
                         {item.contact
-                          ? <button className={user?.role === "agent" ? "text-foreground cursor-default" : "hover:underline text-foreground"} onClick={() => { if (user?.role !== "agent") navigate(`/contacts/${item.contact.id}`); }}>{item.contact.firstName} {item.contact.lastName}</button>
+                          ? <button className="hover:underline text-foreground" onClick={() => goToContact(item.contact.id)}>{item.contact.firstName} {item.contact.lastName}</button>
                           : "—"}
                       </td>
                       <td className="py-2 px-4 text-sm text-muted-foreground">{item.agent?.name ?? "—"}</td>

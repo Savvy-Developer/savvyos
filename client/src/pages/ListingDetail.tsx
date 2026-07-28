@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,6 +127,7 @@ export default function ListingDetail() {
   const { user } = useAuth();
   const role = (user as any)?.role as string;
   const isAdminUser = role === "admin";
+  const goToContact = useAgentContactNav();
   const utils = trpc.useUtils();
 
   // ─── Data ─────────────────────────────────────────────────────────────────
@@ -602,8 +604,8 @@ export default function ListingDetail() {
               {contact ? (
                 <>
                   <button
-                    className={role === "agent" ? "font-medium text-left cursor-default" : "font-medium text-primary hover:underline text-left"}
-                    onClick={() => { if (role !== "agent") navigate(`/contacts/${contact.id}`); }}
+                    className="font-medium text-primary hover:underline text-left"
+                    onClick={() => goToContact(contact.id)}
                   >
                     {contact.firstName} {contact.lastName}
                   </button>

@@ -13,6 +13,7 @@ import { PriorityBadge } from "@/components/StatusBadge";
 import { toast } from "sonner";
 import { Plus, CheckCircle2, Circle, ClipboardList, Edit2, User, Filter, X, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { safeFormat } from "@/lib/safeFormat";
 
 const PAGE_SIZE = 50;
@@ -170,12 +171,10 @@ export default function TasksPage() {
     });
   };
 
-  const handleContactClick = (task: any, contact: any) => {
-    if (role === "agent" && task.relatedAgentConnectionId) {
-      navigate(`/pipeline/${task.relatedAgentConnectionId}`);
-    } else if (contact?.id) {
-      navigate(`/contacts/${contact.id}`);
-    }
+  const goToContact = useAgentContactNav();
+
+  const handleContactClick = (_task: any, contact: any) => {
+    if (contact?.id) goToContact(contact.id);
   };
 
   const resetPage = () => setPage(1);
