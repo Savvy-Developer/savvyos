@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import KBArticleEditor from "@/components/KBArticleEditor";
 import {
   Dialog,
   DialogContent,
@@ -234,8 +235,6 @@ function ArticleEditorDialog({
     const r = parseRoles(existing?.visibleToRoles ?? "admin");
     return { admin: true, agent: r.includes("agent"), isa: r.includes("isa") };
   });
-  const [preview, setPreview] = useState(false);
-
   const utils = trpc.useUtils();
   const create = trpc.kb.createArticle.useMutation({
     onSuccess: () => {
@@ -326,27 +325,15 @@ function ArticleEditorDialog({
             </div>
           </div>
 
-          {/* Content editor */}
+          {/* Content editor — WYSIWYG with AI formatting */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label>Content (Markdown supported)</Label>
-              <Button variant="ghost" size="sm" onClick={() => setPreview((p) => !p)}>
-                {preview ? "Edit" : "Preview"}
-              </Button>
-            </div>
-            {preview ? (
-              <div className="min-h-[300px] rounded-md border p-4 prose prose-sm dark:prose-invert max-w-none overflow-auto">
-                <Streamdown>{content || "_No content yet_"}</Streamdown>
-              </div>
-            ) : (
-              <Textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={14}
-                placeholder="Write your article content in Markdown…"
-                className="font-mono text-sm"
-              />
-            )}
+            <Label>Content</Label>
+            <KBArticleEditor
+              value={content}
+              onChange={setContent}
+              placeholder="Write your article content here, or paste in raw text and use Format with AI…"
+              minHeight={360}
+            />
           </div>
         </div>
         <DialogFooter className="pt-2 border-t">

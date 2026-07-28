@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { kbCategories, kbArticles } from "../../drizzle/schema";
 import { eq, asc, and, inArray } from "drizzle-orm";
+import { invokeLLM } from "../_core/llm";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -239,6 +240,46 @@ export const knowledgeBaseRouter = router({
         .set({ status: input.status })
         .where(eq(kbArticles.id, input.id));
       return { success: true };
+    }),
+
+  /** AI-powered content formatter — rewrites pasted/messy content into clean Markdown */
+  formatWithAI: protectedProcedure
+    .input(
+      z.object({
+        content: z.string().min(1).max(50000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      requireAdmin(ctx.user.role);
+      const result = await invokeLLM({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a professional technical writer for a short-term rental real estate brokerage called Savvy STR Agents.
+Your job is to take raw, unformatted, or poorly formatted content and rewrite it into clean, well-structured Markdown.
+
+Rules:
+- Preserve ALL factual information — do not add or remove content, only restructure and clean it up.
+- Use proper Markdown: headings (##, ###), bullet lists, numbered lists, bold for key terms, code blocks for scripts/commands.
+- Fix grammar, punctuation, and capitalization.
+- Break long walls of text into logical sections with clear headings.
+- If the content is already well-formatted, return it as-is with only minor improvements.
+- Return ONLY the Markdown — no preamble, no explanation, no code fences around the whole response.`,
+          },
+          {
+            role: "user",
+            content: `Please format the following content:\n\n${input.content}`,
+          },
+        ],
+        maxTokens: 8192,
+      });
+
+      const markdown = result.choices[0]?.message?.content;
+      if (typeof markdown !== "string") {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI returned no content" });
+      }
+      return { markdown: markdown.trim() };
     }),
 
   /** Search articles by title (respects visibility) */
