@@ -57,11 +57,15 @@ export const contactsRouter = router({
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
+      addedFrom: z.string().optional(),
+      addedTo: z.string().optional(),
+      lastContactedFrom: z.string().optional(),
+      lastContactedTo: z.string().optional(),
     }))
     .query(async ({ input, ctx }) => {
       // Agents only see contacts they have an agent connection with; admins can filter by agentId
       const agentId = ctx.user.role === "agent" ? ctx.user.id : input.agentId;
-      return getContacts(input.search, input.isaId, agentId, input.page, input.limit, input.isaStatus, input.marketId, input.leadSourceId, input.sortOrder);
+      return getContacts(input.search, input.isaId, agentId, input.page, input.limit, input.isaStatus, input.marketId, input.leadSourceId, input.sortOrder, input.addedFrom, input.addedTo, input.lastContactedFrom, input.lastContactedTo);
     }),
 
   get: protectedProcedure

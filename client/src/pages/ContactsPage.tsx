@@ -14,7 +14,7 @@ import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { Plus, Search, User, Link2, Users, X, ChevronRight, Upload, TrendingUp, AlertTriangle, Phone, Mail, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
+import { Plus, Search, User, Link2, Users, X, ChevronRight, Upload, TrendingUp, AlertTriangle, Phone, Mail, ArrowUpAZ, ArrowDownAZ, Calendar, Filter } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useLocation } from "wouter";
@@ -125,6 +125,17 @@ export default function ContactsPage() {
   const [bulkIsaOpen, setBulkIsaOpen] = useState(false);
   const [bulkIsaId, setBulkIsaId] = useState<string>("none");
 
+  const [addedFrom, setAddedFrom] = usePersistentState("contacts.addedFrom", "");
+  const [addedTo, setAddedTo] = usePersistentState("contacts.addedTo", "");
+  const [lastContactedFrom, setLastContactedFrom] = usePersistentState("contacts.lastContactedFrom", "");
+  const [lastContactedTo, setLastContactedTo] = usePersistentState("contacts.lastContactedTo", "");
+  const [dateFiltersOpen, setDateFiltersOpen] = useState(false);
+
+  const handleAddedFromChange = (val: string) => { setAddedFrom(val); setPage(1); };
+  const handleAddedToChange = (val: string) => { setAddedTo(val); setPage(1); };
+  const handleLastContactedFromChange = (val: string) => { setLastContactedFrom(val); setPage(1); };
+  const handleLastContactedToChange = (val: string) => { setLastContactedTo(val); setPage(1); };
+
   const [page, setPage] = usePersistentState("contacts.page", 1);
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("contacts.sortOrder", "desc");
   const utils = trpc.useUtils();
@@ -159,7 +170,7 @@ export default function ContactsPage() {
   const isaIdParam = isaFilter === "all" ? undefined : isaFilter === "unassigned" ? -1 : Number(isaFilter);
   const isaStatusParam = isaStatusFilter === "all" ? undefined : isaStatusFilter as any;
   const leadSourceIdParam = leadSourceFilter === "all" ? undefined : Number(leadSourceFilter);
-  const { data: contactsData, isLoading } = trpc.contacts.list.useQuery({ search: search || undefined, isaId: isaIdParam, isaStatus: isaStatusParam, leadSourceId: leadSourceIdParam, page, limit: 25, sortOrder });
+  const { data: contactsData, isLoading } = trpc.contacts.list.useQuery({ search: search || undefined, isaId: isaIdParam, isaStatus: isaStatusParam, leadSourceId: leadSourceIdParam, page, limit: 25, sortOrder, addedFrom: addedFrom || undefined, addedTo: addedTo || undefined, lastContactedFrom: lastContactedFrom || undefined, lastContactedTo: lastContactedTo || undefined });
   const contacts = contactsData?.rows ?? [];
   const totalContacts = contactsData?.total ?? 0;
   const totalPages = Math.ceil(totalContacts / 25);
@@ -381,6 +392,64 @@ export default function ContactsPage() {
         >
           {sortOrder === "asc" ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></> : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
         </Button>
+        {/* Date Filters Popover */}
+        <Popover open={dateFiltersOpen} onOpenChange={setDateFiltersOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant={addedFrom || addedTo || lastContactedFrom || lastContactedTo ? "default" : "outline"}
+              size="sm"
+              className="shrink-0 gap-1.5"
+            >
+              <Calendar className="h-4 w-4" />
+              <span className="hidden sm:inline">Date Filters</span>
+              {(addedFrom || addedTo || lastContactedFrom || lastContactedTo) && (
+                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-xs rounded-full bg-white/20">
+                  {[addedFrom || addedTo, lastContactedFrom || lastContactedTo].filter(Boolean).length}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-4" align="end">
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Added Date</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">From</Label>
+                    <Input type="date" className="mt-1 h-8 text-xs" value={addedFrom} onChange={e => handleAddedFromChange(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">To</Label>
+                    <Input type="date" className="mt-1 h-8 text-xs" value={addedTo} onChange={e => handleAddedToChange(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Last Contacted Date</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">From</Label>
+                    <Input type="date" className="mt-1 h-8 text-xs" value={lastContactedFrom} onChange={e => handleLastContactedFromChange(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">To</Label>
+                    <Input type="date" className="mt-1 h-8 text-xs" value={lastContactedTo} onChange={e => handleLastContactedToChange(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+              {(addedFrom || addedTo || lastContactedFrom || lastContactedTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs h-7"
+                  onClick={() => { handleAddedFromChange(""); handleAddedToChange(""); handleLastContactedFromChange(""); handleLastContactedToChange(""); }}
+                >
+                  <X className="h-3 w-3 mr-1" /> Clear date filters
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
         <Select value={leadSourceFilter} onValueChange={handleLeadSourceFilterChange}>
           <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Filter by Lead Source" />

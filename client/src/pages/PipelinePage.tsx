@@ -360,7 +360,7 @@ export default function PipelinePage() {
                 <SelectValue placeholder="All ISAs" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All ISAs ({fullPipelineTotal.toLocaleString()})</SelectItem>
+                <SelectItem value="all">All ISAs ({Object.values(isaCounts).reduce((s, c) => s + Number(c), 0).toLocaleString()})</SelectItem>
                 <SelectItem value="unassigned">Unassigned ({Number(isaCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
                 {(isas as any[]).map((u: any) => (
                   <SelectItem key={u.id} value={String(u.id)}>
@@ -377,7 +377,7 @@ export default function PipelinePage() {
                 <SelectValue placeholder="All Lead Sources" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Lead Sources ({fullPipelineTotal.toLocaleString()})</SelectItem>
+                <SelectItem value="all">All Lead Sources ({Object.values(leadSourceCounts).reduce((s, c) => s + Number(c), 0).toLocaleString()})</SelectItem>
                 <SelectItem value="unassigned">Unassigned ({Number(leadSourceCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
                 {(() => {
                   const allSources = leadSourcesData as any[];

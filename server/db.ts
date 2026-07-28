@@ -184,7 +184,7 @@ export async function getUserByResetToken(token: string) {
 }
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
-export async function getContacts(search?: string, isaId?: number, agentId?: number, page = 1, limit = 25, isaStatus?: string, marketId?: number, leadSourceId?: number, sortOrder: "asc" | "desc" = "desc") {
+export async function getContacts(search?: string, isaId?: number, agentId?: number, page = 1, limit = 25, isaStatus?: string, marketId?: number, leadSourceId?: number, sortOrder: "asc" | "desc" = "desc", addedFrom?: string, addedTo?: string, lastContactedFrom?: string, lastContactedTo?: string) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -239,6 +239,22 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
   // Filter by lead source
   if (leadSourceId) {
     conditions.push(eq(contacts.leadSourceId, leadSourceId));
+  }
+  // Date range filters for "Added" (createdAt)
+  if (addedFrom) conditions.push(gte(contacts.createdAt, new Date(addedFrom)));
+  if (addedTo) {
+    const toDate = new Date(addedTo);
+    toDate.setHours(23, 59, 59, 999);
+    conditions.push(lte(contacts.createdAt, toDate));
+  }
+  // Date range filters for "Last Contacted" (via communications subquery)
+  if (lastContactedFrom) {
+    conditions.push(sql`(SELECT MAX(communicatedAt) FROM communications WHERE relatedContactId = ${contacts.id}) >= ${lastContactedFrom}`);
+  }
+  if (lastContactedTo) {
+    const toDate2 = new Date(lastContactedTo);
+    toDate2.setHours(23, 59, 59, 999);
+    conditions.push(sql`(SELECT MAX(communicatedAt) FROM communications WHERE relatedContactId = ${contacts.id}) <= ${toDate2.toISOString().slice(0, 19).replace('T', ' ')}`);
   }
   // Filter by market: find agents in the given market, then filter contacts connected to those agents
   if (marketId) {
@@ -470,17 +486,18 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       .groupBy(agentConnections.pipelineStatus),
     db.select({ id: agentConnections.agentId, count: sql<number>`COUNT(*)` })
       .from(agentConnections)
-      .where(scopeWhere)
+      .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(resultWhere)
       .groupBy(agentConnections.agentId),
     db.select({ id: contacts.assignedIsaId, count: sql<number>`COUNT(*)` })
       .from(agentConnections)
       .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
-      .where(scopeWhere)
+      .where(resultWhere)
       .groupBy(contacts.assignedIsaId),
     db.select({ id: contacts.leadSourceId, count: sql<number>`COUNT(*)` })
       .from(agentConnections)
       .leftJoin(contacts, eq(agentConnections.contactId, contacts.id))
-      .where(scopeWhere)
+      .where(resultWhere)
       .groupBy(contacts.leadSourceId),
     db.select({
       total: sql<number>`COUNT(*)`,
