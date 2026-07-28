@@ -281,6 +281,13 @@ export default function TransactionIntelligencePage() {
     />
 
     <Card className="border-primary/15">
+      <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="text-sm font-semibold">Analytics report library</p><p className="text-xs text-muted-foreground">Each report owns its metric grain, filters, evidence, and interpretation.</p></div>
+        <div className="flex flex-wrap gap-2"><Button size="sm" variant="default">01 · Transaction Intelligence</Button><Button size="sm" variant="outline" onClick={() => navigate("/analytics/lead-cohorts")}>02 · Lead Cohort Conversion</Button></div>
+      </CardContent>
+    </Card>
+
+    <Card className="border-primary/15">
       <CardContent className="p-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

@@ -66,6 +66,11 @@ import {
   getTransactionIntelligenceReport,
   refreshTransactionIntelligenceInsights,
 } from "../analytics/transactionIntelligence";
+import {
+  getCachedLeadCohortConversionInsights,
+  getLeadCohortConversionReport,
+  refreshLeadCohortConversionInsights,
+} from "../analytics/leadCohortConversion";
 
 const dateRangeInput = z.object({
   dateFrom: z.string().optional(),
@@ -79,6 +84,14 @@ const transactionIntelligenceInput = z.object({
   marketProfileId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
   transactionType: z.enum(["buyer", "seller", "dual"]).optional(),
+});
+
+const leadCohortConversionInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  agentId: z.number().int().positive().optional(),
+  leadSourceId: z.number().int().positive().optional(),
+  lifecycleStage: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"]).optional(),
 });
 
 function parseDates(input?: { dateFrom?: string; dateTo?: string }) {
@@ -619,6 +632,51 @@ Return only valid JSON array.`;
           marketProfileId: input?.marketProfileId,
           leadSourceId: input?.leadSourceId,
           transactionType: input?.transactionType,
+        },
+        force: input?.force ?? false,
+        reason: input?.force ? "manual" : "automatic",
+      });
+    }),
+
+  /**
+   * Lead Cohort Conversion & Sales Cycle: the second focused deep report.
+   * The selected date range always applies to contact acquisition / cohort dates,
+   * while downstream contract and close outcomes are observed to date.
+   */
+  leadCohortConversion: protectedProcedure
+    .input(leadCohortConversionInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
+      }
+      return getLeadCohortConversionReport(input ?? {});
+    }),
+
+  /** Return the latest scoped cohort-conversion intelligence without a model call. */
+  leadCohortConversionInsights: protectedProcedure
+    .input(leadCohortConversionInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
+      }
+      return getCachedLeadCohortConversionInsights(ctx.user, input ?? {});
+    }),
+
+  /** Generate or refresh the cohort report's scoped, cached intelligence brief. */
+  refreshLeadCohortConversionInsights: protectedProcedure
+    .input(leadCohortConversionInput.extend({ force: z.boolean().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
+      }
+      return refreshLeadCohortConversionInsights({
+        viewer: ctx.user,
+        filters: {
+          dateFrom: input?.dateFrom,
+          dateTo: input?.dateTo,
+          agentId: input?.agentId,
+          leadSourceId: input?.leadSourceId,
+          lifecycleStage: input?.lifecycleStage,
         },
         force: input?.force ?? false,
         reason: input?.force ? "manual" : "automatic",

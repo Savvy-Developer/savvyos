@@ -353,6 +353,13 @@ export default function ContactDetail() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const goBack = useAppBack("/contacts");
+  const analyticsReturnTo = (() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("analytics") !== "1") return null;
+    const candidate = params.get("returnTo");
+    return candidate?.startsWith("/analytics") ? candidate : null;
+  })();
   const { user } = useAuth();
   const contactId = parseInt(id ?? "0");
 
@@ -661,8 +668,8 @@ export default function ContactDetail() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Button variant="ghost" size="sm" onClick={goBack}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Back
+        <Button variant="ghost" size="sm" onClick={() => analyticsReturnTo ? navigate(analyticsReturnTo) : goBack()}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> {analyticsReturnTo ? "Back to report" : "Back"}
         </Button>
       </div>
 
