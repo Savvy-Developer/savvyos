@@ -21,6 +21,7 @@ import {
   createTransactionExportHistory,
   getTransactionExportHistory,
   getTransactionsForExport,
+  getTransactionStats,
 } from "../db";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
@@ -1428,6 +1429,12 @@ export const transactionsRouter = router({
         flagForReview: result.flagForReview,
         flagReason: result.flagReason,
       };
+    }),
+
+  stats: adminProcedure
+    .input(transactionExportFiltersSchema)
+    .query(async ({ input }) => {
+      return getTransactionStats(input);
     }),
 
   delete: protectedProcedure

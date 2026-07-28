@@ -2917,3 +2917,95 @@ export async function getGlobalActivityLog(opts: {
   ]);
   return { rows, total: Number(countResult[0]?.count ?? 0) };
 }
+
+/** Aggregate stats for all transactions matching the given filters (ignores pagination). */
+export async function getTransactionStats(filters: TransactionExportFilters) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const conditions = [];
+  if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
+  if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
+  if (filters.search) {
+    conditions.push(or(
+      like(transactions.transactionNumber, `%${filters.search}%`),
+      like(contacts.firstName, `%${filters.search}%`),
+      like(contacts.lastName, `%${filters.search}%`),
+      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${filters.search}%`}`,
+      like(properties.address, `%${filters.search}%`),
+      like(properties.city, `%${filters.search}%`),
+    ));
+  }
+  if (filters.contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${filters.contractDateFrom}`);
+  if (filters.contractDateTo) conditions.push(sql`${transactions.contractDate} <= ${filters.contractDateTo}`);
+  if (filters.closingDateFrom) conditions.push(sql`${transactions.closingDate} >= ${filters.closingDateFrom}`);
+  if (filters.closingDateTo) conditions.push(sql`${transactions.closingDate} <= ${filters.closingDateTo}`);
+  if (filters.flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
+  if (filters.flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
+  if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
+  if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
+  if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
+
+  if (filters.marketId) {
+    const marketAgents = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.marketProfileId, filters.marketId));
+    const marketAgentIds = marketAgents.map((a) => a.id);
+    if (marketAgentIds.length === 0) return null;
+    conditions.push(inArray(transactions.agentId, marketAgentIds));
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [rows] = await db
+    .select({
+      total:           sql<number>`COUNT(*)`,
+      buyerCount:      sql<number>`SUM(CASE WHEN ${transactions.transactionType} = 'buyer' THEN 1 ELSE 0 END)`,
+      sellerCount:     sql<number>`SUM(CASE WHEN ${transactions.transactionType} = 'seller' THEN 1 ELSE 0 END)`,
+      dualCount:       sql<number>`SUM(CASE WHEN ${transactions.transactionType} = 'dual' THEN 1 ELSE 0 END)`,
+      totalVolume:     sql<string>`COALESCE(SUM(CAST(${transactions.purchasePrice} AS DECIMAL(15,2))), 0)`,
+      avgPrice:        sql<string>`COALESCE(AVG(CAST(${transactions.purchasePrice} AS DECIMAL(15,2))), 0)`,
+      avgPriceBuyer:   sql<string>`COALESCE(AVG(CASE WHEN ${transactions.transactionType} = 'buyer' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) END), 0)`,
+      avgPriceSeller:  sql<string>`COALESCE(AVG(CASE WHEN ${transactions.transactionType} = 'seller' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) END), 0)`,
+      totalGci:        sql<string>`COALESCE(SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2))), 0)`,
+      avgGci:          sql<string>`COALESCE(AVG(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2))), 0)`,
+      avgGciBuyer:     sql<string>`COALESCE(AVG(CASE WHEN ${transactions.transactionType} = 'buyer' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) END), 0)`,
+      avgGciSeller:    sql<string>`COALESCE(AVG(CASE WHEN ${transactions.transactionType} = 'seller' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) END), 0)`,
+      // Commission rate stored as decimal (0.03 = 3%) — multiply by 100 for display
+      avgRateAll:      sql<string>`COALESCE(AVG(CASE WHEN ${transactions.commissionType} = 'percentage' AND ${transactions.commissionRate} IS NOT NULL THEN CAST(${transactions.commissionRate} AS DECIMAL(10,6)) END), 0)`,
+      avgRateBuyer:    sql<string>`COALESCE(AVG(CASE WHEN ${transactions.transactionType} = 'buyer' AND ${transactions.commissionType} = 'percentage' AND ${transactions.commissionRate} IS NOT NULL THEN CAST(${transactions.commissionRate} AS DECIMAL(10,6)) END), 0)`,
+      avgRateSeller:   sql<string>`COALESCE(AVG(CASE WHEN ${transactions.transactionType} = 'seller' AND ${transactions.commissionType} = 'percentage' AND ${transactions.commissionRate} IS NOT NULL THEN CAST(${transactions.commissionRate} AS DECIMAL(10,6)) END), 0)`,
+      totalSavvyNet:   sql<string>`COALESCE(SUM((SELECT SUM(CAST(pi2.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi2 WHERE pi2.transactionId = ${transactions.id} AND pi2.payeeType = 'savvy_str_agents')), 0)`,
+      closedCount:     sql<number>`SUM(CASE WHEN ${transactions.status} = 'closed' THEN 1 ELSE 0 END)`,
+      underContractCount: sql<number>`SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN 1 ELSE 0 END)`,
+      terminatedCount: sql<number>`SUM(CASE WHEN ${transactions.status} = 'terminated' THEN 1 ELSE 0 END)`,
+    })
+    .from(transactions)
+    .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
+    .leftJoin(properties, eq(transactions.propertyId, properties.id))
+    .where(where);
+
+  if (!rows) return null;
+  return {
+    total:              Number(rows.total),
+    buyerCount:         Number(rows.buyerCount),
+    sellerCount:        Number(rows.sellerCount),
+    dualCount:          Number(rows.dualCount),
+    totalVolume:        Number(rows.totalVolume),
+    avgPrice:           Number(rows.avgPrice),
+    avgPriceBuyer:      Number(rows.avgPriceBuyer),
+    avgPriceSeller:     Number(rows.avgPriceSeller),
+    totalGci:           Number(rows.totalGci),
+    avgGci:             Number(rows.avgGci),
+    avgGciBuyer:        Number(rows.avgGciBuyer),
+    avgGciSeller:       Number(rows.avgGciSeller),
+    avgRateAll:         Number(rows.avgRateAll) * 100,
+    avgRateBuyer:       Number(rows.avgRateBuyer) * 100,
+    avgRateSeller:      Number(rows.avgRateSeller) * 100,
+    totalSavvyNet:      Number(rows.totalSavvyNet),
+    closedCount:        Number(rows.closedCount),
+    underContractCount: Number(rows.underContractCount),
+    terminatedCount:    Number(rows.terminatedCount),
+  };
+}

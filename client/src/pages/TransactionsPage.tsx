@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import PageHeader from "@/components/PageHeader";
 import { TransactionStatusBadge } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { Plus, FileText, AlertTriangle, Search, ChevronLeft, ChevronRight, Home, User, DollarSign, CheckCircle2, Upload, Download, CheckCircle, XCircle, AlertCircle, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
+import { Plus, FileText, AlertTriangle, Search, ChevronLeft, ChevronRight, Home, User, DollarSign, CheckCircle2, Upload, Download, CheckCircle, XCircle, AlertCircle, ArrowUpAZ, ArrowDownAZ, ChevronDown, BarChart2, TrendingUp } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { safeFormat } from "@/lib/safeFormat";
@@ -597,6 +598,8 @@ export default function TransactionsPage() {
   const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [applyStatsToAll, setApplyStatsToAll] = useState(false);
   const appliedAnalyticsLink = useRef<string | null>(null);
   // Wouter's location value is the pathname in this app, so query-string state
   // must be read from the browser URL. Analytics evidence links intentionally
@@ -717,6 +720,25 @@ export default function TransactionsPage() {
   const transactions = transactionsData?.rows ?? [];
   const txTotal = transactionsData?.total ?? 0;
   const txTotalPages = Math.ceil(txTotal / txLimit);
+  // Whether pagination is truncating results (total > what's shown on this page)
+  const isPaginated = txTotal > txLimit;
+  // Stats query — fires when admin and (stats panel open, applyStatsToAll, or results are paginated)
+  const statsFilters = {
+    agentId: agentIdParam,
+    status: statusParam as any,
+    transactionType: typeParam as any,
+    search: txSearch || undefined,
+    marketId: marketIdParam,
+    contractDateFrom: contractDateFrom || undefined,
+    contractDateTo: contractDateTo || undefined,
+    closingDateFrom: closingDateFrom || undefined,
+    closingDateTo: closingDateTo || undefined,
+    leadSourceId: leadSourceIdParam,
+  };
+  const { data: txStats, isFetching: statsFetching } = trpc.transactions.stats.useQuery(
+    statsFilters,
+    { enabled: isAdmin && (statsOpen || applyStatsToAll || isPaginated) }
+  );
   const { data: agents } = trpc.users.list.useQuery({ role: "agent" }, { enabled: isAdmin });
   const { data: listingsData } = trpc.listings.list.useQuery(
     { search: listingSearch || undefined },
@@ -1064,6 +1086,190 @@ export default function TransactionsPage() {
         </div>
       )}
 
+      {/* ─── Stats Panel (admin only) ──────────────────────────────────────────── */}
+      {isAdmin && (
+        <div className="mb-4 rounded-lg border bg-card shadow-sm">
+          {/* Header / toggle */}
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/30 transition-colors rounded-lg"
+            onClick={() => setStatsOpen(o => !o)}
+          >
+            <div className="flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 text-primary" />
+              <span>Transaction Stats</span>
+              {txTotal > 0 && (
+                <span className="text-xs text-muted-foreground font-normal">
+                  {isPaginated && !applyStatsToAll
+                    ? `— showing page stats (${filtered.length} of ${txTotal.toLocaleString()} transactions)`
+                    : `— ${txTotal.toLocaleString()} transaction${txTotal !== 1 ? "s" : ""}`}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${statsOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {statsOpen && (
+            <div className="border-t px-4 pb-4 pt-3 space-y-4">
+              {/* Apply to all checkbox */}
+              {isPaginated && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="applyStatsToAll"
+                    checked={applyStatsToAll}
+                    onCheckedChange={(v) => setApplyStatsToAll(!!v)}
+                  />
+                  <label htmlFor="applyStatsToAll" className="text-sm cursor-pointer select-none">
+                    Apply to all <span className="font-semibold">{txTotal.toLocaleString()}</span> matching transactions
+                  </label>
+                  {statsFetching && <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>}
+                </div>
+              )}
+
+              {/* Determine which data to show */}
+              {(() => {
+                const useAll = applyStatsToAll && txStats;
+                const fmt = (n: number | undefined) => n == null ? "—" : `$${Math.round(n).toLocaleString()}`;
+                const fmtPct = (n: number | undefined) => n == null || n === 0 ? "—" : `${n.toFixed(2)}%`;
+                const fmtN = (n: number | undefined) => n == null ? "—" : n.toLocaleString();
+
+                // Page-level stats from filtered rows
+                const pageTotal = filtered.length;
+                const pageBuyer = filtered.filter(({ transaction }: any) => transaction.transactionType === "buyer").length;
+                const pageSeller = filtered.filter(({ transaction }: any) => transaction.transactionType === "seller").length;
+                const pageDual = filtered.filter(({ transaction }: any) => transaction.transactionType === "dual").length;
+                const pagePrices = filtered.map(({ transaction }: any) => parseFloat(transaction.purchasePrice ?? "0")).filter(n => n > 0);
+                const pageGcis = filtered.map(({ transaction }: any) => parseFloat(transaction.grossCommissionIncome ?? "0")).filter(n => n > 0);
+                const pageBuyerPrices = filtered.filter(({ transaction }: any) => transaction.transactionType === "buyer").map(({ transaction }: any) => parseFloat(transaction.purchasePrice ?? "0")).filter(n => n > 0);
+                const pageSellerPrices = filtered.filter(({ transaction }: any) => transaction.transactionType === "seller").map(({ transaction }: any) => parseFloat(transaction.purchasePrice ?? "0")).filter(n => n > 0);
+                const pageBuyerGcis = filtered.filter(({ transaction }: any) => transaction.transactionType === "buyer").map(({ transaction }: any) => parseFloat(transaction.grossCommissionIncome ?? "0")).filter(n => n > 0);
+                const pageSellerGcis = filtered.filter(({ transaction }: any) => transaction.transactionType === "seller").map(({ transaction }: any) => parseFloat(transaction.grossCommissionIncome ?? "0")).filter(n => n > 0);
+                const pageRates = filtered.map(({ transaction }: any) => parseFloat(transaction.commissionRate ?? "0")).filter(n => n > 0);
+                const pageBuyerRates = filtered.filter(({ transaction }: any) => transaction.transactionType === "buyer").map(({ transaction }: any) => parseFloat(transaction.commissionRate ?? "0")).filter(n => n > 0);
+                const pageSellerRates = filtered.filter(({ transaction }: any) => transaction.transactionType === "seller").map(({ transaction }: any) => parseFloat(transaction.commissionRate ?? "0")).filter(n => n > 0);
+                const pageSavvyNets = filtered.map(({ savvyNet }: any) => parseFloat(savvyNet ?? "0")).filter(n => n > 0);
+                const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+                const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
+
+                const stats = useAll ? {
+                  total: txStats.total,
+                  buyerCount: txStats.buyerCount,
+                  sellerCount: txStats.sellerCount,
+                  dualCount: txStats.dualCount,
+                  avgPrice: txStats.avgPrice,
+                  avgPriceBuyer: txStats.avgPriceBuyer,
+                  avgPriceSeller: txStats.avgPriceSeller,
+                  totalVolume: txStats.totalVolume,
+                  totalGci: txStats.totalGci,
+                  avgGci: txStats.avgGci,
+                  avgGciBuyer: txStats.avgGciBuyer,
+                  avgGciSeller: txStats.avgGciSeller,
+                  avgRateAll: txStats.avgRateAll,
+                  avgRateBuyer: txStats.avgRateBuyer,
+                  avgRateSeller: txStats.avgRateSeller,
+                  totalSavvyNet: txStats.totalSavvyNet,
+                  closedCount: txStats.closedCount,
+                  underContractCount: txStats.underContractCount,
+                  terminatedCount: txStats.terminatedCount,
+                } : {
+                  total: pageTotal,
+                  buyerCount: pageBuyer,
+                  sellerCount: pageSeller,
+                  dualCount: pageDual,
+                  avgPrice: avg(pagePrices),
+                  avgPriceBuyer: avg(pageBuyerPrices),
+                  avgPriceSeller: avg(pageSellerPrices),
+                  totalVolume: sum(pagePrices),
+                  totalGci: sum(pageGcis),
+                  avgGci: avg(pageGcis),
+                  avgGciBuyer: avg(pageBuyerGcis),
+                  avgGciSeller: avg(pageSellerGcis),
+                  avgRateAll: avg(pageRates) * 100,
+                  avgRateBuyer: avg(pageBuyerRates) * 100,
+                  avgRateSeller: avg(pageSellerRates) * 100,
+                  totalSavvyNet: sum(pageSavvyNets),
+                  closedCount: filtered.filter(({ transaction }: any) => transaction.status === "closed").length,
+                  underContractCount: filtered.filter(({ transaction }: any) => transaction.status === "under_contract").length,
+                  terminatedCount: filtered.filter(({ transaction }: any) => transaction.status === "terminated").length,
+                };
+
+                return (
+                  <div className="space-y-4">
+                    {/* Top-level counts */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <p className="text-xs text-muted-foreground">Total</p>
+                        <p className="mt-1 text-xl font-semibold tabular-nums">{fmtN(stats.total)}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{fmtN(stats.closedCount)} closed · {fmtN(stats.underContractCount)} UC</p>
+                      </div>
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <p className="text-xs text-muted-foreground">Buyer / Seller / Dual</p>
+                        <p className="mt-1 text-xl font-semibold tabular-nums">{fmtN(stats.buyerCount)} / {fmtN(stats.sellerCount)} / {fmtN(stats.dualCount)}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {stats.total > 0 ? `${Math.round(stats.buyerCount / stats.total * 100)}% buyer` : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <p className="text-xs text-muted-foreground">Total Volume</p>
+                        <p className="mt-1 text-xl font-semibold tabular-nums">{fmt(stats.totalVolume)}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Avg. {fmt(stats.avgPrice)}</p>
+                      </div>
+                      <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
+                        <p className="text-xs text-emerald-700">Total GCI</p>
+                        <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-800">{fmt(stats.totalGci)}</p>
+                        <p className="text-xs text-emerald-700 mt-0.5">Avg. {fmt(stats.avgGci)}</p>
+                      </div>
+                    </div>
+
+                    {/* Buyer vs Seller breakdown */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Buyer side */}
+                      <div className="rounded-lg border p-3 space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Buyer Side</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Count</span><span className="font-medium tabular-nums">{fmtN(stats.buyerCount)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg. Price</span><span className="font-medium tabular-nums">{fmt(stats.avgPriceBuyer)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg. GCI</span><span className="font-medium tabular-nums text-emerald-700">{fmt(stats.avgGciBuyer)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg. Commission</span><span className="font-medium tabular-nums">{fmtPct(stats.avgRateBuyer)}</span></div>
+                        </div>
+                      </div>
+                      {/* Seller side */}
+                      <div className="rounded-lg border p-3 space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Seller Side</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Count</span><span className="font-medium tabular-nums">{fmtN(stats.sellerCount)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg. Price</span><span className="font-medium tabular-nums">{fmt(stats.avgPriceSeller)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg. GCI</span><span className="font-medium tabular-nums text-emerald-700">{fmt(stats.avgGciSeller)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg. Commission</span><span className="font-medium tabular-nums">{fmtPct(stats.avgRateSeller)}</span></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Commission rates + Savvy Net row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Avg. Commission Rate (All)</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">{fmtPct(stats.avgRateAll)}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Avg. Commission Rate (Buyer / Seller)</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">{fmtPct(stats.avgRateBuyer)} / {fmtPct(stats.avgRateSeller)}</p>
+                      </div>
+                      <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                        <div className="flex items-center gap-1.5">
+                          <TrendingUp className="h-3.5 w-3.5 text-blue-600" />
+                          <p className="text-xs text-blue-700">Total Savvy Net</p>
+                        </div>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-blue-800">{fmt(stats.totalSavvyNet)}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -1187,6 +1393,30 @@ export default function TransactionsPage() {
                       {filtered.length} row{filtered.length !== 1 ? "s" : ""} (this page)
                     </td>
                   </tr>
+                  {/* All-records totals row — only shown when there are more records than the current page */}
+                  {isAdmin && isPaginated && txStats && (
+                    <tr className="border-t-2 border-primary/20 bg-primary/5">
+                      <td colSpan={4} className="py-2 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <TrendingUp className="h-3.5 w-3.5 text-primary" />
+                          <span className="text-xs font-semibold text-primary">All {txStats.total.toLocaleString()} matching transactions</span>
+                          {statsFetching && <span className="text-xs text-muted-foreground animate-pulse">Refreshing…</span>}
+                        </div>
+                      </td>
+                      <td className="py-2 px-4 text-right font-semibold text-sm text-primary">
+                        ${Math.round(txStats.totalVolume).toLocaleString()}
+                      </td>
+                      <td className="py-2 px-4 text-right font-semibold text-sm text-emerald-700">
+                        ${Math.round(txStats.totalGci).toLocaleString()}
+                      </td>
+                      <td className="py-2 px-4 text-right font-semibold text-sm text-blue-700">
+                        {txStats.totalSavvyNet > 0 ? `$${Math.round(txStats.totalSavvyNet).toLocaleString()}` : "—"}
+                      </td>
+                      <td colSpan={3} className="py-2 px-4 text-xs text-primary/70">
+                        {txStats.closedCount.toLocaleString()} closed · {txStats.underContractCount.toLocaleString()} UC
+                      </td>
+                    </tr>
+                  )}
                 </tfoot>
               )}
             </table>
