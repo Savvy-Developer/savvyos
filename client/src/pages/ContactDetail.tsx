@@ -375,6 +375,7 @@ export default function ContactDetail() {
   const [deleteConnOpen, setDeleteConnOpen] = useState(false);
   const [deleteConnId, setDeleteConnId] = useState<number | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [deleteBlockReasons, setDeleteBlockReasons] = useState<string[]>([]);
   const [archiveContactOpen, setArchiveContactOpen] = useState(false);
   const [deleteContactOpen, setDeleteContactOpen] = useState(false);
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
@@ -660,6 +661,39 @@ export default function ContactDetail() {
   }
 
   function handleRequestDelete(connId: number) {
+    const conn = (connections as any[] | undefined)?.find(({ connection }) => connection.id === connId)?.connection;
+    const blockReasons: string[] = [];
+
+    if (conn?.pipelineStatus === "closed") {
+      blockReasons.push("This connection is marked as Closed. Closed connections must be retained for record-keeping.");
+    }
+    if (conn?.pipelineStatus === "under_contract") {
+      blockReasons.push("This connection is currently Under Contract. Resolve or close the contract before requesting removal.");
+    }
+
+    // Outstanding tasks linked to this connection
+    const outstandingTasks = (tasks as any[]).filter(
+      (row) => row.task.relatedAgentConnectionId === connId &&
+        (row.task.status === "pending" || row.task.status === "in_progress")
+    );
+    if (outstandingTasks.length > 0) {
+      blockReasons.push(
+        `There ${outstandingTasks.length === 1 ? "is" : "are"} ${outstandingTasks.length} outstanding task${outstandingTasks.length === 1 ? "" : "s"} linked to this connection that must be completed or cancelled first.`
+      );
+    }
+
+    // Active under_contract transaction between this agent and this contact
+    const agentId = conn?.agentId;
+    const hasActiveTransaction = (transactions as any[]).some(
+      (row) => row.transaction.agentId === agentId &&
+        row.transaction.primaryContactId === contactId &&
+        row.transaction.status === "under_contract"
+    );
+    if (hasActiveTransaction) {
+      blockReasons.push("There is an active Under Contract transaction between this agent and client.");
+    }
+
+    setDeleteBlockReasons(blockReasons);
     setDeleteConnId(connId);
     setDeleteReason("");
     setDeleteConnOpen(true);
@@ -1411,37 +1445,60 @@ export default function ContactDetail() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">
-              This will submit a deletion request to an admin for approval. The connection will remain active until approved.
-            </p>
-            <div>
-              <Label>Reason for removal *</Label>
-              <Textarea
-                className="mt-1"
-                rows={3}
-                placeholder="Explain why this agent connection should be removed..."
-                value={deleteReason}
-                onChange={e => setDeleteReason(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground mt-1">Minimum 10 characters required.</p>
-            </div>
+            {deleteBlockReasons.length > 0 ? (
+              <div className="space-y-2">
+                <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                  <p className="text-sm font-semibold text-red-800 mb-2 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 shrink-0" /> This connection cannot be deleted
+                  </p>
+                  <ul className="space-y-1.5">
+                    {deleteBlockReasons.map((reason, i) => (
+                      <li key={i} className="text-sm text-red-700 flex items-start gap-1.5">
+                        <span className="mt-0.5 shrink-0">•</span>
+                        <span>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <p className="text-xs text-muted-foreground">Resolve the issue(s) above before submitting a deletion request.</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  This will submit a deletion request to an admin for approval. The connection will remain active until approved.
+                </p>
+                <div>
+                  <Label>Reason for removal *</Label>
+                  <Textarea
+                    className="mt-1"
+                    rows={3}
+                    placeholder="Explain why this agent connection should be removed..."
+                    value={deleteReason}
+                    onChange={e => setDeleteReason(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Minimum 10 characters required.</p>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConnOpen(false)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              disabled={deleteReason.length < 10 || requestDeletion.isPending || !deleteConnId}
-              onClick={() => {
-                if (!deleteConnId) return;
-                requestDeletion.mutate({
-                  type: "delete_agent_connection",
-                  targetId: deleteConnId,
-                  reason: deleteReason,
-                });
-              }}
-            >
-              {requestDeletion.isPending ? "Submitting..." : "Submit Request"}
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteConnOpen(false)}>Close</Button>
+            {deleteBlockReasons.length === 0 && (
+              <Button
+                variant="destructive"
+                disabled={deleteReason.length < 10 || requestDeletion.isPending || !deleteConnId}
+                onClick={() => {
+                  if (!deleteConnId) return;
+                  requestDeletion.mutate({
+                    type: "delete_agent_connection",
+                    targetId: deleteConnId,
+                    reason: deleteReason,
+                  });
+                }}
+              >
+                {requestDeletion.isPending ? "Submitting..." : "Submit Request"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

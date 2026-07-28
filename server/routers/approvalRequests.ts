@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { approvalRequests, agentConnections, communications, tasks } from "../../drizzle/schema";
+import { approvalRequests, agentConnections, communications, tasks, transactions } from "../../drizzle/schema";
 
 export const approvalRequestsRouter = router({
   /** Count pending approval requests (for admin nav badge) */
@@ -46,6 +46,70 @@ export const approvalRequestsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      if (input.type === "delete_agent_connection") {
+        // ── Guard 1: connection must exist and not be closed / under_contract ──
+        const [conn] = await db
+          .select()
+          .from(agentConnections)
+          .where(eq(agentConnections.id, input.targetId))
+          .limit(1);
+
+        if (!conn) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Agent connection not found." });
+        }
+
+        if (conn.pipelineStatus === "closed") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This connection cannot be deleted because it is marked as Closed. Closed connections must be retained for record-keeping.",
+          });
+        }
+
+        if (conn.pipelineStatus === "under_contract") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This connection cannot be deleted because it is currently Under Contract. Resolve or close the contract before requesting removal.",
+          });
+        }
+
+        // ── Guard 2: no outstanding tasks linked to this connection ──
+        const outstandingTasks = await db
+          .select({ id: tasks.id, title: tasks.title })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.relatedAgentConnectionId, input.targetId),
+              inArray(tasks.status, ["pending", "in_progress"]),
+            ),
+          );
+
+        if (outstandingTasks.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `This connection has ${outstandingTasks.length} outstanding task${outstandingTasks.length === 1 ? "" : "s"} that must be completed or cancelled before it can be deleted.`,
+          });
+        }
+
+        // ── Guard 3: no active (under_contract) transaction between this agent and contact ──
+        const activeTransactions = await db
+          .select({ id: transactions.id })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.agentId, conn.agentId),
+              eq(transactions.primaryContactId, conn.contactId),
+              eq(transactions.status, "under_contract"),
+            ),
+          );
+
+        if (activeTransactions.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This connection cannot be deleted because there is an active transaction between this agent and client that is currently Under Contract.",
+          });
+        }
+      }
+
       // Check for existing pending request for same target
       const existing = await db
         .select()
@@ -85,6 +149,68 @@ export const approvalRequestsRouter = router({
       if (!request) throw new TRPCError({ code: "NOT_FOUND" });
       if (request.status !== "pending") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Request has already been reviewed" });
+      }
+
+      // ── Re-validate guards at approval time (state may have changed since request was submitted) ──
+      if (input.decision === "approved" && request.type === "delete_agent_connection") {
+        const [conn] = await db
+          .select()
+          .from(agentConnections)
+          .where(eq(agentConnections.id, request.targetId))
+          .limit(1);
+
+        if (!conn) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "The agent connection no longer exists." });
+        }
+
+        if (conn.pipelineStatus === "closed") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot approve: this connection is now marked as Closed and cannot be deleted.",
+          });
+        }
+
+        if (conn.pipelineStatus === "under_contract") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot approve: this connection is now Under Contract.",
+          });
+        }
+
+        const outstandingTasks = await db
+          .select({ id: tasks.id })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.relatedAgentConnectionId, request.targetId),
+              inArray(tasks.status, ["pending", "in_progress"]),
+            ),
+          );
+
+        if (outstandingTasks.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Cannot approve: there are ${outstandingTasks.length} outstanding task${outstandingTasks.length === 1 ? "" : "s"} linked to this connection.`,
+          });
+        }
+
+        const activeTransactions = await db
+          .select({ id: transactions.id })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.agentId, conn.agentId),
+              eq(transactions.primaryContactId, conn.contactId),
+              eq(transactions.status, "under_contract"),
+            ),
+          );
+
+        if (activeTransactions.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot approve: there is an active Under Contract transaction between this agent and client.",
+          });
+        }
       }
 
       await db.update(approvalRequests).set({
