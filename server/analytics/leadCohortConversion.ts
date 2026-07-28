@@ -74,13 +74,18 @@ function combineWhere(clauses: Array<SQL | undefined>): SQL {
   return usable.length ? sql`WHERE ${sql.join(usable, sql` AND `)}` : sql``;
 }
 
-function filterWhere(filters: LeadCohortConversionFilters): SQL {
+function cohortWhere(filters: LeadCohortConversionFilters): SQL {
   return combineWhere([
     sql`c.\`archived_at\` IS NULL`,
-    filters.dateFrom ? sql`DATE(c.\`createdAt\`) >= ${filters.dateFrom}` : undefined,
-    filters.dateTo ? sql`DATE(c.\`createdAt\`) <= ${filters.dateTo}` : undefined,
-    filters.agentId ? sql`owner.\`agentId\` = ${filters.agentId}` : undefined,
+    filters.dateFrom ? sql`c.\`createdAt\` >= ${filters.dateFrom}` : undefined,
+    filters.dateTo ? sql`c.\`createdAt\` < DATE_ADD(${filters.dateTo}, INTERVAL 1 DAY)` : undefined,
     filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined,
+  ]);
+}
+
+function cohortOutcomeWhere(filters: LeadCohortConversionFilters): SQL {
+  return combineWhere([
+    filters.agentId ? sql`owner.\`agentId\` = ${filters.agentId}` : undefined,
     filters.lifecycleStage ? sql`COALESCE(currentConnection.\`pipelineStatus\`, c.\`isa_status\`) = ${filters.lifecycleStage}` : undefined,
   ]);
 }
@@ -393,9 +398,54 @@ function deterministicInsights(summary: ReturnType<typeof summarize>, sources: R
 }
 
 export async function getLeadCohortConversionReport(filters: LeadCohortConversionFilters = {}) {
-  const where = filterWhere(filters);
+  // Build the cohort first. The previous query materialized every connection and
+  // transaction before applying the lead-created date range, which can stall an
+  // otherwise modest YTD report on production-sized tables.
+  const cohortFilters = cohortWhere(filters);
+  const outcomeFilters = cohortOutcomeWhere(filters);
   const [rows, agents, sources] = await Promise.all([
     runRows<CohortRow>(sql`
+      WITH cohort AS (
+        SELECT c.\`id\`, c.\`firstName\`, c.\`lastName\`, c.\`createdAt\`, c.\`leadSourceId\`, c.\`isa_status\`
+        FROM \`contacts\` c
+        ${cohortFilters}
+      ),
+      first_owner AS (
+        SELECT ac.\`contactId\`, MIN(ac.\`id\`) AS firstConnectionId
+        FROM \`agent_connections\` ac
+        INNER JOIN cohort scopedContact ON scopedContact.\`id\` = ac.\`contactId\`
+        GROUP BY ac.\`contactId\`
+      ),
+      latest_connection AS (
+        SELECT ac.\`contactId\`, MAX(ac.\`id\`) AS latestConnectionId
+        FROM \`agent_connections\` ac
+        INNER JOIN cohort scopedContact ON scopedContact.\`id\` = ac.\`contactId\`
+        GROUP BY ac.\`contactId\`
+      ),
+      scoped_payout AS (
+        SELECT payout.\`transactionId\`,
+          COUNT(*) AS payoutItemCount,
+          COALESCE(SUM(CASE WHEN payout.\`payeeType\` IN ('savvy_str_agents', 'exp') THEN COALESCE(payout.\`amount\`, 0) ELSE 0 END), 0) AS savvyNet
+        FROM \`transaction_payout_items\` payout
+        INNER JOIN \`transactions\` payoutTransaction ON payoutTransaction.\`id\` = payout.\`transactionId\`
+        INNER JOIN cohort scopedContact ON scopedContact.\`id\` = payoutTransaction.\`primaryContactId\`
+        GROUP BY payout.\`transactionId\`
+      ),
+      outcomes AS (
+        SELECT t.\`primaryContactId\` AS contactId,
+          MIN(CASE WHEN t.\`status\` IN ('under_contract', 'closed') AND t.\`contractDate\` IS NOT NULL THEN t.\`contractDate\` END) AS firstContractDate,
+          MIN(CASE WHEN t.\`status\` = 'closed' AND t.\`closingDate\` IS NOT NULL THEN t.\`closingDate\` END) AS firstClosingDate,
+          COUNT(DISTINCT CASE WHEN t.\`status\` = 'closed' THEN t.\`id\` END) AS closedUnits,
+          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(t.\`purchasePrice\`, 0) ELSE 0 END), 0) AS closedVolume,
+          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(t.\`grossCommissionIncome\`, 0) ELSE 0 END), 0) AS closedGci,
+          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(payout.savvyNet, 0) ELSE 0 END), 0) AS recordedSavvyNet,
+          SUM(CASE WHEN t.\`status\` = 'closed' AND COALESCE(payout.payoutItemCount, 0) > 0 THEN 1 ELSE 0 END) AS payoutRecordedClosedUnits,
+          COUNT(DISTINCT CASE WHEN t.\`status\` = 'under_contract' THEN t.\`id\` END) AS liveUnderContractUnits
+        FROM \`transactions\` t
+        INNER JOIN cohort scopedContact ON scopedContact.\`id\` = t.\`primaryContactId\`
+        LEFT JOIN scoped_payout payout ON payout.\`transactionId\` = t.\`id\`
+        GROUP BY t.\`primaryContactId\`
+      )
       SELECT
         c.\`id\` AS contactId,
         CONCAT_WS(' ', c.\`firstName\`, c.\`lastName\`) AS contactName,
@@ -415,7 +465,15 @@ export async function getLeadCohortConversionReport(filters: LeadCohortConversio
         COALESCE(outcomes.recordedSavvyNet, 0) AS recordedSavvyNet,
         COALESCE(outcomes.payoutRecordedClosedUnits, 0) AS payoutRecordedClosedUnits,
         COALESCE(outcomes.liveUnderContractUnits, 0) AS liveUnderContractUnits
-      ${baseFrom(where)}
+      FROM cohort c
+      LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = c.\`leadSourceId\`
+      LEFT JOIN first_owner firstOwner ON firstOwner.\`contactId\` = c.\`id\`
+      LEFT JOIN \`agent_connections\` owner ON owner.\`id\` = firstOwner.firstConnectionId
+      LEFT JOIN \`users\` ownerUser ON ownerUser.\`id\` = owner.\`agentId\`
+      LEFT JOIN latest_connection latestConnection ON latestConnection.\`contactId\` = c.\`id\`
+      LEFT JOIN \`agent_connections\` currentConnection ON currentConnection.\`id\` = latestConnection.latestConnectionId
+      LEFT JOIN outcomes ON outcomes.contactId = c.\`id\`
+      ${outcomeFilters}
       ORDER BY c.\`createdAt\` DESC, c.\`id\` DESC
     `),
     runRows<Row>(sql`SELECT \`id\`, \`name\` FROM \`users\` WHERE \`role\` = 'agent' AND \`isActive\` = 1 ORDER BY \`name\` ASC`),
