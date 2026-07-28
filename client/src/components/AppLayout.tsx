@@ -176,7 +176,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "Overview",
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
-        { icon: BarChart3, label: "Analytics & Reports", path: "/analytics" },
+        { icon: BarChart3, label: "Reporting", path: "/analytics" },
       ],
     },
     {

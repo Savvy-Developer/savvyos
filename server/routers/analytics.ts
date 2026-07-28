@@ -71,6 +71,12 @@ import {
   getLeadCohortConversionReport,
   refreshLeadCohortConversionInsights,
 } from "../analytics/leadCohortConversion";
+import {
+  getAgentReport,
+  getGroupLeaderReport,
+  getReportingFilters,
+  getTransactionStatisticsReport,
+} from "../analytics/reportingSuite";
 
 const dateRangeInput = z.object({
   dateFrom: z.string().optional(),
@@ -92,6 +98,18 @@ const leadCohortConversionInput = z.object({
   agentId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
   lifecycleStage: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"]).optional(),
+});
+
+const reportingSuiteInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateBasis: z.enum(["closing", "contract"]).optional(),
+  agentId: z.number().int().positive().optional(),
+  groupLeaderId: z.number().int().positive().optional(),
+  status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+  transactionType: z.enum(["all", "buyer", "seller", "dual"]).optional(),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(10).max(100).optional(),
 });
 
 function parseDates(input?: { dateFrom?: string; dateTo?: string }) {
@@ -681,6 +699,35 @@ Return only valid JSON array.`;
         force: input?.force ?? false,
         reason: input?.force ? "manual" : "automatic",
       });
+    }),
+
+  // ─── Reporting Suite v2 ───────────────────────────────────────────────────
+  // The replacement reporting suite intentionally owns all production, financial,
+  // and operational definitions under a single bounded server-side contract.
+  reportingFilters: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+    return getReportingFilters();
+  }),
+
+  agentReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getAgentReport(input ?? {});
+    }),
+
+  groupLeaderReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getGroupLeaderReport(input ?? {});
+    }),
+
+  transactionStatisticsReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getTransactionStatisticsReport(input ?? {});
     }),
 
   // ─── Analytics Workspace v1 ───────────────────────────────────────────────
