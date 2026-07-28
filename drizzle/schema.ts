@@ -157,7 +157,11 @@ export const contacts = mysqlTable("contacts", {
   aiSummaryUpdatedAt: timestamp("aiSummaryUpdatedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  // Supports the analytics cohort’s archived-contact exclusion plus lead-created
+  // date range without scanning the full contacts table.
+  cohortActiveCreatedAtIdx: index("contacts_archived_createdAt_idx").on(table.archivedAt, table.createdAt),
+}));
 export type Contact = typeof contacts.$inferSelect;
 export type InsertContact = typeof contacts.$inferInsert;
 

@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink, TRPCClientError } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
@@ -54,17 +54,31 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+const authenticatedFetch = (input: RequestInfo | URL, init?: RequestInit) =>
+  globalThis.fetch(input, {
+    ...(init ?? {}),
+    credentials: "include",
+  });
+
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
-      url: "/api/trpc",
-      transformer: superjson,
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
+    // The cohort report can legitimately scan a large date range. Keep it out of
+    // the initial navigation batch so unrelated chrome (badges, profile, and nav)
+    // stays responsive even while the report is loading.
+    splitLink({
+      condition(op) {
+        return op.path === "analytics.leadCohortConversion";
       },
+      true: httpLink({
+        url: "/api/trpc",
+        transformer: superjson,
+        fetch: authenticatedFetch,
+      }),
+      false: httpBatchLink({
+        url: "/api/trpc",
+        transformer: superjson,
+        fetch: authenticatedFetch,
+      }),
     }),
   ],
 });

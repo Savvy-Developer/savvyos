@@ -6,6 +6,7 @@ const analyticsRouter = () => readFileSync("server/routers/analytics.ts", "utf-8
 const reportService = () => readFileSync("server/analytics/leadCohortConversion.ts", "utf-8");
 const appRoutes = () => readFileSync("client/src/App.tsx", "utf-8");
 const contactDetail = () => readFileSync("client/src/pages/ContactDetail.tsx", "utf-8");
+const clientMain = () => readFileSync("client/src/main.tsx", "utf-8");
 
 describe("Lead Cohort Conversion report — stable cohort and evidence contract", () => {
   it("keeps cohort, downstream conversion, timing, source, owner, and production measures visible", () => {
@@ -52,5 +53,14 @@ describe("Lead Cohort Conversion report — stable cohort and evidence contract"
     expect(focusedSection).toContain('ctx.user.role !== "admin"');
     expect(focusedSection).toContain("Lead Cohort Conversion is currently available to administrators only.");
     expect(reportPage()).toContain("refreshLeadCohortConversionInsights.useMutation");
+  });
+
+  it("keeps breakdown intermediates server-side and isolates the report request", () => {
+    const service = reportService();
+    const main = clientMain();
+    expect(service).toContain("rows: groupRows");
+    expect(service).not.toContain("...group, ...summarize(group.rows)");
+    expect(main).toContain('op.path === "analytics.leadCohortConversion"');
+    expect(main).toContain("httpLink({");
   });
 });

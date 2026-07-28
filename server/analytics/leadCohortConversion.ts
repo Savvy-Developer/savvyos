@@ -322,8 +322,14 @@ function groupedBreakdown(rows: NormalizedCohortRow[], key: (row: NormalizedCoho
     group.rows.push(row);
     groups.set(groupKey, group);
   }
-  return Array.from(groups.values()).map((group) => ({ ...group, ...summarize(group.rows) }))
-    .sort((a, b) => b.closedVolume - a.closedVolume || b.cohortLeads - a.cohortLeads);
+  // Keep intermediate rows private to this reducer. Returning them here duplicates
+  // the full cohort in both source and owner breakdowns, inflating the tRPC payload
+  // without supporting any report interaction.
+  return Array.from(groups.values()).map(({ id, name, rows: groupRows }) => ({
+    id,
+    name,
+    ...summarize(groupRows),
+  })).sort((a, b) => b.closedVolume - a.closedVolume || b.cohortLeads - a.cohortLeads);
 }
 
 function monthlyBreakdown(rows: NormalizedCohortRow[]) {
