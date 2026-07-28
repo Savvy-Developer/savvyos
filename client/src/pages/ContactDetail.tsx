@@ -619,6 +619,12 @@ export default function ContactDetail() {
   const contact = contactData?.contact;
   const leadSource = (contactData as any)?.leadSource;
 
+  // Agents must never access the full contact page
+  if (user?.role === "agent") {
+    navigate("/pipeline");
+    return null;
+  }
+
   if (!contact) {
     return <div className="p-6 text-muted-foreground">Loading...</div>;
   }

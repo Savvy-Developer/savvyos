@@ -602,8 +602,8 @@ export default function ListingDetail() {
               {contact ? (
                 <>
                   <button
-                    className="font-medium text-primary hover:underline text-left"
-                    onClick={() => navigate(`/contacts/${contact.id}`)}
+                    className={role === "agent" ? "font-medium text-left cursor-default" : "font-medium text-primary hover:underline text-left"}
+                    onClick={() => { if (role !== "agent") navigate(`/contacts/${contact.id}`); }}
                   >
                     {contact.firstName} {contact.lastName}
                   </button>

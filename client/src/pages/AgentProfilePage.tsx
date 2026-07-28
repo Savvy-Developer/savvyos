@@ -878,8 +878,8 @@ export default function AgentProfilePage() {
                       return (
                       <TableRow
                         key={c.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => navigate(`/contacts/${c.id}`)}
+                        className={currentUser?.role === "agent" ? "" : "cursor-pointer hover:bg-muted/50"}
+                        onClick={() => { if (currentUser?.role !== "agent") navigate(`/contacts/${c.id}`); }}
                       >
                         <TableCell className="font-medium">
                           {c.firstName} {c.lastName}
@@ -961,8 +961,8 @@ export default function AgentProfilePage() {
                       <TableRow key={task.id} className="hover:bg-muted/50">
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell
-                          className="text-sm text-muted-foreground cursor-pointer hover:text-primary"
-                          onClick={() => task.relatedContactId && navigate(`/contacts/${task.relatedContactId}`)}
+                          className={currentUser?.role === "agent" ? "text-sm text-muted-foreground" : "text-sm text-muted-foreground cursor-pointer hover:text-primary"}
+                          onClick={() => { if (currentUser?.role !== "agent" && task.relatedContactId) navigate(`/contacts/${task.relatedContactId}`); }}
                         >
                           {task.contactFirstName
                             ? `${task.contactFirstName} ${task.contactLastName ?? ""}`.trim()

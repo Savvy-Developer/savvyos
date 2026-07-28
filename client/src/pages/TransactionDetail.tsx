@@ -66,7 +66,7 @@ function txEventDotColor(type: TxHistoryEvent["type"]): string {
   return "bg-slate-400";
 }
 
-function TransactionHistoryTabContent({ transactionId }: { transactionId: number }) {
+function TransactionHistoryTabContent({ transactionId, isAgent = false }: { transactionId: number; isAgent?: boolean }) {
   const { data: historyData, isLoading } = trpc.transactions.getHistory.useQuery(
     { transactionId },
     { enabled: !!transactionId }
@@ -157,7 +157,10 @@ function TransactionHistoryTabContent({ transactionId }: { transactionId: number
                   </div>
                 </div>
               );
-              if (event.contactId) return <Link key={event.id} href={`/contacts/${event.contactId}`}>{content}</Link>;
+              if (event.contactId) {
+                if (isAgent) return <div key={event.id}>{content}</div>;
+                return <Link key={event.id} href={`/contacts/${event.contactId}`}>{content}</Link>;
+              }
               if (event.listingId) return <Link key={event.id} href={`/listings/${event.listingId}`}>{content}</Link>;
               if (event.propertyId) return <Link key={event.id} href={`/properties/${event.propertyId}`}>{content}</Link>;
               return <div key={event.id}>{content}</div>;
@@ -907,8 +910,8 @@ export default function TransactionDetail() {
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">Contact</p>
                 <p
-                  className="font-semibold text-base cursor-pointer hover:text-primary transition-colors"
-                  onClick={() => navigate(`/contacts/${contact?.id}`)}
+                  className={isAgent ? "font-semibold text-base" : "font-semibold text-base cursor-pointer hover:text-primary transition-colors"}
+                  onClick={() => { if (!isAgent && contact?.id) navigate(`/contacts/${contact.id}`); }}
                 >
                   {contact?.firstName} {contact?.lastName}
                 </p>
@@ -998,8 +1001,8 @@ export default function TransactionDetail() {
                   <div>
                     <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">Buyer</p>
                     <p
-                      className="font-semibold text-base cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => navigate(`/contacts/${buyerContact.id}`)}
+                      className={isAgent ? "font-semibold text-base" : "font-semibold text-base cursor-pointer hover:text-primary transition-colors"}
+                      onClick={() => { if (!isAgent) navigate(`/contacts/${buyerContact.id}`); }}
                     >
                       {buyerContact.firstName} {buyerContact.lastName}
                     </p>
@@ -1780,7 +1783,7 @@ export default function TransactionDetail() {
 
             {/* History / Audit Tab */}
             <TabsContent value="history">
-              <TransactionHistoryTabContent transactionId={txId} />
+              <TransactionHistoryTabContent transactionId={txId} isAgent={isAgent} />
             </TabsContent>
           </Tabs>
         </div>

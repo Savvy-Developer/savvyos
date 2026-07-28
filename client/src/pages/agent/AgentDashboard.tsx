@@ -727,7 +727,7 @@ export default function AgentDashboard() {
                     <div
                       key={connection.id}
                       className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 cursor-pointer"
-                      onClick={() => navigate(`/contacts/${connection.contactId}`)}
+                      onClick={() => navigate(`/pipeline/${connection.id}`)}
                     >
                       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
                         {contact?.firstName?.[0]}{contact?.lastName?.[0]}

@@ -242,7 +242,13 @@ export default function TaskDetailPage() {
                     <ExternalLink className="h-4 w-4 text-muted-foreground" />
                     <button
                       className="text-primary hover:underline"
-                      onClick={() => navigate(`/contacts/${contact.id}`)}
+                      onClick={() => {
+                        if (role === "agent" && (task as any).relatedAgentConnectionId) {
+                          navigate(`/pipeline/${(task as any).relatedAgentConnectionId}`);
+                        } else if (role !== "agent") {
+                          navigate(`/contacts/${contact.id}`);
+                        }
+                      }}
                     >
                       {contact.firstName} {contact.lastName}
                     </button>

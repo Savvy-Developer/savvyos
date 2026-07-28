@@ -105,6 +105,17 @@ function AdminOrIsaRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function NonAgentRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const role = (user as any)?.role;
+  if (role === "agent") {
+    navigate("/pipeline");
+    return null;
+  }
+  return <>{children}</>;
+}
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
@@ -138,8 +149,8 @@ function Router() {
       <AppLayout>
         <Switch>
           <Route path="/" component={Dashboard} />
-          <Route path="/contacts" component={ContactsPage} />
-          <Route path="/contacts/:id" component={ContactDetail} />
+          <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
+          <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
           <Route path="/transactions" component={TransactionsPage} />
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/properties" component={PropertiesPage} />

@@ -283,6 +283,12 @@ export default function ContactsPage() {
     }
   }
 
+  // Agents must never access the full contacts list
+  if (user?.role === "agent") {
+    navigate("/pipeline");
+    return null;
+  }
+
   const canAssign = user?.role === "admin" || user?.role === "isa";
   const canBulkAssign = user?.role === "admin" || user?.role === "isa";
   const allSelected = contacts.length > 0 && selectedIds.size === contacts.length;

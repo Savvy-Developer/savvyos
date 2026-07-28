@@ -12,6 +12,7 @@ import {
 import { useLocation, useParams, Link } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 const TX_STATUS_COLORS: Record<string, string> = {
   under_contract: "bg-blue-100 text-blue-700",
@@ -75,7 +76,7 @@ function EventDotColor(type: HistoryEvent["type"]): string {
   return "bg-slate-400";
 }
 
-function HistoryTimeline({ events }: { events: HistoryEvent[] }) {
+function HistoryTimeline({ events, isAgent = false }: { events: HistoryEvent[]; isAgent?: boolean }) {
   if (events.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
@@ -156,6 +157,7 @@ function HistoryTimeline({ events }: { events: HistoryEvent[] }) {
             return <Link key={event.id} href={`/listings/${event.listingId}`}>{content}</Link>;
           }
           if (event.contactId) {
+            if (isAgent) return <div key={event.id}>{content}</div>;
             return <Link key={event.id} href={`/contacts/${event.contactId}`}>{content}</Link>;
           }
           return <div key={event.id}>{content}</div>;
@@ -170,6 +172,8 @@ export default function PropertyDetail() {
   const [, navigate] = useLocation();
   const goBack = useAppBack("/properties");
   const propId = parseInt(id ?? "0");
+  const { user } = useAuth();
+  const isAgent = user?.role === "agent";
 
   const { data: property } = trpc.properties.get.useQuery({ id: propId });
   const { data: associations } = trpc.properties.getAssociations.useQuery(
@@ -264,8 +268,8 @@ export default function PropertyDetail() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {contactList.map((c: any) => (
-                      <Link key={c.id} href={`/contacts/${c.id}`}>
-                        <div className="p-3 rounded-lg border hover:bg-muted/50 cursor-pointer transition-colors">
+                      <div key={c.id} onClick={() => { if (!isAgent) navigate(`/contacts/${c.id}`); }}>
+                        <div className={`p-3 rounded-lg border transition-colors ${isAgent ? "" : "hover:bg-muted/50 cursor-pointer"}`}>
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-sm font-medium">{c.firstName} {c.lastName}</span>
                             {c.relationship && (
@@ -285,7 +289,7 @@ export default function PropertyDetail() {
                             )}
                           </div>
                         </div>
-                      </Link>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -390,7 +394,7 @@ export default function PropertyDetail() {
               {historyLoading ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">Loading history…</div>
               ) : (
-                <HistoryTimeline events={historyEvents} />
+                <HistoryTimeline events={historyEvents} isAgent={isAgent} />
               )}
             </CardContent>
           </Card>

@@ -70,7 +70,8 @@ export const contactsRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents cannot access contact details directly" });
       const contact = await getContactById(input.id);
       if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
       return contact;
@@ -123,6 +124,7 @@ export const contactsRouter = router({
   update: protectedProcedure
     .input(z.object({ id: z.number(), data: contactInput.partial() }))
     .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents cannot edit contact details directly" });
       // Fetch old values before updating so we can log a proper diff
       const oldContact = await getContactById(input.id);
       const oldData = (oldContact as any)?.contact ?? oldContact ?? {};
@@ -245,7 +247,8 @@ export const contactsRouter = router({
 
   getCommunications: protectedProcedure
     .input(z.object({ contactId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents cannot access contact communications directly" });
       return getCommunications({ contactId: input.contactId });
     }),
 
@@ -259,6 +262,7 @@ export const contactsRouter = router({
       agentConnectionId: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents cannot add notes to contacts directly" });
       const id = await createCommunication({
         type: input.type,
         subject: input.subject,

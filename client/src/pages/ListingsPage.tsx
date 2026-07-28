@@ -536,7 +536,7 @@ export default function ListingsPage() {
                       </td>
                       <td className="py-2 px-4 text-sm text-muted-foreground">
                         {item.contact
-                          ? <button className="hover:underline text-foreground" onClick={() => navigate(`/contacts/${item.contact.id}`)}>{item.contact.firstName} {item.contact.lastName}</button>
+                          ? <button className={user?.role === "agent" ? "text-foreground cursor-default" : "hover:underline text-foreground"} onClick={() => { if (user?.role !== "agent") navigate(`/contacts/${item.contact.id}`); }}>{item.contact.firstName} {item.contact.lastName}</button>
                           : "—"}
                       </td>
                       <td className="py-2 px-4 text-sm text-muted-foreground">{item.agent?.name ?? "—"}</td>
