@@ -31,6 +31,7 @@ describe("Transaction Intelligence report — stable decision and evidence contr
     expect(report).toContain('report: "transaction-intelligence", returnTo: location');
     expect(report).toContain('params.set("closingDateFrom"');
     expect(transactions).toContain('candidate.startsWith("/analytics")');
+    expect(transactions).toContain('window.location.search.replace(/^\\?/, "")');
     expect(transactions).toContain('params.get("analytics") !== "1"');
     expect(transactions).toContain("Back to report");
   });

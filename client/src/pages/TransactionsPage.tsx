@@ -598,9 +598,12 @@ export default function TransactionsPage() {
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
   const appliedAnalyticsLink = useRef<string | null>(null);
+  // Wouter's location value is the pathname in this app, so query-string state
+  // must be read from the browser URL. Analytics evidence links intentionally
+  // take precedence over persisted list filters on their initial load.
+  const analyticsQuery = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
   const analyticsReturnUrl = (() => {
-    const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : "";
-    const candidate = new URLSearchParams(query).get("returnTo");
+    const candidate = new URLSearchParams(analyticsQuery).get("returnTo");
     return candidate && candidate.startsWith("/analytics") && !candidate.startsWith("//") ? candidate : null;
   })();
 
@@ -609,7 +612,7 @@ export default function TransactionsPage() {
   // once per distinct link so subsequent local filter changes remain under the
   // user’s control and no navigation/render loop is introduced.
   useEffect(() => {
-    const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : "";
+    const query = analyticsQuery;
     const params = new URLSearchParams(query);
     if (params.get("analytics") !== "1" || appliedAnalyticsLink.current === query) return;
 
@@ -642,7 +645,7 @@ export default function TransactionsPage() {
     setShowDateFilters(Boolean(nextClosingFrom || nextClosingTo || nextContractFrom || nextContractTo));
     setTxPage(1);
     appliedAnalyticsLink.current = query;
-  }, [location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage, setTypeFilter]);
+  }, [analyticsQuery, location, setAgentFilter, setClosingDateFrom, setClosingDateTo, setContractDateFrom, setContractDateTo, setLeadSourceFilter, setMarketFilter, setShowDateFilters, setStatusFilter, setTxPage, setTypeFilter]);
 
   function handleColumnSort(col: string) {
     if (sortColumn === col) {
