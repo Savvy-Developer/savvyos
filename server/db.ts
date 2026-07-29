@@ -370,6 +370,14 @@ export async function createContact(data: typeof contacts.$inferInsert) {
   // Outbound GHL sync — fire-and-forget; never blocks contact creation. See
   // server/_core/ghlSync.ts for the chokepoint design.
   void import("./_core/ghlSync").then((m) => m.triggerGhlContactSync(insertId));
+  // Deferred email behaviors match — promote any unmatched email records for this address.
+  if (data.email) {
+    void import("./emailBehaviorsSync").then((m) =>
+      m.promoteUnmatchedEmailBehaviors(insertId, data.email as string).catch((err) =>
+        console.error("[EmailBehaviors] Deferred match error on contact create:", err),
+      ),
+    );
+  }
   return insertId;
 }
 

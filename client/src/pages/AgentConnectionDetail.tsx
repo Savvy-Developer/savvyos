@@ -14,9 +14,10 @@ import { toast } from "sonner";
 import {
   ArrowLeft, User, Phone, Mail, MapPin, DollarSign, Home, Edit2, Save, X,
   MessageSquare, CheckSquare, FileText, Plus, Calendar, Tag, Mic,
-  PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink
+  PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink, Inbox
 } from "lucide-react";
 import SmartPlanContactTab from "@/components/SmartPlanContactTab";
+import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
@@ -416,6 +417,7 @@ export default function AgentConnectionDetail() {
               <TabsTrigger value="transactions">Transactions ({contactTransactions?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="documents">Documents ({docs?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
+              <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
             </TabsList>
 
             {/* Communications Tab */}
@@ -590,6 +592,15 @@ export default function AgentConnectionDetail() {
                 <SmartPlanContactTab contactId={conn.connection.contactId} />
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-8">No contact linked.</p>
+              )}
+            </TabsContent>
+
+            {/* Email Behaviors Tab */}
+            <TabsContent value="email-behaviors">
+              {conn?.connection?.id ? (
+                <EmailBehaviorsTab connectionId={conn.connection.id} />
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-8">No connection linked.</p>
               )}
             </TabsContent>
           </Tabs>

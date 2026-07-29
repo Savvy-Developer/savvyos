@@ -1623,3 +1623,85 @@ export const adminPermissions = mysqlTable("admin_permissions", {
 });
 export type AdminPermissions = typeof adminPermissions.$inferSelect;
 export type InsertAdminPermissions = typeof adminPermissions.$inferInsert;
+
+// ─── Email Behaviors ──────────────────────────────────────────────────────────
+// Stores email activity imported from Resend and GoHighLevel, matched to a
+// contact by email address. One row per email send event.
+export const emailBehaviors = mysqlTable(
+  "email_behaviors",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    // Matched contact (null until matched)
+    contactId: int("contactId").references(() => contacts.id, { onDelete: "cascade" }),
+    // Source system
+    source: mysqlEnum("source", ["resend", "ghl"]).notNull(),
+    // External IDs for dedup
+    externalId: varchar("externalId", { length: 512 }).notNull(), // Resend email ID or GHL message ID
+    // Email fields
+    toEmail: varchar("toEmail", { length: 320 }).notNull(),
+    fromEmail: varchar("fromEmail", { length: 512 }),
+    subject: varchar("subject", { length: 1024 }),
+    direction: mysqlEnum("direction", ["outbound", "inbound"]).default("outbound").notNull(),
+    // Status / engagement
+    status: varchar("status", { length: 64 }), // delivered, bounced, opened, clicked, failed, sent, etc.
+    openedAt: timestamp("openedAt"),
+    clickedAt: timestamp("clickedAt"),
+    // Source-specific metadata
+    ghlConversationId: varchar("ghlConversationId", { length: 255 }),
+    ghlMessageSource: varchar("ghlMessageSource", { length: 128 }), // workflow, manual, etc.
+    // Timestamps
+    sentAt: timestamp("sentAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    index("email_behaviors_contact_idx").on(table.contactId, table.sentAt),
+    index("email_behaviors_to_email_idx").on(table.toEmail),
+    uniqueIndex("email_behaviors_source_external_unique").on(table.source, table.externalId),
+  ],
+);
+export type EmailBehavior = typeof emailBehaviors.$inferSelect;
+export type InsertEmailBehavior = typeof emailBehaviors.$inferInsert;
+
+// ─── Email Behaviors Unmatched Queue ─────────────────────────────────────────
+// Hidden staging table for emails whose recipient address does not yet match
+// any contact in SavvyOS. When a new contact is created with a matching email,
+// the deferred-match trigger promotes rows from here into email_behaviors.
+export const emailBehaviorsUnmatched = mysqlTable(
+  "email_behaviors_unmatched",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    source: mysqlEnum("source", ["resend", "ghl"]).notNull(),
+    externalId: varchar("externalId", { length: 512 }).notNull(),
+    toEmail: varchar("toEmail", { length: 320 }).notNull(),
+    fromEmail: varchar("fromEmail", { length: 512 }),
+    subject: varchar("subject", { length: 1024 }),
+    direction: mysqlEnum("direction", ["outbound", "inbound"]).default("outbound").notNull(),
+    status: varchar("status", { length: 64 }),
+    openedAt: timestamp("openedAt"),
+    clickedAt: timestamp("clickedAt"),
+    ghlConversationId: varchar("ghlConversationId", { length: 255 }),
+    ghlMessageSource: varchar("ghlMessageSource", { length: 128 }),
+    sentAt: timestamp("sentAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    index("email_behaviors_unmatched_email_idx").on(table.toEmail),
+    uniqueIndex("email_behaviors_unmatched_source_external_unique").on(table.source, table.externalId),
+  ],
+);
+export type EmailBehaviorUnmatched = typeof emailBehaviorsUnmatched.$inferSelect;
+export type InsertEmailBehaviorUnmatched = typeof emailBehaviorsUnmatched.$inferInsert;
+
+// ─── Email Behaviors Sync State ───────────────────────────────────────────────
+// Tracks the last successful sync cursor for each source so incremental syncs
+// only fetch new data rather than re-importing everything.
+export const emailBehaviorsSyncState = mysqlTable("email_behaviors_sync_state", {
+  id: int("id").autoincrement().primaryKey(),
+  source: mysqlEnum("source", ["resend", "ghl"]).notNull().unique(),
+  lastSyncedAt: timestamp("lastSyncedAt"),
+  lastCursor: varchar("lastCursor", { length: 1024 }), // pagination cursor / last ID
+  totalImported: int("totalImported").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type EmailBehaviorsSyncState = typeof emailBehaviorsSyncState.$inferSelect;

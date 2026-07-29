@@ -12,4 +12,6 @@ export const ENV = {
   // GHL_LOCATION_TOKEN is empty (e.g. local dev) — see server/_core/ghlSync.ts.
   ghlLocationToken: process.env.GHL_LOCATION_TOKEN ?? "",
   ghlLocationId: process.env.GHL_LOCATION_ID ?? "2ZPnQStoB9ZVXSwFdfEw",
+  // GHL v2 token with Conversations scope — used for Email Behaviors sync.
+  ghlLocationTokenV2: process.env.GHL_LOCATION_TOKEN_V2 ?? "",
 };

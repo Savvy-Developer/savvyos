@@ -14,7 +14,8 @@ import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox } from "lucide-react";
+import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -948,6 +949,7 @@ export default function ContactDetail() {
                 <TabsTrigger value="tasks">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
                 <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
+                <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
 
               </TabsList>
               <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
@@ -1202,6 +1204,11 @@ export default function ContactDetail() {
             {/* Smart Plans Tab */}
             <TabsContent value="smart-plans">
               <SmartPlanContactTab contactId={contactId} />
+            </TabsContent>
+
+            {/* Email Behaviors Tab */}
+            <TabsContent value="email-behaviors">
+              <EmailBehaviorsTab contactId={contactId} />
             </TabsContent>
 
           </Tabs>

@@ -17,6 +17,7 @@ import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../a
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
+import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -184,6 +185,9 @@ async function startServer() {
   // Company-wide AI Business Insights: one shared cache, checked daily and
   // regenerated weekly. A manual admin refresh uses the same protected lifecycle.
   scheduleBusinessInsightRefresh();
+
+  // Email Behaviors: sync Resend + GHL email activity every 4 hours
+  scheduleEmailBehaviorsSync();
 }
 
 startServer().catch(console.error);

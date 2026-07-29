@@ -1,0 +1,560 @@
+/**
+ * Email Behaviors Sync Service
+ *
+ * Pulls email activity from Resend and GoHighLevel, matches records to
+ * SavvyOS contacts by email address, and stores them in email_behaviors.
+ * Unmatched emails go into email_behaviors_unmatched for deferred matching
+ * when a new contact with that email is later created.
+ */
+import { getDb } from "./db";
+import {
+  contacts,
+  emailBehaviors,
+  emailBehaviorsUnmatched,
+  emailBehaviorsSyncState,
+} from "../drizzle/schema";
+import { eq, and, inArray, sql } from "drizzle-orm";
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+// Use the v2 token (Conversations scope) if set, fall back to the original token
+const GHL_LOCATION_TOKEN = process.env.GHL_LOCATION_TOKEN_V2 || process.env.GHL_LOCATION_TOKEN || "";
+const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || "2ZPnQStoB9ZVXSwFdfEw";
+const GHL_API_VERSION = "2021-04-15";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface EmailRecord {
+  source: "resend" | "ghl";
+  externalId: string;
+  toEmail: string;
+  fromEmail?: string;
+  subject?: string;
+  direction: "outbound" | "inbound";
+  status?: string;
+  openedAt?: Date;
+  clickedAt?: Date;
+  ghlConversationId?: string;
+  ghlMessageSource?: string;
+  sentAt?: Date;
+}
+
+// ─── Resend Sync ─────────────────────────────────────────────────────────────
+
+/**
+ * Fetch emails from Resend API with pagination.
+ * Returns up to `maxPages` pages of results.
+ */
+async function fetchResendEmails(
+  afterId?: string,
+  maxPages = 50,
+): Promise<EmailRecord[]> {
+  const records: EmailRecord[] = [];
+  let cursor: string | undefined = afterId;
+  let page = 0;
+
+  while (page < maxPages) {
+    const url = new URL("https://api.resend.com/emails");
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("after", cursor);
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
+    });
+    if (!res.ok) {
+      console.error(`[EmailBehaviors] Resend API error: ${res.status}`);
+      break;
+    }
+
+    const json = (await res.json()) as {
+      data: Array<{
+        id: string;
+        to: string[];
+        from: string;
+        subject: string;
+        created_at: string;
+        last_event: string;
+      }>;
+      has_more: boolean;
+    };
+
+    if (!json.data || json.data.length === 0) break;
+
+    for (const email of json.data) {
+      const toEmail = (email.to?.[0] ?? "").toLowerCase().trim();
+      if (!toEmail) continue;
+      records.push({
+        source: "resend",
+        externalId: email.id,
+        toEmail,
+        fromEmail: email.from,
+        subject: email.subject,
+        direction: "outbound",
+        status: email.last_event ?? "sent",
+        sentAt: email.created_at ? new Date(email.created_at) : undefined,
+      });
+    }
+
+    if (!json.has_more) break;
+    // Use the last email's ID as the next cursor
+    cursor = json.data[json.data.length - 1]?.id;
+    page++;
+  }
+
+  return records;
+}
+
+// ─── GHL Sync ─────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch email messages from GHL conversations API.
+ * Iterates through all conversations and extracts TYPE_EMAIL messages.
+ */
+async function fetchGhlEmailMessages(maxConversations = 500): Promise<EmailRecord[]> {
+  const records: EmailRecord[] = [];
+  let startAfter: string | undefined;
+  let fetched = 0;
+
+  // Step 1: Get all conversations
+  const conversations: Array<{
+    id: string;
+    email: string;
+    contactId: string;
+    lastMessageType: string;
+  }> = [];
+
+  while (fetched < maxConversations) {
+    const url = new URL("https://services.leadconnectorhq.com/conversations/search");
+    url.searchParams.set("locationId", GHL_LOCATION_ID);
+    url.searchParams.set("limit", "100");
+    if (startAfter) url.searchParams.set("startAfter", startAfter);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${GHL_LOCATION_TOKEN}`,
+        Version: GHL_API_VERSION,
+      },
+    });
+
+    if (!res.ok) {
+      console.error(`[EmailBehaviors] GHL conversations API error: ${res.status}`);
+      break;
+    }
+
+    const json = (await res.json()) as {
+      conversations: Array<{
+        id: string;
+        email: string;
+        contactId: string;
+        lastMessageType: string;
+        messageTypes?: number[];
+        sort?: number[];
+      }>;
+    };
+
+    if (!json.conversations || json.conversations.length === 0) break;
+
+    for (const conv of json.conversations) {
+      // TYPE_EMAIL = 3 in GHL's numeric enum, or "TYPE_EMAIL" string
+      const hasEmail =
+        conv.lastMessageType === "TYPE_EMAIL" ||
+        (conv.messageTypes && conv.messageTypes.includes(3));
+      if (hasEmail && conv.email) {
+        conversations.push({
+          id: conv.id,
+          email: conv.email.toLowerCase().trim(),
+          contactId: conv.contactId,
+          lastMessageType: conv.lastMessageType,
+        });
+      }
+    }
+
+    fetched += json.conversations.length;
+    if (json.conversations.length < 100) break;
+    // Use sort cursor from last item
+    const lastConv = json.conversations[json.conversations.length - 1];
+    if (lastConv?.sort?.[0]) {
+      startAfter = String(lastConv.sort[0]);
+    } else {
+      break;
+    }
+  }
+
+  // Step 2: For each conversation with email, fetch messages
+  for (const conv of conversations) {
+    try {
+      const msgUrl = new URL(
+        `https://services.leadconnectorhq.com/conversations/${conv.id}/messages`,
+      );
+      msgUrl.searchParams.set("limit", "100");
+      msgUrl.searchParams.set("type", "TYPE_EMAIL");
+
+      const msgRes = await fetch(msgUrl.toString(), {
+        headers: {
+          Authorization: `Bearer ${GHL_LOCATION_TOKEN}`,
+          Version: GHL_API_VERSION,
+        },
+      });
+
+      if (!msgRes.ok) continue;
+
+      const msgJson = (await msgRes.json()) as {
+        messages?: {
+          messages?: Array<{
+            id: string;
+            direction: string;
+            messageType: string;
+            dateAdded: string;
+            meta?: {
+              email?: {
+                subject?: string;
+                direction?: string;
+                messageIds?: string[];
+              };
+            };
+            source?: string;
+            body?: string;
+          }>;
+        };
+      };
+
+      const messages = msgJson.messages?.messages ?? [];
+      for (const msg of messages) {
+        if (msg.messageType !== "TYPE_EMAIL") continue;
+
+        const direction = (msg.meta?.email?.direction ?? msg.direction ?? "outbound") as
+          | "outbound"
+          | "inbound";
+        const subject = msg.meta?.email?.subject ?? "(no subject)";
+
+        records.push({
+          source: "ghl",
+          externalId: msg.id,
+          toEmail: direction === "outbound" ? conv.email : "",
+          fromEmail:
+            direction === "inbound"
+              ? conv.email
+              : `GHL Workflow <noreply@${GHL_LOCATION_ID}.ghl>`,
+          subject,
+          direction,
+          status: "sent",
+          ghlConversationId: conv.id,
+          ghlMessageSource: msg.source ?? "unknown",
+          sentAt: msg.dateAdded ? new Date(msg.dateAdded) : undefined,
+        });
+      }
+
+      // Small delay to avoid rate limiting
+      await new Promise((r) => setTimeout(r, 50));
+    } catch (err) {
+      console.error(`[EmailBehaviors] GHL messages fetch error for conv ${conv.id}:`, err);
+    }
+  }
+
+  return records;
+}
+
+// ─── Matching & Upsert ────────────────────────────────────────────────────────
+
+/**
+ * Given a batch of EmailRecord objects, look up matching contacts by email,
+ * upsert matched records into email_behaviors, and queue unmatched into
+ * email_behaviors_unmatched.
+ */
+async function upsertEmailRecords(records: EmailRecord[]): Promise<{
+  matched: number;
+  unmatched: number;
+  skipped: number;
+}> {
+  if (records.length === 0) return { matched: 0, unmatched: 0, skipped: 0 };
+
+  const db = await getDb();
+  if (!db) return { matched: 0, unmatched: 0, skipped: 0 };
+
+  // Collect unique email addresses
+  const emails = Array.from(new Set(records.map((r) => r.toEmail.toLowerCase()).filter(Boolean)));
+
+  // Batch-lookup contacts by email
+  const contactRows = await db
+    .select({ id: contacts.id, email: contacts.email })
+    .from(contacts)
+    .where(inArray(contacts.email, emails));
+
+  const emailToContactId = new Map<string, number>();
+  for (const row of contactRows) {
+    if (row.email) emailToContactId.set(row.email.toLowerCase(), row.id);
+  }
+
+  let matched = 0;
+  let unmatched = 0;
+  let skipped = 0;
+
+  for (const record of records) {
+    const contactId = emailToContactId.get(record.toEmail.toLowerCase());
+
+    const baseValues = {
+      source: record.source,
+      externalId: record.externalId,
+      toEmail: record.toEmail,
+      fromEmail: record.fromEmail ?? null,
+      subject: record.subject ?? null,
+      direction: record.direction,
+      status: record.status ?? null,
+      openedAt: record.openedAt ?? null,
+      clickedAt: record.clickedAt ?? null,
+      ghlConversationId: record.ghlConversationId ?? null,
+      ghlMessageSource: record.ghlMessageSource ?? null,
+      sentAt: record.sentAt ?? null,
+    };
+
+    if (contactId) {
+      // Upsert into email_behaviors
+      await db
+        .insert(emailBehaviors)
+        .values({ ...baseValues, contactId })
+        .onDuplicateKeyUpdate({
+          set: {
+            status: record.status ?? null,
+            openedAt: record.openedAt ?? null,
+            clickedAt: record.clickedAt ?? null,
+            updatedAt: new Date(),
+          },
+        });
+      matched++;
+    } else {
+      // Queue into unmatched staging table
+      await db
+        .insert(emailBehaviorsUnmatched)
+        .values(baseValues)
+        .onDuplicateKeyUpdate({
+          set: {
+            status: record.status ?? null,
+            openedAt: record.openedAt ?? null,
+            clickedAt: record.clickedAt ?? null,
+          },
+        });
+      unmatched++;
+    }
+  }
+
+  return { matched, unmatched, skipped };
+}
+
+// ─── Deferred Match ───────────────────────────────────────────────────────────
+
+/**
+ * Called when a new contact is created (or email updated). Checks the
+ * unmatched queue for any rows matching the contact's email and promotes
+ * them into email_behaviors.
+ */
+export async function promoteUnmatchedEmailBehaviors(
+  contactId: number,
+  email: string,
+): Promise<number> {
+  if (!email) return 0;
+  const db = await getDb();
+  if (!db) return 0;
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Find unmatched rows for this email
+  const unmatchedRows = await db
+    .select()
+    .from(emailBehaviorsUnmatched)
+    .where(eq(emailBehaviorsUnmatched.toEmail, normalizedEmail));
+
+  if (unmatchedRows.length === 0) return 0;
+
+  let promoted = 0;
+  for (const row of unmatchedRows) {
+    await db
+      .insert(emailBehaviors)
+      .values({
+        contactId,
+        source: row.source,
+        externalId: row.externalId,
+        toEmail: row.toEmail,
+        fromEmail: row.fromEmail,
+        subject: row.subject,
+        direction: row.direction,
+        status: row.status,
+        openedAt: row.openedAt,
+        clickedAt: row.clickedAt,
+        ghlConversationId: row.ghlConversationId,
+        ghlMessageSource: row.ghlMessageSource,
+        sentAt: row.sentAt,
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          contactId,
+          status: row.status,
+          openedAt: row.openedAt,
+          clickedAt: row.clickedAt,
+          updatedAt: new Date(),
+        },
+      });
+    promoted++;
+  }
+
+  // Remove promoted rows from unmatched queue
+  if (promoted > 0) {
+    const ids = unmatchedRows.map((r) => r.id);
+    await db
+      .delete(emailBehaviorsUnmatched)
+      .where(inArray(emailBehaviorsUnmatched.id, ids));
+    console.log(
+      `[EmailBehaviors] Promoted ${promoted} unmatched records for contact ${contactId} (${email})`,
+    );
+  }
+
+  return promoted;
+}
+
+// ─── Main Sync Orchestrator ───────────────────────────────────────────────────
+
+let isSyncing = false;
+
+export async function syncEmailBehaviors(options?: {
+  forceFullSync?: boolean;
+  sources?: Array<"resend" | "ghl">;
+}): Promise<{
+  resend: { matched: number; unmatched: number } | null;
+  ghl: { matched: number; unmatched: number } | null;
+  error?: string;
+}> {
+  if (isSyncing) {
+    console.log("[EmailBehaviors] Sync already in progress, skipping");
+    return { resend: null, ghl: null, error: "sync_in_progress" };
+  }
+
+  isSyncing = true;
+  const result: {
+    resend: { matched: number; unmatched: number } | null;
+    ghl: { matched: number; unmatched: number } | null;
+    error?: string;
+  } = { resend: null, ghl: null };
+
+  try {
+    const db = await getDb();
+    if (!db) {
+      result.error = "db_unavailable";
+      return result;
+    }
+
+    const sources = options?.sources ?? ["resend", "ghl"];
+
+    // ── Resend sync ──────────────────────────────────────────────────────────
+    if (sources.includes("resend") && RESEND_API_KEY) {
+      console.log("[EmailBehaviors] Starting Resend sync...");
+      try {
+        // Get last cursor from sync state
+        const [syncState] = await db
+          .select()
+          .from(emailBehaviorsSyncState)
+          .where(eq(emailBehaviorsSyncState.source, "resend"))
+          .limit(1);
+
+        const afterId = options?.forceFullSync ? undefined : syncState?.lastCursor ?? undefined;
+        const records = await fetchResendEmails(afterId);
+
+        if (records.length > 0) {
+          const stats = await upsertEmailRecords(records);
+          result.resend = { matched: stats.matched, unmatched: stats.unmatched };
+
+          // Update sync state with the newest email ID as cursor
+          const newestId = records[0]?.externalId;
+          await db
+            .insert(emailBehaviorsSyncState)
+            .values({
+              source: "resend",
+              lastSyncedAt: new Date(),
+              lastCursor: newestId ?? null,
+              totalImported: stats.matched + stats.unmatched,
+            })
+            .onDuplicateKeyUpdate({
+              set: {
+                lastSyncedAt: new Date(),
+                lastCursor: newestId ?? null,
+                totalImported: sql`totalImported + ${stats.matched + stats.unmatched}`,
+                updatedAt: new Date(),
+              },
+            });
+
+          console.log(
+            `[EmailBehaviors] Resend sync complete — matched: ${stats.matched}, unmatched: ${stats.unmatched}`,
+          );
+        } else {
+          result.resend = { matched: 0, unmatched: 0 };
+          console.log("[EmailBehaviors] Resend sync — no new records");
+        }
+      } catch (err) {
+        console.error("[EmailBehaviors] Resend sync error:", err);
+        result.resend = { matched: 0, unmatched: 0 };
+      }
+    }
+
+    // ── GHL sync ─────────────────────────────────────────────────────────────
+    if (sources.includes("ghl") && GHL_LOCATION_TOKEN) {
+      console.log("[EmailBehaviors] Starting GHL sync...");
+      try {
+        const records = await fetchGhlEmailMessages();
+
+        if (records.length > 0) {
+          const stats = await upsertEmailRecords(records);
+          result.ghl = { matched: stats.matched, unmatched: stats.unmatched };
+
+          await db
+            .insert(emailBehaviorsSyncState)
+            .values({
+              source: "ghl",
+              lastSyncedAt: new Date(),
+              totalImported: stats.matched + stats.unmatched,
+            })
+            .onDuplicateKeyUpdate({
+              set: {
+                lastSyncedAt: new Date(),
+                totalImported: sql`totalImported + ${stats.matched + stats.unmatched}`,
+                updatedAt: new Date(),
+              },
+            });
+
+          console.log(
+            `[EmailBehaviors] GHL sync complete — matched: ${stats.matched}, unmatched: ${stats.unmatched}`,
+          );
+        } else {
+          result.ghl = { matched: 0, unmatched: 0 };
+          console.log("[EmailBehaviors] GHL sync — no new records");
+        }
+      } catch (err) {
+        console.error("[EmailBehaviors] GHL sync error:", err);
+        result.ghl = { matched: 0, unmatched: 0 };
+      }
+    }
+  } finally {
+    isSyncing = false;
+  }
+
+  return result;
+}
+
+// ─── Scheduler ───────────────────────────────────────────────────────────────
+
+export function scheduleEmailBehaviorsSync(): void {
+  // Run once at startup after a short delay
+  setTimeout(() => {
+    syncEmailBehaviors().catch((err) =>
+      console.error("[EmailBehaviors] Startup sync error:", err),
+    );
+  }, 30_000);
+
+  // Then every 4 hours
+  setInterval(
+    () => {
+      syncEmailBehaviors().catch((err) =>
+        console.error("[EmailBehaviors] Scheduled sync error:", err),
+      );
+    },
+    4 * 60 * 60 * 1000,
+  );
+
+  console.log("[EmailBehaviors] Sync scheduler registered (startup + every 4h)");
+}
