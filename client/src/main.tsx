@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
+import { toast } from "sonner";
 import App from "./App";
 import { initializeAppHistory } from "@/lib/navigationHistory";
 import "./index.css";
@@ -87,13 +88,14 @@ const trpcClient = trpc.createClient({
 // Deploy-version watcher
 // ---------------------------------------------------------------------------
 // Polls the server's health endpoint every 60 s. When the server returns a
-// different buildId (meaning a new deploy has gone live), we invalidate the
-// entire React Query cache so every active component re-fetches fresh data.
-// This prevents the "connections disappeared" symptom where users who were
-// already logged in see stale/empty data after a deployment without needing
-// to hard-refresh or log out.
+// different buildId (meaning a new deploy has gone live), it:
+//   1. Shows a toast notification with a "Refresh now" button.
+//   2. Auto-reloads the page after 10 s so the user always gets the latest
+//      code without needing to manually hard-refresh.
+// The 10-second grace period lets users finish typing before the reload.
 // ---------------------------------------------------------------------------
 let knownBuildId: string | null = null;
+let reloadScheduled = false;
 
 async function checkForNewDeploy() {
   try {
@@ -112,15 +114,32 @@ async function checkForNewDeploy() {
       return;
     }
 
-    if (buildId !== knownBuildId) {
+    if (buildId !== knownBuildId && !reloadScheduled) {
       console.info(
-        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Refreshing data…`
+        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Reloading…`
       );
       knownBuildId = buildId;
-      // Invalidate all queries so every component silently re-fetches.
-      // This is non-disruptive: React Query refetches in the background and
-      // only updates the UI when fresh data arrives.
-      await queryClient.invalidateQueries();
+      reloadScheduled = true;
+
+      // Show a persistent toast so the user knows what's happening.
+      // The action button lets them reload immediately; otherwise it
+      // auto-reloads after 10 seconds.
+      toast.info("SavvyOS has been updated", {
+        description: "Refreshing in 10 seconds to load the latest version…",
+        duration: 10_000,
+        action: {
+          label: "Refresh now",
+          onClick: () => window.location.reload(),
+        },
+        onDismiss: () => {
+          // If the user explicitly dismisses, still reload after 10 s
+          // so they always end up on the latest version.
+        },
+      });
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 10_000);
     }
   } catch {
     // Network errors are expected during the brief window when Railway is
