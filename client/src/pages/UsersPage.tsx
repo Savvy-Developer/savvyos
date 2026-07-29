@@ -83,7 +83,6 @@ type FormState = {
   newMarketName: string;
   enableOnboarding: boolean;
   onboardingTemplateId: string;
-  allowHiddenNav: boolean;
 };
 
 const EMPTY_FORM: FormState = {
@@ -94,7 +93,6 @@ const EMPTY_FORM: FormState = {
   newMarketName: "",
   enableOnboarding: false,
   onboardingTemplateId: "",
-  allowHiddenNav: false,
 };
 
 
@@ -105,6 +103,8 @@ export default function UsersPage() {
   const { data: users = [], isLoading } = trpc.users.listWithDocCounts.useQuery();
   const { data: markets = [] } = trpc.markets.list.useQuery();
   const { data: onboardingTemplates } = trpc.onboarding.listTemplates.useQuery();
+  // Only Tyler/Elana/Dyl can create or promote admin users
+  const { data: canManagePerms } = trpc.permissions.canManagePermissions.useQuery();
 
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<UserRow | null>(null);
@@ -217,7 +217,6 @@ export default function UsersPage() {
       newMarketName: "",
       enableOnboarding: false,
       onboardingTemplateId: "",
-      allowHiddenNav: !!(u as any).allowHiddenNav,
     });
     setCreatingMarket(false);
     setEditTarget(u);
@@ -241,7 +240,6 @@ export default function UsersPage() {
       marketProfileId: form.marketProfileId ? Number(form.marketProfileId) : null,
       commissionSplit: form.commissionSplit ? Number(form.commissionSplit) : null,
       callBookingLink: form.callBookingLink || null,
-      ...(isTyler ? { allowHiddenNav: form.allowHiddenNav } : {}),
     };
   }
 
@@ -376,7 +374,7 @@ export default function UsersPage() {
             <SelectContent>
               <SelectItem value="agent">Agent</SelectItem>
               <SelectItem value="isa">ISA (Inside Sales Agent)</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
+              {canManagePerms && <SelectItem value="admin">Admin</SelectItem>}
               <SelectItem value="agent_support">Agent Support</SelectItem>
             </SelectContent>
           </Select>
@@ -601,23 +599,7 @@ export default function UsersPage() {
             )}
           </div>
         )}
-        {isEdit && isTyler && (
-          <div className="border-t pt-3">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="allowHiddenNav"
-                checked={form.allowHiddenNav}
-                onCheckedChange={(checked) => setForm((f) => ({ ...f, allowHiddenNav: !!checked }))}
-              />
-              <Label htmlFor="allowHiddenNav" className="cursor-pointer">
-                Allow access to Hidden Navigation
-              </Label>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1 pl-6">
-              Grants this user access to the Hidden section in the sidebar (Projects, Smart Plans, Email Test).
-            </p>
-          </div>
-        )}
+
         {!isEdit && form.role === "agent" && (
           <div className="space-y-3 border-t pt-3">
             <div className="flex items-center gap-2">

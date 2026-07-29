@@ -28,6 +28,7 @@ import {
   contacts,
   transactions,
   agentGoals,
+  adminPermissions,
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
 
@@ -285,7 +286,21 @@ export const usersRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      // Only Tyler/Elana/Dyl can create admin users
+      const PERMISSION_MANAGERS = ["tyler@savvy.realty", "elana@savvy.realty", "dyl@savvy.realty"];
+      if (input.role === "admin" && !PERMISSION_MANAGERS.includes((ctx.user as any).email)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can create admin users" });
+      }
       const id = await createUser(input);
+      // Auto-create permissions row for new admin users (formerly-hidden pages default OFF)
+      if (input.role === "admin") {
+        try {
+          const db = await getDb();
+          if (db) {
+            await db.insert(adminPermissions).values({ userId: id }).onDuplicateKeyUpdate({ set: { userId: id } });
+          }
+        } catch (_e) { /* non-fatal */ }
+      }
       return { id };
     }),
 
@@ -301,16 +316,25 @@ export const usersRouter = router({
       marketProfileId: z.number().optional().nullable(),
       commissionSplit: z.number().optional().nullable(),
       callBookingLink: z.string().optional().nullable(),
-      allowHiddenNav: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      // Only Tyler (owner) can grant allowHiddenNav
-      if (input.allowHiddenNav !== undefined && (ctx.user as any).email !== "tyler@savvy.realty") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler can manage Hidden Nav access" });
+      // Only Tyler/Elana/Dyl can promote users to admin
+      const PERMISSION_MANAGERS_UPDATE = ["tyler@savvy.realty", "elana@savvy.realty", "dyl@savvy.realty"];
+      if (input.role === "admin" && !PERMISSION_MANAGERS_UPDATE.includes((ctx.user as any).email)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can promote users to admin" });
       }
       const { id, ...data } = input;
       await updateUser(id, data);
+      // If user is being promoted to admin, auto-create permissions row
+      if (data.role === "admin") {
+        try {
+          const db = await getDb();
+          if (db) {
+            await db.insert(adminPermissions).values({ userId: id }).onDuplicateKeyUpdate({ set: { userId: id } });
+          }
+        } catch (_e) { /* non-fatal */ }
+      }
       return { success: true };
     }),
 

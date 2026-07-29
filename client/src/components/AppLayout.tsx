@@ -170,6 +170,57 @@ function buildIsaNav(pendingConnReqs: number): NavGroup[] {
     },
   ];
 }
+// Permission key → path mapping (used to filter nav items)
+const PERM_PATH_MAP: Record<string, string> = {
+  canViewDashboard: "/",
+  canViewReporting: "/analytics",
+  canViewContacts: "/contacts",
+  canViewPipeline: "/pipeline",
+  canViewConnectionRequests: "/connection-requests",
+  canViewLeadSources: "/lead-sources",
+  canViewTransactions: "/transactions",
+  canViewTransactionExports: "/transaction-reporting",
+  canViewListings: "/listings",
+  canViewProperties: "/properties",
+  canViewCommission: "/commission",
+  canViewTasks: "/tasks",
+  canViewOnboarding: "/onboarding",
+  canViewLeadershipDashboard: "/leadership-dashboard",
+  canViewActivityLog: "/admin/activity",
+  canViewUsers: "/users",
+  canViewAdminApprovals: "/approvals",
+  canViewMarketMatch: "/market-match-config",
+  canViewOrgChart: "/org-chart",
+  canViewFeedback: "/feedback",
+  canViewMarketingAdmin: "/marketing-admin",
+  canViewGoals: "/goals",
+  canViewWebhooks: "/webhooks",
+  canViewDuplicates: "/duplicates",
+  canViewKnowledgeBase: "/kb",
+  canViewProjects: "/projects",
+  canViewSmartPlans: "/smart-plans",
+  canViewEmailNotifications: "/email-notifications",
+};
+
+function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, boolean> | null | undefined): NavGroup[] {
+  if (!permissions) return groups;
+  // Build a set of allowed paths
+  const allowedPaths = new Set<string>();
+  for (const [key, allowed] of Object.entries(permissions)) {
+    if (allowed && PERM_PATH_MAP[key]) allowedPaths.add(PERM_PATH_MAP[key]);
+  }
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        // If this path has a permission key, enforce it; otherwise always show
+        const hasPermKey = Object.values(PERM_PATH_MAP).includes(item.path);
+        return !hasPermKey || allowedPaths.has(item.path);
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
 function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0): NavGroup[] {
   return [
     {
@@ -230,6 +281,14 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "Resources",
       items: [
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
+      ],
+    },
+    {
+      label: "Projects & Plans",
+      items: [
+        { icon: Layers, label: "Projects", path: "/projects" },
+        { icon: Zap, label: "Smart Plans", path: "/smart-plans" },
+        { icon: Mail, label: "Email Notifications", path: "/email-notifications" },
       ],
     },
   ];
@@ -485,6 +544,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const markNoteRead = trpc.pm.notes.markRead.useMutation({ onSuccess: () => { refetchInbox(); } });
   const markNoteUnread = trpc.pm.notes.markUnread.useMutation({ onSuccess: () => { refetchInbox(); } });
 
+  // Fetch admin permissions for nav filtering
+  const { data: adminPerms } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: role === "admin", staleTime: 30000 }
+  );
+
   // ── Early returns (all hooks must be above this line) ──────────────────────
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
@@ -513,19 +578,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader);
-  const allowHiddenNav = (user as any)?.allowHiddenNav === true || isTyler;
-  const navGroups: NavGroup[] = allowHiddenNav
-    ? [
-        ...baseNavGroups,
-        {
-          label: "Hidden",
-          items: [
-            { icon: Layers, label: "Projects", path: "/projects" },
-            { icon: Zap, label: "Smart Plans", path: "/smart-plans" },
-            { icon: Mail, label: "Email Notifications", path: "/email-notifications" },
-          ],
-        },
-      ]
+  // For admin users, filter nav by their permissions
+  const navGroups: NavGroup[] = role === "admin"
+    ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
     : baseNavGroups;
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =

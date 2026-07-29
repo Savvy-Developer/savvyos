@@ -1568,3 +1568,53 @@ export const duplicateScanJobs = mysqlTable("duplicate_scan_jobs", {
   completedAt: timestamp("completedAt"),
 });
 export type DuplicateScanJob = typeof duplicateScanJobs.$inferSelect;
+
+// ─── Admin Permissions ────────────────────────────────────────────────────────
+// Stores per-admin page-level permissions. One row per admin user.
+// Each boolean column corresponds to a nav link in the admin sidebar.
+// Tyler's permissions are never stored here — she always has full access.
+// Default for new admins: most pages ON, the 3 formerly-hidden pages OFF.
+export const adminPermissions = mysqlTable("admin_permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  // Overview
+  canViewDashboard: boolean("canViewDashboard").default(true).notNull(),
+  canViewReporting: boolean("canViewReporting").default(true).notNull(),
+  // CRM
+  canViewContacts: boolean("canViewContacts").default(true).notNull(),
+  canViewPipeline: boolean("canViewPipeline").default(true).notNull(),
+  canViewConnectionRequests: boolean("canViewConnectionRequests").default(true).notNull(),
+  canViewLeadSources: boolean("canViewLeadSources").default(true).notNull(),
+  // Transactions
+  canViewTransactions: boolean("canViewTransactions").default(true).notNull(),
+  canViewTransactionExports: boolean("canViewTransactionExports").default(true).notNull(),
+  canViewListings: boolean("canViewListings").default(true).notNull(),
+  canViewProperties: boolean("canViewProperties").default(true).notNull(),
+  canViewCommission: boolean("canViewCommission").default(true).notNull(),
+  // Operations
+  canViewTasks: boolean("canViewTasks").default(true).notNull(),
+  canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
+  canViewLeadershipDashboard: boolean("canViewLeadershipDashboard").default(true).notNull(),
+  canViewActivityLog: boolean("canViewActivityLog").default(true).notNull(),
+  // Admin
+  canViewUsers: boolean("canViewUsers").default(true).notNull(),
+  canViewAdminApprovals: boolean("canViewAdminApprovals").default(true).notNull(),
+  canViewMarketMatch: boolean("canViewMarketMatch").default(true).notNull(),
+  canViewOrgChart: boolean("canViewOrgChart").default(true).notNull(),
+  canViewFeedback: boolean("canViewFeedback").default(true).notNull(),
+  canViewMarketingAdmin: boolean("canViewMarketingAdmin").default(true).notNull(),
+  canViewGoals: boolean("canViewGoals").default(true).notNull(),
+  // Dev Tools
+  canViewWebhooks: boolean("canViewWebhooks").default(true).notNull(),
+  canViewDuplicates: boolean("canViewDuplicates").default(true).notNull(),
+  // Resources
+  canViewKnowledgeBase: boolean("canViewKnowledgeBase").default(true).notNull(),
+  // Formerly hidden — default OFF for new admins
+  canViewProjects: boolean("canViewProjects").default(false).notNull(),
+  canViewSmartPlans: boolean("canViewSmartPlans").default(false).notNull(),
+  canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AdminPermissions = typeof adminPermissions.$inferSelect;
+export type InsertAdminPermissions = typeof adminPermissions.$inferInsert;

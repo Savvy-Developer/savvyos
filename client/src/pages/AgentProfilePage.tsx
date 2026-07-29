@@ -64,6 +64,7 @@ import {
   Link2,
   GitMerge,
   Search,
+  Shield,
 } from "lucide-react";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatEmail } from "@/lib/format";
@@ -88,6 +89,7 @@ import {
   Legend,
 } from "recharts";
 import { useAppBack } from "@/lib/navigationHistory";
+import AdminPermissionsDialog from "@/components/AdminPermissionsDialog";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -146,6 +148,18 @@ export default function AgentProfilePage() {
   const [editProfileForm, setEditProfileForm] = useState({
     name: "", title: "", email: "", phone: "", commissionSplit: "", callBookingLink: "",
   });
+  // Admin Permissions dialog state
+  const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false);
+
+  // isAdmin needs to be computed early for use in query enabled flags
+  const isAdminUser = (currentUser as any)?.role === "admin";
+
+  // Check if current user can manage permissions (Tyler/Elana/Dyl)
+  const { data: canManagePerms } = trpc.permissions.canManagePermissions.useQuery(
+    undefined,
+    { enabled: isAdminUser }
+  );
+
   // ─── Request Connection state ────────────────────────────────────────────────
   const [reqConnOpen, setReqConnOpen] = useState(false);
   const [reqConnSearch, setReqConnSearch] = useState("");
@@ -592,6 +606,17 @@ export default function AgentProfilePage() {
                   <MessageSquarePlus className="h-4 w-4 mr-1.5" /> Leadership 1-on-1
                 </Button>
               )}
+              {/* Admin Permissions button — only for admins viewing other admin users, only Tyler/Elana/Dyl can manage */}
+              {isAdmin && agentData.role === "admin" && canManagePerms && !isProtectedAccount && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-violet-600 border-violet-200 hover:bg-violet-50"
+                  onClick={() => setPermissionsDialogOpen(true)}
+                >
+                  <Shield className="h-4 w-4 mr-1.5" /> Admin Permissions
+                </Button>
+              )}
               {/* Request Connection button — visible to admins and the agent themselves */}
               {agentData.role === "agent" && (
                 <Button
@@ -612,6 +637,17 @@ export default function AgentProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Admin Permissions Dialog */}
+      {isAdmin && agentData.role === "admin" && (
+        <AdminPermissionsDialog
+          open={permissionsDialogOpen}
+          onOpenChange={setPermissionsDialogOpen}
+          targetUserId={agentId}
+          targetUserName={agentData.name ?? "Admin User"}
+          targetUserEmail={agentData.email ?? ""}
+        />
+      )}
 
       {/* Active On/Offboarding Status */}
       {isAdmin && agentOnboardingStatus && agentOnboardingStatus.length > 0 && (
