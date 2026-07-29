@@ -201,6 +201,7 @@ type AssignForm = {
   agentNotes: string;
   isaFollowUpDate: string;
   introduceClient: boolean;
+  appointmentSet: boolean;
 };
 
 const PIPELINE_STAGES = [
@@ -390,7 +391,7 @@ export default function ContactDetail() {
 
   const [assignForm, setAssignForm] = useState<AssignForm>({
     agentId: "", pipelineStatus: "new_lead", agentNotes: "",
-    isaFollowUpDate: "", introduceClient: false,
+    isaFollowUpDate: "", introduceClient: false, appointmentSet: false,
   });
 
   // Task editing state
@@ -505,7 +506,7 @@ export default function ContactDetail() {
     onSuccess: () => {
       toast.success("Agent connection created 🎉");
       setAssignOpen(false);
-      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false });
+      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false, appointmentSet: false });
       utils.agentConnections.list.invalidate();
       utils.contacts.list.invalidate();
       celebrate("connection_made");
@@ -663,6 +664,7 @@ export default function ContactDetail() {
       agentNotes: assignForm.agentNotes || null,
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
       introduceClient: assignForm.introduceClient,
+      appointmentSet: assignForm.appointmentSet,
     });
   }
 
@@ -1417,6 +1419,21 @@ export default function ContactDetail() {
                 </div>
               ) : null;
             })()}
+            {/* Set an appointment */}
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="appointmentSet"
+                checked={assignForm.appointmentSet}
+                onCheckedChange={(v) => setAssignForm(f => ({ ...f, appointmentSet: !!v }))}
+                className="mt-0.5"
+              />
+              <div>
+                <Label htmlFor="appointmentSet" className="cursor-pointer">Set an appointment</Label>
+                {assignForm.appointmentSet && (
+                  <p className="text-xs text-muted-foreground mt-0.5">This will be tracked for ISA appointment-setting statistics.</p>
+                )}
+              </div>
+            </div>
             {/* Introduce client to agent */}
             <div className="flex items-start gap-2">
               <Checkbox

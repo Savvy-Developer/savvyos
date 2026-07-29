@@ -41,7 +41,7 @@ const emptyForm: ContactForm = {
   leadSourceId: null, assignedIsaId: "", notes: "",
 };
 
-type AssignForm = { agentId: string; pipelineStatus: string; agentNotes: string; isaFollowUpDate: string; introduceClient: boolean; };
+type AssignForm = { agentId: string; pipelineStatus: string; agentNotes: string; isaFollowUpDate: string; introduceClient: boolean; appointmentSet: boolean; };
 
 const PIPELINE_STATUS_LABELS: Record<string, string> = {
   new_lead: "New Lead", attempted_contact: "Attempted Contact", nurture: "Nurture",
@@ -118,7 +118,7 @@ export default function ContactsPage() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignContactId, setAssignContactId] = useState<number | null>(null);
   const [form, setForm] = useState<ContactForm>(emptyForm);
-  const [assignForm, setAssignForm] = useState<AssignForm>({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false });
+  const [assignForm, setAssignForm] = useState<AssignForm>({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false, appointmentSet: false });
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -195,7 +195,7 @@ export default function ContactsPage() {
     onSuccess: () => {
       toast.success("Agent connection created — contact is now in the agent's pipeline");
       setAssignOpen(false);
-      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false });
+      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false, appointmentSet: false });
       utils.contacts.list.invalidate();
       utils.agentConnections.list.invalidate();
     },
@@ -255,6 +255,7 @@ export default function ContactsPage() {
       agentNotes: assignForm.agentNotes || null,
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
       introduceClient: assignForm.introduceClient,
+      appointmentSet: assignForm.appointmentSet,
     });
   }
 
@@ -969,6 +970,21 @@ export default function ContactsPage() {
                 </div>
               ) : null;
             })()}
+            {/* Set an appointment */}
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="appointmentSetContacts"
+                checked={assignForm.appointmentSet}
+                onCheckedChange={(v: boolean) => setAssignForm(f => ({ ...f, appointmentSet: !!v }))}
+                className="mt-0.5"
+              />
+              <div>
+                <Label htmlFor="appointmentSetContacts" className="cursor-pointer">Set an appointment</Label>
+                {assignForm.appointmentSet && (
+                  <p className="text-xs text-muted-foreground mt-0.5">This will be tracked for ISA appointment-setting statistics.</p>
+                )}
+              </div>
+            </div>
             {/* Introduce client to agent */}
             <div className="flex items-start gap-2">
               <Checkbox

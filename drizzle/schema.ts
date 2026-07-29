@@ -197,6 +197,9 @@ export const agentConnections = mysqlTable("agent_connections", {
   // This clock is reset only by qualifying agent lead activity. `updatedAt`
   // remains the generic audit timestamp for all connection writes.
   agingUpdatedAt: timestamp("agingUpdatedAt"),
+  // Tracks whether the ISA set an appointment when making this connection
+  appointmentSet: boolean("appointmentSet").default(false).notNull(),
+  appointmentSetAt: timestamp("appointmentSetAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
