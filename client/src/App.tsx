@@ -71,6 +71,7 @@ import PartnerLinksPage from "./pages/PartnerLinksPage";
 import GoalsPage from "./pages/GoalsPage";
 import ActivityTimelinePage from "./pages/admin/ActivityTimelinePage";
 import OnboardingPage from "./pages/OnboardingPage";
+import SuperPermissionsPage from "./pages/SuperPermissionsPage";
 import RequestConnectionPage from "./pages/RequestConnectionPage";
 import ProfilePage from "./pages/ProfilePage";
 import DevRoleSwitcher from "./components/DevRoleSwitcher";
@@ -209,6 +210,7 @@ function Router() {
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
           <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
           <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
+          <Route path="/admin/super-permissions">{() => <AdminRoute><SuperPermissionsPage /></AdminRoute>}</Route>
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>

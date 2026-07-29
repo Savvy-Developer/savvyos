@@ -53,6 +53,8 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewProjects",           label: "Projects",                 group: "Projects & Plans" },
   { key: "canViewSmartPlans",         label: "Smart Plans",              group: "Projects & Plans" },
   { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Projects & Plans" },
+  // Super admin tools (default OFF — only Tyler/Elana/Dyl can use this page anyway)
+  { key: "canViewSuperPermissions",   label: "Super Permissions",        group: "Admin" },
 ] as const;
 
 export type PermissionKey = typeof ADMIN_NAV_PERMISSIONS[number]["key"];
@@ -201,5 +203,97 @@ export const permissionsRouter = router({
       if (ctx.user.role !== "admin") return false;
       const email = (ctx.user as any).email as string;
       return PERMISSION_MANAGERS.includes(email);
+    }),
+
+  // Get all admin users with their permissions (for the super permissions matrix)
+  getAllAdminsPermissions: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const callerEmail = (ctx.user as any).email as string;
+      if (!PERMISSION_MANAGERS.includes(callerEmail)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can view the super permissions matrix" });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Get all active admin users
+      const adminUsers = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.role, "admin"))
+        .orderBy(users.name);
+
+      // Get all existing permissions rows
+      const permRows = await db.select().from(adminPermissions);
+      const permMap = new Map<number, typeof permRows[0]>();
+      for (const row of permRows) permMap.set(row.userId, row);
+
+      // Build result: for each admin, return their permissions (defaulting to true for missing rows)
+      const result = adminUsers.map((u) => {
+        const row = permMap.get(u.id);
+        const perms: Record<string, boolean> = {};
+        if (u.email === PROTECTED_EMAIL) {
+          // Tyler always has full access
+          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = true;
+        } else if (row) {
+          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+        } else {
+          // No row yet — defaults: most ON, Projects & Plans OFF
+          for (const p of ADMIN_NAV_PERMISSIONS) {
+            perms[p.key] = p.group !== "Projects & Plans";
+          }
+        }
+        return {
+          userId: u.id,
+          name: u.name ?? u.email ?? String(u.id),
+          email: u.email ?? "",
+          isProtected: u.email === PROTECTED_EMAIL,
+          permissions: perms,
+        };
+      });
+
+      return result;
+    }),
+
+  // Bulk update: save all changes from the super permissions matrix in one call
+  bulkUpdatePermissions: protectedProcedure
+    .input(z.array(z.object({
+      userId: z.number(),
+      permissions: z.record(z.string(), z.boolean()),
+    })))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const callerEmail = (ctx.user as any).email as string;
+      if (!PERMISSION_MANAGERS.includes(callerEmail)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can update permissions" });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const validKeys = new Set(ADMIN_NAV_PERMISSIONS.map((p) => p.key));
+
+      for (const item of input) {
+        // Look up user to ensure they're admin and not Tyler
+        const targetUsers = await db.select({ email: users.email, role: users.role }).from(users).where(eq(users.id, item.userId)).limit(1);
+        const targetUser = targetUsers[0];
+        if (!targetUser || targetUser.role !== "admin") continue;
+        if (targetUser.email === PROTECTED_EMAIL) continue; // skip Tyler
+
+        const updateData: Record<string, boolean> = {};
+        for (const [key, val] of Object.entries(item.permissions)) {
+          if (validKeys.has(key as PermissionKey)) updateData[key] = val;
+        }
+
+        const existing = await db.select({ id: adminPermissions.id }).from(adminPermissions).where(eq(adminPermissions.userId, item.userId)).limit(1);
+        if (existing.length > 0) {
+          await db.update(adminPermissions).set(updateData as any).where(eq(adminPermissions.userId, item.userId));
+        } else {
+          await db.insert(adminPermissions).values({ userId: item.userId, ...updateData } as any);
+        }
+      }
+
+      return { success: true };
     }),
 });

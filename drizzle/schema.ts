@@ -1613,6 +1613,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewProjects: boolean("canViewProjects").default(false).notNull(),
   canViewSmartPlans: boolean("canViewSmartPlans").default(false).notNull(),
   canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
+  // Super admin tools — default OFF (page has its own access check anyway)
+  canViewSuperPermissions: boolean("canViewSuperPermissions").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

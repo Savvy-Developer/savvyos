@@ -31,6 +31,7 @@ import {
   PhoneCall,
   Receipt,
   Shield,
+  ShieldCheck,
   Tag,
   UserCheck,
   Users,
@@ -200,6 +201,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewProjects: "/projects",
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
+  canViewSuperPermissions: "/admin/super-permissions",
 };
 
 function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, boolean> | null | undefined): NavGroup[] {
@@ -268,6 +270,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
         { icon: Target, label: "Goals", path: "/goals" },
+        { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
       ],
     },
     {
