@@ -89,13 +89,31 @@ const trpcClient = trpc.createClient({
 // ---------------------------------------------------------------------------
 // Polls the server's health endpoint every 60 s. When the server returns a
 // different buildId (meaning a new deploy has gone live), it:
-//   1. Shows a toast notification with a "Refresh now" button.
-//   2. Auto-reloads the page after 10 s so the user always gets the latest
-//      code without needing to manually hard-refresh.
-// The 10-second grace period lets users finish typing before the reload.
+//   1. Shows a persistent toast: "SavvyOS has been updated" with a
+//      "Refresh now" button so the user can reload at a safe moment.
+//   2. Intercepts the next in-app navigation (pushState) and converts it
+//      into a full-page load so the new JS bundle is picked up automatically
+//      without disrupting whatever the user is currently doing.
+//
+// We intentionally do NOT force an immediate reload — users may have unsaved
+// notes or form input that would be lost.
 // ---------------------------------------------------------------------------
 let knownBuildId: string | null = null;
-let reloadScheduled = false;
+let pendingReload = false;
+
+/** When a new deploy is pending, intercept the next pushState navigation and
+ *  convert it to a hard reload at the destination URL so the fresh bundle loads. */
+function installNavigationReloadInterceptor() {
+  const originalPushState = history.pushState.bind(history);
+  history.pushState = function (state, unused, url) {
+    if (pendingReload && url) {
+      // Navigate to the new URL with a full page load instead of a SPA transition.
+      window.location.href = url.toString();
+      return;
+    }
+    originalPushState(state, unused, url);
+  };
+}
 
 async function checkForNewDeploy() {
   try {
@@ -114,32 +132,28 @@ async function checkForNewDeploy() {
       return;
     }
 
-    if (buildId !== knownBuildId && !reloadScheduled) {
+    if (buildId !== knownBuildId && !pendingReload) {
       console.info(
-        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Reloading…`
+        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Will reload on next navigation.`
       );
       knownBuildId = buildId;
-      reloadScheduled = true;
+      pendingReload = true;
 
-      // Show a persistent toast so the user knows what's happening.
-      // The action button lets them reload immediately; otherwise it
-      // auto-reloads after 10 seconds.
+      // Show a persistent toast. The user can reload immediately via the
+      // action button, or simply navigate anywhere and the page will reload
+      // automatically to pick up the new bundle.
       toast.info("SavvyOS has been updated", {
-        description: "Refreshing in 10 seconds to load the latest version…",
-        duration: 10_000,
+        description: "Click \"Refresh now\" or navigate to any page to load the latest version.",
+        duration: Infinity,
         action: {
           label: "Refresh now",
           onClick: () => window.location.reload(),
         },
-        onDismiss: () => {
-          // If the user explicitly dismisses, still reload after 10 s
-          // so they always end up on the latest version.
-        },
       });
 
-      setTimeout(() => {
-        window.location.reload();
-      }, 10_000);
+      // Install the navigation interceptor so the next link click triggers
+      // a full reload at the destination rather than a SPA transition.
+      installNavigationReloadInterceptor();
     }
   } catch {
     // Network errors are expected during the brief window when Railway is
