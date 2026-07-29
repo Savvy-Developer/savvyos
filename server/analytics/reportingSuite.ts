@@ -1,5 +1,12 @@
 import { sql, type SQL } from "drizzle-orm";
 import { getDb } from "../db";
+import {
+  getAgentOnboardingReportingData,
+  getIsaActivitiesReportingData,
+  getLeadSourcesReportingData,
+  getMarketAnalyticsReportingData,
+  getTasksReportingData,
+} from "./reportingExpansion";
 
 export type ReportingDateBasis = "closing" | "contract";
 export type ReportingStatus = "all" | "closed" | "under_contract" | "terminated";
@@ -11,6 +18,9 @@ export type ReportingFilters = {
   dateBasis?: ReportingDateBasis;
   agentId?: number;
   groupLeaderId?: number;
+  marketProfileId?: number;
+  isaId?: number;
+  leadSourceId?: number;
   status?: ReportingStatus;
   transactionType?: ReportingTransactionType;
   page?: number;
@@ -96,6 +106,14 @@ function transactionScope(
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
+    filters.marketProfileId ? sql`EXISTS (
+      SELECT 1 FROM \`users\` market_user
+      WHERE market_user.id = t.\`agentId\` AND market_user.\`marketProfileId\` = ${filters.marketProfileId}
+    )` : undefined,
+    filters.leadSourceId ? sql`EXISTS (
+      SELECT 1 FROM \`contacts\` source_contact
+      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` = ${filters.leadSourceId}
+    )` : undefined,
     status && status !== "all" ? sql`t.\`status\` = ${status}` : undefined,
     filters.transactionType && filters.transactionType !== "all" ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
     options.applyDate === false ? undefined : sql`${date} IS NOT NULL`,
@@ -115,6 +133,7 @@ function agentScope(filters: ReportingFilters): SQL {
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = u.\`id\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
+    filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
   ]);
 }
 
@@ -236,7 +255,7 @@ function taskWhereWithOpenOverdue(filters: ReportingFilters): SQL {
 }
 
 export async function getReportingFilters() {
-  const [agentRows, leaderRows] = await Promise.all([
+  const [agentRows, leaderRows, marketRows, isaRows, leadSourceRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT u.\`id\` AS id, u.\`name\` AS name
       FROM \`users\` u
@@ -255,6 +274,23 @@ export async function getReportingFilters() {
       GROUP BY g.\`leaderId\`, u.\`name\`
       ORDER BY COALESCE(u.\`name\`, '') ASC
     `),
+    runRows<Row>(sql`
+      SELECT mp.id AS id, mp.name AS name, mp.state AS state, mp.status AS status
+      FROM \`market_profiles\` mp
+      ORDER BY mp.name ASC
+    `),
+    runRows<Row>(sql`
+      SELECT u.id AS id, u.name AS name
+      FROM \`users\` u
+      WHERE u.\`role\` = 'isa' AND u.\`isActive\` = 1
+      ORDER BY COALESCE(u.name, '') ASC
+    `),
+    runRows<Row>(sql`
+      SELECT ls.id AS id, ls.name AS name, ls.\`campaignType\` AS campaignType, ls.\`parentId\` AS parentId
+      FROM \`lead_sources\` ls
+      WHERE ls.\`isActive\` = 1
+      ORDER BY COALESCE(ls.name, '') ASC
+    `),
   ]);
 
   return {
@@ -264,6 +300,19 @@ export async function getReportingFilters() {
       name: String(row.name ?? "Unknown"),
       groupNames: String(row.groupNames ?? ""),
       groupCount: asNumber(row.groupCount),
+    })),
+    markets: marketRows.map((row) => ({
+      id: asNumber(row.id),
+      name: String(row.name ?? "Unknown market"),
+      state: String(row.state ?? ""),
+      status: String(row.status ?? "active"),
+    })),
+    isas: isaRows.map((row) => ({ id: asNumber(row.id), name: String(row.name ?? "Unknown") })),
+    leadSources: leadSourceRows.map((row) => ({
+      id: asNumber(row.id),
+      name: String(row.name ?? "Unknown source"),
+      campaignType: String(row.campaignType ?? "general"),
+      parentId: asNullableNumber(row.parentId),
     })),
   };
 }
@@ -672,4 +721,24 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       totalPages: Math.max(1, Math.ceil(asNumber(countRows[0]?.total) / limit)),
     },
   };
+}
+
+export async function getAgentOnboardingReport(filters: ReportingFilters = {}) {
+  return getAgentOnboardingReportingData(filters);
+}
+
+export async function getMarketAnalyticsReport(filters: ReportingFilters = {}) {
+  return getMarketAnalyticsReportingData(filters);
+}
+
+export async function getTasksReport(filters: ReportingFilters = {}) {
+  return getTasksReportingData(filters);
+}
+
+export async function getIsaActivitiesReport(filters: ReportingFilters = {}) {
+  return getIsaActivitiesReportingData(filters);
+}
+
+export async function getLeadSourcesReport(filters: ReportingFilters = {}) {
+  return getLeadSourcesReportingData(filters);
 }

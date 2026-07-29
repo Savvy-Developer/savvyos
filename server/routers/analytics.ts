@@ -76,6 +76,11 @@ import {
   getGroupLeaderReport,
   getReportingFilters,
   getTransactionStatisticsReport,
+  getAgentOnboardingReport,
+  getMarketAnalyticsReport,
+  getTasksReport,
+  getIsaActivitiesReport,
+  getLeadSourcesReport,
 } from "../analytics/reportingSuite";
 
 const dateRangeInput = z.object({
@@ -106,6 +111,9 @@ const reportingSuiteInput = z.object({
   dateBasis: z.enum(["closing", "contract"]).optional(),
   agentId: z.number().int().positive().optional(),
   groupLeaderId: z.number().int().positive().optional(),
+  marketProfileId: z.number().int().positive().optional(),
+  isaId: z.number().int().positive().optional(),
+  leadSourceId: z.number().int().positive().optional(),
   status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
   transactionType: z.enum(["all", "buyer", "seller", "dual"]).optional(),
   page: z.number().int().min(1).optional(),
@@ -728,6 +736,41 @@ Return only valid JSON array.`;
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getTransactionStatisticsReport(input ?? {});
+    }),
+
+  agentOnboardingReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getAgentOnboardingReport(input ?? {});
+    }),
+
+  marketAnalyticsReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getMarketAnalyticsReport(input ?? {});
+    }),
+
+  tasksReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getTasksReport(input ?? {});
+    }),
+
+  isaActivitiesReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getIsaActivitiesReport(input ?? {});
+    }),
+
+  leadSourcesReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getLeadSourcesReport(input ?? {});
     }),
 
   // ─── Analytics Workspace v1 ───────────────────────────────────────────────

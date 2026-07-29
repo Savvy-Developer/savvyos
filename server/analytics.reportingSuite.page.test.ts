@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const reportPage = () => readFileSync("client/src/pages/ReportingSuitePage.tsx", "utf-8");
 const reportService = () => readFileSync("server/analytics/reportingSuite.ts", "utf-8");
 const analyticsRouter = () => readFileSync("server/routers/analytics.ts", "utf-8");
+const expansionService = () => readFileSync("server/analytics/reportingExpansion.ts", "utf-8");
+const expansionViews = () => readFileSync("client/src/pages/ReportingExpansionViews.tsx", "utf-8");
 const appRoutes = () => readFileSync("client/src/App.tsx", "utf-8");
 
 describe("Reporting suite — stable decision and evidence contract", () => {
@@ -42,6 +44,44 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("closedUnits: closed");
     expect(service).toContain("priorScope");
     expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
+  });
+
+  it("keeps the five expansion reports decision-ready, filterable, and backed by bounded evidence", () => {
+    const page = reportPage();
+    const service = expansionService();
+    const views = expansionViews();
+    const router = analyticsRouter();
+
+    expect(page).toContain('id: "onboarding"');
+    expect(page).toContain('id: "markets"');
+    expect(page).toContain('id: "tasks"');
+    expect(page).toContain('id: "isa"');
+    expect(page).toContain('id: "sources"');
+    expect(page).toContain("marketProfileId");
+    expect(page).toContain("isaId");
+    expect(page).toContain("leadSourceId");
+
+    expect(views).toContain("export function OnboardingReport");
+    expect(views).toContain("export function MarketAnalyticsReport");
+    expect(views).toContain("export function TasksReport");
+    expect(views).toContain("export function IsaActivitiesReport");
+    expect(views).toContain("export function LeadSourcesReport");
+    expect(views).toContain("Overdue");
+    expect(views).toContain("Follow-up");
+
+    expect(service).toContain("getAgentOnboardingReportingData");
+    expect(service).toContain("getMarketAnalyticsReportingData");
+    expect(service).toContain("getTasksReportingData");
+    expect(service).toContain("getIsaActivitiesReportingData");
+    expect(service).toContain("getLeadSourcesReportingData");
+    expect(service).toContain("isa_status");
+    expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
+
+    expect(router).toContain("agentOnboardingReport: protectedProcedure");
+    expect(router).toContain("marketAnalyticsReport: protectedProcedure");
+    expect(router).toContain("tasksReport: protectedProcedure");
+    expect(router).toContain("isaActivitiesReport: protectedProcedure");
+    expect(router).toContain("leadSourcesReport: protectedProcedure");
   });
 
   it("keeps report data on explicit administrator-only procedures and makes the new suite the analytics route", () => {

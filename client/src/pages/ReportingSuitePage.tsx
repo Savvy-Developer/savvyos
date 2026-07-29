@@ -20,6 +20,11 @@ import {
   TrendingUp,
   UserRound,
   UsersRound,
+  UserPlus,
+  MapPinned,
+  ListChecks,
+  PhoneCall,
+  Workflow,
 } from "lucide-react";
 import {
   Bar,
@@ -38,6 +43,13 @@ import {
   YAxis,
 } from "recharts";
 import { trpc } from "@/lib/trpc";
+import {
+  IsaActivitiesReport,
+  LeadSourcesReport,
+  MarketAnalyticsReport,
+  OnboardingReport,
+  TasksReport,
+} from "./ReportingExpansionViews";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +59,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type ReportKind = "agents" | "leaders" | "transactions";
+type ReportKind = "agents" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources";
 
 type QueryPatch = Record<string, string | null | undefined>;
 
@@ -55,6 +67,11 @@ const reportTabs: Array<{ id: ReportKind; label: string; description: string; ic
   { id: "agents", label: "Agent Performance", description: "Production, financial contribution, and operational follow-through by agent.", icon: UsersRound },
   { id: "leaders", label: "Group Leader Review", description: "Coaching priorities and team health for group-leader conversations.", icon: UserRound },
   { id: "transactions", label: "Transaction Statistics", description: "Production mix, conversion outcomes, commissions, and transaction quality.", icon: BriefcaseBusiness },
+  { id: "onboarding", label: "Agent Onboarding", description: "Progression, completion time, and early-adoption risk across agent onboarding plans.", icon: UserPlus },
+  { id: "markets", label: "Market Analytics", description: "Geographic production, capacity, coverage, and market-level financial contribution.", icon: MapPinned },
+  { id: "tasks", label: "Task Execution", description: "Workload flow, completion, aging, ownership, and overdue operational work.", icon: ListChecks },
+  { id: "isa", label: "ISA Activities", description: "Pipeline movement, ISA coverage, session activity, and next-step follow-up intelligence.", icon: PhoneCall },
+  { id: "sources", label: "Lead Sources", description: "Acquisition volume, quality, conversion, GCI, and Savvy net by source.", icon: Workflow },
 ];
 
 const statusColors: Record<string, string> = {
@@ -208,10 +225,16 @@ function ReportingFilters({
   const selectedLeader = params.get("groupLeaderId") ?? "all";
   const selectedStatus = params.get("status") ?? "all";
   const selectedType = params.get("transactionType") ?? "all";
+  const selectedMarket = params.get("marketProfileId") ?? "all";
+  const selectedIsa = params.get("isaId") ?? "all";
+  const selectedLeadSource = params.get("leadSourceId") ?? "all";
   const dateBasis = params.get("dateBasis") ?? "closing";
   const isTransaction = activeReport === "transactions";
+  const isMarket = activeReport === "markets";
+  const isIsa = activeReport === "isa";
+  const isSource = activeReport === "sources";
 
-  return <Card className="border-primary/15 shadow-sm"><CardContent className="p-4"><div className="flex flex-col gap-4"><div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Report scope</p><p className="text-xs text-muted-foreground">Filters persist in the link and update every metric, chart, and evidence queue.</p></div><Button variant="ghost" size="sm" onClick={() => update({ from: startOfYear(), to: today, agentId: null, groupLeaderId: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset scope</Button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"><div className="space-y-1.5"><Label htmlFor="report-from" className="text-xs">From</Label><Input id="report-from" type="date" value={params.get("from") ?? startOfYear()} onChange={(event) => update({ from: event.target.value, page: null })} /></div><div className="space-y-1.5"><Label htmlFor="report-to" className="text-xs">To</Label><Input id="report-to" type="date" value={params.get("to") ?? today} onChange={(event) => update({ to: event.target.value, page: null })} /></div>{isTransaction && <div className="space-y-1.5"><Label className="text-xs">Date basis</Label><Select value={dateBasis} onValueChange={(value) => update({ dateBasis: value, page: null })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="closing">Closing date</SelectItem><SelectItem value="contract">Contract date</SelectItem></SelectContent></Select></div>}<div className="space-y-1.5"><Label className="text-xs">Agent</Label><Select value={selectedAgent} onValueChange={(value) => update({ agentId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All agents" /></SelectTrigger><SelectContent><SelectItem value="all">All agents</SelectItem>{(filters?.agents ?? []).map((agent: any) => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label className="text-xs">Group leader</Label><Select value={selectedLeader} onValueChange={(value) => update({ groupLeaderId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All group leaders" /></SelectTrigger><SelectContent><SelectItem value="all">All group leaders</SelectItem>{(filters?.groupLeaders ?? []).map((leader: any) => <SelectItem key={leader.id} value={String(leader.id)}>{leader.name}</SelectItem>)}</SelectContent></Select></div>{isTransaction && <><div className="space-y-1.5"><Label className="text-xs">Status</Label><Select value={selectedStatus} onValueChange={(value) => update({ status: value, page: null })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="closed">Closed</SelectItem><SelectItem value="under_contract">Under contract</SelectItem><SelectItem value="terminated">Terminated</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label className="text-xs">Representation</Label><Select value={selectedType} onValueChange={(value) => update({ transactionType: value, page: null })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Buyer + seller + dual</SelectItem><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="dual">Dual agency</SelectItem></SelectContent></Select></div></>}</div></div></CardContent></Card>;
+  return <Card className="border-primary/15 shadow-sm"><CardContent className="p-4"><div className="flex flex-col gap-4"><div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Report scope</p><p className="text-xs text-muted-foreground">Filters persist in the link and update every metric, chart, and evidence queue.</p></div><Button variant="ghost" size="sm" onClick={() => update({ from: startOfYear(), to: today, agentId: null, groupLeaderId: null, marketProfileId: null, isaId: null, leadSourceId: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset scope</Button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"><div className="space-y-1.5"><Label htmlFor="report-from" className="text-xs">From</Label><Input id="report-from" type="date" value={params.get("from") ?? startOfYear()} onChange={(event) => update({ from: event.target.value, page: null })} /></div><div className="space-y-1.5"><Label htmlFor="report-to" className="text-xs">To</Label><Input id="report-to" type="date" value={params.get("to") ?? today} onChange={(event) => update({ to: event.target.value, page: null })} /></div>{isTransaction && <div className="space-y-1.5"><Label className="text-xs">Date basis</Label><Select value={dateBasis} onValueChange={(value) => update({ dateBasis: value, page: null })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="closing">Closing date</SelectItem><SelectItem value="contract">Contract date</SelectItem></SelectContent></Select></div>}<div className="space-y-1.5"><Label className="text-xs">Agent</Label><Select value={selectedAgent} onValueChange={(value) => update({ agentId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All agents" /></SelectTrigger><SelectContent><SelectItem value="all">All agents</SelectItem>{(filters?.agents ?? []).map((agent: any) => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label className="text-xs">Group leader</Label><Select value={selectedLeader} onValueChange={(value) => update({ groupLeaderId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All group leaders" /></SelectTrigger><SelectContent><SelectItem value="all">All group leaders</SelectItem>{(filters?.groupLeaders ?? []).map((leader: any) => <SelectItem key={leader.id} value={String(leader.id)}>{leader.name}</SelectItem>)}</SelectContent></Select></div>{isMarket && <div className="space-y-1.5"><Label className="text-xs">Market</Label><Select value={selectedMarket} onValueChange={(value) => update({ marketProfileId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All markets" /></SelectTrigger><SelectContent><SelectItem value="all">All markets</SelectItem>{(filters?.markets ?? []).map((market: any) => <SelectItem key={market.id} value={String(market.id)}>{market.name}</SelectItem>)}</SelectContent></Select></div>}{isIsa && <div className="space-y-1.5"><Label className="text-xs">ISA owner</Label><Select value={selectedIsa} onValueChange={(value) => update({ isaId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All ISA owners" /></SelectTrigger><SelectContent><SelectItem value="all">All ISA owners</SelectItem>{(filters?.isas ?? []).map((isa: any) => <SelectItem key={isa.id} value={String(isa.id)}>{isa.name}</SelectItem>)}</SelectContent></Select></div>}{isSource && <div className="space-y-1.5"><Label className="text-xs">Lead source</Label><Select value={selectedLeadSource} onValueChange={(value) => update({ leadSourceId: value === "all" ? null : value, page: null })}><SelectTrigger><SelectValue placeholder="All lead sources" /></SelectTrigger><SelectContent><SelectItem value="all">All lead sources</SelectItem>{(filters?.leadSources ?? []).map((source: any) => <SelectItem key={source.id} value={String(source.id)}>{source.name}</SelectItem>)}</SelectContent></Select></div>}{isTransaction && <><div className="space-y-1.5"><Label className="text-xs">Status</Label><Select value={selectedStatus} onValueChange={(value) => update({ status: value, page: null })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="closed">Closed</SelectItem><SelectItem value="under_contract">Under contract</SelectItem><SelectItem value="terminated">Terminated</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label className="text-xs">Representation</Label><Select value={selectedType} onValueChange={(value) => update({ transactionType: value, page: null })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Buyer + seller + dual</SelectItem><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="dual">Dual agency</SelectItem></SelectContent></Select></div></>}</div></div></CardContent></Card>;
 }
 
 function AgentReport({ data }: { data: any }) {
@@ -254,6 +277,9 @@ export default function ReportingSuitePage() {
     dateBasis: (params.get("dateBasis") ?? "closing") as "closing" | "contract",
     agentId: params.get("agentId") && params.get("agentId") !== "all" ? Number(params.get("agentId")) : undefined,
     groupLeaderId: params.get("groupLeaderId") && params.get("groupLeaderId") !== "all" ? Number(params.get("groupLeaderId")) : undefined,
+    marketProfileId: params.get("marketProfileId") && params.get("marketProfileId") !== "all" ? Number(params.get("marketProfileId")) : undefined,
+    isaId: params.get("isaId") && params.get("isaId") !== "all" ? Number(params.get("isaId")) : undefined,
+    leadSourceId: params.get("leadSourceId") && params.get("leadSourceId") !== "all" ? Number(params.get("leadSourceId")) : undefined,
     status: (params.get("status") ?? "all") as "all" | "closed" | "under_contract" | "terminated",
     transactionType: (params.get("transactionType") ?? "all") as "all" | "buyer" | "seller" | "dual",
   }), [params, today]);
@@ -262,6 +288,11 @@ export default function ReportingSuitePage() {
   const agentQuery = trpc.analytics.agentReport.useQuery(baseFilters, { enabled: activeReport === "agents", staleTime: 20_000 });
   const groupQuery = trpc.analytics.groupLeaderReport.useQuery(baseFilters, { enabled: activeReport === "leaders", staleTime: 20_000 });
   const transactionQuery = trpc.analytics.transactionStatisticsReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "transactions", staleTime: 20_000 });
+  const onboardingQuery = trpc.analytics.agentOnboardingReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "onboarding", staleTime: 20_000 });
+  const marketQuery = trpc.analytics.marketAnalyticsReport.useQuery(baseFilters, { enabled: activeReport === "markets", staleTime: 20_000 });
+  const tasksQuery = trpc.analytics.tasksReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "tasks", staleTime: 20_000 });
+  const isaQuery = trpc.analytics.isaActivitiesReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "isa", staleTime: 20_000 });
+  const sourcesQuery = trpc.analytics.leadSourcesReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "sources", staleTime: 20_000 });
 
   const update = (patch: QueryPatch) => {
     const next = new URLSearchParams(params);
@@ -276,8 +307,18 @@ export default function ReportingSuitePage() {
 
   const selectReport = (report: ReportKind) => update({ report, page: null });
   const activeConfig = reportTabs.find((tab) => tab.id === activeReport) ?? reportTabs[0];
-  const activeQuery = activeReport === "agents" ? agentQuery : activeReport === "leaders" ? groupQuery : transactionQuery;
+  const queryByReport = {
+    agents: agentQuery,
+    leaders: groupQuery,
+    transactions: transactionQuery,
+    onboarding: onboardingQuery,
+    markets: marketQuery,
+    tasks: tasksQuery,
+    isa: isaQuery,
+    sources: sourcesQuery,
+  };
+  const activeQuery = queryByReport[activeReport] ?? agentQuery;
   const reportData = activeQuery.data as any;
 
-  return <div className="space-y-6 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for agent production, group leader coaching, and transaction performance." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="grid gap-3 lg:grid-cols-3">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`rounded-xl border p-4 text-left transition ${isActive ? "border-primary bg-primary/[0.055] shadow-sm" : "bg-background hover:border-primary/35 hover:bg-muted/25"}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-lg p-2 ${isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}><Icon className="h-4 w-4" /></span>{isActive && <Badge>Active</Badge>}</div><p className="mt-4 text-sm font-semibold">{tab.label}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{tab.description}</p></button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{filtersQuery.isLoading || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
+  return <div className="space-y-6 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for agent production, group leader coaching, and transaction performance." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`rounded-xl border p-4 text-left transition ${isActive ? "border-primary bg-primary/[0.055] shadow-sm" : "bg-background hover:border-primary/35 hover:bg-muted/25"}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-lg p-2 ${isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}><Icon className="h-4 w-4" /></span>{isActive && <Badge>Active</Badge>}</div><p className="mt-4 text-sm font-semibold">{tab.label}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{tab.description}</p></button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{filtersQuery.isLoading || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
 }
