@@ -317,7 +317,8 @@ export async function getAgentOnboardingReportingData(filters: ExpansionFilters 
 }
 
 export async function getMarketAnalyticsReportingData(filters: ExpansionFilters = {}) {
-  const transactionWhere = transactionScope(filters);
+  const transactionWhere = transactionScope(filters, { closedOnly: true });
+  const pipelineWhere = where([sql`t.\`status\` = 'under_contract'`]);
   const marketScope = where([
     filters.marketProfileId ? sql`mp.id = ${filters.marketProfileId}` : undefined,
     filters.agentId ? sql`u.id = ${filters.agentId}` : undefined,
@@ -338,12 +339,19 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
         mp.\`status\` AS marketStatus,
         mp.\`annualGciGoal\` AS annualGciGoal,
         COUNT(DISTINCT u.id) AS agentCount,
+        GROUP_CONCAT(DISTINCT u.\`name\` ORDER BY u.\`name\` SEPARATOR ', ') AS agentNames,
         COALESCE(SUM(tx.units), 0) AS units,
         COALESCE(SUM(tx.closings), 0) AS closings,
-        COALESCE(SUM(tx.underContract), 0) AS underContract,
+        COALESCE(SUM(pipeline.underContract), 0) AS underContract,
+        COALESCE(SUM(pipeline.futureVolume), 0) AS futureVolume,
+        COALESCE(SUM(pipeline.futureGci), 0) AS futureGci,
         COALESCE(SUM(tx.volume), 0) AS volume,
         COALESCE(SUM(tx.grossCommission), 0) AS grossCommission,
         COALESCE(SUM(tx.savvyNet), 0) AS savvyNet,
+        COALESCE(SUM(tx.buyerClosings), 0) AS buyerClosings,
+        COALESCE(SUM(tx.buyerGci), 0) AS buyerGci,
+        COALESCE(SUM(tx.sellerClosings), 0) AS sellerClosings,
+        COALESCE(SUM(tx.sellerGci), 0) AS sellerGci,
         COALESCE(cap.assignedAgents, 0) AS assignedAgents,
         COALESCE(cap.availableAgents, 0) AS availableAgents,
         COALESCE(cap.currentLeadCount, 0) AS currentLeadCount,
@@ -355,15 +363,28 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
           t.\`agentId\` AS agentId,
           COUNT(*) AS units,
           SUM(CASE WHEN t.\`status\` = 'closed' THEN 1 ELSE 0 END) AS closings,
-          SUM(CASE WHEN t.\`status\` = 'under_contract' THEN 1 ELSE 0 END) AS underContract,
           COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(t.\`purchasePrice\`, 0) ELSE 0 END), 0) AS volume,
           COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(t.\`grossCommissionIncome\`, 0) ELSE 0 END), 0) AS grossCommission,
-          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(pi.savvyNet, 0) ELSE 0 END), 0) AS savvyNet
+          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' THEN COALESCE(pi.savvyNet, 0) ELSE 0 END), 0) AS savvyNet,
+          SUM(CASE WHEN t.\`status\` = 'closed' AND t.\`transactionType\` = 'buyer' THEN 1 ELSE 0 END) AS buyerClosings,
+          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' AND t.\`transactionType\` = 'buyer' THEN COALESCE(t.\`grossCommissionIncome\`, 0) ELSE 0 END), 0) AS buyerGci,
+          SUM(CASE WHEN t.\`status\` = 'closed' AND t.\`transactionType\` = 'seller' THEN 1 ELSE 0 END) AS sellerClosings,
+          COALESCE(SUM(CASE WHEN t.\`status\` = 'closed' AND t.\`transactionType\` = 'seller' THEN COALESCE(t.\`grossCommissionIncome\`, 0) ELSE 0 END), 0) AS sellerGci
         FROM \`transactions\` t
         ${PAYOUT_JOIN}
         ${transactionWhere}
         GROUP BY t.\`agentId\`
       ) tx ON tx.agentId = u.id
+      LEFT JOIN (
+        SELECT
+          t.\`agentId\` AS agentId,
+          COUNT(*) AS underContract,
+          COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS futureVolume,
+          COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS futureGci
+        FROM \`transactions\` t
+        ${pipelineWhere}
+        GROUP BY t.\`agentId\`
+      ) pipeline ON pipeline.agentId = u.id
       LEFT JOIN (
         SELECT
           \`marketProfileId\` AS marketProfileId,
@@ -400,12 +421,19 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
     marketStatus: String(row.marketStatus ?? "active"),
     annualGciGoal: asNullableNumber(row.annualGciGoal),
     agentCount: asNumber(row.agentCount),
+    agentNames: String(row.agentNames ?? ""),
     units: asNumber(row.units),
     closings: asNumber(row.closings),
     underContract: asNumber(row.underContract),
+    futureVolume: asNumber(row.futureVolume),
+    futureGci: asNumber(row.futureGci),
     volume: asNumber(row.volume),
     grossCommission: asNumber(row.grossCommission),
     savvyNet: asNumber(row.savvyNet),
+    buyerClosings: asNumber(row.buyerClosings),
+    buyerGci: asNumber(row.buyerGci),
+    sellerClosings: asNumber(row.sellerClosings),
+    sellerGci: asNumber(row.sellerGci),
     assignedAgents: asNumber(row.assignedAgents),
     availableAgents: asNumber(row.availableAgents),
     currentLeadCount: asNumber(row.currentLeadCount),
@@ -416,17 +444,26 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
     agents: result.agents + market.agentCount,
     closings: result.closings + market.closings,
     underContract: result.underContract + market.underContract,
+    futureVolume: result.futureVolume + market.futureVolume,
+    futureGci: result.futureGci + market.futureGci,
     volume: result.volume + market.volume,
     grossCommission: result.grossCommission + market.grossCommission,
     savvyNet: result.savvyNet + market.savvyNet,
+    buyerClosings: result.buyerClosings + market.buyerClosings,
+    buyerGci: result.buyerGci + market.buyerGci,
+    sellerClosings: result.sellerClosings + market.sellerClosings,
+    sellerGci: result.sellerGci + market.sellerGci,
     availableAgents: result.availableAgents + market.availableAgents,
     currentLeadCount: result.currentLeadCount + market.currentLeadCount,
     maxLeadCapacity: result.maxLeadCapacity + market.maxLeadCapacity,
-  }), { markets: 0, agents: 0, closings: 0, underContract: 0, volume: 0, grossCommission: 0, savvyNet: 0, availableAgents: 0, currentLeadCount: 0, maxLeadCapacity: 0 });
+  }), { markets: 0, agents: 0, closings: 0, underContract: 0, futureVolume: 0, futureGci: 0, volume: 0, grossCommission: 0, savvyNet: 0, buyerClosings: 0, buyerGci: 0, sellerClosings: 0, sellerGci: 0, availableAgents: 0, currentLeadCount: 0, maxLeadCapacity: 0 });
   return {
     summary: {
       ...summary,
       capacityUtilization: summary.maxLeadCapacity ? (summary.currentLeadCount / summary.maxLeadCapacity) * 100 : null,
+      averageBuyerGci: summary.buyerClosings ? summary.buyerGci / summary.buyerClosings : null,
+      averageSellerGci: summary.sellerClosings ? summary.sellerGci / summary.sellerClosings : null,
+      savvyNetPerDeal: summary.closings ? summary.savvyNet / summary.closings : null,
     },
     monthly: monthlyRows.map((row) => ({ month: String(row.month ?? ""), units: asNumber(row.units), closings: asNumber(row.closings), volume: asNumber(row.volume), grossCommission: asNumber(row.grossCommission) })),
     markets,

@@ -719,7 +719,7 @@ export async function getPropertyOwnership(propertyId: number) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
-export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date") {
+export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date", groupLeaderId?: number, includeLeaderStats?: boolean) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -736,6 +736,18 @@ export async function getTransactions(agentId?: number, status?: string, search?
   if (flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
   if (leadSourceId) conditions.push(eq(contacts.leadSourceId, leadSourceId));
   if (transactionType) conditions.push(eq(transactions.transactionType, transactionType as any));
+  if (groupLeaderId) conditions.push(includeLeaderStats ? sql`(
+    ${transactions.agentId} = ${groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${groupLeaderId}
+  )`);
 
   if (marketId) {
     // Filter transactions by agents in the given market
@@ -809,6 +821,8 @@ export type TransactionExportFilters = {
   flagNoClosingDate?: boolean;
   flagPastClosingDate?: boolean;
   flagPayoutIntegrity?: boolean;
+  groupLeaderId?: number;
+  includeLeaderStats?: boolean;
   leadSourceId?: number;
   sortOrder?: "asc" | "desc";
   sortBy?: string;
@@ -841,6 +855,18 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
   if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
+  if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
+    ${transactions.agentId} = ${filters.groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+  )`);
 
   if (filters.marketId) {
     const marketAgents = await db
@@ -1159,7 +1185,7 @@ export async function validateAndAutoResolveFlag(
 }
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
-export async function getTasks(assignedToId?: number, status?: string, relatedContactId?: number, relatedTransactionId?: number, page = 1, limit = 25, dueDateFrom?: Date, dueDateTo?: Date) {
+export async function getTasks(assignedToId?: number, status?: string, relatedContactId?: number, relatedTransactionId?: number, page = 1, limit = 25, dueDateFrom?: Date, dueDateTo?: Date, overdue?: boolean) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -1170,6 +1196,7 @@ export async function getTasks(assignedToId?: number, status?: string, relatedCo
   if (relatedTransactionId) conditions.push(eq(tasks.relatedTransactionId, relatedTransactionId));
   if (dueDateFrom) conditions.push(gte(tasks.dueDate, dueDateFrom));
   if (dueDateTo) conditions.push(lte(tasks.dueDate, dueDateTo));
+  if (overdue) conditions.push(sql`${tasks.status} NOT IN ('completed', 'cancelled') AND ${tasks.dueDate} IS NOT NULL AND DATE(${tasks.dueDate}) < CURRENT_DATE`);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [countResult, rows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(tasks).where(where),
@@ -1692,14 +1719,27 @@ export async function getContactCounts(contactId: number) {
 }
 
 // ─── Tasks: getAllTasks with assignedTo filter ───────────────────────────────
-export async function getAllTasks(filters?: { status?: string; assignedToId?: number; createdFrom?: Date; createdTo?: Date; page?: number; limit?: number }) {
+export async function getAllTasks(filters?: { status?: string; assignedToId?: number; groupLeaderId?: number; includeLeaderStats?: boolean; createdFrom?: Date; createdTo?: Date; overdue?: boolean; page?: number; limit?: number }) {
   const db = await getDb();
   if (!db) return { rows: [], total: 0 };
   const conditions: any[] = [];
   if (filters?.status) conditions.push(eq(tasks.status, filters.status as any));
   if (filters?.assignedToId) conditions.push(eq(tasks.assignedToId, filters.assignedToId));
+  if (filters?.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
+    ${tasks.assignedToId} = ${filters.groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${tasks.assignedToId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${tasks.assignedToId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+  )`);
   if (filters?.createdFrom) conditions.push(gte(tasks.createdAt, filters.createdFrom));
   if (filters?.createdTo) conditions.push(lte(tasks.createdAt, filters.createdTo));
+  if (filters?.overdue) conditions.push(sql`${tasks.status} NOT IN ('completed', 'cancelled') AND ${tasks.dueDate} IS NOT NULL AND DATE(${tasks.dueDate}) < CURRENT_DATE`);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 50;
@@ -2945,6 +2985,18 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
   if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
+  if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
+    ${transactions.agentId} = ${filters.groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+  )`);
 
   if (filters.marketId) {
     const marketAgents = await db

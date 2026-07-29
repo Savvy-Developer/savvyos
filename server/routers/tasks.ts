@@ -21,6 +21,7 @@ export const tasksRouter = router({
       relatedTransactionId: z.number().optional(),
       dueDateFrom: z.string().optional(),
       dueDateTo: z.string().optional(),
+      overdue: z.boolean().optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
     }))
@@ -35,15 +36,19 @@ export const tasksRouter = router({
         input.limit,
         input.dueDateFrom ? new Date(input.dueDateFrom) : undefined,
         input.dueDateTo ? new Date(input.dueDateTo) : undefined,
+        input.overdue,
       );
     }),
 
   listAll: protectedProcedure
     .input(z.object({
       assignedToId: z.number().optional(),
+      groupLeaderId: z.number().optional(),
+      includeLeaderStats: z.boolean().optional(),
       status: z.string().optional(),
       createdFrom: z.string().optional(),
       createdTo: z.string().optional(),
+      overdue: z.boolean().optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(50),
     }).optional())
@@ -51,9 +56,12 @@ export const tasksRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return getAllTasks({
         assignedToId: input?.assignedToId,
+        groupLeaderId: input?.groupLeaderId,
+        includeLeaderStats: input?.includeLeaderStats,
         status: input?.status,
         createdFrom: input?.createdFrom ? new Date(input.createdFrom) : undefined,
         createdTo: input?.createdTo ? new Date(input.createdTo) : undefined,
+        overdue: input?.overdue,
         page: input?.page ?? 1,
         limit: input?.limit ?? 50,
       });

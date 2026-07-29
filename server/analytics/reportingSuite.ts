@@ -23,6 +23,7 @@ export type ReportingFilters = {
   leadSourceId?: number;
   status?: ReportingStatus;
   transactionType?: ReportingTransactionType;
+  includeLeaderStats?: boolean;
   page?: number;
   limit?: number;
 };
@@ -88,6 +89,10 @@ function where(clauses: Array<SQL | undefined>): SQL {
   return valid.length ? sql`WHERE ${sql.join(valid, sql` AND `)}` : sql``;
 }
 
+function withCondition(scope: SQL, condition: SQL): SQL {
+  return scope.queryChunks.length ? sql`${scope} AND ${condition}` : sql`WHERE ${condition}`;
+}
+
 function dateColumn(filters: ReportingFilters): SQL {
   return filters.dateBasis === "contract" ? sql`t.\`contractDate\`` : sql`t.\`closingDate\``;
 }
@@ -100,12 +105,20 @@ function transactionScope(
   const date = dateColumn(filters);
   return where([
     filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined,
-    filters.groupLeaderId ? sql`EXISTS (
+    filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
+      t.\`agentId\` = ${filters.groupLeaderId}
+      OR EXISTS (
+        SELECT 1
+        FROM \`group_members\` gm
+        INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+        WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
+      )
+    )` : sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
-    )` : undefined,
+    )`) : undefined,
     filters.marketProfileId ? sql`EXISTS (
       SELECT 1 FROM \`users\` market_user
       WHERE market_user.id = t.\`agentId\` AND market_user.\`marketProfileId\` = ${filters.marketProfileId}
@@ -127,12 +140,20 @@ function agentScope(filters: ReportingFilters): SQL {
     sql`u.\`role\` = 'agent'`,
     sql`u.\`isActive\` = 1`,
     filters.agentId ? sql`u.\`id\` = ${filters.agentId}` : undefined,
-    filters.groupLeaderId ? sql`EXISTS (
+    filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
+      u.\`id\` = ${filters.groupLeaderId}
+      OR EXISTS (
+        SELECT 1
+        FROM \`group_members\` gm
+        INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+        WHERE gm.\`userId\` = u.\`id\` AND g.\`leaderId\` = ${filters.groupLeaderId}
+      )
+    )` : sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = u.\`id\` AND g.\`leaderId\` = ${filters.groupLeaderId}
-    )` : undefined,
+    )`) : undefined,
     filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
   ]);
 }
@@ -140,12 +161,20 @@ function agentScope(filters: ReportingFilters): SQL {
 function taskScope(filters: ReportingFilters): SQL {
   return where([
     filters.agentId ? sql`tk.\`assignedToId\` = ${filters.agentId}` : undefined,
-    filters.groupLeaderId ? sql`EXISTS (
+    filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
+      tk.\`assignedToId\` = ${filters.groupLeaderId}
+      OR EXISTS (
+        SELECT 1
+        FROM \`group_members\` gm
+        INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+        WHERE gm.\`userId\` = tk.\`assignedToId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
+      )
+    )` : sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = tk.\`assignedToId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
-    )` : undefined,
+    )`) : undefined,
   ]);
 }
 
@@ -451,6 +480,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       dateTo: filters.dateTo ?? null,
       agentId: filters.agentId ?? null,
       groupLeaderId: filters.groupLeaderId ?? null,
+      includeLeaderStats: Boolean(filters.includeLeaderStats),
     },
     production,
     prior,
@@ -509,8 +539,9 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
 }
 
 export async function getGroupLeaderReport(filters: ReportingFilters = {}) {
+  const reportFilters: ReportingFilters = { ...filters, agentId: undefined };
   const [agentReport, groupRows] = await Promise.all([
-    getAgentReport(filters),
+    getAgentReport(reportFilters),
     runRows<Row>(sql`
       SELECT
         g.\`id\` AS groupId,
@@ -568,6 +599,11 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
     transactionType: filters.transactionType ?? "all",
   };
   const scope = transactionScope(resolvedFilters);
+  // Closed and terminated outcomes are performance events in the selected period.
+  // Under-contract inventory is a current pipeline snapshot and must not be reduced
+  // by the report's historical closing/contract date range.
+  const periodOutcomeScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
+  const pipelineScope = transactionScope({ ...resolvedFilters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
   const priorFilters = previousPeriod(resolvedFilters);
   const priorScope = priorFilters ? transactionScope(priorFilters) : null;
   const date = dateColumn(resolvedFilters);
@@ -575,7 +611,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   const limit = Math.min(100, Math.max(10, filters.limit ?? 25));
   const offset = (page - 1) * limit;
 
-  const [summaryRows, priorRows, statusRows, typeRows, monthlyRows, flagsRows, evidenceRows, countRows] = await Promise.all([
+  const [summaryRows, priorRows, statusRows, pipelineRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${scope}`),
     priorScope ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorScope}`) : Promise.resolve([]),
     runRows<Row>(sql`
@@ -585,9 +621,30 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
         COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
       FROM \`transactions\` t
       ${PAYOUT_JOIN}
-      ${scope}
+      ${periodOutcomeScope}
       GROUP BY t.\`status\`
-      ORDER BY FIELD(t.\`status\`, 'under_contract', 'closed', 'terminated')
+      ORDER BY FIELD(t.\`status\`, 'closed', 'terminated')
+    `),
+    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${pipelineScope}`),
+    runRows<Row>(sql`
+      SELECT t.\`status\` AS status, t.\`transactionType\` AS transactionType, COUNT(*) AS units,
+        COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS grossCommission,
+        COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
+      FROM \`transactions\` t
+      ${PAYOUT_JOIN}
+      ${periodOutcomeScope}
+      GROUP BY t.\`status\`, t.\`transactionType\`
+      ORDER BY FIELD(t.\`status\`, 'closed', 'terminated'), FIELD(t.\`transactionType\`, 'buyer', 'seller', 'dual')
+    `),
+    runRows<Row>(sql`
+      SELECT 'under_contract' AS status, t.\`transactionType\` AS transactionType, COUNT(*) AS units,
+        COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS grossCommission,
+        COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
+      FROM \`transactions\` t
+      ${PAYOUT_JOIN}
+      ${pipelineScope}
+      GROUP BY t.\`transactionType\`
+      ORDER BY FIELD(t.\`transactionType\`, 'buyer', 'seller', 'dual')
     `),
     runRows<Row>(sql`
       SELECT t.\`transactionType\` AS transactionType, COUNT(*) AS units,
@@ -613,6 +670,24 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       ${scope}
       GROUP BY DATE_FORMAT(${date}, '%Y-%m')
       ORDER BY month ASC
+    `),
+    runRows<Row>(sql`
+      SELECT
+        t.\`agentId\` AS agentId,
+        COALESCE(u.\`name\`, 'Unassigned') AS agentName,
+        COUNT(*) AS units,
+        SUM(CASE WHEN t.\`status\` = 'closed' THEN 1 ELSE 0 END) AS closings,
+        SUM(CASE WHEN t.\`status\` = 'terminated' THEN 1 ELSE 0 END) AS terminations,
+        COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS volume,
+        COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS grossCommission,
+        COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
+      FROM \`transactions\` t
+      LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
+      ${PAYOUT_JOIN}
+      ${scope}
+      GROUP BY t.\`agentId\`, u.\`name\`
+      ORDER BY terminations DESC, units DESC, grossCommission DESC, agentName ASC
+      LIMIT 100
     `),
     getOperationalFlags(resolvedFilters),
     runRows<Row>(sql`
@@ -647,6 +722,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
 
   const summary = toProduction(summaryRows[0]);
   const prior = toProduction(priorRows[0]);
+  const pipeline = toProduction(pipelineRows[0]);
   const statuses = statusRows.map((row) => ({
     status: String(row.status ?? ""),
     units: asNumber(row.units),
@@ -664,6 +740,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       dateBasis: resolvedFilters.dateBasis,
       agentId: resolvedFilters.agentId ?? null,
       groupLeaderId: resolvedFilters.groupLeaderId ?? null,
+      includeLeaderStats: Boolean(resolvedFilters.includeLeaderStats),
       status: resolvedFilters.status,
       transactionType: resolvedFilters.transactionType,
     },
@@ -677,10 +754,25 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
         volume: change(summary.volume, prior.volume),
         grossCommission: change(summary.grossCommission, prior.grossCommission),
         savvyNet: change(summary.savvyNet, prior.savvyNet),
+        averageGci: change(Number(summary.averageGci ?? 0), Number(prior.averageGci ?? 0)),
+        averageDaysToClose: change(Number(summary.averageDaysToClose ?? 0), Number(prior.averageDaysToClose ?? 0)),
       },
     },
     flags: flagsRows,
     statuses,
+    pipeline: {
+      units: pipeline.units,
+      volume: pipeline.volume,
+      grossCommission: pipeline.grossCommission,
+      savvyNet: pipeline.savvyNet,
+    },
+    representationByStatus: [...periodRepresentationRows, ...pipelineRepresentationRows].map((row) => ({
+      status: String(row.status ?? ""),
+      transactionType: String(row.transactionType ?? ""),
+      units: asNumber(row.units),
+      grossCommission: asNumber(row.grossCommission),
+      savvyNet: asNumber(row.savvyNet),
+    })),
     transactionTypes: typeRows.map((row) => ({
       transactionType: String(row.transactionType ?? ""),
       units: asNumber(row.units),
@@ -692,6 +784,16 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       month: String(row.month ?? ""),
       units: asNumber(row.units),
       closings: asNumber(row.closings),
+      volume: asNumber(row.volume),
+      grossCommission: asNumber(row.grossCommission),
+      savvyNet: asNumber(row.savvyNet),
+    })),
+    agentOutcomes: agentOutcomeRows.map((row) => ({
+      agentId: asNullableNumber(row.agentId),
+      agentName: String(row.agentName ?? "Unassigned"),
+      units: asNumber(row.units),
+      closings: asNumber(row.closings),
+      terminations: asNumber(row.terminations),
       volume: asNumber(row.volume),
       grossCommission: asNumber(row.grossCommission),
       savvyNet: asNumber(row.savvyNet),

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,8 @@ export default function TasksPage() {
   const role = (user as any)?.role;
   const isAdmin = role === "admin";
   const userId = (user as any)?.id;
+  const analyticsQuery = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
+  const appliedAnalyticsLink = useRef<string | null>(null);
 
   // "my" = My Tasks (default), "all" = All Tasks (admin only)
   const [viewMode, setViewMode] = useState<"my" | "all">("my");
@@ -31,6 +33,8 @@ export default function TasksPage() {
 
   const [statusFilter, setStatusFilter] = useState("pending");
   const [assignedFilter, setAssignedFilter] = useState<string>("");
+  const [groupLeaderId, setGroupLeaderId] = useState<number | undefined>(undefined);
+  const [includeLeaderStats, setIncludeLeaderStats] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<string>("");
   const [dueDateFrom, setDueDateFrom] = useState("");
   const [dueDateTo, setDueDateTo] = useState("");
@@ -38,6 +42,26 @@ export default function TasksPage() {
   const [createdTo, setCreatedTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
+
+  // Reporting links use a narrow URL contract so their destination shows the
+  // exact operational records counted on the originating report.
+  useEffect(() => {
+    if (!user || appliedAnalyticsLink.current === analyticsQuery) return;
+    const params = new URLSearchParams(analyticsQuery);
+    if (params.get("analytics") !== "1") return;
+
+    const nextStatus = params.get("status") ?? "all";
+    const permittedStatuses = ["all", "pending", "in_progress", "completed", "cancelled", "overdue"];
+    const agentId = params.get("assignedToId") ?? "";
+    const leaderId = params.get("groupLeaderId") ?? "";
+    if (isAdmin) setViewMode("all");
+    setStatusFilter(permittedStatuses.includes(nextStatus) ? nextStatus : "all");
+    setAssignedFilter(/^\d+$/.test(agentId) ? agentId : "");
+    setGroupLeaderId(/^\d+$/.test(leaderId) ? Number(leaderId) : undefined);
+    setIncludeLeaderStats(params.get("includeLeaderStats") === "true");
+    setPage(1);
+    appliedAnalyticsLink.current = analyticsQuery;
+  }, [analyticsQuery, isAdmin, user]);
 
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -47,7 +71,8 @@ export default function TasksPage() {
 
   const utils = trpc.useUtils();
 
-  const queryStatus = statusFilter === "overdue" ? undefined : (statusFilter !== "all" ? statusFilter : undefined);
+  const isOverdueFilter = statusFilter === "overdue";
+  const queryStatus = isOverdueFilter ? undefined : (statusFilter !== "all" ? statusFilter : undefined);
 
   // For admins: use a single listAll query for BOTH modes.
   // In "My Tasks" mode, pass assignedToId = userId to scope to the current user.
@@ -62,8 +87,11 @@ export default function TasksPage() {
   const { data: adminTasksData } = trpc.tasks.listAll.useQuery({
     status: queryStatus,
     assignedToId: adminQueryAssignedTo,
+    groupLeaderId,
+    includeLeaderStats,
     createdFrom: createdFrom || undefined,
     createdTo: createdTo || undefined,
+    overdue: isOverdueFilter,
     page,
     limit: PAGE_SIZE,
   }, { enabled: isAdmin });
@@ -73,6 +101,7 @@ export default function TasksPage() {
     status: queryStatus as any,
     dueDateFrom: dueDateFrom || undefined,
     dueDateTo: dueDateTo || undefined,
+    overdue: isOverdueFilter,
     page,
     limit: PAGE_SIZE,
   }, { enabled: !isAdmin });
@@ -96,15 +125,9 @@ export default function TasksPage() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  // Overdue filter: client-side on current page
-  const tasks = statusFilter === "overdue"
-    ? rawRows.filter(({ task }: any) =>
-        task.dueDate &&
-        new Date(task.dueDate) < new Date() &&
-        task.status !== "completed" &&
-        task.status !== "cancelled"
-      )
-    : rawRows;
+  // Status, including the overdue reporting state, is applied server-side so
+  // totals and pagination cover every matching task rather than one page.
+  const tasks = rawRows;
 
   const { data: teamMembers } = trpc.users.list.useQuery({}, { enabled: isAdmin });
 

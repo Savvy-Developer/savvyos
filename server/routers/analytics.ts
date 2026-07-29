@@ -116,6 +116,7 @@ const reportingSuiteInput = z.object({
   leadSourceId: z.number().int().positive().optional(),
   status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
   transactionType: z.enum(["all", "buyer", "seller", "dual"]).optional(),
+  includeLeaderStats: z.boolean().optional(),
   page: z.number().int().min(1).optional(),
   limit: z.number().int().min(10).max(100).optional(),
 });
