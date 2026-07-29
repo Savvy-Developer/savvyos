@@ -86,10 +86,10 @@ function EmptyState({ onRefresh, isRefreshing, canRefresh }: { onRefresh: () => 
   return <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.06] via-background to-background"><CardContent className="flex flex-col items-center p-10 text-center"><span className="rounded-2xl bg-primary/10 p-4 text-primary"><BrainCircuit className="h-8 w-8" /></span><h2 className="mt-5 text-lg font-semibold">Create the first company-wide insight brief</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">The refresh assembles aggregate SavvyOS reporting facts across production, pipeline, ISA appointments, tasks, commissions, Savvy Net, onboarding, markets, and lead sources. GPT-5.5 then creates one shared, evidence-grounded executive analysis for the organization.</p><Button className="mt-6" onClick={onRefresh} disabled={isRefreshing || !canRefresh}><RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />{isRefreshing ? "Generating shared analysis…" : canRefresh ? "Generate AI Business Insights" : "Awaiting administrator refresh"}</Button><p className="mt-3 text-xs text-muted-foreground">The completed result is shared with every authenticated user and renews weekly. Only administrators can initiate a manual refresh.</p></CardContent></Card>;
 }
 
-export function BusinessInsightsReport({ data, isRefreshing, refreshError, onRefresh }: {
+export function BusinessInsightsReport({ data, isRefreshing, refreshError, onRefresh, canRefresh }: {
   data: BusinessInsightsData | null | undefined;
   isRefreshing: boolean;
-  refreshError?: string | null;
+  refreshError?: string;
   onRefresh: () => void;
   canRefresh: boolean;
 }) {
