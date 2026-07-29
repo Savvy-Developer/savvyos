@@ -1705,3 +1705,20 @@ export const emailBehaviorsSyncState = mysqlTable("email_behaviors_sync_state", 
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type EmailBehaviorsSyncState = typeof emailBehaviorsSyncState.$inferSelect;
+
+// ─── Listing Documents ─────────────────────────────────────────────────────────
+export const listingDocuments = mysqlTable("listing_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  listingId: int("listingId").notNull().references(() => listings.id),
+  uploadedBy: int("uploadedBy").notNull().references(() => users.id),
+  label: mysqlEnum("label_listing_doc", ["appraisal", "listing_agreement", "inspection", "disclosure", "other"]).default("other").notNull(),
+  customLabel: varchar("custom_label", { length: 255 }),
+  fileUrl: text("file_url").notNull(),
+  fileKey: varchar("file_key", { length: 500 }).notNull(),
+  fileName: varchar("file_name", { length: 500 }).notNull(),
+  fileSize: int("file_size"),
+  mimeType: varchar("mime_type", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ListingDocument = typeof listingDocuments.$inferSelect;
+export type InsertListingDocument = typeof listingDocuments.$inferInsert;

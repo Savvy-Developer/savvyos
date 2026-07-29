@@ -115,6 +115,13 @@ export default function AgentConnectionDetail() {
     },
     onError: (e: any) => toast.error(e.message),
   });
+  const deleteDoc = trpc.documents.delete.useMutation({
+    onSuccess: () => {
+      utils.documents.list.invalidate({ contactId: conn?.connection?.contactId });
+      toast.success("Document deleted");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const handleDocUpload = async () => {
     if (!uploadFile || !conn?.connection?.contactId) return;
@@ -627,11 +634,24 @@ export default function AgentConnectionDetail() {
                             <span className="text-xs text-muted-foreground">{doc.createdAt ? safeFormat(doc.createdAt, "MMM d, yyyy") : ""}</span>
                           </div>
                         </div>
-                        {doc.fileUrl && (
-                          <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
-                            <Button variant="outline" size="sm">View</Button>
-                          </a>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {doc.fileUrl && (
+                            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
+                              <Button variant="outline" size="sm">View</Button>
+                            </a>
+                          )}
+                          {user?.role === "admin" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => { if (confirm("Delete this document?")) deleteDoc.mutate({ id: doc.id }); }}
+                              disabled={deleteDoc.isPending}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

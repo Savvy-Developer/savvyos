@@ -22,6 +22,7 @@ import {
   leadSources,
   listings,
   listingNotes,
+  listingDocuments,
   transactionDocuments,
   transactionNotes,
   contactProperties,
@@ -3068,4 +3069,36 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
     underContractCount: Number(rows.underContractCount),
     terminatedCount:    Number(rows.terminatedCount),
   };
+}
+
+// ─── Listing Documents ─────────────────────────────────────────────────────────
+export async function getListingDocuments(listingId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const uploaderAlias = aliasedTable(users, "uploader");
+  return db
+    .select({ doc: listingDocuments, uploader: uploaderAlias })
+    .from(listingDocuments)
+    .leftJoin(uploaderAlias, eq(listingDocuments.uploadedBy, uploaderAlias.id))
+    .where(eq(listingDocuments.listingId, listingId))
+    .orderBy(desc(listingDocuments.createdAt));
+}
+
+export async function createListingDocument(data: typeof listingDocuments.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [result] = await db.insert(listingDocuments).values(data);
+  return (result as any).insertId as number;
+}
+
+export async function renameListingDocument(id: number, fileName: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(listingDocuments).set({ fileName }).where(eq(listingDocuments.id, id));
+}
+
+export async function deleteListingDocument(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(listingDocuments).where(eq(listingDocuments.id, id));
 }

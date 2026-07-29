@@ -12,6 +12,10 @@ import {
   createListingNote,
   logActivity,
   getDb,
+  getListingDocuments,
+  createListingDocument,
+  renameListingDocument,
+  deleteListingDocument,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
@@ -372,7 +376,32 @@ export const listingsRouter = router({
       }
       const listingData = await getListingById(input.listingId);
       if (!listingData) throw new TRPCError({ code: "NOT_FOUND" });
-      const { createTransaction } = await import("../db");
+      const { createTransaction, createTransactionDocument } = await import("../db");
+
+      // Helper: copy listing documents to a transaction
+      async function carryOverDocs(txId: number) {
+        const listingDocs = await getListingDocuments(input.listingId);
+        for (const row of listingDocs) {
+          const d = row.doc;
+          // Map listing label to transaction label (best-effort)
+          const txLabel: "appraisal" | "closing_disclosure" | "home_inspection" | "other" =
+            d.label === "appraisal" ? "appraisal"
+            : d.label === "inspection" ? "home_inspection"
+            : "other";
+          await createTransactionDocument({
+            transactionId: txId,
+            uploadedBy: d.uploadedBy,
+            label: txLabel,
+            customLabel: d.customLabel ?? (d.label !== "other" ? d.label.replace(/_/g, " ") : null),
+            fileUrl: d.fileUrl,
+            fileKey: d.fileKey,
+            fileName: d.fileName,
+            fileSize: d.fileSize ?? null,
+            mimeType: d.mimeType ?? null,
+          });
+        }
+        return listingDocs.length;
+      }
 
       if (input.transactionType === "dual") {
         // ── Dual agency: create TWO separate transactions ──────────────────
@@ -403,6 +432,9 @@ export const listingsRouter = router({
           notes: input.buyerNotes || null,
         } as any);
 
+        // Carry over listing documents to the seller-side transaction
+        const docCount = await carryOverDocs(sellerTxId);
+
         // Mark listing as closed, link to the seller-side transaction
         await updateListing(input.listingId, { listingStatus: "closed", convertedTransactionId: sellerTxId } as any);
         await logActivity({
@@ -410,12 +442,12 @@ export const listingsRouter = router({
           action: "listing_converted_to_transaction",
           entityType: "listing",
           entityId: input.listingId,
-          details: { transactionId: sellerTxId, buyerTransactionId: buyerTxId, dual: true },
+          details: { transactionId: sellerTxId, buyerTransactionId: buyerTxId, dual: true, documentsCarriedOver: docCount },
         });
         return { transactionId: sellerTxId, buyerTransactionId: buyerTxId, dual: true };
       }
 
-      // ── Single (seller-only) transaction ─────────────────────────────────
+      // ── Single (seller-only) transaction ─────────────────────────────────────
       const txId = await createTransaction({
         primaryContactId: input.primaryContactId,
         agentId: listingData.listing.agentId,
@@ -428,13 +460,17 @@ export const listingsRouter = router({
         listingId: input.listingId,
         sellerContactId: input.primaryContactId,
       } as any);
+
+      // Carry over listing documents to the new transaction
+      const docCount = await carryOverDocs(txId);
+
       await updateListing(input.listingId, { listingStatus: "closed", convertedTransactionId: txId } as any);
       await logActivity({
         userId: ctx.user.id,
         action: "listing_converted_to_transaction",
         entityType: "listing",
         entityId: input.listingId,
-        details: { transactionId: txId },
+        details: { transactionId: txId, documentsCarriedOver: docCount },
       });
       return { transactionId: txId };
     }),
@@ -694,5 +730,100 @@ export const listingsRouter = router({
       });
 
       return { success: true, terminatedCount: linkedTxIds.length, linkedTxIds };
+    }),
+
+  // ─── Listing Documents ───────────────────────────────────────────────────────
+  getDocuments: protectedProcedure
+    .input(z.object({ listingId: z.number() }))
+    .query(async ({ input }) => {
+      return getListingDocuments(input.listingId);
+    }),
+
+  uploadDocument: protectedProcedure
+    .input(z.object({
+      listingId: z.number(),
+      label: z.enum(["appraisal", "listing_agreement", "inspection", "disclosure", "other"]).default("other"),
+      customLabel: z.string().optional().nullable(),
+      fileUrl: z.string(),
+      fileKey: z.string(),
+      fileName: z.string(),
+      fileSize: z.number().optional().nullable(),
+      mimeType: z.string().optional().nullable(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const id = await createListingDocument({
+        listingId: input.listingId,
+        uploadedBy: ctx.user.id,
+        label: input.label,
+        customLabel: input.customLabel ?? null,
+        fileUrl: input.fileUrl,
+        fileKey: input.fileKey,
+        fileName: input.fileName,
+        fileSize: input.fileSize ?? null,
+        mimeType: input.mimeType ?? null,
+      });
+      await logActivity({
+        userId: ctx.user.id,
+        action: "listing_document_uploaded",
+        entityType: "listing",
+        entityId: input.listingId,
+        details: { fileName: input.fileName, label: input.label },
+      });
+      return { id };
+    }),
+
+  bulkUploadDocuments: protectedProcedure
+    .input(z.object({
+      listingId: z.number(),
+      files: z.array(z.object({
+        fileName: z.string(),
+        fileUrl: z.string(),
+        fileKey: z.string(),
+        mimeType: z.string().optional().nullable(),
+        fileSize: z.number().optional().nullable(),
+        label: z.enum(["appraisal", "listing_agreement", "inspection", "disclosure", "other"]).default("other"),
+        customLabel: z.string().optional().nullable(),
+      })),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      let count = 0;
+      for (const f of input.files) {
+        await createListingDocument({
+          listingId: input.listingId,
+          uploadedBy: ctx.user.id,
+          label: f.label,
+          customLabel: f.customLabel ?? null,
+          fileUrl: f.fileUrl,
+          fileKey: f.fileKey,
+          fileName: f.fileName,
+          fileSize: f.fileSize ?? null,
+          mimeType: f.mimeType ?? null,
+        });
+        count++;
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "listing_documents_bulk_uploaded",
+        entityType: "listing",
+        entityId: input.listingId,
+        details: { count },
+      });
+      return { count };
+    }),
+
+  renameDocument: protectedProcedure
+    .input(z.object({ id: z.number(), fileName: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      await renameListingDocument(input.id, input.fileName);
+      return { success: true };
+    }),
+
+  deleteDocument: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      await deleteListingDocument(input.id);
+      return { success: true };
     }),
 });

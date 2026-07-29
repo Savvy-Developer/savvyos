@@ -81,6 +81,24 @@ export function registerUploadRoutes(app: express.Application) {
     }
   });
 
+  // POST /api/upload/listing-documents-bulk — multi-file listing document upload
+  app.post("/api/upload/listing-documents-bulk", upload.array("files", 20), async (req: any, res: any) => {
+    try {
+      const files: Express.Multer.File[] = req.files ?? [];
+      if (!files.length) return res.status(400).json({ error: "No files provided" });
+      const results: Array<{ originalName: string; fileUrl: string; fileKey: string; mimeType: string; fileSize: number }> = [];
+      for (const file of files) {
+        const fileKey = `listing-docs/${nanoid(12)}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const { url } = await storagePut(fileKey, file.buffer, file.mimetype);
+        results.push({ originalName: file.originalname, fileUrl: url, fileKey, mimeType: file.mimetype, fileSize: file.size });
+      }
+      return res.json({ files: results });
+    } catch (err: any) {
+      console.error("[BulkListingDocUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/lead-source-agreement — sub-source agreement upload
   app.post("/api/upload/lead-source-agreement", upload.single("file"), async (req: any, res: any) => {
     try {
