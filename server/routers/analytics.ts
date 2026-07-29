@@ -72,6 +72,10 @@ import {
   refreshLeadCohortConversionInsights,
 } from "../analytics/leadCohortConversion";
 import {
+  getCachedBusinessInsights,
+  refreshBusinessInsights,
+} from "../analytics/businessInsights";
+import {
   getAgentReport,
   getGroupLeaderReport,
   getReportingFilters,
@@ -631,6 +635,23 @@ Return only valid JSON array.`;
         throw new Error("Transaction Intelligence is currently available to administrators only.");
       }
       return getTransactionIntelligenceReport(input ?? {});
+    }),
+
+  /** Return the shared company-wide, sanitized AI Business Insights cache without a model call. */
+  businessInsights: protectedProcedure
+    .query(async () => {
+      // Every authenticated user reads the same completed aggregate brief. The
+      // costly model refresh remains administrator-only in the mutation below.
+      return getCachedBusinessInsights();
+    }),
+
+  /** Rebuild the one shared AI Business Insights cache for all authorized viewers. */
+  refreshBusinessInsights: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("AI Business Insights is currently available to administrators only.");
+      }
+      return refreshBusinessInsights({ viewer: ctx.user, force: true, reason: "manual" });
     }),
 
   /** Return the latest evidence-grounded Transaction Intelligence brief without a model call. */

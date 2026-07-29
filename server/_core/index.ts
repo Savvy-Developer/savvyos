@@ -13,6 +13,7 @@ import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
+import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
@@ -115,6 +116,23 @@ async function startServer() {
     }
   });
 
+  // Shared company-wide AI Business Insights cache. This external trigger mirrors
+  // the deployed in-process weekly scheduler and is restricted to the internal secret.
+  app.post("/api/scheduled/business-insights-refresh", async (req, res) => {
+    try {
+      const internalSecret = process.env.SCHEDULED_TASK_SECRET;
+      const headerSecret = req.headers["x-scheduled-task-secret"] as string | undefined;
+      if (!internalSecret || headerSecret !== internalSecret) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const result = await refreshDueBusinessInsights();
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[BusinessInsights] Scheduled endpoint error:", err.message);
+      return res.status(500).json({ error: "Business insight refresh failed", detail: err.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
@@ -162,6 +180,10 @@ async function startServer() {
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.
   scheduleAnalyticsInsightRefresh();
+
+  // Company-wide AI Business Insights: one shared cache, checked daily and
+  // regenerated weekly. A manual admin refresh uses the same protected lifecycle.
+  scheduleBusinessInsightRefresh();
 }
 
 startServer().catch(console.error);

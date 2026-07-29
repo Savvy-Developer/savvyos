@@ -25,6 +25,7 @@ import {
   ListChecks,
   PhoneCall,
   Workflow,
+  BrainCircuit,
 } from "lucide-react";
 import {
   Bar,
@@ -43,6 +44,7 @@ import {
   YAxis,
 } from "recharts";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   IsaActivitiesReport,
   LeadSourcesReport,
@@ -50,6 +52,7 @@ import {
   OnboardingReport,
   TasksReport,
 } from "./ReportingExpansionViews";
+import { BusinessInsightsReport } from "./BusinessInsightsReport";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,7 +62,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type ReportKind = "agents" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources";
+type ReportKind = "agents" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "business_insights";
 
 type QueryPatch = Record<string, string | null | undefined>;
 
@@ -72,6 +75,7 @@ const reportTabs: Array<{ id: ReportKind; label: string; description: string; ic
   { id: "tasks", label: "Task Execution", description: "Workload flow, completion, aging, ownership, and overdue operational work.", icon: ListChecks },
   { id: "isa", label: "ISA Activities", description: "Pipeline movement, ISA coverage, session activity, and next-step follow-up intelligence.", icon: PhoneCall },
   { id: "sources", label: "Lead Sources", description: "Acquisition volume, quality, conversion, GCI, and Savvy net by source.", icon: Workflow },
+  { id: "business_insights", label: "AI Business Insights", description: "A shared weekly executive synthesis that connects production, pipeline, ISA, task, source, and financial signals.", icon: BrainCircuit },
 ];
 
 const statusColors: Record<string, string> = {
@@ -277,6 +281,7 @@ function ReportingFilters({
   filters: any;
   update: (patch: QueryPatch) => void;
 }) {
+  if (activeReport === "business_insights") return null;
   const today = localDay(new Date());
   const selectedPreset = (params.get("preset") ?? "ytd") as DatePreset;
   const selectedAgent = params.get("agentId") ?? "all";
@@ -341,6 +346,7 @@ function LoadingReport() {
 }
 
 export default function ReportingSuitePage() {
+  const { user } = useAuth();
   const [, navigate] = useLocation();
   // Wouter exposes the pathname here; keep query-string report state explicitly reactive.
   const [search, setSearch] = useState(() => window.location.search);
@@ -376,6 +382,11 @@ export default function ReportingSuitePage() {
   const tasksQuery = trpc.analytics.tasksReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "tasks", staleTime: 20_000 });
   const isaQuery = trpc.analytics.isaActivitiesReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "isa", staleTime: 20_000 });
   const sourcesQuery = trpc.analytics.leadSourcesReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "sources", staleTime: 20_000 });
+  const businessInsightsQuery = trpc.analytics.businessInsights.useQuery(undefined, { enabled: activeReport === "business_insights", staleTime: 60_000, refetchOnWindowFocus: false });
+  const utils = trpc.useUtils();
+  const refreshBusinessInsights = trpc.analytics.refreshBusinessInsights.useMutation({
+    onSuccess: () => utils.analytics.businessInsights.invalidate(),
+  });
 
   const update = (patch: QueryPatch) => {
     const next = new URLSearchParams(params);
@@ -399,9 +410,10 @@ export default function ReportingSuitePage() {
     tasks: tasksQuery,
     isa: isaQuery,
     sources: sourcesQuery,
+    business_insights: businessInsightsQuery,
   };
   const activeQuery = queryByReport[activeReport] ?? agentQuery;
   const reportData = activeQuery.data as any;
 
-  return <div className="space-y-6 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for agent production, group leader coaching, and transaction performance." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`rounded-xl border p-4 text-left transition ${isActive ? "border-primary bg-primary/[0.055] shadow-sm" : "bg-background hover:border-primary/35 hover:bg-muted/25"}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-lg p-2 ${isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}><Icon className="h-4 w-4" /></span>{isActive && <Badge>Active</Badge>}</div><p className="mt-4 text-sm font-semibold">{tab.label}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{tab.description}</p></button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{filtersQuery.isLoading || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
+  return <div className="space-y-6 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for agent production, group leader coaching, transaction performance, and company-wide AI synthesis." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`rounded-xl border p-4 text-left transition ${isActive ? "border-primary bg-primary/[0.055] shadow-sm" : "bg-background hover:border-primary/35 hover:bg-muted/25"}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-lg p-2 ${isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}><Icon className="h-4 w-4" /></span>{isActive && <Badge>Active</Badge>}</div><p className="mt-4 text-sm font-semibold">{tab.label}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{tab.description}</p></button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{(activeReport !== "business_insights" && filtersQuery.isLoading) || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : activeReport === "business_insights" ? <BusinessInsightsReport data={businessInsightsQuery.data as any} isRefreshing={refreshBusinessInsights.isPending} refreshError={refreshBusinessInsights.error?.message} onRefresh={() => refreshBusinessInsights.mutate()} canRefresh={user?.role === "admin"} /> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
 }
