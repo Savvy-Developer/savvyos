@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { ChevronDown, ChevronRight, Users, TrendingUp, Home, DollarSign } from "lucide-react";
@@ -61,13 +62,14 @@ export default function GroupPerformanceTab() {
         <span className="text-sm text-muted-foreground font-medium">Period:</span>
         <DateRangeFilter value={range} onChange={setRange} />
         <span className="text-sm text-muted-foreground font-medium">Group:</span>
-        <Select value={groupId !== undefined ? String(groupId) : "all"} onValueChange={(v) => setGroupId(v === "all" ? undefined : Number(v))}>
-          <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="All Groups" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Groups</SelectItem>
-            {groupList.map((g: any) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          className="w-44 h-8 text-xs"
+          options={[{ value: "all", label: "All Groups" }, ...groupList.map((g: any) => ({ value: String(g.id), label: g.name }))]}
+          value={groupId !== undefined ? String(groupId) : "all"}
+          onValueChange={(v) => setGroupId(v === "all" ? undefined : Number(v))}
+          placeholder="All Groups"
+          searchPlaceholder="Search groups…"
+        />
         <span className="text-sm text-muted-foreground font-medium">Chart:</span>
         <Select value={metric} onValueChange={(v) => setMetric(v as any)}>
           <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>

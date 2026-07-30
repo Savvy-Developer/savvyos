@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import PageHeader from "@/components/PageHeader";
@@ -446,15 +447,14 @@ export default function ListingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">Agent</Label>
-                  <Select value={filterAgentId} onValueChange={setFilterAgentId}>
-                    <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="All agents" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all_agents">All Agents</SelectItem>
-                      {(agents as any[]).map((a: any) => (
-                        <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `Agent #${a.id}`}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    className="mt-1 h-8 text-xs w-full"
+                    options={[{ value: "all_agents", label: "All Agents" }, ...(agents as any[]).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))]}
+                    value={filterAgentId}
+                    onValueChange={setFilterAgentId}
+                    placeholder="All agents"
+                    searchPlaceholder="Search agents…"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">List Date From</Label>
@@ -653,14 +653,14 @@ export default function ListingsPage() {
             {isAdmin && (
               <div>
                 <Label>Agent *</Label>
-                <Select value={form.agentId} onValueChange={(v) => setForm({ ...form, agentId: v })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select agent" /></SelectTrigger>
-                  <SelectContent>
-                    {(agents as any[]).map((a: any) => (
-                      <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `Agent #${a.id}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  className="mt-1 w-full"
+                  options={(agents as any[]).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))}
+                  value={form.agentId}
+                  onValueChange={(v) => setForm({ ...form, agentId: v })}
+                  placeholder="Select agent…"
+                  searchPlaceholder="Search agents…"
+                />
               </div>
             )}
 

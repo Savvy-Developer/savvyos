@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -359,14 +360,14 @@ function CreateProjectDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="owner">Owner *</Label>
-              <Select value={form.ownerId} onValueChange={v => setForm(f => ({ ...f, ownerId: v }))}>
-                <SelectTrigger id="owner"><SelectValue placeholder="Select owner" /></SelectTrigger>
-                <SelectContent>
-                  {(adminUsers as any[]).map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="w-full"
+                options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+                value={form.ownerId}
+                onValueChange={v => setForm(f => ({ ...f, ownerId: v }))}
+                placeholder="Select owner"
+                searchPlaceholder="Search users…"
+              />
             </div>
             <div>
               <Label htmlFor="dueDate">Due Date *</Label>
@@ -585,15 +586,14 @@ export default function ProjectsPage() {
 
           {/* Owner filter */}
           {uniqueOwners.length > 1 && (
-            <Select value={filterOwner} onValueChange={setFilterOwner}>
-              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Owner" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Owners</SelectItem>
-                {uniqueOwners.map(o => (
-                  <SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-36 h-8 text-xs"
+              options={[{ value: "all", label: "All Owners" }, ...uniqueOwners.map((o: any) => ({ value: String(o.id), label: o.name ?? `User #${o.id}` }))]}
+              value={filterOwner}
+              onValueChange={setFilterOwner}
+              placeholder="Owner"
+              searchPlaceholder="Search owners…"
+            />
           )}
 
           {/* Clear filters */}

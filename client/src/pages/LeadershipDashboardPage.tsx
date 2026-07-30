@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -179,18 +180,14 @@ export default function LeadershipDashboardPage() {
                 className="pl-9"
               />
             </div>
-            <Select value={agentFilter} onValueChange={setAgentFilter}>
-              <SelectTrigger className="w-full sm:w-48">
-                <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
-                <SelectValue placeholder="All Agents" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Agents</SelectItem>
-                {(agents ?? []).map((a: any) => (
-                  <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-full sm:w-48"
+              options={[{ value: "all", label: "All Agents" }, ...(agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))]}
+              value={agentFilter}
+              onValueChange={setAgentFilter}
+              placeholder="All Agents"
+              searchPlaceholder="Search agents…"
+            />
             <Select value={ratingFilter} onValueChange={setRatingFilter}>
               <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="Any Rating" />
@@ -299,16 +296,14 @@ export default function LeadershipDashboardPage() {
           <div className="space-y-4">
             <div>
               <Label className="text-xs">Agent *</Label>
-              <Select value={newForm.agentUserId} onValueChange={(v) => setNewForm({ ...newForm, agentUserId: v })}>
-                <SelectTrigger className="h-8 text-sm mt-1">
-                  <SelectValue placeholder="Select an agent..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(agents ?? []).map((a) => (
-                    <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={(agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))}
+                value={newForm.agentUserId}
+                onValueChange={(v) => setNewForm({ ...newForm, agentUserId: v })}
+                placeholder="Select an agent…"
+                searchPlaceholder="Search agents…"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

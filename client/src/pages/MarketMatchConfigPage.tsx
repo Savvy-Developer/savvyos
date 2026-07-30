@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -415,16 +416,14 @@ function MarketCard({ market, onEdit, onDelete }: { market: MarketProfile; onEdi
                 <div className="flex items-end gap-2 p-2 rounded-md border bg-background">
                   <div className="flex-1">
                     <Label className="text-xs mb-1 block">Agent</Label>
-                    <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select agent..." /></SelectTrigger>
-                      <SelectContent>
-                        {availableAgents.length === 0
-                          ? <SelectItem value="__none" disabled>No agents available</SelectItem>
-                          : availableAgents.map((u: any) => (
-                            <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      className="h-8 text-xs w-full"
+                      options={availableAgents.map((u: any) => ({ value: String(u.id), label: u.name ?? u.email }))}
+                      value={selectedAgentId}
+                      onValueChange={setSelectedAgentId}
+                      placeholder="Select agent..."
+                      searchPlaceholder="Search agents…"
+                    />
                   </div>
                   <div className="flex items-center gap-1.5 pb-1">
                     <input type="checkbox" id={`primary-${market.id}`} checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} className="h-3.5 w-3.5" />
@@ -654,13 +653,14 @@ function PerformanceTab() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm">Market Summary</CardTitle>
-            <Select value={selectedMarketId} onValueChange={setSelectedMarketId}>
-              <SelectTrigger className="w-40 h-7 text-xs"><SelectValue placeholder="All Markets" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Markets</SelectItem>
-                {(marketPerf as any[]).map((m: any) => <SelectItem key={m.marketId} value={String(m.marketId)}>{m.marketName}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-40 h-7 text-xs"
+              options={[{ value: "all", label: "All Markets" }, ...(marketPerf as any[]).map((m: any) => ({ value: String(m.marketId), label: m.marketName }))]}
+              value={selectedMarketId}
+              onValueChange={setSelectedMarketId}
+              placeholder="All Markets"
+              searchPlaceholder="Search markets…"
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">

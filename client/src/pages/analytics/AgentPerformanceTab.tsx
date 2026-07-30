@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Progress } from "@/components/ui/progress";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, FunnelChart, Funnel, LabelList } from "recharts";
 import { fmt$, fmtNum, DateRangeFilter, useDateRange, SectionHeader, EmptyState, ExportButton, CHART_COLORS, PIPELINE_LABELS, Th, Td } from "./shared";
@@ -40,29 +40,32 @@ export default function AgentPerformanceTab() {
         <span className="text-sm text-muted-foreground font-medium">Period:</span>
         <DateRangeFilter value={range} onChange={setRange} />
         <span className="text-sm text-muted-foreground font-medium">Agent:</span>
-        <Select value={agentId !== undefined ? String(agentId) : "all"} onValueChange={(v) => setAgentId(v === "all" ? undefined : Number(v))}>
-          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All Agents" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Agents</SelectItem>
-            {(agents ?? []).map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          className="w-40 h-8 text-xs"
+          options={[{ value: "all", label: "All Agents" }, ...(agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))]}
+          value={agentId !== undefined ? String(agentId) : "all"}
+          onValueChange={(v) => setAgentId(v === "all" ? undefined : Number(v))}
+          placeholder="All Agents"
+          searchPlaceholder="Search agents…"
+        />
         <span className="text-sm text-muted-foreground font-medium">Group:</span>
-        <Select value={groupId !== undefined ? String(groupId) : "all"} onValueChange={(v) => setGroupId(v === "all" ? undefined : Number(v))}>
-          <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="All Groups" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Groups</SelectItem>
-            {(groups ?? []).map((g: any) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          className="w-36 h-8 text-xs"
+          options={[{ value: "all", label: "All Groups" }, ...(groups ?? []).map((g: any) => ({ value: String(g.id), label: g.name }))]}
+          value={groupId !== undefined ? String(groupId) : "all"}
+          onValueChange={(v) => setGroupId(v === "all" ? undefined : Number(v))}
+          placeholder="All Groups"
+          searchPlaceholder="Search groups…"
+        />
         <span className="text-sm text-muted-foreground font-medium">Market:</span>
-        <Select value={marketId !== undefined ? String(marketId) : "all"} onValueChange={(v) => setMarketId(v === "all" ? undefined : Number(v))}>
-          <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="All Markets" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Markets</SelectItem>
-            {(markets ?? []).map((m: any) => <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          className="w-36 h-8 text-xs"
+          options={[{ value: "all", label: "All Markets" }, ...(markets ?? []).map((m: any) => ({ value: String(m.id), label: m.name }))]}
+          value={marketId !== undefined ? String(marketId) : "all"}
+          onValueChange={(v) => setMarketId(v === "all" ? undefined : Number(v))}
+          placeholder="All Markets"
+          searchPlaceholder="Search markets…"
+        />
       </div>
 
       {/* GCI bar chart */}

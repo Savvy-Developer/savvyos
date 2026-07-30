@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
 import { TransactionStatusBadge } from "@/components/StatusBadge";
@@ -1010,81 +1011,54 @@ export default function TransactionsPage() {
       {/* Agent + Market filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-3">
         {isAdmin && (
-          <Select value={agentFilter} onValueChange={(v) => { setAgentFilter(v); setTxPage(1); }}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="Filter by Agent" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Agents</SelectItem>
-              {(agents as any[] ?? []).map((a: any) => (
-                <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="w-full sm:w-48"
+            options={[{ value: "all", label: "All Agents" }, ...(agents as any[] ?? []).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))]}
+            value={agentFilter}
+            onValueChange={(v) => { setAgentFilter(v); setTxPage(1); }}
+            placeholder="Filter by Agent"
+            searchPlaceholder="Search agents…"
+          />
         )}
         {isAdmin && (markets as any[]).length > 0 && (
-          <Select value={marketFilter} onValueChange={(v) => { setMarketFilter(v); setTxPage(1); }}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="Filter by Market" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Markets</SelectItem>
-              {(markets as any[]).map((m: any) => (
-                <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="w-full sm:w-48"
+            options={[{ value: "all", label: "All Markets" }, ...(markets as any[]).map((m: any) => ({ value: String(m.id), label: m.name }))]}
+            value={marketFilter}
+            onValueChange={(v) => { setMarketFilter(v); setTxPage(1); }}
+            placeholder="Filter by Market"
+            searchPlaceholder="Search markets…"
+          />
         )}
-        <Select value={leadSourceFilter} onValueChange={(v) => { setLeadSourceFilter(v); setTxPage(1); }}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Filter by Lead Source" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Lead Sources</SelectItem>
-            {(() => {
-              const parents = leadSourcesList.filter((row: any) => !(row.ls ?? row).parentId);
-              const children = leadSourcesList.filter((row: any) => !!(row.ls ?? row).parentId);
-              const items: React.ReactNode[] = [];
-              parents.forEach((parentRow: any) => {
-                const parent = parentRow.ls ?? parentRow;
-                const subs = children.filter((r: any) => (r.ls ?? r).parentId === parent.id);
+        <SearchableSelect
+          className="w-full sm:w-48"
+          options={[
+            { value: "all", label: "All Lead Sources" },
+            ...(() => {
+              const all = leadSourcesList as any[];
+              const flat: { value: string; label: string; description?: string }[] = [];
+              const parents = all.filter((r: any) => !(r.ls ?? r).parentId);
+              const children = all.filter((r: any) => !!(r.ls ?? r).parentId);
+              parents.forEach((pRow: any) => {
+                const p = pRow.ls ?? pRow;
+                const subs = children.filter((r: any) => (r.ls ?? r).parentId === p.id);
                 if (subs.length > 0) {
-                  items.push(
-                    <SelectGroup key={`group-${parent.id}`}>
-                      <SelectLabel
-                        className="text-xs font-semibold text-foreground px-2 py-1.5 cursor-pointer hover:bg-accent rounded-sm"
-                        onClick={() => { setLeadSourceFilter(String(parent.id)); setTxPage(1); }}
-                      >
-                        {parent.name}
-                      </SelectLabel>
-                      {subs.map((childRow: any) => {
-                        const child = childRow.ls ?? childRow;
-                        return (
-                          <SelectItem key={child.id} value={String(child.id)} className="pl-6">
-                            {child.name}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectGroup>
-                  );
+                  subs.forEach((cRow: any) => {
+                    const c = cRow.ls ?? cRow;
+                    flat.push({ value: String(c.id), label: c.name, description: p.name });
+                  });
                 } else {
-                  items.push(
-                    <SelectItem key={parent.id} value={String(parent.id)}>{parent.name}</SelectItem>
-                  );
+                  flat.push({ value: String(p.id), label: p.name });
                 }
               });
-              const orphans = children.filter((r: any) => !parents.find((p: any) => (p.ls ?? p).id === (r.ls ?? r).parentId));
-              if (orphans.length > 0) {
-                items.push(<SelectSeparator key="orphan-sep" />);
-                orphans.forEach((o: any) => {
-                  const item = o.ls ?? o;
-                  items.push(<SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>);
-                });
-              }
-              return items;
-            })()}
-          </SelectContent>
-        </Select>
+              return flat;
+            })()
+          ]}
+          value={leadSourceFilter}
+          onValueChange={(v) => { setLeadSourceFilter(v); setTxPage(1); }}
+          placeholder="Filter by Lead Source"
+          searchPlaceholder="Search lead sources…"
+        />
       </div>
 
       {/* Date filters */}
@@ -1628,41 +1602,20 @@ export default function TransactionsPage() {
               {isAdmin ? (
                 <div>
                   <Label>Agent *</Label>
-                  {selectedAgent ? (
-                    <div className="mt-1 p-2 rounded-md bg-primary/10 text-sm flex items-center justify-between">
-                      <span className="font-medium">{selectedAgent.name ?? selectedAgent.email}</span>
-                      <button className="text-xs text-primary hover:underline" onClick={() => { setSelectedAgent(null); setAgentSearch(""); }}>Change</button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="relative mt-1">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search agents..."
-                          value={agentSearch}
-                          onChange={(e) => setAgentSearch(e.target.value)}
-                          className="pl-9"
-                        />
-                      </div>
-                      {agentSearch && (
-                        <div className="border rounded-md mt-1 max-h-40 overflow-y-auto">
-                          {filteredAgents.length === 0 ? (
-                            <p className="text-sm text-muted-foreground p-3">No agents found</p>
-                          ) : (
-                            filteredAgents.slice(0, 10).map((a: any) => (
-                              <button
-                                key={a.id}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 border-b last:border-0"
-                                onClick={() => { setSelectedAgent(a); setAgentSearch(a.name ?? a.email); }}
-                              >
-                                {a.name ?? a.email}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
+                  <SearchableSelect
+                    className="mt-1 w-full"
+                    options={(agents as any[] ?? []).map((a: any) => ({ value: String(a.id), label: a.name ?? a.email ?? `Agent #${a.id}` }))}
+                    value={selectedAgent ? String(selectedAgent.id) : ""}
+                    onValueChange={(v) => {
+                      const found = (agents as any[] ?? []).find((a: any) => String(a.id) === v);
+                      setSelectedAgent(found ?? null);
+                      setAgentSearch(found?.name ?? found?.email ?? "");
+                    }}
+                    placeholder="Select agent…"
+                    searchPlaceholder="Search agents…"
+                    clearable
+                    clearValue=""
+                  />
                 </div>
               ) : (
                 <div>

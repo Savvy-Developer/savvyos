@@ -46,6 +46,7 @@ import { pipelineEmailRouter } from "./routers/pipelineEmail";
 import { permissionsRouter } from "./routers/permissions";
 import { emailBehaviorsRouter } from "./routers/emailBehaviors";
 import { aircallRouter } from "./routers/aircall";
+import { jobBoardRouter } from "./routers/jobBoard";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -235,6 +236,7 @@ export const appRouter = router({
   permissions: permissionsRouter,
   emailBehaviors: emailBehaviorsRouter,
   aircall: aircallRouter,
+  jobBoard: jobBoardRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

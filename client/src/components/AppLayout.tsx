@@ -55,6 +55,7 @@ import {
   Link2,
   Target,
   Activity,
+  Briefcase,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -273,6 +274,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
         { icon: Target, label: "Goals", path: "/goals" },
+        { icon: Briefcase, label: "Job Board", path: "/job-board" },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
       ],
     },

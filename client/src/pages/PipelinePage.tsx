@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -339,84 +340,50 @@ export default function PipelinePage() {
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground whitespace-nowrap">Agent:</span>
-            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-              <SelectTrigger className="w-44 h-8 text-xs">
-                <SelectValue placeholder="All agents" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All agents ({fullPipelineTotal.toLocaleString()})</SelectItem>
-                {(agents as any[]).map((a: any) => (
-                  <SelectItem key={a.id} value={String(a.id)}>
-                    {a.name} ({Number(agentCounts[String(a.id)] ?? 0).toLocaleString()})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-44 h-8 text-xs"
+              options={[
+                { value: "all", label: `All agents (${fullPipelineTotal.toLocaleString()})` },
+                ...(agents as any[]).map((a: any) => ({ value: String(a.id), label: `${a.name} (${Number(agentCounts[String(a.id)] ?? 0).toLocaleString()})` }))
+              ]}
+              value={selectedAgentId}
+              onValueChange={setSelectedAgentId}
+              placeholder="All agents"
+              searchPlaceholder="Search agents…"
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground whitespace-nowrap">ISA:</span>
-            <Select value={selectedIsaId} onValueChange={setSelectedIsaId}>
-              <SelectTrigger className="w-44 h-8 text-xs">
-                <SelectValue placeholder="All ISAs" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All ISAs ({Object.values(isaCounts).reduce((s, c) => s + Number(c), 0).toLocaleString()})</SelectItem>
-                <SelectItem value="unassigned">Unassigned ({Number(isaCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
-                {(isas as any[]).map((u: any) => (
-                  <SelectItem key={u.id} value={String(u.id)}>
-                    {u.name ?? `ISA #${u.id}`} ({Number(isaCounts[String(u.id)] ?? 0).toLocaleString()})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-44 h-8 text-xs"
+              options={[
+                { value: "all", label: `All ISAs (${Object.values(isaCounts).reduce((s, c) => s + Number(c), 0).toLocaleString()})` },
+                { value: "unassigned", label: `Unassigned (${Number(isaCounts.unassigned ?? 0).toLocaleString()})` },
+                ...(isas as any[]).map((u: any) => ({ value: String(u.id), label: `${u.name ?? `ISA #${u.id}`} (${Number(isaCounts[String(u.id)] ?? 0).toLocaleString()})` }))
+              ]}
+              value={selectedIsaId}
+              onValueChange={setSelectedIsaId}
+              placeholder="All ISAs"
+              searchPlaceholder="Search ISAs…"
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground whitespace-nowrap">Lead Source:</span>
-            <Select value={selectedLeadSourceId} onValueChange={setSelectedLeadSourceId}>
-              <SelectTrigger className="w-44 h-8 text-xs">
-                <SelectValue placeholder="All Lead Sources" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Lead Sources ({Object.values(leadSourceCounts).reduce((s, c) => s + Number(c), 0).toLocaleString()})</SelectItem>
-                <SelectItem value="unassigned">Unassigned ({Number(leadSourceCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
-                {(() => {
-                  const allSources = leadSourcesData as any[];
-                  const topLevel = allSources.filter((ls) => !ls.ls.parentId);
-                  const topLevelIdSet = new Set(topLevel.map((ls: any) => ls.ls.id));
-                  const secondLevel = allSources.filter((ls) => ls.ls.parentId && topLevelIdSet.has(ls.ls.parentId));
-                  return (
-                    <>
-                      {topLevel.map((parent: any) => {
-                        const subs = secondLevel.filter((c: any) => c.ls.parentId === parent.ls.id);
-                        if (subs.length > 0) {
-                          const allSubIds = subs.map((s: any) => s.ls.id);
-                          return (
-                            <SelectGroup key={parent.ls.id}>
-                              <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">
-                                {parent.ls.name} ({(
-                                  Number(leadSourceCounts[String(parent.ls.id)] ?? 0)
-                                  + allSubIds.reduce((sum: number, id: number) => sum + Number(leadSourceCounts[String(id)] ?? 0), 0)
-                                ).toLocaleString()})
-                              </SelectLabel>
-                              {subs.map((sub: any) => (
-                                <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-5">
-                                  {sub.ls.name} ({Number(leadSourceCounts[String(sub.ls.id)] ?? 0).toLocaleString()})
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          );
-                        }
-                        return (
-                          <SelectItem key={parent.ls.id} value={String(parent.ls.id)}>
-                            {parent.ls.name} ({Number(leadSourceCounts[String(parent.ls.id)] ?? 0).toLocaleString()})
-                          </SelectItem>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-44 h-8 text-xs"
+              options={[
+                { value: "all", label: `All Lead Sources (${Object.values(leadSourceCounts).reduce((s, c) => s + Number(c), 0).toLocaleString()})` },
+                { value: "unassigned", label: `Unassigned (${Number(leadSourceCounts.unassigned ?? 0).toLocaleString()})` },
+                ...(leadSourcesData as any[]).map((ls: any) => ({
+                  value: String(ls.ls.id),
+                  label: `${ls.ls.parentId ? "↳ " : ""}${ls.ls.name} (${Number(leadSourceCounts[String(ls.ls.id)] ?? 0).toLocaleString()})`
+                }))
+              ]}
+              value={selectedLeadSourceId}
+              onValueChange={setSelectedLeadSourceId}
+              placeholder="All Lead Sources"
+              searchPlaceholder="Search lead sources…"
+            />
           </div>
           {(selectedAgentId !== "all" || selectedIsaId !== "all" || selectedLeadSourceId !== "all" || pipelineSearch || followUpFrom || followUpTo || selectedStage !== "all") && (
             <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSelectedAgentId("all"); setSelectedIsaId("all"); setSelectedLeadSourceId("all"); setPipelineSearch(""); setFollowUpFrom(""); setFollowUpTo(""); setSelectedStage("all"); resetPage(); }}>
