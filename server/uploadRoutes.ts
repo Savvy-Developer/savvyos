@@ -172,4 +172,29 @@ export function registerUploadRoutes(app: express.Application) {
       return res.status(500).json({ error: err.message ?? "Upload failed" });
     }
   });
+
+  // POST /api/upload/resume — public resume upload for job applicants (no auth)
+  const resumeUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (_req, file, cb) => {
+      const allowed = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+      if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only PDF, DOC, DOCX, and TXT files are allowed"));
+      }
+    },
+  });
+  app.post("/api/upload/resume", resumeUpload.single("file"), async (req: any, res: any) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+      const fileKey = `resumes/${nanoid(12)}-${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      return res.json({ url, fileKey, fileName: req.file.originalname });
+    } catch (err: any) {
+      console.error("[ResumeUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
 }

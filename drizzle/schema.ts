@@ -1839,3 +1839,94 @@ export const jobApplications = mysqlTable("job_applications", {
 });
 export type JobApplication = typeof jobApplications.$inferSelect;
 export type InsertJobApplication = typeof jobApplications.$inferInsert;
+
+// ─── Job Board v2: Multi-step application system ─────────────────────────────
+
+// Custom questions admins can attach to a job posting
+export const jobCustomQuestions = mysqlTable("job_custom_questions", {
+  id: int("id").autoincrement().primaryKey(),
+  jobPostingId: int("jobPostingId").notNull(),
+  questionText: text("questionText").notNull(),
+  questionType: mysqlEnum("questionType", ["text", "textarea", "yes_no", "multiple_choice", "rating"]).default("textarea").notNull(),
+  options: text("options"),
+  isRequired: boolean("isRequired").default(false).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type JobCustomQuestion = typeof jobCustomQuestions.$inferSelect;
+export type InsertJobCustomQuestion = typeof jobCustomQuestions.$inferInsert;
+
+// Extended multi-step application
+export const jobApplicationsV2 = mysqlTable("job_applications_v2", {
+  id: int("id").autoincrement().primaryKey(),
+  jobPostingId: int("jobPostingId").notNull(),
+  firstName: varchar("firstName", { length: 128 }),
+  lastName: varchar("lastName", { length: 128 }),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 64 }),
+  city: varchar("city", { length: 128 }),
+  state: varchar("state", { length: 64 }),
+  country: varchar("country", { length: 64 }).default("US"),
+  linkedinUrl: varchar("linkedinUrl", { length: 512 }),
+  portfolioUrl: varchar("portfolioUrl", { length: 512 }),
+  resumeUrl: varchar("resumeUrl", { length: 1024 }),
+  resumeFileName: varchar("resumeFileName", { length: 255 }),
+  resumeLinkUrl: varchar("resumeLinkUrl", { length: 1024 }),
+  coverLetter: text("coverLetter"),
+  whyInterested: text("whyInterested"),
+  salaryExpectation: varchar("salaryExpectation", { length: 128 }),
+  availableStartDate: varchar("availableStartDate", { length: 64 }),
+  customAnswers: text("customAnswers"),
+  currentStep: int("currentStep").default(1).notNull(),
+  completionPct: int("completionPct").default(0).notNull(),
+  isDraft: boolean("isDraft").default(true).notNull(),
+  status: mysqlEnum("status", ["draft", "submitted", "reviewing", "interviewing", "offered", "rejected", "withdrawn"]).default("draft").notNull(),
+  adminNotes: text("adminNotes"),
+  aiInsight: text("aiInsight"),
+  aiInsightGeneratedAt: timestamp("aiInsightGeneratedAt"),
+  rating: int("rating"),
+  submittedAt: timestamp("submittedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type JobApplicationV2 = typeof jobApplicationsV2.$inferSelect;
+export type InsertJobApplicationV2 = typeof jobApplicationsV2.$inferInsert;
+
+// Work history entries
+export const jobAppWorkHistory = mysqlTable("job_app_work_history", {
+  id: int("id").autoincrement().primaryKey(),
+  applicationId: int("applicationId").notNull(),
+  company: varchar("company", { length: 255 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  startDate: varchar("startDate", { length: 32 }),
+  endDate: varchar("endDate", { length: 32 }),
+  isCurrent: boolean("isCurrent").default(false),
+  description: text("description"),
+  sortOrder: int("sortOrder").default(0),
+});
+export type JobAppWorkHistory = typeof jobAppWorkHistory.$inferSelect;
+
+// Education entries
+export const jobAppEducation = mysqlTable("job_app_education", {
+  id: int("id").autoincrement().primaryKey(),
+  applicationId: int("applicationId").notNull(),
+  institution: varchar("institution", { length: 255 }).notNull(),
+  degree: varchar("degree", { length: 255 }),
+  fieldOfStudy: varchar("fieldOfStudy", { length: 255 }),
+  startYear: varchar("startYear", { length: 8 }),
+  endYear: varchar("endYear", { length: 8 }),
+  gpa: varchar("gpa", { length: 16 }),
+  sortOrder: int("sortOrder").default(0),
+});
+export type JobAppEducation = typeof jobAppEducation.$inferSelect;
+
+// Passwordless email sessions for applicants to return to their draft
+export const jobApplicantSessions = mysqlTable("job_applicant_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 255 }).notNull(),
+  token: varchar("token", { length: 128 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type JobApplicantSession = typeof jobApplicantSessions.$inferSelect;
