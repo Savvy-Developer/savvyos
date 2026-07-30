@@ -1419,6 +1419,7 @@ export const webhookEndpoints = mysqlTable("webhook_endpoints", {
     "contact_create",   // Create/update a contact from payload
     "contact_update",   // Update an existing contact
     "lead_ingest",      // Create contact + assign lead source
+    "property_view",    // Log a property.viewed activity on an existing contact
     "custom",           // No-op handler — just logs the payload
   ]).notNull().default("lead_ingest"),
   // Secret for HMAC-SHA256 signature verification (optional; if null, any request is accepted)
