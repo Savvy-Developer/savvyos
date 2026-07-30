@@ -16,6 +16,7 @@ import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "..
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
+import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -162,6 +163,9 @@ async function startServer() {
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.
   scheduleAnalyticsInsightRefresh();
+
+  // Temporary permission grant expiry: revoke expired temp grants every 15 min
+  scheduleTempGrantExpiry();
 }
 
 startServer().catch(console.error);

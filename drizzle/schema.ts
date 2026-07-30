@@ -1615,6 +1615,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)
   canViewSuperPermissions: boolean("canViewSuperPermissions").default(false).notNull(),
+  // JSON map of { permissionKey: ISO-timestamp } for temporarily-granted permissions
+  tempGrantExpiry: json("tempGrantExpiry").$type<Record<string, string>>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

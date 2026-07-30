@@ -257,10 +257,13 @@ export const permissionsRouter = router({
     }),
 
   // Bulk update: save all changes from the super permissions matrix in one call
+  // tempExpiry: optional map of { permissionKey: ISO-timestamp } for temporarily-granted permissions
   bulkUpdatePermissions: protectedProcedure
     .input(z.array(z.object({
       userId: z.number(),
       permissions: z.record(z.string(), z.boolean()),
+      // Optional: keys that are being temporarily granted, mapped to their expiry ISO timestamp
+      tempExpiry: z.record(z.string(), z.string()).optional(),
     })))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -276,7 +279,7 @@ export const permissionsRouter = router({
 
       for (const item of input) {
         // Look up user to ensure they're admin and not Tyler
-        const targetUsers = await db.select({ email: users.email, role: users.role }).from(users).where(eq(users.id, item.userId)).limit(1);
+        const targetUsers = await db.select({ email: users.email, role: users.role, id: users.id }).from(users).where(eq(users.id, item.userId)).limit(1);
         const targetUser = targetUsers[0];
         if (!targetUser || targetUser.role !== "admin") continue;
         if (targetUser.email === PROTECTED_EMAIL) continue; // skip Tyler
@@ -286,11 +289,31 @@ export const permissionsRouter = router({
           if (validKeys.has(key as PermissionKey)) updateData[key] = val;
         }
 
-        const existing = await db.select({ id: adminPermissions.id }).from(adminPermissions).where(eq(adminPermissions.userId, item.userId)).limit(1);
-        if (existing.length > 0) {
-          await db.update(adminPermissions).set(updateData as any).where(eq(adminPermissions.userId, item.userId));
+        // Merge tempExpiry: fetch existing, remove keys that are now permanent, add new temp keys
+        const existingRows = await db.select({ id: adminPermissions.id, tempGrantExpiry: adminPermissions.tempGrantExpiry }).from(adminPermissions).where(eq(adminPermissions.userId, item.userId)).limit(1);
+        const existingExpiry: Record<string, string> = (existingRows[0]?.tempGrantExpiry as Record<string, string>) ?? {};
+
+        // Remove expiry entries for keys that are now being set permanently (no tempExpiry entry)
+        const newTempExpiry: Record<string, string> = { ...existingExpiry };
+        for (const key of Object.keys(updateData)) {
+          if (!item.tempExpiry?.[key]) {
+            // Being set permanently — remove any existing temp expiry for this key
+            delete newTempExpiry[key];
+          }
+        }
+        // Add/update temp expiry entries
+        if (item.tempExpiry) {
+          for (const [key, ts] of Object.entries(item.tempExpiry)) {
+            if (validKeys.has(key as PermissionKey)) newTempExpiry[key] = ts;
+          }
+        }
+
+        const finalExpiry = Object.keys(newTempExpiry).length > 0 ? newTempExpiry : null;
+
+        if (existingRows.length > 0) {
+          await db.update(adminPermissions).set({ ...updateData, tempGrantExpiry: finalExpiry } as any).where(eq(adminPermissions.userId, item.userId));
         } else {
-          await db.insert(adminPermissions).values({ userId: item.userId, ...updateData } as any);
+          await db.insert(adminPermissions).values({ userId: item.userId, ...updateData, tempGrantExpiry: finalExpiry } as any);
         }
       }
 
