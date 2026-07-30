@@ -199,6 +199,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewFeedback: "/feedback",
   canViewMarketingAdmin: "/marketing-admin",
   canViewGoals: "/goals",
+  canViewJobBoard: "/job-board",
   canViewWebhooks: "/webhooks",
   canViewDuplicates: "/duplicates",
   canViewKnowledgeBase: "/kb",

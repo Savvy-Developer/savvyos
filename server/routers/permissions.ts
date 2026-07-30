@@ -44,6 +44,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewFeedback",           label: "Feedback & Requests",      group: "Admin" },
   { key: "canViewMarketingAdmin",     label: "Marketing Requests",       group: "Admin" },
   { key: "canViewGoals",              label: "Goals",                    group: "Admin" },
+  { key: "canViewJobBoard",           label: "Job Board",                 group: "Admin" },
   // Dev Tools
   { key: "canViewWebhooks",           label: "Webhooks",                 group: "Dev Tools" },
   { key: "canViewDuplicates",         label: "Duplicate Contacts",       group: "Dev Tools" },

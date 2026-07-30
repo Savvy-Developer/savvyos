@@ -1607,6 +1607,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewFeedback: boolean("canViewFeedback").default(true).notNull(),
   canViewMarketingAdmin: boolean("canViewMarketingAdmin").default(true).notNull(),
   canViewGoals: boolean("canViewGoals").default(true).notNull(),
+  canViewJobBoard: boolean("canViewJobBoard").default(true).notNull(),
   // Dev Tools
   canViewWebhooks: boolean("canViewWebhooks").default(true).notNull(),
   canViewDuplicates: boolean("canViewDuplicates").default(true).notNull(),
