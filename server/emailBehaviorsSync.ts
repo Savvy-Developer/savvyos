@@ -82,6 +82,8 @@ async function fetchResendEmails(
     for (const email of json.data) {
       const toEmail = (email.to?.[0] ?? "").toLowerCase().trim();
       if (!toEmail) continue;
+      const sentDate = email.created_at ? new Date(email.created_at) : undefined;
+      const lastEvent = email.last_event ?? "sent";
       records.push({
         source: "resend",
         externalId: email.id,
@@ -89,8 +91,11 @@ async function fetchResendEmails(
         fromEmail: email.from,
         subject: email.subject,
         direction: "outbound",
-        status: email.last_event ?? "sent",
-        sentAt: email.created_at ? new Date(email.created_at) : undefined,
+        status: lastEvent,
+        sentAt: sentDate,
+        // Backfill openedAt/clickedAt from last_event when exact timestamp is unknown
+        openedAt: (lastEvent === "opened" || lastEvent === "clicked") ? sentDate : undefined,
+        clickedAt: lastEvent === "clicked" ? sentDate : undefined,
       });
     }
 
