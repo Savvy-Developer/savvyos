@@ -543,6 +543,14 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "edit";
       break;
 
+    case "property_viewed":
+      // Fired when an identified (logged-in) savvy-web lead views a property
+      // detail page. Renders as: "Viewed Property" / <address> / <timestamp>.
+      title = "Viewed Property";
+      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      icon = "info";
+      break;
+
     // ── Smart Plans ──────────────────────────────────────────────────────────
     case "smart_plan_created":
       title = "Smart Plan created";
