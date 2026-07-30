@@ -790,12 +790,14 @@ function LiveCallWorkspace({
 function CallSummaryScreen({
   summary,
   sessionId,
+  contactId,
   recommendations,
   contactName,
   onDone,
 }: {
   summary: any;
   sessionId: number;
+  contactId: number;
   recommendations: MarketRec[];
   contactName: string;
   onDone: () => void;
@@ -804,7 +806,7 @@ function CallSummaryScreen({
   const completeSession = trpc.marketMatch.completeSession.useMutation({
     onSuccess: () => {
       toast.success("Call logged to CRM successfully");
-      onDone();
+      navigate(`/contacts/${contactId}`);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -1286,9 +1288,10 @@ export default function MarketMatchCallPage() {
       <CallSummaryScreen
         summary={summary}
         sessionId={sessionId!}
+        contactId={contactId!}
         recommendations={summaryRecs}
         contactName={contactName}
-        onDone={() => navigate("/contacts")}
+        onDone={() => navigate(`/contacts/${contactId}`)}
       />
     );
   }

@@ -22,6 +22,7 @@ import {
   leadSources,
   listings,
   listingNotes,
+  listingDocuments,
   transactionDocuments,
   transactionNotes,
   contactProperties,
@@ -370,6 +371,14 @@ export async function createContact(data: typeof contacts.$inferInsert) {
   // Outbound GHL sync — fire-and-forget; never blocks contact creation. See
   // server/_core/ghlSync.ts for the chokepoint design.
   void import("./_core/ghlSync").then((m) => m.triggerGhlContactSync(insertId));
+  // Deferred email behaviors match — promote any unmatched email records for this address.
+  if (data.email) {
+    void import("./emailBehaviorsSync").then((m) =>
+      m.promoteUnmatchedEmailBehaviors(insertId, data.email as string).catch((err) =>
+        console.error("[EmailBehaviors] Deferred match error on contact create:", err),
+      ),
+    );
+  }
   return insertId;
 }
 
@@ -443,6 +452,7 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       like(contacts.lastName, s),
       like(contacts.email, s),
       like(contacts.phone, s),
+      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${s}`,
     ));
   }
   if (filters.followUpDateFrom) baseConditions.push(gte(agentConnections.followUpDate, filters.followUpDateFrom));
@@ -719,7 +729,7 @@ export async function getPropertyOwnership(propertyId: number) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
-export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date") {
+export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date", groupLeaderId?: number, includeLeaderStats?: boolean) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -736,6 +746,18 @@ export async function getTransactions(agentId?: number, status?: string, search?
   if (flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
   if (leadSourceId) conditions.push(eq(contacts.leadSourceId, leadSourceId));
   if (transactionType) conditions.push(eq(transactions.transactionType, transactionType as any));
+  if (groupLeaderId) conditions.push(includeLeaderStats ? sql`(
+    ${transactions.agentId} = ${groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${groupLeaderId}
+  )`);
 
   if (marketId) {
     // Filter transactions by agents in the given market
@@ -809,6 +831,8 @@ export type TransactionExportFilters = {
   flagNoClosingDate?: boolean;
   flagPastClosingDate?: boolean;
   flagPayoutIntegrity?: boolean;
+  groupLeaderId?: number;
+  includeLeaderStats?: boolean;
   leadSourceId?: number;
   sortOrder?: "asc" | "desc";
   sortBy?: string;
@@ -841,6 +865,18 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
   if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
+  if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
+    ${transactions.agentId} = ${filters.groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+  )`);
 
   if (filters.marketId) {
     const marketAgents = await db
@@ -1159,7 +1195,7 @@ export async function validateAndAutoResolveFlag(
 }
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
-export async function getTasks(assignedToId?: number, status?: string, relatedContactId?: number, relatedTransactionId?: number, page = 1, limit = 25, dueDateFrom?: Date, dueDateTo?: Date) {
+export async function getTasks(assignedToId?: number, status?: string, relatedContactId?: number, relatedTransactionId?: number, page = 1, limit = 25, dueDateFrom?: Date, dueDateTo?: Date, overdue?: boolean) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -1170,6 +1206,7 @@ export async function getTasks(assignedToId?: number, status?: string, relatedCo
   if (relatedTransactionId) conditions.push(eq(tasks.relatedTransactionId, relatedTransactionId));
   if (dueDateFrom) conditions.push(gte(tasks.dueDate, dueDateFrom));
   if (dueDateTo) conditions.push(lte(tasks.dueDate, dueDateTo));
+  if (overdue) conditions.push(sql`${tasks.status} NOT IN ('completed', 'cancelled') AND ${tasks.dueDate} IS NOT NULL AND DATE(${tasks.dueDate}) < CURRENT_DATE`);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [countResult, rows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(tasks).where(where),
@@ -1692,14 +1729,27 @@ export async function getContactCounts(contactId: number) {
 }
 
 // ─── Tasks: getAllTasks with assignedTo filter ───────────────────────────────
-export async function getAllTasks(filters?: { status?: string; assignedToId?: number; createdFrom?: Date; createdTo?: Date; page?: number; limit?: number }) {
+export async function getAllTasks(filters?: { status?: string; assignedToId?: number; groupLeaderId?: number; includeLeaderStats?: boolean; createdFrom?: Date; createdTo?: Date; overdue?: boolean; page?: number; limit?: number }) {
   const db = await getDb();
   if (!db) return { rows: [], total: 0 };
   const conditions: any[] = [];
   if (filters?.status) conditions.push(eq(tasks.status, filters.status as any));
   if (filters?.assignedToId) conditions.push(eq(tasks.assignedToId, filters.assignedToId));
+  if (filters?.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
+    ${tasks.assignedToId} = ${filters.groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${tasks.assignedToId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${tasks.assignedToId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+  )`);
   if (filters?.createdFrom) conditions.push(gte(tasks.createdAt, filters.createdFrom));
   if (filters?.createdTo) conditions.push(lte(tasks.createdAt, filters.createdTo));
+  if (filters?.overdue) conditions.push(sql`${tasks.status} NOT IN ('completed', 'cancelled') AND ${tasks.dueDate} IS NOT NULL AND DATE(${tasks.dueDate}) < CURRENT_DATE`);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 50;
@@ -2945,6 +2995,18 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
   if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
+  if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
+    ${transactions.agentId} = ${filters.groupLeaderId}
+    OR EXISTS (
+      SELECT 1 FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )
+  )` : sql`EXISTS (
+    SELECT 1 FROM \`group_members\` gm
+    INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+    WHERE gm.\`userId\` = ${transactions.agentId} AND g.\`leaderId\` = ${filters.groupLeaderId}
+  )`);
 
   if (filters.marketId) {
     const marketAgents = await db
@@ -3007,5 +3069,80 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
     closedCount:        Number(rows.closedCount),
     underContractCount: Number(rows.underContractCount),
     terminatedCount:    Number(rows.terminatedCount),
+  };
+}
+
+// ─── Listing Documents ─────────────────────────────────────────────────────────
+export async function getListingDocuments(listingId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const uploaderAlias = aliasedTable(users, "uploader");
+  return db
+    .select({ doc: listingDocuments, uploader: uploaderAlias })
+    .from(listingDocuments)
+    .leftJoin(uploaderAlias, eq(listingDocuments.uploadedBy, uploaderAlias.id))
+    .where(eq(listingDocuments.listingId, listingId))
+    .orderBy(desc(listingDocuments.createdAt));
+}
+
+export async function createListingDocument(data: typeof listingDocuments.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [result] = await db.insert(listingDocuments).values(data);
+  return (result as any).insertId as number;
+}
+
+export async function renameListingDocument(id: number, fileName: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(listingDocuments).set({ fileName }).where(eq(listingDocuments.id, id));
+}
+
+export async function deleteListingDocument(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(listingDocuments).where(eq(listingDocuments.id, id));
+}
+
+// ─── Agent Career Stats (all-time) ───────────────────────────────────────────
+export async function getMyCareerStats(agentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [stats] = await db
+    .select({
+      totalClosings: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
+      totalGci: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      totalVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      firstClosingDate: sql<string>`MIN(CASE WHEN ${transactions.status} = 'closed' THEN ${transactions.closingDate} END)`,
+    })
+    .from(transactions)
+    .where(eq(transactions.agentId, agentId));
+  if (!stats) return null;
+  const totalClosings = Number(stats.totalClosings);
+  const totalGci = Number(stats.totalGci);
+  const totalVolume = Number(stats.totalVolume);
+  // Best month: highest GCI in a single calendar month
+  const monthlyRows = await db
+    .select({
+      month: sql<string>`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`,
+      gci: sql<number>`SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)))`,
+      closings: sql<number>`COUNT(*)`,
+    })
+    .from(transactions)
+    .where(and(eq(transactions.agentId, agentId), eq(transactions.status, "closed"), isNotNull(transactions.closingDate)))
+    .groupBy(sql`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`)
+    .orderBy(desc(sql`SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)))`))
+    .limit(1);
+  const bestMonth = monthlyRows[0] ?? null;
+  return {
+    totalClosings,
+    totalGci,
+    totalVolume,
+    avgGciPerDeal: totalClosings > 0 ? totalGci / totalClosings : 0,
+    avgVolumePerDeal: totalClosings > 0 ? totalVolume / totalClosings : 0,
+    firstClosingDate: stats.firstClosingDate ? String(stats.firstClosingDate) : null,
+    bestMonth: bestMonth
+      ? { month: bestMonth.month, gci: Number(bestMonth.gci), closings: Number(bestMonth.closings) }
+      : null,
   };
 }

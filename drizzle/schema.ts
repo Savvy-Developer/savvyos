@@ -197,6 +197,9 @@ export const agentConnections = mysqlTable("agent_connections", {
   // This clock is reset only by qualifying agent lead activity. `updatedAt`
   // remains the generic audit timestamp for all connection writes.
   agingUpdatedAt: timestamp("agingUpdatedAt"),
+  // Tracks whether the ISA set an appointment when making this connection
+  appointmentSet: boolean("appointmentSet").default(false).notNull(),
+  appointmentSetAt: timestamp("appointmentSetAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1622,3 +1625,178 @@ export const adminPermissions = mysqlTable("admin_permissions", {
 });
 export type AdminPermissions = typeof adminPermissions.$inferSelect;
 export type InsertAdminPermissions = typeof adminPermissions.$inferInsert;
+
+// ─── Email Behaviors ──────────────────────────────────────────────────────────
+// Stores email activity imported from Resend and GoHighLevel, matched to a
+// contact by email address. One row per email send event.
+export const emailBehaviors = mysqlTable(
+  "email_behaviors",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    // Matched contact (null until matched)
+    contactId: int("contactId").references(() => contacts.id, { onDelete: "cascade" }),
+    // Source system
+    source: mysqlEnum("source", ["resend", "ghl"]).notNull(),
+    // External IDs for dedup
+    externalId: varchar("externalId", { length: 512 }).notNull(), // Resend email ID or GHL message ID
+    // Email fields
+    toEmail: varchar("toEmail", { length: 320 }).notNull(),
+    fromEmail: varchar("fromEmail", { length: 512 }),
+    subject: varchar("subject", { length: 1024 }),
+    direction: mysqlEnum("direction", ["outbound", "inbound"]).default("outbound").notNull(),
+    // Status / engagement
+    status: varchar("status", { length: 64 }), // delivered, bounced, opened, clicked, failed, sent, etc.
+    openedAt: timestamp("openedAt"),
+    clickedAt: timestamp("clickedAt"),
+    // Source-specific metadata
+    ghlConversationId: varchar("ghlConversationId", { length: 255 }),
+    ghlMessageSource: varchar("ghlMessageSource", { length: 128 }), // workflow, manual, etc.
+    // Timestamps
+    sentAt: timestamp("sentAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    index("email_behaviors_contact_idx").on(table.contactId, table.sentAt),
+    index("email_behaviors_to_email_idx").on(table.toEmail),
+    uniqueIndex("email_behaviors_source_external_unique").on(table.source, table.externalId),
+  ],
+);
+export type EmailBehavior = typeof emailBehaviors.$inferSelect;
+export type InsertEmailBehavior = typeof emailBehaviors.$inferInsert;
+
+// ─── Email Behaviors Unmatched Queue ─────────────────────────────────────────
+// Hidden staging table for emails whose recipient address does not yet match
+// any contact in SavvyOS. When a new contact is created with a matching email,
+// the deferred-match trigger promotes rows from here into email_behaviors.
+export const emailBehaviorsUnmatched = mysqlTable(
+  "email_behaviors_unmatched",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    source: mysqlEnum("source", ["resend", "ghl"]).notNull(),
+    externalId: varchar("externalId", { length: 512 }).notNull(),
+    toEmail: varchar("toEmail", { length: 320 }).notNull(),
+    fromEmail: varchar("fromEmail", { length: 512 }),
+    subject: varchar("subject", { length: 1024 }),
+    direction: mysqlEnum("direction", ["outbound", "inbound"]).default("outbound").notNull(),
+    status: varchar("status", { length: 64 }),
+    openedAt: timestamp("openedAt"),
+    clickedAt: timestamp("clickedAt"),
+    ghlConversationId: varchar("ghlConversationId", { length: 255 }),
+    ghlMessageSource: varchar("ghlMessageSource", { length: 128 }),
+    sentAt: timestamp("sentAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    index("email_behaviors_unmatched_email_idx").on(table.toEmail),
+    uniqueIndex("email_behaviors_unmatched_source_external_unique").on(table.source, table.externalId),
+  ],
+);
+export type EmailBehaviorUnmatched = typeof emailBehaviorsUnmatched.$inferSelect;
+export type InsertEmailBehaviorUnmatched = typeof emailBehaviorsUnmatched.$inferInsert;
+
+// ─── Email Behaviors Sync State ───────────────────────────────────────────────
+// Tracks the last successful sync cursor for each source so incremental syncs
+// only fetch new data rather than re-importing everything.
+export const emailBehaviorsSyncState = mysqlTable("email_behaviors_sync_state", {
+  id: int("id").autoincrement().primaryKey(),
+  source: mysqlEnum("source", ["resend", "ghl"]).notNull().unique(),
+  lastSyncedAt: timestamp("lastSyncedAt"),
+  lastCursor: varchar("lastCursor", { length: 1024 }), // pagination cursor / last ID
+  totalImported: int("totalImported").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type EmailBehaviorsSyncState = typeof emailBehaviorsSyncState.$inferSelect;
+
+// ─── Listing Documents ─────────────────────────────────────────────────────────
+export const listingDocuments = mysqlTable("listing_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  listingId: int("listingId").notNull().references(() => listings.id),
+  uploadedBy: int("uploadedBy").notNull().references(() => users.id),
+  label: mysqlEnum("label_listing_doc", ["appraisal", "listing_agreement", "inspection", "disclosure", "other"]).default("other").notNull(),
+  customLabel: varchar("custom_label", { length: 255 }),
+  fileUrl: text("file_url").notNull(),
+  fileKey: varchar("file_key", { length: 500 }).notNull(),
+  fileName: varchar("file_name", { length: 500 }).notNull(),
+  fileSize: int("file_size"),
+  mimeType: varchar("mime_type", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ListingDocument = typeof listingDocuments.$inferSelect;
+export type InsertListingDocument = typeof listingDocuments.$inferInsert;
+
+// ─── Aircall Calls ─────────────────────────────────────────────────────────────
+// Stores every Aircall call record. Each matched call also has a corresponding
+// `communications` row (type = "call") linked via communicationId.
+// aircallCallId is the Aircall call ID and acts as the deduplication key.
+export const aircallCalls = mysqlTable(
+  "aircall_calls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    // Aircall identifiers
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    // Matched contact (null = unmatched, stored in aircall_unmatched_calls)
+    contactId: int("contactId").references(() => contacts.id),
+    // The communications row created for this call in the Activity tab
+    communicationId: int("communicationId").references(() => communications.id),
+    // Call metadata
+    direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
+    status: varchar("status", { length: 64 }).notNull(), // done, missed, voicemail, etc.
+    duration: int("duration"), // seconds
+    startedAt: timestamp("startedAt"),
+    answeredAt: timestamp("answeredAt"),
+    endedAt: timestamp("endedAt"),
+    // Phone numbers involved
+    callerNumber: varchar("callerNumber", { length: 32 }),
+    calleeNumber: varchar("calleeNumber", { length: 32 }),
+    // Recording — permanent S3 URL (downloaded from Aircall's expiring URL)
+    recordingUrl: text("recordingUrl"),
+    recordingKey: varchar("recordingKey", { length: 512 }),
+    // Voicemail — permanent S3 URL
+    voicemailUrl: text("voicemailUrl"),
+    voicemailKey: varchar("voicemailKey", { length: 512 }),
+    // Aircall number/line info
+    aircallNumberId: int("aircallNumberId"),
+    aircallNumberName: varchar("aircallNumberName", { length: 255 }),
+    // Full Aircall payload for future use
+    rawPayload: json("rawPayload"),
+    // Timestamps
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_calls_aircall_id_unique").on(table.aircallCallId),
+    index("aircall_calls_contact_idx").on(table.contactId, table.startedAt),
+    index("aircall_calls_started_at_idx").on(table.startedAt),
+  ],
+);
+export type AircallCall = typeof aircallCalls.$inferSelect;
+export type InsertAircallCall = typeof aircallCalls.$inferInsert;
+
+// ─── Aircall Unmatched Calls ───────────────────────────────────────────────────
+// Staging table for Aircall calls that could not be matched to a SavvyOS contact
+// by phone number. Logged here for admin review instead of being discarded.
+export const aircallUnmatchedCalls = mysqlTable(
+  "aircall_unmatched_calls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
+    status: varchar("status", { length: 64 }).notNull(),
+    duration: int("duration"),
+    startedAt: timestamp("startedAt"),
+    endedAt: timestamp("endedAt"),
+    callerNumber: varchar("callerNumber", { length: 32 }),
+    calleeNumber: varchar("calleeNumber", { length: 32 }),
+    // The phone number we tried to match (normalized)
+    attemptedPhone: varchar("attemptedPhone", { length: 32 }),
+    rawPayload: json("rawPayload"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_unmatched_aircall_id_unique").on(table.aircallCallId),
+    index("aircall_unmatched_phone_idx").on(table.attemptedPhone),
+  ],
+);
+export type AircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferSelect;
+export type InsertAircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferInsert;

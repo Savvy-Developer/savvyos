@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
+import { toast } from "sonner";
 import App from "./App";
 import { initializeAppHistory } from "@/lib/navigationHistory";
 import "./index.css";
@@ -87,13 +88,32 @@ const trpcClient = trpc.createClient({
 // Deploy-version watcher
 // ---------------------------------------------------------------------------
 // Polls the server's health endpoint every 60 s. When the server returns a
-// different buildId (meaning a new deploy has gone live), we invalidate the
-// entire React Query cache so every active component re-fetches fresh data.
-// This prevents the "connections disappeared" symptom where users who were
-// already logged in see stale/empty data after a deployment without needing
-// to hard-refresh or log out.
+// different buildId (meaning a new deploy has gone live), it:
+//   1. Shows a persistent toast: "SavvyOS has been updated" with a
+//      "Refresh now" button so the user can reload at a safe moment.
+//   2. Intercepts the next in-app navigation (pushState) and converts it
+//      into a full-page load so the new JS bundle is picked up automatically
+//      without disrupting whatever the user is currently doing.
+//
+// We intentionally do NOT force an immediate reload — users may have unsaved
+// notes or form input that would be lost.
 // ---------------------------------------------------------------------------
 let knownBuildId: string | null = null;
+let pendingReload = false;
+
+/** When a new deploy is pending, intercept the next pushState navigation and
+ *  convert it to a hard reload at the destination URL so the fresh bundle loads. */
+function installNavigationReloadInterceptor() {
+  const originalPushState = history.pushState.bind(history);
+  history.pushState = function (state, unused, url) {
+    if (pendingReload && url) {
+      // Navigate to the new URL with a full page load instead of a SPA transition.
+      window.location.href = url.toString();
+      return;
+    }
+    originalPushState(state, unused, url);
+  };
+}
 
 async function checkForNewDeploy() {
   try {
@@ -112,15 +132,28 @@ async function checkForNewDeploy() {
       return;
     }
 
-    if (buildId !== knownBuildId) {
+    if (buildId !== knownBuildId && !pendingReload) {
       console.info(
-        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Refreshing data…`
+        `[SavvyOS] New deploy detected (${knownBuildId} → ${buildId}). Will reload on next navigation.`
       );
       knownBuildId = buildId;
-      // Invalidate all queries so every component silently re-fetches.
-      // This is non-disruptive: React Query refetches in the background and
-      // only updates the UI when fresh data arrives.
-      await queryClient.invalidateQueries();
+      pendingReload = true;
+
+      // Show a persistent toast. The user can reload immediately via the
+      // action button, or simply navigate anywhere and the page will reload
+      // automatically to pick up the new bundle.
+      toast.info("SavvyOS has been updated", {
+        description: "Click \"Refresh now\" or navigate to any page to load the latest version.",
+        duration: Infinity,
+        action: {
+          label: "Refresh now",
+          onClick: () => window.location.reload(),
+        },
+      });
+
+      // Install the navigation interceptor so the next link click triggers
+      // a full reload at the destination rather than a SPA transition.
+      installNavigationReloadInterceptor();
     }
   } catch {
     // Network errors are expected during the brief window when Railway is

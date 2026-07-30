@@ -14,7 +14,8 @@ import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox } from "lucide-react";
+import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -201,6 +202,7 @@ type AssignForm = {
   agentNotes: string;
   isaFollowUpDate: string;
   introduceClient: boolean;
+  appointmentSet: boolean;
 };
 
 const PIPELINE_STAGES = [
@@ -390,7 +392,7 @@ export default function ContactDetail() {
 
   const [assignForm, setAssignForm] = useState<AssignForm>({
     agentId: "", pipelineStatus: "new_lead", agentNotes: "",
-    isaFollowUpDate: "", introduceClient: false,
+    isaFollowUpDate: "", introduceClient: false, appointmentSet: false,
   });
 
   // Task editing state
@@ -430,8 +432,8 @@ export default function ContactDetail() {
   const { data: contactData, refetch } = trpc.contacts.get.useQuery({ id: contactId });
   const { data: connectionsData } = trpc.agentConnections.list.useQuery({ contactId, limit: 50 });
   const connections = connectionsData?.rows;
-  const { data: transactionsData } = trpc.transactions.list.useQuery({ limit: 100 });
-  const transactions = transactionsData?.rows ?? [];
+  const { data: contactTxData } = trpc.transactions.byContact.useQuery({ contactId });
+  const transactions = contactTxData?.rows ?? [];
   const { data: comms, refetch: refetchComms } = trpc.communications.list.useQuery({ contactId });
   const { data: tasksData } = trpc.tasks.list.useQuery({ relatedContactId: contactId });
   const tasks = tasksData?.rows ?? [];
@@ -441,7 +443,7 @@ export default function ContactDetail() {
   const { data: allProperties = [] } = trpc.properties.list.useQuery({});
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
 
-  const contactTransactions = (transactions ?? []).filter((r) => r.transaction.primaryContactId === contactId);
+  const contactTransactions = transactions;
 
   const updateNote = trpc.communications.update.useMutation({
     onSuccess: () => { toast.success("Note updated"); setEditingNoteId(null); refetchComms(); },
@@ -466,19 +468,26 @@ export default function ContactDetail() {
     if (editForm.phone && !isValidPhone(editForm.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
     if (editForm.secondaryPhone && !isValidPhone(editForm.secondaryPhone)) { toast.error("Please enter a valid secondary phone number (9+ digits)"); return; }
     if (editForm.spousePhone && !isValidPhone(editForm.spousePhone)) { toast.error("Please enter a valid spouse phone number (9+ digits)"); return; }
-    // Hard block: email or phone matches a DIFFERENT contact
-    try {
-      const dup = await checkDupMut.mutateAsync({
-        email: editForm.email || undefined,
-        phone: editForm.phone || undefined,
-        excludeId: contactId,
-      });
-      if (dup.emailPhoneMatches && dup.emailPhoneMatches.length > 0) {
-        const m = dup.emailPhoneMatches[0];
-        toast.error(`This email or phone already belongs to ${m.firstName} ${m.lastName}. Please use a unique email and phone.`);
-        return;
-      }
-    } catch { /* non-blocking — proceed if check fails */ }
+    // Hard block: email or phone matches a DIFFERENT contact.
+    // Only check fields that actually changed — if the user didn't edit the
+    // email or phone, there is no need to re-validate them (and doing so would
+    // incorrectly block saves when a known duplicate shares the same digits).
+    const emailChanged = editForm.email !== (contact.email ?? "");
+    const phoneChanged = editForm.phone !== (contact.phone ?? "");
+    if (emailChanged || phoneChanged) {
+      try {
+        const dup = await checkDupMut.mutateAsync({
+          email: emailChanged ? (editForm.email || undefined) : undefined,
+          phone: phoneChanged ? (editForm.phone || undefined) : undefined,
+          excludeId: contactId,
+        });
+        if (dup.emailPhoneMatches && dup.emailPhoneMatches.length > 0) {
+          const m = dup.emailPhoneMatches[0];
+          toast.error(`This email or phone already belongs to ${m.firstName} ${m.lastName}. Please use a unique email and phone.`);
+          return;
+        }
+      } catch { /* non-blocking — proceed if check fails */ }
+    }
     updateContact.mutate({
       id: contactId,
       data: {
@@ -505,7 +514,7 @@ export default function ContactDetail() {
     onSuccess: () => {
       toast.success("Agent connection created 🎉");
       setAssignOpen(false);
-      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false });
+      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false, appointmentSet: false });
       utils.agentConnections.list.invalidate();
       utils.contacts.list.invalidate();
       celebrate("connection_made");
@@ -663,6 +672,7 @@ export default function ContactDetail() {
       agentNotes: assignForm.agentNotes || null,
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
       introduceClient: assignForm.introduceClient,
+      appointmentSet: assignForm.appointmentSet,
     });
   }
 
@@ -926,7 +936,7 @@ export default function ContactDetail() {
             <Card>
               <CardContent className="p-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
-                <p className="text-sm whitespace-pre-wrap">{contact.notes}</p>
+                <p className="text-sm whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{contact.notes}</p>
               </CardContent>
             </Card>
           )}
@@ -938,19 +948,21 @@ export default function ContactDetail() {
         {/* Right: Tabs */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="activity">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <TabsList>
+            <div className="mb-4 space-y-2">
+              <TabsList className="flex-wrap h-auto gap-y-1 w-full">
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="properties">Properties ({contactProps?.length ?? 0})</TabsTrigger>
                 <TabsTrigger value="transactions">Transactions ({contactTransactions.length})</TabsTrigger>
                 <TabsTrigger value="tasks">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
                 <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
-
+                <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
               </TabsList>
-              <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
-                <MessageSquare className="h-4 w-4 mr-1" /> Add Note
-              </Button>
+              <div className="flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
+                  <MessageSquare className="h-4 w-4 mr-1" /> Add Note
+                </Button>
+              </div>
             </div>
 
             <TabsContent value="activity">
@@ -994,7 +1006,7 @@ export default function ContactDetail() {
                         {editingNoteId === communication.id ? (
                           <div className="space-y-2 mt-1">
                             <textarea
-                              className="w-full text-sm border rounded-md p-2 min-h-[80px] bg-background resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                              className="w-full text-sm border rounded-md p-2 min-h-[80px] max-h-[200px] overflow-y-auto bg-background resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                               value={editingNoteText}
                               onChange={(e) => setEditingNoteText(e.target.value)}
                             />
@@ -1202,6 +1214,11 @@ export default function ContactDetail() {
               <SmartPlanContactTab contactId={contactId} />
             </TabsContent>
 
+            {/* Email Behaviors Tab */}
+            <TabsContent value="email-behaviors">
+              <EmailBehaviorsTab contactId={contactId} />
+            </TabsContent>
+
           </Tabs>
         </div>
       </div>
@@ -1225,7 +1242,7 @@ export default function ContactDetail() {
             </div>
             <div>
               <Label>Note *</Label>
-              <Textarea className="mt-1" value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} placeholder="Enter your note..." />
+              <Textarea className="mt-1 max-h-[200px] overflow-y-auto" value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} placeholder="Enter your note..." />
             </div>
           </div>
           <DialogFooter>
@@ -1337,7 +1354,7 @@ export default function ContactDetail() {
                 </div>
                 <div>
                   <Label>Notes</Label>
-                  <Textarea className="mt-1" rows={3} value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                  <Textarea className="mt-1 max-h-[200px] overflow-y-auto" rows={3} value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
                 </div>
               </TabsContent>
             </Tabs>
@@ -1393,7 +1410,7 @@ export default function ContactDetail() {
             <div>
               <Label>Notes for Agent <span className="text-muted-foreground font-normal">(optional)</span></Label>
               <Textarea
-                className="mt-1"
+                className="mt-1 max-h-[150px] overflow-y-auto"
                 rows={2}
                 placeholder="Any context to pass to the agent..."
                 value={assignForm.agentNotes}
@@ -1417,6 +1434,21 @@ export default function ContactDetail() {
                 </div>
               ) : null;
             })()}
+            {/* Set an appointment */}
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="appointmentSet"
+                checked={assignForm.appointmentSet}
+                onCheckedChange={(v) => setAssignForm(f => ({ ...f, appointmentSet: !!v }))}
+                className="mt-0.5"
+              />
+              <div>
+                <Label htmlFor="appointmentSet" className="cursor-pointer">Set an appointment</Label>
+                {assignForm.appointmentSet && (
+                  <p className="text-xs text-muted-foreground mt-0.5">This will be tracked for ISA appointment-setting statistics.</p>
+                )}
+              </div>
+            </div>
             {/* Introduce client to agent */}
             <div className="flex items-start gap-2">
               <Checkbox

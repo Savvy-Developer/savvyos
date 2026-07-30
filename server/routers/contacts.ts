@@ -925,37 +925,44 @@ export const connectionRequestsRouter = router({
     .input(z.object({
       contactId: z.number(),
       requestedPipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).default("new_lead"),
+      // Admins and ISAs can supply an explicit agentId to create the connection
+      // on behalf of a specific agent (e.g. from the agent profile page).
+      agentId: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      // Determine the effective agent: admins/ISAs may pass an explicit agentId;
+      // agents always use their own id.
+      const isPrivileged = ctx.user.role === "admin" || ctx.user.role === "isa";
+      const effectiveAgentId = (isPrivileged && input.agentId) ? input.agentId : ctx.user.id;
       // Check if a pending request already exists for this agent+contact
       const existing = await db.select({ id: connectionRequestsTable.id })
         .from(connectionRequestsTable)
         .where(and(
-          eq(connectionRequestsTable.agentId, ctx.user.id),
+          eq(connectionRequestsTable.agentId, effectiveAgentId),
           eq(connectionRequestsTable.contactId, input.contactId),
           eq(connectionRequestsTable.status, "pending"),
         ))
         .limit(1);
-      if (existing.length > 0) throw new TRPCError({ code: "CONFLICT", message: "You already have a pending connection request for this contact" });
+      if (existing.length > 0) throw new TRPCError({ code: "CONFLICT", message: "A pending connection request already exists for this agent and contact" });
       // Also check if connection already exists
       const connExists = await db.select({ id: agentConnectionsTable.id })
         .from(agentConnectionsTable)
-        .where(and(eq(agentConnectionsTable.agentId, ctx.user.id), eq(agentConnectionsTable.contactId, input.contactId)))
+        .where(and(eq(agentConnectionsTable.agentId, effectiveAgentId), eq(agentConnectionsTable.contactId, input.contactId)))
         .limit(1);
-      if (connExists.length > 0) throw new TRPCError({ code: "CONFLICT", message: "You already have a connection with this contact" });
+      if (connExists.length > 0) throw new TRPCError({ code: "CONFLICT", message: "This agent already has a connection with this contact" });
       // Auto-approve: create the connection immediately and record the request as approved
-      const [insertedReq] = await db.insert(connectionRequestsTable).values({
-        agentId: ctx.user.id,
+      await db.insert(connectionRequestsTable).values({
+        agentId: effectiveAgentId,
         contactId: input.contactId,
         requestedPipelineStatus: input.requestedPipelineStatus,
         status: "approved",
         reviewedAt: new Date(),
-      }).$returningId();
+      });
       // Create the actual agent connection
       await db.insert(agentConnectionsTable).values({
-        agentId: ctx.user.id,
+        agentId: effectiveAgentId,
         contactId: input.contactId,
         pipelineStatus: input.requestedPipelineStatus as any,
       });

@@ -598,6 +598,11 @@ export default function TransactionsPage() {
   const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
+  const [flagNoClosingDate, setFlagNoClosingDate] = useState(false);
+  const [flagPastClosingDate, setFlagPastClosingDate] = useState(false);
+  const [flagPayoutIntegrity, setFlagPayoutIntegrity] = useState(false);
+  const [groupLeaderId, setGroupLeaderId] = useState<number | undefined>(undefined);
+  const [includeLeaderStats, setIncludeLeaderStats] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [applyStatsToAll, setApplyStatsToAll] = useState(false);
   const appliedAnalyticsLink = useRef<string | null>(null);
@@ -635,12 +640,18 @@ export default function TransactionsPage() {
     const nextContractTo = date("contractDateTo");
     const nextType = params.get("transactionType") ?? "all";
     const permittedTypes = ["all", "buyer", "seller", "dual"];
+    const flag = (key: string) => params.get(key) === "true";
 
     setStatusFilter(permittedStatuses.includes(nextStatus) ? nextStatus : "all");
     setMarketFilter(identifier("marketId"));
     setAgentFilter(identifier("agentId"));
     setLeadSourceFilter(identifier("leadSourceId"));
     setTypeFilter(permittedTypes.includes(nextType) ? nextType : "all");
+    setFlagNoClosingDate(flag("flagNoClosingDate"));
+    setFlagPastClosingDate(flag("flagPastClosingDate"));
+    setFlagPayoutIntegrity(flag("flagPayoutIntegrity"));
+    setGroupLeaderId(/^\d+$/.test(params.get("groupLeaderId") ?? "") ? Number(params.get("groupLeaderId")) : undefined);
+    setIncludeLeaderStats(flag("includeLeaderStats"));
     setClosingDateFrom(nextClosingFrom);
     setClosingDateTo(nextClosingTo);
     setContractDateFrom(nextContractFrom);
@@ -710,6 +721,11 @@ export default function TransactionsPage() {
     closingDateFrom: closingDateFrom || undefined,
     closingDateTo: closingDateTo || undefined,
     leadSourceId: leadSourceIdParam,
+    flagNoClosingDate,
+    flagPastClosingDate,
+    flagPayoutIntegrity,
+    groupLeaderId,
+    includeLeaderStats,
     transactionType: typeParam,
     sortOrder,
     sortBy: sortColumn,
@@ -734,6 +750,11 @@ export default function TransactionsPage() {
     closingDateFrom: closingDateFrom || undefined,
     closingDateTo: closingDateTo || undefined,
     leadSourceId: leadSourceIdParam,
+    flagNoClosingDate,
+    flagPastClosingDate,
+    flagPayoutIntegrity,
+    groupLeaderId,
+    includeLeaderStats,
   };
   const { data: txStats, isFetching: statsFetching } = trpc.transactions.stats.useQuery(
     statsFilters,
@@ -937,7 +958,7 @@ export default function TransactionsPage() {
             className="pl-9"
           />
         </div>
-        {(statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" || marketFilter !== "all" || leadSourceFilter !== "all" || txSearch || closingDateFrom || closingDateTo || contractDateFrom || contractDateTo) && (
+        {(statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" || marketFilter !== "all" || leadSourceFilter !== "all" || groupLeaderId || flagNoClosingDate || flagPastClosingDate || flagPayoutIntegrity || txSearch || closingDateFrom || closingDateTo || contractDateFrom || contractDateTo) && (
           <Button
             variant="outline"
             size="sm"
@@ -946,6 +967,8 @@ export default function TransactionsPage() {
               setStatusFilter("all"); setTypeFilter("all"); setAgentFilter("all");
               setMarketFilter("all"); setLeadSourceFilter("all"); setTxSearch("");
               setClosingDateFrom(""); setClosingDateTo(""); setContractDateFrom(""); setContractDateTo("");
+              setFlagNoClosingDate(false); setFlagPastClosingDate(false); setFlagPayoutIntegrity(false);
+              setGroupLeaderId(undefined); setIncludeLeaderStats(false);
               setShowDateFilters(false); setTxPage(1);
             }}
           >

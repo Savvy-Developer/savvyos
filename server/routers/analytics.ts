@@ -53,6 +53,7 @@ import {
   updateMarketGoal,
   getAgentMonthlyGci,
   getGlobalActivityLog,
+  getMyCareerStats,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
@@ -71,6 +72,10 @@ import {
   getLeadCohortConversionReport,
   refreshLeadCohortConversionInsights,
 } from "../analytics/leadCohortConversion";
+import {
+  getCachedBusinessInsights,
+  refreshBusinessInsights,
+} from "../analytics/businessInsights";
 import {
   getAgentReport,
   getGroupLeaderReport,
@@ -116,6 +121,7 @@ const reportingSuiteInput = z.object({
   leadSourceId: z.number().int().positive().optional(),
   status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
   transactionType: z.enum(["all", "buyer", "seller", "dual"]).optional(),
+  includeLeaderStats: z.boolean().optional(),
   page: z.number().int().min(1).optional(),
   limit: z.number().int().min(10).max(100).optional(),
 });
@@ -632,6 +638,23 @@ Return only valid JSON array.`;
       return getTransactionIntelligenceReport(input ?? {});
     }),
 
+  /** Return the shared company-wide, sanitized AI Business Insights cache without a model call. */
+  businessInsights: protectedProcedure
+    .query(async () => {
+      // Every authenticated user reads the same completed aggregate brief. The
+      // costly model refresh remains administrator-only in the mutation below.
+      return getCachedBusinessInsights();
+    }),
+
+  /** Rebuild the one shared AI Business Insights cache for all authorized viewers. */
+  refreshBusinessInsights: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("AI Business Insights is currently available to administrators only.");
+      }
+      return refreshBusinessInsights({ viewer: ctx.user, force: true, reason: "manual" });
+    }),
+
   /** Return the latest evidence-grounded Transaction Intelligence brief without a model call. */
   transactionIntelligenceInsights: protectedProcedure
     .input(transactionIntelligenceInput.optional())
@@ -847,4 +870,8 @@ Return only valid JSON array.`;
         reason: "manual",
       });
     }),
+
+  /** All-time career stats for the current agent */
+  myCareerStats: protectedProcedure
+    .query(async ({ ctx }) => getMyCareerStats(ctx.user.id)),
 });

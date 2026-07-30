@@ -116,6 +116,8 @@ export const agentConnectionsRouter = router({
       isaFollowUpDate: z.string().optional().nullable(),
       // Introduce client to agent via email (CC the agent)
       introduceClient: z.boolean().optional().default(false),
+      // Whether the ISA set an appointment when making this connection
+      appointmentSet: z.boolean().optional().default(false),
     }))
     .mutation(async ({ input, ctx }) => {
       // Prevent duplicate agent connections for the same agent+contact pair
@@ -137,6 +139,8 @@ export const agentConnectionsRouter = router({
         pipelineStatus: input.pipelineStatus ?? "new_lead",
         followUpDate: input.followUpDate ? new Date(input.followUpDate) : null,
         agentNotes: input.agentNotes,
+        appointmentSet: input.appointmentSet ?? false,
+        appointmentSetAt: input.appointmentSet ? new Date() : null,
         ...normalizeBuyBox(input.buyBox),
       } as any);
 

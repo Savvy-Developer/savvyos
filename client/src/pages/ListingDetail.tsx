@@ -52,7 +52,18 @@ import {
   MapPin,
   Plus,
   Search,
+  FileText,
+  Upload,
+  FolderOpen,
+  Eye,
+  Download,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  AlertTriangle,
+  X,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import React from "react";
@@ -119,6 +130,24 @@ const formatPhone = _formatPhone;
 const EMPTY_CONTACT_FORM = { firstName: "", lastName: "", email: "", phone: "" };
 const EMPTY_PROPERTY_FORM = { address: "", city: "", state: "", zip: "", propertyType: "single_family" as string };
 
+const LISTING_DOCUMENT_LABELS = [
+  { value: "listing_agreement", label: "Listing Agreement" },
+  { value: "appraisal", label: "Appraisal" },
+  { value: "inspection", label: "Inspection" },
+  { value: "disclosure", label: "Disclosure" },
+  { value: "other", label: "Other (custom)" },
+] as const;
+type ListingDocLabel = typeof LISTING_DOCUMENT_LABELS[number]["value"];
+
+type BulkListingFile = {
+  id: string;
+  file: File;
+  label: ListingDocLabel;
+  customLabel: string;
+  status: "pending" | "uploading" | "done" | "error";
+  error?: string;
+};
+
 export default function ListingDetail() {
   const params = useParams<{ id: string }>();
   const listingId = parseInt(params.id ?? "0", 10);
@@ -141,6 +170,10 @@ export default function ListingDetail() {
   );
   const { data: activityLog } = trpc.analytics.activityLog.useQuery(
     { entityType: "listing", entityId: listingId },
+    { enabled: !!listingId }
+  );
+  const { data: listingDocuments, refetch: refetchListingDocs } = trpc.listings.getDocuments.useQuery(
+    { listingId },
     { enabled: !!listingId }
   );
 
@@ -197,6 +230,18 @@ export default function ListingDetail() {
   // ─── Back to Active state ─────────────────────────────────────────────────
   const [backToActiveOpen, setBackToActiveOpen] = useState(false);
   const [backToActiveForm, setBackToActiveForm] = useState({ listPrice: "", commissionRate: "", reason: "" });
+
+  // ─── Document state ───────────────────────────────────────────────────────
+  const [bulkListingFiles, setBulkListingFiles] = useState<BulkListingFile[]>([]);
+  const [bulkListingUploading, setBulkListingUploading] = useState(false);
+  const [bulkListingDragOver, setBulkListingDragOver] = useState(false);
+  const bulkListingFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [renameListingDocId, setRenameListingDocId] = useState<number | null>(null);
+  const [renameListingDocName, setRenameListingDocName] = useState("");
+  const [docLabel, setDocLabel] = useState<ListingDocLabel>("listing_agreement");
+  const [docCustomLabel, setDocCustomLabel] = useState("");
+  const [docUploading, setDocUploading] = useState(false);
+  const listingFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // ─── Agents list (for admin agent reassignment) ──────────────────────────
   const { data: agentsList = [] } = trpc.users.list.useQuery(
@@ -287,6 +332,30 @@ export default function ListingDetail() {
       setNoteText("");
       toast.success("Note added");
     },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const uploadListingDoc = trpc.listings.uploadDocument.useMutation({
+    onSuccess: () => { toast.success("Document uploaded"); refetchListingDocs(); setDocCustomLabel(""); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const bulkUploadListingDocs = trpc.listings.bulkUploadDocuments.useMutation({
+    onSuccess: (data) => {
+      toast.success(`${data.count} document${data.count === 1 ? "" : "s"} uploaded successfully`);
+      refetchListingDocs();
+      setBulkListingFiles([]);
+    },
+    onError: (err) => toast.error(err.message ?? "Bulk upload failed"),
+  });
+
+  const renameListingDoc = trpc.listings.renameDocument.useMutation({
+    onSuccess: () => { toast.success("Document renamed"); refetchListingDocs(); setRenameListingDocId(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteListingDoc = trpc.listings.deleteDocument.useMutation({
+    onSuccess: () => { toast.success("Document deleted"); refetchListingDocs(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -421,6 +490,106 @@ export default function ListingDetail() {
     if (!noteText.trim()) return;
     addNote.mutate({ listingId, content: noteText.trim() });
   };
+
+  function addBulkListingFiles(newFiles: FileList | File[]) {
+    const arr = Array.from(newFiles);
+    const valid = arr.filter(f => f.size <= 16 * 1024 * 1024);
+    if (valid.length < arr.length) toast.error(`${arr.length - valid.length} file(s) exceed 16 MB and were skipped`);
+    setBulkListingFiles(prev => [
+      ...prev,
+      ...valid.map(f => ({ id: Math.random().toString(36).slice(2), file: f, label: "listing_agreement" as ListingDocLabel, customLabel: "", status: "pending" as const })),
+    ]);
+  }
+
+  function removeBulkListingFile(id: string) {
+    setBulkListingFiles(prev => prev.filter(f => f.id !== id));
+  }
+
+  function setBulkListingFileLabel(id: string, label: ListingDocLabel) {
+    setBulkListingFiles(prev => prev.map(f => f.id === id ? { ...f, label } : f));
+  }
+
+  function setBulkListingFileCustomLabel(id: string, customLabel: string) {
+    setBulkListingFiles(prev => prev.map(f => f.id === id ? { ...f, customLabel } : f));
+  }
+
+  async function handleBulkListingUploadSubmit() {
+    if (!bulkListingFiles.length) return;
+    const missingCustom = bulkListingFiles.filter(f => f.label === "other" && !f.customLabel.trim());
+    if (missingCustom.length) {
+      toast.error(`Please enter a custom label for ${missingCustom.length} file(s) marked as "Other"`);
+      return;
+    }
+    setBulkListingUploading(true);
+    setBulkListingFiles(prev => prev.map(f => ({ ...f, status: "uploading" as const })));
+    try {
+      const formData = new FormData();
+      for (const bf of bulkListingFiles) formData.append("files", bf.file);
+      const res = await fetch("/api/upload/listing-documents-bulk", { method: "POST", body: formData });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error ?? "Upload to S3 failed");
+      }
+      const { files: uploaded } = await res.json() as { files: Array<{ originalName: string; fileUrl: string; fileKey: string; mimeType: string; fileSize: number }> };
+      const fileMetas = bulkListingFiles.map((bf, i) => ({
+        fileName: bf.file.name,
+        fileUrl: uploaded[i].fileUrl,
+        fileKey: uploaded[i].fileKey,
+        mimeType: bf.file.type || null,
+        fileSize: bf.file.size,
+        label: bf.label,
+        customLabel: bf.label === "other" ? bf.customLabel.trim() : null,
+      }));
+      await bulkUploadListingDocs.mutateAsync({ listingId, files: fileMetas });
+      setBulkListingFiles(prev => prev.map(f => ({ ...f, status: "done" as const })));
+    } catch (err: any) {
+      setBulkListingFiles(prev => prev.map(f => ({ ...f, status: "error" as const, error: err.message ?? "Failed" })));
+      toast.error(err.message ?? "Bulk upload failed");
+    } finally {
+      setBulkListingUploading(false);
+    }
+  }
+
+  async function handleListingFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 16 * 1024 * 1024) { toast.error("File must be under 16MB"); return; }
+    if (docLabel === "other" && !docCustomLabel.trim()) { toast.error("Please enter a custom label"); return; }
+    setDocUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload/listing-document", { method: "POST", body: formData });
+      if (!res.ok) throw new Error("Upload failed");
+      const { fileUrl, fileKey } = await res.json();
+      await uploadListingDoc.mutateAsync({
+        listingId,
+        fileName: file.name,
+        fileUrl,
+        fileKey,
+        mimeType: file.type,
+        fileSize: file.size,
+        label: docLabel as any,
+        customLabel: docLabel === "other" ? docCustomLabel : null,
+      });
+    } catch (err: any) {
+      toast.error(err.message ?? "Upload failed");
+    } finally {
+      setDocUploading(false);
+      if (listingFileInputRef.current) listingFileInputRef.current.value = "";
+    }
+  }
+
+  function formatListingFileSize(bytes: number | null) {
+    if (!bytes) return "";
+    if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(0)} KB`;
+  }
+
+  function getListingDocLabel(doc: any) {
+    if (doc.label === "other" && doc.customLabel) return doc.customLabel;
+    return LISTING_DOCUMENT_LABELS.find(l => l.value === doc.label)?.label ?? doc.label;
+  }
 
   // ─── Render ───────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -766,6 +935,242 @@ export default function ListingDetail() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+
+      {/* ─── Documents Section ─────────────────────────────────────────────────── */}
+      <div className="mt-6 space-y-4">
+
+        {/* Bulk Upload Card */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <FileText className="h-4 w-4" /> Documents
+                {listingDocuments && listingDocuments.length > 0 && (
+                  <span className="text-xs font-normal text-muted-foreground">({listingDocuments.length})</span>
+                )}
+              </CardTitle>
+              {bulkListingFiles.length > 0 && (
+                <span className="text-xs text-muted-foreground">{bulkListingFiles.length} file{bulkListingFiles.length !== 1 ? "s" : ""} queued</span>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Drag-and-drop zone */}
+            <div
+              className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
+                bulkListingDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
+              }`}
+              onClick={() => bulkListingFileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setBulkListingDragOver(true); }}
+              onDragLeave={() => setBulkListingDragOver(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setBulkListingDragOver(false);
+                if (e.dataTransfer.files.length) addBulkListingFiles(e.dataTransfer.files);
+              }}
+            >
+              <input
+                ref={bulkListingFileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+                onChange={e => { if (e.target.files?.length) { addBulkListingFiles(e.target.files); e.target.value = ""; } }}
+              />
+              <FolderOpen className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+              <p className="text-sm font-medium text-foreground/70">
+                {bulkListingDragOver ? "Drop files here" : "Drag & drop files, or click to browse"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">PDF, Word, Excel, or images · up to 16 MB each · up to 20 files at once</p>
+            </div>
+
+            {/* Queued file list with per-file label picker */}
+            {bulkListingFiles.length > 0 && (
+              <div className="space-y-2">
+                {bulkListingFiles.map(bf => (
+                  <div key={bf.id} className="flex items-start gap-2 p-2 rounded-lg border bg-muted/20">
+                    <div className="mt-1 shrink-0">
+                      {bf.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                      {bf.status === "error" && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                      {bf.status === "uploading" && <Loader2 className="h-4 w-4 text-primary animate-spin" />}
+                      {bf.status === "pending" && <FileText className="h-4 w-4 text-muted-foreground" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{bf.file.name}</p>
+                      <p className="text-xs text-muted-foreground">{formatListingFileSize(bf.file.size)}</p>
+                      {bf.status === "error" && <p className="text-xs text-red-500 mt-0.5">{bf.error}</p>}
+                      {bf.status === "pending" && (
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <Select
+                            value={bf.label}
+                            onValueChange={val => setBulkListingFileLabel(bf.id, val as ListingDocLabel)}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-48">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LISTING_DOCUMENT_LABELS.map(l => (
+                                <SelectItem key={l.value} value={l.value} className="text-xs">{l.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {bf.label === "other" && (
+                            <Input
+                              className="h-7 text-xs w-44"
+                              placeholder="Custom label..."
+                              value={bf.customLabel}
+                              onChange={e => setBulkListingFileCustomLabel(bf.id, e.target.value)}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {bf.status === "pending" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 shrink-0 mt-0.5"
+                        onClick={() => removeBulkListingFile(bf.id)}
+                        title="Remove"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Action row */}
+                <div className="flex items-center justify-between pt-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setBulkListingFiles([])}
+                    disabled={bulkListingUploading}
+                  >
+                    Clear all
+                  </Button>
+                  <Button
+                    onClick={handleBulkListingUploadSubmit}
+                    disabled={bulkListingUploading || bulkListingFiles.every(f => f.status !== "pending")}
+                    size="sm"
+                  >
+                    {bulkListingUploading ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
+                    ) : (
+                      <><Upload className="h-4 w-4 mr-2" />Upload {bulkListingFiles.filter(f => f.status === "pending").length} File{bulkListingFiles.filter(f => f.status === "pending").length !== 1 ? "s" : ""}</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Single-file fallback */}
+            <details className="group">
+              <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                Upload a single file with a pre-set label
+              </summary>
+              <div className="mt-2 space-y-2 pl-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Document Type</Label>
+                    <Select value={docLabel} onValueChange={v => setDocLabel(v as ListingDocLabel)}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LISTING_DOCUMENT_LABELS.map(l => (
+                          <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {docLabel === "other" && (
+                    <div>
+                      <Label className="text-xs">Custom Label *</Label>
+                      <Input className="mt-1 h-8 text-xs" value={docCustomLabel} onChange={e => setDocCustomLabel(e.target.value)} placeholder="e.g. Survey, Title Commitment..." />
+                    </div>
+                  )}
+                </div>
+                <input ref={listingFileInputRef} type="file" className="hidden" onChange={handleListingFileUpload} accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls" />
+                <Button variant="outline" size="sm" onClick={() => listingFileInputRef.current?.click()} disabled={docUploading} className="border-dashed text-xs">
+                  <Upload className="h-3.5 w-3.5 mr-1.5" />
+                  {docUploading ? "Uploading..." : "Choose Single File"}
+                </Button>
+              </div>
+            </details>
+          </CardContent>
+        </Card>
+
+        {/* Document list */}
+        {listingDocuments && listingDocuments.length > 0 && (
+          <div className="space-y-2">
+            {listingDocuments.map((row: any) => {
+              const d = row.doc ?? row;
+              return (
+                <Card key={d.id}>
+                  <CardContent className="p-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        {renameListingDocId === d.id ? (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={renameListingDocName}
+                              onChange={e => setRenameListingDocName(e.target.value)}
+                              className="h-7 text-sm w-64"
+                              onKeyDown={e => { if (e.key === "Enter" && renameListingDocName.trim()) renameListingDoc.mutate({ id: d.id, fileName: renameListingDocName.trim() }); if (e.key === "Escape") setRenameListingDocId(null); }}
+                              autoFocus
+                            />
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { if (renameListingDocName.trim()) renameListingDoc.mutate({ id: d.id, fileName: renameListingDocName.trim() }); }}>Save</Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setRenameListingDocId(null)}>Cancel</Button>
+                          </div>
+                        ) : (
+                          <span className="text-sm font-medium truncate block">{d.fileName}</span>
+                        )}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs bg-primary/10 text-primary font-medium px-2 py-0.5 rounded">{getListingDocLabel(d)}</span>
+                          {d.fileSize && <span className="text-xs text-muted-foreground">{formatListingFileSize(d.fileSize)}</span>}
+                          <span className="text-xs text-muted-foreground">{safeFormat(d.createdAt, "MMM d, yyyy")}</span>
+                          {row.uploader && <span className="text-xs text-muted-foreground">by {row.uploader.name}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="sm" variant="ghost" title="View" onClick={() => window.open(d.fileUrl, "_blank")}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="ghost" title="Download" onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = d.fileUrl;
+                        a.download = d.fileName;
+                        a.target = "_blank";
+                        a.click();
+                      }}>
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      {isAdmin && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => { setRenameListingDocId(d.id); setRenameListingDocName(d.fileName); }}>
+                              <Pencil className="h-4 w-4 mr-2" /> Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600" onClick={() => deleteListingDoc.mutate({ id: d.id })}>
+                              <Trash2 className="h-4 w-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ─── Listing History ──────────────────────────────────────────────── */}

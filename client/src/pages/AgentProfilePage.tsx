@@ -1815,6 +1815,9 @@ export default function AgentProfilePage() {
                 requestConnMut.mutate({
                   contactId: reqConnSelectedContact.id,
                   requestedPipelineStatus: reqConnPipelineStatus as any,
+                  // Pass the agent's ID so the connection is created for the agent,
+                  // not for the currently logged-in admin/ISA.
+                  agentId: agentId,
                 });
               }}
             >

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, FunnelChart, Funnel, LabelList } from "recharts";
-import { UserCheck, Phone, CheckCircle2, TrendingUp } from "lucide-react";
+import { UserCheck, Phone, CheckCircle2, TrendingUp, CalendarCheck } from "lucide-react";
 import { fmtNum, DateRangeFilter, useDateRange, KpiCard, EmptyState, ExportButton, CHART_COLORS, PIPELINE_LABELS, Th, Td } from "./shared";
 
 export default function IsaPipelineTab() {
@@ -30,11 +30,13 @@ export default function IsaPipelineTab() {
       Contacts: i.totalContacts,
       "Active Clients": i.activeClients,
       Closed: i.closed,
+      Appointments: i.appointmentsSet,
     })),
     [report]
   );
 
   const sessions = report?.marketMatchSessions;
+  const totalAppointments = (report as any)?.totalAppointmentsSet ?? 0;
 
   return (
     <div className="space-y-6">
@@ -56,7 +58,24 @@ export default function IsaPipelineTab() {
         <KpiCard label="Total ISA Contacts" value={fmtNum((report?.isaPerformance ?? []).reduce((a: number, i: any) => a + i.totalContacts, 0))} icon={<UserCheck className="h-5 w-5" />} />
         <KpiCard label="Active Clients" value={fmtNum((report?.isaPerformance ?? []).reduce((a: number, i: any) => a + i.activeClients, 0))} icon={<CheckCircle2 className="h-5 w-5" />} />
         <KpiCard label="Closed from ISA" value={fmtNum((report?.isaPerformance ?? []).reduce((a: number, i: any) => a + i.closed, 0))} icon={<TrendingUp className="h-5 w-5" />} />
+        <KpiCard label="Appointments Set" value={fmtNum(totalAppointments)} sub="connections with appt" icon={<CalendarCheck className="h-5 w-5" />} />
+      </div>
+
+      {/* Secondary KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
         <KpiCard label="Market Match Sessions" value={fmtNum(sessions?.total ?? 0)} sub={`${sessions?.completed ?? 0} completed`} icon={<Phone className="h-5 w-5" />} />
+        <KpiCard
+          label="Avg Appt Rate"
+          value={(() => {
+            const perf = report?.isaPerformance ?? [];
+            const withConns = perf.filter((i: any) => i.totalConnections > 0);
+            if (withConns.length === 0) return "—";
+            const avg = Math.round(withConns.reduce((a: number, i: any) => a + i.appointmentRate, 0) / withConns.length);
+            return `${avg}%`;
+          })()}
+          sub="appointments / connections"
+          icon={<CalendarCheck className="h-5 w-5" />}
+        />
       </div>
 
       {/* ISA performance bar */}
@@ -73,6 +92,7 @@ export default function IsaPipelineTab() {
                 <Bar dataKey="Contacts" fill={CHART_COLORS[0]} radius={[3, 3, 0, 0]} />
                 <Bar dataKey="Active Clients" fill={CHART_COLORS[2]} radius={[3, 3, 0, 0]} />
                 <Bar dataKey="Closed" fill={CHART_COLORS[1]} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="Appointments" fill={CHART_COLORS[3]} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -118,6 +138,8 @@ export default function IsaPipelineTab() {
               data={(report?.isaPerformance ?? []).map((i: any) => ({
                 ISA: i.isaName, Contacts: i.totalContacts, "Active Clients": i.activeClients,
                 Closed: i.closed, Dead: i.dead, "Conversion Rate": `${i.conversionRate}%`,
+                "Appointments Set": i.appointmentsSet, "Total Connections": i.totalConnections,
+                "Appointment Rate": `${i.appointmentRate}%`,
               }))}
               filename="isa-report.csv"
             />
@@ -136,6 +158,8 @@ export default function IsaPipelineTab() {
                       <Th className="text-right">Closed</Th>
                       <Th className="text-right">Dead</Th>
                       <Th className="text-right">Conversion</Th>
+                      <Th className="text-right">Appts Set</Th>
+                      <Th className="text-right">Appt Rate</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -149,6 +173,14 @@ export default function IsaPipelineTab() {
                         <Td className="text-right">
                           <Badge variant={i.conversionRate >= 10 ? "default" : "secondary"} className="text-xs">
                             {i.conversionRate}%
+                          </Badge>
+                        </Td>
+                        <Td className="text-right">
+                          <span className="font-semibold text-emerald-600">{fmtNum(i.appointmentsSet)}</span>
+                        </Td>
+                        <Td className="text-right">
+                          <Badge variant={i.appointmentRate >= 20 ? "default" : "secondary"} className="text-xs">
+                            {i.appointmentRate}%
                           </Badge>
                         </Td>
                       </tr>

@@ -622,6 +622,27 @@ export async function getIsaReport(opts?: {
     .groupBy(contacts.assignedIsaId, users.name)
     .orderBy(sql`COUNT(*) DESC`);
 
+  // Appointment stats: count connections where appointmentSet=true, grouped by the contact's assigned ISA
+  const connWhere = and(
+    dateFrom ? gte(agentConnections.createdAt, dateFrom) : undefined,
+    dateTo ? lte(agentConnections.createdAt, dateTo) : undefined,
+    isaId ? eq(contacts.assignedIsaId, isaId) : undefined,
+  );
+  const appointmentRows = await db
+    .select({
+      isaId: contacts.assignedIsaId,
+      totalConnections: sql<number>`COUNT(*)`,
+      appointmentsSet: sql<number>`SUM(CASE WHEN ${agentConnections.appointmentSet} = 1 THEN 1 ELSE 0 END)`,
+    })
+    .from(agentConnections)
+    .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+    .where(and(connWhere, isNotNull(contacts.assignedIsaId)))
+    .groupBy(contacts.assignedIsaId);
+  const appointmentMap = new Map(
+    appointmentRows.map((r) => [r.isaId, { totalConnections: Number(r.totalConnections), appointmentsSet: Number(r.appointmentsSet) }])
+  );
+  const totalAppointmentsSet = appointmentRows.reduce((sum, r) => sum + Number(r.appointmentsSet), 0);
+
   const sessionWhere = and(
     dateFrom ? gte(marketMatchSessions.startedAt, dateFrom) : undefined,
     dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined,
@@ -643,16 +664,26 @@ export async function getIsaReport(opts?: {
 
   return {
     statusFunnel: order.map((s) => ({ status: s, count: statusMap.get(s) ?? 0 })),
-    isaPerformance: isaPerf.map((i) => ({
-      isaId: i.isaId,
-      isaName: i.isaName ?? "Unknown",
-      totalContacts: Number(i.totalContacts),
-      activeClients: Number(i.activeClients),
-      closed: Number(i.closed),
-      dead: Number(i.dead),
-      conversionRate: Number(i.totalContacts) > 0
-        ? Math.round((Number(i.closed) / Number(i.totalContacts)) * 100) : 0,
-    })),
+    isaPerformance: isaPerf.map((i) => {
+      const appt = appointmentMap.get(i.isaId ?? 0);
+      const appointmentsSet = appt?.appointmentsSet ?? 0;
+      const totalConnections = appt?.totalConnections ?? 0;
+      return {
+        isaId: i.isaId,
+        isaName: i.isaName ?? "Unknown",
+        totalContacts: Number(i.totalContacts),
+        activeClients: Number(i.activeClients),
+        closed: Number(i.closed),
+        dead: Number(i.dead),
+        conversionRate: Number(i.totalContacts) > 0
+          ? Math.round((Number(i.closed) / Number(i.totalContacts)) * 100) : 0,
+        appointmentsSet,
+        totalConnections,
+        appointmentRate: totalConnections > 0
+          ? Math.round((appointmentsSet / totalConnections) * 100) : 0,
+      };
+    }),
+    totalAppointmentsSet,
     marketMatchSessions: {
       total: Number(sessionSummary.total),
       completed: Number(sessionSummary.completed),

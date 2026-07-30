@@ -44,6 +44,8 @@ import { webhooksRouter } from "./routers/webhooks";
 import { ghlSyncRouter } from "./routers/ghlSync";
 import { pipelineEmailRouter } from "./routers/pipelineEmail";
 import { permissionsRouter } from "./routers/permissions";
+import { emailBehaviorsRouter } from "./routers/emailBehaviors";
+import { aircallRouter } from "./routers/aircall";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -231,6 +233,8 @@ export const appRouter = router({
   ghlSync: ghlSyncRouter,
   pipelineEmail: pipelineEmailRouter,
   permissions: permissionsRouter,
+  emailBehaviors: emailBehaviorsRouter,
+  aircall: aircallRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

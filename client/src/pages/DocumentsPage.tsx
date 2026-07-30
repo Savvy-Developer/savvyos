@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { Upload, FileText, ExternalLink, Trash2 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 
-const DOC_TYPES = ["contract","disclosure","addendum","inspection","appraisal","title","closing","other"];
+const DOC_TYPES = ["contract","disclosure","addendum","inspection","title","closing","other"];
 
 export default function DocumentsPage() {
   const [open, setOpen] = useState(false);

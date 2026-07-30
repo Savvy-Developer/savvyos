@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRoute, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -14,9 +14,10 @@ import { toast } from "sonner";
 import {
   ArrowLeft, User, Phone, Mail, MapPin, DollarSign, Home, Edit2, Save, X,
   MessageSquare, CheckSquare, FileText, Plus, Calendar, Tag, Mic,
-  PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink
+  PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink, Inbox, Upload
 } from "lucide-react";
 import SmartPlanContactTab from "@/components/SmartPlanContactTab";
+import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
@@ -49,8 +50,14 @@ export default function AgentConnectionDetail() {
   const [editingBuyBox, setEditingBuyBox] = useState(false);
   const [editingStage, setEditingStage] = useState(false);
   const [addCommDialog, setAddCommDialog] = useState(false);
+  const [postCommStagePrompt, setPostCommStagePrompt] = useState(false);
   const [addTaskDialog, setAddTaskDialog] = useState(false);
   const [sendEmailOpen, setSendEmailOpen] = useState(false);
+  const [uploadDocDialog, setUploadDocDialog] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadForm, setUploadForm] = useState({ documentType: "other", title: "" });
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [buyBoxForm, setBuyBoxForm] = useState<Record<string, any>>({});
   const [stageForm, setStageForm] = useState({ pipelineStatus: "", followUpDate: "", agentNotes: "" });
@@ -84,6 +91,10 @@ export default function AgentConnectionDetail() {
       toast.success("Communication logged");
       setAddCommDialog(false);
       setCommForm({ type: "note", subject: "", body: "", direction: "outbound" });
+      // If the connection is still at "New Lead", prompt the agent to update the stage
+      if ((conn as any)?.connection?.pipelineStatus === "new_lead") {
+        setPostCommStagePrompt(true);
+      }
     },
     onError: (e) => toast.error(e.message),
   });
@@ -97,6 +108,61 @@ export default function AgentConnectionDetail() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const getUploadUrl = trpc.documents.getUploadUrl.useMutation();
+  const saveDoc = trpc.documents.save.useMutation({
+    onSuccess: () => {
+      utils.documents.list.invalidate({ contactId: conn?.connection?.contactId });
+      toast.success("Document uploaded");
+      setUploadDocDialog(false);
+      setUploadFile(null);
+      setUploadForm({ documentType: "other", title: "" });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const deleteDoc = trpc.documents.delete.useMutation({
+    onSuccess: () => {
+      utils.documents.list.invalidate({ contactId: conn?.connection?.contactId });
+      toast.success("Document deleted");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleDocUpload = async () => {
+    if (!uploadFile || !conn?.connection?.contactId) return;
+    setUploading(true);
+    try {
+      const { fileKey } = await getUploadUrl.mutateAsync({
+        fileName: uploadFile.name,
+        mimeType: uploadFile.type,
+        fileSize: uploadFile.size,
+        documentType: uploadForm.documentType as any,
+        relatedContactId: conn.connection.contactId,
+      });
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+      formData.append("fileKey", fileKey);
+      const uploadRes = await fetch("/api/documents/upload", { method: "POST", body: formData });
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        throw new Error(errData.error ?? "Upload failed");
+      }
+      const { url: fileUrl } = await uploadRes.json();
+      await saveDoc.mutateAsync({
+        name: uploadForm.title || uploadFile.name,
+        documentType: uploadForm.documentType as any,
+        fileUrl,
+        fileKey,
+        mimeType: uploadFile.type,
+        fileSize: uploadFile.size,
+        relatedContactId: conn.connection.contactId,
+      });
+    } catch (e: any) {
+      toast.error(e.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const completeTask = trpc.tasks.complete.useMutation({
     onSuccess: () => { utils.tasks.list.invalidate(); toast.success("Task completed"); },
@@ -410,12 +476,13 @@ export default function AgentConnectionDetail() {
         {/* Right: Tabs for Communications, Tasks, Documents */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="communications">
-            <TabsList className="mb-4 flex-wrap">
+            <TabsList className="mb-4 flex-wrap h-auto gap-y-1 w-full">
               <TabsTrigger value="communications">Communications ({comms?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="tasks">Tasks ({tasks?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="transactions">Transactions ({contactTransactions?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="documents">Documents ({docs?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
+              <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
             </TabsList>
 
             {/* Communications Tab */}
@@ -549,7 +616,7 @@ export default function AgentConnectionDetail() {
             {/* Documents Tab */}
             <TabsContent value="documents" className="space-y-3">
               <div className="flex justify-end">
-                <Button size="sm" onClick={() => navigate("/documents")}>
+                <Button size="sm" onClick={() => setUploadDocDialog(true)}>
                   <Plus className="h-4 w-4 mr-1" /> Upload Document
                 </Button>
               </div>
@@ -561,22 +628,35 @@ export default function AgentConnectionDetail() {
               ) : (
                 <div className="space-y-2">
                   {docs.map((d: any) => {
-                    const doc = d.doc ?? d;
+                    const doc = d.document ?? d.doc ?? d;
                     return (
                       <div key={doc.id} className="rounded-xl border bg-card p-4 flex items-center gap-3">
                         <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{doc.fileName}</p>
+                          <p className="font-medium text-sm truncate">{doc.name ?? doc.fileName}</p>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <Badge variant="outline" className="text-xs">{doc.documentType}</Badge>
+                            <Badge variant="outline" className="text-xs capitalize">{doc.documentType?.replace("_", " ")}</Badge>
                             <span className="text-xs text-muted-foreground">{doc.createdAt ? safeFormat(doc.createdAt, "MMM d, yyyy") : ""}</span>
                           </div>
                         </div>
-                        {doc.fileUrl && (
-                          <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
-                            <Button variant="outline" size="sm">View</Button>
-                          </a>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {doc.fileUrl && (
+                            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
+                              <Button variant="outline" size="sm">View</Button>
+                            </a>
+                          )}
+                          {user?.role === "admin" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => { if (confirm("Delete this document?")) deleteDoc.mutate({ id: doc.id }); }}
+                              disabled={deleteDoc.isPending}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -590,6 +670,15 @@ export default function AgentConnectionDetail() {
                 <SmartPlanContactTab contactId={conn.connection.contactId} />
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-8">No contact linked.</p>
+              )}
+            </TabsContent>
+
+            {/* Email Behaviors Tab */}
+            <TabsContent value="email-behaviors">
+              {conn?.connection?.id ? (
+                <EmailBehaviorsTab connectionId={conn.connection.id} />
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-8">No connection linked.</p>
               )}
             </TabsContent>
           </Tabs>
@@ -686,6 +775,84 @@ export default function AgentConnectionDetail() {
               disabled={!commForm.body || addComm.isPending}
             >
               {addComm.isPending ? "Logging..." : "Log Communication"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Document Dialog */}
+      <Dialog open={uploadDocDialog} onOpenChange={setUploadDocDialog}>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>File *</Label>
+              <div
+                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary transition-colors mt-1"
+                onClick={() => fileRef.current?.click()}
+              >
+                {uploadFile ? (
+                  <div>
+                    <FileText className="h-6 w-6 mx-auto mb-1 text-primary" />
+                    <p className="text-sm font-medium">{uploadFile.name}</p>
+                    <p className="text-xs text-muted-foreground">{uploadFile.size > 1024 * 1024 ? `${(uploadFile.size / 1024 / 1024).toFixed(1)} MB` : `${(uploadFile.size / 1024).toFixed(0)} KB`}</p>
+                  </div>
+                ) : (
+                  <div>
+                    <Upload className="h-6 w-6 mx-auto mb-1 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Click to select file</p>
+                  </div>
+                )}
+              </div>
+              <input ref={fileRef} type="file" className="hidden" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
+            </div>
+            <div>
+              <Label>Title (optional)</Label>
+              <Input value={uploadForm.title} onChange={e => setUploadForm({ ...uploadForm, title: e.target.value })} placeholder="Defaults to filename" className="mt-1" />
+            </div>
+            <div>
+              <Label>Document Type</Label>
+              <Select value={uploadForm.documentType} onValueChange={v => setUploadForm({ ...uploadForm, documentType: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="contract">Contract</SelectItem>
+                  <SelectItem value="disclosure">Disclosure</SelectItem>
+                  <SelectItem value="addendum">Addendum</SelectItem>
+                  <SelectItem value="inspection">Inspection</SelectItem>
+                  <SelectItem value="title">Title</SelectItem>
+                  <SelectItem value="closing">Closing</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setUploadDocDialog(false); setUploadFile(null); }}>Cancel</Button>
+            <Button onClick={handleDocUpload} disabled={!uploadFile || uploading}>
+              {uploading ? "Uploading..." : "Upload"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-Communication: Update Stage Prompt */}
+      <Dialog open={postCommStagePrompt} onOpenChange={setPostCommStagePrompt}>
+        <DialogContent className="max-w-sm w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Update Pipeline Stage?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            This connection is still marked as <span className="font-semibold text-foreground">New Lead</span>. Now that you've logged a communication, would you like to update the pipeline stage?
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPostCommStagePrompt(false)}>No, Keep as New Lead</Button>
+            <Button
+              onClick={() => {
+                setPostCommStagePrompt(false);
+                startEditStage();
+              }}
+            >
+              Yes, Update Stage
             </Button>
           </DialogFooter>
         </DialogContent>

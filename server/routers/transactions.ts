@@ -56,6 +56,8 @@ const transactionExportFiltersSchema = z.object({
   flagNoClosingDate: z.boolean().optional(),
   flagPastClosingDate: z.boolean().optional(),
   flagPayoutIntegrity: z.boolean().optional(),
+  groupLeaderId: z.number().optional(),
+  includeLeaderStats: z.boolean().optional(),
   leadSourceId: z.number().optional(),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
   sortBy: z.enum(["contact", "property", "agent", "type", "price", "gci", "status", "contract_date", "closing_date"]).default("closing_date"),
@@ -76,6 +78,8 @@ export const transactionsRouter = router({
       flagNoClosingDate: z.boolean().optional(),
       flagPastClosingDate: z.boolean().optional(),
       flagPayoutIntegrity: z.boolean().optional(),
+      groupLeaderId: z.number().optional(),
+      includeLeaderStats: z.boolean().optional(),
       leadSourceId: z.number().optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
@@ -84,7 +88,39 @@ export const transactionsRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       const agentId = ctx.user.role === "agent" ? ctx.user.id : input.agentId;
-      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date");
+      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date", input.groupLeaderId, input.includeLeaderStats);
+    }),
+
+  byContact: protectedProcedure
+    .input(z.object({ contactId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { rows: [] };
+      const txParentLS = aliasedTable(leadSources, 'txParentLS');
+      const rows = await db
+        .select({
+          transaction: transactions,
+          agent: users,
+          contact: contacts,
+          property: properties,
+          leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
+          parentLeadSource: { id: txParentLS.id, name: txParentLS.name },
+        })
+        .from(transactions)
+        .leftJoin(users, eq(transactions.agentId, users.id))
+        .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
+        .leftJoin(properties, eq(transactions.propertyId, properties.id))
+        .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+        .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
+        .where(
+          or(
+            eq(transactions.primaryContactId, input.contactId),
+            eq(transactions.buyerContactId, input.contactId),
+            eq(transactions.sellerContactId, input.contactId),
+          )
+        )
+        .orderBy(desc(transactions.closingDate));
+      return { rows };
     }),
 
   exportPreview: adminProcedure

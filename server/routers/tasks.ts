@@ -6,6 +6,20 @@ import { sendEmailAlert } from "../_core/emailAlerts";
 import { tasks as tasksTable } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
+/**
+ * Parse a due-date string from the client into a Date object.
+ * Date-only strings like "2026-07-30" are treated as noon UTC so that
+ * timezone offsets (e.g. US/Mountain = UTC-6) never roll the stored value
+ * back to the previous calendar day.
+ */
+function parseDueDate(s: string): Date {
+  // Pure date "YYYY-MM-DD" → store as noon UTC
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return new Date(`${s}T12:00:00Z`);
+  }
+  return new Date(s);
+}
+
 export const tasksRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -21,6 +35,7 @@ export const tasksRouter = router({
       relatedTransactionId: z.number().optional(),
       dueDateFrom: z.string().optional(),
       dueDateTo: z.string().optional(),
+      overdue: z.boolean().optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
     }))
@@ -35,15 +50,19 @@ export const tasksRouter = router({
         input.limit,
         input.dueDateFrom ? new Date(input.dueDateFrom) : undefined,
         input.dueDateTo ? new Date(input.dueDateTo) : undefined,
+        input.overdue,
       );
     }),
 
   listAll: protectedProcedure
     .input(z.object({
       assignedToId: z.number().optional(),
+      groupLeaderId: z.number().optional(),
+      includeLeaderStats: z.boolean().optional(),
       status: z.string().optional(),
       createdFrom: z.string().optional(),
       createdTo: z.string().optional(),
+      overdue: z.boolean().optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(50),
     }).optional())
@@ -51,9 +70,12 @@ export const tasksRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return getAllTasks({
         assignedToId: input?.assignedToId,
+        groupLeaderId: input?.groupLeaderId,
+        includeLeaderStats: input?.includeLeaderStats,
         status: input?.status,
         createdFrom: input?.createdFrom ? new Date(input.createdFrom) : undefined,
         createdTo: input?.createdTo ? new Date(input.createdTo) : undefined,
+        overdue: input?.overdue,
         page: input?.page ?? 1,
         limit: input?.limit ?? 50,
       });
@@ -76,7 +98,7 @@ export const tasksRouter = router({
       const id = await createTask({
         ...input,
         createdById: ctx.user.id,
-        dueDate: input.dueDate ? new Date(input.dueDate) : null,
+        dueDate: input.dueDate ? parseDueDate(input.dueDate) : null,
       } as any);
 
       // Send email alert to assigned user
@@ -84,7 +106,7 @@ export const tasksRouter = router({
         try {
           await sendEmailAlert("task_assigned", input.assignedToId, {
             taskTitle: input.title,
-            dueDate: input.dueDate ? new Date(input.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : undefined,
+            dueDate: input.dueDate ? parseDueDate(input.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }) : undefined,
           });
         } catch (_) {}
       }
@@ -116,7 +138,7 @@ export const tasksRouter = router({
       const { dueDate, completedAt, ...rest } = input.data;
       const updateData: any = {
         ...rest,
-        dueDate: dueDate ? new Date(dueDate) : undefined,
+        dueDate: dueDate ? parseDueDate(dueDate) : undefined,
         completedAt: completedAt ? new Date(completedAt) : undefined,
       };
       if (input.data.status === "completed" && !completedAt) {
