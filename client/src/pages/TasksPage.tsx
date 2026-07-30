@@ -187,7 +187,7 @@ export default function TasksPage() {
       id: editTask.id,
       data: {
         status: editForm.status as any,
-        dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : null,
+        dueDate: editForm.dueDate ? `${editForm.dueDate}T12:00:00` : null,
         priority: editForm.priority as any,
         description: editForm.description || null,
       },
@@ -528,7 +528,7 @@ export default function TasksPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => create.mutate({ title: form.title, description: form.description || null, priority: form.priority, taskType: form.taskType, dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null, assignedToId: userId ?? null })} disabled={!form.title || create.isPending}>
+            <Button onClick={() => create.mutate({ title: form.title, description: form.description || null, priority: form.priority, taskType: form.taskType, dueDate: form.dueDate ? `${form.dueDate}T12:00:00` : null, assignedToId: userId ?? null })} disabled={!form.title || create.isPending}>
               {create.isPending ? "Creating..." : "Create Task"}
             </Button>
           </DialogFooter>

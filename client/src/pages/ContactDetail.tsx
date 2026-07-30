@@ -468,19 +468,26 @@ export default function ContactDetail() {
     if (editForm.phone && !isValidPhone(editForm.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
     if (editForm.secondaryPhone && !isValidPhone(editForm.secondaryPhone)) { toast.error("Please enter a valid secondary phone number (9+ digits)"); return; }
     if (editForm.spousePhone && !isValidPhone(editForm.spousePhone)) { toast.error("Please enter a valid spouse phone number (9+ digits)"); return; }
-    // Hard block: email or phone matches a DIFFERENT contact
-    try {
-      const dup = await checkDupMut.mutateAsync({
-        email: editForm.email || undefined,
-        phone: editForm.phone || undefined,
-        excludeId: contactId,
-      });
-      if (dup.emailPhoneMatches && dup.emailPhoneMatches.length > 0) {
-        const m = dup.emailPhoneMatches[0];
-        toast.error(`This email or phone already belongs to ${m.firstName} ${m.lastName}. Please use a unique email and phone.`);
-        return;
-      }
-    } catch { /* non-blocking — proceed if check fails */ }
+    // Hard block: email or phone matches a DIFFERENT contact.
+    // Only check fields that actually changed — if the user didn't edit the
+    // email or phone, there is no need to re-validate them (and doing so would
+    // incorrectly block saves when a known duplicate shares the same digits).
+    const emailChanged = editForm.email !== (contact.email ?? "");
+    const phoneChanged = editForm.phone !== (contact.phone ?? "");
+    if (emailChanged || phoneChanged) {
+      try {
+        const dup = await checkDupMut.mutateAsync({
+          email: emailChanged ? (editForm.email || undefined) : undefined,
+          phone: phoneChanged ? (editForm.phone || undefined) : undefined,
+          excludeId: contactId,
+        });
+        if (dup.emailPhoneMatches && dup.emailPhoneMatches.length > 0) {
+          const m = dup.emailPhoneMatches[0];
+          toast.error(`This email or phone already belongs to ${m.firstName} ${m.lastName}. Please use a unique email and phone.`);
+          return;
+        }
+      } catch { /* non-blocking — proceed if check fails */ }
+    }
     updateContact.mutate({
       id: contactId,
       data: {

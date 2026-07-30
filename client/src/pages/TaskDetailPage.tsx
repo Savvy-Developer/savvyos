@@ -117,7 +117,7 @@ export default function TaskDetailPage() {
       id: task.id,
       data: {
         status: editForm.status as any,
-        dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : null,
+        dueDate: editForm.dueDate ? `${editForm.dueDate}T12:00:00` : null,
         priority: editForm.priority as any,
         description: editForm.description || null,
       },

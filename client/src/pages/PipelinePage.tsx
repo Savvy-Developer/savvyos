@@ -584,11 +584,11 @@ export default function PipelinePage() {
               ) : (
                 connections.map((row) => {
                   const { connection, contact, agent } = row;
-                  // Aging indicator
+                  // Aging indicator — use agingUpdatedAt (reset only on agent-meaningful
+                  // activity) so admin/ISA edits don't suppress the idle/stale badge.
                   const now = Date.now();
-                  const lastTouched = connection.updatedAt
-                    ? new Date(connection.updatedAt).getTime()
-                    : new Date(connection.createdAt).getTime();
+                  const agingTs = (connection as any).agingUpdatedAt ?? connection.updatedAt ?? connection.createdAt;
+                  const lastTouched = new Date(agingTs).getTime();
                   const daysSinceTouch = Math.floor((now - lastTouched) / (1000 * 60 * 60 * 24));
                   const isTerminal = ['closed', 'dead'].includes(connection.pipelineStatus ?? '');
                   const isUnassigned = !connection.agentId;

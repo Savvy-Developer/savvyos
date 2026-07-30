@@ -447,7 +447,7 @@ export default function ISADashboard() {
                 id: editTask.id,
                 data: {
                   status: editTaskForm.status as any,
-                  dueDate: editTaskForm.dueDate ? new Date(editTaskForm.dueDate).toISOString() : null,
+                  dueDate: editTaskForm.dueDate ? `${editTaskForm.dueDate}T12:00:00` : null,
                   priority: editTaskForm.priority as any,
                   description: editTaskForm.description || null,
                 },
