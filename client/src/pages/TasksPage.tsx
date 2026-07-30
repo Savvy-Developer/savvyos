@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
@@ -269,17 +270,17 @@ export default function TasksPage() {
                   {showAllTasks && (
                   <div>
                     <Label className="text-xs">Assigned To</Label>
-                    <Select value={assignedFilter || "all"} onValueChange={(v) => { setAssignedFilter(v === "all" ? "" : v); resetPage(); }}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="All users" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Users</SelectItem>
-                        {(teamMembers ?? []).map((u) => (
-                          <SelectItem key={u.id} value={String(u.id)}>
-                            {u.name ?? u.email ?? `User #${u.id}`} ({u.role})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      className="mt-1 w-full"
+                      options={[
+                        { value: "all", label: "All Users" },
+                        ...(teamMembers ?? []).map((u: any) => ({ value: String(u.id), label: `${u.name ?? u.email ?? `User #${u.id}`} (${u.role})` }))
+                      ]}
+                      value={assignedFilter || "all"}
+                      onValueChange={(v) => { setAssignedFilter(v === "all" ? "" : v); resetPage(); }}
+                      placeholder="All users"
+                      searchPlaceholder="Search users…"
+                    />
                   </div>
                   )}
                   <div>

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
@@ -205,14 +206,14 @@ function TaskItem({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <Label className="text-xs">Owner</Label>
-              <Select value={editForm.ownerId} onValueChange={v => setEditForm(f => ({ ...f, ownerId: v }))}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {adminUsers.map((u: any) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="w-full h-8 text-xs"
+                options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+                value={editForm.ownerId}
+                onValueChange={v => setEditForm(f => ({ ...f, ownerId: v }))}
+                placeholder="Select owner"
+                searchPlaceholder="Search users…"
+              />
             </div>
             <div>
               <Label className="text-xs">Priority</Label>
@@ -577,14 +578,14 @@ export default function ProjectDetailPage() {
               </div>
               <div>
                 <Label>Owner</Label>
-                <Select value={editForm.ownerId} onValueChange={v => setEditForm((f: any) => ({ ...f, ownerId: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {(adminUsers as any[]).map((u: any) => (
-                      <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  className="w-full"
+                  options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+                  value={editForm.ownerId}
+                  onValueChange={v => setEditForm((f: any) => ({ ...f, ownerId: v }))}
+                  placeholder="Select owner"
+                  searchPlaceholder="Search users…"
+                />
               </div>
               <div>
                 <Label>Due Date</Label>
@@ -692,18 +693,18 @@ export default function ProjectDetailPage() {
 
         {showAddCollab && (
           <div className="flex gap-2 mb-3">
-            <Select value={collabUserId} onValueChange={setCollabUserId}>
-              <SelectTrigger className="h-8 text-sm flex-1">
-                <SelectValue placeholder="Select person..." />
-              </SelectTrigger>
-              <SelectContent>
-                {(adminUsers as any[])
-                  .filter((u: any) => !(collaborators as any[]).some((c: any) => c.userId === u.id) && u.id !== project.ownerId)
-                  .map((u: any) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="h-8 text-sm flex-1"
+              options={(adminUsers as any[])
+                .filter((u: any) => !(collaborators as any[]).some((c: any) => c.userId === u.id) && u.id !== project.ownerId)
+                .map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+              value={collabUserId}
+              onValueChange={setCollabUserId}
+              placeholder="Select person…"
+              searchPlaceholder="Search users…"
+              clearable
+              clearValue=""
+            />
             <Button
               size="sm"
               className="h-8"
@@ -791,14 +792,14 @@ export default function ProjectDetailPage() {
                 </div>
                 <div>
                   <Label className="text-xs">Owner *</Label>
-                  <Select value={taskForm.ownerId} onValueChange={v => setTaskForm(f => ({ ...f, ownerId: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Assign to..." /></SelectTrigger>
-                    <SelectContent>
-                      {(adminUsers as any[]).map((u: any) => (
-                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    className="w-full"
+                    options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+                    value={taskForm.ownerId}
+                    onValueChange={v => setTaskForm(f => ({ ...f, ownerId: v }))}
+                    placeholder="Assign to…"
+                    searchPlaceholder="Search users…"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Due Date *</Label>

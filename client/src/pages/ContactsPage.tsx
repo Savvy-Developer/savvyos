@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
@@ -364,18 +365,18 @@ export default function ContactsPage() {
           />
         </div>
         {(user?.role === "admin" || user?.role === "isa") && (
-          <Select value={isaFilter} onValueChange={handleIsaFilterChange}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="Filter by ISA" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All ISAs</SelectItem>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-              {(isas as any[]).map((u: any) => (
-                <SelectItem key={u.id} value={String(u.id)}>{u.name ?? `ISA #${u.id}`}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="w-full sm:w-48"
+            options={[
+              { value: "all", label: "All ISAs" },
+              { value: "unassigned", label: "Unassigned" },
+              ...(isas as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `ISA #${u.id}` }))
+            ]}
+            value={isaFilter}
+            onValueChange={handleIsaFilterChange}
+            placeholder="Filter by ISA"
+            searchPlaceholder="Search ISAs…"
+          />
         )}
         {(user?.role === "admin" || user?.role === "isa") && (
           <Select value={isaStatusFilter} onValueChange={handleIsaStatusFilterChange}>
@@ -457,45 +458,44 @@ export default function ContactsPage() {
             </div>
           </PopoverContent>
         </Popover>
-        <Select value={leadSourceFilter} onValueChange={handleLeadSourceFilterChange}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Filter by Lead Source" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Lead Sources</SelectItem>
-            {(() => {
+<SearchableSelect
+          className="w-full sm:w-48"
+          options={[
+            { value: "all", label: "All Lead Sources" },
+            ...(() => {
               const allSources = leadSourcesData as any[];
               const topLevel = allSources.filter((s: any) => !s.ls.parentId);
               const topLevelIdSet = new Set(topLevel.map((s: any) => s.ls.id));
               const secondLevel = allSources.filter((s: any) => s.ls.parentId && topLevelIdSet.has(s.ls.parentId));
-              const items: React.ReactNode[] = [];
+              const secondLevelIdSet = new Set(secondLevel.map((s: any) => s.ls.id));
+              const thirdLevel = allSources.filter((s: any) => s.ls.parentId && secondLevelIdSet.has(s.ls.parentId));
+              const flat: { value: string; label: string; description?: string }[] = [];
               topLevel.forEach((p: any) => {
                 const subs = secondLevel.filter((c: any) => c.ls.parentId === p.ls.id);
                 if (subs.length > 0) {
-                  items.push(
-                    <SelectGroup key={`group-${p.ls.id}`}>
-                      <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1.5 cursor-pointer hover:bg-accent rounded-sm"
-                        onClick={() => handleLeadSourceFilterChange(String(p.ls.id))}
-                      >
-                        {p.ls.name}
-                      </SelectLabel>
-                      {subs.map((sub: any) => (
-                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6">
-                          {sub.ls.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  );
+                  subs.forEach((sub: any) => {
+                    const grandkids = thirdLevel.filter((g: any) => g.ls.parentId === sub.ls.id);
+                    if (grandkids.length > 0) {
+                      flat.push({ value: String(sub.ls.id), label: sub.ls.name, description: p.ls.name });
+                      grandkids.forEach((gc: any) => {
+                        flat.push({ value: String(gc.ls.id), label: gc.ls.name, description: `${p.ls.name} > ${sub.ls.name}` });
+                      });
+                    } else {
+                      flat.push({ value: String(sub.ls.id), label: sub.ls.name, description: p.ls.name });
+                    }
+                  });
                 } else {
-                  items.push(
-                    <SelectItem key={p.ls.id} value={String(p.ls.id)}>{p.ls.name}</SelectItem>
-                  );
+                  flat.push({ value: String(p.ls.id), label: p.ls.name });
                 }
               });
-              return items;
-            })()}
-          </SelectContent>
-        </Select>
+              return flat;
+            })()
+          ]}
+          value={leadSourceFilter}
+          onValueChange={handleLeadSourceFilterChange}
+          placeholder="Filter by Lead Source"
+          searchPlaceholder="Search lead sources…"
+        />
       </div>
 
       {/* Bulk action bar */}
@@ -759,15 +759,17 @@ export default function ContactsPage() {
             </p>
             <div>
               <Label>ISA</Label>
-              <Select value={bulkIsaId} onValueChange={setBulkIsaId}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select ISA..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Unassign (remove ISA)</SelectItem>
-                  {(isas as any[]).map((u: any) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name ?? `ISA #${u.id}`}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={[
+                  { value: "none", label: "Unassign (remove ISA)" },
+                  ...(isas as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `ISA #${u.id}` }))
+                ]}
+                value={bulkIsaId}
+                onValueChange={setBulkIsaId}
+                placeholder="Select ISA…"
+                searchPlaceholder="Search ISAs…"
+              />
             </div>
             {bulkIsaId !== "none" && (
               <p className="text-xs text-muted-foreground bg-muted/40 rounded p-2">
@@ -830,15 +832,17 @@ export default function ContactsPage() {
               {(user?.role === "admin" || user?.role === "isa") && (
                 <div>
                   <Label>Assign to ISA <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Select value={form.assignedIsaId || "none"} onValueChange={v => setForm(f => ({ ...f, assignedIsaId: v === "none" ? "" : v }))}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="No ISA assigned" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No ISA assigned</SelectItem>
-                      {(isas as any[]).map((u: any) => (
-                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    className="mt-1 w-full"
+                    options={[
+                      { value: "none", label: "No ISA assigned" },
+                      ...(isas as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `ISA #${u.id}` }))
+                    ]}
+                    value={form.assignedIsaId || "none"}
+                    onValueChange={v => setForm(f => ({ ...f, assignedIsaId: v === "none" ? "" : v }))}
+                    placeholder="No ISA assigned"
+                    searchPlaceholder="Search ISAs…"
+                  />
                 </div>
               )}
               <div>
@@ -914,14 +918,14 @@ export default function ContactsPage() {
           <div className="space-y-3 py-2">
             <div>
               <Label>Agent *</Label>
-              <Select value={assignForm.agentId || "none"} onValueChange={v => setAssignForm(f => ({ ...f, agentId: v === "none" ? "" : v }))}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select agent..." /></SelectTrigger>
-                <SelectContent>
-                  {(agents as any[]).map((a: any) => (
-                    <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={(agents as any[]).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))}
+                value={assignForm.agentId || ""}
+                onValueChange={v => setAssignForm(f => ({ ...f, agentId: v }))}
+                placeholder="Select agent…"
+                searchPlaceholder="Search agents…"
+              />
             </div>
             <div>
               <Label>Pipeline Stage</Label>

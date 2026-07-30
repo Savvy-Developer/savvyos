@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Card,
   CardContent,
@@ -253,22 +254,16 @@ export default function GroupsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Group Leader <span className="text-muted-foreground text-xs">(Agents only)</span></Label>
-              <Select value={form.leaderId} onValueChange={(v) => setForm((f) => ({ ...f, leaderId: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a leader (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableLeadersForAdd.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">No available agents</div>
-                  ) : (
-                    availableLeadersForAdd.map((u) => (
-                      <SelectItem key={u.id} value={u.id.toString()}>
-                        {u.name ?? u.email ?? `Agent #${u.id}`}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="w-full"
+                options={availableLeadersForAdd.map((u) => ({ value: u.id.toString(), label: u.name ?? u.email ?? `Agent #${u.id}` }))}
+                value={form.leaderId}
+                onValueChange={(v) => setForm((f) => ({ ...f, leaderId: v }))}
+                placeholder="Select a leader (optional)"
+                searchPlaceholder="Search agents…"
+                clearable
+                clearValue=""
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Leader Commission Split (%)</Label>
@@ -321,19 +316,14 @@ export default function GroupsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Group Leader <span className="text-muted-foreground text-xs">(Agents only)</span></Label>
-              <Select value={form.leaderId} onValueChange={(v) => setForm((f) => ({ ...f, leaderId: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a leader (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {availableLeadersForEdit.map((u) => (
-                    <SelectItem key={u.id} value={u.id.toString()}>
-                      {u.name ?? u.email ?? `Agent #${u.id}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="w-full"
+                options={[{ value: "none", label: "None" }, ...availableLeadersForEdit.map((u) => ({ value: u.id.toString(), label: u.name ?? u.email ?? `Agent #${u.id}` }))]}
+                value={form.leaderId || "none"}
+                onValueChange={(v) => setForm((f) => ({ ...f, leaderId: v === "none" ? "" : v }))}
+                placeholder="Select a leader (optional)"
+                searchPlaceholder="Search agents…"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Leader Commission Split (%)</Label>
@@ -465,18 +455,16 @@ export default function GroupsPage() {
             {/* Add member */}
             {availableToAdd.length > 0 ? (
               <div className="flex gap-2 pt-2 border-t">
-                <Select value={addMemberUserId} onValueChange={setAddMemberUserId}>
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Add an agent..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableToAdd.map((u) => (
-                      <SelectItem key={u.id} value={u.id.toString()}>
-                        {u.name ?? u.email ?? `Agent #${u.id}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  className="flex-1"
+                  options={availableToAdd.map((u) => ({ value: u.id.toString(), label: u.name ?? u.email ?? `Agent #${u.id}` }))}
+                  value={addMemberUserId}
+                  onValueChange={setAddMemberUserId}
+                  placeholder="Add an agent…"
+                  searchPlaceholder="Search agents…"
+                  clearable
+                  clearValue=""
+                />
                 <Button
                   size="sm"
                   disabled={!addMemberUserId || addMemberMutation.isPending}

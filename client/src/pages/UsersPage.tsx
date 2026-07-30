@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Table,
   TableBody,
@@ -351,20 +352,17 @@ export default function UsersPage() {
         </div>
         <div className="space-y-1.5">
           <Label>Reports To *</Label>
-          <Select
-            value={form.reportsToId}
+          <SearchableSelect
+            className="w-full"
+            options={[
+              { value: "__none__", label: "— None (top of hierarchy) —" },
+              ...otherUsers.map((u) => ({ value: String(u.id), label: `${u.name ?? u.email} — ${ROLE_LABELS[u.role] ?? u.role}` }))
+            ]}
+            value={form.reportsToId || "__none__"}
             onValueChange={(v) => setForm((f) => ({ ...f, reportsToId: v === "__none__" ? "" : v }))}
-          >
-            <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">— None (top of hierarchy) —</SelectItem>
-              {otherUsers.map((u) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {u.name ?? u.email} — {ROLE_LABELS[u.role] ?? u.role}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            placeholder="Select manager"
+            searchPlaceholder="Search users…"
+          />
           <p className="text-xs text-muted-foreground">Required to keep the Org Chart accurate. Select “None” only for the top-level owner.</p>
         </div>
         <div className="space-y-1.5">
@@ -426,15 +424,14 @@ export default function UsersPage() {
           <Label>Market</Label>
           {!creatingMarket ? (
             <div className="flex gap-2">
-              <Select value={form.marketProfileId} onValueChange={(v) => setForm((f) => ({ ...f, marketProfileId: v === "none" ? "" : v }))}>
-                <SelectTrigger className="flex-1"><SelectValue placeholder="Select market" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {marketList.map((m) => (
-                    <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="flex-1"
+                options={[{ value: "none", label: "— None —" }, ...marketList.map((m) => ({ value: String(m.id), label: m.name }))]}
+                value={form.marketProfileId || "none"}
+                onValueChange={(v) => setForm((f) => ({ ...f, marketProfileId: v === "none" ? "" : v }))}
+                placeholder="Select market"
+                searchPlaceholder="Search markets…"
+              />
               <Button type="button" variant="outline" size="sm" onClick={() => setCreatingMarket(true)}>
                 + New
               </Button>
@@ -613,14 +610,14 @@ export default function UsersPage() {
             {form.enableOnboarding && (
               <div className="space-y-1.5 pl-6">
                 <Label>Onboarding Template *</Label>
-                <Select value={form.onboardingTemplateId} onValueChange={(v) => setForm((f) => ({ ...f, onboardingTemplateId: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select template" /></SelectTrigger>
-                  <SelectContent>
-                    {onboardingTemplates?.map((t) => (
-                      <SelectItem key={t.id} value={String(t.id)}>{t.name} ({Number(t.taskCount)} tasks)</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  className="w-full"
+                  options={(onboardingTemplates ?? []).map((t) => ({ value: String(t.id), label: `${t.name} (${Number(t.taskCount)} tasks)` }))}
+                  value={form.onboardingTemplateId}
+                  onValueChange={(v) => setForm((f) => ({ ...f, onboardingTemplateId: v }))}
+                  placeholder="Select template"
+                  searchPlaceholder="Search templates…"
+                />
                 {(!onboardingTemplates || onboardingTemplates.length === 0) && (
                   <p className="text-xs text-muted-foreground">No templates available. Create one in Onboarding Templates first.</p>
                 )}

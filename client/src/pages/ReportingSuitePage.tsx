@@ -60,6 +60,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type ReportKind = "agents" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "business_insights";
@@ -306,7 +307,130 @@ function ReportingFilters({
     update(range ? { preset, from: range.from, to: range.to, page: null } : { preset, page: null });
   };
 
-  return <Card className="border-primary/15 shadow-sm"><CardContent className="p-3"><div className="flex flex-wrap items-end gap-3"><div className="space-y-1"><Label className="text-xs">Date range</Label><Select value={selectedPreset} onValueChange={setPreset}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{datePresetOptions.map((preset) => <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1"><Label htmlFor="report-from" className="text-xs">From</Label><Input id="report-from" type="date" className="h-8 text-xs" value={params.get("from") ?? startOfYear()} onChange={(event) => update({ preset: "custom", from: event.target.value, page: null })} /></div><div className="space-y-1"><Label htmlFor="report-to" className="text-xs">To</Label><Input id="report-to" type="date" className="h-8 text-xs" value={params.get("to") ?? today} onChange={(event) => update({ preset: "custom", to: event.target.value, page: null })} /></div>{isTransaction && <div className="space-y-1"><Label className="text-xs">Date basis</Label><Select value={dateBasis} onValueChange={(value) => update({ dateBasis: value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="closing">Closing date</SelectItem><SelectItem value="contract">Contract date</SelectItem></SelectContent></Select></div>}{showAgent && <div className="space-y-1"><Label className="text-xs">Agent</Label><Select value={selectedAgent} onValueChange={(value) => update({ agentId: value === "all" ? null : value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All agents" /></SelectTrigger><SelectContent><SelectItem value="all">All agents</SelectItem>{(filters?.agents ?? []).map((agent: any) => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name}</SelectItem>)}</SelectContent></Select></div>}{showLeader && <div className="space-y-1"><Label className="text-xs">Group leader</Label><Select value={selectedLeader} onValueChange={(value) => update({ groupLeaderId: value === "all" ? null : value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All group leaders" /></SelectTrigger><SelectContent><SelectItem value="all">All group leaders</SelectItem>{(filters?.groupLeaders ?? []).map((leader: any) => <SelectItem key={leader.id} value={String(leader.id)}>{leader.name}</SelectItem>)}</SelectContent></Select></div>}{showLeader && <label className="flex h-8 items-center gap-2 rounded-md border border-input px-3 text-xs font-medium self-end"><input type="checkbox" checked={includeLeaderStats} disabled={selectedLeader === "all"} onChange={(event) => update({ includeLeaderStats: event.target.checked ? "true" : null, page: null })} />Include leader's own stats</label>}{isIsa && <div className="space-y-1"><Label className="text-xs">ISA owner</Label><Select value={selectedIsa} onValueChange={(value) => update({ isaId: value === "all" ? null : value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All ISA owners" /></SelectTrigger><SelectContent><SelectItem value="all">All ISA owners</SelectItem>{(filters?.isas ?? []).map((isa: any) => <SelectItem key={isa.id} value={String(isa.id)}>{isa.name}</SelectItem>)}</SelectContent></Select></div>}{isSource && <div className="space-y-1"><Label className="text-xs">Lead source</Label><Select value={selectedLeadSource} onValueChange={(value) => update({ leadSourceId: value === "all" ? null : value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All lead sources" /></SelectTrigger><SelectContent><SelectItem value="all">All lead sources</SelectItem>{leadSources.map((source: any) => <SelectItem key={source.id} value={String(source.id)}>{sourceLabel(source)}</SelectItem>)}</SelectContent></Select></div>}{isTransaction && <><div className="space-y-1"><Label className="text-xs">Status</Label><Select value={selectedStatus} onValueChange={(value) => update({ status: value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="closed">Closed</SelectItem><SelectItem value="under_contract">Under contract</SelectItem><SelectItem value="terminated">Terminated</SelectItem></SelectContent></Select></div><div className="space-y-1"><Label className="text-xs">Representation</Label><Select value={selectedType} onValueChange={(value) => update({ transactionType: value, page: null })}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Buyer + seller + dual</SelectItem><SelectItem value="buyer">Buyer</SelectItem><SelectItem value="seller">Seller</SelectItem><SelectItem value="dual">Dual agency</SelectItem></SelectContent></Select></div></>}<Button variant="ghost" size="sm" className="h-8 self-end shrink-0 text-xs" onClick={() => update({ preset: "ytd", from: startOfYear(), to: today, agentId: null, groupLeaderId: null, includeLeaderStats: null, marketProfileId: null, isaId: null, leadSourceId: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset</Button></div></CardContent></Card>;
+  return (
+    <Card className="border-primary/15 shadow-sm">
+      <CardContent className="p-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Date range</Label>
+            <Select value={selectedPreset} onValueChange={setPreset}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>{datePresetOptions.map((preset) => <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="report-from" className="text-xs">From</Label>
+            <Input id="report-from" type="date" className="h-8 text-xs" value={params.get("from") ?? startOfYear()} onChange={(event) => update({ preset: "custom", from: event.target.value, page: null })} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="report-to" className="text-xs">To</Label>
+            <Input id="report-to" type="date" className="h-8 text-xs" value={params.get("to") ?? today} onChange={(event) => update({ preset: "custom", to: event.target.value, page: null })} />
+          </div>
+          {isTransaction && (
+            <div className="space-y-1">
+              <Label className="text-xs">Date basis</Label>
+              <Select value={dateBasis} onValueChange={(value) => update({ dateBasis: value, page: null })}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="closing">Closing date</SelectItem>
+                  <SelectItem value="contract">Contract date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {showAgent && (
+            <div className="space-y-1">
+              <Label className="text-xs">Agent</Label>
+              <SearchableSelect
+                className="h-8 text-xs w-44"
+                options={[{ value: "all", label: "All agents" }, ...(filters?.agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name }))]}
+                value={selectedAgent}
+                onValueChange={(value) => update({ agentId: value === "all" ? null : value, page: null })}
+                placeholder="All agents"
+                searchPlaceholder="Search agents…"
+              />
+            </div>
+          )}
+          {showLeader && (
+            <div className="space-y-1">
+              <Label className="text-xs">Group leader</Label>
+              <SearchableSelect
+                className="h-8 text-xs w-48"
+                options={[{ value: "all", label: "All group leaders" }, ...(filters?.groupLeaders ?? []).map((l: any) => ({ value: String(l.id), label: l.name }))]}
+                value={selectedLeader}
+                onValueChange={(value) => update({ groupLeaderId: value === "all" ? null : value, page: null })}
+                placeholder="All group leaders"
+                searchPlaceholder="Search leaders…"
+              />
+            </div>
+          )}
+          {showLeader && (
+            <label className="flex h-8 items-center gap-2 rounded-md border border-input px-3 text-xs font-medium self-end">
+              <input type="checkbox" checked={includeLeaderStats} disabled={selectedLeader === "all"} onChange={(event) => update({ includeLeaderStats: event.target.checked ? "true" : null, page: null })} />
+              Include leader's own stats
+            </label>
+          )}
+          {isIsa && (
+            <div className="space-y-1">
+              <Label className="text-xs">ISA owner</Label>
+              <SearchableSelect
+                className="h-8 text-xs w-44"
+                options={[{ value: "all", label: "All ISA owners" }, ...(filters?.isas ?? []).map((i: any) => ({ value: String(i.id), label: i.name }))]}
+                value={selectedIsa}
+                onValueChange={(value) => update({ isaId: value === "all" ? null : value, page: null })}
+                placeholder="All ISA owners"
+                searchPlaceholder="Search ISAs…"
+              />
+            </div>
+          )}
+          {isSource && (
+            <div className="space-y-1">
+              <Label className="text-xs">Lead source</Label>
+              <SearchableSelect
+                className="h-8 text-xs w-52"
+                options={[{ value: "all", label: "All lead sources" }, ...leadSources.map((s: any) => ({ value: String(s.id), label: sourceLabel(s) }))]}
+                value={selectedLeadSource}
+                onValueChange={(value) => update({ leadSourceId: value === "all" ? null : value, page: null })}
+                placeholder="All lead sources"
+                searchPlaceholder="Search sources…"
+              />
+            </div>
+          )}
+          {isTransaction && (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">Status</Label>
+                <Select value={selectedStatus} onValueChange={(value) => update({ status: value, page: null })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                    <SelectItem value="under_contract">Under contract</SelectItem>
+                    <SelectItem value="terminated">Terminated</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Representation</Label>
+                <Select value={selectedType} onValueChange={(value) => update({ transactionType: value, page: null })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Buyer + seller + dual</SelectItem>
+                    <SelectItem value="buyer">Buyer</SelectItem>
+                    <SelectItem value="seller">Seller</SelectItem>
+                    <SelectItem value="dual">Dual agency</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+          <Button variant="ghost" size="sm" className="h-8 self-end shrink-0 text-xs" onClick={() => update({ preset: "ytd", from: startOfYear(), to: today, agentId: null, groupLeaderId: null, includeLeaderStats: null, marketProfileId: null, isaId: null, leadSourceId: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function AgentReport({ data }: { data: any }) {

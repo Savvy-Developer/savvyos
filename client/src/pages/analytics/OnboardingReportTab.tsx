@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { UserPlus, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
@@ -36,13 +37,14 @@ export default function OnboardingReportTab() {
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground font-medium">Agent:</span>
-        <Select value={agentId !== undefined ? String(agentId) : "all"} onValueChange={(v) => setAgentId(v === "all" ? undefined : Number(v))}>
-          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All Agents" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Agents</SelectItem>
-            {(agents ?? []).map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          className="w-40 h-8 text-xs"
+          options={[{ value: "all", label: "All Agents" }, ...(agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name }))]}
+          value={agentId !== undefined ? String(agentId) : "all"}
+          onValueChange={(v) => setAgentId(v === "all" ? undefined : Number(v))}
+          placeholder="All Agents"
+          searchPlaceholder="Search agents…"
+        />
       </div>
 
       {/* KPIs */}

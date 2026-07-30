@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1872,14 +1873,14 @@ export default function TransactionDetail() {
               </div>
               <div>
                 <Label>Agent *</Label>
-                <Select value={editForm.agentId ?? ""} onValueChange={(v) => setEditForm({ ...editForm, agentId: v })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select agent" /></SelectTrigger>
-                  <SelectContent>
-                    {(allAgents ?? []).filter((a: any) => a.role === "agent" || a.role === "admin").map((a: any) => (
-                      <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `User #${a.id}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  className="mt-1 w-full"
+                  options={(allAgents ?? []).filter((a: any) => a.role === "agent" || a.role === "admin").map((a: any) => ({ value: String(a.id), label: a.name ?? `User #${a.id}` }))}
+                  value={editForm.agentId ?? ""}
+                  onValueChange={(v) => setEditForm({ ...editForm, agentId: v })}
+                  placeholder="Select agent…"
+                  searchPlaceholder="Search agents…"
+                />
               </div>
             </div>
 
@@ -2275,18 +2276,19 @@ export default function TransactionDetail() {
             {(payoutForm.payeeType === "agent" || payoutForm.payeeType === "group_leader" || payoutForm.payeeType === "isa_bonus") && (
               <div>
                 <Label>Select Team Member</Label>
-                <Select value={payoutForm.payeeUserId || "none"} onValueChange={(v) => {
-                  const found = (agents ?? []).find(a => String(a.id) === v);
-                  setPayoutForm(f => ({ ...f, payeeUserId: v === "none" ? "" : v, payeeName: found?.name ?? "" }));
-                }}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select person..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— Select —</SelectItem>
-                    {(agents ?? []).map(a => (
-                      <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `User #${a.id}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  className="mt-1 w-full"
+                  options={(agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name ?? `User #${a.id}` }))}
+                  value={payoutForm.payeeUserId || ""}
+                  onValueChange={(v) => {
+                    const found = (agents ?? []).find((a: any) => String(a.id) === v);
+                    setPayoutForm(f => ({ ...f, payeeUserId: v, payeeName: found?.name ?? "" }));
+                  }}
+                  placeholder="Select person…"
+                  searchPlaceholder="Search team members…"
+                  clearable
+                  clearValue=""
+                />
               </div>
             )}
 

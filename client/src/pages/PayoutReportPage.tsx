@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Table,
   TableBody,
@@ -195,17 +196,14 @@ export default function PayoutReportPage() {
           </Select>
 
           {/* Agent filter */}
-          <Select value={agentFilter} onValueChange={(value) => { setAgentFilter(value); setPayoutPage(1); }}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="All Agents" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Agents</SelectItem>
-              {(agentList as any[]).map((a: any) => (
-                <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `Agent #${a.id}`}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="w-44"
+            options={[{ value: "all", label: "All Agents" }, ...(agentList as any[]).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))]}
+            value={agentFilter}
+            onValueChange={(value) => { setAgentFilter(value); setPayoutPage(1); }}
+            placeholder="All Agents"
+            searchPlaceholder="Search agents…"
+          />
 
           {/* Payee type filter */}
           <Select value={payeeTypeFilter} onValueChange={(value) => { setPayeeTypeFilter(value); setPayoutPage(1); }}>

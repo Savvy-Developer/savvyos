@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
@@ -1300,17 +1301,17 @@ export default function ContactDetail() {
                 {canAssign && (
                   <div>
                     <Label>Assigned ISA</Label>
-                    <Select value={editIsaId || "none"} onValueChange={v => setEditIsaId(v === "none" ? "" : v)}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Unassigned" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Unassigned</SelectItem>
-                        {(isas as any[]).map((isa: any) => (
-                          <SelectItem key={isa.id} value={String(isa.id)}>{isa.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      className="mt-1 w-full"
+                      options={[
+                        { value: "none", label: "Unassigned" },
+                        ...(isas as any[]).map((isa: any) => ({ value: String(isa.id), label: isa.name ?? `ISA #${isa.id}` }))
+                      ]}
+                      value={editIsaId || "none"}
+                      onValueChange={v => setEditIsaId(v === "none" ? "" : v)}
+                      placeholder="Unassigned"
+                      searchPlaceholder="Search ISAs…"
+                    />
                   </div>
                 )}
                 {/* ISA pipeline status — only editable when an ISA is assigned */}
@@ -1380,14 +1381,14 @@ export default function ContactDetail() {
           <div className="space-y-3 py-2">
             <div>
               <Label>Agent *</Label>
-              <Select value={assignForm.agentId || "none"} onValueChange={v => setAssignForm(f => ({ ...f, agentId: v === "none" ? "" : v }))}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select agent..." /></SelectTrigger>
-                <SelectContent>
-                  {(agents as any[]).map((a: any) => (
-                    <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={(agents as any[]).map((a: any) => ({ value: String(a.id), label: a.name ?? `Agent #${a.id}` }))}
+                value={assignForm.agentId || ""}
+                onValueChange={v => setAssignForm(f => ({ ...f, agentId: v }))}
+                placeholder="Select agent…"
+                searchPlaceholder="Search agents…"
+              />
             </div>
             <div>
               <Label>Pipeline Stage</Label>
