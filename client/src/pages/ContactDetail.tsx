@@ -929,7 +929,7 @@ export default function ContactDetail() {
             <Card>
               <CardContent className="p-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
-                <p className="text-sm whitespace-pre-wrap">{contact.notes}</p>
+                <p className="text-sm whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{contact.notes}</p>
               </CardContent>
             </Card>
           )}
@@ -999,7 +999,7 @@ export default function ContactDetail() {
                         {editingNoteId === communication.id ? (
                           <div className="space-y-2 mt-1">
                             <textarea
-                              className="w-full text-sm border rounded-md p-2 min-h-[80px] bg-background resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                              className="w-full text-sm border rounded-md p-2 min-h-[80px] max-h-[200px] overflow-y-auto bg-background resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                               value={editingNoteText}
                               onChange={(e) => setEditingNoteText(e.target.value)}
                             />
@@ -1235,7 +1235,7 @@ export default function ContactDetail() {
             </div>
             <div>
               <Label>Note *</Label>
-              <Textarea className="mt-1" value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} placeholder="Enter your note..." />
+              <Textarea className="mt-1 max-h-[200px] overflow-y-auto" value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} placeholder="Enter your note..." />
             </div>
           </div>
           <DialogFooter>
@@ -1347,7 +1347,7 @@ export default function ContactDetail() {
                 </div>
                 <div>
                   <Label>Notes</Label>
-                  <Textarea className="mt-1" rows={3} value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                  <Textarea className="mt-1 max-h-[200px] overflow-y-auto" rows={3} value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
                 </div>
               </TabsContent>
             </Tabs>
@@ -1403,7 +1403,7 @@ export default function ContactDetail() {
             <div>
               <Label>Notes for Agent <span className="text-muted-foreground font-normal">(optional)</span></Label>
               <Textarea
-                className="mt-1"
+                className="mt-1 max-h-[150px] overflow-y-auto"
                 rows={2}
                 placeholder="Any context to pass to the agent..."
                 value={assignForm.agentNotes}

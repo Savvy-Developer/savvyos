@@ -845,7 +845,7 @@ export default function ContactsPage() {
               )}
               <div>
                 <Label>Notes</Label>
-                <Textarea className="mt-1" rows={3} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                <Textarea className="mt-1 max-h-[200px] overflow-y-auto" rows={3} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </TabsContent>
           </Tabs>
@@ -951,7 +951,7 @@ export default function ContactsPage() {
             <div>
               <Label>Notes for Agent <span className="text-muted-foreground font-normal">(optional)</span></Label>
               <Textarea
-                className="mt-1"
+                className="mt-1 max-h-[150px] overflow-y-auto"
                 rows={3}
                 placeholder="Any context to pass to the agent..."
                 value={assignForm.agentNotes}
