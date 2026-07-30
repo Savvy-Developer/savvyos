@@ -89,7 +89,10 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean): Na
   return [
     {
       label: "Overview",
-      items: [{ icon: Home, label: "My Dashboard", path: "/" }],
+      items: [
+        { icon: Home, label: "My Dashboard", path: "/" },
+        { icon: BarChart3, label: "My Stats", path: "/stats" },
+      ],
     },
     {
       label: "My CRM",
@@ -116,12 +119,6 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean): Na
       label: "Resources",
       items: [
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
-      ],
-    },
-    {
-      label: "Insights",
-      items: [
-        { icon: BarChart3, label: "My Stats", path: "/stats" },
       ],
     },
   ];
