@@ -454,12 +454,12 @@ export default function SuperPermissionsPage() {
     grouped[def.group].push(def);
   }
 
-  // ── Layout: use CSS grid instead of table to fix the sticky-column scroll bug
-  // We render a "virtual table" using divs so sticky left column works correctly
-  // during horizontal scroll without checkboxes drifting under the label column.
-  const colCount = allAdmins.length + 1; // +1 for the label column
+  // ── Layout constants ─────────────────────────────────────────────────────────
+  // Two-panel approach: left panel is a fixed-width div that NEVER scrolls
+  // horizontally. Right panel scrolls horizontally. Both share the same
+  // vertical scroll via a shared ref-synced scrollTop.
   const LABEL_COL_W = 220; // px
-  const ADMIN_COL_W = 80;  // px per admin column
+  const ADMIN_COL_W = 88;  // px per admin column
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -488,161 +488,190 @@ export default function SuperPermissionsPage() {
         </div>
       </div>
 
-      {/* ── Scrollable Matrix ── */}
+      {/* ── Matrix ── */}
       {/*
-        Key fix: the outer div handles BOTH x and y scroll.
-        The inner wrapper is wide enough to hold all columns.
-        The label column uses `sticky left-0` with an explicit width and z-index,
-        and each row cell has `shrink-0` so they never collapse under the label.
+        Two-panel layout:
+        - Left panel: fixed width, overflow-y scroll only (no x scroll ever)
+        - Right panel: overflow-x + overflow-y scroll, synced vertically with left
+        Both panels are the same height and scroll together via onScroll sync.
       */}
-      <div className="flex-1 overflow-auto">
-        {/* Min-width forces horizontal scroll when needed */}
-        <div style={{ minWidth: LABEL_COL_W + allAdmins.length * ADMIN_COL_W + 32 }}>
+      <div className="flex flex-1 overflow-hidden">
 
-          {/* ── Sticky column header row ── */}
-          <div className="flex sticky top-0 z-20 bg-background border-b">
-            {/* Label column header */}
-            <div
-              className="sticky left-0 z-30 bg-background shrink-0 flex items-end px-4 py-3 border-r text-xs font-medium text-muted-foreground"
-              style={{ width: LABEL_COL_W, minWidth: LABEL_COL_W }}
-            >
-              Page
-            </div>
-            {/* Admin column headers */}
-            {allAdmins.map((admin) => (
-              <div
-                key={admin.userId}
-                className="shrink-0 flex flex-col items-center justify-end gap-1.5 px-1 py-2 text-center"
-                style={{ width: ADMIN_COL_W, minWidth: ADMIN_COL_W }}
-              >
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                    {getInitials(admin.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-[11px] font-medium leading-tight break-words w-full text-center px-1">
-                  {admin.name.split(" ")[0]}
-                </span>
-                {admin.isProtected ? (
-                  <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-600 border-amber-200 bg-amber-50">
-                    Protected
-                  </Badge>
-                ) : (
-                  <div className="flex gap-1">
-                    <button
-                      title="Grant all pages"
-                      onClick={() => handleToggleAllForAdmin(admin.userId, true)}
-                      className="text-muted-foreground hover:text-emerald-600 transition-colors"
-                    >
-                      <CheckSquare className="h-3 w-3" />
-                    </button>
-                    <button
-                      title="Revoke all pages"
-                      onClick={() => handleToggleAllForAdmin(admin.userId, false)}
-                      className="text-muted-foreground hover:text-rose-500 transition-colors"
-                    >
-                      <Square className="h-3 w-3" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+        {/* ── LEFT PANEL: page labels (never scrolls horizontally) ── */}
+        <div
+          className="shrink-0 flex flex-col overflow-y-auto border-r bg-background"
+          style={{ width: LABEL_COL_W }}
+          id="super-perm-left"
+          onScroll={(e) => {
+            const right = document.getElementById("super-perm-right");
+            if (right) right.scrollTop = (e.target as HTMLElement).scrollTop;
+          }}
+        >
+          {/* Header cell */}
+          <div className="sticky top-0 z-10 bg-background border-b px-4 py-3 text-xs font-medium text-muted-foreground shrink-0">
+            Page
           </div>
 
-          {/* ── Body rows ── */}
+          {/* Group rows */}
           {GROUP_ORDER.map((groupName) => {
             const items = grouped[groupName];
             if (!items || items.length === 0) return null;
             const colorClass = GROUP_COLORS[groupName] ?? "bg-gray-50 text-gray-600";
-
             return (
-              <div key={groupName}>
-                {/* Group header */}
-                <div className={`flex items-center border-t border-b ${colorClass}`}>
-                  {/* Sticky label part */}
-                  <div
-                    className={`sticky left-0 z-10 shrink-0 px-4 py-1.5 font-semibold text-xs uppercase tracking-widest ${colorClass}`}
-                    style={{ width: LABEL_COL_W, minWidth: LABEL_COL_W }}
-                  >
-                    {groupName}
-                  </div>
-                  {/* All On / All Off controls span remaining width */}
-                  <div className="flex items-center gap-3 px-3 py-1.5">
-                    <button
-                      onClick={() => handleToggleGroupForAll(groupName, true)}
-                      className="flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100 transition-opacity"
-                    >
-                      <CheckSquare className="h-3 w-3" /> All On
-                    </button>
-                    <button
-                      onClick={() => handleToggleGroupForAll(groupName, false)}
-                      className="flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100 transition-opacity"
-                    >
-                      <Square className="h-3 w-3" /> All Off
-                    </button>
-                  </div>
+              <div key={groupName} className="shrink-0">
+                {/* Group header label */}
+                <div className={`px-4 py-1.5 font-semibold text-xs uppercase tracking-widest border-t border-b ${colorClass}`}>
+                  {groupName}
                 </div>
-
-                {/* Page rows */}
+                {/* Page label rows */}
                 {items.map((def, idx) => (
                   <div
                     key={def.key}
-                    className={`flex items-center border-b hover:bg-accent/30 transition-colors ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
+                    className={`flex items-center justify-between gap-2 px-4 py-2.5 border-b font-medium text-sm whitespace-nowrap ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
+                    style={{ height: 41 }}
                   >
-                    {/* Sticky label cell */}
-                    <div
-                      className={`sticky left-0 z-10 shrink-0 flex items-center justify-between gap-2 px-4 py-2.5 border-r font-medium text-sm whitespace-nowrap ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
-                      style={{ width: LABEL_COL_W, minWidth: LABEL_COL_W }}
-                    >
-                      <span>{def.label}</span>
-                      <div className="flex gap-1 opacity-40 hover:opacity-100 transition-opacity">
-                        <button
-                          title="Grant to all"
-                          onClick={() => handleToggleAllForPage(def.key, true)}
-                          className="hover:text-emerald-600 transition-colors"
-                        >
-                          <CheckSquare className="h-3 w-3" />
-                        </button>
-                        <button
-                          title="Revoke from all"
-                          onClick={() => handleToggleAllForPage(def.key, false)}
-                          className="hover:text-rose-500 transition-colors"
-                        >
-                          <Square className="h-3 w-3" />
-                        </button>
-                      </div>
+                    <span className="truncate">{def.label}</span>
+                    <div className="flex gap-1 opacity-40 hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        title="Grant to all"
+                        onClick={() => handleToggleAllForPage(def.key, true)}
+                        className="hover:text-emerald-600 transition-colors"
+                      >
+                        <CheckSquare className="h-3 w-3" />
+                      </button>
+                      <button
+                        title="Revoke from all"
+                        onClick={() => handleToggleAllForPage(def.key, false)}
+                        className="hover:text-rose-500 transition-colors"
+                      >
+                        <Square className="h-3 w-3" />
+                      </button>
                     </div>
-
-                    {/* Admin checkbox cells */}
-                    {allAdmins.map((admin) => {
-                      const checked = admin.isProtected
-                        ? true
-                        : (localPerms[admin.userId]?.[def.key] ?? true);
-                      return (
-                        <div
-                          key={admin.userId}
-                          className="shrink-0 flex items-center justify-center py-2.5"
-                          style={{ width: ADMIN_COL_W, minWidth: ADMIN_COL_W }}
-                        >
-                          {admin.isProtected ? (
-                            <div title="Tyler always has full access">
-                              <Lock className="h-3.5 w-3.5 text-amber-400" />
-                            </div>
-                          ) : (
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(val) => handleToggle(admin.userId, def.key, !!val)}
-                              className="h-4 w-4"
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
                   </div>
                 ))}
               </div>
             );
           })}
+        </div>
+
+        {/* ── RIGHT PANEL: admin columns (scrolls both x and y) ── */}
+        <div
+          className="flex-1 overflow-auto"
+          id="super-perm-right"
+          onScroll={(e) => {
+            const left = document.getElementById("super-perm-left");
+            if (left) left.scrollTop = (e.target as HTMLElement).scrollTop;
+          }}
+        >
+          {/* Min-width so horizontal scroll appears when needed */}
+          <div style={{ minWidth: allAdmins.length * ADMIN_COL_W }}>
+
+            {/* ── Sticky column header row ── */}
+            <div className="flex sticky top-0 z-10 bg-background border-b">
+              {allAdmins.map((admin) => (
+                <div
+                  key={admin.userId}
+                  className="shrink-0 flex flex-col items-center justify-end gap-1.5 px-1 py-2 text-center"
+                  style={{ width: ADMIN_COL_W, minWidth: ADMIN_COL_W }}
+                >
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
+                      {getInitials(admin.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-[11px] font-medium leading-tight break-words w-full text-center px-1">
+                    {admin.name.split(" ")[0]}
+                  </span>
+                  {admin.isProtected ? (
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-600 border-amber-200 bg-amber-50">
+                      Protected
+                    </Badge>
+                  ) : (
+                    <div className="flex gap-1">
+                      <button
+                        title="Grant all pages"
+                        onClick={() => handleToggleAllForAdmin(admin.userId, true)}
+                        className="text-muted-foreground hover:text-emerald-600 transition-colors"
+                      >
+                        <CheckSquare className="h-3 w-3" />
+                      </button>
+                      <button
+                        title="Revoke all pages"
+                        onClick={() => handleToggleAllForAdmin(admin.userId, false)}
+                        className="text-muted-foreground hover:text-rose-500 transition-colors"
+                      >
+                        <Square className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* ── Body rows ── */}
+            {GROUP_ORDER.map((groupName) => {
+              const items = grouped[groupName];
+              if (!items || items.length === 0) return null;
+              const colorClass = GROUP_COLORS[groupName] ?? "bg-gray-50 text-gray-600";
+
+              return (
+                <div key={groupName}>
+                  {/* Group header — All On / All Off controls */}
+                  <div className={`flex items-center border-t border-b ${colorClass}`}>
+                    <div className="flex items-center gap-3 px-3 py-1.5">
+                      <button
+                        onClick={() => handleToggleGroupForAll(groupName, true)}
+                        className="flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100 transition-opacity"
+                      >
+                        <CheckSquare className="h-3 w-3" /> All On
+                      </button>
+                      <button
+                        onClick={() => handleToggleGroupForAll(groupName, false)}
+                        className="flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100 transition-opacity"
+                      >
+                        <Square className="h-3 w-3" /> All Off
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Page rows */}
+                  {items.map((def, idx) => (
+                    <div
+                      key={def.key}
+                      className={`flex items-center border-b hover:bg-accent/30 transition-colors ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
+                      style={{ height: 41 }}
+                    >
+                      {/* Admin checkbox cells */}
+                      {allAdmins.map((admin) => {
+                        const checked = admin.isProtected
+                          ? true
+                          : (localPerms[admin.userId]?.[def.key] ?? true);
+                        return (
+                          <div
+                            key={admin.userId}
+                            className="shrink-0 flex items-center justify-center"
+                            style={{ width: ADMIN_COL_W, minWidth: ADMIN_COL_W, height: 41 }}
+                          >
+                            {admin.isProtected ? (
+                              <div title="Tyler always has full access">
+                                <Lock className="h-3.5 w-3.5 text-amber-400" />
+                              </div>
+                            ) : (
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(val) => handleToggle(admin.userId, def.key, !!val)}
+                                className="h-4 w-4"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
