@@ -1800,3 +1800,41 @@ export const aircallUnmatchedCalls = mysqlTable(
 );
 export type AircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferSelect;
 export type InsertAircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferInsert;
+
+// ─── Job Board ─────────────────────────────────────────────────────────────────
+// Admin-managed job postings visible on the public /careers page.
+export const jobPostings = mysqlTable("job_postings", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  department: varchar("department", { length: 128 }),
+  location: varchar("location", { length: 255 }),
+  employmentType: mysqlEnum("employmentType", ["full_time", "part_time", "contract", "internship"]).default("full_time"),
+  description: text("description").notNull(),
+  requirements: text("requirements"),
+  salaryRange: varchar("salaryRange", { length: 128 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0),
+  createdById: int("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type JobPosting = typeof jobPostings.$inferSelect;
+export type InsertJobPosting = typeof jobPostings.$inferInsert;
+
+// Applications submitted via the public /careers page.
+export const jobApplications = mysqlTable("job_applications", {
+  id: int("id").autoincrement().primaryKey(),
+  jobPostingId: int("jobPostingId").notNull(),
+  applicantName: varchar("applicantName", { length: 255 }).notNull(),
+  applicantEmail: varchar("applicantEmail", { length: 255 }).notNull(),
+  applicantPhone: varchar("applicantPhone", { length: 64 }),
+  linkedinUrl: varchar("linkedinUrl", { length: 512 }),
+  coverLetter: text("coverLetter"),
+  resumeUrl: varchar("resumeUrl", { length: 1024 }),
+  status: mysqlEnum("status", ["new", "reviewing", "interviewing", "offered", "rejected", "withdrawn"]).default("new").notNull(),
+  notes: text("notes"),
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type JobApplication = typeof jobApplications.$inferSelect;
+export type InsertJobApplication = typeof jobApplications.$inferInsert;
