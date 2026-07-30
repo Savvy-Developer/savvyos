@@ -381,43 +381,62 @@ export default function PipelinePage() {
                 <SelectItem value="unassigned">Unassigned ({Number(leadSourceCounts.unassigned ?? 0).toLocaleString()})</SelectItem>
                 {(() => {
                   const allSources = leadSourcesData as any[];
-                  const parents = allSources.filter((ls) => !ls.ls.parentId);
-                  const children = allSources.filter((ls) => ls.ls.parentId);
-                  const orphans = children.filter((ls) => !allSources.find((p) => p.ls.id === ls.ls.parentId));
+                  const topLevel = allSources.filter((ls) => !ls.ls.parentId);
+                  const topLevelIdSet = new Set(topLevel.map((ls: any) => ls.ls.id));
+                  const secondLevel = allSources.filter((ls) => ls.ls.parentId && topLevelIdSet.has(ls.ls.parentId));
+                  const secondLevelIdSet = new Set(secondLevel.map((ls: any) => ls.ls.id));
+                  const thirdLevel = allSources.filter((ls) => ls.ls.parentId && secondLevelIdSet.has(ls.ls.parentId));
                   return (
                     <>
-                      {parents.map((parent) => {
-                        const subs = children.filter((c) => c.ls.parentId === parent.ls.id);
-                        return subs.length > 0 ? (
-                          <SelectGroup key={parent.ls.id}>
-                            <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">
-                              {parent.ls.name} ({(
-                                Number(leadSourceCounts[String(parent.ls.id)] ?? 0)
-                                + subs.reduce((sum, sub) => sum + Number(leadSourceCounts[String(sub.ls.id)] ?? 0), 0)
-                              ).toLocaleString()})
-                            </SelectLabel>
-                            {subs.map((sub) => (
-                              <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-5">
-                                {sub.ls.name} ({Number(leadSourceCounts[String(sub.ls.id)] ?? 0).toLocaleString()})
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ) : (
+                      {topLevel.map((parent: any) => {
+                        const subs = secondLevel.filter((c: any) => c.ls.parentId === parent.ls.id);
+                        if (subs.length > 0) {
+                          const allSubIds = [
+                            ...subs.map((s: any) => s.ls.id),
+                            ...thirdLevel.filter((g: any) => subs.some((s: any) => s.ls.id === g.ls.parentId)).map((g: any) => g.ls.id),
+                          ];
+                          return (
+                            <SelectGroup key={parent.ls.id}>
+                              <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">
+                                {parent.ls.name} ({(
+                                  Number(leadSourceCounts[String(parent.ls.id)] ?? 0)
+                                  + allSubIds.reduce((sum, id) => sum + Number(leadSourceCounts[String(id)] ?? 0), 0)
+                                ).toLocaleString()})
+                              </SelectLabel>
+                              {subs.map((sub: any) => {
+                                const grandkids = thirdLevel.filter((g: any) => g.ls.parentId === sub.ls.id);
+                                if (grandkids.length > 0) {
+                                  return (
+                                    <>
+                                      <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-5 font-medium">
+                                        {sub.ls.name} ({(
+                                          Number(leadSourceCounts[String(sub.ls.id)] ?? 0)
+                                          + grandkids.reduce((sum: number, g: any) => sum + Number(leadSourceCounts[String(g.ls.id)] ?? 0), 0)
+                                        ).toLocaleString()})
+                                      </SelectItem>
+                                      {grandkids.map((gc: any) => (
+                                        <SelectItem key={gc.ls.id} value={String(gc.ls.id)} className="pl-9">
+                                          {gc.ls.name} ({Number(leadSourceCounts[String(gc.ls.id)] ?? 0).toLocaleString()})
+                                        </SelectItem>
+                                      ))}
+                                    </>
+                                  );
+                                }
+                                return (
+                                  <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-5">
+                                    {sub.ls.name} ({Number(leadSourceCounts[String(sub.ls.id)] ?? 0).toLocaleString()})
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectGroup>
+                          );
+                        }
+                        return (
                           <SelectItem key={parent.ls.id} value={String(parent.ls.id)}>
                             {parent.ls.name} ({Number(leadSourceCounts[String(parent.ls.id)] ?? 0).toLocaleString()})
                           </SelectItem>
                         );
                       })}
-                      {orphans.length > 0 && (
-                        <SelectGroup>
-                          <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1">Other</SelectLabel>
-                          {orphans.map((ls) => (
-                            <SelectItem key={ls.ls.id} value={String(ls.ls.id)}>
-                              {ls.ls.name} ({Number(leadSourceCounts[String(ls.ls.id)] ?? 0).toLocaleString()})
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      )}
                     </>
                   );
                 })()}

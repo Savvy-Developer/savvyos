@@ -465,15 +465,41 @@ export default function ContactsPage() {
             <SelectItem value="all">All Lead Sources</SelectItem>
             {(() => {
               const allSources = leadSourcesData as any[];
-              const parents = allSources.filter((s: any) => !s.ls.parentId);
-              const children = allSources.filter((s: any) => !!s.ls.parentId);
-              // Top-level sources that have sub-sources
-              const parentIds = new Set(children.map((c: any) => c.ls.parentId));
+              const topLevel = allSources.filter((s: any) => !s.ls.parentId);
+              const topLevelIdSet = new Set(topLevel.map((s: any) => s.ls.id));
+              // 2nd-level: direct children of top-level
+              const secondLevel = allSources.filter((s: any) => s.ls.parentId && topLevelIdSet.has(s.ls.parentId));
+              const secondLevelIdSet = new Set(secondLevel.map((s: any) => s.ls.id));
+              // 3rd-level: children of 2nd-level sources
+              const thirdLevel = allSources.filter((s: any) => s.ls.parentId && secondLevelIdSet.has(s.ls.parentId));
               const items: React.ReactNode[] = [];
-              parents.forEach((p: any) => {
-                const subs = children.filter((c: any) => c.ls.parentId === p.ls.id);
+              topLevel.forEach((p: any) => {
+                const subs = secondLevel.filter((c: any) => c.ls.parentId === p.ls.id);
                 if (subs.length > 0) {
-                  // Parent is a group label with selectable children
+                  const groupItems: React.ReactNode[] = [];
+                  subs.forEach((sub: any) => {
+                    const grandkids = thirdLevel.filter((g: any) => g.ls.parentId === sub.ls.id);
+                    if (grandkids.length > 0) {
+                      groupItems.push(
+                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6 font-medium">
+                          {sub.ls.name}
+                        </SelectItem>
+                      );
+                      grandkids.forEach((gc: any) => {
+                        groupItems.push(
+                          <SelectItem key={gc.ls.id} value={String(gc.ls.id)} className="pl-10">
+                            {gc.ls.name}
+                          </SelectItem>
+                        );
+                      });
+                    } else {
+                      groupItems.push(
+                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6">
+                          {sub.ls.name}
+                        </SelectItem>
+                      );
+                    }
+                  });
                   items.push(
                     <SelectGroup key={`group-${p.ls.id}`}>
                       <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1.5 cursor-pointer hover:bg-accent rounded-sm"
@@ -481,28 +507,16 @@ export default function ContactsPage() {
                       >
                         {p.ls.name}
                       </SelectLabel>
-                      {subs.map((sub: any) => (
-                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6">
-                          {sub.ls.name}
-                        </SelectItem>
-                      ))}
+                      {groupItems}
                     </SelectGroup>
                   );
                 } else {
-                  // Standalone top-level source
+                  // Standalone top-level source with no children
                   items.push(
                     <SelectItem key={p.ls.id} value={String(p.ls.id)}>{p.ls.name}</SelectItem>
                   );
                 }
               });
-              // Any orphaned children (parentId set but parent not found)
-              const orphans = children.filter((c: any) => !parents.find((p: any) => p.ls.id === c.ls.parentId));
-              if (orphans.length > 0) {
-                items.push(<SelectSeparator key="orphan-sep" />);
-                orphans.forEach((o: any) => {
-                  items.push(<SelectItem key={o.ls.id} value={String(o.ls.id)}>{o.ls.name}</SelectItem>);
-                });
-              }
               return items;
             })()}
           </SelectContent>
@@ -662,8 +676,17 @@ export default function ContactsPage() {
                             const ls = (leadSourcesData as any[]).find((s: any) => s.ls.id === contact.leadSourceId);
                             if (ls) {
                               const parent = ls.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === ls.ls.parentId) : null;
+                              const grandparent = parent?.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === parent.ls.parentId) : null;
                               return (
                                 <div className="flex items-center gap-1 flex-wrap">
+                                  {grandparent && (
+                                    <>
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
+                                        {grandparent.ls.name}
+                                      </span>
+                                      <span className="text-muted-foreground text-xs">›</span>
+                                    </>
+                                  )}
                                   {parent && (
                                     <>
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
