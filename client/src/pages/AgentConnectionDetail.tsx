@@ -50,6 +50,7 @@ export default function AgentConnectionDetail() {
   const [editingBuyBox, setEditingBuyBox] = useState(false);
   const [editingStage, setEditingStage] = useState(false);
   const [addCommDialog, setAddCommDialog] = useState(false);
+  const [postCommStagePrompt, setPostCommStagePrompt] = useState(false);
   const [addTaskDialog, setAddTaskDialog] = useState(false);
   const [sendEmailOpen, setSendEmailOpen] = useState(false);
   const [uploadDocDialog, setUploadDocDialog] = useState(false);
@@ -90,6 +91,10 @@ export default function AgentConnectionDetail() {
       toast.success("Communication logged");
       setAddCommDialog(false);
       setCommForm({ type: "note", subject: "", body: "", direction: "outbound" });
+      // If the connection is still at "New Lead", prompt the agent to update the stage
+      if ((conn as any)?.connection?.pipelineStatus === "new_lead") {
+        setPostCommStagePrompt(true);
+      }
     },
     onError: (e) => toast.error(e.message),
   });
@@ -825,6 +830,29 @@ export default function AgentConnectionDetail() {
             <Button variant="outline" onClick={() => { setUploadDocDialog(false); setUploadFile(null); }}>Cancel</Button>
             <Button onClick={handleDocUpload} disabled={!uploadFile || uploading}>
               {uploading ? "Uploading..." : "Upload"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-Communication: Update Stage Prompt */}
+      <Dialog open={postCommStagePrompt} onOpenChange={setPostCommStagePrompt}>
+        <DialogContent className="max-w-sm w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Update Pipeline Stage?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            This connection is still marked as <span className="font-semibold text-foreground">New Lead</span>. Now that you've logged a communication, would you like to update the pipeline stage?
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPostCommStagePrompt(false)}>No, Keep as New Lead</Button>
+            <Button
+              onClick={() => {
+                setPostCommStagePrompt(false);
+                startEditStage();
+              }}
+            >
+              Yes, Update Stage
             </Button>
           </DialogFooter>
         </DialogContent>
