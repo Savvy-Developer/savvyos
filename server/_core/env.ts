@@ -14,4 +14,9 @@ export const ENV = {
   ghlLocationId: process.env.GHL_LOCATION_ID ?? "2ZPnQStoB9ZVXSwFdfEw",
   // GHL v2 token with Conversations scope — used for Email Behaviors sync.
   ghlLocationTokenV2: process.env.GHL_LOCATION_TOKEN_V2 ?? "",
+  // Aircall API credentials (Basic Auth: api_id + api_token)
+  aircallApiId: process.env.AIRCALL_API_ID ?? "",
+  aircallApiToken: process.env.AIRCALL_API_TOKEN ?? "",
+  // Aircall webhook token — sent in every webhook payload for verification
+  aircallWebhookToken: process.env.AIRCALL_WEBHOOK_TOKEN ?? "",
 };

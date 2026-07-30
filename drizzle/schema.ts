@@ -1722,3 +1722,79 @@ export const listingDocuments = mysqlTable("listing_documents", {
 });
 export type ListingDocument = typeof listingDocuments.$inferSelect;
 export type InsertListingDocument = typeof listingDocuments.$inferInsert;
+
+// ─── Aircall Calls ─────────────────────────────────────────────────────────────
+// Stores every Aircall call record. Each matched call also has a corresponding
+// `communications` row (type = "call") linked via communicationId.
+// aircallCallId is the Aircall call ID and acts as the deduplication key.
+export const aircallCalls = mysqlTable(
+  "aircall_calls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    // Aircall identifiers
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    // Matched contact (null = unmatched, stored in aircall_unmatched_calls)
+    contactId: int("contactId").references(() => contacts.id),
+    // The communications row created for this call in the Activity tab
+    communicationId: int("communicationId").references(() => communications.id),
+    // Call metadata
+    direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
+    status: varchar("status", { length: 64 }).notNull(), // done, missed, voicemail, etc.
+    duration: int("duration"), // seconds
+    startedAt: timestamp("startedAt"),
+    answeredAt: timestamp("answeredAt"),
+    endedAt: timestamp("endedAt"),
+    // Phone numbers involved
+    callerNumber: varchar("callerNumber", { length: 32 }),
+    calleeNumber: varchar("calleeNumber", { length: 32 }),
+    // Recording — permanent S3 URL (downloaded from Aircall's expiring URL)
+    recordingUrl: text("recordingUrl"),
+    recordingKey: varchar("recordingKey", { length: 512 }),
+    // Voicemail — permanent S3 URL
+    voicemailUrl: text("voicemailUrl"),
+    voicemailKey: varchar("voicemailKey", { length: 512 }),
+    // Aircall number/line info
+    aircallNumberId: int("aircallNumberId"),
+    aircallNumberName: varchar("aircallNumberName", { length: 255 }),
+    // Full Aircall payload for future use
+    rawPayload: json("rawPayload"),
+    // Timestamps
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_calls_aircall_id_unique").on(table.aircallCallId),
+    index("aircall_calls_contact_idx").on(table.contactId, table.startedAt),
+    index("aircall_calls_started_at_idx").on(table.startedAt),
+  ],
+);
+export type AircallCall = typeof aircallCalls.$inferSelect;
+export type InsertAircallCall = typeof aircallCalls.$inferInsert;
+
+// ─── Aircall Unmatched Calls ───────────────────────────────────────────────────
+// Staging table for Aircall calls that could not be matched to a SavvyOS contact
+// by phone number. Logged here for admin review instead of being discarded.
+export const aircallUnmatchedCalls = mysqlTable(
+  "aircall_unmatched_calls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
+    status: varchar("status", { length: 64 }).notNull(),
+    duration: int("duration"),
+    startedAt: timestamp("startedAt"),
+    endedAt: timestamp("endedAt"),
+    callerNumber: varchar("callerNumber", { length: 32 }),
+    calleeNumber: varchar("calleeNumber", { length: 32 }),
+    // The phone number we tried to match (normalized)
+    attemptedPhone: varchar("attemptedPhone", { length: 32 }),
+    rawPayload: json("rawPayload"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_unmatched_aircall_id_unique").on(table.aircallCallId),
+    index("aircall_unmatched_phone_idx").on(table.attemptedPhone),
+  ],
+);
+export type AircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferSelect;
+export type InsertAircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferInsert;

@@ -18,6 +18,7 @@ import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebho
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
+import { registerAircallWebhook } from "../aircallWebhook";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -50,6 +51,9 @@ async function startServer() {
   registerUploadRoutes(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC
   registerWebhookRoute(app);
+
+  // Aircall webhook — live call sync
+  registerAircallWebhook(app);
 
   // Resend webhook for bounce/unsubscribe tracking
   app.post("/api/webhooks/resend", express.raw({ type: "application/json" }), async (req, res) => {
