@@ -432,8 +432,8 @@ export default function ContactDetail() {
   const { data: contactData, refetch } = trpc.contacts.get.useQuery({ id: contactId });
   const { data: connectionsData } = trpc.agentConnections.list.useQuery({ contactId, limit: 50 });
   const connections = connectionsData?.rows;
-  const { data: transactionsData } = trpc.transactions.list.useQuery({ limit: 100 });
-  const transactions = transactionsData?.rows ?? [];
+  const { data: contactTxData } = trpc.transactions.byContact.useQuery({ contactId });
+  const transactions = contactTxData?.rows ?? [];
   const { data: comms, refetch: refetchComms } = trpc.communications.list.useQuery({ contactId });
   const { data: tasksData } = trpc.tasks.list.useQuery({ relatedContactId: contactId });
   const tasks = tasksData?.rows ?? [];
@@ -443,7 +443,7 @@ export default function ContactDetail() {
   const { data: allProperties = [] } = trpc.properties.list.useQuery({});
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
 
-  const contactTransactions = (transactions ?? []).filter((r) => r.transaction.primaryContactId === contactId);
+  const contactTransactions = transactions;
 
   const updateNote = trpc.communications.update.useMutation({
     onSuccess: () => { toast.success("Note updated"); setEditingNoteId(null); refetchComms(); },
