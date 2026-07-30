@@ -18,6 +18,8 @@ import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebho
 import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
+import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
+import { registerAircallWebhook } from "../aircallWebhook";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -184,6 +186,13 @@ async function startServer() {
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.
   scheduleAnalyticsInsightRefresh();
+
+  // Company-wide AI Business Insights: one shared cache, checked daily and
+  // regenerated weekly. A manual admin refresh uses the same protected lifecycle.
+  scheduleBusinessInsightRefresh();
+
+  // Email Behaviors: sync Resend + GHL email activity every 4 hours
+  scheduleEmailBehaviorsSync();
 
   // Temporary permission grant expiry: revoke expired temp grants every 15 min
   scheduleTempGrantExpiry();
