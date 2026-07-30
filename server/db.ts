@@ -452,6 +452,7 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       like(contacts.lastName, s),
       like(contacts.email, s),
       like(contacts.phone, s),
+      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${s}`,
     ));
   }
   if (filters.followUpDateFrom) baseConditions.push(gte(agentConnections.followUpDate, filters.followUpDateFrom));
