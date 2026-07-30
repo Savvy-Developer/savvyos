@@ -941,8 +941,8 @@ export default function ContactDetail() {
         {/* Right: Tabs */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="activity">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <TabsList>
+            <div className="mb-4 space-y-2">
+              <TabsList className="flex-wrap h-auto gap-y-1 w-full">
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="properties">Properties ({contactProps?.length ?? 0})</TabsTrigger>
                 <TabsTrigger value="transactions">Transactions ({contactTransactions.length})</TabsTrigger>
@@ -950,11 +950,12 @@ export default function ContactDetail() {
                 <TabsTrigger value="history">History</TabsTrigger>
                 <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
                 <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
-
               </TabsList>
-              <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
-                <MessageSquare className="h-4 w-4 mr-1" /> Add Note
-              </Button>
+              <div className="flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
+                  <MessageSquare className="h-4 w-4 mr-1" /> Add Note
+                </Button>
+              </div>
             </div>
 
             <TabsContent value="activity">

@@ -471,7 +471,7 @@ export default function AgentConnectionDetail() {
         {/* Right: Tabs for Communications, Tasks, Documents */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="communications">
-            <TabsList className="mb-4 flex-wrap">
+            <TabsList className="mb-4 flex-wrap h-auto gap-y-1 w-full">
               <TabsTrigger value="communications">Communications ({comms?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="tasks">Tasks ({tasks?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="transactions">Transactions ({contactTransactions?.length ?? 0})</TabsTrigger>
