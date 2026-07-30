@@ -118,6 +118,12 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean): Na
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
       ],
     },
+    {
+      label: "Insights",
+      items: [
+        { icon: BarChart3, label: "My Stats", path: "/stats" },
+      ],
+    },
   ];
 }
 

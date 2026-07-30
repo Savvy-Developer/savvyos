@@ -3103,3 +3103,46 @@ export async function deleteListingDocument(id: number) {
   if (!db) throw new Error("DB unavailable");
   await db.delete(listingDocuments).where(eq(listingDocuments.id, id));
 }
+
+// ─── Agent Career Stats (all-time) ───────────────────────────────────────────
+export async function getMyCareerStats(agentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [stats] = await db
+    .select({
+      totalClosings: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
+      totalGci: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      totalVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      firstClosingDate: sql<string>`MIN(CASE WHEN ${transactions.status} = 'closed' THEN ${transactions.closingDate} END)`,
+    })
+    .from(transactions)
+    .where(eq(transactions.agentId, agentId));
+  if (!stats) return null;
+  const totalClosings = Number(stats.totalClosings);
+  const totalGci = Number(stats.totalGci);
+  const totalVolume = Number(stats.totalVolume);
+  // Best month: highest GCI in a single calendar month
+  const monthlyRows = await db
+    .select({
+      month: sql<string>`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`,
+      gci: sql<number>`SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)))`,
+      closings: sql<number>`COUNT(*)`,
+    })
+    .from(transactions)
+    .where(and(eq(transactions.agentId, agentId), eq(transactions.status, "closed"), isNotNull(transactions.closingDate)))
+    .groupBy(sql`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`)
+    .orderBy(desc(sql`SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)))`))
+    .limit(1);
+  const bestMonth = monthlyRows[0] ?? null;
+  return {
+    totalClosings,
+    totalGci,
+    totalVolume,
+    avgGciPerDeal: totalClosings > 0 ? totalGci / totalClosings : 0,
+    avgVolumePerDeal: totalClosings > 0 ? totalVolume / totalClosings : 0,
+    firstClosingDate: stats.firstClosingDate ? String(stats.firstClosingDate) : null,
+    bestMonth: bestMonth
+      ? { month: bestMonth.month, gci: Number(bestMonth.gci), closings: Number(bestMonth.closings) }
+      : null,
+  };
+}

@@ -53,6 +53,7 @@ import {
   updateMarketGoal,
   getAgentMonthlyGci,
   getGlobalActivityLog,
+  getMyCareerStats,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
@@ -869,4 +870,8 @@ Return only valid JSON array.`;
         reason: "manual",
       });
     }),
+
+  /** All-time career stats for the current agent */
+  myCareerStats: protectedProcedure
+    .query(async ({ ctx }) => getMyCareerStats(ctx.user.id)),
 });
