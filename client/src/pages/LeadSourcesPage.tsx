@@ -232,10 +232,6 @@ export default function LeadSourcesPage() {
 
   const parents = sources.filter(s => s.ls.parentId === null);
   const childrenOf = (parentId: number) => sources.filter(s => s.ls.parentId === parentId);
-  // All sources that are not top-level and not direct children of top-level (i.e., 3rd+ level)
-  const topLevelIds = new Set(parents.map(p => p.ls.id));
-  // Any source whose parentId points to a 2nd-level source is a 3rd-level source
-  const grandchildrenOf = (parentId: number) => sources.filter(s => s.ls.parentId === parentId);
 
   // Check if a parent is the "Referral Partner" category
   function isReferralPartnerCategory(parentId: string | number | null): boolean {
@@ -496,9 +492,7 @@ export default function LeadSourcesPage() {
                 {isOpen && children.length > 0 && (
                   <div className="border-t divide-y bg-muted/10">
                     {children.map(child => {
-                      const grandchildren = grandchildrenOf(child.ls.id);
-                      return (<React.Fragment key={child.ls.id}>
-                      <div className="flex items-center gap-3 pl-10 pr-4 py-3 hover:bg-muted/20 transition-colors">
+                      return (<div key={child.ls.id} className="flex items-center gap-3 pl-10 pr-4 py-3 hover:bg-muted/20 transition-colors">
                         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -549,46 +543,7 @@ export default function LeadSourcesPage() {
                             </Button>
                           )}
                         </div>
-                      </div>
-                      {grandchildren.map(gc => (
-                        <div key={gc.ls.id} className="flex items-center gap-3 pl-16 pr-4 py-2.5 hover:bg-muted/20 transition-colors bg-muted/5">
-                          <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium">{gc.ls.name}</span>
-                              {gc.ls.isProtected && (
-                                <Badge variant="outline" className="text-xs gap-1">
-                                  <Lock className="h-2.5 w-2.5" /> Protected
-                                </Badge>
-                              )}
-                              {gc.ls.campaignType && (
-                                <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                  {CAMPAIGN_TYPE_LABELS[gc.ls.campaignType]}
-                                </span>
-                              )}
-                              {!gc.ls.isActive && <Badge variant="outline" className="text-xs text-muted-foreground">Inactive</Badge>}
-                            </div>
-                            {gc.ls.description && <p className="text-xs text-muted-foreground mt-0.5">{gc.ls.description}</p>}
-                            {gc.contactCount > 0 && (
-                              <p className="text-xs text-muted-foreground mt-0.5">{gc.contactCount} contact{gc.contactCount !== 1 ? 's' : ''}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(gc)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            {!gc.ls.isProtected && (
-                              <Button
-                                size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                onClick={() => { if (confirm(`Delete "${gc.ls.name}"?`)) deleteMutation.mutate({ id: gc.ls.id }); }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                      </React.Fragment>);
+                      </div>);
                     })}
                   </div>
                 )}
@@ -630,10 +585,6 @@ export default function LeadSourcesPage() {
                     <SelectItem value="none">Top-level (no parent)</SelectItem>
                     {parents.filter(p => p.ls.id !== editingId).map(p => (
                       <SelectItem key={p.ls.id} value={String(p.ls.id)}>{p.ls.name}</SelectItem>
-                    ))}
-                    {/* Also allow selecting 2nd-level sources as parents (for 3rd-level sources) */}
-                    {sources.filter(s => s.ls.parentId !== null && topLevelIds.has(s.ls.parentId!) && s.ls.id !== editingId).map(s => (
-                      <SelectItem key={s.ls.id} value={String(s.ls.id)}>{s.ls.name} (sub-source)</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

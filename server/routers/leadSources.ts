@@ -82,6 +82,13 @@ export const leadSourcesRouter = router({
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const parentId = input.parentId ?? null;
+      // Guard: prevent creating a 3rd-level source (parent must be top-level)
+      if (parentId !== null) {
+        const [parentRow] = await db.select({ parentId: leadSources.parentId }).from(leadSources).where(eq(leadSources.id, parentId)).limit(1);
+        if (parentRow && parentRow.parentId !== null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot create a third-level sub-source. Sources can only be top-level categories or direct sub-sources of a category." });
+        }
+      }
       await assertAgreementRequirement(parentId, input.agreementUrl);
       const [result] = await db.insert(leadSources).values({
         name: input.name,
@@ -121,6 +128,13 @@ export const leadSourcesRouter = router({
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Lead source not found." });
 
       const targetParentId = data.parentId !== undefined ? data.parentId : existing.parentId;
+      // Guard: prevent moving a source to create a 3rd-level
+      if (targetParentId !== null) {
+        const [parentRow] = await db.select({ parentId: leadSources.parentId }).from(leadSources).where(eq(leadSources.id, targetParentId)).limit(1);
+        if (parentRow && parentRow.parentId !== null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot create a third-level sub-source. Sources can only be top-level categories or direct sub-sources of a category." });
+        }
+      }
       const targetAgreementUrl = data.agreementUrl !== undefined ? data.agreementUrl : existing.agreementUrl;
       await assertAgreementRequirement(targetParentId, targetAgreementUrl);
 

@@ -467,39 +467,11 @@ export default function ContactsPage() {
               const allSources = leadSourcesData as any[];
               const topLevel = allSources.filter((s: any) => !s.ls.parentId);
               const topLevelIdSet = new Set(topLevel.map((s: any) => s.ls.id));
-              // 2nd-level: direct children of top-level
               const secondLevel = allSources.filter((s: any) => s.ls.parentId && topLevelIdSet.has(s.ls.parentId));
-              const secondLevelIdSet = new Set(secondLevel.map((s: any) => s.ls.id));
-              // 3rd-level: children of 2nd-level sources
-              const thirdLevel = allSources.filter((s: any) => s.ls.parentId && secondLevelIdSet.has(s.ls.parentId));
               const items: React.ReactNode[] = [];
               topLevel.forEach((p: any) => {
                 const subs = secondLevel.filter((c: any) => c.ls.parentId === p.ls.id);
                 if (subs.length > 0) {
-                  const groupItems: React.ReactNode[] = [];
-                  subs.forEach((sub: any) => {
-                    const grandkids = thirdLevel.filter((g: any) => g.ls.parentId === sub.ls.id);
-                    if (grandkids.length > 0) {
-                      groupItems.push(
-                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6 font-medium">
-                          {sub.ls.name}
-                        </SelectItem>
-                      );
-                      grandkids.forEach((gc: any) => {
-                        groupItems.push(
-                          <SelectItem key={gc.ls.id} value={String(gc.ls.id)} className="pl-10">
-                            {gc.ls.name}
-                          </SelectItem>
-                        );
-                      });
-                    } else {
-                      groupItems.push(
-                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6">
-                          {sub.ls.name}
-                        </SelectItem>
-                      );
-                    }
-                  });
                   items.push(
                     <SelectGroup key={`group-${p.ls.id}`}>
                       <SelectLabel className="text-xs font-semibold text-foreground px-2 py-1.5 cursor-pointer hover:bg-accent rounded-sm"
@@ -507,11 +479,14 @@ export default function ContactsPage() {
                       >
                         {p.ls.name}
                       </SelectLabel>
-                      {groupItems}
+                      {subs.map((sub: any) => (
+                        <SelectItem key={sub.ls.id} value={String(sub.ls.id)} className="pl-6">
+                          {sub.ls.name}
+                        </SelectItem>
+                      ))}
                     </SelectGroup>
                   );
                 } else {
-                  // Standalone top-level source with no children
                   items.push(
                     <SelectItem key={p.ls.id} value={String(p.ls.id)}>{p.ls.name}</SelectItem>
                   );
