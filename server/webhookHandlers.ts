@@ -334,10 +334,56 @@ const contactUpdateHandler: HandlerFn = async (rawPayload, endpoint) => {
   return { contactId: existingId, action: "updated", message: `Contact updated: id=${existingId}` };
 };
 
-// ─── Handler: custom ─────────────────────────────────────────────────────────
-// No-op: just logs the payload. Useful for testing or future custom logic.
+// ─── Handler: property_view ───────────────────────────────────────────────────
+// Records a "property viewed" activity on an EXISTING contact. Fired by the
+// savvy-web `property.viewed` webhook when an identified (logged-in) lead opens a
+// property detail page (already deduped to once per 30 min per lead+property on
+// the savvy-web side). Matches the contact by email; if no contact exists yet the
+// view is skipped — we never create a contact from a page view. This handler only
+// appends to the activity timeline; it does not modify the contact.
 
-const customHandler: HandlerFn = async (_payload, _endpoint) => {
+const propertyViewHandler: HandlerFn = async (rawPayload, _endpoint) => {
+  // savvy-web wraps the event fields under `data`; fall back to a flat payload.
+  const data = ((rawPayload.data as Record<string, unknown>) ?? rawPayload);
+
+  const email = (data.leadEmail as string) || (data.email as string) || undefined;
+  if (!email) throw new Error("leadEmail is required");
+
+  const propertyId = data.propertyId ?? null;
+  const propertyAddress = (data.propertyAddress as string) ?? null;
+  const viewedAt = (data.viewedAt as string) ?? new Date().toISOString();
+
+  const contactId = await findExistingContact(email);
+  if (!contactId) {
+    return { action: "skipped", message: `No contact found for ${email}` };
+  }
+
+  await logActivity({
+    userId: null,
+    action: "property_viewed",
+    entityType: "contact",
+    entityId: contactId,
+    details: { propertyId, propertyAddress, viewedAt, via: "savvy-web" },
+  });
+
+  return {
+    contactId,
+    action: "logged",
+    message: `Property view logged for contact ${contactId}`,
+  };
+};
+
+// ─── Handler: custom ─────────────────────────────────────────────────────────
+// Logs the payload (no-op) — EXCEPT it routes a savvy-web `property.viewed`
+// event to the property-view handler. This lets the property-view integration be
+// wired up on an endpoint whose handlerType is still "custom", so it works
+// without waiting on the enum migration. Once the migration is applied you can
+// switch the endpoint to the dedicated "property_view" type for a clearer label.
+
+const customHandler: HandlerFn = async (payload, endpoint) => {
+  if (payload.event === "property.viewed") {
+    return propertyViewHandler(payload, endpoint);
+  }
   return { action: "logged", message: "Payload logged (custom handler)" };
 };
 
@@ -347,5 +393,6 @@ export const HANDLERS: Record<string, HandlerFn> = {
   lead_ingest: leadIngestHandler,
   contact_create: contactCreateHandler,
   contact_update: contactUpdateHandler,
+  property_view: propertyViewHandler,
   custom: customHandler,
 };
