@@ -25,7 +25,7 @@ import {
 } from "../marketMatch.db";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { usStates, usCounties, marketCounties } from "../../drizzle/schema";
-import { getDb, logActivity } from "../db";
+import { getDb, logActivity, createCommunication } from "../db";
 import { eq, asc } from "drizzle-orm";
 
 // ─── Investor Profile Schema ──────────────────────────────────────────────────
@@ -571,6 +571,21 @@ Generate the following in JSON:
       }
             const { sessionId, ...rest } = input;
       await completeMarketMatchSession(sessionId, rest);
+
+      // Sync call notes to the lead's Notes section
+      const callNotes = (session.callNotes as string | null) ?? "";
+      if (callNotes.trim()) {
+        const noteBody = `[Market Match Call]\n\n${callNotes.trim()}`;
+        await createCommunication({
+          type: "note",
+          subject: "Market Match Call Notes",
+          body: noteBody,
+          direction: "internal",
+          authorId: ctx.user.id,
+          relatedContactId: session.contactId,
+        });
+      }
+
       void logActivity({ userId: ctx.user.id, action: "market_match_session_completed", entityType: "contact", entityId: session.contactId, details: { sessionId, recommendedAgentId: input.recommendedAgentId } });
       return { success: true };
     }),
