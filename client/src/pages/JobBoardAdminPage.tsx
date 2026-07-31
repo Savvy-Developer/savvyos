@@ -154,6 +154,7 @@ function ApplicantDetail({ appId, onBack }: { appId: number; onBack: () => void 
   const { data: app, isLoading } = trpc.jobBoard.getApplicationDetail.useQuery({ id: appId });
   const updateStatus = trpc.jobBoard.updateApplicationStatus.useMutation({ onSuccess: () => { utils.jobBoard.getApplicationDetail.invalidate(); utils.jobBoard.listApplications.invalidate(); toast.success("Updated"); } });
   const generateInsight = trpc.jobBoard.generateAiInsight.useMutation({ onSuccess: () => { utils.jobBoard.getApplicationDetail.invalidate(); toast.success("AI insight generated"); } });
+  const createAssessment = trpc.talentProfile.createSession.useMutation({ onSuccess: (data: any) => { toast.success("Assessment link copied to clipboard!"); navigator.clipboard.writeText(data.assessmentLink).catch(() => {}); } });
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState("");
@@ -227,6 +228,35 @@ function ApplicantDetail({ appId, onBack }: { appId: number; onBack: () => void 
         ) : (
           <p className="text-sm text-gray-400 italic">No AI insight yet. Click "Generate Insight" to analyze this applicant.</p>
         )}
+      </div>
+
+      {/* Talent Profile Assessment */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">🧠 Talent Profile Assessment</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Workstyle personality assessment — send a link to the candidate</p>
+          </div>
+          <button
+            onClick={() => createAssessment.mutate({ candidateEmail: a.email, candidateName: `${a.firstName} ${a.lastName}`, jobPostingId: a.jobPostingId })}
+            disabled={createAssessment.isPending}
+            className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
+          >
+            {createAssessment.isPending ? "Creating..." : "Send Assessment Link"}
+          </button>
+        </div>
+        {createAssessment.data ? (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <p className="text-xs font-medium text-purple-900 mb-1">Assessment link created and copied to clipboard:</p>
+            <p className="text-xs font-mono text-purple-700 break-all">{(createAssessment.data as any).assessmentLink}</p>
+            <p className="text-xs text-purple-600 mt-1">Share this link with the candidate. They can complete the assessment without logging in.</p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">No assessment sent yet. Click "Send Assessment Link" to generate a unique link for this candidate.</p>
+        )}
+        <div className="mt-3 text-right">
+          <a href="/talent-profile-admin" className="text-xs text-purple-600 hover:underline">View all assessment results →</a>
+        </div>
       </div>
 
       {/* Application details */}

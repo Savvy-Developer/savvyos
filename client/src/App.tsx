@@ -80,6 +80,8 @@ import DevLoginScreen from "./components/DevLoginScreen";
 import LoginPage from "./pages/LoginPage";
 import CareersPage from "./pages/CareersPage";
 import JobBoardAdminPage from "./pages/JobBoardAdminPage";
+import TalentProfilePage from "./pages/TalentProfilePage";
+import TalentProfileAdminPage from "./pages/TalentProfileAdminPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 
@@ -213,6 +215,7 @@ function Router() {
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
           <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
           <Route path="/job-board">{() => <AdminRoute><JobBoardAdminPage /></AdminRoute>}</Route>
+          <Route path="/talent-profile-admin">{() => <AdminRoute><TalentProfileAdminPage /></AdminRoute>}</Route>
           <Route path="/stats" component={StatsPage} />
           <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
           <Route path="/admin/super-permissions">{() => <AdminRoute><SuperPermissionsPage /></AdminRoute>}</Route>
@@ -234,6 +237,7 @@ function App() {
           <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
             <Route path="/careers" component={CareersPage} />
+            <Route path="/talent-profile" component={TalentProfilePage} />
             <Route path="/login" component={LoginPage} />
             <Route path="/forgot-password" component={ForgotPasswordPage} />
             <Route path="/reset-password" component={ResetPasswordPage} />
