@@ -86,7 +86,9 @@ export default function CoachingCommitmentsPanel({ agentId }: { agentId: number 
     onError: (e) => toast.error(e.message),
   });
 
-  const filtered = (commitments ?? []).filter((c: any) => {
+  const rows = (commitments as any)?.rows ?? (Array.isArray(commitments) ? commitments : []);
+  const items = rows.map((r: any) => r.commitment ?? r);
+  const filtered = items.filter((c: any) => {
     if (statusFilter === "open") {
       return ["AI Suggested", "Not Started", "In Progress", "Submitted for Verification"].includes(c.status);
     }

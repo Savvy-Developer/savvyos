@@ -19,8 +19,10 @@ import {
   transactions,
   agentConnections,
   tasks,
+  marketProfiles,
+  marketAgentAssignments,
 } from "../../drizzle/schema";
-import { eq, desc, and, sql, or, inArray, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, sql, or, inArray, isNull, isNotNull, ne, gte, lte, lt, gt, between, like } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
 import { logActivity } from "../db";
 import { invokeLLM } from "../_core/llm";
@@ -35,37 +37,451 @@ function requireAdminOrCoach(role: string) {
 async function getAgentProductionStats(db: any, agentId: number) {
   const now = new Date();
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const yearStart = new Date(now.getFullYear(), 0, 1);
 
   const [prodStats] = await db
     .select({
       trailing90Units: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END)`,
       trailing90Volume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      trailing90GCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      trailing30Units: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${thirtyDaysAgo} THEN ${transactions.id} END)`,
+      trailing30Volume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${thirtyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      ytdUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN ${transactions.id} END)`,
+      ytdVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      ytdGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
       underContractUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'under_contract' THEN ${transactions.id} END)`,
       underContractVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
-      totalLeads: sql<number>`COUNT(DISTINCT ${agentConnections.id})`,
-      overdueTaskCount: sql<number>`COUNT(DISTINCT CASE WHEN ${tasks.status} = 'pending' AND ${tasks.dueDate} < NOW() THEN ${tasks.id} END)`,
+      underContractGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      terminatedUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'terminated' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END)`,
+      terminatedVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'terminated' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
     })
-    .from(users)
-    .leftJoin(transactions, eq(transactions.agentId, users.id))
-    .leftJoin(agentConnections, eq(agentConnections.agentId, users.id))
-      .leftJoin(tasks, and(eq(tasks.assignedToId, users.id), eq(tasks.status, "pending")))
-    .where(eq(users.id, agentId))
-    .groupBy(users.id);
+    .from(transactions)
+    .where(eq(transactions.agentId, agentId));
 
-  return prodStats ?? {
-    trailing90Units: 0,
-    trailing90Volume: 0,
-    underContractUnits: 0,
-    underContractVolume: 0,
-    totalLeads: 0,
-    overdueTaskCount: 0,
+  // Lead stats
+  const [leadStats] = await db
+    .select({
+      totalLeads: sql<number>`COUNT(*)`,
+      activeLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} IN ('new_lead','attempted_contact','nurture','active_client') THEN 1 END)`,
+      newLeads30d: sql<number>`COUNT(CASE WHEN ${agentConnections.createdAt} >= ${thirtyDaysAgo} THEN 1 END)`,
+      underContractLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} = 'under_contract' THEN 1 END)`,
+      deadLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} = 'dead' THEN 1 END)`,
+      avgLeadAgeDays: sql<number>`COALESCE(AVG(DATEDIFF(NOW(), ${agentConnections.createdAt})), 0)`,
+      staleLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} IN ('new_lead','attempted_contact','nurture','active_client') AND ${agentConnections.agingUpdatedAt} < ${thirtyDaysAgo} THEN 1 END)`,
+    })
+    .from(agentConnections)
+    .where(eq(agentConnections.agentId, agentId));
+
+  // Task stats
+  const [taskStats] = await db
+    .select({
+      totalPendingTasks: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' THEN 1 END)`,
+      overdueTasks: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' AND ${tasks.dueDate} < NOW() THEN 1 END)`,
+      completedTasks30d: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND ${tasks.completedAt} >= ${thirtyDaysAgo} THEN 1 END)`,
+    })
+    .from(tasks)
+    .where(eq(tasks.assignedToId, agentId));
+
+  return {
+    ...(prodStats ?? {}),
+    ...(leadStats ?? {}),
+    ...(taskStats ?? {}),
   };
+}
+
+// ─── Helper: get agent goals with progress ──────────────────────────────────
+async function getAgentGoalsWithProgress(db: any, agentId: number) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const goals = await db
+    .select()
+    .from(agentGoals)
+    .where(and(eq(agentGoals.agentId, agentId), eq(agentGoals.year, currentYear)));
+
+  // Get YTD actuals
+  const yearStart = new Date(currentYear, 0, 1);
+  const [ytdActuals] = await db
+    .select({
+      ytdClosings: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
+      ytdVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      ytdGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+    })
+    .from(transactions)
+    .where(and(eq(transactions.agentId, agentId), gte(transactions.closingDate, yearStart)));
+
+  const annualGoal = goals.find((g: any) => g.month === 0);
+  const monthlyGoals = goals.filter((g: any) => g.month > 0);
+
+  return {
+    annualGoal: annualGoal ?? null,
+    monthlyGoals,
+    ytdActuals: ytdActuals ?? { ytdClosings: 0, ytdVolume: 0, ytdGCI: 0 },
+    currentMonth,
+    currentYear,
+  };
+}
+
+// ─── Helper: get pipeline data for an agent ─────────────────────────────────
+async function getAgentPipelineData(db: any, agentId: number) {
+  const pipelineByStatus = await db
+    .select({
+      status: agentConnections.pipelineStatus,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(agentConnections)
+    .where(eq(agentConnections.agentId, agentId))
+    .groupBy(agentConnections.pipelineStatus);
+
+  return {
+    pipelineByStatus: Object.fromEntries(pipelineByStatus.map((r: any) => [r.status, Number(r.count)])),
+  };
+}
+
+// ─── Helper: get coaching history summary for AI context ────────────────────
+async function getCoachingHistoryForAI(db: any, agentId: number, limit = 10) {
+  const sessions = await db
+    .select({
+      id: coachingSessions.id,
+      sessionDate: coachingSessions.sessionDate,
+      sessionType: coachingSessions.sessionType,
+      status: coachingSessions.status,
+      aiSummary: coachingSessions.aiSummary,
+      primaryDiagnosis: coachingSessions.primaryDiagnosis,
+      diagnosisEvidence: coachingSessions.diagnosisEvidence,
+      sourceNotes: coachingSessions.sourceNotes,
+    })
+    .from(coachingSessions)
+    .where(and(eq(coachingSessions.agentId, agentId), eq(coachingSessions.status, "Completed")))
+    .orderBy(desc(coachingSessions.sessionDate))
+    .limit(limit);
+
+  const commitments = await db
+    .select()
+    .from(coachingCommitments)
+    .where(eq(coachingCommitments.agentId, agentId))
+    .orderBy(desc(coachingCommitments.createdAt))
+    .limit(30);
+
+  return { sessions, commitments };
 }
 
 // ─── Coaching Router ──────────────────────────────────────────────────────────
 export const coachingRouter = router({
 
-  // ─── Profiles ─────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMMAND CENTER — Dashboard with metrics, action queues, and AI brief
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Get the full Coaching Command Center data */
+  getCommandCenter: protectedProcedure.query(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const db = await getDb();
+    if (!db) return null;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // ─── Metrics ───────────────────────────────────────────────────────────
+    const [
+      statusCounts,
+      riskCounts,
+      diagnosisCounts,
+      totalAgents,
+      sessionsThisWeek,
+      sessionsToday,
+      overdueCommitments,
+      openCommitmentsCount,
+      activeResetsCount,
+      openEscalationsCount,
+      pendingCoachOuts,
+      launchAgents,
+      unassignedCoachAgents,
+      noSessionIn14Days,
+    ] = await Promise.all([
+      db.select({ status: coachingProfiles.performanceStatus, count: sql<number>`COUNT(*)` })
+        .from(coachingProfiles).groupBy(coachingProfiles.performanceStatus),
+      db.select({ risk: coachingProfiles.retentionRiskStatus, count: sql<number>`COUNT(*)` })
+        .from(coachingProfiles).groupBy(coachingProfiles.retentionRiskStatus),
+      db.select({ diagnosis: coachingProfiles.currentPrimaryDiagnosis, count: sql<number>`COUNT(*)` })
+        .from(coachingProfiles).where(isNotNull(coachingProfiles.currentPrimaryDiagnosis)).groupBy(coachingProfiles.currentPrimaryDiagnosis),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingProfiles),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingSessions)
+        .where(and(eq(coachingSessions.status, "Scheduled"), gte(coachingSessions.sessionDate, today), lte(coachingSessions.sessionDate, sevenDaysFromNow))),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingSessions)
+        .where(and(eq(coachingSessions.status, "Scheduled"), gte(coachingSessions.sessionDate, today), lt(coachingSessions.sessionDate, tomorrow))),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingCommitments)
+        .where(and(inArray(coachingCommitments.status, ["Not Started", "In Progress"]), lt(coachingCommitments.dueDate, now))),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingCommitments)
+        .where(inArray(coachingCommitments.status, ["Not Started", "In Progress", "AI Suggested"])),
+      db.select({ count: sql<number>`COUNT(*)` }).from(performanceResets)
+        .where(inArray(performanceResets.status, ["Active", "Improving", "Extension Requested"])),
+      db.select({ count: sql<number>`COUNT(*)` }).from(capacityEscalations)
+        .where(inArray(capacityEscalations.status, ["Submitted", "Assigned", "In Progress", "Waiting for Information"])),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachOutRecommendations)
+        .where(inArray(coachOutRecommendations.status, ["Submitted", "Under Review"])),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingProfiles)
+        .where(eq(coachingProfiles.performanceStatus, "Launch")),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingProfiles)
+        .where(isNull(coachingProfiles.coachOfRecordId)),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingProfiles)
+        .where(and(
+          or(isNull(coachingProfiles.nextSessionDate), lt(coachingProfiles.nextSessionDate, fourteenDaysAgo)),
+          isNotNull(coachingProfiles.coachOfRecordId),
+        )),
+    ]);
+
+    // ─── Action Queues ─────────────────────────────────────────────────────
+    const coachAlias = aliasedTable(users, "coach");
+
+    // Sessions due today
+    const sessionsDueToday = await db
+      .select({
+        session: coachingSessions,
+        agentName: users.name,
+        coachName: coachAlias.name,
+      })
+      .from(coachingSessions)
+      .leftJoin(users, eq(coachingSessions.agentId, users.id))
+      .leftJoin(coachAlias, eq(coachingSessions.scheduledCoachId, coachAlias.id))
+      .where(and(eq(coachingSessions.status, "Scheduled"), gte(coachingSessions.sessionDate, today), lt(coachingSessions.sessionDate, tomorrow)))
+      .orderBy(coachingSessions.sessionDate)
+      .limit(20);
+
+    // Sessions needing AI processing (completed but no summary)
+    const sessionsNeedingProcessing = await db
+      .select({
+        session: coachingSessions,
+        agentName: users.name,
+      })
+      .from(coachingSessions)
+      .leftJoin(users, eq(coachingSessions.agentId, users.id))
+      .where(and(
+        eq(coachingSessions.status, "Completed"),
+        or(eq(coachingSessions.aiProcessingStatus, "None"), isNull(coachingSessions.aiProcessingStatus)),
+        or(isNotNull(coachingSessions.sourceNotes), isNotNull(coachingSessions.transcript)),
+      ))
+      .orderBy(desc(coachingSessions.completedAt))
+      .limit(10);
+
+    // AI commitments needing review
+    const aiCommitmentsNeedingReview = await db
+      .select({
+        commitment: coachingCommitments,
+        agentName: users.name,
+      })
+      .from(coachingCommitments)
+      .leftJoin(users, eq(coachingCommitments.agentId, users.id))
+      .where(eq(coachingCommitments.status, "AI Suggested"))
+      .orderBy(desc(coachingCommitments.createdAt))
+      .limit(20);
+
+    // Overdue commitments
+    const overdueCommitmentsList = await db
+      .select({
+        commitment: coachingCommitments,
+        agentName: users.name,
+      })
+      .from(coachingCommitments)
+      .leftJoin(users, eq(coachingCommitments.agentId, users.id))
+      .where(and(
+        inArray(coachingCommitments.status, ["Not Started", "In Progress"]),
+        lt(coachingCommitments.dueDate, now),
+      ))
+      .orderBy(asc(coachingCommitments.dueDate))
+      .limit(20);
+
+    // Agents needing setup (no coach assigned)
+    const agentsNeedingSetup = await db
+      .select({
+        profile: coachingProfiles,
+        agentName: users.name,
+      })
+      .from(coachingProfiles)
+      .leftJoin(users, eq(coachingProfiles.agentId, users.id))
+      .where(or(
+        eq(coachingProfiles.coachingSetupRequired, true),
+        isNull(coachingProfiles.coachOfRecordId),
+      ))
+      .limit(20);
+
+    // Launch agents at risk
+    const launchAtRisk = await db
+      .select({
+        profile: coachingProfiles,
+        agentName: users.name,
+      })
+      .from(coachingProfiles)
+      .leftJoin(users, eq(coachingProfiles.agentId, users.id))
+      .where(and(
+        eq(coachingProfiles.performanceStatus, "Launch"),
+        inArray(coachingProfiles.launchHealthStatus, ["At Risk", "Critical"]),
+      ))
+      .limit(20);
+
+    // Red/Yellow agents without next session
+    const atRiskNoSession = await db
+      .select({
+        profile: coachingProfiles,
+        agentName: users.name,
+      })
+      .from(coachingProfiles)
+      .leftJoin(users, eq(coachingProfiles.agentId, users.id))
+      .where(and(
+        inArray(coachingProfiles.performanceStatus, ["Red", "Yellow"]),
+        or(isNull(coachingProfiles.nextSessionDate), lt(coachingProfiles.nextSessionDate, now)),
+      ))
+      .limit(20);
+
+    // Elevated/Critical retention risk
+    const retentionAlerts = await db
+      .select({
+        profile: coachingProfiles,
+        agentName: users.name,
+        coachName: coachAlias.name,
+      })
+      .from(coachingProfiles)
+      .leftJoin(users, eq(coachingProfiles.agentId, users.id))
+      .leftJoin(coachAlias, eq(coachingProfiles.coachOfRecordId, coachAlias.id))
+      .where(inArray(coachingProfiles.retentionRiskStatus, ["Elevated", "Critical"]))
+      .limit(20);
+
+    // Upcoming sessions this week
+    const upcomingSessions = await db
+      .select({
+        session: coachingSessions,
+        agentName: users.name,
+        coachName: coachAlias.name,
+      })
+      .from(coachingSessions)
+      .leftJoin(users, eq(coachingSessions.agentId, users.id))
+      .leftJoin(coachAlias, eq(coachingSessions.scheduledCoachId, coachAlias.id))
+      .where(and(eq(coachingSessions.status, "Scheduled"), gte(coachingSessions.sessionDate, today), lte(coachingSessions.sessionDate, sevenDaysFromNow)))
+      .orderBy(coachingSessions.sessionDate)
+      .limit(30);
+
+    // Performance reset checkpoints due this week
+    const checkpointsDueThisWeek = await db
+      .select({
+        checkpoint: performanceResetCheckpoints,
+        resetId: performanceResetCheckpoints.resetId,
+      })
+      .from(performanceResetCheckpoints)
+      .where(and(
+        eq(performanceResetCheckpoints.status, "Pending"),
+        gte(performanceResetCheckpoints.checkpointDate, today),
+        lte(performanceResetCheckpoints.checkpointDate, sevenDaysFromNow),
+      ))
+      .limit(10);
+
+    return {
+      metrics: {
+        totalAgents: Number(totalAgents[0]?.count ?? 0),
+        statusCounts: Object.fromEntries(statusCounts.map((r: any) => [r.status, Number(r.count)])),
+        riskCounts: Object.fromEntries(riskCounts.map((r: any) => [r.risk, Number(r.count)])),
+        diagnosisCounts: Object.fromEntries(diagnosisCounts.map((r: any) => [r.diagnosis, Number(r.count)])),
+        sessionsThisWeek: Number(sessionsThisWeek[0]?.count ?? 0),
+        sessionsToday: Number(sessionsToday[0]?.count ?? 0),
+        overdueCommitments: Number(overdueCommitments[0]?.count ?? 0),
+        openCommitments: Number(openCommitmentsCount[0]?.count ?? 0),
+        activeResets: Number(activeResetsCount[0]?.count ?? 0),
+        openEscalations: Number(openEscalationsCount[0]?.count ?? 0),
+        pendingCoachOuts: Number(pendingCoachOuts[0]?.count ?? 0),
+        launchAgents: Number(launchAgents[0]?.count ?? 0),
+        unassignedCoachAgents: Number(unassignedCoachAgents[0]?.count ?? 0),
+        noSessionIn14Days: Number(noSessionIn14Days[0]?.count ?? 0),
+      },
+      actionQueues: {
+        sessionsDueToday,
+        sessionsNeedingProcessing,
+        aiCommitmentsNeedingReview,
+        overdueCommitmentsList,
+        agentsNeedingSetup,
+        launchAtRisk,
+        atRiskNoSession,
+        retentionAlerts,
+        checkpointsDueThisWeek,
+      },
+      upcomingSessions,
+    };
+  }),
+
+  /** Generate AI Agent Success Brief for the Command Center */
+  generateCommandCenterBrief: protectedProcedure.mutation(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+    // Gather org-level data for AI synthesis
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [orgStats] = await db
+      .select({
+        totalAgents: sql<number>`COUNT(DISTINCT ${coachingProfiles.agentId})`,
+        redAgents: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Red' THEN 1 END)`,
+        yellowAgents: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Yellow' THEN 1 END)`,
+        greenAgents: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Green' THEN 1 END)`,
+        eliteAgents: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Elite' THEN 1 END)`,
+        launchAgents: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Launch' THEN 1 END)`,
+        criticalRisk: sql<number>`COUNT(CASE WHEN ${coachingProfiles.retentionRiskStatus} = 'Critical' THEN 1 END)`,
+        elevatedRisk: sql<number>`COUNT(CASE WHEN ${coachingProfiles.retentionRiskStatus} = 'Elevated' THEN 1 END)`,
+      })
+      .from(coachingProfiles);
+
+    const recentSessions = await db
+      .select({
+        count: sql<number>`COUNT(*)`,
+        completedCount: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'Completed' THEN 1 END)`,
+        noShowCount: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'No Show' THEN 1 END)`,
+      })
+      .from(coachingSessions)
+      .where(gte(coachingSessions.sessionDate, thirtyDaysAgo));
+
+    const [commitmentStats] = await db
+      .select({
+        total: sql<number>`COUNT(*)`,
+        completed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Completed' THEN 1 END)`,
+        missed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Missed' THEN 1 END)`,
+        overdue: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} IN ('Not Started','In Progress') AND ${coachingCommitments.dueDate} < NOW() THEN 1 END)`,
+      })
+      .from(coachingCommitments)
+      .where(gte(coachingCommitments.createdAt, thirtyDaysAgo));
+
+    const response = await invokeLLM({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You are the AI coaching intelligence for Savvy STR Agents. Generate a concise executive brief (3-5 paragraphs) for the coaching leadership team. Focus on: organizational health, key risks, patterns, and recommended priorities for this week. Use the Four-C framework (Commitment, Capability, Cadence, Capacity). Be direct and actionable.`,
+        },
+        {
+          role: "user",
+          content: `Organization Stats (last 30 days):
+- Total agents: ${orgStats?.totalAgents ?? 0}
+- Performance: Red=${orgStats?.redAgents ?? 0}, Yellow=${orgStats?.yellowAgents ?? 0}, Green=${orgStats?.greenAgents ?? 0}, Elite=${orgStats?.eliteAgents ?? 0}, Launch=${orgStats?.launchAgents ?? 0}
+- Retention Risk: Critical=${orgStats?.criticalRisk ?? 0}, Elevated=${orgStats?.elevatedRisk ?? 0}
+- Sessions (30d): Total=${recentSessions[0]?.count ?? 0}, Completed=${recentSessions[0]?.completedCount ?? 0}, No-Shows=${recentSessions[0]?.noShowCount ?? 0}
+- Commitments (30d): Total=${commitmentStats?.total ?? 0}, Completed=${commitmentStats?.completed ?? 0}, Missed=${commitmentStats?.missed ?? 0}, Currently Overdue=${commitmentStats?.overdue ?? 0}
+
+Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring immediate attention, 3) Patterns observed, 4) Recommended coaching priorities this week.`,
+        },
+      ],
+    });
+
+    const brief = response.choices[0]?.message?.content ?? "Unable to generate brief.";
+    return { brief, generatedAt: new Date().toISOString() };
+  }),
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AGENT PORTFOLIO — Full roster with comprehensive data
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** List all agent coaching profiles with live production stats */
   listProfiles: protectedProcedure
@@ -73,12 +489,20 @@ export const coachingRouter = router({
       performanceStatus: z.string().optional(),
       retentionRiskStatus: z.string().optional(),
       coachOfRecordId: z.number().optional(),
+      diagnosis: z.string().optional(),
+      launchHealthStatus: z.string().optional(),
+      marketProtectionStatus: z.string().optional(),
+      hasActiveReset: z.boolean().optional(),
       search: z.string().optional(),
+      sortBy: z.string().default("name"),
+      sortDir: z.enum(["asc", "desc"]).default("asc"),
+      limit: z.number().default(100),
+      offset: z.number().default(0),
     }).optional())
     .query(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
-      if (!db) return [];
+      if (!db) return { rows: [], total: 0 };
 
       const coachAlias = aliasedTable(users, "coach");
 
@@ -86,24 +510,38 @@ export const coachingRouter = router({
       if (input?.performanceStatus) conditions.push(eq(coachingProfiles.performanceStatus, input.performanceStatus as any));
       if (input?.retentionRiskStatus) conditions.push(eq(coachingProfiles.retentionRiskStatus, input.retentionRiskStatus as any));
       if (input?.coachOfRecordId) conditions.push(eq(coachingProfiles.coachOfRecordId, input.coachOfRecordId));
+      if (input?.diagnosis) conditions.push(eq(coachingProfiles.currentPrimaryDiagnosis, input.diagnosis as any));
+      if (input?.launchHealthStatus) conditions.push(eq(coachingProfiles.launchHealthStatus, input.launchHealthStatus as any));
+      if (input?.marketProtectionStatus) conditions.push(eq(coachingProfiles.marketProtectionStatus, input.marketProtectionStatus as any));
       if (input?.search) conditions.push(sql`users.name LIKE ${`%${input.search}%`}`);
 
-      const profiles = await db
-        .select({
+      const [rows, countRows] = await Promise.all([
+        db.select({
           profile: coachingProfiles,
           agent: { id: users.id, name: users.name, email: users.email },
           coach: { id: coachAlias.id, name: coachAlias.name, email: coachAlias.email },
         })
-        .from(users)
-        .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
-        .leftJoin(coachAlias, eq(coachingProfiles.coachOfRecordId, coachAlias.id))
-        .where(and(...conditions))
-        .orderBy(users.name);
+          .from(users)
+          .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
+          .leftJoin(coachAlias, eq(coachingProfiles.coachOfRecordId, coachAlias.id))
+          .where(and(...conditions))
+          .orderBy(users.name)
+          .limit(input?.limit ?? 100)
+          .offset(input?.offset ?? 0),
+        db.select({ count: sql<number>`COUNT(*)` })
+          .from(users)
+          .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
+          .where(and(...conditions)),
+      ]);
 
-      return profiles;
+      return { rows, total: Number(countRows[0]?.count ?? 0) };
     }),
 
-  /** Get a single agent's full coaching profile */
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INDIVIDUAL AGENT — Full coaching intelligence page
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Get a single agent's full coaching profile with all intelligence */
   getProfile: protectedProcedure
     .input(z.object({ agentId: z.number() }))
     .query(async ({ input, ctx }) => {
@@ -133,13 +571,19 @@ export const coachingRouter = router({
       // Get live production stats
       const prodStats = await getAgentProductionStats(db, input.agentId);
 
+      // Get goals with progress
+      const goalsData = await getAgentGoalsWithProgress(db, input.agentId);
+
+      // Get pipeline data
+      const pipelineData = await getAgentPipelineData(db, input.agentId);
+
       // Get recent sessions
       const recentSessions = await db
         .select()
         .from(coachingSessions)
         .where(eq(coachingSessions.agentId, input.agentId))
         .orderBy(desc(coachingSessions.sessionDate))
-        .limit(5);
+        .limit(10);
 
       // Get open commitments
       const openCommitments = await db
@@ -150,7 +594,19 @@ export const coachingRouter = router({
           inArray(coachingCommitments.status, ["Not Started", "In Progress", "Submitted for Verification", "AI Suggested"]),
         ))
         .orderBy(coachingCommitments.dueDate)
-        .limit(10);
+        .limit(20);
+
+      // Get commitment stats
+      const [commitmentStats] = await db
+        .select({
+          total: sql<number>`COUNT(*)`,
+          completed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Completed' THEN 1 END)`,
+          missed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Missed' THEN 1 END)`,
+          overdue: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} IN ('Not Started','In Progress') AND ${coachingCommitments.dueDate} < NOW() THEN 1 END)`,
+          repeated: sql<number>`COUNT(CASE WHEN ${coachingCommitments.isRepeated} = 1 THEN 1 END)`,
+        })
+        .from(coachingCommitments)
+        .where(eq(coachingCommitments.agentId, input.agentId));
 
       // Get active performance reset
       const [activeReset] = await db
@@ -162,16 +618,166 @@ export const coachingRouter = router({
         ))
         .limit(1);
 
+      // Get market assignments
+      const marketAssignments = await db
+        .select({
+          assignment: marketAgentAssignments,
+          market: { id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, status: marketProfiles.status },
+        })
+        .from(marketAgentAssignments)
+        .leftJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
+        .where(eq(marketAgentAssignments.agentId, input.agentId));
+
+      // Get assessments
+      const assessments = await db
+        .select()
+        .from(coachingAssessments)
+        .where(eq(coachingAssessments.agentId, input.agentId))
+        .orderBy(desc(coachingAssessments.assessmentDate));
+
+      // Session stats
+      const [sessionStats] = await db
+        .select({
+          totalSessions: sql<number>`COUNT(*)`,
+          completedSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'Completed' THEN 1 END)`,
+          noShowSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'No Show' THEN 1 END)`,
+          canceledSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'Canceled' THEN 1 END)`,
+        })
+        .from(coachingSessions)
+        .where(eq(coachingSessions.agentId, input.agentId));
+
       return {
         profile: typedRow.profile,
         agent: typedRow.agent,
         coach: typedRow.coach,
         nextCoach: typedRow.nextCoach,
         prodStats,
+        goalsData,
+        pipelineData,
         recentSessions,
         openCommitments,
+        commitmentStats: commitmentStats ?? { total: 0, completed: 0, missed: 0, overdue: 0, repeated: 0 },
         activeReset: activeReset ?? null,
+        marketAssignments,
+        assessments,
+        sessionStats: sessionStats ?? { totalSessions: 0, completedSessions: 0, noShowSessions: 0, canceledSessions: 0 },
       };
+    }),
+
+  /** Generate AI Coaching Insights for an individual agent */
+  generateAgentInsights: protectedProcedure
+    .input(z.object({ agentId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Gather comprehensive agent data for AI synthesis
+      const [agentRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.agentId));
+      const agentName = agentRow?.name ?? "Unknown Agent";
+
+      const prodStats = await getAgentProductionStats(db, input.agentId);
+      const goalsData = await getAgentGoalsWithProgress(db, input.agentId);
+      const pipelineData = await getAgentPipelineData(db, input.agentId);
+      const history = await getCoachingHistoryForAI(db, input.agentId);
+
+      // Get assessments for coaching style context
+      const assessments = await db
+        .select({ assessmentType: coachingAssessments.assessmentType, preferredCoachingStyle: coachingAssessments.preferredCoachingStyle, communicationStyle: coachingAssessments.communicationStyle, motivators: coachingAssessments.motivators, stressBehaviors: coachingAssessments.stressBehaviors })
+        .from(coachingAssessments)
+        .where(eq(coachingAssessments.agentId, input.agentId))
+        .limit(3);
+
+      // Get profile for current status
+      const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, input.agentId));
+
+      const sessionSummaries = history.sessions.map((s: any) =>
+        `[${s.sessionDate ? new Date(s.sessionDate).toLocaleDateString() : 'N/A'}] ${s.sessionType} - Diagnosis: ${s.primaryDiagnosis ?? 'None'} - ${s.aiSummary ? s.aiSummary.substring(0, 300) : (s.sourceNotes ? s.sourceNotes.substring(0, 200) : 'No notes')}`
+      ).join("\n");
+
+      const commitmentSummary = history.commitments.map((c: any) =>
+        `[${c.status}] ${c.description} (Due: ${c.dueDate ? new Date(c.dueDate).toLocaleDateString() : 'N/A'}) ${c.isRepeated ? '⚠️ REPEATED' : ''}`
+      ).join("\n");
+
+      const response = await invokeLLM({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert real estate coaching analyst for Savvy STR Agents. Generate comprehensive coaching insights for an individual agent using the Four-C framework (Commitment, Capability, Cadence, Capacity).
+
+Output JSON with this exact structure:
+{
+  "executiveSummary": "2-3 paragraph narrative of where this agent stands and what needs to happen next",
+  "primaryDiagnosis": "Commitment|Capability|Cadence|Capacity",
+  "diagnosisConfidence": "high|medium|low",
+  "diagnosisEvidence": "2-3 sentences of evidence supporting the diagnosis",
+  "developmentPriority": "The single most important thing to focus on",
+  "recommendedCoachingStyle": "How to approach this agent based on their personality and situation",
+  "recommendedAgenda": ["Item 1", "Item 2", "Item 3"],
+  "recommendedQuestions": ["Question 1", "Question 2", "Question 3"],
+  "riskFactors": ["Risk 1", "Risk 2"],
+  "positiveSignals": ["Signal 1", "Signal 2"],
+  "commitmentPatterns": "Analysis of commitment completion patterns",
+  "productionTrajectory": "up|flat|down",
+  "productionTrajectoryNote": "Brief explanation of production direction",
+  "suggestedCommitments": [
+    {"description": "Specific action", "rationale": "Why this matters", "metric": "GCI|Closings|Pipeline|Activity|null"}
+  ],
+  "retentionRiskAssessment": "Assessment of flight risk with reasoning",
+  "nextSessionRecommendation": "What the next session should focus on"
+}`,
+          },
+          {
+            role: "user",
+            content: `Agent: ${agentName}
+Current Status: ${profile?.performanceStatus ?? 'Unknown'} | Risk: ${profile?.retentionRiskStatus ?? 'Unknown'} | Diagnosis: ${profile?.currentPrimaryDiagnosis ?? 'None'}
+
+PRODUCTION DATA:
+- Trailing 90-day: ${prodStats.trailing90Units} units, $${Number(prodStats.trailing90Volume).toLocaleString()} volume, $${Number(prodStats.trailing90GCI).toLocaleString()} GCI
+- Under Contract: ${prodStats.underContractUnits} units, $${Number(prodStats.underContractVolume).toLocaleString()} volume
+- YTD: ${prodStats.ytdUnits} units, $${Number(prodStats.ytdVolume).toLocaleString()} volume, $${Number(prodStats.ytdGCI).toLocaleString()} GCI
+- Terminated (90d): ${prodStats.terminatedUnits} units
+
+GOALS:
+- Annual Goal: ${goalsData.annualGoal ? `${goalsData.annualGoal.closingsTarget} closings, $${Number(goalsData.annualGoal.volumeTarget ?? 0).toLocaleString()} volume, $${Number(goalsData.annualGoal.gciTarget ?? 0).toLocaleString()} GCI` : 'Not set'}
+- YTD Actuals: ${goalsData.ytdActuals.ytdClosings} closings, $${Number(goalsData.ytdActuals.ytdVolume).toLocaleString()} volume, $${Number(goalsData.ytdActuals.ytdGCI).toLocaleString()} GCI
+
+LEADS & PIPELINE:
+- Total Leads: ${prodStats.totalLeads}, Active: ${prodStats.activeLeads}, New (30d): ${prodStats.newLeads30d}
+- Stale Leads: ${prodStats.staleLeads}, Dead: ${prodStats.deadLeads}
+- Avg Lead Age: ${Math.round(prodStats.avgLeadAgeDays)} days
+
+TASKS:
+- Pending: ${prodStats.totalPendingTasks}, Overdue: ${prodStats.overdueTasks}, Completed (30d): ${prodStats.completedTasks30d}
+
+ASSESSMENTS:
+${assessments.map((a: any) => `- ${a.assessmentType}: Style=${a.communicationStyle ?? 'N/A'}, Motivators=${a.motivators ?? 'N/A'}, Coaching=${a.preferredCoachingStyle ?? 'N/A'}`).join("\n") || "None uploaded"}
+
+RECENT SESSIONS (last 10):
+${sessionSummaries || "No completed sessions"}
+
+COMMITMENTS (last 30):
+${commitmentSummary || "No commitments"}`,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const rawContent = response.choices[0]?.message?.content;
+      const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
+
+      // Update profile with AI insights
+      const updateFields: any = { updatedAt: sql`NOW()` };
+      if (parsed.primaryDiagnosis && ["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.primaryDiagnosis)) {
+        updateFields.currentPrimaryDiagnosis = parsed.primaryDiagnosis;
+      }
+      if (parsed.developmentPriority) {
+        updateFields.currentDevelopmentPriority = parsed.developmentPriority;
+      }
+      await db.update(coachingProfiles).set(updateFields).where(eq(coachingProfiles.agentId, input.agentId));
+
+      return { insights: parsed, generatedAt: new Date().toISOString() };
     }),
 
   /** Create or update a coaching profile for an agent */
@@ -199,15 +805,10 @@ export const coachingRouter = router({
       const insertValues: any = { agentId, ...fields };
       if (fields.nextSessionDate) insertValues.nextSessionDate = new Date(fields.nextSessionDate);
       if (fields.launchStartDate) insertValues.launchStartDate = new Date(fields.launchStartDate);
-      const updateValues: any = { ...fields };
-      if (fields.nextSessionDate) updateValues.nextSessionDate = new Date(fields.nextSessionDate);
-      if (fields.launchStartDate) updateValues.launchStartDate = new Date(fields.launchStartDate);
-      updateValues.updatedAt = sql`NOW()`;
 
-      await db
-        .insert(coachingProfiles)
+      await db.insert(coachingProfiles)
         .values(insertValues)
-        .onDuplicateKeyUpdate({ set: updateValues });
+        .onDuplicateKeyUpdate({ set: { ...fields, nextSessionDate: fields.nextSessionDate ? new Date(fields.nextSessionDate) : undefined, launchStartDate: fields.launchStartDate ? new Date(fields.launchStartDate) : undefined, updatedAt: sql`NOW()` } as any });
 
       void logActivity({
         userId: ctx.user.id,
@@ -220,14 +821,19 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── Sessions ─────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SESSIONS — Full lifecycle with staged workspace
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  /** List coaching sessions for an agent */
+  /** List coaching sessions with full filtering */
   listSessions: protectedProcedure
     .input(z.object({
       agentId: z.number().optional(),
       coachId: z.number().optional(),
       status: z.string().optional(),
+      sessionType: z.string().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
       limit: z.number().default(20),
       offset: z.number().default(0),
     }).optional())
@@ -246,6 +852,9 @@ export const coachingRouter = router({
         eq(coachingSessions.actualCoachId, input.coachId),
       ));
       if (input?.status) conditions.push(eq(coachingSessions.status, input.status as any));
+      if (input?.sessionType) conditions.push(eq(coachingSessions.sessionType, input.sessionType));
+      if (input?.dateFrom) conditions.push(gte(coachingSessions.sessionDate, new Date(input.dateFrom)));
+      if (input?.dateTo) conditions.push(lte(coachingSessions.sessionDate, new Date(input.dateTo)));
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -270,7 +879,7 @@ export const coachingRouter = router({
       return { rows, total: Number(countRows[0]?.count ?? 0) };
     }),
 
-  /** Get a single session with its commitments */
+  /** Get a single session with full context for the Session Workspace */
   getSession: protectedProcedure
     .input(z.object({ sessionId: z.number() }))
     .query(async ({ input, ctx }) => {
@@ -297,13 +906,103 @@ export const coachingRouter = router({
 
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
 
+      // Get commitments for this session
       const commitments = await db
         .select()
         .from(coachingCommitments)
         .where(eq(coachingCommitments.sessionId, input.sessionId))
         .orderBy(coachingCommitments.createdAt);
 
-      return { ...row, commitments };
+      // Get agent's open commitments from prior sessions (for review)
+      const priorCommitments = await db
+        .select()
+        .from(coachingCommitments)
+        .where(and(
+          eq(coachingCommitments.agentId, (row as any).agent.id),
+          ne(coachingCommitments.sessionId, input.sessionId),
+          inArray(coachingCommitments.status, ["Not Started", "In Progress", "Submitted for Verification"]),
+        ))
+        .orderBy(coachingCommitments.dueDate)
+        .limit(15);
+
+      // Get agent's coaching profile for context
+      const [profile] = await db
+        .select()
+        .from(coachingProfiles)
+        .where(eq(coachingProfiles.agentId, (row as any).agent.id));
+
+      return { ...row, commitments, priorCommitments, profile: profile ?? null };
+    }),
+
+  /** Generate pre-session brief (AI-powered preparation) */
+  generatePreSessionBrief: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [session] = await db
+        .select({ agentId: coachingSessions.agentId, sessionType: coachingSessions.sessionType })
+        .from(coachingSessions)
+        .where(eq(coachingSessions.id, input.sessionId));
+
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const agentId = session.agentId;
+      const [agentRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, agentId));
+      const prodStats = await getAgentProductionStats(db, agentId);
+      const goalsData = await getAgentGoalsWithProgress(db, agentId);
+      const history = await getCoachingHistoryForAI(db, agentId, 5);
+      const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, agentId));
+
+      const lastSessionSummary = history.sessions[0]?.aiSummary || history.sessions[0]?.sourceNotes || "No prior session data";
+      const openCommitments = history.commitments
+        .filter((c: any) => ["Not Started", "In Progress"].includes(c.status))
+        .map((c: any) => `- [${c.status}] ${c.description} (Due: ${c.dueDate ? new Date(c.dueDate).toLocaleDateString() : 'N/A'})`)
+        .join("\n");
+
+      const response = await invokeLLM({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are preparing a coaching session brief for a coach at Savvy STR Agents. Generate a concise, actionable pre-session brief that helps the coach walk in prepared. Use the Four-C framework. Output JSON:
+{
+  "agentSnapshot": "2-3 sentence current state summary",
+  "lastSessionRecap": "Key takeaways from last session",
+  "openCommitmentsReview": "Status of outstanding commitments",
+  "suggestedAgenda": ["Item 1", "Item 2", "Item 3", "Item 4"],
+  "suggestedQuestions": ["Question 1", "Question 2", "Question 3"],
+  "watchFor": ["Warning sign 1", "Warning sign 2"],
+  "celebrateIf": ["Win to acknowledge 1", "Win to acknowledge 2"],
+  "dataHighlights": ["Key data point 1", "Key data point 2"]
+}`,
+          },
+          {
+            role: "user",
+            content: `Agent: ${agentRow?.name ?? 'Unknown'} | Status: ${profile?.performanceStatus ?? 'Unknown'} | Session Type: ${session.sessionType}
+Production: ${prodStats.trailing90Units} closings (90d), ${prodStats.underContractUnits} under contract, ${prodStats.overdueTasks} overdue tasks
+Goals: Annual=${goalsData.annualGoal?.closingsTarget ?? 'Not set'} closings, YTD=${goalsData.ytdActuals.ytdClosings} closings
+Last Session: ${lastSessionSummary.substring(0, 500)}
+Open Commitments:\n${openCommitments || "None"}`,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const rawContent = response.choices[0]?.message?.content;
+      const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
+
+      // Store the brief on the session
+      await db.update(coachingSessions).set({
+        aiRecommendedAgenda: JSON.stringify(parsed.suggestedAgenda ?? []),
+        aiRecommendedQuestions: JSON.stringify(parsed.suggestedQuestions ?? []),
+        preparationStatus: "Ready",
+        updatedAt: sql`NOW()`,
+      }).where(eq(coachingSessions.id, input.sessionId));
+
+      return { brief: parsed, generatedAt: new Date().toISOString() };
     }),
 
   /** Create a new coaching session */
@@ -338,6 +1037,15 @@ export const coachingRouter = router({
         status: "Scheduled",
       });
 
+      // Update profile next session date
+      if (input.sessionDate) {
+        await db.update(coachingProfiles).set({
+          nextSessionDate: new Date(input.sessionDate),
+          nextSessionCoachId: input.scheduledCoachId ?? profile?.coachOfRecordId ?? null,
+          updatedAt: sql`NOW()`,
+        }).where(eq(coachingProfiles.agentId, input.agentId));
+      }
+
       void logActivity({
         userId: ctx.user.id,
         action: "coaching_session_created",
@@ -347,6 +1055,86 @@ export const coachingRouter = router({
       });
 
       return { success: true, sessionId: (result as any).insertId };
+    }),
+
+  /** Start a session (transition to In Progress) */
+  startSession: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      await db.update(coachingSessions).set({
+        status: "In Progress",
+        actualCoachId: ctx.user.id,
+        startedAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      }).where(eq(coachingSessions.id, input.sessionId));
+
+      return { success: true };
+    }),
+
+  /** Complete a session (transition to Completed) */
+  completeSession: protectedProcedure
+    .input(z.object({
+      sessionId: z.number(),
+      durationMinutes: z.number().optional(),
+      primaryDiagnosis: z.enum(["Commitment", "Capability", "Cadence", "Capacity"]).nullable().optional(),
+      secondaryDiagnosis: z.enum(["Commitment", "Capability", "Cadence", "Capacity"]).nullable().optional(),
+      diagnosisEvidence: z.string().nullable().optional(),
+      nextSessionCoachId: z.number().nullable().optional(),
+      nextSessionDate: z.string().nullable().optional(),
+      nextSessionType: z.string().nullable().optional(),
+      noNextSessionReason: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const { sessionId, ...fields } = input;
+      const updateValues: any = {
+        status: "Completed" as const,
+        completedAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+        ...fields,
+      };
+      if (fields.nextSessionDate) updateValues.nextSessionDate = new Date(fields.nextSessionDate);
+
+      await db.update(coachingSessions).set(updateValues).where(eq(coachingSessions.id, sessionId));
+
+      // Update coaching profile with next session and diagnosis
+      const [session] = await db.select({ agentId: coachingSessions.agentId }).from(coachingSessions).where(eq(coachingSessions.id, sessionId));
+      if (session) {
+        const profileUpdate: any = { updatedAt: sql`NOW()` };
+        if (fields.nextSessionDate) profileUpdate.nextSessionDate = new Date(fields.nextSessionDate);
+        if (fields.nextSessionCoachId !== undefined) profileUpdate.nextSessionCoachId = fields.nextSessionCoachId;
+        if (fields.primaryDiagnosis !== undefined) profileUpdate.currentPrimaryDiagnosis = fields.primaryDiagnosis;
+        await db.update(coachingProfiles).set(profileUpdate).where(eq(coachingProfiles.agentId, session.agentId));
+
+        // Auto-create next session if date provided
+        if (fields.nextSessionDate) {
+          await db.insert(coachingSessions).values({
+            agentId: session.agentId,
+            coachOfRecordId: fields.nextSessionCoachId ?? null,
+            scheduledCoachId: fields.nextSessionCoachId ?? null,
+            sessionDate: new Date(fields.nextSessionDate),
+            sessionType: fields.nextSessionType ?? "Standard COACH",
+            status: "Scheduled",
+          });
+        }
+      }
+
+      void logActivity({
+        userId: ctx.user.id,
+        action: "coaching_session_completed",
+        entityType: "coaching_session",
+        entityId: sessionId,
+        details: { diagnosis: fields.primaryDiagnosis },
+      });
+
+      return { success: true };
     }),
 
   /** Update a coaching session */
@@ -369,6 +1157,11 @@ export const coachingRouter = router({
       nextSessionType: z.string().nullable().optional(),
       noNextSessionReason: z.string().nullable().optional(),
       preparationStatus: z.enum(["Not Started", "In Progress", "Ready"]).optional(),
+      recordingFileUrl: z.string().nullable().optional(),
+      recordingFileKey: z.string().nullable().optional(),
+      recordingDurationSeconds: z.number().nullable().optional(),
+      transcript: z.string().nullable().optional(),
+      transcriptionStatus: z.enum(["None", "Pending", "Processing", "Completed", "Failed"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
@@ -418,20 +1211,39 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── Commitments ──────────────────────────────────────────────────────────
+  /** Approve AI-generated session summary */
+  approveSessionSummary: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.update(coachingSessions).set({ isSummaryApproved: true, updatedAt: sql`NOW()` }).where(eq(coachingSessions.id, input.sessionId));
+      return { success: true };
+    }),
 
-  /** List commitments for an agent */
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMMITMENTS — Full lifecycle with verification
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** List commitments with comprehensive filtering */
   listCommitments: protectedProcedure
     .input(z.object({
       agentId: z.number().optional(),
       sessionId: z.number().optional(),
       status: z.string().optional(),
       includeCompleted: z.boolean().default(false),
+      overdueOnly: z.boolean().default(false),
+      aiSuggestedOnly: z.boolean().default(false),
+      limit: z.number().default(50),
+      offset: z.number().default(0),
     }).optional())
     .query(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
-      if (!db) return [];
+      if (!db) return { rows: [], total: 0 };
+
+      const agentAlias = aliasedTable(users, "commitAgent");
 
       const conditions: any[] = [];
       if (input?.agentId) conditions.push(eq(coachingCommitments.agentId, input.agentId));
@@ -440,12 +1252,35 @@ export const coachingRouter = router({
       if (!input?.includeCompleted) {
         conditions.push(sql`${coachingCommitments.status} NOT IN ('Completed', 'Waived', 'No Longer Relevant')`);
       }
+      if (input?.overdueOnly) {
+        conditions.push(and(
+          inArray(coachingCommitments.status, ["Not Started", "In Progress"]),
+          lt(coachingCommitments.dueDate, sql`NOW()`),
+        ));
+      }
+      if (input?.aiSuggestedOnly) {
+        conditions.push(eq(coachingCommitments.status, "AI Suggested"));
+      }
 
-      return db
-        .select()
-        .from(coachingCommitments)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(coachingCommitments.dueDate, coachingCommitments.createdAt);
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const [rows, countRows] = await Promise.all([
+        db.select({
+          commitment: coachingCommitments,
+          agentName: agentAlias.name,
+        })
+          .from(coachingCommitments)
+          .leftJoin(agentAlias, eq(coachingCommitments.agentId, agentAlias.id))
+          .where(whereClause)
+          .orderBy(coachingCommitments.dueDate, coachingCommitments.createdAt)
+          .limit(input?.limit ?? 50)
+          .offset(input?.offset ?? 0),
+        db.select({ count: sql<number>`COUNT(*)` })
+          .from(coachingCommitments)
+          .where(whereClause),
+      ]);
+
+      return { rows, total: Number(countRows[0]?.count ?? 0) };
     }),
 
   /** Create a commitment */
@@ -507,6 +1342,41 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
+  /** Bulk approve AI-suggested commitments */
+  bulkApproveCommitments: protectedProcedure
+    .input(z.object({ commitmentIds: z.array(z.number()) }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      await db.update(coachingCommitments)
+        .set({ status: "Not Started", updatedAt: sql`NOW()` })
+        .where(and(
+          inArray(coachingCommitments.id, input.commitmentIds),
+          eq(coachingCommitments.status, "AI Suggested"),
+        ));
+
+      return { success: true, approvedCount: input.commitmentIds.length };
+    }),
+
+  /** Bulk dismiss AI-suggested commitments */
+  bulkDismissCommitments: protectedProcedure
+    .input(z.object({ commitmentIds: z.array(z.number()) }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      await db.delete(coachingCommitments)
+        .where(and(
+          inArray(coachingCommitments.id, input.commitmentIds),
+          eq(coachingCommitments.status, "AI Suggested"),
+        ));
+
+      return { success: true };
+    }),
+
   /** Delete a commitment */
   deleteCommitment: protectedProcedure
     .input(z.object({ commitmentId: z.number() }))
@@ -518,24 +1388,32 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── Performance Resets ───────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PERFORMANCE RESETS
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  /** List performance resets for an agent */
+  /** List performance resets */
   listResets: protectedProcedure
-    .input(z.object({ agentId: z.number() }))
+    .input(z.object({
+      agentId: z.number().optional(),
+      status: z.string().optional(),
+    }).optional())
     .query(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
       if (!db) return [];
 
+      const conditions: any[] = [];
+      if (input?.agentId) conditions.push(eq(performanceResets.agentId, input.agentId));
+      if (input?.status) conditions.push(eq(performanceResets.status, input.status as any));
+
       const resets = await db
         .select()
         .from(performanceResets)
-        .where(eq(performanceResets.agentId, input.agentId))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(performanceResets.createdAt));
 
-      // Fetch requirements and checkpoints for each reset
-      const resetIds = resets.map(r => r.id);
+      const resetIds = resets.map((r: any) => r.id);
       if (resetIds.length === 0) return [];
 
       const [requirements, checkpoints] = await Promise.all([
@@ -543,10 +1421,10 @@ export const coachingRouter = router({
         db.select().from(performanceResetCheckpoints).where(inArray(performanceResetCheckpoints.resetId, resetIds)),
       ]);
 
-      return resets.map(reset => ({
+      return resets.map((reset: any) => ({
         ...reset,
-        requirements: requirements.filter(r => r.resetId === reset.id),
-        checkpoints: checkpoints.filter(c => c.resetId === reset.id),
+        requirements: requirements.filter((r: any) => r.resetId === reset.id),
+        checkpoints: checkpoints.filter((c: any) => c.resetId === reset.id),
       }));
     }),
 
@@ -585,14 +1463,13 @@ export const coachingRouter = router({
 
       const resetId = (result as any).insertId;
 
-      // Create requirements if provided
       if (input.requirements && input.requirements.length > 0) {
         await db.insert(performanceResetRequirements).values(
           input.requirements.map((r, i) => ({ resetId, description: r.description, sortOrder: i }))
         );
       }
 
-      // Auto-create checkpoints: Week 1, Week 2, Week 3, Day 30
+      // Auto-create checkpoints
       if (input.startDate) {
         const start = new Date(input.startDate);
         const checkpointDefs = [
@@ -610,6 +1487,12 @@ export const coachingRouter = router({
           }))
         );
       }
+
+      // Update agent performance status to Red when reset is created
+      await db.update(coachingProfiles).set({
+        performanceStatus: "Red",
+        updatedAt: sql`NOW()`,
+      }).where(eq(coachingProfiles.agentId, input.agentId));
 
       void logActivity({
         userId: ctx.user.id,
@@ -685,13 +1568,16 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── Capacity Escalations ─────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CAPACITY ESCALATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** List capacity escalations */
   listEscalations: protectedProcedure
     .input(z.object({
       agentId: z.number().optional(),
       status: z.string().optional(),
+      urgency: z.string().optional(),
     }).optional())
     .query(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
@@ -701,19 +1587,23 @@ export const coachingRouter = router({
       const conditions: any[] = [];
       if (input?.agentId) conditions.push(eq(capacityEscalations.agentId, input.agentId));
       if (input?.status) conditions.push(eq(capacityEscalations.status, input.status as any));
+      if (input?.urgency) conditions.push(eq(capacityEscalations.urgency, input.urgency as any));
 
       const agentAlias = aliasedTable(users, "escAgent");
       const ownerAlias = aliasedTable(users, "escOwner");
+      const submitterAlias = aliasedTable(users, "escSubmitter");
 
       return db
         .select({
           escalation: capacityEscalations,
           agent: { id: agentAlias.id, name: agentAlias.name },
           owner: { id: ownerAlias.id, name: ownerAlias.name },
+          submitter: { id: submitterAlias.id, name: submitterAlias.name },
         })
         .from(capacityEscalations)
         .leftJoin(agentAlias, eq(capacityEscalations.agentId, agentAlias.id))
         .leftJoin(ownerAlias, eq(capacityEscalations.assignedOwnerId, ownerAlias.id))
+        .leftJoin(submitterAlias, eq(capacityEscalations.submittedById, submitterAlias.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(capacityEscalations.createdAt));
     }),
@@ -767,11 +1657,13 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── Coach-Out Recommendations ────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COACH-OUT RECOMMENDATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** List coach-out recommendations */
   listCoachOuts: protectedProcedure
-    .input(z.object({ agentId: z.number().optional() }).optional())
+    .input(z.object({ agentId: z.number().optional(), status: z.string().optional() }).optional())
     .query(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
@@ -779,10 +1671,20 @@ export const coachingRouter = router({
 
       const conditions: any[] = [];
       if (input?.agentId) conditions.push(eq(coachOutRecommendations.agentId, input.agentId));
+      if (input?.status) conditions.push(eq(coachOutRecommendations.status, input.status as any));
+
+      const agentAlias = aliasedTable(users, "coAgent");
+      const coachAlias = aliasedTable(users, "coCoach");
 
       return db
-        .select()
+        .select({
+          coachOut: coachOutRecommendations,
+          agent: { id: agentAlias.id, name: agentAlias.name },
+          coach: { id: coachAlias.id, name: coachAlias.name },
+        })
         .from(coachOutRecommendations)
+        .leftJoin(agentAlias, eq(coachOutRecommendations.agentId, agentAlias.id))
+        .leftJoin(coachAlias, eq(coachOutRecommendations.coachOfRecordId, coachAlias.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(coachOutRecommendations.createdAt));
     }),
@@ -857,7 +1759,9 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── Assessments ──────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ASSESSMENTS
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** List assessments for an agent */
   listAssessments: protectedProcedure
@@ -920,7 +1824,9 @@ export const coachingRouter = router({
       return { success: true };
     }),
 
-  // ─── AI Processing ────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AI PROCESSING
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** Generate AI summary and extract commitments from session notes/transcript */
   generateSessionSummary: protectedProcedure
@@ -950,12 +1856,15 @@ export const coachingRouter = router({
         return { success: true, alreadyProcessed: true };
       }
 
-      // Mark as processing
       await db.update(coachingSessions).set({ aiProcessingStatus: "Processing" }).where(eq(coachingSessions.id, input.sessionId));
 
       try {
         const content = session.session.transcript || session.session.sourceNotes || "";
         const agentName = session.agentName ?? "the agent";
+
+        // Get agent context for better AI analysis
+        const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, session.session.agentId));
+        const goalsData = await getAgentGoalsWithProgress(db, session.session.agentId);
 
         const systemPrompt = `You are an expert real estate coaching analyst for Savvy STR Agents. 
 You specialize in the Four-C coaching framework: Commitment, Capability, Cadence, and Capacity.
@@ -985,14 +1894,16 @@ Output JSON with this exact structure:
     }
   ],
   "recommendedNextSessionFocus": "Brief description of what to cover next session",
-  "coachingStyleNote": "Any observations about how to best coach this agent"
+  "coachingStyleNote": "Any observations about how to best coach this agent",
+  "riskFlags": ["Any concerning patterns or red flags observed"],
+  "wins": ["Any wins or positive progress to acknowledge"]
 }`;
 
         const response = await invokeLLM({
           model: "gpt-4o",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `Agent: ${agentName}\n\nSession Notes/Transcript:\n${content}` },
+            { role: "user", content: `Agent: ${agentName}\nCurrent Status: ${profile?.performanceStatus ?? 'Unknown'}\nAnnual Goal: ${goalsData.annualGoal?.closingsTarget ?? 'Not set'} closings\n\nSession Notes/Transcript:\n${content}` },
           ],
           response_format: { type: "json_object" },
         });
@@ -1000,7 +1911,6 @@ Output JSON with this exact structure:
         const rawContent = response.choices[0]?.message?.content;
         const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
 
-        // Update session with AI results
         await db.update(coachingSessions).set({
           aiSummary: parsed.summary ?? null,
           primaryDiagnosis: (["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.primaryDiagnosis)) ? parsed.primaryDiagnosis : null,
@@ -1031,7 +1941,7 @@ Output JSON with this exact structure:
           );
         }
 
-        return { success: true, summary: parsed.summary, commitmentCount: parsed.commitments?.length ?? 0 };
+        return { success: true, summary: parsed.summary, commitmentCount: parsed.commitments?.length ?? 0, parsed };
       } catch (err) {
         await db.update(coachingSessions).set({ aiProcessingStatus: "Failed" }).where(eq(coachingSessions.id, input.sessionId));
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI processing failed. Please try again." });
@@ -1090,7 +2000,123 @@ Output JSON with this exact structure:
       return { success: true, summary: parsed.summary };
     }),
 
-  // ─── History Snapshots ────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MARKET COVERAGE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Get market coverage overview for coaching context */
+  getMarketCoverage: protectedProcedure.query(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const db = await getDb();
+    if (!db) return [];
+
+    const markets = await db
+      .select({
+        market: marketProfiles,
+        agentCount: sql<number>`COUNT(DISTINCT ${marketAgentAssignments.agentId})`,
+      })
+      .from(marketProfiles)
+      .leftJoin(marketAgentAssignments, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
+      .groupBy(marketProfiles.id)
+      .orderBy(marketProfiles.name);
+
+    return markets;
+  }),
+
+  /** Get agents in a specific market with coaching context */
+  getMarketAgents: protectedProcedure
+    .input(z.object({ marketProfileId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) return [];
+
+      return db
+        .select({
+          assignment: marketAgentAssignments,
+          agent: { id: users.id, name: users.name, email: users.email },
+          profile: coachingProfiles,
+        })
+        .from(marketAgentAssignments)
+        .leftJoin(users, eq(marketAgentAssignments.agentId, users.id))
+        .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
+        .where(eq(marketAgentAssignments.marketProfileId, input.marketProfileId));
+    }),
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REPORTS & ANALYTICS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Get executive coaching scorecard */
+  getExecutiveScorecard: protectedProcedure
+    .input(z.object({ period: z.enum(["30d", "90d", "ytd"]).default("30d") }).optional())
+    .query(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) return null;
+
+      const now = new Date();
+      let startDate: Date;
+      if (input?.period === "90d") startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      else if (input?.period === "ytd") startDate = new Date(now.getFullYear(), 0, 1);
+      else startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      const [sessionMetrics] = await db
+        .select({
+          totalSessions: sql<number>`COUNT(*)`,
+          completedSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'Completed' THEN 1 END)`,
+          noShowSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'No Show' THEN 1 END)`,
+          canceledSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'Canceled' THEN 1 END)`,
+          avgDuration: sql<number>`AVG(${coachingSessions.durationMinutes})`,
+        })
+        .from(coachingSessions)
+        .where(gte(coachingSessions.sessionDate, startDate));
+
+      const [commitmentMetrics] = await db
+        .select({
+          totalCreated: sql<number>`COUNT(*)`,
+          completed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Completed' THEN 1 END)`,
+          missed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Missed' THEN 1 END)`,
+          overdue: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} IN ('Not Started','In Progress') AND ${coachingCommitments.dueDate} < NOW() THEN 1 END)`,
+        })
+        .from(coachingCommitments)
+        .where(gte(coachingCommitments.createdAt, startDate));
+
+      const statusMovement = await db
+        .select({
+          status: coachingProfiles.performanceStatus,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(coachingProfiles)
+        .groupBy(coachingProfiles.performanceStatus);
+
+      // Coach portfolio breakdown
+      const coachPortfolios = await db
+        .select({
+          coachId: coachingProfiles.coachOfRecordId,
+          coachName: users.name,
+          agentCount: sql<number>`COUNT(*)`,
+          redCount: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Red' THEN 1 END)`,
+          yellowCount: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Yellow' THEN 1 END)`,
+          greenCount: sql<number>`COUNT(CASE WHEN ${coachingProfiles.performanceStatus} = 'Green' THEN 1 END)`,
+        })
+        .from(coachingProfiles)
+        .leftJoin(users, eq(coachingProfiles.coachOfRecordId, users.id))
+        .where(isNotNull(coachingProfiles.coachOfRecordId))
+        .groupBy(coachingProfiles.coachOfRecordId, users.name);
+
+      return {
+        period: input?.period ?? "30d",
+        sessionMetrics: sessionMetrics ?? {},
+        commitmentMetrics: commitmentMetrics ?? {},
+        statusDistribution: Object.fromEntries(statusMovement.map((r: any) => [r.status, Number(r.count)])),
+        coachPortfolios,
+      };
+    }),
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HISTORY SNAPSHOTS
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** Get coaching history snapshots for an agent */
   getHistorySnapshots: protectedProcedure
@@ -1107,7 +2133,9 @@ Output JSON with this exact structure:
         .limit(input.limit);
     }),
 
-  // ─── Settings ─────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SETTINGS
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** Get all coaching settings */
   getSettings: protectedProcedure.query(async ({ ctx }) => {
@@ -1137,51 +2165,29 @@ Output JSON with this exact structure:
       return { success: true };
     }),
 
-  // ─── Dashboard Summary ────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DASHBOARD SUMMARY (legacy — kept for backward compat)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  /** Get a high-level coaching hub dashboard summary */
   getDashboardSummary: protectedProcedure.query(async ({ ctx }) => {
     requireAdminOrCoach(ctx.user.role);
     const db = await getDb();
     if (!db) return null;
 
     const [statusCounts, riskCounts, upcomingSessions, openCommitmentsCount, activeResetsCount] = await Promise.all([
-      db.select({
-        status: coachingProfiles.performanceStatus,
-        count: sql<number>`COUNT(*)`,
-      }).from(coachingProfiles).groupBy(coachingProfiles.performanceStatus),
-
-      db.select({
-        risk: coachingProfiles.retentionRiskStatus,
-        count: sql<number>`COUNT(*)`,
-      }).from(coachingProfiles).groupBy(coachingProfiles.retentionRiskStatus),
-
-      db.select({
-        session: coachingSessions,
-        agentName: users.name,
-      })
-        .from(coachingSessions)
-        .leftJoin(users, eq(coachingSessions.agentId, users.id))
-        .where(and(
-          eq(coachingSessions.status, "Scheduled"),
-          sql`${coachingSessions.sessionDate} >= NOW()`,
-          sql`${coachingSessions.sessionDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY)`,
-        ))
-        .orderBy(coachingSessions.sessionDate)
-        .limit(10),
-
-      db.select({ count: sql<number>`COUNT(*)` })
-        .from(coachingCommitments)
-        .where(inArray(coachingCommitments.status, ["Not Started", "In Progress", "AI Suggested"])),
-
-      db.select({ count: sql<number>`COUNT(*)` })
-        .from(performanceResets)
-        .where(inArray(performanceResets.status, ["Active", "Improving"])),
+      db.select({ status: coachingProfiles.performanceStatus, count: sql<number>`COUNT(*)` }).from(coachingProfiles).groupBy(coachingProfiles.performanceStatus),
+      db.select({ risk: coachingProfiles.retentionRiskStatus, count: sql<number>`COUNT(*)` }).from(coachingProfiles).groupBy(coachingProfiles.retentionRiskStatus),
+      db.select({ session: coachingSessions, agentName: users.name })
+        .from(coachingSessions).leftJoin(users, eq(coachingSessions.agentId, users.id))
+        .where(and(eq(coachingSessions.status, "Scheduled"), sql`${coachingSessions.sessionDate} >= NOW()`, sql`${coachingSessions.sessionDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY)`))
+        .orderBy(coachingSessions.sessionDate).limit(10),
+      db.select({ count: sql<number>`COUNT(*)` }).from(coachingCommitments).where(inArray(coachingCommitments.status, ["Not Started", "In Progress", "AI Suggested"])),
+      db.select({ count: sql<number>`COUNT(*)` }).from(performanceResets).where(inArray(performanceResets.status, ["Active", "Improving"])),
     ]);
 
     return {
-      statusCounts: Object.fromEntries(statusCounts.map(r => [r.status, Number(r.count)])),
-      riskCounts: Object.fromEntries(riskCounts.map(r => [r.risk, Number(r.count)])),
+      statusCounts: Object.fromEntries(statusCounts.map((r: any) => [r.status, Number(r.count)])),
+      riskCounts: Object.fromEntries(riskCounts.map((r: any) => [r.risk, Number(r.count)])),
       upcomingSessions,
       openCommitmentsCount: Number(openCommitmentsCount[0]?.count ?? 0),
       activeResetsCount: Number(activeResetsCount[0]?.count ?? 0),
