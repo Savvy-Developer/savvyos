@@ -443,6 +443,9 @@ export default function ContactDetail() {
   const { data: contactProps, refetch: refetchProps } = trpc.contactProperties.list.useQuery({ contactId });
   const { data: allProperties = [] } = trpc.properties.list.useQuery({});
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
+  // Format system activity-log entries (e.g. property views logged via webhook)
+  // so they can be shown in the Activity tab alongside communications.
+  const activityEntries = (activityLog ?? []).map((entry) => formatActivityEntry(entry as any));
 
   const contactTransactions = transactions;
 
@@ -967,7 +970,7 @@ export default function ContactDetail() {
             </div>
 
             <TabsContent value="activity">
-              {!comms || comms.length === 0 ? (
+              {(!comms || comms.length === 0) && activityEntries.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center text-muted-foreground">
                     <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -976,7 +979,28 @@ export default function ContactDetail() {
                 </Card>
               ) : (
                 <div className="space-y-3">
-                  {comms.map(({ communication, author }) => (
+                  {/* System activity-log entries (e.g. property views) */}
+                  {activityEntries.map((entry) => (
+                    <Card key={`activity-${entry.id}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs">{entry.title}</Badge>
+                            <span className="text-xs text-muted-foreground">{entry.actor}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                        </div>
+                        {entry.lines.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {entry.lines.map((line, i) => (
+                              <p key={i} className="text-sm text-muted-foreground">{line}</p>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                  {(comms ?? []).map(({ communication, author }) => (
                     <Card key={communication.id}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-1">
