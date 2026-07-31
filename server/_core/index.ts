@@ -43,23 +43,14 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // OAuth callback under /api/oauth/callback
-  registerOAuthRoutes(app);
-  // File upload routes
-  registerUploadRoutes(app);
-  // Inbound webhook route — must be before express.json to capture raw body for HMAC
-  registerWebhookRoute(app);
 
-  // Aircall webhook — live call sync
-  registerAircallWebhook(app);
-
-  // Resend webhook for bounce/unsubscribe tracking
+  // ── Resend webhook MUST be registered BEFORE the global JSON body parser ──
+  // Resend (via Svix) signs the raw request body. If express.json() parses it
+  // first, req.body becomes a JS object and .toString("utf8") yields
+  // "[object Object]", causing HMAC verification to always fail (401).
   app.post("/api/webhooks/resend", express.raw({ type: "application/json" }), async (req, res) => {
     try {
-      const rawBody = req.body.toString("utf8");
+      const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : JSON.stringify(req.body);
       const signature = req.headers["svix-signature"] as string | undefined;
       const svixId = req.headers["svix-id"] as string | undefined;
       const svixTimestamp = req.headers["svix-timestamp"] as string | undefined;
@@ -71,6 +62,7 @@ async function startServer() {
         hasSvixId: !!svixId,
         hasSvixTimestamp: !!svixTimestamp,
         hasSignature: !!signature,
+        bodyIsBuffer: Buffer.isBuffer(req.body),
       });
 
       // Verify signature if secret is configured
@@ -89,6 +81,19 @@ async function startServer() {
       return res.status(500).json({ error: "Webhook processing failed" });
     }
   });
+
+  // Configure body parser with larger size limit for file uploads
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // OAuth callback under /api/oauth/callback
+  registerOAuthRoutes(app);
+  // File upload routes
+  registerUploadRoutes(app);
+  // Inbound webhook route — must be before express.json to capture raw body for HMAC
+  registerWebhookRoute(app);
+
+  // Aircall webhook — live call sync
+  registerAircallWebhook(app);
   // Scheduled task: nightly duplicate scan
   // Auth: session cookie (any authenticated user) OR internal secret header
   app.post("/api/scheduled/duplicate-scan", async (req, res) => {
