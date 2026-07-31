@@ -12,15 +12,36 @@ import { contacts } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { createHmac } from "crypto";
 
-// Resend signs webhooks with HMAC-SHA256 using the webhook signing secret
+// Resend uses Svix for webhook delivery.
+// Svix signs the concatenation of: "{svix-id}.{svix-timestamp}.{rawBody}"
+// The signature header has the format: "v1,<base64-encoded-sig>" (may contain multiple comma-separated signatures)
 export function verifyResendWebhookSignature(
   payload: string,
-  signature: string | undefined,
-  secret: string
+  svixSignature: string | undefined,
+  secret: string,
+  svixId?: string,
+  svixTimestamp?: string
 ): boolean {
-  if (!signature || !secret) return false;
-  const expected = createHmac("sha256", secret).update(payload).digest("hex");
-  return signature === expected;
+  if (!svixSignature || !secret) return false;
+
+  // Strip the "whsec_" prefix if present (Resend dashboard shows the secret with this prefix)
+  const rawSecret = secret.startsWith("whsec_")
+    ? Buffer.from(secret.slice("whsec_".length), "base64")
+    : Buffer.from(secret, "base64");
+
+  // Build the signed content as Svix expects
+  const signedContent = `${svixId ?? ""}.${svixTimestamp ?? ""}.${payload}`;
+
+  const expectedSig = createHmac("sha256", rawSecret)
+    .update(signedContent)
+    .digest("base64");
+
+  // The header may contain multiple signatures separated by spaces (e.g. "v1,abc v1,xyz")
+  const signatures = svixSignature.split(" ");
+  return signatures.some((sig) => {
+    const [version, sigValue] = sig.split(",");
+    return version === "v1" && sigValue === expectedSig;
+  });
 }
 
 export async function handleResendWebhook(event: {
