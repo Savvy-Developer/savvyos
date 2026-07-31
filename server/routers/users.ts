@@ -29,6 +29,7 @@ import {
   transactions,
   agentGoals,
   adminPermissions,
+  coachingProfiles,
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
 
@@ -298,6 +299,23 @@ export const usersRouter = router({
           const db = await getDb();
           if (db) {
             await db.insert(adminPermissions).values({ userId: id }).onDuplicateKeyUpdate({ set: { userId: id } });
+          }
+        } catch (_e) { /* non-fatal */ }
+      }
+      // Auto-create coaching profile for new agents
+      if (input.role === "agent") {
+        try {
+          const db = await getDb();
+          if (db) {
+            await db.insert(coachingProfiles).values({
+              agentId: id,
+              performanceStatus: "Launch",
+              retentionRiskStatus: "Low",
+              marketProtectionStatus: "Protected",
+              coachingSetupRequired: true,
+              launchStartDate: new Date(),
+              launchHealthStatus: "On Track",
+            }).onDuplicateKeyUpdate({ set: { agentId: id } });
           }
         } catch (_e) { /* non-fatal */ }
       }

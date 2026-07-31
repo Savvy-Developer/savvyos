@@ -1931,3 +1931,287 @@ export const jobApplicantSessions = mysqlTable("job_applicant_sessions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type JobApplicantSession = typeof jobApplicantSessions.$inferSelect;
+
+
+// ─── Coaching Hub ─────────────────────────────────────────────────────────────
+
+// One-to-one with users (agents). Central coaching state for each agent.
+export const coachingProfiles = mysqlTable("coaching_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  coachOfRecordId: int("coachOfRecordId").references(() => users.id),
+  performanceStatus: mysqlEnum("performanceStatus", ["Launch", "Red", "Yellow", "Green", "Elite"]).default("Launch").notNull(),
+  marketProtectionStatus: mysqlEnum("marketProtectionStatus", [
+    "Protected", "Conditional", "Open for Additional Coverage",
+    "Recruiting Active", "Exit Pending", "Unassigned", "Leadership Review",
+  ]).default("Protected"),
+  retentionRiskStatus: mysqlEnum("retentionRiskStatus", ["Low", "Watch", "Elevated", "Critical"]).default("Low"),
+  currentPrimaryDiagnosis: mysqlEnum("currentPrimaryDiagnosis", ["Commitment", "Capability", "Cadence", "Capacity"]),
+  currentDevelopmentPriority: text("currentDevelopmentPriority"),
+  nextSessionCoachId: int("nextSessionCoachId").references(() => users.id),
+  nextSessionDate: timestamp("nextSessionDate"),
+  coachingSetupRequired: boolean("coachingSetupRequired").default(true).notNull(),
+  launchStartDate: timestamp("launchStartDate"),
+  launchHealthStatus: mysqlEnum("launchHealthStatus", ["On Track", "At Risk", "Critical"]).default("On Track"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CoachingProfile = typeof coachingProfiles.$inferSelect;
+export type InsertCoachingProfile = typeof coachingProfiles.$inferInsert;
+
+// All coaching sessions — scheduled, in-progress, and completed.
+export const coachingSessions = mysqlTable("coaching_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  coachOfRecordId: int("coachOfRecordId").references(() => users.id),
+  scheduledCoachId: int("scheduledCoachId").references(() => users.id),
+  actualCoachId: int("actualCoachId").references(() => users.id),
+  sessionDate: timestamp("sessionDate"),
+  sessionType: varchar("sessionType", { length: 128 }).default("Standard COACH").notNull(),
+  status: mysqlEnum("status", ["Scheduled", "In Progress", "Completed", "Canceled", "No Show"]).default("Scheduled").notNull(),
+  durationMinutes: int("durationMinutes"),
+  meetingLink: varchar("meetingLink", { length: 512 }),
+  reasonForSession: text("reasonForSession"),
+  preparationStatus: mysqlEnum("preparationStatus", ["Not Started", "In Progress", "Ready"]).default("Not Started"),
+  // Notes and media
+  sourceNotes: text("sourceNotes"),
+  recordingFileUrl: text("recordingFileUrl"),
+  recordingFileKey: varchar("recordingFileKey", { length: 512 }),
+  recordingDurationSeconds: int("recordingDurationSeconds"),
+  transcript: text("transcript"),
+  transcriptionStatus: mysqlEnum("transcriptionStatus", ["None", "Pending", "Processing", "Completed", "Failed"]).default("None"),
+  // AI processing
+  aiSummary: text("aiSummary"),
+  aiProcessingStatus: mysqlEnum("aiProcessingStatus", ["None", "Pending", "Processing", "Completed", "Failed"]).default("None"),
+  isSummaryApproved: boolean("isSummaryApproved").default(false).notNull(),
+  aiRecommendedAgenda: text("aiRecommendedAgenda"),
+  aiRecommendedQuestions: text("aiRecommendedQuestions"),
+  aiRecommendedCommitments: text("aiRecommendedCommitments"),
+  aiNextCoachSuggestion: int("aiNextCoachSuggestion").references(() => users.id),
+  // Diagnosis
+  primaryDiagnosis: mysqlEnum("primaryDiagnosis", ["Commitment", "Capability", "Cadence", "Capacity"]),
+  secondaryDiagnosis: mysqlEnum("secondaryDiagnosis", ["Commitment", "Capability", "Cadence", "Capacity"]),
+  diagnosisEvidence: text("diagnosisEvidence"),
+  // Next session scheduling (captured at end of session)
+  nextSessionCoachId: int("nextSessionCoachId").references(() => users.id),
+  nextSessionDate: timestamp("nextSessionDate"),
+  nextSessionType: varchar("nextSessionType", { length: 128 }),
+  noNextSessionReason: text("noNextSessionReason"),
+  // Session start/end tracking
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("coaching_sessions_agent_idx").on(table.agentId, table.sessionDate),
+  index("coaching_sessions_coach_idx").on(table.scheduledCoachId, table.sessionDate),
+]);
+export type CoachingSession = typeof coachingSessions.$inferSelect;
+export type InsertCoachingSession = typeof coachingSessions.$inferInsert;
+
+// Coaching commitments — action items from sessions.
+export const coachingCommitments = mysqlTable("coaching_commitments", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  sessionId: int("sessionId").references(() => coachingSessions.id),
+  description: text("description").notNull(),
+  ownerId: int("ownerId").references(() => users.id),
+  createdById: int("createdById").references(() => users.id),
+  dueDate: timestamp("dueDate"),
+  expectedResult: text("expectedResult"),
+  relatedGoalId: int("relatedGoalId").references(() => agentGoals.id),
+  relatedMetric: varchar("relatedMetric", { length: 255 }),
+  completionEvidence: text("completionEvidence"),
+  status: mysqlEnum("status", [
+    "AI Suggested", "Not Started", "In Progress", "Submitted for Verification",
+    "Completed", "Partially Completed", "Missed", "Waived", "No Longer Relevant",
+  ]).default("Not Started").notNull(),
+  completedDate: timestamp("completedDate"),
+  coachVerificationStatus: mysqlEnum("coachVerificationStatus", ["Pending", "Verified", "Rejected"]).default("Pending"),
+  visibilityLabel: mysqlEnum("visibilityLabel", ["Agent Visible", "Internal", "Leadership"]).default("Agent Visible"),
+  consequence: text("consequence"),
+  isAiExtracted: boolean("isAiExtracted").default(false).notNull(),
+  aiConfidence: varchar("aiConfidence", { length: 32 }),
+  isRepeated: boolean("isRepeated").default(false).notNull(),
+  repeatCount: int("repeatCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("coaching_commitments_agent_idx").on(table.agentId, table.status),
+  index("coaching_commitments_session_idx").on(table.sessionId),
+]);
+export type CoachingCommitment = typeof coachingCommitments.$inferSelect;
+export type InsertCoachingCommitment = typeof coachingCommitments.$inferInsert;
+
+// Formal 30-day Performance Reset plans.
+export const performanceResets = mysqlTable("performance_resets", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  coachOfRecordId: int("coachOfRecordId").references(() => users.id),
+  status: mysqlEnum("status", [
+    "Draft", "Pending Review", "Active", "Improving", "Recovered",
+    "Extension Requested", "Extended", "Coach-Out Recommended", "Exited", "Canceled",
+  ]).default("Draft").notNull(),
+  startDate: timestamp("startDate"),
+  endDate: timestamp("endDate"),
+  requiredStandard: text("requiredStandard"),
+  currentResult: text("currentResult"),
+  goalGap: text("goalGap"),
+  evidenceSummary: text("evidenceSummary"),
+  consequence: text("consequence"),
+  extensionReason: text("extensionReason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("performance_resets_agent_idx").on(table.agentId, table.status),
+]);
+export type PerformanceReset = typeof performanceResets.$inferSelect;
+export type InsertPerformanceReset = typeof performanceResets.$inferInsert;
+
+// Measurable requirements for a reset plan.
+export const performanceResetRequirements = mysqlTable("performance_reset_requirements", {
+  id: int("id").autoincrement().primaryKey(),
+  resetId: int("resetId").notNull().references(() => performanceResets.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  status: mysqlEnum("status", ["Pending", "Met", "Missed"]).default("Pending").notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type PerformanceResetRequirement = typeof performanceResetRequirements.$inferSelect;
+export type InsertPerformanceResetRequirement = typeof performanceResetRequirements.$inferInsert;
+
+// Scheduled check-in milestones for a reset plan.
+export const performanceResetCheckpoints = mysqlTable("performance_reset_checkpoints", {
+  id: int("id").autoincrement().primaryKey(),
+  resetId: int("resetId").notNull().references(() => performanceResets.id, { onDelete: "cascade" }),
+  checkpointDate: timestamp("checkpointDate").notNull(),
+  checkpointType: varchar("checkpointType", { length: 64 }).notNull(), // 'Weekly', 'Day 14', 'Day 30'
+  status: mysqlEnum("status", ["Pending", "Completed", "Missed"]).default("Pending").notNull(),
+  notes: text("notes"),
+  conductedById: int("conductedById").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type PerformanceResetCheckpoint = typeof performanceResetCheckpoints.$inferSelect;
+export type InsertPerformanceResetCheckpoint = typeof performanceResetCheckpoints.$inferInsert;
+
+// Capacity escalations — operational issues blocking production.
+export const capacityEscalations = mysqlTable("capacity_escalations", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  submittedById: int("submittedById").notNull().references(() => users.id),
+  assignedOwnerId: int("assignedOwnerId").references(() => users.id),
+  relatedSessionId: int("relatedSessionId").references(() => coachingSessions.id),
+  issueCategory: varchar("issueCategory", { length: 128 }),
+  description: text("description").notNull(),
+  evidence: text("evidence"),
+  estimatedProductionImpact: text("estimatedProductionImpact"),
+  urgency: mysqlEnum("urgency", ["Low", "Medium", "High", "Critical"]).default("Medium").notNull(),
+  status: mysqlEnum("status", [
+    "Draft", "Submitted", "Assigned", "In Progress",
+    "Waiting for Information", "Resolved", "Closed", "Declined",
+  ]).default("Draft").notNull(),
+  dueDate: timestamp("dueDate"),
+  resolution: text("resolution"),
+  resolutionDate: timestamp("resolutionDate"),
+  coachConfirmation: boolean("coachConfirmation").default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("capacity_escalations_agent_idx").on(table.agentId, table.status),
+]);
+export type CapacityEscalation = typeof capacityEscalations.$inferSelect;
+export type InsertCapacityEscalation = typeof capacityEscalations.$inferInsert;
+
+// Coach-out recommendations.
+export const coachOutRecommendations = mysqlTable("coach_out_recommendations", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  coachOfRecordId: int("coachOfRecordId").references(() => users.id),
+  status: mysqlEnum("status", [
+    "Draft", "Submitted", "Under Review", "Approved",
+    "Declined", "More Information Required", "Agent Recovered", "Completed",
+  ]).default("Draft").notNull(),
+  performanceHistory: text("performanceHistory"),
+  supportProvided: text("supportProvided"),
+  culturalConcerns: text("culturalConcerns"),
+  engagementConcerns: text("engagementConcerns"),
+  marketImpact: text("marketImpact"),
+  recommendation: text("recommendation"),
+  proposedEffectiveDate: timestamp("proposedEffectiveDate"),
+  marketOpeningRecommendation: text("marketOpeningRecommendation"),
+  reviewedById: int("reviewedById").references(() => users.id),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewNotes: text("reviewNotes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CoachOutRecommendation = typeof coachOutRecommendations.$inferSelect;
+export type InsertCoachOutRecommendation = typeof coachOutRecommendations.$inferInsert;
+
+// Personality and work-style assessments (DISC, Predictive Index, etc.).
+export const coachingAssessments = mysqlTable("coaching_assessments", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  assessmentType: varchar("assessmentType", { length: 128 }).notNull(), // 'DISC', 'Predictive Index', etc.
+  assessmentProvider: varchar("assessmentProvider", { length: 255 }),
+  assessmentDate: timestamp("assessmentDate"),
+  fileUrl: text("fileUrl"),
+  fileKey: varchar("fileKey", { length: 512 }),
+  rawText: text("rawText"),
+  aiSummary: text("aiSummary"),
+  isSummaryApproved: boolean("isSummaryApproved").default(false).notNull(),
+  communicationStyle: text("communicationStyle"),
+  decisionMakingStyle: text("decisionMakingStyle"),
+  motivators: text("motivators"),
+  stressBehaviors: text("stressBehaviors"),
+  accountabilityPreferences: text("accountabilityPreferences"),
+  likelyStrengths: text("likelyStrengths"),
+  likelyBlindSpots: text("likelyBlindSpots"),
+  preferredCoachingStyle: text("preferredCoachingStyle"),
+  potentialCoachingRisks: text("potentialCoachingRisks"),
+  uploadedById: int("uploadedById").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("coaching_assessments_agent_idx").on(table.agentId),
+]);
+export type CoachingAssessment = typeof coachingAssessments.$inferSelect;
+export type InsertCoachingAssessment = typeof coachingAssessments.$inferInsert;
+
+// Historical snapshots of agent performance metrics for trend analysis.
+export const coachingHistorySnapshots = mysqlTable("coaching_history_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id),
+  snapshotDate: timestamp("snapshotDate").notNull(),
+  performanceStatus: varchar("performanceStatus", { length: 32 }),
+  trailing90DayUnits: int("trailing90DayUnits"),
+  trailing90DayVolume: decimal("trailing90DayVolume", { precision: 15, scale: 2 }),
+  underContractUnits: int("underContractUnits"),
+  underContractVolume: decimal("underContractVolume", { precision: 15, scale: 2 }),
+  leadVolume: int("leadVolume"),
+  averageLeadAgeDays: int("averageLeadAgeDays"),
+  overdueTaskCount: int("overdueTaskCount"),
+  terminationRate: decimal("terminationRate", { precision: 5, scale: 4 }),
+  coachOfRecordId: int("coachOfRecordId").references(() => users.id),
+  fourCDiagnosis: varchar("fourCDiagnosis", { length: 32 }),
+  performanceResetActive: boolean("performanceResetActive").default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("coaching_history_snapshots_agent_date_idx").on(table.agentId, table.snapshotDate),
+]);
+export type CoachingHistorySnapshot = typeof coachingHistorySnapshots.$inferSelect;
+export type InsertCoachingHistorySnapshot = typeof coachingHistorySnapshots.$inferInsert;
+
+// Coaching Hub settings — configurable thresholds and defaults.
+export const coachingSettings = mysqlTable("coaching_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 128 }).notNull().unique(),
+  settingValue: text("settingValue").notNull(),
+  settingLabel: varchar("settingLabel", { length: 255 }),
+  settingGroup: varchar("settingGroup", { length: 128 }),
+  updatedById: int("updatedById").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CoachingSetting = typeof coachingSettings.$inferSelect;
+export type InsertCoachingSetting = typeof coachingSettings.$inferInsert;

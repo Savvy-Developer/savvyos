@@ -56,6 +56,7 @@ import {
   Target,
   Activity,
   Briefcase,
+  GraduationCap,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -262,6 +263,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
         { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
+        { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
         { icon: Users, label: "Leadership Dashboard", path: "/leadership-dashboard" },
         { icon: Activity, label: "Activity Log", path: "/admin/activity" },
       ],

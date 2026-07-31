@@ -84,6 +84,10 @@ import TalentProfilePage from "./pages/TalentProfilePage";
 import TalentProfileAdminPage from "./pages/TalentProfileAdminPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import CoachingHubPage from "./pages/CoachingHubPage";
+import CoachingAgentPage from "./pages/CoachingAgentPage";
+import CoachingSessionPage from "./pages/CoachingSessionPage";
+import CoachingSessionsPage from "./pages/CoachingSessionsPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -219,6 +223,10 @@ function Router() {
           <Route path="/stats" component={StatsPage} />
           <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
           <Route path="/admin/super-permissions">{() => <AdminRoute><SuperPermissionsPage /></AdminRoute>}</Route>
+          <Route path="/coaching">{() => <AdminRoute><CoachingHubPage /></AdminRoute>}</Route>
+          <Route path="/coaching/sessions">{() => <AdminRoute><CoachingSessionsPage /></AdminRoute>}</Route>
+          <Route path="/coaching/agent/:id">{() => <AdminRoute><CoachingAgentPage /></AdminRoute>}</Route>
+          <Route path="/coaching/session/:id">{() => <AdminRoute><CoachingSessionPage /></AdminRoute>}</Route>
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>
