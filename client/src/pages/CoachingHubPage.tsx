@@ -52,6 +52,7 @@ import {
   ClipboardCheck,
   CalendarClock,
   Gauge,
+  HelpCircle,
 } from "lucide-react";
 import { safeFormat, safeFormatET } from "@/lib/safeFormat";
 
@@ -64,8 +65,9 @@ import CoachingMarketCoverage from "@/components/coaching/CoachingMarketCoverage
 import CoachingEscalationsView from "@/components/coaching/CoachingEscalationsView";
 import CoachingReportsView from "@/components/coaching/CoachingReportsView";
 import CoachingSettingsView from "@/components/coaching/CoachingSettingsView";
+import CoachingHelpView from "@/components/coaching/CoachingHelpView";
 
-type ViewId = "command" | "portfolio" | "sessions" | "commitments" | "resets" | "markets" | "escalations" | "reports" | "settings";
+type ViewId = "command" | "portfolio" | "sessions" | "commitments" | "resets" | "markets" | "escalations" | "reports" | "settings" | "help";
 
 const VIEWS: { id: ViewId; label: string; shortLabel: string; icon: any }[] = [
   { id: "command", label: "Command Center", shortLabel: "Command", icon: BarChart3 },
@@ -77,6 +79,7 @@ const VIEWS: { id: ViewId; label: string; shortLabel: string; icon: any }[] = [
   { id: "escalations", label: "Escalations", shortLabel: "Escalate", icon: Shield },
   { id: "reports", label: "Reports", shortLabel: "Reports", icon: FileText },
   { id: "settings", label: "Settings", shortLabel: "Settings", icon: Settings },
+  { id: "help", label: "Help & Definitions", shortLabel: "Help", icon: HelpCircle },
 ];
 
 export default function CoachingHubPage() {
@@ -154,6 +157,7 @@ export default function CoachingHubPage() {
       {activeView === "escalations" && <CoachingEscalationsView />}
       {activeView === "reports" && <CoachingReportsView />}
       {activeView === "settings" && <CoachingSettingsView />}
+      {activeView === "help" && <CoachingHelpView />}
     </div>
   );
 }
