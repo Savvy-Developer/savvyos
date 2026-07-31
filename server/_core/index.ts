@@ -44,13 +44,13 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // ⚠️ Resend webhook MUST be registered BEFORE express.json() so that
-  //    express.raw() can capture the raw body for HMAC signature verification.
-  //    If express.json() runs first it consumes the body stream and req.body becomes
-  //    a JS object — toString() on it returns "[object Object]", breaking the signature.
+  // ── Resend webhook MUST be registered BEFORE the global JSON body parser ──
+  // Resend (via Svix) signs the raw request body. If express.json() parses it
+  // first, req.body becomes a JS object and .toString("utf8") yields
+  // "[object Object]", causing HMAC verification to always fail (401).
   app.post("/api/webhooks/resend", express.raw({ type: "application/json" }), async (req, res) => {
     try {
-      const rawBody = req.body.toString("utf8");
+      const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : JSON.stringify(req.body);
       const signature = req.headers["svix-signature"] as string | undefined;
       const svixId = req.headers["svix-id"] as string | undefined;
       const svixTimestamp = req.headers["svix-timestamp"] as string | undefined;
@@ -62,6 +62,7 @@ async function startServer() {
         hasSvixId: !!svixId,
         hasSvixTimestamp: !!svixTimestamp,
         hasSignature: !!signature,
+        bodyIsBuffer: Buffer.isBuffer(req.body),
       });
 
       // Verify signature if secret is configured
