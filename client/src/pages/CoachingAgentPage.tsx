@@ -101,6 +101,16 @@ export default function CoachingAgentPage() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showNewSession, setShowNewSession] = useState(false);
 
+  // Session form state (must be before early returns to satisfy React hooks rules)
+  const [sessionForm, setSessionForm] = useState({
+    sessionType: "Standard COACH Session",
+    sessionDate: "",
+    scheduledCoachId: "",
+    durationMinutes: "30",
+    meetingLink: "",
+    reasonForSession: "",
+  });
+
   const utils = trpc.useUtils();
   const { data, isLoading, refetch } = trpc.coaching.getProfile.useQuery({ agentId });
   const { data: coaches } = trpc.coaching.listCoaches.useQuery();
@@ -143,16 +153,6 @@ export default function CoachingAgentPage() {
   const avgLeadAge = prodStats?.avgLeadAge ?? 0;
   const overdueTasks = prodStats?.overdueTasks ?? 0;
   const terminationRate = prodStats?.terminationRate ?? 0;
-
-  // Session form state
-  const [sessionForm, setSessionForm] = useState({
-    sessionType: "Standard COACH Session",
-    sessionDate: "",
-    scheduledCoachId: "",
-    durationMinutes: "30",
-    meetingLink: "",
-    reasonForSession: "",
-  });
 
   return (
     <div className="p-6 max-w-screen-2xl mx-auto space-y-5">
