@@ -65,10 +65,21 @@ async function startServer() {
       const svixTimestamp = req.headers["svix-timestamp"] as string | undefined;
       const secret = process.env.RESEND_WEBHOOK_SECRET || "";
 
+      console.log("[Resend Webhook] Incoming request:", {
+        secretConfigured: !!secret,
+        secretPrefix: secret ? secret.slice(0, 10) + "..." : "(none)",
+        hasSvixId: !!svixId,
+        hasSvixTimestamp: !!svixTimestamp,
+        hasSignature: !!signature,
+      });
+
       // Verify signature if secret is configured
       if (secret && !verifyResendWebhookSignature(rawBody, signature, secret, svixId, svixTimestamp)) {
+        console.warn("[Resend Webhook] Signature verification FAILED");
         return res.status(401).json({ error: "Invalid webhook signature" });
       }
+
+      console.log("[Resend Webhook] Signature verification PASSED (or no secret configured)");
 
       const event = JSON.parse(rawBody);
       const result = await handleResendWebhook(event);
