@@ -41,13 +41,13 @@ export default function CoachingProfileEditDialog({
 
   const [form, setForm] = useState({
     agentId,
-    coachOfRecordId: profile?.coachOfRecordId ? String(profile.coachOfRecordId) : "",
+    coachOfRecordId: profile?.coachOfRecordId ? String(profile.coachOfRecordId) : "none",
     performanceStatus: profile?.performanceStatus ?? "Launch",
     marketProtectionStatus: profile?.marketProtectionStatus ?? "Protected",
     retentionRiskStatus: profile?.retentionRiskStatus ?? "Low",
     currentPrimaryDiagnosis: profile?.currentPrimaryDiagnosis ?? "",
     currentDevelopmentPriority: profile?.currentDevelopmentPriority ?? "",
-    nextSessionCoachId: profile?.nextSessionCoachId ? String(profile.nextSessionCoachId) : "",
+    nextSessionCoachId: profile?.nextSessionCoachId ? String(profile.nextSessionCoachId) : "none",
     nextSessionDate: profile?.nextSessionDate ? safeFormat(profile.nextSessionDate, "yyyy-MM-dd'T'HH:mm") : "",
     coachingSetupRequired: profile?.coachingSetupRequired ?? true,
     launchStartDate: profile?.launchStartDate ? safeFormat(profile.launchStartDate, "yyyy-MM-dd") : "",
@@ -65,13 +65,13 @@ export default function CoachingProfileEditDialog({
   function handleSave() {
     upsertProfile.mutate({
       agentId,
-      coachOfRecordId: form.coachOfRecordId ? Number(form.coachOfRecordId) : null,
+      coachOfRecordId: (form.coachOfRecordId && form.coachOfRecordId !== "none") ? Number(form.coachOfRecordId) : null,
       performanceStatus: form.performanceStatus as any,
       marketProtectionStatus: form.marketProtectionStatus as any,
       retentionRiskStatus: form.retentionRiskStatus as any,
       currentPrimaryDiagnosis: form.currentPrimaryDiagnosis as any || null,
       currentDevelopmentPriority: form.currentDevelopmentPriority || null,
-      nextSessionCoachId: form.nextSessionCoachId ? Number(form.nextSessionCoachId) : null,
+      nextSessionCoachId: (form.nextSessionCoachId && form.nextSessionCoachId !== "none") ? Number(form.nextSessionCoachId) : null,
       nextSessionDate: form.nextSessionDate || null,
       coachingSetupRequired: form.coachingSetupRequired,
       launchStartDate: form.launchStartDate || null,
@@ -95,7 +95,7 @@ export default function CoachingProfileEditDialog({
                 <Select value={form.coachOfRecordId} onValueChange={(v) => setForm(f => ({ ...f, coachOfRecordId: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select coach" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unassigned</SelectItem>
+                    <SelectItem value="none">Unassigned</SelectItem>
                     {(coachList ?? []).map((c: any) => (
                       <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                     ))}
@@ -107,7 +107,7 @@ export default function CoachingProfileEditDialog({
                 <Select value={form.nextSessionCoachId} onValueChange={(v) => setForm(f => ({ ...f, nextSessionCoachId: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select coach" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {(coachList ?? []).map((c: any) => (
                       <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                     ))}

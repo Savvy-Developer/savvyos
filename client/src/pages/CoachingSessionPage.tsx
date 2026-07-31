@@ -92,7 +92,7 @@ export default function CoachingSessionPage() {
   const displayForm = form ?? {
     status: s.status,
     sessionType: s.sessionType,
-    actualCoachId: s.actualCoachId ? String(s.actualCoachId) : "",
+    actualCoachId: s.actualCoachId ? String(s.actualCoachId) : "none",
     durationMinutes: s.durationMinutes ? String(s.durationMinutes) : "",
     reasonForSession: s.reasonForSession ?? "",
     sourceNotes: s.sourceNotes ?? "",
@@ -109,7 +109,7 @@ export default function CoachingSessionPage() {
     setForm({
       status: s.status,
       sessionType: s.sessionType,
-      actualCoachId: s.actualCoachId ? String(s.actualCoachId) : "",
+      actualCoachId: s.actualCoachId ? String(s.actualCoachId) : "none",
       durationMinutes: s.durationMinutes ? String(s.durationMinutes) : "",
       reasonForSession: s.reasonForSession ?? "",
       sourceNotes: s.sourceNotes ?? "",
@@ -129,7 +129,7 @@ export default function CoachingSessionPage() {
       sessionId,
       status: form.status,
       sessionType: form.sessionType,
-      actualCoachId: form.actualCoachId ? Number(form.actualCoachId) : undefined,
+      actualCoachId: (form.actualCoachId && form.actualCoachId !== "none") ? Number(form.actualCoachId) : undefined,
       durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
       reasonForSession: form.reasonForSession || undefined,
       sourceNotes: form.sourceNotes || undefined,
@@ -203,7 +203,7 @@ export default function CoachingSessionPage() {
               <Select value={form.actualCoachId} onValueChange={(v) => setForm((f: any) => ({ ...f, actualCoachId: v }))}>
                 <SelectTrigger className="h-7 text-xs mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {(coaches ?? []).map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                   ))}
