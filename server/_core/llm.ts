@@ -311,7 +311,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   payload.max_completion_tokens = params.maxTokens ?? params.max_tokens ?? 4096;
-  if (reasoning) payload.reasoning = reasoning;
+  if (reasoning?.effort && (model?.startsWith("o1") || model?.startsWith("o3") || model?.startsWith("o-"))) {
+    payload.reasoning_effort = reasoning.effort;
+  }
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
