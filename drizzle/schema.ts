@@ -1598,6 +1598,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
+  canViewCoachingHub: boolean("canViewCoachingHub").default(true).notNull(),
   canViewLeadershipDashboard: boolean("canViewLeadershipDashboard").default(true).notNull(),
   canViewActivityLog: boolean("canViewActivityLog").default(true).notNull(),
   // Admin

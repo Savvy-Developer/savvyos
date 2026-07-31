@@ -34,6 +34,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   // Operations
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },
+  { key: "canViewCoachingHub",        label: "Coaching Hub",             group: "Operations" },
   { key: "canViewLeadershipDashboard",label: "Leadership Dashboard",     group: "Operations" },
   { key: "canViewActivityLog",        label: "Activity Log",             group: "Operations" },
   // Admin

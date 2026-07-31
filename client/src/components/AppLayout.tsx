@@ -191,6 +191,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewCommission: "/commission",
   canViewTasks: "/tasks",
   canViewOnboarding: "/onboarding",
+  canViewCoachingHub: "/coaching",
   canViewLeadershipDashboard: "/leadership-dashboard",
   canViewActivityLog: "/admin/activity",
   canViewUsers: "/users",
