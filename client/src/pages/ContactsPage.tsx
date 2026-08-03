@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { usePersistentState } from "@/hooks/usePersistentState";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,21 +7,32 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { Plus, Search, User, Link2, Users, X, ChevronRight, Upload, TrendingUp, AlertTriangle, Phone, Mail, ArrowUpAZ, ArrowDownAZ, Calendar, Filter } from "lucide-react";
+import { Plus, Search, User, Link2, Users, X, ChevronRight, Upload, TrendingUp, Phone, Mail, ArrowUpAZ, ArrowDownAZ, Calendar } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
-import { formatEmail } from "@/lib/format"; // formatEmail: lowercase trim
+import { formatEmail } from "@/lib/format";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ContactForm = {
   firstName: string; lastName: string;
@@ -42,12 +52,19 @@ const emptyForm: ContactForm = {
   leadSourceId: null, assignedIsaId: "", notes: "",
 };
 
-type AssignForm = { agentId: string; pipelineStatus: string; agentNotes: string; isaFollowUpDate: string; introduceClient: boolean; appointmentSet: boolean; };
+type AssignForm = {
+  agentId: string; pipelineStatus: string; agentNotes: string;
+  isaFollowUpDate: string; introduceClient: boolean; appointmentSet: boolean;
+};
 
 const PIPELINE_STATUS_LABELS: Record<string, string> = {
   new_lead: "New Lead", attempted_contact: "Attempted Contact", nurture: "Nurture",
   active_client: "Active Client", under_contract: "Under Contract", closed: "Closed", dead: "Dead",
 };
+
+// ─── URL Search Params helpers ────────────────────────────────────────────────
+
+// ─── Agent Connections Popover ────────────────────────────────────────────────
 
 function AgentConnectionsPopover({ contactId, count }: { contactId: number; count: number }) {
   const [open, setOpen] = useState(false);
@@ -65,7 +82,7 @@ function AgentConnectionsPopover({ contactId, count }: { contactId: number; coun
           onClick={(e) => { e.stopPropagation(); setOpen(true); }}
         >
           <Users className="h-3 w-3" />
-          {count} agent{count !== 1 ? 's' : ''}
+          {count} agent{count !== 1 ? "s" : ""}
           <ChevronRight className="h-3 w-3 opacity-60" />
         </button>
       </PopoverTrigger>
@@ -86,9 +103,9 @@ function AgentConnectionsPopover({ contactId, count }: { contactId: number; coun
                 onClick={(e) => { e.stopPropagation(); navigate(`/pipeline/${connection.id}`); setOpen(false); }}
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{agent?.name ?? 'Unknown Agent'}</p>
+                  <p className="text-sm font-medium truncate">{agent?.name ?? "Unknown Agent"}</p>
                   <p className="text-xs text-muted-foreground">
-                    {PIPELINE_STATUS_LABELS[connection.pipelineStatus] ?? connection.pipelineStatus?.replace(/_/g, ' ')}
+                    {PIPELINE_STATUS_LABELS[connection.pipelineStatus] ?? connection.pipelineStatus?.replace(/_/g, " ")}
                   </p>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -101,47 +118,166 @@ function AgentConnectionsPopover({ contactId, count }: { contactId: number; coun
   );
 }
 
+// ─── Numbered Pagination Component ───────────────────────────────────────────
+
+/**
+ * Renders a smart numbered pagination bar:
+ *   [Prev]  1  …  4  [5]  6  …  20  [Next]
+ * Always shows first & last page; shows a window of ±2 around current page;
+ * collapses gaps > 1 into ellipses.
+ */
+function NumberedPagination({
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  // Build the list of page numbers / "ellipsis" markers to render
+  const pages: (number | "ellipsis-start" | "ellipsis-end")[] = [];
+  const window = 2; // pages on each side of current
+
+  const addPage = (n: number) => {
+    if (!pages.includes(n)) pages.push(n);
+  };
+
+  addPage(1);
+  for (let i = Math.max(2, page - window); i <= Math.min(totalPages - 1, page + window); i++) {
+    addPage(i);
+  }
+  addPage(totalPages);
+
+  // Insert ellipsis markers where there are gaps
+  const withEllipsis: (number | "ellipsis-start" | "ellipsis-end")[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    const cur = pages[i] as number;
+    const prev = pages[i - 1] as number | undefined;
+    if (prev !== undefined && cur - prev > 1) {
+      withEllipsis.push(i === 1 ? "ellipsis-start" : "ellipsis-end");
+    }
+    withEllipsis.push(cur);
+  }
+
+  return (
+    <Pagination className="justify-end">
+      <PaginationContent>
+        <PaginationItem>
+          <PaginationPrevious
+            href="#"
+            onClick={(e) => { e.preventDefault(); if (page > 1) onPageChange(page - 1); }}
+            className={page <= 1 ? "pointer-events-none opacity-40" : "cursor-pointer"}
+            aria-disabled={page <= 1}
+          />
+        </PaginationItem>
+
+        {withEllipsis.map((item, idx) => {
+          if (item === "ellipsis-start" || item === "ellipsis-end") {
+            return (
+              <PaginationItem key={`ell-${idx}`}>
+                <PaginationEllipsis />
+              </PaginationItem>
+            );
+          }
+          const p = item as number;
+          return (
+            <PaginationItem key={p}>
+              <PaginationLink
+                href="#"
+                isActive={p === page}
+                onClick={(e) => { e.preventDefault(); onPageChange(p); }}
+                className="cursor-pointer"
+              >
+                {p}
+              </PaginationLink>
+            </PaginationItem>
+          );
+        })}
+
+        <PaginationItem>
+          <PaginationNext
+            href="#"
+            onClick={(e) => { e.preventDefault(); if (page < totalPages) onPageChange(page + 1); }}
+            className={page >= totalPages ? "pointer-events-none opacity-40" : "cursor-pointer"}
+            aria-disabled={page >= totalPages}
+          />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function ContactsPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  // Filters persist across navigation (open a record → back) so they don't reset.
-  const [search, setSearch] = usePersistentState("contacts.search", "");
-  const [isaFilter, setIsaFilter] = usePersistentState<string>("contacts.isaFilter", user?.role === "isa" ? String(user.id) : "all");
-  const [isaStatusFilter, setIsaStatusFilter] = usePersistentState<string>("contacts.isaStatusFilter", "all");
-  const [leadSourceFilter, setLeadSourceFilter] = usePersistentState<string>("contacts.leadSourceFilter", "all");
 
-  const handleSearchChange = (val: string) => { setSearch(val); setPage(1); };
-  const handleIsaFilterChange = (val: string) => { setIsaFilter(val); setPage(1); };
-  const handleIsaStatusFilterChange = (val: string) => { setIsaStatusFilter(val); setPage(1); };
-  const handleLeadSourceFilterChange = (val: string) => { setLeadSourceFilter(val); setPage(1); };
+  // ── Read all filter state from URL search params ──────────────────────────
+  // useSearch() from wouter is reactive — re-renders when the query string changes.
+  const rawSearch = useSearch();
+  const sp = useMemo(() => new URLSearchParams(rawSearch), [rawSearch]);
+  const search = sp.get("q") ?? "";
+  const isaFilter = sp.get("isa") ?? (user?.role === "isa" ? String(user.id) : "all");
+  const isaStatusFilter = sp.get("isaStatus") ?? "all";
+  const leadSourceFilter = sp.get("leadSource") ?? "all";
+  const sortOrder = (sp.get("sort") ?? "desc") as "asc" | "desc";
+  const addedFrom = sp.get("addedFrom") ?? "";
+  const addedTo = sp.get("addedTo") ?? "";
+  const lastContactedFrom = sp.get("lastFrom") ?? "";
+  const lastContactedTo = sp.get("lastTo") ?? "";
+  const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
 
+  // ── Helper: update one or more URL params and navigate ────────────────────
+  const setParams = useCallback((updates: Record<string, string>) => {
+    const current = new URLSearchParams(rawSearch);
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === "" || v === "all" || (k === "page" && v === "1") || (k === "sort" && v === "desc")) {
+        current.delete(k);
+      } else {
+        current.set(k, v);
+      }
+    }
+    const qs = current.toString();
+    navigate(qs ? `/contacts?${qs}` : "/contacts");
+  }, [navigate, rawSearch]);
+
+  const setPage = useCallback((p: number | ((prev: number) => number)) => {
+    const next = typeof p === "function" ? p(page) : p;
+    setParams({ page: String(next) });
+  }, [page, setParams]);
+
+  const handleSearchChange = (val: string) => setParams({ q: val, page: "1" });
+  const handleIsaFilterChange = (val: string) => setParams({ isa: val, page: "1" });
+  const handleIsaStatusFilterChange = (val: string) => setParams({ isaStatus: val, page: "1" });
+  const handleLeadSourceFilterChange = (val: string) => setParams({ leadSource: val, page: "1" });
+  const handleSortToggle = () => setParams({ sort: sortOrder === "asc" ? "desc" : "asc" });
+  const handleAddedFromChange = (val: string) => setParams({ addedFrom: val, page: "1" });
+  const handleAddedToChange = (val: string) => setParams({ addedTo: val, page: "1" });
+  const handleLastContactedFromChange = (val: string) => setParams({ lastFrom: val, page: "1" });
+  const handleLastContactedToChange = (val: string) => setParams({ lastTo: val, page: "1" });
+
+  // ── Local UI state (dialogs, forms — not persisted in URL) ────────────────
   const [createOpen, setCreateOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignContactId, setAssignContactId] = useState<number | null>(null);
   const [form, setForm] = useState<ContactForm>(emptyForm);
-  const [assignForm, setAssignForm] = useState<AssignForm>({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false, appointmentSet: false });
-
-  // Bulk selection state
+  const [assignForm, setAssignForm] = useState<AssignForm>({
+    agentId: "", pipelineStatus: "new_lead", agentNotes: "",
+    isaFollowUpDate: "", introduceClient: false, appointmentSet: false,
+  });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkIsaOpen, setBulkIsaOpen] = useState(false);
   const [bulkIsaId, setBulkIsaId] = useState<string>("none");
-
-  const [addedFrom, setAddedFrom] = usePersistentState("contacts.addedFrom", "");
-  const [addedTo, setAddedTo] = usePersistentState("contacts.addedTo", "");
-  const [lastContactedFrom, setLastContactedFrom] = usePersistentState("contacts.lastContactedFrom", "");
-  const [lastContactedTo, setLastContactedTo] = usePersistentState("contacts.lastContactedTo", "");
   const [dateFiltersOpen, setDateFiltersOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
-  const handleAddedFromChange = (val: string) => { setAddedFrom(val); setPage(1); };
-  const handleAddedToChange = (val: string) => { setAddedTo(val); setPage(1); };
-  const handleLastContactedFromChange = (val: string) => { setLastContactedFrom(val); setPage(1); };
-  const handleLastContactedToChange = (val: string) => { setLastContactedTo(val); setPage(1); };
-
-  const [page, setPage] = usePersistentState("contacts.page", 1);
-  const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("contacts.sortOrder", "desc");
   const utils = trpc.useUtils();
 
-  // Duplicate detection: debounce email/phone inputs by 600ms
+  // ── Duplicate detection ───────────────────────────────────────────────────
   const [dupCheckEmail, setDupCheckEmail] = useState("");
   const [dupCheckPhone, setDupCheckPhone] = useState("");
   useEffect(() => {
@@ -168,19 +304,36 @@ export default function ContactsPage() {
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dupCheckEmail, dupCheckPhone, dupCheckName.firstName, dupCheckName.lastName, createOpen]);
+
+  // ── Data queries ──────────────────────────────────────────────────────────
   const isaIdParam = isaFilter === "all" ? undefined : isaFilter === "unassigned" ? -1 : Number(isaFilter);
   const isaStatusParam = isaStatusFilter === "all" ? undefined : isaStatusFilter as any;
   const leadSourceIdParam = leadSourceFilter === "all" ? undefined : Number(leadSourceFilter);
-  const { data: contactsData, isLoading } = trpc.contacts.list.useQuery({ search: search || undefined, isaId: isaIdParam, isaStatus: isaStatusParam, leadSourceId: leadSourceIdParam, page, limit: 25, sortOrder, addedFrom: addedFrom || undefined, addedTo: addedTo || undefined, lastContactedFrom: lastContactedFrom || undefined, lastContactedTo: lastContactedTo || undefined });
+
+  const { data: contactsData, isLoading } = trpc.contacts.list.useQuery({
+    search: search || undefined,
+    isaId: isaIdParam,
+    isaStatus: isaStatusParam,
+    leadSourceId: leadSourceIdParam,
+    page,
+    limit: 25,
+    sortOrder,
+    addedFrom: addedFrom || undefined,
+    addedTo: addedTo || undefined,
+    lastContactedFrom: lastContactedFrom || undefined,
+    lastContactedTo: lastContactedTo || undefined,
+  });
   const contacts = contactsData?.rows ?? [];
   const totalContacts = contactsData?.total ?? 0;
   const totalPages = Math.ceil(totalContacts / 25);
+
   const { data: statusCounts } = trpc.contacts.statusCounts.useQuery(undefined, { enabled: user?.role !== "agent" });
   const canListUsers = user?.role === "admin" || user?.role === "isa";
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" }, { enabled: canListUsers });
   const { data: isas = [] } = trpc.users.list.useQuery({ role: "isa" }, { enabled: canListUsers });
   const { data: leadSourcesData = [] } = trpc.leadSources.listFlat.useQuery();
 
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const create = trpc.contacts.create.useMutation({
     onSuccess: (data) => {
       toast.success("Contact created");
@@ -219,6 +372,7 @@ export default function ContactsPage() {
     onError: (e) => toast.error(e.message),
   });
 
+  // ── Handlers ──────────────────────────────────────────────────────────────
   function openAssign(contactId: number, e: React.MouseEvent) {
     e.stopPropagation();
     setAssignContactId(contactId);
@@ -296,7 +450,6 @@ export default function ContactsPage() {
   const allSelected = contacts.length > 0 && selectedIds.size === contacts.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < contacts.length;
 
-  const [bulkOpen, setBulkOpen] = useState(false);
   const bulkUploadMutation = trpc.contacts.bulkUpload.useMutation();
 
   const contactBulkColumns: BulkUploadColumn[] = [
@@ -320,6 +473,8 @@ export default function ContactsPage() {
     { key: "campaignSource", label: "Campaign Source", example: "" },
     { key: "pipelineStatus", label: "Pipeline Status", aliases: ["ISA Status"], example: "new_lead" },
   ];
+
+  const hasDateFilters = addedFrom || addedTo || lastContactedFrom || lastContactedTo;
 
   return (
     <div>
@@ -354,6 +509,7 @@ export default function ContactsPage() {
         }}
       />
 
+      {/* ── Filter Bar ── */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -395,22 +551,25 @@ export default function ContactsPage() {
           variant="outline"
           size="sm"
           className="shrink-0 gap-1.5"
-          onClick={() => setSortOrder(o => o === "asc" ? "desc" : "asc")}
+          onClick={handleSortToggle}
           title={sortOrder === "asc" ? "Sorted A → Z (click for Z → A)" : "Sorted Z → A (click for A → Z)"}
         >
-          {sortOrder === "asc" ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></> : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
+          {sortOrder === "asc"
+            ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></>
+            : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
         </Button>
+
         {/* Date Filters Popover */}
         <Popover open={dateFiltersOpen} onOpenChange={setDateFiltersOpen}>
           <PopoverTrigger asChild>
             <Button
-              variant={addedFrom || addedTo || lastContactedFrom || lastContactedTo ? "default" : "outline"}
+              variant={hasDateFilters ? "default" : "outline"}
               size="sm"
               className="shrink-0 gap-1.5"
             >
               <Calendar className="h-4 w-4" />
               <span className="hidden sm:inline">Date Filters</span>
-              {(addedFrom || addedTo || lastContactedFrom || lastContactedTo) && (
+              {hasDateFilters && (
                 <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-xs rounded-full bg-white/20">
                   {[addedFrom || addedTo, lastContactedFrom || lastContactedTo].filter(Boolean).length}
                 </span>
@@ -445,12 +604,15 @@ export default function ContactsPage() {
                   </div>
                 </div>
               </div>
-              {(addedFrom || addedTo || lastContactedFrom || lastContactedTo) && (
+              {hasDateFilters && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="w-full text-xs h-7"
-                  onClick={() => { handleAddedFromChange(""); handleAddedToChange(""); handleLastContactedFromChange(""); handleLastContactedToChange(""); }}
+                  onClick={() => {
+                    handleAddedFromChange(""); handleAddedToChange("");
+                    handleLastContactedFromChange(""); handleLastContactedToChange("");
+                  }}
                 >
                   <X className="h-3 w-3 mr-1" /> Clear date filters
                 </Button>
@@ -458,7 +620,8 @@ export default function ContactsPage() {
             </div>
           </PopoverContent>
         </Popover>
-<SearchableSelect
+
+        <SearchableSelect
           className="w-full sm:w-48"
           options={[
             { value: "all", label: "All Lead Sources" },
@@ -498,7 +661,7 @@ export default function ContactsPage() {
         />
       </div>
 
-      {/* Bulk action bar */}
+      {/* ── Bulk action bar ── */}
       {canBulkAssign && selectedIds.size > 0 && (
         <div className="flex items-center gap-3 mb-3 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg">
           <span className="text-sm font-medium text-primary">{selectedIds.size} contact{selectedIds.size !== 1 ? "s" : ""} selected</span>
@@ -520,7 +683,7 @@ export default function ContactsPage() {
         </div>
       )}
 
-      {/* Insights Panel */}
+      {/* ── Insights Panel ── */}
       {statusCounts && user?.role !== "agent" && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <div className="rounded-lg border bg-card p-3 flex items-center gap-3">
@@ -562,6 +725,7 @@ export default function ContactsPage() {
         </div>
       )}
 
+      {/* ── Contacts Table ── */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -607,7 +771,7 @@ export default function ContactsPage() {
                       {search && isaFilter !== "all" && (
                         <button
                           className="text-primary hover:underline text-sm mt-2 inline-block"
-                          onClick={() => { setIsaFilter("all"); }}
+                          onClick={() => handleIsaFilterChange("all")}
                         >
                           Clear filters and search again
                         </button>
@@ -615,133 +779,137 @@ export default function ContactsPage() {
                     </td>
                   </tr>
                 ) : (
-                  contacts.map((row: any) => { const { contact, agentConnectionId, agentName, agentId: rowAgentId } = row; return (
-                    <tr
-                      key={contact.id}
-                      className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${selectedIds.has(contact.id) ? "bg-primary/5" : ""}`}
-                      onClick={() => {
-                        if (user?.role === "agent" && agentConnectionId) {
-                          navigate(`/pipeline/${agentConnectionId}`);
-                        } else {
-                          navigate(`/contacts/${contact.id}`);
-                        }
-                      }}
-                    >
-                      {canBulkAssign && (
-                        <td className="py-3 px-3 w-10" onClick={(e) => toggleSelect(contact.id, e)}>
-                          <Checkbox
-                            checked={selectedIds.has(contact.id)}
-                            onCheckedChange={() => {}}
-                            aria-label={`Select ${contact.firstName}`}
-                          />
-                        </td>
-                      )}
-                      <td className="py-3 px-4">
-                        <p className="font-medium text-foreground">{contact.firstName} {contact.lastName}</p>
-                        {contact.spouseFirstName && (
-                          <p className="text-xs text-muted-foreground">+ {contact.spouseFirstName} {contact.spouseLastName}</p>
+                  contacts.map((row: any) => {
+                    const { contact, agentConnectionId, agentName, agentId: rowAgentId } = row;
+                    return (
+                      <tr
+                        key={contact.id}
+                        className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${selectedIds.has(contact.id) ? "bg-primary/5" : ""}`}
+                        onClick={() => {
+                          if (user?.role === "agent" && agentConnectionId) {
+                            navigate(`/pipeline/${agentConnectionId}`);
+                          } else {
+                            navigate(`/contacts/${contact.id}`);
+                          }
+                        }}
+                      >
+                        {canBulkAssign && (
+                          <td className="py-3 px-3 w-10" onClick={(e) => toggleSelect(contact.id, e)}>
+                            <Checkbox
+                              checked={selectedIds.has(contact.id)}
+                              onCheckedChange={() => {}}
+                              aria-label={`Select ${contact.firstName}`}
+                            />
+                          </td>
                         )}
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground">{contact.email ? formatEmail(contact.email) : "—"}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{contact.phone ? formatPhone(contact.phone) : "—"}</td>
-
-                      <td className="py-3 px-4">
-                        {(() => {
-                          if (contact.leadSourceId) {
-                            const ls = (leadSourcesData as any[]).find((s: any) => s.ls.id === contact.leadSourceId);
-                            if (ls) {
-                              const parent = ls.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === ls.ls.parentId) : null;
-                              const grandparent = parent?.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === parent.ls.parentId) : null;
+                        <td className="py-3 px-4">
+                          <p className="font-medium text-foreground">{contact.firstName} {contact.lastName}</p>
+                          {contact.spouseFirstName && (
+                            <p className="text-xs text-muted-foreground">+ {contact.spouseFirstName} {contact.spouseLastName}</p>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground">{contact.email ? formatEmail(contact.email) : "—"}</td>
+                        <td className="py-3 px-4 text-muted-foreground">{contact.phone ? formatPhone(contact.phone) : "—"}</td>
+                        <td className="py-3 px-4">
+                          {(() => {
+                            if (contact.leadSourceId) {
+                              const ls = (leadSourcesData as any[]).find((s: any) => s.ls.id === contact.leadSourceId);
+                              if (ls) {
+                                const parent = ls.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === ls.ls.parentId) : null;
+                                const grandparent = parent?.ls.parentId ? (leadSourcesData as any[]).find((p: any) => p.ls.id === parent.ls.parentId) : null;
+                                return (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {grandparent && (
+                                      <>
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
+                                          {grandparent.ls.name}
+                                        </span>
+                                        <span className="text-muted-foreground text-xs">›</span>
+                                      </>
+                                    )}
+                                    {parent && (
+                                      <>
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
+                                          {parent.ls.name}
+                                        </span>
+                                        <span className="text-muted-foreground text-xs">›</span>
+                                      </>
+                                    )}
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-primary/10 text-primary font-semibold whitespace-nowrap">
+                                      {ls.ls.name}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            }
+                            if (contact.leadSourceType) {
                               return (
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {grandparent && (
-                                    <>
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
-                                        {grandparent.ls.name}
-                                      </span>
-                                      <span className="text-muted-foreground text-xs">›</span>
-                                    </>
-                                  )}
-                                  {parent && (
-                                    <>
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium whitespace-nowrap">
-                                        {parent.ls.name}
-                                      </span>
-                                      <span className="text-muted-foreground text-xs">›</span>
-                                    </>
-                                  )}
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-primary/10 text-primary font-semibold whitespace-nowrap">
-                                    {ls.ls.name}
-                                  </span>
-                                </div>
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium">
+                                  {contact.leadSourceType.replace(/_/g, " ")}
+                                </span>
                               );
                             }
-                          }
-                          if (contact.leadSourceType) {
-                            return (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground font-medium">
-                                {contact.leadSourceType.replace(/_/g, " ")}
-                              </span>
-                            );
-                          }
-                          return <span className="text-muted-foreground text-xs">—</span>;
-                        })()}
-                      </td>
-                      {user?.role === "admin" && (
-                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                          {(contact as any).connectionCount > 0 ? (
-                            <AgentConnectionsPopover contactId={contact.id} count={Number((contact as any).connectionCount)} />
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
+                            return <span className="text-muted-foreground text-xs">—</span>;
+                          })()}
                         </td>
-                      )}
-                      {(user?.role === "admin" || user?.role === "isa") && (
-                        <td className="py-3 px-4">
-                          <IsaStatusBadge status={(contact as any).isaStatus} />
-                        </td>
-                      )}
-                      {(user?.role === "admin" || user?.role === "isa") && (
-                        <td className="py-3 px-4 text-xs text-muted-foreground">
-                          {(row as any).assignedIsa?.name ?? "—"}
-                        </td>
-                      )}
-                      <td className="py-3 px-4 text-xs">
-                        {(row as any).lastContacted ? (
-                          <span className="text-foreground">{safeFormat((row as any).lastContacted, "MMM d, yyyy")}</span>
-                        ) : (
-                          <span className="text-muted-foreground">Never</span>
+                        {user?.role === "admin" && (
+                          <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                            {(contact as any).connectionCount > 0 ? (
+                              <AgentConnectionsPopover contactId={contact.id} count={Number((contact as any).connectionCount)} />
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </td>
                         )}
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground text-xs">{safeFormat(contact.createdAt, "MMM d, yyyy")}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1">
-                          {canAssign && (
-                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={(e) => openAssign(contact.id, e)}>
-                              <Link2 className="h-3 w-3 mr-1" />Assign
-                            </Button>
+                        {(user?.role === "admin" || user?.role === "isa") && (
+                          <td className="py-3 px-4">
+                            <IsaStatusBadge status={(contact as any).isaStatus} />
+                          </td>
+                        )}
+                        {(user?.role === "admin" || user?.role === "isa") && (
+                          <td className="py-3 px-4 text-xs text-muted-foreground">
+                            {(row as any).assignedIsa?.name ?? "—"}
+                          </td>
+                        )}
+                        <td className="py-3 px-4 text-xs">
+                          {(row as any).lastContacted ? (
+                            <span className="text-foreground">{safeFormat((row as any).lastContacted, "MMM d, yyyy")}</span>
+                          ) : (
+                            <span className="text-muted-foreground">Never</span>
                           )}
-
-                          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/contacts/${contact.id}`); }}>View</Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ); })
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground text-xs">{safeFormat(contact.createdAt, "MMM d, yyyy")}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-1">
+                            {canAssign && (
+                              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={(e) => openAssign(contact.id, e)}>
+                                <Link2 className="h-3 w-3 mr-1" />Assign
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/contacts/${contact.id}`); }}>View</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t text-sm">
-              <span className="text-muted-foreground">
-                Showing {(page - 1) * 25 + 1}–{Math.min(page * 25, totalContacts)} of {totalContacts} contacts
+
+          {/* ── Pagination Footer ── */}
+          {totalPages > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t text-sm">
+              <span className="text-muted-foreground text-xs shrink-0">
+                {totalContacts > 0
+                  ? `Showing ${(page - 1) * 25 + 1}–${Math.min(page * 25, totalContacts)} of ${totalContacts.toLocaleString()} contacts`
+                  : "No contacts"}
               </span>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-                <span className="text-muted-foreground">{page} / {totalPages}</span>
-                <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
-              </div>
+              <NumberedPagination
+                page={page}
+                totalPages={totalPages}
+                onPageChange={(p) => setPage(p)}
+              />
             </div>
           )}
         </CardContent>
@@ -851,6 +1019,7 @@ export default function ContactsPage() {
               </div>
             </TabsContent>
           </Tabs>
+
           {/* Hard block: email/phone exact match */}
           {dupMatches.length > 0 && (
             <div className="mt-3 p-3 rounded-md bg-red-50 border border-red-200 text-sm">
@@ -880,6 +1049,7 @@ export default function ContactsPage() {
               <p className="text-red-600 mt-2 text-xs font-medium">You cannot create a duplicate contact. Use the existing contact or request a connection.</p>
             </div>
           )}
+
           {/* Soft warn: name match only */}
           {dupMatches.length === 0 && dupNameMatches.length > 0 && (
             <div className="mt-3 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm">
@@ -900,6 +1070,7 @@ export default function ContactsPage() {
               <p className="text-amber-600 mt-1 text-xs">If this is the same person, use the existing contact. Otherwise, continue creating.</p>
             </div>
           )}
+
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button onClick={handleCreate} disabled={!form.firstName || !form.lastName || create.isPending || dupMatches.length > 0}>
@@ -940,9 +1111,8 @@ export default function ContactsPage() {
                 </SelectContent>
               </Select>
             </div>
-            {/* Only show ISA follow-up date if the contact has an ISA assigned */}
             {(() => {
-              const assignContact = contacts.find((c: any) => c.id === assignContactId);
+              const assignContact = contacts.find((c: any) => c.contact?.id === assignContactId);
               return (assignContact as any)?.assignedIsaId || (assignContact as any)?.assignedIsa ? (
                 <div>
                   <Label>ISA follow up date <span className="text-muted-foreground font-normal">(creates a task for the assigned ISA - optional)</span></Label>
@@ -960,7 +1130,6 @@ export default function ContactsPage() {
                 onChange={e => setAssignForm(f => ({ ...f, agentNotes: e.target.value }))}
               />
             </div>
-            {/* Agent booking link */}
             {assignForm.agentId && (() => {
               const selectedAgent = (agents as any[]).find((a: any) => String(a.id) === assignForm.agentId);
               return selectedAgent?.callBookingLink ? (
@@ -972,7 +1141,6 @@ export default function ContactsPage() {
                 </div>
               ) : null;
             })()}
-            {/* Set an appointment */}
             <div className="flex items-start gap-2">
               <Checkbox
                 id="appointmentSetContacts"
@@ -987,7 +1155,6 @@ export default function ContactsPage() {
                 )}
               </div>
             </div>
-            {/* Introduce client to agent */}
             <div className="flex items-start gap-2">
               <Checkbox
                 id="introduceClientContacts"
@@ -1005,7 +1172,7 @@ export default function ContactsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignOpen(false)}>Cancel</Button>
-            <Button onClick={handleAssign} disabled={!assignForm.agentId || createConnection.isPending}>
+            <Button onClick={handleAssign} disabled={createConnection.isPending}>
               {createConnection.isPending ? "Assigning..." : "Assign to Agent"}
             </Button>
           </DialogFooter>
