@@ -21,6 +21,10 @@ import {
   tasks,
   marketProfiles,
   marketAgentAssignments,
+  groups,
+  groupMembers,
+  agentProfiles,
+  userProfiles,
 } from "../../drizzle/schema";
 import { eq, desc, asc, and, sql, or, inArray, isNull, isNotNull, ne, gte, lte, lt, gt, between, like } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
@@ -537,6 +541,253 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
       return { rows, total: Number(countRows[0]?.count ?? 0) };
     }),
 
+  /** Full portfolio view with all 33 columns of real data */
+  listPortfolio: protectedProcedure
+    .input(z.object({
+      performanceStatus: z.string().optional(),
+      retentionRiskStatus: z.string().optional(),
+      coachOfRecordId: z.number().optional(),
+      diagnosis: z.string().optional(),
+      search: z.string().optional(),
+      limit: z.number().default(200),
+      offset: z.number().default(0),
+    }).optional())
+    .query(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+
+      const now = new Date();
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+
+      const coachAlias = aliasedTable(users, "coach");
+      const conditions: any[] = [eq(users.role, "agent"), sql`users.isActive = 1`];
+      if (input?.performanceStatus) conditions.push(eq(coachingProfiles.performanceStatus, input.performanceStatus as any));
+      if (input?.retentionRiskStatus) conditions.push(eq(coachingProfiles.retentionRiskStatus, input.retentionRiskStatus as any));
+      if (input?.coachOfRecordId) conditions.push(eq(coachingProfiles.coachOfRecordId, input.coachOfRecordId));
+      if (input?.diagnosis) conditions.push(eq(coachingProfiles.currentPrimaryDiagnosis, input.diagnosis as any));
+      if (input?.search) conditions.push(sql`users.name LIKE ${`%${input.search}%`}`);
+
+      // Get all agent IDs matching filters
+      const agentRows = await db.select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
+        .leftJoin(coachAlias, eq(coachingProfiles.coachOfRecordId, coachAlias.id))
+        .where(and(...conditions))
+        .orderBy(users.name)
+        .limit(input?.limit ?? 200)
+        .offset(input?.offset ?? 0);
+
+      if (agentRows.length === 0) return { rows: [], total: 0 };
+      const agentIds = agentRows.map((a: any) => a.id);
+
+      // Batch: profiles + coach
+      const profileRows = await db.select({
+        profile: coachingProfiles,
+        coach: { id: coachAlias.id, name: coachAlias.name },
+      })
+        .from(coachingProfiles)
+        .leftJoin(coachAlias, eq(coachingProfiles.coachOfRecordId, coachAlias.id))
+        .where(inArray(coachingProfiles.agentId, agentIds));
+
+      // Batch: production stats per agent (YTD + T90 + UC)
+      const prodRows = await db.select({
+        agentId: transactions.agentId,
+        ytdUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN ${transactions.id} END)`,
+        ytdVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+        ytdGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+        t90Units: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END)`,
+        t90GCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+        ucUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'under_contract' THEN ${transactions.id} END)`,
+        ucVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+        termRate: sql<number>`ROUND(COUNT(DISTINCT CASE WHEN ${transactions.status} = 'terminated' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END) * 100.0 / NULLIF(COUNT(DISTINCT CASE WHEN ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END), 0), 1)`,
+      })
+        .from(transactions)
+        .where(inArray(transactions.agentId, agentIds))
+        .groupBy(transactions.agentId);
+
+      // Batch: lead stats per agent
+      const leadRows = await db.select({
+        agentId: agentConnections.agentId,
+        totalLeads: sql<number>`COUNT(*)`,
+        activeLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} IN ('new_lead','attempted_contact','nurture','active_client') THEN 1 END)`,
+        staleLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} IN ('new_lead','attempted_contact','nurture','active_client') AND ${agentConnections.agingUpdatedAt} < ${thirtyDaysAgo} THEN 1 END)`,
+        avgLeadAge: sql<number>`COALESCE(ROUND(AVG(DATEDIFF(NOW(), ${agentConnections.createdAt}))), 0)`,
+      })
+        .from(agentConnections)
+        .where(inArray(agentConnections.agentId, agentIds))
+        .groupBy(agentConnections.agentId);
+
+      // Batch: overdue tasks per agent
+      const taskRows = await db.select({
+        agentId: tasks.assignedToId,
+        overdueTasks: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' AND ${tasks.dueDate} < NOW() THEN 1 END)`,
+      })
+        .from(tasks)
+        .where(inArray(tasks.assignedToId, agentIds))
+        .groupBy(tasks.assignedToId);
+
+      // Batch: goals per agent (annual)
+      const goalRows = await db.select({
+        agentId: agentGoals.agentId,
+        targetUnits: agentGoals.closingsTarget,
+      })
+        .from(agentGoals)
+        .where(and(inArray(agentGoals.agentId, agentIds), eq(agentGoals.year, now.getFullYear()), eq(agentGoals.month, 0)));
+
+      // Batch: commitment completion rate per agent
+      const commitRows = await db.select({
+        agentId: coachingCommitments.agentId,
+        total: sql<number>`COUNT(*)`,
+        completed: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} = 'Completed' THEN 1 END)`,
+      })
+        .from(coachingCommitments)
+        .where(inArray(coachingCommitments.agentId, agentIds))
+        .groupBy(coachingCommitments.agentId);
+
+      // Batch: sessions in last 30 days per agent
+      const sessionRows = await db.select({
+        agentId: coachingSessions.agentId,
+        sessions30d: sql<number>`COUNT(CASE WHEN ${coachingSessions.sessionDate} >= ${thirtyDaysAgo} AND ${coachingSessions.status} IN ('Completed','In Progress') THEN 1 END)`,
+        lastSessionDate: sql<string>`MAX(CASE WHEN ${coachingSessions.status} IN ('Completed','In Progress') THEN ${coachingSessions.sessionDate} END)`,
+      })
+        .from(coachingSessions)
+        .where(inArray(coachingSessions.agentId, agentIds))
+        .groupBy(coachingSessions.agentId);
+
+      // Batch: assessments count per agent
+      const assessRows = await db.select({
+        agentId: coachingAssessments.agentId,
+        count: sql<number>`COUNT(*)`,
+      })
+        .from(coachingAssessments)
+        .where(inArray(coachingAssessments.agentId, agentIds))
+        .groupBy(coachingAssessments.agentId);
+
+      // Batch: active resets per agent
+      const resetRows = await db.select({
+        agentId: performanceResets.agentId,
+      })
+        .from(performanceResets)
+        .where(and(
+          inArray(performanceResets.agentId, agentIds),
+          inArray(performanceResets.status, ["Active", "Improving", "Extended"]),
+        ));
+
+      // Batch: active escalations per agent
+      const escalationRows = await db.select({
+        agentId: capacityEscalations.agentId,
+      })
+        .from(capacityEscalations)
+        .where(and(
+          inArray(capacityEscalations.agentId, agentIds),
+          inArray(capacityEscalations.status, ["Submitted", "Assigned", "In Progress", "Waiting for Information"]),
+        ));
+
+      // Batch: market assignments per agent (primary market name)
+      const marketRows = await db.select({
+        agentId: marketAgentAssignments.agentId,
+        marketName: marketProfiles.name,
+        isPrimary: marketAgentAssignments.isPrimary,
+      })
+        .from(marketAgentAssignments)
+        .innerJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
+        .where(inArray(marketAgentAssignments.agentId, agentIds));
+
+      // Batch: group membership per agent
+      const groupRows = await db.select({
+        userId: groupMembers.userId,
+        groupName: groups.name,
+      })
+        .from(groupMembers)
+        .innerJoin(groups, eq(groupMembers.groupId, groups.id))
+        .where(inArray(groupMembers.userId, agentIds));
+
+      // Build lookup maps
+      const profileMap = new Map(profileRows.map((r: any) => [r.profile?.agentId, r]));
+      const prodMap = new Map(prodRows.map((r: any) => [r.agentId, r]));
+      const leadMap = new Map(leadRows.map((r: any) => [r.agentId, r]));
+      const taskMap = new Map(taskRows.map((r: any) => [r.agentId, r]));
+      const goalMap = new Map(goalRows.map((r: any) => [r.agentId, r]));
+      const commitMap = new Map(commitRows.map((r: any) => [r.agentId, r]));
+      const sessionMap = new Map(sessionRows.map((r: any) => [r.agentId, r]));
+      const assessMap = new Map(assessRows.map((r: any) => [r.agentId, r]));
+      const resetSet = new Set(resetRows.map((r: any) => r.agentId));
+      const escalationSet = new Set(escalationRows.map((r: any) => r.agentId));
+      const marketMap = new Map<number, string>();
+      for (const r of marketRows as any[]) {
+        if (r.isPrimary || !marketMap.has(r.agentId)) marketMap.set(r.agentId, r.marketName);
+      }
+      const groupMap = new Map<number, string>();
+      for (const r of groupRows as any[]) {
+        groupMap.set(r.userId, r.groupName);
+      }
+
+      // Assemble rows
+      const assembled = agentRows.map((agent: any) => {
+        const pRow = profileMap.get(agent.id);
+        const profile = pRow?.profile ?? null;
+        const coach = pRow?.coach ?? null;
+        const prod = prodMap.get(agent.id);
+        const leads = leadMap.get(agent.id);
+        const tsk = taskMap.get(agent.id);
+        const goal = goalMap.get(agent.id);
+        const commit = commitMap.get(agent.id);
+        const sess = sessionMap.get(agent.id);
+        const assess = assessMap.get(agent.id);
+
+        const ytdUnits = Number(prod?.ytdUnits ?? 0);
+        const goalTarget = Number(goal?.targetUnits ?? 0);
+        const goalAttainment = goalTarget > 0 ? Math.round((ytdUnits / goalTarget) * 100) : null;
+        const commitTotal = Number(commit?.total ?? 0);
+        const commitCompleted = Number(commit?.completed ?? 0);
+        const commitRate = commitTotal > 0 ? Math.round((commitCompleted / commitTotal) * 100) : null;
+        const lastSession = sess?.lastSessionDate ?? null;
+        const daysSinceLastSession = lastSession ? Math.round((now.getTime() - new Date(lastSession).getTime()) / (1000 * 60 * 60 * 24)) : null;
+
+        return {
+          agent: { id: agent.id, name: agent.name, email: agent.email },
+          profile,
+          coach,
+          market: marketMap.get(agent.id) ?? null,
+          group: groupMap.get(agent.id) ?? null,
+          ytdUnits,
+          ytdVolume: Number(prod?.ytdVolume ?? 0),
+          ytdGCI: Number(prod?.ytdGCI ?? 0),
+          t90Units: Number(prod?.t90Units ?? 0),
+          t90GCI: Number(prod?.t90GCI ?? 0),
+          ucUnits: Number(prod?.ucUnits ?? 0),
+          ucVolume: Number(prod?.ucVolume ?? 0),
+          termRate: Number(prod?.termRate ?? 0),
+          totalLeads: Number(leads?.totalLeads ?? 0),
+          activeLeads: Number(leads?.activeLeads ?? 0),
+          staleLeads: Number(leads?.staleLeads ?? 0),
+          avgLeadAge: Number(leads?.avgLeadAge ?? 0),
+          overdueTasks: Number(tsk?.overdueTasks ?? 0),
+          goalsSet: goalTarget > 0,
+          goalAttainment,
+          commitRate,
+          sessions30d: Number(sess?.sessions30d ?? 0),
+          assessmentsUploaded: Number(assess?.count ?? 0),
+          resetActive: resetSet.has(agent.id),
+          escalationActive: escalationSet.has(agent.id),
+          lastSessionDate: lastSession,
+          daysSinceLastSession,
+        };
+      });
+
+      // Count
+      const [countResult] = await db.select({ count: sql<number>`COUNT(*)` })
+        .from(users)
+        .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
+        .where(and(...conditions));
+
+      return { rows: assembled, total: Number(countResult?.count ?? 0) };
+    }),
+
+
   // ═══════════════════════════════════════════════════════════════════════════
   // INDIVIDUAL AGENT — Full coaching intelligence page
   // ═══════════════════════════════════════════════════════════════════════════
@@ -665,29 +916,66 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
     }),
 
   /** Generate AI Coaching Insights for an individual agent */
-  generateAgentInsights: protectedProcedure
+    generateAgentInsights: protectedProcedure
     .input(z.object({ agentId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      // Gather comprehensive agent data for AI synthesis
-      const [agentRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.agentId));
+      // ─── Gather comprehensive agent data for AI synthesis ───────────────
+      const [agentRow] = await db.select({ name: users.name, email: users.email, marketProfileId: users.marketProfileId, commissionSplit: users.commissionSplit, createdAt: users.createdAt }).from(users).where(eq(users.id, input.agentId));
       const agentName = agentRow?.name ?? "Unknown Agent";
-
       const prodStats = await getAgentProductionStats(db, input.agentId);
       const goalsData = await getAgentGoalsWithProgress(db, input.agentId);
       const pipelineData = await getAgentPipelineData(db, input.agentId);
       const history = await getCoachingHistoryForAI(db, input.agentId);
 
-      // Get assessments for coaching style context
+      // ─── Company Benchmarks (avg/median across all agents) ─────────────
+      const now = new Date();
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+      const [companyBenchmarks] = await db.select({
+        avgYtdUnits: sql<number>`AVG(sub.ytd_units)`,
+        avgYtdVolume: sql<number>`AVG(sub.ytd_vol)`,
+        avgYtdGCI: sql<number>`AVG(sub.ytd_gci)`,
+        totalAgents: sql<number>`COUNT(*)`,
+      }).from(sql`(SELECT t.agentId, COUNT(DISTINCT CASE WHEN t.status='closed' AND t.closingDate >= ${yearStart} THEN t.id END) as ytd_units, COALESCE(SUM(CASE WHEN t.status='closed' AND t.closingDate >= ${yearStart} THEN t.purchasePrice ELSE 0 END),0) as ytd_vol, COALESCE(SUM(CASE WHEN t.status='closed' AND t.closingDate >= ${yearStart} THEN t.grossCommissionIncome ELSE 0 END),0) as ytd_gci FROM ${transactions} t JOIN ${users} u ON u.id = t.agentId WHERE u.role='agent' AND u.isActive=1 GROUP BY t.agentId) as sub`);
+
+      // ─── Market & Group Context ────────────────────────────────────────
+      let marketName = "Not Assigned";
+      let groupName = "Not in Group";
+      let groupLeaderName = "N/A";
+      if (agentRow?.marketProfileId) {
+        const [mkt] = await db.select({ name: marketProfiles.name }).from(marketProfiles).where(eq(marketProfiles.id, agentRow.marketProfileId));
+        if (mkt) marketName = mkt.name;
+      }
+      const [grpMembership] = await db.select({ groupId: groupMembers.groupId }).from(groupMembers).where(eq(groupMembers.userId, input.agentId));
+      if (grpMembership) {
+        const [grp] = await db.select({ name: groups.name, leaderId: groups.leaderId }).from(groups).where(eq(groups.id, grpMembership.groupId));
+        if (grp) {
+          groupName = grp.name;
+          if (grp.leaderId) {
+            const [leader] = await db.select({ name: users.name }).from(users).where(eq(users.id, grp.leaderId));
+            if (leader) groupLeaderName = leader.name ?? "Unknown";
+          }
+        }
+      }
+
+      // ─── Agent Profile Context (start date, tenure) ────────────────────
+      const [agentProfile] = await db.select({ startDateWithSavvy: agentProfiles.startDateWithSavvy }).from(agentProfiles).where(eq(agentProfiles.userId, input.agentId));
+      const [userProfile] = await db.select({ onboardedDate: userProfiles.onboardedDate }).from(userProfiles).where(eq(userProfiles.userId, input.agentId));
+      const startDate = agentProfile?.startDateWithSavvy ?? userProfile?.onboardedDate ?? agentRow?.createdAt;
+      const tenureDays = startDate ? Math.floor((now.getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)) : null;
+
+      // ─── Termination Details ───────────────────────────────────────────
+      const terminations = await db.select({ terminationReason: transactions.terminationReason, closingDate: transactions.closingDate, purchasePrice: transactions.purchasePrice }).from(transactions).where(and(eq(transactions.agentId, input.agentId), eq(transactions.status, "terminated"))).orderBy(desc(transactions.closingDate)).limit(10);
+
+      // ─── Assessments ───────────────────────────────────────────────────
       const assessments = await db
-        .select({ assessmentType: coachingAssessments.assessmentType, preferredCoachingStyle: coachingAssessments.preferredCoachingStyle, communicationStyle: coachingAssessments.communicationStyle, motivators: coachingAssessments.motivators, stressBehaviors: coachingAssessments.stressBehaviors })
+        .select({ assessmentType: coachingAssessments.assessmentType, preferredCoachingStyle: coachingAssessments.preferredCoachingStyle, communicationStyle: coachingAssessments.communicationStyle, motivators: coachingAssessments.motivators, stressBehaviors: coachingAssessments.stressBehaviors, decisionMakingStyle: coachingAssessments.decisionMakingStyle, accountabilityPreferences: coachingAssessments.accountabilityPreferences, likelyStrengths: coachingAssessments.likelyStrengths, likelyBlindSpots: coachingAssessments.likelyBlindSpots })
         .from(coachingAssessments)
         .where(eq(coachingAssessments.agentId, input.agentId))
-        .limit(3);
-
+        .limit(5);
       // Get profile for current status
       const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, input.agentId));
 
@@ -699,85 +987,155 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         `[${c.status}] ${c.description} (Due: ${c.dueDate ? new Date(c.dueDate).toLocaleDateString() : 'N/A'}) ${c.isRepeated ? '⚠️ REPEATED' : ''}`
       ).join("\n");
 
+            // ─── Build comprehensive context for AI ─────────────────────────────
+      const terminationSummary = terminations.length > 0
+        ? terminations.map((t: any) => `$${Number(t.purchasePrice ?? 0).toLocaleString()} - ${t.terminationReason ?? 'No reason given'}`).join("; ")
+        : "None";
+      const benchmarkContext = companyBenchmarks
+        ? `Company Avg YTD: ${Math.round(Number(companyBenchmarks.avgYtdUnits ?? 0))} units, $${Math.round(Number(companyBenchmarks.avgYtdVolume ?? 0)).toLocaleString()} volume, $${Math.round(Number(companyBenchmarks.avgYtdGCI ?? 0)).toLocaleString()} GCI (across ${companyBenchmarks.totalAgents} active agents)`
+        : "Benchmarks unavailable";
+
       const response = await invokeLLM({
         model: "gpt-4o",
         messages: [
           {
             role: "system",
-            content: `You are an expert real estate coaching analyst for Savvy STR Agents. Generate comprehensive coaching insights for an individual agent using the Four-C framework (Commitment, Capability, Cadence, Capacity).
+            content: `You are an expert real estate coaching analyst for Savvy STR Agents. Generate comprehensive coaching insights using the Four-C Diagnosis Framework:
+- COMMITMENT: Agent's dedication, follow-through on commitments, consistency of effort
+- CAPABILITY: Skills, knowledge, market expertise, ability to execute
+- CADENCE: Activity levels, lead follow-up speed, consistency of daily actions
+- CAPACITY: Time management, bandwidth, life circumstances affecting work
 
-Output JSON with this exact structure:
+You must output JSON with this exact structure:
 {
-  "executiveSummary": "2-3 paragraph narrative of where this agent stands and what needs to happen next",
-  "primaryDiagnosis": "Commitment|Capability|Cadence|Capacity",
-  "diagnosisConfidence": "high|medium|low",
-  "diagnosisEvidence": "2-3 sentences of evidence supporting the diagnosis",
-  "developmentPriority": "The single most important thing to focus on",
-  "recommendedCoachingStyle": "How to approach this agent based on their personality and situation",
-  "recommendedAgenda": ["Item 1", "Item 2", "Item 3"],
-  "recommendedQuestions": ["Question 1", "Question 2", "Question 3"],
-  "riskFactors": ["Risk 1", "Risk 2"],
-  "positiveSignals": ["Signal 1", "Signal 2"],
-  "commitmentPatterns": "Analysis of commitment completion patterns",
-  "productionTrajectory": "up|flat|down",
-  "productionTrajectoryNote": "Brief explanation of production direction",
-  "suggestedCommitments": [
-    {"description": "Specific action", "rationale": "Why this matters", "metric": "GCI|Closings|Pipeline|Activity|null"}
-  ],
-  "retentionRiskAssessment": "Assessment of flight risk with reasoning",
-  "nextSessionRecommendation": "What the next session should focus on"
+  "executiveSummary": "3-4 paragraph narrative covering: where agent stands today, key patterns observed, what needs to happen next, and expected trajectory if coaching recommendations are followed",
+  "performanceDiagnosis": {
+    "primaryDiagnosis": "Commitment|Capability|Cadence|Capacity",
+    "secondaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
+    "confidence": "high|medium|low",
+    "evidence": ["Evidence point 1", "Evidence point 2", "Evidence point 3"],
+    "rootCauseAnalysis": "Deep analysis of WHY this diagnosis applies - not just what, but why",
+    "comparedToBenchmark": "How this agent compares to company averages and what that means"
+  },
+  "coachingHistorySynthesis": {
+    "recurringThemes": ["Theme 1", "Theme 2"],
+    "approachesThatWorked": ["What worked"],
+    "approachesThatDidntWork": ["What didn't work"],
+    "commitmentCompletionRate": "X% - analysis of pattern",
+    "sessionEngagementTrend": "Improving|Stable|Declining - with evidence"
+  },
+  "personalityAndStyle": {
+    "communicationApproach": "How to communicate with this agent based on assessments and history",
+    "motivationalDrivers": ["What motivates them"],
+    "accountabilityStyle": "What type of accountability works best",
+    "potentialTriggers": ["What to avoid or be careful about"],
+    "coachingDosAndDonts": {"do": ["Do this"], "dont": ["Don't do this"]}
+  },
+  "productionAnalysis": {
+    "trajectory": "up|flat|down",
+    "trajectoryDetail": "Detailed explanation with numbers",
+    "strengthAreas": ["Where they excel"],
+    "gapAreas": ["Where they're falling short"],
+    "terminationAnalysis": "Analysis of deal terminations if any",
+    "pipelineHealth": "Assessment of current pipeline quality and quantity",
+    "goalProgress": "On track / behind / ahead with specifics"
+  },
+  "riskAssessment": {
+    "retentionRisk": "Low|Watch|Elevated|Critical",
+    "retentionRiskReasoning": "Why this risk level",
+    "riskFactors": ["Specific risk factor 1", "Specific risk factor 2"],
+    "positiveSignals": ["Positive signal 1", "Positive signal 2"],
+    "earlyWarningIndicators": ["What to watch for"]
+  },
+  "recommendations": {
+    "developmentPriority": "The single most important thing to focus on right now",
+    "recommendedSessionType": "COACH|Accountability|Pipeline Review|Goal Setting|Performance Review|Market Strategy",
+    "recommendedAgenda": ["Agenda item 1 with rationale", "Agenda item 2 with rationale", "Agenda item 3 with rationale"],
+    "powerQuestions": ["Thought-provoking question 1", "Question 2", "Question 3", "Question 4", "Question 5"],
+    "suggestedCommitments": [{"description": "Specific measurable action", "rationale": "Why this matters now", "metric": "What to measure", "timeline": "When to complete"}],
+    "nextSessionFocus": "What the next session should primarily address",
+    "escalationRecommendation": "None|Monitor|Performance Reset|Leadership Involvement - with reasoning"
+  },
+  "dataQualityWarnings": ["Any data gaps or quality issues that affect this analysis"]
 }`,
           },
           {
             role: "user",
-            content: `Agent: ${agentName}
-Current Status: ${profile?.performanceStatus ?? 'Unknown'} | Risk: ${profile?.retentionRiskStatus ?? 'Unknown'} | Diagnosis: ${profile?.currentPrimaryDiagnosis ?? 'None'}
+            content: `AGENT PROFILE:
+Name: ${agentName} | Email: ${agentRow?.email ?? 'N/A'}
+Market: ${marketName} | Group: ${groupName} | Group Leader: ${groupLeaderName}
+Commission Split: ${agentRow?.commissionSplit ?? 'N/A'}% | Tenure: ${tenureDays ? `${tenureDays} days (${Math.round(tenureDays/30)} months)` : 'Unknown'}
+Current Coaching Status: ${profile?.performanceStatus ?? 'No profile'} | Risk: ${profile?.retentionRiskStatus ?? 'Unknown'} | Diagnosis: ${profile?.currentPrimaryDiagnosis ?? 'None set'}
+Launch Phase: ${profile?.launchHealthStatus ?? 'N/A'}
 
 PRODUCTION DATA:
 - Trailing 90-day: ${prodStats.trailing90Units} units, $${Number(prodStats.trailing90Volume).toLocaleString()} volume, $${Number(prodStats.trailing90GCI).toLocaleString()} GCI
+- Trailing 30-day: ${prodStats.trailing30Units} units, $${Number(prodStats.trailing30Volume).toLocaleString()} volume
 - Under Contract: ${prodStats.underContractUnits} units, $${Number(prodStats.underContractVolume).toLocaleString()} volume
 - YTD: ${prodStats.ytdUnits} units, $${Number(prodStats.ytdVolume).toLocaleString()} volume, $${Number(prodStats.ytdGCI).toLocaleString()} GCI
-- Terminated (90d): ${prodStats.terminatedUnits} units
+- Terminated (all time): ${terminations.length} deals
+- Termination Details: ${terminationSummary}
+
+COMPANY BENCHMARKS:
+${benchmarkContext}
+Agent vs Avg: ${prodStats.ytdUnits} units vs ${Math.round(Number(companyBenchmarks?.avgYtdUnits ?? 0))} avg (${prodStats.ytdUnits > Number(companyBenchmarks?.avgYtdUnits ?? 0) ? 'ABOVE' : 'BELOW'} average)
 
 GOALS:
 - Annual Goal: ${goalsData.annualGoal ? `${goalsData.annualGoal.closingsTarget} closings, $${Number(goalsData.annualGoal.volumeTarget ?? 0).toLocaleString()} volume, $${Number(goalsData.annualGoal.gciTarget ?? 0).toLocaleString()} GCI` : 'Not set'}
 - YTD Actuals: ${goalsData.ytdActuals.ytdClosings} closings, $${Number(goalsData.ytdActuals.ytdVolume).toLocaleString()} volume, $${Number(goalsData.ytdActuals.ytdGCI).toLocaleString()} GCI
+- Goal Attainment: ${goalsData.annualGoal?.closingsTarget ? `${Math.round((goalsData.ytdActuals.ytdClosings / goalsData.annualGoal.closingsTarget) * 100)}% of closings goal` : 'No goal set'}
 
 LEADS & PIPELINE:
 - Total Leads: ${prodStats.totalLeads}, Active: ${prodStats.activeLeads}, New (30d): ${prodStats.newLeads30d}
-- Stale Leads: ${prodStats.staleLeads}, Dead: ${prodStats.deadLeads}
+- Stale Leads (no activity 30d): ${prodStats.staleLeads}, Dead: ${prodStats.deadLeads}
 - Avg Lead Age: ${Math.round(prodStats.avgLeadAgeDays)} days
+- Pipeline Breakdown: ${JSON.stringify(pipelineData.pipelineByStatus)}
 
 TASKS:
 - Pending: ${prodStats.totalPendingTasks}, Overdue: ${prodStats.overdueTasks}, Completed (30d): ${prodStats.completedTasks30d}
 
-ASSESSMENTS:
-${assessments.map((a: any) => `- ${a.assessmentType}: Style=${a.communicationStyle ?? 'N/A'}, Motivators=${a.motivators ?? 'N/A'}, Coaching=${a.preferredCoachingStyle ?? 'N/A'}`).join("\n") || "None uploaded"}
+PERSONALITY ASSESSMENTS:
+${assessments.map((a: any) => `- ${a.assessmentType}:\n  Communication: ${a.communicationStyle ?? 'N/A'}\n  Decision-Making: ${a.decisionMakingStyle ?? 'N/A'}\n  Motivators: ${a.motivators ?? 'N/A'}\n  Stress Behaviors: ${a.stressBehaviors ?? 'N/A'}\n  Accountability Pref: ${a.accountabilityPreferences ?? 'N/A'}\n  Strengths: ${a.likelyStrengths ?? 'N/A'}\n  Blind Spots: ${a.likelyBlindSpots ?? 'N/A'}\n  Coaching Style: ${a.preferredCoachingStyle ?? 'N/A'}`).join("\n") || "None uploaded - recommend uploading DISC or similar assessment"}
 
-RECENT SESSIONS (last 10):
-${sessionSummaries || "No completed sessions"}
+COACHING HISTORY (last 10 sessions):
+${sessionSummaries || "No completed sessions yet - this may be a new coaching relationship"}
 
 COMMITMENTS (last 30):
-${commitmentSummary || "No commitments"}`,
+${commitmentSummary || "No commitments tracked yet"}
+
+Please provide your comprehensive coaching analysis.`,
           },
         ],
         response_format: { type: "json_object" },
       });
-
       const rawContent = response.choices[0]?.message?.content;
       const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
-
       // Update profile with AI insights
-      const updateFields: any = { updatedAt: sql`NOW()` };
-      if (parsed.primaryDiagnosis && ["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.primaryDiagnosis)) {
-        updateFields.currentPrimaryDiagnosis = parsed.primaryDiagnosis;
+      const updateFields: any = { updatedAt: sql`NOW()`, aiInsightsJson: JSON.stringify(parsed), aiInsightsGeneratedAt: sql`NOW()` };
+      if (parsed.performanceDiagnosis?.primaryDiagnosis && ["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.performanceDiagnosis.primaryDiagnosis)) {
+        updateFields.currentPrimaryDiagnosis = parsed.performanceDiagnosis.primaryDiagnosis;
       }
-      if (parsed.developmentPriority) {
-        updateFields.currentDevelopmentPriority = parsed.developmentPriority;
+      if (parsed.performanceDiagnosis?.secondaryDiagnosis && ["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.performanceDiagnosis.secondaryDiagnosis)) {
+        updateFields.secondaryDiagnosis = parsed.performanceDiagnosis.secondaryDiagnosis;
       }
-      await db.update(coachingProfiles).set(updateFields).where(eq(coachingProfiles.agentId, input.agentId));
-
-      return { insights: parsed, generatedAt: new Date().toISOString() };
+      if (parsed.recommendations?.developmentPriority) {
+        updateFields.currentDevelopmentPriority = parsed.recommendations.developmentPriority;
+      }
+      if (parsed.riskAssessment?.retentionRisk && ["Low", "Watch", "Elevated", "Critical"].includes(parsed.riskAssessment.retentionRisk)) {
+        updateFields.retentionRiskStatus = parsed.riskAssessment.retentionRisk;
+      }
+      if (profile) {
+        await db.update(coachingProfiles).set(updateFields).where(eq(coachingProfiles.agentId, input.agentId));
+      }
+      // Also update the user_profiles.coachingSummary with executive summary
+      if (parsed.executiveSummary) {
+        await db.update(userProfiles).set({ coachingSummary: parsed.executiveSummary, coachingSummaryGeneratedAt: sql`NOW()` }).where(eq(userProfiles.userId, input.agentId));
+      }
+      return {
+        insights: parsed,
+        context: { marketName, groupName, groupLeaderName, tenureDays, benchmarks: companyBenchmarks },
+        generatedAt: new Date().toISOString(),
+      };
     }),
 
   /** Create or update a coaching profile for an agent */

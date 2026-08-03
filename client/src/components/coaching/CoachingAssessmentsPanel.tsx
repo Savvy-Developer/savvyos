@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,10 @@ import {
   ChevronUp,
   ExternalLink,
   RefreshCw,
+  Upload,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 import { toast } from "sonner";
@@ -47,20 +51,22 @@ export default function CoachingAssessmentsPanel({
 
   const { data: assessments, isLoading } = trpc.coaching.listAssessments.useQuery({ agentId });
 
-  // Use createAssessment (not addAssessment)
   const createAssessment = trpc.coaching.createAssessment.useMutation({
-    onSuccess: () => {
-      toast.success("Assessment added");
+    onSuccess: (result) => {
+      toast.success("Assessment added — generating AI insights...");
       utils.coaching.listAssessments.invalidate({ agentId });
       setAddOpen(false);
+      // Auto-trigger AI analysis if rawText was provided
+      if (result.assessmentId) {
+        generateSummary.mutate({ assessmentId: result.assessmentId });
+      }
     },
     onError: (e) => toast.error(e.message),
   });
 
-  // Use generateAssessmentSummary (not generateAssessmentInsights)
   const generateSummary = trpc.coaching.generateAssessmentSummary.useMutation({
     onSuccess: () => {
-      toast.success("AI insights generated");
+      toast.success("AI insights generated and synthesized into agent profile");
       utils.coaching.listAssessments.invalidate({ agentId });
     },
     onError: (e) => toast.error(e.message),
@@ -79,6 +85,9 @@ export default function CoachingAssessmentsPanel({
             Add Assessment
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Upload assessment files (PDF, DOC, TXT) or paste results. AI will automatically analyze and synthesize insights into the agent profile.
+        </p>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -89,7 +98,7 @@ export default function CoachingAssessmentsPanel({
           <div className="text-center py-10 text-muted-foreground">
             <Brain className="h-7 w-7 mx-auto mb-2 opacity-40" />
             <p className="text-sm">No assessments on file</p>
-            <p className="text-xs mt-1">Add DISC, Kolbe, Myers-Briggs, or other assessment results</p>
+            <p className="text-xs mt-1">Upload DISC, Kolbe, Myers-Briggs, or other assessment results for AI analysis</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -112,12 +121,17 @@ export default function CoachingAssessmentsPanel({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {a.aiSummary && (
+                      {a.aiSummary ? (
                         <Badge className="text-xs bg-violet-100 text-violet-700 gap-1" variant="secondary">
                           <Sparkles className="h-3 w-3" />
-                          AI Insights
+                          AI Analyzed
                         </Badge>
-                      )}
+                      ) : a.rawText ? (
+                        <Badge className="text-xs bg-amber-100 text-amber-700 gap-1" variant="secondary">
+                          <AlertCircle className="h-3 w-3" />
+                          Needs Analysis
+                        </Badge>
+                      ) : null}
                       {a.rawText && (
                         <Button
                           size="sm"
@@ -134,7 +148,7 @@ export default function CoachingAssessmentsPanel({
                           ) : (
                             <RefreshCw className="h-3 w-3 mr-1" />
                           )}
-                          {a.aiSummary ? "Regenerate" : "Generate Insights"}
+                          {a.aiSummary ? "Regenerate" : "Analyze"}
                         </Button>
                       )}
                       {isExpanded ? (
@@ -146,12 +160,6 @@ export default function CoachingAssessmentsPanel({
                   </div>
                   {isExpanded && (
                     <div className="border-t p-4 bg-muted/20 space-y-4">
-                      {a.rawText && (
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Raw Results</p>
-                          <p className="text-sm whitespace-pre-wrap">{a.rawText}</p>
-                        </div>
-                      )}
                       {a.aiSummary && (
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 mb-1 flex items-center gap-1">
@@ -199,6 +207,12 @@ export default function CoachingAssessmentsPanel({
                               <p>{a.likelyBlindSpots}</p>
                             </div>
                           )}
+                        </div>
+                      )}
+                      {a.rawText && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Raw Results</p>
+                          <p className="text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">{a.rawText}</p>
                         </div>
                       )}
                       {a.fileUrl && (
@@ -254,11 +268,73 @@ function AddAssessmentDialog({
     assessmentDate: "",
     rawText: "",
     fileUrl: "",
+    fileKey: "",
   });
+  const [uploading, setUploading] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowed = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "text/plain",
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+    ];
+    if (!allowed.includes(file.type)) {
+      toast.error("Only PDF, DOC, DOCX, TXT, and image files are allowed");
+      return;
+    }
+
+    if (file.size > 16 * 1024 * 1024) {
+      toast.error("File must be under 16MB");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/upload/coaching-assessment", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Upload failed");
+      }
+
+      const data = await res.json();
+      setForm((f) => ({ ...f, fileUrl: data.fileUrl, fileKey: data.fileKey }));
+      setUploadedFileName(data.fileName ?? file.name);
+
+      // If it's a text file, also read its content for AI analysis
+      if (file.type === "text/plain") {
+        const text = await file.text();
+        setForm((f) => ({ ...f, rawText: text }));
+        toast.success("File uploaded and text extracted for AI analysis");
+      } else {
+        toast.success("File uploaded successfully. Paste assessment text below for AI analysis.");
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add Assessment</DialogTitle>
         </DialogHeader>
@@ -268,11 +344,11 @@ function AddAssessmentDialog({
               <Label>Assessment Type *</Label>
               <Select
                 value={form.assessmentType}
-                onValueChange={(v) => setForm(f => ({ ...f, assessmentType: v }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, assessmentType: v }))}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["DISC", "Kolbe", "Myers-Briggs", "StrengthsFinder", "Enneagram", "16Personalities", "Predictive Index", "Other"].map(t => (
+                  {["DISC", "Kolbe", "Myers-Briggs", "StrengthsFinder", "Enneagram", "16Personalities", "Predictive Index", "Working Genius", "Other"].map((t) => (
                     <SelectItem key={t} value={t}>{t}</SelectItem>
                   ))}
                 </SelectContent>
@@ -283,7 +359,7 @@ function AddAssessmentDialog({
               <Input
                 type="date"
                 value={form.assessmentDate}
-                onChange={(e) => setForm(f => ({ ...f, assessmentDate: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, assessmentDate: e.target.value }))}
               />
             </div>
           </div>
@@ -292,42 +368,94 @@ function AddAssessmentDialog({
             <Input
               placeholder="e.g. Tony Robbins DISC, Crystal Knows"
               value={form.assessmentProvider}
-              onChange={(e) => setForm(f => ({ ...f, assessmentProvider: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, assessmentProvider: e.target.value }))}
             />
           </div>
+
+          {/* File Upload Section */}
           <div className="space-y-1.5">
-            <Label>Full Results / Raw Text</Label>
+            <Label>Upload Assessment File</Label>
+            <div className="border-2 border-dashed rounded-lg p-4 text-center hover:border-primary/50 transition-colors">
+              {uploadedFileName ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>{uploadedFileName}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => {
+                      setUploadedFileName(null);
+                      setForm((f) => ({ ...f, fileUrl: "", fileKey: "" }));
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : uploading ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Uploading...</span>
+                </div>
+              ) : (
+                <div>
+                  <Upload className="h-6 w-6 mx-auto mb-1 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground mb-2">
+                    PDF, DOC, DOCX, TXT, or image (max 16MB)
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <FileText className="h-3.5 w-3.5 mr-1.5" />
+                    Choose File
+                  </Button>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </div>
+          </div>
+
+          {/* Raw Text Section */}
+          <div className="space-y-1.5">
+            <Label>Full Results / Raw Text *</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Paste the full assessment results here. AI will analyze this text to extract coaching insights.
+            </p>
             <Textarea
-              placeholder="Paste the full assessment results here for AI analysis..."
+              placeholder="Paste the full assessment results here for AI analysis. This is required for AI to generate coaching insights..."
               value={form.rawText}
-              onChange={(e) => setForm(f => ({ ...f, rawText: e.target.value }))}
-              rows={5}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Report URL</Label>
-            <Input
-              placeholder="https://..."
-              value={form.fileUrl}
-              onChange={(e) => setForm(f => ({ ...f, fileUrl: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, rawText: e.target.value }))}
+              rows={6}
+              className="text-sm"
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            onClick={() => onSave({
-              agentId: form.agentId,
-              assessmentType: form.assessmentType,
-              assessmentProvider: form.assessmentProvider || undefined,
-              assessmentDate: form.assessmentDate || undefined,
-              rawText: form.rawText || undefined,
-              fileUrl: form.fileUrl || undefined,
-            })}
-            disabled={saving}
+            onClick={() =>
+              onSave({
+                agentId: form.agentId,
+                assessmentType: form.assessmentType,
+                assessmentProvider: form.assessmentProvider || undefined,
+                assessmentDate: form.assessmentDate || undefined,
+                rawText: form.rawText || undefined,
+                fileUrl: form.fileUrl || undefined,
+                fileKey: form.fileKey || undefined,
+              })
+            }
+            disabled={saving || !form.rawText.trim()}
           >
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Save Assessment
+            Save & Analyze
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -66,6 +66,7 @@ import CoachingCommitmentsPanel from "@/components/coaching/CoachingCommitmentsP
 import CoachingAssessmentsPanel from "@/components/coaching/CoachingAssessmentsPanel";
 import CoachingPerformanceResetPanel from "@/components/coaching/CoachingPerformanceResetPanel";
 import CoachingProfileEditDialog from "@/components/coaching/CoachingProfileEditDialog";
+import { CoachingAIInsightsTab } from "@/components/coaching/CoachingAIInsightsTab";
 
 const PERF_STATUS_COLORS: Record<string, string> = {
   Launch: "bg-blue-100 text-blue-800 border-blue-200",
@@ -114,10 +115,7 @@ export default function CoachingAgentPage() {
   const utils = trpc.useUtils();
   const { data, isLoading, refetch } = trpc.coaching.getProfile.useQuery({ agentId });
   const { data: coaches } = trpc.coaching.listCoaches.useQuery();
-  const generateInsights = trpc.coaching.generateAgentInsights.useMutation({
-    onSuccess: () => { toast.success("AI insights generated"); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
+
   const createSession = trpc.coaching.createSession.useMutation({
     onSuccess: () => { toast.success("Session created"); setShowNewSession(false); refetch(); utils.coaching.listSessions.invalidate(); },
     onError: (e) => toast.error(e.message),
@@ -196,9 +194,8 @@ export default function CoachingAgentPage() {
               <Button size="sm" variant="outline" onClick={() => setShowEditProfile(true)}>
                 <Edit className="h-3.5 w-3.5 mr-1" />Edit Profile
               </Button>
-              <Button size="sm" variant="outline" onClick={() => generateInsights.mutate({ agentId })} disabled={generateInsights.isPending}>
-                <Brain className={`h-3.5 w-3.5 mr-1 ${generateInsights.isPending ? "animate-spin" : ""}`} />
-                {generateInsights.isPending ? "Generating..." : "AI Insights"}
+              <Button size="sm" variant="outline" onClick={() => setActiveTab("ai-insights")}>
+                <Brain className="h-3.5 w-3.5 mr-1" />AI Insights
               </Button>
             </div>
           </div>
@@ -332,48 +329,8 @@ export default function CoachingAgentPage() {
         </TabsContent>
 
         {/* ─── AI INSIGHTS ─── */}
-        <TabsContent value="ai-insights" className="mt-4 space-y-4">
-          <Card className="border-primary/15 bg-gradient-to-br from-primary/[0.03] to-background">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-xl bg-primary p-2 text-primary-foreground"><Brain className="h-5 w-5" /></div>
-                  <div><CardTitle className="text-base">AI Coaching Insights</CardTitle><CardDescription>Synthesized intelligence from all available agent data</CardDescription></div>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => generateInsights.mutate({ agentId })} disabled={generateInsights.isPending}>
-                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${generateInsights.isPending ? "animate-spin" : ""}`} />{generateInsights.isPending ? "Generating..." : "Regenerate"}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {profile?.aiInsights ? (
-                <div className="rounded-lg border bg-background/70 p-5 text-sm leading-7 whitespace-pre-wrap">{profile.aiInsights}</div>
-              ) : (
-                <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 px-5 text-center">
-                  <Brain className="h-8 w-8 text-muted-foreground/40 mb-2" />
-                  <p className="font-medium text-sm">No AI insights generated yet</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Click "Regenerate" to synthesize coaching intelligence from all available data.</p>
-                  <Button size="sm" className="mt-3" onClick={() => generateInsights.mutate({ agentId })} disabled={generateInsights.isPending}>
-                    <Brain className="h-3.5 w-3.5 mr-1.5" />Generate AI Insights
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Four-C Diagnosis</CardTitle></CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {["Commitment", "Capability", "Cadence", "Capacity"].map((d) => (
-                  <div key={d} className={`rounded-lg border p-3 text-center ${profile?.currentPrimaryDiagnosis === d ? "border-primary bg-primary/5" : ""}`}>
-                    <p className={`text-sm font-semibold ${profile?.currentPrimaryDiagnosis === d ? "text-primary" : "text-muted-foreground"}`}>{d}</p>
-                    {profile?.currentPrimaryDiagnosis === d && <p className="text-[10px] text-primary mt-0.5">Primary</p>}
-                  </div>
-                ))}
-              </div>
-              {profile?.secondaryDiagnosis && <p className="mt-2 text-xs text-muted-foreground">Secondary: <strong>{profile.secondaryDiagnosis}</strong></p>}
-            </CardContent>
-          </Card>
+        <TabsContent value="ai-insights" className="mt-4">
+          <CoachingAIInsightsTab agentId={agentId} profile={profile} onRefresh={refetch} />
         </TabsContent>
 
         {/* ─── PERFORMANCE ─── */}

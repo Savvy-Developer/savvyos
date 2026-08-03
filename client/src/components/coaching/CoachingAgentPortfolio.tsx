@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -21,11 +21,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Users,
   Search,
@@ -33,9 +33,8 @@ import {
   Loader2,
   RefreshCw,
   Filter,
-  Download,
-  ChevronDown,
   AlertTriangle,
+  ArrowUpDown,
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 
@@ -72,6 +71,17 @@ const SAVED_VIEWS: SavedView[] = [
   { id: "retention-risk", label: "Green/Elite Retention Risks", filters: { retentionRisk: "true" } },
 ];
 
+// Column visibility groups for managing the wide table
+type ColumnGroup = "core" | "production" | "pipeline" | "coaching" | "all";
+
+const COLUMN_GROUPS: { id: ColumnGroup; label: string }[] = [
+  { id: "all", label: "All Columns" },
+  { id: "core", label: "Core Info" },
+  { id: "production", label: "Production" },
+  { id: "pipeline", label: "Pipeline & Leads" },
+  { id: "coaching", label: "Coaching Activity" },
+];
+
 export default function CoachingAgentPortfolio() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
@@ -81,8 +91,9 @@ export default function CoachingAgentPortfolio() {
   const [diagnosisFilter, setDiagnosisFilter] = useState<string>("all");
   const [savedView, setSavedView] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [columnGroup, setColumnGroup] = useState<ColumnGroup>("all");
 
-  const { data: agents, isLoading } = trpc.coaching.listProfiles.useQuery({
+  const { data, isLoading } = trpc.coaching.listPortfolio.useQuery({
     performanceStatus: statusFilter !== "all" ? statusFilter : undefined,
     retentionRiskStatus: riskFilter !== "all" ? riskFilter : undefined,
     coachOfRecordId: coachFilter !== "all" ? Number(coachFilter) : undefined,
@@ -93,7 +104,7 @@ export default function CoachingAgentPortfolio() {
 
   const { data: coaches } = trpc.coaching.listCoaches.useQuery();
 
-  const rows = agents?.rows ?? [];
+  const rows = data?.rows ?? [];
 
   const handleSavedView = (viewId: string) => {
     setSavedView(viewId);
@@ -117,6 +128,15 @@ export default function CoachingAgentPortfolio() {
 
   const hasFilters = statusFilter !== "all" || riskFilter !== "all" || coachFilter !== "all" || diagnosisFilter !== "all" || search;
 
+  // Column visibility based on group
+  const showCol = (group: ColumnGroup) => columnGroup === "all" || columnGroup === group;
+
+  const fmtMoney = (val: number) => {
+    if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`;
+    return `$${val.toLocaleString()}`;
+  };
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -138,6 +158,17 @@ export default function CoachingAgentPortfolio() {
           <SelectContent>
             {SAVED_VIEWS.map((view) => (
               <SelectItem key={view.id} value={view.id}>{view.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={columnGroup} onValueChange={(v) => setColumnGroup(v as ColumnGroup)}>
+          <SelectTrigger className="w-[160px] h-9">
+            <SelectValue placeholder="Columns" />
+          </SelectTrigger>
+          <SelectContent>
+            {COLUMN_GROUPS.map((g) => (
+              <SelectItem key={g.id} value={g.id}>{g.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -232,101 +263,216 @@ export default function CoachingAgentPortfolio() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-[11px] sticky left-0 bg-background z-10 min-w-[160px]">Agent</TableHead>
-                    <TableHead className="text-[11px] min-w-[100px]">Status</TableHead>
-                    <TableHead className="text-[11px] min-w-[120px]">Coach of Record</TableHead>
-                    <TableHead className="text-[11px] min-w-[100px]">Diagnosis</TableHead>
-                    <TableHead className="text-[11px] min-w-[90px]">Retention</TableHead>
-                    <TableHead className="text-[11px] min-w-[100px]">Next Session</TableHead>
-                    <TableHead className="text-[11px] min-w-[100px]">Last Session</TableHead>
-                    <TableHead className="text-[11px] min-w-[80px]">Priority</TableHead>
-                    <TableHead className="text-[11px] min-w-[80px]">Launch</TableHead>
-                    <TableHead className="text-[11px] min-w-[90px]">Market</TableHead>
-                    <TableHead className="w-8"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row: any) => {
-                    const profile = row.profile;
-                    const agent = row.agent;
-                    const coach = row.coach;
-                    const noSession = !profile?.nextSessionDate;
-                    const noCoach = !coach?.id;
-                    return (
-                      <TableRow
-                        key={agent.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => navigate(`/coaching/agent/${agent.id}`)}
-                      >
-                        <TableCell className="sticky left-0 bg-background z-10">
-                          <div className="flex items-center gap-2">
-                            <div>
-                              <p className="font-medium text-xs leading-tight">{agent.name ?? "—"}</p>
-                              <p className="text-[10px] text-muted-foreground">{agent.email}</p>
+            <TooltipProvider>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      {/* Always visible: Agent Name */}
+                      <TableHead className="text-[10px] sticky left-0 bg-muted/30 z-10 min-w-[150px] font-semibold">Agent</TableHead>
+                      {/* Core columns */}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold">Status</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[100px] font-semibold">Coach</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Diagnosis</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold">Risk</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Next Session</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Last Session</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Priority</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold">Launch</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[90px] font-semibold">Market</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Group</TableHead>}
+                      {/* Production columns */}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">YTD Units</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[75px] font-semibold text-right">YTD Vol</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right">YTD GCI</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">T90 Units</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right">T90 GCI</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">UC</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right">UC Vol</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Term%</TableHead>}
+                      {/* Pipeline columns */}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Leads</TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Active</TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-right">Stale</TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Avg Age</TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Overdue</TableHead>}
+                      {/* Coaching activity columns */}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-center">Goals</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Goal%</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Commit%</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Sess(30d)</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-center">Assess</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-center">Reset</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-center">Esc.</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Days Since</TableHead>}
+                      <TableHead className="w-6"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((row: any) => {
+                      const { agent, profile, coach, market, group } = row;
+                      const noSession = !profile?.nextSessionDate;
+                      const noCoach = !coach?.id;
+                      return (
+                        <TableRow
+                          key={agent.id}
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => navigate(`/coaching/agent/${agent.id}`)}
+                        >
+                          {/* Agent Name - always visible */}
+                          <TableCell className="sticky left-0 bg-background z-10">
+                            <div className="flex items-center gap-1.5">
+                              <div>
+                                <p className="font-medium text-[11px] leading-tight truncate max-w-[130px]">{agent.name ?? "—"}</p>
+                              </div>
+                              {(noSession || noCoach) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertTriangle className="h-3 w-3 text-red-500 flex-shrink-0" />
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-[10px]">
+                                    {noCoach && "No coach assigned. "}
+                                    {noSession && "No session scheduled."}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                             </div>
-                            {(noSession || noCoach) && (
-                              <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {profile?.performanceStatus ? (
-                            <Badge className={`text-[10px] border ${PERF_STATUS_COLORS[profile.performanceStatus] ?? ""}`} variant="outline">
-                              {profile.performanceStatus}
-                            </Badge>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">—</span>
+                          </TableCell>
+                          {/* Core */}
+                          {showCol("core") && (
+                            <TableCell>
+                              {profile?.performanceStatus ? (
+                                <Badge className={`text-[9px] px-1.5 py-0 border ${PERF_STATUS_COLORS[profile.performanceStatus] ?? ""}`} variant="outline">
+                                  {profile.performanceStatus}
+                                </Badge>
+                              ) : <span className="text-[10px] text-muted-foreground">—</span>}
+                            </TableCell>
                           )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {coach?.name ?? <span className="text-red-600 italic text-[10px]">Unassigned</span>}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {profile?.currentPrimaryDiagnosis ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <span className={`text-xs ${RISK_COLORS[profile?.retentionRiskStatus] ?? "text-muted-foreground"}`}>
-                            {profile?.retentionRiskStatus ?? "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {profile?.nextSessionDate ? (
-                            <span>{safeFormat(profile.nextSessionDate, "MMM d")}</span>
-                          ) : (
-                            <span className="text-red-600 font-medium text-[10px]">Not scheduled</span>
+                          {showCol("core") && (
+                            <TableCell className="text-[11px] truncate max-w-[100px]">
+                              {coach?.name ?? <span className="text-red-600 italic text-[10px]">None</span>}
+                            </TableCell>
                           )}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {profile?.updatedAt ? safeFormat(profile.updatedAt, "MMM d") : "—"}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {profile?.currentDevelopmentPriority ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          {profile?.performanceStatus === "Launch" && profile?.launchHealthStatus ? (
-                            <Badge variant={profile.launchHealthStatus === "On Track" ? "secondary" : "destructive"} className="text-[10px]">
-                              {profile.launchHealthStatus}
-                            </Badge>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">—</span>
+                          {showCol("core") && (
+                            <TableCell className="text-[11px] text-muted-foreground">
+                              {profile?.currentPrimaryDiagnosis ?? "—"}
+                            </TableCell>
                           )}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {profile?.marketProtectionStatus ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                          {showCol("core") && (
+                            <TableCell>
+                              <span className={`text-[11px] ${RISK_COLORS[profile?.retentionRiskStatus] ?? "text-muted-foreground"}`}>
+                                {profile?.retentionRiskStatus ?? "—"}
+                              </span>
+                            </TableCell>
+                          )}
+                          {showCol("core") && (
+                            <TableCell className="text-[11px]">
+                              {profile?.nextSessionDate ? safeFormat(profile.nextSessionDate, "MMM d") : <span className="text-red-600 text-[10px]">None</span>}
+                            </TableCell>
+                          )}
+                          {showCol("core") && (
+                            <TableCell className="text-[11px] text-muted-foreground">
+                              {row.lastSessionDate ? safeFormat(row.lastSessionDate, "MMM d") : "—"}
+                            </TableCell>
+                          )}
+                          {showCol("core") && (
+                            <TableCell className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                              {profile?.currentDevelopmentPriority ?? "—"}
+                            </TableCell>
+                          )}
+                          {showCol("core") && (
+                            <TableCell>
+                              {profile?.performanceStatus === "Launch" && profile?.launchHealthStatus ? (
+                                <Badge variant={profile.launchHealthStatus === "On Track" ? "secondary" : "destructive"} className="text-[9px] px-1">
+                                  {profile.launchHealthStatus}
+                                </Badge>
+                              ) : <span className="text-[10px] text-muted-foreground">—</span>}
+                            </TableCell>
+                          )}
+                          {showCol("core") && (
+                            <TableCell className="text-[10px] text-muted-foreground truncate max-w-[90px]">
+                              {market ?? "—"}
+                            </TableCell>
+                          )}
+                          {showCol("core") && (
+                            <TableCell className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                              {group ?? "—"}
+                            </TableCell>
+                          )}
+                          {/* Production */}
+                          {showCol("production") && <TableCell className="text-[11px] text-right font-medium">{row.ytdUnits}</TableCell>}
+                          {showCol("production") && <TableCell className="text-[11px] text-right">{fmtMoney(row.ytdVolume)}</TableCell>}
+                          {showCol("production") && <TableCell className="text-[11px] text-right">{fmtMoney(row.ytdGCI)}</TableCell>}
+                          {showCol("production") && <TableCell className="text-[11px] text-right font-medium">{row.t90Units}</TableCell>}
+                          {showCol("production") && <TableCell className="text-[11px] text-right">{fmtMoney(row.t90GCI)}</TableCell>}
+                          {showCol("production") && <TableCell className="text-[11px] text-right">{row.ucUnits}</TableCell>}
+                          {showCol("production") && <TableCell className="text-[11px] text-right">{fmtMoney(row.ucVolume)}</TableCell>}
+                          {showCol("production") && (
+                            <TableCell className={`text-[11px] text-right ${row.termRate > 20 ? "text-red-600 font-medium" : ""}`}>
+                              {row.termRate ?? 0}%
+                            </TableCell>
+                          )}
+                          {/* Pipeline */}
+                          {showCol("pipeline") && <TableCell className="text-[11px] text-right">{row.totalLeads}</TableCell>}
+                          {showCol("pipeline") && <TableCell className="text-[11px] text-right">{row.activeLeads}</TableCell>}
+                          {showCol("pipeline") && (
+                            <TableCell className={`text-[11px] text-right ${row.staleLeads > 10 ? "text-amber-600 font-medium" : ""}`}>
+                              {row.staleLeads}
+                            </TableCell>
+                          )}
+                          {showCol("pipeline") && (
+                            <TableCell className={`text-[11px] text-right ${row.avgLeadAge > 60 ? "text-red-600" : ""}`}>
+                              {row.avgLeadAge}d
+                            </TableCell>
+                          )}
+                          {showCol("pipeline") && (
+                            <TableCell className={`text-[11px] text-right ${row.overdueTasks > 5 ? "text-red-600 font-medium" : ""}`}>
+                              {row.overdueTasks}
+                            </TableCell>
+                          )}
+                          {/* Coaching */}
+                          {showCol("coaching") && (
+                            <TableCell className="text-[11px] text-center">
+                              {row.goalsSet ? <span className="text-emerald-600">Yes</span> : <span className="text-red-600">No</span>}
+                            </TableCell>
+                          )}
+                          {showCol("coaching") && (
+                            <TableCell className={`text-[11px] text-right ${row.goalAttainment !== null && row.goalAttainment < 50 ? "text-red-600" : row.goalAttainment !== null && row.goalAttainment >= 80 ? "text-emerald-600" : ""}`}>
+                              {row.goalAttainment !== null ? `${row.goalAttainment}%` : "—"}
+                            </TableCell>
+                          )}
+                          {showCol("coaching") && (
+                            <TableCell className={`text-[11px] text-right ${row.commitRate !== null && row.commitRate < 50 ? "text-red-600" : ""}`}>
+                              {row.commitRate !== null ? `${row.commitRate}%` : "—"}
+                            </TableCell>
+                          )}
+                          {showCol("coaching") && <TableCell className="text-[11px] text-right">{row.sessions30d}</TableCell>}
+                          {showCol("coaching") && <TableCell className="text-[11px] text-center">{row.assessmentsUploaded}</TableCell>}
+                          {showCol("coaching") && (
+                            <TableCell className="text-center">
+                              {row.resetActive ? <Badge variant="destructive" className="text-[8px] px-1 py-0">Yes</Badge> : <span className="text-[10px] text-muted-foreground">—</span>}
+                            </TableCell>
+                          )}
+                          {showCol("coaching") && (
+                            <TableCell className="text-center">
+                              {row.escalationActive ? <Badge variant="destructive" className="text-[8px] px-1 py-0">Yes</Badge> : <span className="text-[10px] text-muted-foreground">—</span>}
+                            </TableCell>
+                          )}
+                          {showCol("coaching") && (
+                            <TableCell className={`text-[11px] text-right ${row.daysSinceLastSession !== null && row.daysSinceLastSession > 14 ? "text-amber-600 font-medium" : ""}`}>
+                              {row.daysSinceLastSession !== null ? `${row.daysSinceLastSession}d` : "—"}
+                            </TableCell>
+                          )}
+                          <TableCell>
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </TooltipProvider>
           </CardContent>
         </Card>
       )}

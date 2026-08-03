@@ -197,4 +197,37 @@ export function registerUploadRoutes(app: express.Application) {
       return res.status(500).json({ error: err.message ?? "Upload failed" });
     }
   });
+
+  // POST /api/upload/coaching-assessment — assessment file upload (PDF, DOC, DOCX, TXT, images)
+  const assessmentUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 16 * 1024 * 1024 },
+    fileFilter: (_req: any, file: any, cb: any) => {
+      const allowed = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+      ];
+      if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only PDF, DOC, DOCX, TXT, and image files are allowed"));
+      }
+    },
+  });
+  app.post("/api/upload/coaching-assessment", assessmentUpload.single("file"), async (req: any, res: any) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+      const fileKey = `coaching-assessments/${nanoid(12)}-${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      return res.json({ fileUrl: url, fileKey, fileName: req.file.originalname, mimeType: req.file.mimetype });
+    } catch (err: any) {
+      console.error("[CoachingAssessmentUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
 }
