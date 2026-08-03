@@ -227,8 +227,8 @@ function CoachingSessionsInline() {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => navigate(`/coaching/session/${row.session.id}`)}
                   >
-                    <TableCell className="font-medium text-sm">{row.agentName ?? "—"}</TableCell>
-                    <TableCell className="text-sm">{row.coachName ?? "—"}</TableCell>
+                    <TableCell className="font-medium text-sm">{row.agent?.name ?? "—"}</TableCell>
+                    <TableCell className="text-sm">{row.coach?.name ?? "—"}</TableCell>
                     <TableCell className="text-sm">{safeFormat(row.session.sessionDate, "MMM d, yyyy")}</TableCell>
                     <TableCell className="text-sm">{row.session.sessionType ?? "—"}</TableCell>
                     <TableCell>

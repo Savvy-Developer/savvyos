@@ -2024,6 +2024,7 @@ export const coachingCommitments = mysqlTable("coaching_commitments", {
   description: text("description").notNull(),
   ownerId: int("ownerId").references(() => users.id),
   createdById: int("createdById").references(() => users.id),
+  coachAssignedId: int("coachAssignedId").references(() => users.id),
   dueDate: timestamp("dueDate"),
   expectedResult: text("expectedResult"),
   relatedGoalId: int("relatedGoalId").references(() => agentGoals.id),

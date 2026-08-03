@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,21 +37,39 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function CoachingCommitmentsView() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState("active");
+  const [coachFilter, setCoachFilter] = useState<string>(String(user?.id ?? "all"));
+  const [agentFilter, setAgentFilter] = useState<string>("all");
+
+  const { data: coaches } = trpc.coaching.listCoaches.useQuery();
+  const { data: commitCounts } = trpc.coaching.commitmentCountsByCoach.useQuery();
+  const { data: allAgents } = trpc.coaching.listAllAgents.useQuery();
 
   const queryParams = useMemo(() => {
     const params: any = { limit: 200 };
+    if (coachFilter !== "all") params.coachAssignedId = Number(coachFilter);
+    if (agentFilter !== "all") params.agentId = Number(agentFilter);
     if (statusFilter === "active") { params.includeCompleted = false; }
     else if (statusFilter === "all") { params.includeCompleted = true; }
     else if (statusFilter === "overdue") { params.overdueOnly = true; }
     else if (statusFilter === "ai") { params.aiSuggestedOnly = true; }
     else { params.status = statusFilter; params.includeCompleted = true; }
     return params;
-  }, [statusFilter]);
+  }, [statusFilter, coachFilter, agentFilter]);
 
   const { data, isLoading } = trpc.coaching.listCommitments.useQuery(queryParams);
   const rows = (data as any)?.rows ?? (Array.isArray(data) ? data : []);
   const total = (data as any)?.total ?? rows.length;
+
+  // Build coach count map
+  const coachCountMap = useMemo(() => {
+    const map = new Map<number, number>();
+    if (commitCounts && Array.isArray(commitCounts)) {
+      commitCounts.forEach((c: any) => { if (c.coachId) map.set(c.coachId, Number(c.openCount)); });
+    }
+    return map;
+  }, [commitCounts]);
 
   const overdueCount = rows.filter((r: any) => {
     const c = r.commitment ?? r;
@@ -62,10 +81,10 @@ export default function CoachingCommitmentsView() {
   const completionRate = (completedCount + missedCount) > 0 ? Math.round((completedCount / (completedCount + missedCount)) * 100) : 0;
 
   function exportCSV() {
-    const headers = ["Agent", "Commitment", "Owner", "Due Date", "Status", "Source", "Created"];
+    const headers = ["Agent", "Coach", "Commitment", "Owner", "Due Date", "Status", "Source", "Created"];
     const csvRows = rows.map((r: any) => {
       const c = r.commitment ?? r;
-      return [r.agentName ?? "", (c.description ?? "").replace(/,/g, ";"), c.ownerId === c.agentId ? "Agent" : "Coach", c.dueDate ? safeFormat(c.dueDate, "yyyy-MM-dd") : "", c.status, c.isAiExtracted ? "AI" : "Manual", c.createdAt ? safeFormat(c.createdAt, "yyyy-MM-dd") : ""];
+      return [r.agentName ?? "", r.coachName ?? "", (c.description ?? "").replace(/,/g, ";"), c.ownerId === c.agentId ? "Agent" : "Coach", c.dueDate ? safeFormat(c.dueDate, "yyyy-MM-dd") : "", c.status, c.isAiExtracted ? "AI" : "Manual", c.createdAt ? safeFormat(c.createdAt, "yyyy-MM-dd") : ""];
     });
     const csv = [headers, ...csvRows].map(row => row.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -98,24 +117,51 @@ export default function CoachingCommitmentsView() {
       </div>
 
       {/* Filters & Export */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">Active (Open)</SelectItem>
-              <SelectItem value="overdue">Overdue Only</SelectItem>
-              <SelectItem value="ai">AI Suggested</SelectItem>
-              <SelectItem value="In Progress">In Progress</SelectItem>
-              <SelectItem value="Submitted for Verification">Awaiting Verification</SelectItem>
-              <SelectItem value="Completed">Completed</SelectItem>
-              <SelectItem value="Missed">Missed</SelectItem>
-              <SelectItem value="all">All</SelectItem>
-            </SelectContent>
-          </Select>
+      <div className="flex flex-wrap items-center gap-3">
+        <Filter className="h-4 w-4 text-muted-foreground" />
+
+        {/* Coach Filter */}
+        <Select value={coachFilter} onValueChange={setCoachFilter}>
+          <SelectTrigger className="w-52 h-8 text-xs"><SelectValue placeholder="Coach" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Coaches</SelectItem>
+            {(coaches ?? []).map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)}>
+                {c.name}{coachCountMap.has(c.id) ? ` (${coachCountMap.get(c.id)} open)` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Agent Filter */}
+        <Select value={agentFilter} onValueChange={setAgentFilter}>
+          <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="Agent" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Agents</SelectItem>
+            {(allAgents ?? []).filter((a: any) => a.isActive).map((a: any) => (
+              <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Status Filter */}
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active (Open)</SelectItem>
+            <SelectItem value="overdue">Overdue Only</SelectItem>
+            <SelectItem value="ai">AI Suggested</SelectItem>
+            <SelectItem value="In Progress">In Progress</SelectItem>
+            <SelectItem value="Submitted for Verification">Awaiting Verification</SelectItem>
+            <SelectItem value="Completed">Completed</SelectItem>
+            <SelectItem value="Missed">Missed</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="ml-auto">
+          <Button size="sm" variant="outline" onClick={exportCSV}><Download className="h-3.5 w-3.5 mr-1" />Export CSV</Button>
         </div>
-        <Button size="sm" variant="outline" onClick={exportCSV}><Download className="h-3.5 w-3.5 mr-1" />Export CSV</Button>
       </div>
 
       {/* Table */}
@@ -128,6 +174,7 @@ export default function CoachingCommitmentsView() {
               <Table>
                 <TableHeader><TableRow>
                   <TableHead className="text-[10px] min-w-[130px]">Agent</TableHead>
+                  <TableHead className="text-[10px] min-w-[110px]">Coach</TableHead>
                   <TableHead className="text-[10px] min-w-[240px]">Commitment</TableHead>
                   <TableHead className="text-[10px]">Owner</TableHead>
                   <TableHead className="text-[10px]">Due</TableHead>
@@ -142,6 +189,7 @@ export default function CoachingCommitmentsView() {
                   return (
                     <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/coaching/agent/${c.agentId}`)}>
                       <TableCell className="text-xs font-medium">{row.agentName ?? "—"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{row.coachName ?? "—"}</TableCell>
                       <TableCell className="text-xs max-w-[300px]"><span className="line-clamp-2">{c.description ?? "—"}</span></TableCell>
                       <TableCell className="text-xs">{c.ownerId === c.agentId ? "Agent" : "Coach"}</TableCell>
                       <TableCell className={`text-xs ${isOverdue ? "text-red-600 font-semibold" : ""}`}>{c.dueDate ? safeFormat(c.dueDate, "MMM d") : "—"}{isOverdue && " ⚠"}</TableCell>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -6,7 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, Settings, Save, CheckCircle2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Settings, Save, Users, Search, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 
 interface SettingGroup {
@@ -60,41 +69,36 @@ const SETTING_GROUPS: SettingGroup[] = [
   },
   {
     title: "Performance Reset",
-    description: "Configure performance reset plan defaults",
+    description: "Configure performance reset (PIP) parameters",
     settings: [
-      { key: "reset_default_duration", label: "Default Duration (days)", type: "number", description: "Default length of a performance reset plan", defaultValue: "30" },
-      { key: "reset_checkpoint_frequency", label: "Checkpoint Frequency (days)", type: "number", description: "Days between scheduled checkpoints", defaultValue: "7" },
-      { key: "reset_coaching_cadence", label: "Reset Coaching Cadence (days)", type: "number", description: "Maximum days between sessions during a reset", defaultValue: "7" },
-      { key: "reset_day14_checkpoint", label: "Day-14 Checkpoint Required", type: "toggle", description: "Require a formal checkpoint at day 14", defaultValue: "true" },
-      { key: "reset_day30_decision", label: "Day-30 Decision Required", type: "toggle", description: "Require a formal decision at day 30", defaultValue: "true" },
+      { key: "reset_duration_days", label: "Reset Duration (days)", type: "number", description: "Standard duration of a performance reset", defaultValue: "30" },
+      { key: "reset_auto_trigger", label: "Auto-Trigger After (days in Red)", type: "number", description: "Days in Red before auto-suggesting a reset", defaultValue: "30" },
     ],
   },
   {
-    title: "Pipeline & Benchmarks",
-    description: "Pipeline coverage ratios and lead aging thresholds",
+    title: "Pipeline & Lead Aging",
+    description: "Configure lead aging thresholds for pipeline health indicators",
     settings: [
-      { key: "pipeline_coverage_ratio", label: "Pipeline Coverage Ratio", type: "number", description: "Required pipeline-to-goal ratio (e.g. 3 = 3x coverage)", defaultValue: "3" },
-      { key: "lead_aging_warning_days", label: "Lead Aging Warning (days)", type: "number", description: "Days before a lead is flagged as aging", defaultValue: "14" },
-      { key: "task_overdue_warning_days", label: "Task Overdue Warning (days)", type: "number", description: "Days overdue before a task triggers a warning", defaultValue: "3" },
-      { key: "termination_rate_warning", label: "Termination Rate Warning (%)", type: "number", description: "Termination rate threshold for warning", defaultValue: "20" },
+      { key: "lead_stale_days", label: "Stale Lead Threshold (days)", type: "number", description: "Days without activity before a lead is considered stale", defaultValue: "21" },
+      { key: "pipeline_min_active", label: "Minimum Active Leads", type: "number", description: "Minimum active leads expected per agent", defaultValue: "5" },
     ],
   },
   {
-    title: "Commitment Settings",
-    description: "Configure commitment tracking behavior",
+    title: "Commitment Tracking",
+    description: "Configure commitment follow-up and accountability rules",
     settings: [
-      { key: "commitment_overdue_threshold", label: "Overdue Alert (days past due)", type: "number", description: "Days past due before a commitment triggers an alert", defaultValue: "1" },
-      { key: "max_commitments_per_session", label: "Max Commitments Per Session", type: "number", description: "Recommended maximum commitments from a single session", defaultValue: "3" },
-      { key: "commitment_vague_detection", label: "Vague Commitment Detection", type: "toggle", description: "AI warns when commitments are vague (e.g. 'work harder')", defaultValue: "true" },
+      { key: "commitment_default_due_days", label: "Default Due (days)", type: "number", description: "Default days until commitment is due if not specified", defaultValue: "7" },
+      { key: "commitment_overdue_escalation_days", label: "Escalation After (days overdue)", type: "number", description: "Days overdue before commitment escalates", defaultValue: "3" },
+      { key: "commitment_repeat_threshold", label: "Repeat Threshold", type: "number", description: "Times a commitment can be missed before flagging pattern", defaultValue: "3" },
     ],
   },
   {
-    title: "Retention & Coaching",
-    description: "Productive-agent retention and coach workload",
+    title: "Retention Risk",
+    description: "Configure retention risk scoring parameters",
     settings: [
-      { key: "retention_stay_conversation_cadence", label: "Stay Conversation Cadence (days)", type: "number", description: "Maximum days between stay conversations for productive agents", defaultValue: "90" },
-      { key: "coach_max_portfolio_size", label: "Coach Max Portfolio Size", type: "number", description: "Recommended maximum agents per coach", defaultValue: "25" },
-      { key: "coach_max_weekly_sessions", label: "Coach Max Weekly Sessions", type: "number", description: "Recommended maximum sessions per coach per week", defaultValue: "20" },
+      { key: "retention_engagement_weight", label: "Engagement Weight (%)", type: "number", description: "Weight of engagement metrics in risk score", defaultValue: "30" },
+      { key: "retention_production_weight", label: "Production Weight (%)", type: "number", description: "Weight of production metrics in risk score", defaultValue: "40" },
+      { key: "retention_commitment_weight", label: "Commitment Weight (%)", type: "number", description: "Weight of commitment completion in risk score", defaultValue: "30" },
     ],
   },
   {
@@ -145,11 +149,15 @@ export default function CoachingSettingsView() {
   if (isLoading) return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold flex items-center gap-2"><Settings className="h-5 w-5" />Coaching Hub Settings</h2>
       </div>
 
+      {/* Agent Enrollment Panel */}
+      <AgentEnrollmentPanel />
+
+      {/* Settings Groups */}
       <div className="grid gap-4 lg:grid-cols-2">
         {SETTING_GROUPS.map((group) => {
           const hasTextarea = group.settings.some(s => s.type === "textarea");
@@ -223,5 +231,126 @@ export default function CoachingSettingsView() {
         })}
       </div>
     </div>
+  );
+}
+
+/** Agent Enrollment Panel - toggle agents in/out of coaching */
+function AgentEnrollmentPanel() {
+  const { data: agents, isLoading, refetch } = trpc.coaching.listAllAgents.useQuery();
+  const { data: coaches } = trpc.coaching.listCoaches.useQuery();
+  const toggleEnrollment = trpc.coaching.toggleCoachingEnrollment.useMutation({
+    onSuccess: () => { refetch(); toast.success("Enrollment updated"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "enrolled" | "not-enrolled">("all");
+
+  const filteredAgents = useMemo(() => {
+    if (!agents) return [];
+    let list = [...agents] as any[];
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase();
+      list = list.filter((a: any) => a.name?.toLowerCase().includes(lower) || a.email?.toLowerCase().includes(lower));
+    }
+    if (filterStatus === "enrolled") list = list.filter((a: any) => a.hasCoachingProfile);
+    if (filterStatus === "not-enrolled") list = list.filter((a: any) => !a.hasCoachingProfile);
+    return list;
+  }, [agents, searchTerm, filterStatus]);
+
+  const enrolledCount = (agents ?? []).filter((a: any) => a.hasCoachingProfile).length;
+  const totalCount = (agents ?? []).length;
+
+  if (isLoading) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2"><Users className="h-4 w-4" />Agent Coaching Enrollment</CardTitle>
+            <CardDescription className="text-xs mt-1">
+              Select which agents are included in the coaching program. Agents without a coaching profile will not appear in the portfolio or session scheduling.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-xs">
+              <UserCheck className="h-3 w-3 mr-1" />{enrolledCount} enrolled
+            </Badge>
+            <Badge variant="outline" className="text-xs">
+              <UserX className="h-3 w-3 mr-1" />{totalCount - enrolledCount} not enrolled
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Filters */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search agents..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8 h-8 text-xs"
+            />
+          </div>
+          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
+            <SelectTrigger className="w-[150px] h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Agents ({totalCount})</SelectItem>
+              <SelectItem value="enrolled">Enrolled ({enrolledCount})</SelectItem>
+              <SelectItem value="not-enrolled">Not Enrolled ({totalCount - enrolledCount})</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Agent List */}
+        <div className="border rounded-md max-h-[400px] overflow-y-auto">
+          {filteredAgents.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-xs">No agents match the filter</div>
+          ) : (
+            <div className="divide-y">
+              {filteredAgents.map((agent: any) => {
+                const coachName = coaches?.find((c: any) => c.id === agent.coachOfRecordId)?.name;
+                return (
+                  <div
+                    key={agent.id}
+                    className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={!!agent.hasCoachingProfile}
+                        onCheckedChange={(checked) => {
+                          toggleEnrollment.mutate({ agentId: agent.id, enrolled: !!checked });
+                        }}
+                        disabled={toggleEnrollment.isPending}
+                      />
+                      <div>
+                        <p className="text-xs font-medium">{agent.name ?? "Unknown"}</p>
+                        <p className="text-[10px] text-muted-foreground">{agent.email ?? ""}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {coachName && (
+                        <span className="text-[10px] text-muted-foreground">Coach: {coachName}</span>
+                      )}
+                      {agent.hasCoachingProfile ? (
+                        <Badge variant="secondary" className="text-[9px] px-1.5">Enrolled</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[9px] px-1.5 text-muted-foreground">Not Enrolled</Badge>
+                      )}
+                      {!agent.isActive && (
+                        <Badge variant="destructive" className="text-[9px] px-1.5">Inactive</Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

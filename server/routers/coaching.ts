@@ -571,7 +571,7 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
       if (input?.search) conditions.push(sql`users.name LIKE ${`%${input.search}%`}`);
 
       // Get all agent IDs matching filters
-      const agentRows = await db.select({ id: users.id, name: users.name, email: users.email })
+      const agentRows = await db.select({ id: users.id, name: users.name, email: users.email, marketProfileId: users.marketProfileId })
         .from(users)
         .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
         .leftJoin(coachAlias, eq(coachingProfiles.coachOfRecordId, coachAlias.id))
@@ -633,6 +633,8 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
       const goalRows = await db.select({
         agentId: agentGoals.agentId,
         targetUnits: agentGoals.closingsTarget,
+        gciTarget: agentGoals.gciTarget,
+        volumeTarget: agentGoals.volumeTarget,
       })
         .from(agentGoals)
         .where(and(inArray(agentGoals.agentId, agentIds), eq(agentGoals.year, now.getFullYear()), eq(agentGoals.month, 0)));
@@ -686,7 +688,7 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
           inArray(capacityEscalations.status, ["Submitted", "Assigned", "In Progress", "Waiting for Information"]),
         ));
 
-      // Batch: market assignments per agent (primary market name)
+      // Batch: market assignments per agent (primary market name) - from market_agent_assignments
       const marketRows = await db.select({
         agentId: marketAgentAssignments.agentId,
         marketName: marketProfiles.name,
@@ -695,6 +697,14 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         .from(marketAgentAssignments)
         .innerJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
         .where(inArray(marketAgentAssignments.agentId, agentIds));
+
+      // Also get market from users.marketProfileId (the primary source of truth)
+      const userMarketIds = agentRows.filter((a: any) => a.marketProfileId).map((a: any) => a.marketProfileId);
+      const userMarketRows = userMarketIds.length > 0 ? await db.select({
+        id: marketProfiles.id,
+        name: marketProfiles.name,
+      }).from(marketProfiles).where(inArray(marketProfiles.id, userMarketIds)) : [];
+      const marketIdToName = new Map(userMarketRows.map((r: any) => [r.id, r.name]));
 
       // Batch: group membership per agent
       const groupRows = await db.select({
@@ -717,6 +727,13 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
       const resetSet = new Set(resetRows.map((r: any) => r.agentId));
       const escalationSet = new Set(escalationRows.map((r: any) => r.agentId));
       const marketMap = new Map<number, string>();
+      // First populate from users.marketProfileId (primary source of truth)
+      for (const agent of agentRows as any[]) {
+        if (agent.marketProfileId && marketIdToName.has(agent.marketProfileId)) {
+          marketMap.set(agent.id, marketIdToName.get(agent.marketProfileId)!);
+        }
+      }
+      // Then override with market_agent_assignments if available (more specific)
       for (const r of marketRows as any[]) {
         if (r.isPrimary || !marketMap.has(r.agentId)) marketMap.set(r.agentId, r.marketName);
       }
@@ -739,8 +756,14 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         const assess = assessMap.get(agent.id);
 
         const ytdUnits = Number(prod?.ytdUnits ?? 0);
+        const ytdGCI = Number(prod?.ytdGCI ?? 0);
+        const ytdVolume = Number(prod?.ytdVolume ?? 0);
         const goalTarget = Number(goal?.targetUnits ?? 0);
+        const gciTarget = Number(goal?.gciTarget ?? 0);
+        const volumeTarget = Number(goal?.volumeTarget ?? 0);
         const goalAttainment = goalTarget > 0 ? Math.round((ytdUnits / goalTarget) * 100) : null;
+        const gciAttainment = gciTarget > 0 ? Math.round((ytdGCI / gciTarget) * 100) : null;
+        const volumeAttainment = volumeTarget > 0 ? Math.round((ytdVolume / volumeTarget) * 100) : null;
         const commitTotal = Number(commit?.total ?? 0);
         const commitCompleted = Number(commit?.completed ?? 0);
         const commitRate = commitTotal > 0 ? Math.round((commitCompleted / commitTotal) * 100) : null;
@@ -754,8 +777,8 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
           market: marketMap.get(agent.id) ?? null,
           group: groupMap.get(agent.id) ?? null,
           ytdUnits,
-          ytdVolume: Number(prod?.ytdVolume ?? 0),
-          ytdGCI: Number(prod?.ytdGCI ?? 0),
+          ytdVolume,
+          ytdGCI,
           t90Units: Number(prod?.t90Units ?? 0),
           t90GCI: Number(prod?.t90GCI ?? 0),
           ucUnits: Number(prod?.ucUnits ?? 0),
@@ -766,8 +789,13 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
           staleLeads: Number(leads?.staleLeads ?? 0),
           avgLeadAge: Number(leads?.avgLeadAge ?? 0),
           overdueTasks: Number(tsk?.overdueTasks ?? 0),
-          goalsSet: goalTarget > 0,
+          goalsSet: goalTarget > 0 || gciTarget > 0 || volumeTarget > 0,
+          goalTarget,
+          gciTarget,
+          volumeTarget,
           goalAttainment,
+          gciAttainment,
+          volumeAttainment,
           commitRate,
           sessions30d: Number(sess?.sessions30d ?? 0),
           assessmentsUploaded: Number(assess?.count ?? 0),
@@ -1588,6 +1616,7 @@ Open Commitments:\n${openCommitments || "None"}`,
   listCommitments: protectedProcedure
     .input(z.object({
       agentId: z.number().optional(),
+      coachAssignedId: z.number().optional(),
       sessionId: z.number().optional(),
       status: z.string().optional(),
       includeCompleted: z.boolean().default(false),
@@ -1602,9 +1631,11 @@ Open Commitments:\n${openCommitments || "None"}`,
       if (!db) return { rows: [], total: 0 };
 
       const agentAlias = aliasedTable(users, "commitAgent");
+      const coachAlias = aliasedTable(users, "commitCoach");
 
       const conditions: any[] = [];
       if (input?.agentId) conditions.push(eq(coachingCommitments.agentId, input.agentId));
+      if (input?.coachAssignedId) conditions.push(eq(coachingCommitments.coachAssignedId, input.coachAssignedId));
       if (input?.sessionId) conditions.push(eq(coachingCommitments.sessionId, input.sessionId));
       if (input?.status) conditions.push(eq(coachingCommitments.status, input.status as any));
       if (!input?.includeCompleted) {
@@ -1626,9 +1657,11 @@ Open Commitments:\n${openCommitments || "None"}`,
         db.select({
           commitment: coachingCommitments,
           agentName: agentAlias.name,
+          coachName: coachAlias.name,
         })
           .from(coachingCommitments)
           .leftJoin(agentAlias, eq(coachingCommitments.agentId, agentAlias.id))
+          .leftJoin(coachAlias, eq(coachingCommitments.coachAssignedId, coachAlias.id))
           .where(whereClause)
           .orderBy(coachingCommitments.dueDate, coachingCommitments.createdAt)
           .limit(input?.limit ?? 50)
@@ -1641,13 +1674,14 @@ Open Commitments:\n${openCommitments || "None"}`,
       return { rows, total: Number(countRows[0]?.count ?? 0) };
     }),
 
-  /** Create a commitment */
+    /** Create a commitment */
   createCommitment: protectedProcedure
     .input(z.object({
       agentId: z.number(),
       sessionId: z.number().nullable().optional(),
       description: z.string().min(1),
       ownerId: z.number().optional(),
+      coachAssignedId: z.number().nullable().optional(),
       dueDate: z.string().optional(),
       expectedResult: z.string().optional(),
       relatedGoalId: z.number().nullable().optional(),
@@ -1661,15 +1695,14 @@ Open Commitments:\n${openCommitments || "None"}`,
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
       const [result] = await db.insert(coachingCommitments).values({
         ...input,
         createdById: ctx.user.id,
         ownerId: input.ownerId ?? input.agentId,
+        coachAssignedId: input.coachAssignedId ?? ctx.user.id,
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
         status: input.isAiExtracted ? "AI Suggested" : "Not Started",
       });
-
       return { success: true, commitmentId: (result as any).insertId };
     }),
 
@@ -2563,4 +2596,70 @@ Output JSON with this exact structure:
       .where(and(eq(users.role, "admin"), sql`users.isActive = 1`))
       .orderBy(users.name);
   }),
+
+  /** Get open commitment counts per coach for filter badges */
+  commitmentCountsByCoach: protectedProcedure.query(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const db = await getDb();
+    if (!db) return [];
+    const rows = await db.select({
+      coachId: coachingCommitments.coachAssignedId,
+      openCount: sql<number>`COUNT(CASE WHEN ${coachingCommitments.status} NOT IN ('Completed', 'Waived', 'No Longer Relevant') THEN 1 END)`,
+    })
+      .from(coachingCommitments)
+      .where(sql`${coachingCommitments.coachAssignedId} IS NOT NULL`)
+      .groupBy(coachingCommitments.coachAssignedId);
+    return rows;
+  }),
+
+  /** List all agents for enrollment settings */
+  listAllAgents: protectedProcedure.query(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const db = await getDb();
+    if (!db) return [];
+    const rows = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      isActive: users.isActive,
+      hasCoachingProfile: sql<number>`CASE WHEN ${coachingProfiles.id} IS NOT NULL THEN 1 ELSE 0 END`,
+      coachOfRecordId: coachingProfiles.coachOfRecordId,
+    })
+      .from(users)
+      .leftJoin(coachingProfiles, eq(coachingProfiles.agentId, users.id))
+      .where(eq(users.role, "agent"))
+      .orderBy(users.name);
+    return rows;
+  }),
+
+  /** Toggle coaching enrollment for an agent (create or delete coaching profile) */
+  toggleCoachingEnrollment: protectedProcedure
+    .input(z.object({
+      agentId: z.number(),
+      enrolled: z.boolean(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      if (input.enrolled) {
+        // Create coaching profile if not exists
+        const existing = await db.select({ id: coachingProfiles.id })
+          .from(coachingProfiles)
+          .where(eq(coachingProfiles.agentId, input.agentId))
+          .limit(1);
+        if (existing.length === 0) {
+          await db.insert(coachingProfiles).values({
+            agentId: input.agentId,
+            performanceStatus: "Launch",
+            coachingSetupRequired: true,
+          });
+        }
+      } else {
+        // Remove coaching profile
+        await db.delete(coachingProfiles)
+          .where(eq(coachingProfiles.agentId, input.agentId));
+      }
+      return { success: true };
+    }),
 });

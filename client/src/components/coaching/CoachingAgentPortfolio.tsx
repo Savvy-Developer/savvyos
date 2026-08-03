@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,8 @@ import {
   Filter,
   AlertTriangle,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 
@@ -82,6 +84,9 @@ const COLUMN_GROUPS: { id: ColumnGroup; label: string }[] = [
   { id: "coaching", label: "Coaching Activity" },
 ];
 
+type SortKey = string;
+type SortDir = "asc" | "desc";
+
 export default function CoachingAgentPortfolio() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
@@ -92,6 +97,8 @@ export default function CoachingAgentPortfolio() {
   const [savedView, setSavedView] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   const [columnGroup, setColumnGroup] = useState<ColumnGroup>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const { data, isLoading } = trpc.coaching.listPortfolio.useQuery({
     performanceStatus: statusFilter !== "all" ? statusFilter : undefined,
@@ -104,7 +111,62 @@ export default function CoachingAgentPortfolio() {
 
   const { data: coaches } = trpc.coaching.listCoaches.useQuery();
 
-  const rows = data?.rows ?? [];
+  const rawRows = data?.rows ?? [];
+
+  // Client-side sorting
+  const rows = useMemo(() => {
+    const sorted = [...rawRows];
+    sorted.sort((a: any, b: any) => {
+      let aVal: any, bVal: any;
+      switch (sortKey) {
+        case "name": aVal = a.agent?.name ?? ""; bVal = b.agent?.name ?? ""; break;
+        case "status": aVal = a.profile?.performanceStatus ?? ""; bVal = b.profile?.performanceStatus ?? ""; break;
+        case "coach": aVal = a.coach?.name ?? ""; bVal = b.coach?.name ?? ""; break;
+        case "diagnosis": aVal = a.profile?.currentPrimaryDiagnosis ?? ""; bVal = b.profile?.currentPrimaryDiagnosis ?? ""; break;
+        case "risk": aVal = a.profile?.retentionRiskStatus ?? ""; bVal = b.profile?.retentionRiskStatus ?? ""; break;
+        case "market": aVal = a.market ?? ""; bVal = b.market ?? ""; break;
+        case "group": aVal = a.group ?? ""; bVal = b.group ?? ""; break;
+        case "ytdUnits": aVal = a.ytdUnits ?? 0; bVal = b.ytdUnits ?? 0; break;
+        case "ytdVolume": aVal = a.ytdVolume ?? 0; bVal = b.ytdVolume ?? 0; break;
+        case "ytdGCI": aVal = a.ytdGCI ?? 0; bVal = b.ytdGCI ?? 0; break;
+        case "t90Units": aVal = a.t90Units ?? 0; bVal = b.t90Units ?? 0; break;
+        case "t90GCI": aVal = a.t90GCI ?? 0; bVal = b.t90GCI ?? 0; break;
+        case "ucUnits": aVal = a.ucUnits ?? 0; bVal = b.ucUnits ?? 0; break;
+        case "ucVolume": aVal = a.ucVolume ?? 0; bVal = b.ucVolume ?? 0; break;
+        case "termRate": aVal = a.termRate ?? 0; bVal = b.termRate ?? 0; break;
+        case "totalLeads": aVal = a.totalLeads ?? 0; bVal = b.totalLeads ?? 0; break;
+        case "activeLeads": aVal = a.activeLeads ?? 0; bVal = b.activeLeads ?? 0; break;
+        case "staleLeads": aVal = a.staleLeads ?? 0; bVal = b.staleLeads ?? 0; break;
+        case "avgLeadAge": aVal = a.avgLeadAge ?? 0; bVal = b.avgLeadAge ?? 0; break;
+        case "overdueTasks": aVal = a.overdueTasks ?? 0; bVal = b.overdueTasks ?? 0; break;
+        case "goalAttainment": aVal = a.goalAttainment ?? -1; bVal = b.goalAttainment ?? -1; break;
+        case "commitRate": aVal = a.commitRate ?? -1; bVal = b.commitRate ?? -1; break;
+        case "sessions30d": aVal = a.sessions30d ?? 0; bVal = b.sessions30d ?? 0; break;
+        case "daysSinceLastSession": aVal = a.daysSinceLastSession ?? 999; bVal = b.daysSinceLastSession ?? 999; break;
+        default: aVal = a.agent?.name ?? ""; bVal = b.agent?.name ?? "";
+      }
+      if (typeof aVal === "string") {
+        const cmp = aVal.localeCompare(bVal);
+        return sortDir === "asc" ? cmp : -cmp;
+      }
+      return sortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [rawRows, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const SortIcon = ({ col }: { col: string }) => {
+    if (sortKey !== col) return <ArrowUpDown className="h-2.5 w-2.5 ml-0.5 opacity-30" />;
+    return sortDir === "asc" ? <ArrowUp className="h-2.5 w-2.5 ml-0.5 text-primary" /> : <ArrowDown className="h-2.5 w-2.5 ml-0.5 text-primary" />;
+  };
 
   const handleSavedView = (viewId: string) => {
     setSavedView(viewId);
@@ -269,42 +331,44 @@ export default function CoachingAgentPortfolio() {
                   <TableHeader>
                     <TableRow className="bg-muted/30">
                       {/* Always visible: Agent Name */}
-                      <TableHead className="text-[10px] sticky left-0 bg-muted/30 z-10 min-w-[150px] font-semibold">Agent</TableHead>
+                      <TableHead className="text-[10px] sticky left-0 bg-muted/30 z-10 min-w-[150px] font-semibold cursor-pointer select-none" onClick={() => handleSort("name")}>
+                        <span className="inline-flex items-center">Agent <SortIcon col="name" /></span>
+                      </TableHead>
                       {/* Core columns */}
-                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold">Status</TableHead>}
-                      {showCol("core") && <TableHead className="text-[10px] min-w-[100px] font-semibold">Coach</TableHead>}
-                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Diagnosis</TableHead>}
-                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold">Risk</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold cursor-pointer select-none" onClick={() => handleSort("status")}><span className="inline-flex items-center">Status <SortIcon col="status" /></span></TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[100px] font-semibold cursor-pointer select-none" onClick={() => handleSort("coach")}><span className="inline-flex items-center">Coach <SortIcon col="coach" /></span></TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold cursor-pointer select-none" onClick={() => handleSort("diagnosis")}><span className="inline-flex items-center">Diagnosis <SortIcon col="diagnosis" /></span></TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold cursor-pointer select-none" onClick={() => handleSort("risk")}><span className="inline-flex items-center">Risk <SortIcon col="risk" /></span></TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Next Session</TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Last Session</TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Priority</TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold">Launch</TableHead>}
-                      {showCol("core") && <TableHead className="text-[10px] min-w-[90px] font-semibold">Market</TableHead>}
-                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold">Group</TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[90px] font-semibold cursor-pointer select-none" onClick={() => handleSort("market")}><span className="inline-flex items-center">Market <SortIcon col="market" /></span></TableHead>}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold cursor-pointer select-none" onClick={() => handleSort("group")}><span className="inline-flex items-center">Group <SortIcon col="group" /></span></TableHead>}
                       {/* Production columns */}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">YTD Units</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[75px] font-semibold text-right">YTD Vol</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right">YTD GCI</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">T90 Units</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right">T90 GCI</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">UC</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right">UC Vol</TableHead>}
-                      {showCol("production") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Term%</TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("ytdUnits")}><span className="inline-flex items-center justify-end">YTD Units <SortIcon col="ytdUnits" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[75px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("ytdVolume")}><span className="inline-flex items-center justify-end">YTD Vol <SortIcon col="ytdVolume" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("ytdGCI")}><span className="inline-flex items-center justify-end">YTD GCI <SortIcon col="ytdGCI" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("t90Units")}><span className="inline-flex items-center justify-end">T90 Units <SortIcon col="t90Units" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("t90GCI")}><span className="inline-flex items-center justify-end">T90 GCI <SortIcon col="t90GCI" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("ucUnits")}><span className="inline-flex items-center justify-end">UC <SortIcon col="ucUnits" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[70px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("ucVolume")}><span className="inline-flex items-center justify-end">UC Vol <SortIcon col="ucVolume" /></span></TableHead>}
+                      {showCol("production") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("termRate")}><span className="inline-flex items-center justify-end">Term% <SortIcon col="termRate" /></span></TableHead>}
                       {/* Pipeline columns */}
-                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Leads</TableHead>}
-                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Active</TableHead>}
-                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-right">Stale</TableHead>}
-                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Avg Age</TableHead>}
-                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Overdue</TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("totalLeads")}><span className="inline-flex items-center justify-end">Leads <SortIcon col="totalLeads" /></span></TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("activeLeads")}><span className="inline-flex items-center justify-end">Active <SortIcon col="activeLeads" /></span></TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("staleLeads")}><span className="inline-flex items-center justify-end">Stale <SortIcon col="staleLeads" /></span></TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("avgLeadAge")}><span className="inline-flex items-center justify-end">Avg Age <SortIcon col="avgLeadAge" /></span></TableHead>}
+                      {showCol("pipeline") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("overdueTasks")}><span className="inline-flex items-center justify-end">Overdue <SortIcon col="overdueTasks" /></span></TableHead>}
                       {/* Coaching activity columns */}
                       {showCol("coaching") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-center">Goals</TableHead>}
-                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right">Goal%</TableHead>}
-                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Commit%</TableHead>}
-                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Sess(30d)</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("goalAttainment")}><span className="inline-flex items-center justify-end">Goal% <SortIcon col="goalAttainment" /></span></TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("commitRate")}><span className="inline-flex items-center justify-end">Commit% <SortIcon col="commitRate" /></span></TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("sessions30d")}><span className="inline-flex items-center justify-end">Sess(30d) <SortIcon col="sessions30d" /></span></TableHead>}
                       {showCol("coaching") && <TableHead className="text-[10px] min-w-[55px] font-semibold text-center">Assess</TableHead>}
                       {showCol("coaching") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-center">Reset</TableHead>}
                       {showCol("coaching") && <TableHead className="text-[10px] min-w-[50px] font-semibold text-center">Esc.</TableHead>}
-                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right">Days Since</TableHead>}
+                      {showCol("coaching") && <TableHead className="text-[10px] min-w-[60px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("daysSinceLastSession")}><span className="inline-flex items-center justify-end">Days Since <SortIcon col="daysSinceLastSession" /></span></TableHead>}
                       <TableHead className="w-6"></TableHead>
                     </TableRow>
                   </TableHeader>
