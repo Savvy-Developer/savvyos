@@ -67,7 +67,7 @@ type NavItem = { icon: React.ElementType; label: string; path: string; badge?: n
 type NavGroup = { label: string; items: NavItem[] };
 
 // ─── Static Nav Configs ──────────────────────────────────────────────────────
-function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean): NavGroup[] {
+function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myOverdueTasks: number = 0): NavGroup[] {
   const dealsItems: NavItem[] = [
     { icon: FileText, label: "Transactions", path: "/transactions" },
     { icon: Building2, label: "Listings", path: "/listings" },
@@ -80,7 +80,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean): Na
   }
 
   const operationsItems: NavItem[] = [
-    { icon: ClipboardList, label: "Tasks", path: "/tasks" },
+    { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
     { icon: Handshake, label: "Referral Partners", path: "/referral-partners" },
   ];
@@ -143,7 +143,7 @@ function buildAgentSupportNav(): NavGroup[] {
   ];
 }
 
-function buildIsaNav(pendingConnReqs: number): NavGroup[] {
+function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
@@ -162,7 +162,7 @@ function buildIsaNav(pendingConnReqs: number): NavGroup[] {
     {
       label: "Operations",
       items: [
-        { icon: ClipboardList, label: "Tasks", path: "/tasks" },
+        { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: PhoneCall, label: "Market Match Call", path: "/market-match-call" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
@@ -588,10 +588,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     role === "admin"
       ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount)
       : role === "isa"
-      ? buildIsaNav(pendingConnReqs)
+      ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
       : role === "agent_support"
       ? buildAgentSupportNav()
-      : buildAgentNav(hasActiveOnboarding, isGroupLeader);
+      : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
   // For admin users, filter nav by their permissions
   const navGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
