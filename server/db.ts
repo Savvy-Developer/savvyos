@@ -190,36 +190,38 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
   const conditions = [];
-  if (search) {
+  // Trim and collapse whitespace in search term to handle pasted text with extra spaces/newlines
+  const trimmedSearch = search?.replace(/\s+/g, " ").trim();
+  if (trimmedSearch) {
     conditions.push(
       or(
-        like(contacts.firstName, `%${search}%`),
-        like(contacts.lastName, `%${search}%`),
-        like(contacts.email, `%${search}%`),
-        like(contacts.phone, `%${search}%`),
-        sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${search}%`}`
+        like(contacts.firstName, `%${trimmedSearch}%`),
+        like(contacts.lastName, `%${trimmedSearch}%`),
+        like(contacts.email, `%${trimmedSearch}%`),
+        like(contacts.phone, `%${trimmedSearch}%`),
+        sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${trimmedSearch}%`}`
       )
     );
   }
   // Relevance ordering when a search term is provided:
   // 0=exact name match, 1=name starts-with, 2=name contains, 3=email contains, 4=other
   const orderExprs: any[] = [];
-  if (search) {
-    const s = search.toLowerCase();
+  if (trimmedSearch) {
+    const s = trimmedSearch.toLowerCase();
     const startsWith = `${s}%`;
     const contains = `%${s}%`;
     orderExprs.push(sql`CASE
-      WHEN LOWER(${contacts.firstName}) = ${s}
-        OR LOWER(${contacts.lastName}) = ${s}
-        OR LOWER(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})) = ${s}
+      WHEN LOWER(TRIM(${contacts.firstName})) = ${s}
+        OR LOWER(TRIM(${contacts.lastName})) = ${s}
+        OR LOWER(CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName}))) = ${s}
       THEN 0
-      WHEN LOWER(${contacts.firstName}) LIKE ${startsWith}
-        OR LOWER(${contacts.lastName}) LIKE ${startsWith}
-        OR LOWER(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})) LIKE ${startsWith}
+      WHEN LOWER(TRIM(${contacts.firstName})) LIKE ${startsWith}
+        OR LOWER(TRIM(${contacts.lastName})) LIKE ${startsWith}
+        OR LOWER(CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName}))) LIKE ${startsWith}
       THEN 1
-      WHEN LOWER(${contacts.firstName}) LIKE ${contains}
-        OR LOWER(${contacts.lastName}) LIKE ${contains}
-        OR LOWER(CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})) LIKE ${contains}
+      WHEN LOWER(TRIM(${contacts.firstName})) LIKE ${contains}
+        OR LOWER(TRIM(${contacts.lastName})) LIKE ${contains}
+        OR LOWER(CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName}))) LIKE ${contains}
       THEN 2
       WHEN LOWER(${contacts.email}) LIKE ${contains}
       THEN 3
@@ -446,13 +448,14 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
     baseConditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
   }
   if (filters.search) {
-    const s = `%${filters.search}%`;
+    const searchTrimmed = filters.search.replace(/\s+/g, " ").trim();
+    const s = `%${searchTrimmed}%`;
     baseConditions.push(or(
       like(contacts.firstName, s),
       like(contacts.lastName, s),
       like(contacts.email, s),
       like(contacts.phone, s),
-      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${s}`,
+      sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${s}`,
     ));
   }
   if (filters.followUpDateFrom) baseConditions.push(gte(agentConnections.followUpDate, filters.followUpDateFrom));
@@ -736,7 +739,10 @@ export async function getTransactions(agentId?: number, status?: string, search?
   const conditions = [];
   if (agentId) conditions.push(eq(transactions.agentId, agentId));
   if (status) conditions.push(eq(transactions.status, status as any));
-  if (search) conditions.push(or(like(transactions.transactionNumber, `%${search}%`), like(contacts.firstName, `%${search}%`), like(contacts.lastName, `%${search}%`), sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${search}%`}`, like(properties.address, `%${search}%`), like(properties.city, `%${search}%`)));
+  if (search) {
+    const txSearch = search.replace(/\s+/g, " ").trim();
+    conditions.push(or(like(transactions.transactionNumber, `%${txSearch}%`), like(contacts.firstName, `%${txSearch}%`), like(contacts.lastName, `%${txSearch}%`), sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${txSearch}%`}`, like(properties.address, `%${txSearch}%`), like(properties.city, `%${txSearch}%`)));
+  }
   if (contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${contractDateFrom}`);
   if (contractDateTo) conditions.push(sql`${transactions.contractDate} <= ${contractDateTo}`);
   if (closingDateFrom) conditions.push(sql`${transactions.closingDate} >= ${closingDateFrom}`);
@@ -847,13 +853,14 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
   if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
   if (filters.search) {
+    const fSearch = filters.search.replace(/\s+/g, " ").trim();
     conditions.push(or(
-      like(transactions.transactionNumber, `%${filters.search}%`),
-      like(contacts.firstName, `%${filters.search}%`),
-      like(contacts.lastName, `%${filters.search}%`),
-      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${filters.search}%`}`,
-      like(properties.address, `%${filters.search}%`),
-      like(properties.city, `%${filters.search}%`),
+      like(transactions.transactionNumber, `%${fSearch}%`),
+      like(contacts.firstName, `%${fSearch}%`),
+      like(contacts.lastName, `%${fSearch}%`),
+      sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${fSearch}%`}`,
+      like(properties.address, `%${fSearch}%`),
+      like(properties.city, `%${fSearch}%`),
     ));
   }
   if (filters.contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${filters.contractDateFrom}`);
@@ -2977,13 +2984,14 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
   if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
   if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
   if (filters.search) {
+    const fSearch = filters.search.replace(/\s+/g, " ").trim();
     conditions.push(or(
-      like(transactions.transactionNumber, `%${filters.search}%`),
-      like(contacts.firstName, `%${filters.search}%`),
-      like(contacts.lastName, `%${filters.search}%`),
-      sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName}) LIKE ${`%${filters.search}%`}`,
-      like(properties.address, `%${filters.search}%`),
-      like(properties.city, `%${filters.search}%`),
+      like(transactions.transactionNumber, `%${fSearch}%`),
+      like(contacts.firstName, `%${fSearch}%`),
+      like(contacts.lastName, `%${fSearch}%`),
+      sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${fSearch}%`}`,
+      like(properties.address, `%${fSearch}%`),
+      like(properties.city, `%${fSearch}%`),
     ));
   }
   if (filters.contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${filters.contractDateFrom}`);

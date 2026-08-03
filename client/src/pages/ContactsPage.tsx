@@ -250,7 +250,11 @@ export default function ContactsPage() {
     setParams({ page: String(next) });
   }, [page, setParams]);
 
-  const handleSearchChange = (val: string) => setParams({ q: val, page: "1" });
+  const handleSearchChange = (val: string) => {
+    // Collapse newlines, tabs, and multiple spaces into a single space (handles pasted text)
+    const cleaned = val.replace(/[\r\n\t]+/g, " ").replace(/  +/g, " ");
+    setParams({ q: cleaned, page: "1" });
+  };
   const handleIsaFilterChange = (val: string) => setParams({ isa: val, page: "1" });
   const handleIsaStatusFilterChange = (val: string) => setParams({ isaStatus: val, page: "1" });
   const handleLeadSourceFilterChange = (val: string) => setParams({ leadSource: val, page: "1" });

@@ -14,7 +14,7 @@ import {
   deleteContact,
 } from "../db";
 import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable } from "../../drizzle/schema";
-import { eq, or, and, desc, like, isNull, aliasedTable, notInArray } from "drizzle-orm";
+import { eq, or, and, desc, like, isNull, aliasedTable, notInArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { invokeLLM } from "../_core/llm";
@@ -865,7 +865,8 @@ Please write the AI summary now.`;
         .where(and(eq(connectionRequestsTable.agentId, targetAgentId), eq(connectionRequestsTable.status, "pending")));
       const pendingIds = pending.map(r => r.contactId).filter(Boolean) as number[];
       const excludeIds = Array.from(new Set([...connectedIds, ...pendingIds]));
-      const term = `%${input.search}%`;
+      const searchTrimmed = input.search.replace(/\s+/g, " ").trim();
+      const term = `%${searchTrimmed}%`;
       const baseWhere = and(
         isNull(contactsTable.archivedAt),
         or(
@@ -873,6 +874,7 @@ Please write the AI summary now.`;
           like(contactsTable.lastName, term),
           like(contactsTable.email, term),
           like(contactsTable.phone, term),
+          sql`CONCAT(TRIM(${contactsTable.firstName}), ' ', TRIM(${contactsTable.lastName})) LIKE ${term}`,
         ),
       );
       const rows = await db
