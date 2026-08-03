@@ -114,6 +114,8 @@ export const agentConnectionsRouter = router({
       buyBox: buyBoxInput.optional(),
       // Optional ISA follow-up date — creates a task for the ISA
       isaFollowUpDate: z.string().optional().nullable(),
+      // Optional explicit ISA assignee for the follow-up task (defaults to logged-in ISA or contact's ISA)
+      isaTaskAssigneeId: z.number().optional().nullable(),
       // Introduce client to agent via email (CC the agent)
       introduceClient: z.boolean().optional().default(false),
       // Whether the ISA set an appointment when making this connection
@@ -144,23 +146,24 @@ export const agentConnectionsRouter = router({
         ...normalizeBuyBox(input.buyBox),
       } as any);
 
-      // ISA follow-up task — assign to the contact's ISA if one is assigned;
-      // if the caller is an admin (not an ISA), use the contact's assignedIsaId instead.
-      // Never create the task if no ISA is assigned.
+      // ISA follow-up task — use the explicitly selected ISA if provided,
+      // otherwise fall back to logged-in ISA or the contact's assigned ISA.
       if (input.isaFollowUpDate) {
-        let taskAssigneeId: number | null = null;
-        if (ctx.user.role === "isa") {
-          taskAssigneeId = ctx.user.id;
-        } else {
-          // Admin creating the connection — look up the contact's assigned ISA
-          const db2 = await getDb();
-          if (db2) {
-            const [contactRow] = await db2
-              .select({ assignedIsaId: contacts.assignedIsaId })
-              .from(contacts)
-              .where(eq(contacts.id, input.contactId))
-              .limit(1);
-            taskAssigneeId = contactRow?.assignedIsaId ?? null;
+        let taskAssigneeId: number | null = input.isaTaskAssigneeId ?? null;
+        if (taskAssigneeId == null) {
+          if (ctx.user.role === "isa") {
+            taskAssigneeId = ctx.user.id;
+          } else {
+            // Admin creating the connection — look up the contact's assigned ISA
+            const db2 = await getDb();
+            if (db2) {
+              const [contactRow] = await db2
+                .select({ assignedIsaId: contacts.assignedIsaId })
+                .from(contacts)
+                .where(eq(contacts.id, input.contactId))
+                .limit(1);
+              taskAssigneeId = contactRow?.assignedIsaId ?? null;
+            }
           }
         }
         if (taskAssigneeId != null) {

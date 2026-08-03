@@ -54,7 +54,7 @@ const emptyForm: ContactForm = {
 
 type AssignForm = {
   agentId: string; pipelineStatus: string; agentNotes: string;
-  isaFollowUpDate: string; introduceClient: boolean; appointmentSet: boolean;
+  isaFollowUpDate: string; isaTaskAssigneeId: string; introduceClient: boolean; appointmentSet: boolean;
 };
 
 const PIPELINE_STATUS_LABELS: Record<string, string> = {
@@ -267,7 +267,8 @@ export default function ContactsPage() {
   const [form, setForm] = useState<ContactForm>(emptyForm);
   const [assignForm, setAssignForm] = useState<AssignForm>({
     agentId: "", pipelineStatus: "new_lead", agentNotes: "",
-    isaFollowUpDate: "", introduceClient: false, appointmentSet: false,
+    isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "",
+    introduceClient: false, appointmentSet: false,
   });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkIsaOpen, setBulkIsaOpen] = useState(false);
@@ -349,7 +350,7 @@ export default function ContactsPage() {
     onSuccess: () => {
       toast.success("Agent connection created — contact is now in the agent's pipeline");
       setAssignOpen(false);
-      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", introduceClient: false, appointmentSet: false });
+      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, appointmentSet: false });
       utils.contacts.list.invalidate();
       utils.agentConnections.list.invalidate();
     },
@@ -409,6 +410,7 @@ export default function ContactsPage() {
       pipelineStatus: assignForm.pipelineStatus as any,
       agentNotes: assignForm.agentNotes || null,
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
+      isaTaskAssigneeId: assignForm.isaTaskAssigneeId ? Number(assignForm.isaTaskAssigneeId) : null,
       introduceClient: assignForm.introduceClient,
       appointmentSet: assignForm.appointmentSet,
     });
@@ -1111,15 +1113,21 @@ export default function ContactsPage() {
                 </SelectContent>
               </Select>
             </div>
-            {(() => {
-              const assignContact = contacts.find((c: any) => c.contact?.id === assignContactId);
-              return (assignContact as any)?.assignedIsaId || (assignContact as any)?.assignedIsa ? (
-                <div>
-                  <Label>ISA follow up date <span className="text-muted-foreground font-normal">(creates a task for the assigned ISA - optional)</span></Label>
-                  <Input type="date" className="mt-1" value={assignForm.isaFollowUpDate} onChange={e => setAssignForm(f => ({ ...f, isaFollowUpDate: e.target.value }))} />
-                </div>
-              ) : null;
-            })()}
+            <div>
+              <Label>Follow up date <span className="text-muted-foreground font-normal">(creates a task for the assigned ISA - optional)</span></Label>
+              <Input type="date" className="mt-1" value={assignForm.isaFollowUpDate} onChange={e => setAssignForm(f => ({ ...f, isaFollowUpDate: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Assigned ISA <span className="text-muted-foreground font-normal">(who should follow up on this connection)</span></Label>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={(isas as any[]).map((isa: any) => ({ value: String(isa.id), label: isa.name ?? `ISA #${isa.id}` }))}
+                value={assignForm.isaTaskAssigneeId || ""}
+                onValueChange={v => setAssignForm(f => ({ ...f, isaTaskAssigneeId: v }))}
+                placeholder="Select ISA…"
+                searchPlaceholder="Search ISAs…"
+              />
+            </div>
             <div>
               <Label>Notes for Agent <span className="text-muted-foreground font-normal">(optional)</span></Label>
               <Textarea
