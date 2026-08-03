@@ -278,7 +278,9 @@ function AgentProfileSection({ userId }: { userId: number }) {
 
   const [form, setForm] = useState({
     licenseNumber: "", licenseState: "", additionalLicenseStates: "",
-    licenseExpirationDate: "", brokerageAffiliation: "", bio: "",
+    licenseExpirationDate: "", brokerageAffiliation: "",
+    brokerFullName: "", brokerEmail: "", brokerOfficeNumber: "",
+    bio: "",
     instagramUrl: "", facebookUrl: "", linkedinUrl: "", youtubeUrl: "",
     tiktokUrl: "", personalWebsiteUrl: "", googleBusinessUrl: "",
     agentStatus: "active" as string, startDateWithSavvy: "", endDateWithSavvy: "",
@@ -296,6 +298,9 @@ function AgentProfileSection({ userId }: { userId: number }) {
         additionalLicenseStates: profile.additionalLicenseStates ?? "",
         licenseExpirationDate: toInputDate(profile.licenseExpirationDate),
         brokerageAffiliation: profile.brokerageAffiliation ?? "",
+        brokerFullName: profile.brokerFullName ?? "",
+        brokerEmail: profile.brokerEmail ?? "",
+        brokerOfficeNumber: profile.brokerOfficeNumber ?? "",
         bio: profile.bio ?? "",
         instagramUrl: profile.instagramUrl ?? "",
         facebookUrl: profile.facebookUrl ?? "",
@@ -359,6 +364,20 @@ function AgentProfileSection({ userId }: { userId: number }) {
                 <Input className="h-8 text-sm" value={form.brokerageAffiliation} onChange={f("brokerageAffiliation")} />
               </Field>
             </SectionGrid>
+            <div className="mt-4 border-t pt-4">
+              <p className="text-xs font-medium text-muted-foreground mb-3">Broker Information</p>
+              <SectionGrid>
+                <Field label="Broker Full Name">
+                  <Input className="h-8 text-sm" value={form.brokerFullName} onChange={f("brokerFullName")} placeholder="Jane Smith" />
+                </Field>
+                <Field label="Broker Email">
+                  <Input className="h-8 text-sm" type="email" value={form.brokerEmail} onChange={f("brokerEmail")} placeholder="broker@example.com" />
+                </Field>
+                <Field label="Broker Office Number">
+                  <Input className="h-8 text-sm" type="tel" value={form.brokerOfficeNumber} onChange={f("brokerOfficeNumber")} placeholder="(615) 555-0100" />
+                </Field>
+              </SectionGrid>
+            </div>
           </AccordionContent>
         </AccordionItem>
 

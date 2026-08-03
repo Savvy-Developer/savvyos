@@ -846,6 +846,9 @@ export const agentProfiles = mysqlTable("agent_profiles", {
   additionalLicenseStates: text("additionalLicenseStates"), // comma-separated
   licenseExpirationDate: timestamp("licenseExpirationDate"),
   brokerageAffiliation: varchar("brokerageAffiliation", { length: 255 }),
+  brokerFullName: varchar("brokerFullName", { length: 255 }),
+  brokerEmail: varchar("brokerEmail", { length: 255 }),
+  brokerOfficeNumber: varchar("brokerOfficeNumber", { length: 64 }),
   // Marketing / Public Presence
   bio: text("bio"),
   instagramUrl: varchar("instagramUrl", { length: 512 }),
