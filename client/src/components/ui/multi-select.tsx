@@ -123,8 +123,8 @@ export function MultiSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="p-0"
-        style={{ width: "var(--radix-popover-trigger-width)", minWidth: "220px" }}
+        className="p-0 max-h-[--radix-popover-content-available-height]"
+        style={{ width: "auto", minWidth: "var(--radix-popover-trigger-width)", maxWidth: "420px" }}
         align="start"
       >
         <Command>
@@ -151,10 +151,10 @@ export function MultiSelect({
                     >
                       <Check className="h-3 w-3" />
                     </div>
-                    <span className="flex flex-col min-w-0">
-                      <span className="truncate">{option.label}</span>
+                    <span className="flex flex-col min-w-0 flex-1">
+                      <span className="break-words whitespace-normal leading-snug">{option.label}</span>
                       {option.description && (
-                        <span className="text-xs text-muted-foreground truncate">
+                        <span className="text-xs text-muted-foreground break-words whitespace-normal">
                           {option.description}
                         </span>
                       )}

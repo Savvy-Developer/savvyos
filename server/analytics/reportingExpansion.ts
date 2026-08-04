@@ -5,9 +5,11 @@ export type ExpansionFilters = {
   dateFrom?: string;
   dateTo?: string;
   agentId?: number;
+  agentIds?: number[];
   groupLeaderId?: number;
   marketProfileId?: number;
   isaId?: number;
+  isaIds?: number[];
   leadSourceId?: number;
   leadSourceIds?: number[];
   status?: "all" | "closed" | "under_contract" | "terminated";
@@ -84,7 +86,7 @@ function paginationResult(page: number, limit: number, total: number) {
 
 function onboardingScope(filters: ExpansionFilters): SQL {
   return where([
-    filters.agentId ? sql`oi.\`agentUserId\` = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`oi.\`agentUserId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`oi.\`agentUserId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm
@@ -102,7 +104,7 @@ function onboardingScope(filters: ExpansionFilters): SQL {
 
 function taskPeriodScope(filters: ExpansionFilters): SQL {
   return where([
-    filters.agentId ? sql`tk.\`assignedToId\` = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`tk.\`assignedToId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`tk.\`assignedToId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm
@@ -127,12 +129,15 @@ function taskOpenScope(filters: ExpansionFilters): SQL {
 function contactScope(filters: ExpansionFilters): SQL {
   return where([
     sql`c.\`archived_at\` IS NULL`,
-    filters.isaId ? sql`c.\`assignedIsaId\` = ${filters.isaId}` : undefined,
+    (filters.isaIds?.length ? sql`c.\`assignedIsaId\` IN (${sql.join(filters.isaIds.map((id) => sql`${id}`), sql`, `)})` : filters.isaId ? sql`c.\`assignedIsaId\` = ${filters.isaId}` : undefined),
     (filters.leadSourceIds?.length ? sql`c.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined),
-    filters.agentId ? sql`EXISTS (
+    (filters.agentIds?.length ? sql`EXISTS (
+      SELECT 1 FROM \`agent_connections\` ac
+      WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})
+    )` : filters.agentId ? sql`EXISTS (
       SELECT 1 FROM \`agent_connections\` ac
       WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` = ${filters.agentId}
-    )` : undefined,
+    )` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
       FROM \`agent_connections\` ac
@@ -153,12 +158,15 @@ function contactScope(filters: ExpansionFilters): SQL {
 
 function sessionScope(filters: ExpansionFilters): SQL {
   return where([
-    filters.isaId ? sql`ms.\`isaId\` = ${filters.isaId}` : undefined,
+    (filters.isaIds?.length ? sql`ms.\`isaId\` IN (${sql.join(filters.isaIds.map((id) => sql`${id}`), sql`, `)})` : filters.isaId ? sql`ms.\`isaId\` = ${filters.isaId}` : undefined),
     (filters.leadSourceIds?.length ? sql`c.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined),
-    filters.agentId ? sql`EXISTS (
+    (filters.agentIds?.length ? sql`EXISTS (
+      SELECT 1 FROM \`agent_connections\` ac
+      WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})
+    )` : filters.agentId ? sql`EXISTS (
       SELECT 1 FROM \`agent_connections\` ac
       WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` = ${filters.agentId}
-    )` : undefined,
+    )` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
       FROM \`agent_connections\` ac
@@ -180,7 +188,7 @@ function sessionScope(filters: ExpansionFilters): SQL {
 function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean } = {}): SQL {
   const status = opts.closedOnly ? "closed" : filters.status;
   return where([
-    filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm
@@ -325,7 +333,7 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
   const pipelineWhere = where([sql`t.\`status\` = 'under_contract'`]);
   const marketScope = where([
     filters.marketProfileId ? sql`mp.id = ${filters.marketProfileId}` : undefined,
-    filters.agentId ? sql`u.id = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`u.id IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`u.id = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
       FROM \`group_members\` gm

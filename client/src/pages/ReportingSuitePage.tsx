@@ -178,9 +178,12 @@ function titleCase(value: string): string {
 function buildTransactionUrl(filters: Record<string, unknown>, patch: Record<string, string | undefined> = {}) {
   const params = new URLSearchParams({ analytics: "1", report: "reporting", returnTo: currentAnalyticsReturnUrl() });
   if (filters.agentId) params.set("agentId", String(filters.agentId));
+  if (Array.isArray(filters.agentIds) && filters.agentIds.length) params.set("agentIds", (filters.agentIds as number[]).join(","));
   if (filters.groupLeaderId) params.set("groupLeaderId", String(filters.groupLeaderId));
   if (filters.includeLeaderStats) params.set("includeLeaderStats", "true");
   if (filters.marketProfileId) params.set("marketId", String(filters.marketProfileId));
+  if (filters.isaId) params.set("isaId", String(filters.isaId));
+  if (Array.isArray(filters.isaIds) && filters.isaIds.length) params.set("isaIds", (filters.isaIds as number[]).join(","));
   if (filters.leadSourceId) params.set("leadSourceId", String(filters.leadSourceId));
   if (Array.isArray(filters.leadSourceIds) && filters.leadSourceIds.length) params.set("leadSourceIds", (filters.leadSourceIds as number[]).join(","));
   if (filters.transactionType && filters.transactionType !== "all") params.set("transactionType", String(filters.transactionType));
@@ -204,6 +207,7 @@ function buildTransactionUrl(filters: Record<string, unknown>, patch: Record<str
 function buildTaskUrl(filters: Record<string, unknown>, patch: Record<string, string | undefined> = {}) {
   const params = new URLSearchParams({ analytics: "1", report: "reporting", returnTo: currentAnalyticsReturnUrl(), status: "overdue" });
   if (filters.agentId) params.set("assignedToId", String(filters.agentId));
+  if (Array.isArray(filters.agentIds) && filters.agentIds.length) params.set("agentIds", (filters.agentIds as number[]).join(","));
   if (filters.groupLeaderId) params.set("groupLeaderId", String(filters.groupLeaderId));
   if (filters.includeLeaderStats) params.set("includeLeaderStats", "true");
   Object.entries(patch).forEach(([key, value]) => {
@@ -287,11 +291,11 @@ function ReportingFilters({
   if (activeReport === "business_insights") return null;
   const today = localDay(new Date());
   const selectedPreset = (params.get("preset") ?? "ytd") as DatePreset;
-  const selectedAgent = params.get("agentId") ?? "all";
+  const selectedAgents = params.get("agentIds") ? params.get("agentIds")!.split(",") : [];
   const selectedLeader = params.get("groupLeaderId") ?? "all";
   const selectedStatus = params.get("status") ?? "all";
   const selectedType = params.get("transactionType") ?? "all";
-  const selectedIsa = params.get("isaId") ?? "all";
+  const selectedIsas = params.get("isaIds") ? params.get("isaIds")!.split(",") : [];
   const selectedLeadSources = params.get("leadSourceIds") ? params.get("leadSourceIds")!.split(",") : [];
   const dateBasis = params.get("dateBasis") ?? "closing";
   const includeLeaderStats = params.get("includeLeaderStats") === "true";
@@ -342,14 +346,15 @@ function ReportingFilters({
           )}
           {showAgent && (
             <div className="space-y-1">
-              <Label className="text-xs">Agent</Label>
-              <SearchableSelect
-                className="h-8 text-xs w-44"
-                options={[{ value: "all", label: "All agents" }, ...(filters?.agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name }))]}
-                value={selectedAgent}
-                onValueChange={(value) => update({ agentId: value === "all" ? null : value, page: null })}
+              <Label className="text-xs">Agents</Label>
+              <MultiSelect
+                className="min-w-[180px] text-xs"
+                options={(filters?.agents ?? []).map((a: any) => ({ value: String(a.id), label: a.name }))}
+                value={selectedAgents}
+                onValueChange={(values) => update({ agentIds: values.length ? values.join(",") : null, agentId: null, page: null })}
                 placeholder="All agents"
                 searchPlaceholder="Search agents…"
+                maxDisplay={2}
               />
             </div>
           )}
@@ -374,14 +379,15 @@ function ReportingFilters({
           )}
           {isIsa && (
             <div className="space-y-1">
-              <Label className="text-xs">ISA owner</Label>
-              <SearchableSelect
-                className="h-8 text-xs w-44"
-                options={[{ value: "all", label: "All ISA owners" }, ...(filters?.isas ?? []).map((i: any) => ({ value: String(i.id), label: i.name }))]}
-                value={selectedIsa}
-                onValueChange={(value) => update({ isaId: value === "all" ? null : value, page: null })}
+              <Label className="text-xs">ISA owners</Label>
+              <MultiSelect
+                className="min-w-[180px] text-xs"
+                options={(filters?.isas ?? []).map((i: any) => ({ value: String(i.id), label: i.name }))}
+                value={selectedIsas}
+                onValueChange={(values) => update({ isaIds: values.length ? values.join(",") : null, isaId: null, page: null })}
                 placeholder="All ISA owners"
                 searchPlaceholder="Search ISAs…"
+                maxDisplay={2}
               />
             </div>
           )}
@@ -427,7 +433,7 @@ function ReportingFilters({
               </div>
             </>
           )}
-          <Button variant="ghost" size="sm" className="h-8 self-end shrink-0 text-xs" onClick={() => update({ preset: "ytd", from: startOfYear(), to: today, agentId: null, groupLeaderId: null, includeLeaderStats: null, marketProfileId: null, isaId: null, leadSourceId: null, leadSourceIds: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}>
+          <Button variant="ghost" size="sm" className="h-8 self-end shrink-0 text-xs" onClick={() => update({ preset: "ytd", from: startOfYear(), to: today, agentId: null, agentIds: null, groupLeaderId: null, includeLeaderStats: null, marketProfileId: null, isaId: null, isaIds: null, leadSourceId: null, leadSourceIds: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset
           </Button>
         </div>
@@ -490,9 +496,11 @@ export default function ReportingSuitePage() {
     dateTo: params.get("to") ?? today,
     dateBasis: (params.get("dateBasis") ?? "closing") as "closing" | "contract",
     agentId: params.get("agentId") && params.get("agentId") !== "all" ? Number(params.get("agentId")) : undefined,
+    agentIds: params.get("agentIds") ? params.get("agentIds")!.split(",").map(Number).filter((n) => n > 0) : undefined,
     groupLeaderId: params.get("groupLeaderId") && params.get("groupLeaderId") !== "all" ? Number(params.get("groupLeaderId")) : undefined,
     marketProfileId: params.get("marketProfileId") && params.get("marketProfileId") !== "all" ? Number(params.get("marketProfileId")) : undefined,
     isaId: params.get("isaId") && params.get("isaId") !== "all" ? Number(params.get("isaId")) : undefined,
+    isaIds: params.get("isaIds") ? params.get("isaIds")!.split(",").map(Number).filter((n) => n > 0) : undefined,
     leadSourceId: params.get("leadSourceId") && params.get("leadSourceId") !== "all" ? Number(params.get("leadSourceId")) : undefined,
     leadSourceIds: params.get("leadSourceIds") ? params.get("leadSourceIds")!.split(",").map(Number).filter((n) => n > 0) : undefined,
     status: (params.get("status") ?? "all") as "all" | "closed" | "under_contract" | "terminated",
@@ -500,8 +508,8 @@ export default function ReportingSuitePage() {
   }), [params, today]);
   const page = Math.max(1, Number(params.get("page") ?? "1"));
   const filtersQuery = trpc.analytics.reportingFilters.useQuery(undefined, { staleTime: 5 * 60_000 });
-  const groupFilters = { ...baseFilters, agentId: undefined };
-  const marketFilters = { ...baseFilters, agentId: undefined, groupLeaderId: undefined, marketProfileId: undefined };
+  const groupFilters = { ...baseFilters, agentId: undefined, agentIds: undefined };
+  const marketFilters = { ...baseFilters, agentId: undefined, agentIds: undefined, groupLeaderId: undefined, marketProfileId: undefined };
   const agentQuery = trpc.analytics.agentReport.useQuery(baseFilters, { enabled: activeReport === "agents", staleTime: 20_000 });
   const groupQuery = trpc.analytics.groupLeaderReport.useQuery(groupFilters, { enabled: activeReport === "leaders", staleTime: 20_000 });
   const transactionQuery = trpc.analytics.transactionStatisticsReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "transactions", staleTime: 20_000 });

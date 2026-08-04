@@ -17,9 +17,11 @@ export type ReportingFilters = {
   dateTo?: string;
   dateBasis?: ReportingDateBasis;
   agentId?: number;
+  agentIds?: number[];
   groupLeaderId?: number;
   marketProfileId?: number;
   isaId?: number;
+  isaIds?: number[];
   leadSourceId?: number;
   leadSourceIds?: number[];
   status?: ReportingStatus;
@@ -105,7 +107,7 @@ function transactionScope(
   const status = options.forceStatus ?? filters.status;
   const date = dateColumn(filters);
   return where([
-    filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
       t.\`agentId\` = ${filters.groupLeaderId}
       OR EXISTS (
@@ -143,7 +145,7 @@ function agentScope(filters: ReportingFilters): SQL {
   return where([
     sql`u.\`role\` = 'agent'`,
     sql`u.\`isActive\` = 1`,
-    filters.agentId ? sql`u.\`id\` = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`u.\`id\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`u.\`id\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
       u.\`id\` = ${filters.groupLeaderId}
       OR EXISTS (
@@ -164,7 +166,7 @@ function agentScope(filters: ReportingFilters): SQL {
 
 function taskScope(filters: ReportingFilters): SQL {
   return where([
-    filters.agentId ? sql`tk.\`assignedToId\` = ${filters.agentId}` : undefined,
+    (filters.agentIds?.length ? sql`tk.\`assignedToId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`tk.\`assignedToId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
       tk.\`assignedToId\` = ${filters.groupLeaderId}
       OR EXISTS (
