@@ -9,6 +9,7 @@ export type ExpansionFilters = {
   marketProfileId?: number;
   isaId?: number;
   leadSourceId?: number;
+  leadSourceIds?: number[];
   status?: "all" | "closed" | "under_contract" | "terminated";
   transactionType?: "all" | "buyer" | "seller" | "dual";
   page?: number;
@@ -127,7 +128,7 @@ function contactScope(filters: ExpansionFilters): SQL {
   return where([
     sql`c.\`archived_at\` IS NULL`,
     filters.isaId ? sql`c.\`assignedIsaId\` = ${filters.isaId}` : undefined,
-    filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined,
+    (filters.leadSourceIds?.length ? sql`c.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined),
     filters.agentId ? sql`EXISTS (
       SELECT 1 FROM \`agent_connections\` ac
       WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` = ${filters.agentId}
@@ -153,7 +154,7 @@ function contactScope(filters: ExpansionFilters): SQL {
 function sessionScope(filters: ExpansionFilters): SQL {
   return where([
     filters.isaId ? sql`ms.\`isaId\` = ${filters.isaId}` : undefined,
-    filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined,
+    (filters.leadSourceIds?.length ? sql`c.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined),
     filters.agentId ? sql`EXISTS (
       SELECT 1 FROM \`agent_connections\` ac
       WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` = ${filters.agentId}
@@ -190,10 +191,13 @@ function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolea
       SELECT 1 FROM \`users\` market_agent
       WHERE market_agent.id = t.\`agentId\` AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
     )` : undefined,
-    filters.leadSourceId ? sql`EXISTS (
+    (filters.leadSourceIds?.length ? sql`EXISTS (
+      SELECT 1 FROM \`contacts\` source_contact
+      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})
+    )` : filters.leadSourceId ? sql`EXISTS (
       SELECT 1 FROM \`contacts\` source_contact
       WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` = ${filters.leadSourceId}
-    )` : undefined,
+    )` : undefined),
     status && status !== "all" ? sql`t.\`status\` = ${status}` : undefined,
     filters.transactionType && filters.transactionType !== "all" ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
     sql`t.\`closingDate\` IS NOT NULL`,

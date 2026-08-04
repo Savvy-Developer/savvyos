@@ -119,6 +119,7 @@ const reportingSuiteInput = z.object({
   marketProfileId: z.number().int().positive().optional(),
   isaId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
+  leadSourceIds: z.array(z.number().int().positive()).optional(),
   status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
   transactionType: z.enum(["all", "buyer", "seller", "dual"]).optional(),
   includeLeaderStats: z.boolean().optional(),

@@ -61,6 +61,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type ReportKind = "agents" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "business_insights";
@@ -181,6 +182,7 @@ function buildTransactionUrl(filters: Record<string, unknown>, patch: Record<str
   if (filters.includeLeaderStats) params.set("includeLeaderStats", "true");
   if (filters.marketProfileId) params.set("marketId", String(filters.marketProfileId));
   if (filters.leadSourceId) params.set("leadSourceId", String(filters.leadSourceId));
+  if (Array.isArray(filters.leadSourceIds) && filters.leadSourceIds.length) params.set("leadSourceIds", (filters.leadSourceIds as number[]).join(","));
   if (filters.transactionType && filters.transactionType !== "all") params.set("transactionType", String(filters.transactionType));
   if (filters.status && filters.status !== "all") params.set("status", String(filters.status));
   const dateFrom = typeof filters.dateFrom === "string" ? filters.dateFrom : undefined;
@@ -290,7 +292,7 @@ function ReportingFilters({
   const selectedStatus = params.get("status") ?? "all";
   const selectedType = params.get("transactionType") ?? "all";
   const selectedIsa = params.get("isaId") ?? "all";
-  const selectedLeadSource = params.get("leadSourceId") ?? "all";
+  const selectedLeadSources = params.get("leadSourceIds") ? params.get("leadSourceIds")!.split(",") : [];
   const dateBasis = params.get("dateBasis") ?? "closing";
   const includeLeaderStats = params.get("includeLeaderStats") === "true";
   const isTransaction = activeReport === "transactions";
@@ -385,14 +387,15 @@ function ReportingFilters({
           )}
           {isSource && (
             <div className="space-y-1">
-              <Label className="text-xs">Lead source</Label>
-              <SearchableSelect
-                className="h-8 text-xs w-52"
-                options={[{ value: "all", label: "All lead sources" }, ...leadSources.map((s: any) => ({ value: String(s.id), label: sourceLabel(s) }))]}
-                value={selectedLeadSource}
-                onValueChange={(value) => update({ leadSourceId: value === "all" ? null : value, page: null })}
+              <Label className="text-xs">Lead sources</Label>
+              <MultiSelect
+                className="min-w-[220px] text-xs"
+                options={leadSources.map((s: any) => ({ value: String(s.id), label: sourceLabel(s) }))}
+                value={selectedLeadSources}
+                onValueChange={(values) => update({ leadSourceIds: values.length ? values.join(",") : null, leadSourceId: null, page: null })}
                 placeholder="All lead sources"
                 searchPlaceholder="Search sources…"
+                maxDisplay={2}
               />
             </div>
           )}
@@ -424,7 +427,7 @@ function ReportingFilters({
               </div>
             </>
           )}
-          <Button variant="ghost" size="sm" className="h-8 self-end shrink-0 text-xs" onClick={() => update({ preset: "ytd", from: startOfYear(), to: today, agentId: null, groupLeaderId: null, includeLeaderStats: null, marketProfileId: null, isaId: null, leadSourceId: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}>
+          <Button variant="ghost" size="sm" className="h-8 self-end shrink-0 text-xs" onClick={() => update({ preset: "ytd", from: startOfYear(), to: today, agentId: null, groupLeaderId: null, includeLeaderStats: null, marketProfileId: null, isaId: null, leadSourceId: null, leadSourceIds: null, status: "all", transactionType: "all", dateBasis: "closing", page: null })}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset
           </Button>
         </div>
@@ -491,6 +494,7 @@ export default function ReportingSuitePage() {
     marketProfileId: params.get("marketProfileId") && params.get("marketProfileId") !== "all" ? Number(params.get("marketProfileId")) : undefined,
     isaId: params.get("isaId") && params.get("isaId") !== "all" ? Number(params.get("isaId")) : undefined,
     leadSourceId: params.get("leadSourceId") && params.get("leadSourceId") !== "all" ? Number(params.get("leadSourceId")) : undefined,
+    leadSourceIds: params.get("leadSourceIds") ? params.get("leadSourceIds")!.split(",").map(Number).filter((n) => n > 0) : undefined,
     status: (params.get("status") ?? "all") as "all" | "closed" | "under_contract" | "terminated",
     transactionType: (params.get("transactionType") ?? "all") as "all" | "buyer" | "seller" | "dual",
   }), [params, today]);

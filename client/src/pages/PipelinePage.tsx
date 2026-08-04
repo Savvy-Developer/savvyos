@@ -800,7 +800,7 @@ export default function PipelinePage() {
               />
             </div>
             <div>
-              <Label>Agent Notes</Label>
+              <Label>ISA Notes</Label>
               <Textarea
                 className="mt-1"
                 rows={3}

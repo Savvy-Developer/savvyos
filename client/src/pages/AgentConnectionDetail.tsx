@@ -377,7 +377,7 @@ export default function AgentConnectionDetail() {
               )}
               {connection.agentNotes && (
                 <div className="pt-2 border-t">
-                  <p className="text-muted-foreground text-xs mb-1">Agent Notes</p>
+                  <p className="text-muted-foreground text-xs mb-1">ISA Notes</p>
                   <p className="text-sm">{connection.agentNotes}</p>
                 </div>
               )}
@@ -712,7 +712,7 @@ export default function AgentConnectionDetail() {
               <Input type="date" value={stageForm.followUpDate} onChange={e => setStageForm({ ...stageForm, followUpDate: e.target.value })} className="mt-1" />
             </div>
             <div>
-              <Label>Agent Notes</Label>
+              <Label>ISA Notes</Label>
               <Textarea value={stageForm.agentNotes} onChange={e => setStageForm({ ...stageForm, agentNotes: e.target.value })} rows={3} className="mt-1" />
             </div>
           </div>

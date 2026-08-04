@@ -21,6 +21,7 @@ export type ReportingFilters = {
   marketProfileId?: number;
   isaId?: number;
   leadSourceId?: number;
+  leadSourceIds?: number[];
   status?: ReportingStatus;
   transactionType?: ReportingTransactionType;
   includeLeaderStats?: boolean;
@@ -123,10 +124,13 @@ function transactionScope(
       SELECT 1 FROM \`users\` market_user
       WHERE market_user.id = t.\`agentId\` AND market_user.\`marketProfileId\` = ${filters.marketProfileId}
     )` : undefined,
-    filters.leadSourceId ? sql`EXISTS (
+    (filters.leadSourceIds?.length ? sql`EXISTS (
+      SELECT 1 FROM \`contacts\` source_contact
+      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})
+    )` : filters.leadSourceId ? sql`EXISTS (
       SELECT 1 FROM \`contacts\` source_contact
       WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` = ${filters.leadSourceId}
-    )` : undefined,
+    )` : undefined),
     status && status !== "all" ? sql`t.\`status\` = ${status}` : undefined,
     filters.transactionType && filters.transactionType !== "all" ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
     options.applyDate === false ? undefined : sql`${date} IS NOT NULL`,

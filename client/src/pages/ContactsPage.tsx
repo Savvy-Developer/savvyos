@@ -235,7 +235,7 @@ export default function ContactsPage() {
   const setParams = useCallback((updates: Record<string, string>) => {
     const current = new URLSearchParams(rawSearch);
     for (const [k, v] of Object.entries(updates)) {
-      if (v === "" || v === "all" || (k === "page" && v === "1") || (k === "sort" && v === "desc")) {
+      if (v === "" || (v === "all" && k !== "isa") || (k === "page" && v === "1") || (k === "sort" && v === "desc")) {
         current.delete(k);
       } else {
         current.set(k, v);
