@@ -581,17 +581,28 @@ export async function syncEmailBehaviors(options?: {
             .select({ minSent: sql<string>`MIN(sentAt)` })
             .from(emailBehaviors)
             .where(eq(emailBehaviors.source, "resend"));
-          const [gapCheck] = await db
-            .select({ cnt: sql<number>`COUNT(*)` })
+          // Check for gaps: each day between Jul 30 and Aug 3 should have
+          // at least 1000 records (daily digest goes to 48K contacts).
+          // If any day is missing or severely under-filled, keep filling.
+          const gapDays = await db
+            .select({
+              day: sql<string>`DATE(sentAt)`,
+              cnt: sql<number>`COUNT(*)`,
+            })
             .from(emailBehaviors)
-            .where(sql`source = 'resend' AND sentAt BETWEEN '2026-07-30 00:00:00' AND '2026-08-03 21:00:00'`);
+            .where(sql`source = 'resend' AND sentAt BETWEEN '2026-07-30 00:00:00' AND '2026-08-03 21:00:00'`)
+            .groupBy(sql`DATE(sentAt)`);
 
-          if (gapCheck?.cnt === 0 && oldestRecord?.minSent) {
-            // Gap detected: no records between Jul 30 and Aug 3
-            // Set stop to oldest record so we fill the gap
+          const dayMap = new Map(gapDays.map((d) => [d.day, d.cnt]));
+          const expectedDays = ["2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03"];
+          const hasGap = expectedDays.some((day) => (dayMap.get(day) ?? 0) < 1000);
+
+          if (hasGap && oldestRecord?.minSent) {
+            // Gap still exists — keep filling back to oldest record
             stopBefore = new Date(oldestRecord.minSent);
+            const missingDays = expectedDays.filter((d) => (dayMap.get(d) ?? 0) < 1000);
             console.log(
-              `[EmailBehaviors] Gap detected — will fetch back to ${stopBefore.toISOString()}`,
+              `[EmailBehaviors] Gap detected (under-filled days: ${missingDays.join(", ")}) — will fetch back to ${stopBefore.toISOString()}`,
             );
           } else {
             // No gap — just fetch since last sync time
