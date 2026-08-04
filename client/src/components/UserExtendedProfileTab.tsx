@@ -20,14 +20,11 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Loader2, Save, PlayCircle } from "lucide-react";
+import { Loader2, Save } from "lucide-react";
 
 interface Props {
   userId: number;
   userRole: "agent" | "admin" | "isa";
-  isAdmin?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -743,98 +740,8 @@ function AdminProfileSection({ userId }: { userId: number }) {
   );
 }
 
-// ── Start Onboarding Section ─────────────────────────────────────────────────
-function StartOnboardingSection({ userId }: { userId: number }) {
-  const { data: onboardingTemplates } = trpc.onboarding.listTemplates.useQuery();
-  const { data: existingInstances } = trpc.onboarding.agentOnboardingStatus.useQuery({ agentUserId: userId });
-
-  const [enabled, setEnabled] = useState(false);
-  const [templateId, setTemplateId] = useState("");
-
-  const startOnboardingMut = trpc.onboarding.createInstance.useMutation({
-    onSuccess: () => {
-      toast.success("Onboarding started successfully");
-      setEnabled(false);
-      setTemplateId("");
-    },
-    onError: (e: any) => toast.error(`Onboarding error: ${e.message}`),
-  });
-
-  const handleStart = () => {
-    if (!templateId) {
-      toast.error("Please select an onboarding template");
-      return;
-    }
-    startOnboardingMut.mutate({
-      agentUserId: userId,
-      templateId: Number(templateId),
-    });
-  };
-
-  const activeInstances = existingInstances ?? [];
-
-  return (
-    <div className="space-y-4">
-      {activeInstances.length > 0 && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-          <strong>Note:</strong> This user already has {activeInstances.length} active onboarding instance{activeInstances.length > 1 ? "s" : ""} in progress.
-          Starting a new one will create an additional onboarding process.
-        </div>
-      )}
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="startOnboarding"
-          checked={enabled}
-          onCheckedChange={(checked) => {
-            setEnabled(!!checked);
-            if (!checked) setTemplateId("");
-          }}
-        />
-        <Label htmlFor="startOnboarding" className="cursor-pointer font-medium">
-          Start onboarding for this user
-        </Label>
-      </div>
-      {enabled && (
-        <div className="space-y-3 pl-6">
-          <div className="space-y-1.5">
-            <Label className="text-sm">Onboarding Template *</Label>
-            <SearchableSelect
-              className="w-full max-w-sm"
-              options={(onboardingTemplates ?? []).map((t: any) => ({
-                value: String(t.id),
-                label: `${t.name} (${Number(t.taskCount)} tasks)`,
-              }))}
-              value={templateId}
-              onValueChange={(v) => setTemplateId(v)}
-              placeholder="Select template"
-              searchPlaceholder="Search templates…"
-            />
-            {(!onboardingTemplates || onboardingTemplates.length === 0) && (
-              <p className="text-xs text-muted-foreground">
-                No templates available. Create one in Onboarding Templates first.
-              </p>
-            )}
-          </div>
-          <Button
-            size="sm"
-            onClick={handleStart}
-            disabled={!templateId || startOnboardingMut.isPending}
-          >
-            {startOnboardingMut.isPending ? (
-              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-            ) : (
-              <PlayCircle className="h-4 w-4 mr-1.5" />
-            )}
-            Start Onboarding
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main Export ───────────────────────────────────────────────────────────────
-export default function UserExtendedProfileTab({ userId, userRole, isAdmin }: Props) {
+export default function UserExtendedProfileTab({ userId, userRole }: Props) {
   return (
     <div className="space-y-8">
       <Card>
@@ -883,22 +790,6 @@ export default function UserExtendedProfileTab({ userId, userRole, isAdmin }: Pr
         </Card>
       )}
 
-      {isAdmin !== false && (
-        <Card className="border-dashed">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <PlayCircle className="h-4 w-4 text-primary" />
-              Start Onboarding
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Trigger the onboarding process for this user if it was missed during initial creation.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <StartOnboardingSection userId={userId} />
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

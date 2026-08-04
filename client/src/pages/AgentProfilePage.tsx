@@ -571,6 +571,16 @@ export default function AgentProfilePage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  onClick={() => { setSelectedTemplateId(""); setOffboardDialogOpen(true); }}
+                >
+                  <LogIn className="h-4 w-4 mr-1.5" /> Start Onboarding
+                </Button>
+              )}
+              {isAdmin && agentData.role === "agent" && (
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="text-red-600 border-red-200 hover:bg-red-50"
                   onClick={() => { setSelectedTemplateId(""); setOffboardDialogOpen(true); }}
                 >
@@ -1379,7 +1389,6 @@ export default function AgentProfilePage() {
             <UserExtendedProfileTab
               userId={agentId}
               userRole={agentData.role as "agent" | "admin" | "isa"}
-              isAdmin={isAdmin}
             />
           </TabsContent>
         )}
