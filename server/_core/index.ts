@@ -4,6 +4,7 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { registerMagicLinkRoutes } from "./magicLink";
 import { registerUploadRoutes } from "../uploadRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -87,6 +88,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  // Magic link auth — auto-login from email links
+  registerMagicLinkRoutes(app);
   // File upload routes
   registerUploadRoutes(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC

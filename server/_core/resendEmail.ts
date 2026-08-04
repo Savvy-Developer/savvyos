@@ -1,11 +1,12 @@
 import { Resend } from "resend";
+import crypto from "crypto";
 import { ENV } from "./env";
 import { getDb } from "../db";
-import { emailTemplates, emailNotificationSettings } from "../../drizzle/schema";
+import { emailTemplates, emailNotificationSettings, magicLinkTokens, users } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 const FROM_ADDRESS = "Savvy STR Agents <notifications@savvy-agents.com>";
-const APP_URL = "https://savvyos-rgtcxhr8.manus.space";
+const APP_URL = "https://os.savvy-agents.com";
 const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
 
 // Brand colors — exact logo values
@@ -519,6 +520,92 @@ export interface EmailDeliveryResult {
 }
 
 /**
+ * Generate a magic link URL that auto-logs in the recipient and redirects to the given path.
+ * The token is stored in the DB and expires after 7 days.
+ */
+export async function generateMagicLinkUrl(recipientEmail: string, redirectPath: string = "/"): Promise<string> {
+  const db = await getDb();
+  if (!db) return `${APP_URL}${redirectPath}`;
+
+  // Look up the user by email
+  const [user] = await db.select().from(users).where(eq(users.email, recipientEmail)).limit(1);
+  if (!user) return `${APP_URL}${redirectPath}`;
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+  await db.insert(magicLinkTokens).values({
+    userId: user.id,
+    token,
+    redirectPath,
+    expiresAt,
+  });
+
+  return `${APP_URL}/api/auth/magic-link?token=${token}`;
+}
+
+/**
+ * Replace all APP_URL-based href links in the email HTML with magic link versions.
+ * This ensures the recipient is auto-logged in when clicking any link.
+ */
+async function injectMagicLinks(html: string, recipientEmail: string): Promise<string> {
+  const db = await getDb();
+  if (!db) return html;
+
+  // Look up the user by email
+  const [user] = await db.select().from(users).where(eq(users.email, recipientEmail)).limit(1);
+  if (!user) return html;
+
+  // Find all href attributes pointing to APP_URL with a path
+  const urlPattern = new RegExp(`href="${APP_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/[^"]*)"`, 'g');
+  const matches = Array.from(html.matchAll(urlPattern));
+
+  if (matches.length === 0) return html;
+
+  // Generate one token per unique path for cleaner tracking
+  const pathTokenMap: Record<string, string> = {};
+
+  for (const match of matches) {
+    const path = match[1] || "/";
+    if (!pathTokenMap[path]) {
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      await db.insert(magicLinkTokens).values({
+        userId: user.id,
+        token,
+        redirectPath: path,
+        expiresAt,
+      });
+      pathTokenMap[path] = token;
+    }
+  }
+
+  // Replace all matching URLs with magic link versions
+  let result = html;
+  for (const path of Object.keys(pathTokenMap)) {
+    const token = pathTokenMap[path];
+    const originalUrl = `${APP_URL}${path}`;
+    const magicUrl = `${APP_URL}/api/auth/magic-link?token=${token}`;
+    result = result.split(`href="${originalUrl}"`).join(`href="${magicUrl}"`);
+  }
+
+  // Also handle bare APP_URL without a path (e.g. href="https://os.savvy-agents.com")
+  if (result.includes(`href="${APP_URL}"`)) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await db.insert(magicLinkTokens).values({
+      userId: user.id,
+      token,
+      redirectPath: "/",
+      expiresAt,
+    });
+    result = result.split(`href="${APP_URL}"`).join(`href="${APP_URL}/api/auth/magic-link?token=${token}"`);
+  }
+
+  return result;
+}
+
+/**
  * Send a transactional email via Resend. Existing callers can ignore the
  * result; schedulers can use it to persist a truthful delivery outcome.
  */
@@ -575,6 +662,13 @@ export async function sendTransactionalEmail(
       } catch (dbErr) {
         console.warn("[Resend] Could not load template override:", dbErr);
       }
+    }
+
+    // Inject magic link tokens into all APP_URL links so recipients are auto-logged in
+    try {
+      html = await injectMagicLinks(html, ctx.recipientEmail);
+    } catch (mlErr) {
+      console.warn("[Resend] Magic link injection failed (sending without):", mlErr);
     }
 
     const sendOptions: Parameters<typeof resend.emails.send>[0] = {

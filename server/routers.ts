@@ -68,7 +68,7 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
     ["market_match_intro", { ...ctx2, investorFirstName: "Alex", marketName: "Asheville", marketState: "NC", investorBudget: "$400k–$600k", investorGoals: "Cash-flowing STR with 15%+ CoC return", isaName: "Jordan Lee", callSummarySnippet: "Alex is looking for a 3BR cabin near downtown Asheville with strong Airbnb history.", handoffNotes: "Pre-approved, ready to move within 60 days. Prefers off-market deals." }],
     ["client_intro", { ...ctx2, agentName: "Sarah Mitchell", contactName: "Alex Johnson", isaName: "Jordan Lee", agentBookingLink: "https://calendly.com/sarah-mitchell" }],
     ["connection_request_approved", { ...ctx2, contactName: "Jane Smith", agentName: "Sarah Mitchell", pipelineStatus: "Nurture" }],
-    ["pm_mention", { ...ctx2, mentionedByName: "Tyler Coon", projectTitle: "Website Redesign Q2", noteContent: "Hey, can you review the wireframes for the landing page before Friday?", projectUrl: "https://savvyos-rgtcxhr8.manus.space/projects/1" }],
+    ["pm_mention", { ...ctx2, mentionedByName: "Tyler Coon", projectTitle: "Website Redesign Q2", noteContent: "Hey, can you review the wireframes for the landing page before Friday?", projectUrl: "https://os.savvy-agents.com/projects/1" }],
   ] as [string, Record<string, string>][];
 }
 

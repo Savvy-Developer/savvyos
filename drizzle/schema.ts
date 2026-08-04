@@ -2224,3 +2224,19 @@ export const coachingSettings = mysqlTable("coaching_settings", {
 });
 export type CoachingSetting = typeof coachingSettings.$inferSelect;
 export type InsertCoachingSetting = typeof coachingSettings.$inferInsert;
+
+// ─── Magic Link Tokens ────────────────────────────────────────────────────────
+export const magicLinkTokens = mysqlTable("magic_link_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  token: varchar("token", { length: 128 }).notNull().unique(),
+  redirectPath: varchar("redirectPath", { length: 512 }).default("/"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("idx_magic_token").on(table.token),
+  index("idx_magic_userId").on(table.userId),
+]);
+export type MagicLinkToken = typeof magicLinkTokens.$inferSelect;
+export type InsertMagicLinkToken = typeof magicLinkTokens.$inferInsert;

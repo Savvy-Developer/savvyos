@@ -870,7 +870,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
             const mentionedUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, input.mentionedUserIds));
             const authorName = ctx.user.name ?? ctx.user.email ?? "A teammate";
             const projectTitle = project?.title ?? "a project";
-            const projectUrl = `${process.env.VITE_FRONTEND_FORGE_API_URL ? "" : "https://savvyos-rgtcxhr8.manus.space"}/projects/${input.projectId}`;
+            const projectUrl = `https://os.savvy-agents.com/projects/${input.projectId}`;
             for (const u of mentionedUsers) {
               if (!u.email || u.id === ctx.user.id) continue;
               await sendTransactionalEmail("pm_mention", {
@@ -879,7 +879,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
                 mentionedByName: authorName,
                 projectTitle,
                 noteContent: input.content.slice(0, 300) + (input.content.length > 300 ? "..." : ""),
-                projectUrl: `https://savvyos-rgtcxhr8.manus.space/projects/${input.projectId}`,
+                projectUrl: `https://os.savvy-agents.com/projects/${input.projectId}`,
               });
             }
           } catch (emailErr) {
