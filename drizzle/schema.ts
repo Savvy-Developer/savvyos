@@ -1709,6 +1709,7 @@ export const emailBehaviorsSyncState = mysqlTable("email_behaviors_sync_state", 
   source: mysqlEnum("source", ["resend", "ghl"]).notNull().unique(),
   lastSyncedAt: timestamp("lastSyncedAt"),
   lastCursor: varchar("lastCursor", { length: 1024 }), // pagination cursor / last ID
+  gapFillCursor: varchar("gapFillCursor", { length: 1024 }), // cursor for gap-fill progress
   totalImported: int("totalImported").default(0).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

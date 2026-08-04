@@ -520,6 +520,36 @@ export async function promoteUnmatchedEmailBehaviors(
   return promoted;
 }
 
+// ─── Gap Detection ──────────────────────────────────────────────────────────
+
+/**
+ * Check if there's a gap in our Resend email data.
+ * Returns true if any day between Jul 30 and Aug 3 2026 has fewer than
+ * 1000 records (each daily digest goes to ~48K contacts, so a fully
+ * synced day should have many thousands of matched records).
+ */
+async function checkForGap(db: any): Promise<boolean> {
+  const gapDays = await db
+    .select({
+      day: sql<string>`DATE(sentAt)`,
+      cnt: sql<number>`COUNT(*)`,
+    })
+    .from(emailBehaviors)
+    .where(sql`source = 'resend' AND sentAt BETWEEN '2026-07-30 00:00:00' AND '2026-08-03 21:00:00'`)
+    .groupBy(sql`DATE(sentAt)`);
+
+  const dayMap = new Map(gapDays.map((d: any) => [d.day, d.cnt]));
+  const expectedDays = ["2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03"];
+  const hasGap = expectedDays.some((day) => (dayMap.get(day) ?? 0) < 1000);
+
+  if (hasGap) {
+    const missingDays = expectedDays.filter((d) => (dayMap.get(d) ?? 0) < 1000);
+    console.log(`[EmailBehaviors] Gap check: under-filled days: ${missingDays.join(", ")}`);
+  }
+
+  return hasGap;
+}
+
 // ─── Main Sync Orchestrator ───────────────────────────────────────────────────
 
 let isSyncing = false;
@@ -567,109 +597,150 @@ export async function syncEmailBehaviors(options?: {
         let totalMatched = 0;
         let totalUnmatched = 0;
 
-        // Determine the stop point: use lastSyncedAt from sync state.
-        // This represents when we last successfully synced, so we fetch
-        // everything from newest back to that point.
-        // On first run or if there's a gap, we fall back to the oldest
-        // sentAt in our DB to ensure complete coverage.
-        let stopBefore: Date;
-
-        if (syncState?.lastSyncedAt) {
-          // Check for gaps: if there's a discontinuity in our data,
-          // we need to fill it by going further back
-          const [oldestRecord] = await db
-            .select({ minSent: sql<string>`MIN(sentAt)` })
-            .from(emailBehaviors)
-            .where(eq(emailBehaviors.source, "resend"));
-          // Check for gaps: each day between Jul 30 and Aug 3 should have
-          // at least 1000 records (daily digest goes to 48K contacts).
-          // If any day is missing or severely under-filled, keep filling.
-          const gapDays = await db
-            .select({
-              day: sql<string>`DATE(sentAt)`,
-              cnt: sql<number>`COUNT(*)`,
-            })
-            .from(emailBehaviors)
-            .where(sql`source = 'resend' AND sentAt BETWEEN '2026-07-30 00:00:00' AND '2026-08-03 21:00:00'`)
-            .groupBy(sql`DATE(sentAt)`);
-
-          const dayMap = new Map(gapDays.map((d) => [d.day, d.cnt]));
-          const expectedDays = ["2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03"];
-          const hasGap = expectedDays.some((day) => (dayMap.get(day) ?? 0) < 1000);
-
-          if (hasGap && oldestRecord?.minSent) {
-            // Gap still exists — keep filling back to oldest record
-            stopBefore = new Date(oldestRecord.minSent);
-            const missingDays = expectedDays.filter((d) => (dayMap.get(d) ?? 0) < 1000);
-            console.log(
-              `[EmailBehaviors] Gap detected (under-filled days: ${missingDays.join(", ")}) — will fetch back to ${stopBefore.toISOString()}`,
-            );
-          } else {
-            // No gap — just fetch since last sync time
-            stopBefore = new Date(syncState.lastSyncedAt);
-          }
-        } else {
-          // No sync state at all — fetch everything
-          stopBefore = new Date(0);
-        }
-
-        if (!options?.forceFullSync) {
+        // ── Phase A: Fetch truly NEW emails (sent since last sync) ──────────
+        // This is fast — only fetches emails from the last 10 minutes.
+        if (!options?.forceFullSync && syncState?.lastSyncedAt) {
+          const newStopBefore = new Date(syncState.lastSyncedAt);
           console.log(
-            `[EmailBehaviors] Fetching new Resend emails (stop before: ${stopBefore.toISOString()})...`,
+            `[EmailBehaviors] Phase A: Fetching new emails since ${newStopBefore.toISOString()}...`,
           );
-          const newRecords = await fetchResendEmailsSince(stopBefore);
+          const newRecords = await fetchResendEmailsSince(newStopBefore, 20);
 
           if (newRecords.length > 0) {
             const stats = await upsertEmailRecords(newRecords);
             totalMatched += stats.matched;
             totalUnmatched += stats.unmatched;
             console.log(
-              `[EmailBehaviors] New emails sync — ${newRecords.length} fetched (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
+              `[EmailBehaviors] Phase A — ${newRecords.length} new emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
             );
           } else {
-            console.log("[EmailBehaviors] No new emails since last sync");
+            console.log("[EmailBehaviors] Phase A — no new emails since last sync");
+          }
+        } else if (!syncState?.lastSyncedAt) {
+          // First ever run — fetch from newest with no cursor
+          console.log("[EmailBehaviors] First run — fetching from newest...");
+          const newRecords = await fetchResendEmailsSince(new Date(0), 500);
+          if (newRecords.length > 0) {
+            const stats = await upsertEmailRecords(newRecords);
+            totalMatched += stats.matched;
+            totalUnmatched += stats.unmatched;
           }
         }
 
-        // ── Historical backfill (continue from old cursor if still in progress) ──
-        const backfillCursor = syncState?.lastCursor;
-        if (backfillCursor) {
-          console.log("[EmailBehaviors] Backfill: continuing from historical cursor...");
-          const { records: backfillRecords, nextCursor, done } =
-            await fetchResendBackfillEmails(backfillCursor, 10);
+        // ── Phase B: Gap fill (resume from saved cursor) ────────────────────
+        // Checks if there's a gap in our data and fills it incrementally.
+        // Uses gapFillCursor to resume where we left off instead of starting
+        // from newest every time (which would waste pages on already-seen data).
+        const gapFillCursor = syncState?.gapFillCursor;
+        const hasGapToFill = await checkForGap(db);
 
-          if (backfillRecords.length > 0) {
-            const stats = await upsertEmailRecords(backfillRecords);
-            totalMatched += stats.matched;
-            totalUnmatched += stats.unmatched;
-            console.log(
-              `[EmailBehaviors] Backfill — ${backfillRecords.length} emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
-            );
-          }
+        if (hasGapToFill) {
+          if (gapFillCursor) {
+            // Resume gap fill from saved cursor
+            console.log("[EmailBehaviors] Phase B: Resuming gap fill from saved cursor...");
+            const { records: gapRecords, nextCursor, done } =
+              await fetchResendBackfillEmails(gapFillCursor, 500);
 
-          // Update cursor (or clear it if backfill is done)
-          await db
-            .insert(emailBehaviorsSyncState)
-            .values({
-              source: "resend",
-              lastSyncedAt: new Date(),
-              lastCursor: done ? null : (nextCursor ?? null),
-              totalImported: totalMatched + totalUnmatched,
-            })
-            .onDuplicateKeyUpdate({
-              set: {
+            if (gapRecords.length > 0) {
+              const stats = await upsertEmailRecords(gapRecords);
+              totalMatched += stats.matched;
+              totalUnmatched += stats.unmatched;
+              console.log(
+                `[EmailBehaviors] Phase B — ${gapRecords.length} gap emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
+              );
+            }
+
+            // Save progress
+            await db
+              .insert(emailBehaviorsSyncState)
+              .values({
+                source: "resend",
                 lastSyncedAt: new Date(),
-                lastCursor: done ? null : (nextCursor ?? null),
-                totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
-                updatedAt: new Date(),
-              },
-            });
+                gapFillCursor: done ? null : (nextCursor ?? null),
+                totalImported: totalMatched + totalUnmatched,
+              })
+              .onDuplicateKeyUpdate({
+                set: {
+                  lastSyncedAt: new Date(),
+                  gapFillCursor: done ? null : (nextCursor ?? null),
+                  totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
+                  updatedAt: new Date(),
+                },
+              });
 
-          if (done) {
-            console.log("[EmailBehaviors] Historical backfill complete — no more old emails");
+            if (done) {
+              console.log("[EmailBehaviors] Phase B — gap fill reached end of Resend history");
+            }
+          } else {
+            // No gap fill cursor yet — need to find the starting point.
+            // The gap is between our newest "old" data and our oldest "new" data.
+            // We start from the oldest record in our recent data and page backwards.
+            console.log("[EmailBehaviors] Phase B: Initializing gap fill cursor...");
+
+            // Find the oldest record from the recent sync batch (Aug 3 area)
+            const [oldestRecent] = await db
+              .select({ minId: sql<string>`MIN(externalId)` })
+              .from(emailBehaviors)
+              .where(sql`source = 'resend' AND sentAt >= '2026-08-02 00:00:00'`);
+
+            if (oldestRecent?.minId) {
+              // Use this as the starting cursor for gap fill
+              // But we need the Resend pagination cursor, not just any ID.
+              // The fetchResendBackfillEmails uses 'after' param which takes any email ID.
+              // Find the LAST (oldest) record from Aug 3 batch to start after it.
+              const [lastAug3] = await db
+                .select({ eid: sql<string>`externalId` })
+                .from(emailBehaviors)
+                .where(sql`source = 'resend' AND sentAt BETWEEN '2026-08-02 21:00:00' AND '2026-08-02 21:10:00'`)
+                .orderBy(sql`id ASC`)
+                .limit(1);
+
+              const startCursor = lastAug3?.eid || oldestRecent.minId;
+              console.log(`[EmailBehaviors] Phase B — starting gap fill from cursor: ${startCursor}`);
+
+              // Do first batch
+              const { records: gapRecords, nextCursor, done } =
+                await fetchResendBackfillEmails(startCursor, 500);
+
+              if (gapRecords.length > 0) {
+                const stats = await upsertEmailRecords(gapRecords);
+                totalMatched += stats.matched;
+                totalUnmatched += stats.unmatched;
+                console.log(
+                  `[EmailBehaviors] Phase B — ${gapRecords.length} gap emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
+                );
+              }
+
+              await db
+                .insert(emailBehaviorsSyncState)
+                .values({
+                  source: "resend",
+                  lastSyncedAt: new Date(),
+                  gapFillCursor: done ? null : (nextCursor ?? null),
+                  totalImported: totalMatched + totalUnmatched,
+                })
+                .onDuplicateKeyUpdate({
+                  set: {
+                    lastSyncedAt: new Date(),
+                    gapFillCursor: done ? null : (nextCursor ?? null),
+                    totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
+                    updatedAt: new Date(),
+                  },
+                });
+            } else {
+              console.log("[EmailBehaviors] Phase B — no recent records to anchor gap fill");
+              // Just update timestamp
+              await db
+                .insert(emailBehaviorsSyncState)
+                .values({ source: "resend", lastSyncedAt: new Date(), totalImported: 0 })
+                .onDuplicateKeyUpdate({
+                  set: { lastSyncedAt: new Date(), updatedAt: new Date() },
+                });
+            }
           }
         } else {
-          // No backfill cursor — just update sync timestamp
+          // No gap — just update sync timestamp
+          console.log("[EmailBehaviors] No gap detected — sync complete");
           await db
             .insert(emailBehaviorsSyncState)
             .values({
@@ -680,6 +751,7 @@ export async function syncEmailBehaviors(options?: {
             .onDuplicateKeyUpdate({
               set: {
                 lastSyncedAt: new Date(),
+                gapFillCursor: null, // clear gap cursor since gap is filled
                 totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
                 updatedAt: new Date(),
               },
