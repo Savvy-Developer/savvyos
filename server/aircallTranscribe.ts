@@ -28,8 +28,15 @@ export async function transcribeRecording(
   }
 
   try {
-    // Download the audio from S3
-    const audioResponse = await fetch(audioUrl);
+    // Download the audio from S3 (60s timeout to avoid hanging on large files)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+    let audioResponse: Response;
+    try {
+      audioResponse = await fetch(audioUrl, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!audioResponse.ok) {
       console.error(`[Aircall Transcribe] Failed to download audio for call ${callId}: HTTP ${audioResponse.status}`);
       return null;
@@ -116,7 +123,7 @@ Write 2–4 sentences. Include: main topic, key points discussed, any next steps
         Authorization: `Bearer ${ENV.forgeApiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-5-mini",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
