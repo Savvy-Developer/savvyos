@@ -1879,6 +1879,8 @@ export const jobApplicationsV2 = mysqlTable("job_applications_v2", {
   resumeFileName: varchar("resumeFileName", { length: 255 }),
   resumeLinkUrl: varchar("resumeLinkUrl", { length: 1024 }),
   coverLetter: text("coverLetter"),
+  coverLetterUrl: varchar("coverLetterUrl", { length: 1024 }),
+  coverLetterFileName: varchar("coverLetterFileName", { length: 255 }),
   whyInterested: text("whyInterested"),
   salaryExpectation: varchar("salaryExpectation", { length: 128 }),
   availableStartDate: varchar("availableStartDate", { length: 64 }),

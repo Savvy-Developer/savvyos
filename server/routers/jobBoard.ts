@@ -147,6 +147,8 @@ export const jobBoardRouter = router({
       resumeUrl: z.string().max(1024).optional(),
       resumeFileName: z.string().max(255).optional(),
       resumeLinkUrl: z.string().max(1024).optional(),
+      coverLetterUrl: z.string().max(1024).optional(),
+      coverLetterFileName: z.string().max(255).optional(),
       coverLetter: z.string().optional(),
       whyInterested: z.string().optional(),
       salaryExpectation: z.string().max(128).optional(),
@@ -168,7 +170,7 @@ export const jobBoardRouter = router({
       if (!app) throw new TRPCError({ code: "NOT_FOUND" });
 
       const updateData: any = { currentStep: Math.max(app.currentStep ?? 1, input.step) };
-      const fields = ["firstName","lastName","phone","city","state","country","linkedinUrl","portfolioUrl","resumeUrl","resumeFileName","resumeLinkUrl","coverLetter","whyInterested","salaryExpectation","availableStartDate"] as const;
+      const fields = ["firstName","lastName","phone","city","state","country","linkedinUrl","portfolioUrl","resumeUrl","resumeFileName","resumeLinkUrl","coverLetterUrl","coverLetterFileName","coverLetter","whyInterested","salaryExpectation","availableStartDate"] as const;
       for (const f of fields) { if ((input as any)[f] !== undefined) updateData[f] = (input as any)[f]; }
       if (input.customAnswers !== undefined) updateData.customAnswers = JSON.stringify(input.customAnswers);
       await db.update(jobApplicationsV2).set(updateData).where(eq(jobApplicationsV2.id, input.applicationId));

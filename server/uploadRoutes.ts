@@ -6,6 +6,8 @@ import { getDb } from "./db";
 import { documents, userProfiles } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
+import { invokeLLM } from "./_core/llm";
+import pdfParse from "pdf-parse";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
@@ -228,6 +230,168 @@ export function registerUploadRoutes(app: express.Application) {
     } catch (err: any) {
       console.error("[CoachingAssessmentUpload] Error:", err);
       return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
+  // POST /api/upload/analyze-application — Upload resume + cover letter, analyze with AI
+  const applicationUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req: any, file: any, cb: any) => {
+      const allowed = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+      if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only PDF, DOC, DOCX, and TXT files are allowed"));
+      }
+    },
+  });
+
+  app.post("/api/upload/analyze-application", applicationUpload.fields([
+    { name: "resume", maxCount: 1 },
+    { name: "coverLetter", maxCount: 1 },
+  ]), async (req: any, res: any) => {
+    try {
+      const files = req.files as Record<string, Express.Multer.File[]>;
+      const linkedinUrl = req.body?.linkedinUrl || "";
+      const jobTitle = req.body?.jobTitle || "";
+      const jobDescription = req.body?.jobDescription || "";
+      const jobRequirements = req.body?.jobRequirements || "";
+
+      let resumeUrl = "";
+      let resumeFileName = "";
+      let resumeText = "";
+      let coverLetterUrl = "";
+      let coverLetterFileName = "";
+      let coverLetterText = "";
+
+      // Upload and extract resume
+      if (files?.resume?.[0]) {
+        const file = files.resume[0];
+        const fileKey = `resumes/${nanoid(12)}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const result = await storagePut(fileKey, file.buffer, file.mimetype);
+        resumeUrl = result.url;
+        resumeFileName = file.originalname;
+        // Extract text from PDF
+        if (file.mimetype === "application/pdf") {
+          try {
+            const parsed = await pdfParse(file.buffer);
+            resumeText = parsed.text.slice(0, 15000);
+          } catch (e) {
+            console.error("[AnalyzeApp] PDF parse error:", e);
+          }
+        } else if (file.mimetype === "text/plain") {
+          resumeText = file.buffer.toString("utf-8").slice(0, 15000);
+        }
+      }
+
+      // Upload and extract cover letter
+      if (files?.coverLetter?.[0]) {
+        const file = files.coverLetter[0];
+        const fileKey = `cover-letters/${nanoid(12)}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const result = await storagePut(fileKey, file.buffer, file.mimetype);
+        coverLetterUrl = result.url;
+        coverLetterFileName = file.originalname;
+        if (file.mimetype === "application/pdf") {
+          try {
+            const parsed = await pdfParse(file.buffer);
+            coverLetterText = parsed.text.slice(0, 8000);
+          } catch (e) {
+            console.error("[AnalyzeApp] Cover letter PDF parse error:", e);
+          }
+        } else if (file.mimetype === "text/plain") {
+          coverLetterText = file.buffer.toString("utf-8").slice(0, 8000);
+        }
+      }
+
+      // If no text extracted, return just the upload URLs
+      if (!resumeText && !coverLetterText && !linkedinUrl) {
+        return res.json({
+          resumeUrl, resumeFileName, coverLetterUrl, coverLetterFileName,
+          extracted: null,
+          message: "Files uploaded but no text could be extracted for analysis.",
+        });
+      }
+
+      // Use AI to extract structured data
+      const prompt = `You are an expert HR data extraction system. Analyze the following candidate materials and extract structured information.
+
+Job being applied for: ${jobTitle}
+Job Description: ${jobDescription}
+Job Requirements: ${jobRequirements}
+
+--- RESUME TEXT ---
+${resumeText || "(No resume text available)"}
+
+--- COVER LETTER TEXT ---
+${coverLetterText || "(No cover letter text available)"}
+
+--- LINKEDIN URL ---
+${linkedinUrl || "(Not provided)"}
+
+Extract the following information from the materials. If a field cannot be determined, use null. Return ONLY valid JSON with no markdown formatting:
+{
+  "phone": "phone number if found",
+  "city": "city if found",
+  "state": "state abbreviation if found",
+  "linkedinUrl": "${linkedinUrl || "linkedin URL if found in resume"}",
+  "portfolioUrl": "portfolio/website URL if found",
+  "workHistory": [
+    {
+      "company": "company name",
+      "title": "job title",
+      "startDate": "YYYY-MM format",
+      "endDate": "YYYY-MM format or empty if current",
+      "isCurrent": true/false,
+      "description": "brief description of role/responsibilities"
+    }
+  ],
+  "education": [
+    {
+      "institution": "school name",
+      "degree": "degree type",
+      "fieldOfStudy": "major/field",
+      "startYear": "YYYY",
+      "endYear": "YYYY",
+      "gpa": "GPA if mentioned"
+    }
+  ],
+  "coverLetter": "the full cover letter text (from the cover letter document, or from the resume if it contains one)",
+  "whyInterested": "extract any statement about why they want this role, or null",
+  "salaryExpectation": "salary expectation if mentioned, or null",
+  "availableStartDate": "start date if mentioned, or null",
+  "skills": ["list of key skills mentioned"]
+}`;
+
+      const response = await invokeLLM({
+        messages: [{ role: "user", content: prompt }],
+        model: "gpt-4o-mini",
+        maxTokens: 4096,
+      });
+
+      let extracted: any = null;
+      const rawContent = response.choices?.[0]?.message?.content;
+      if (typeof rawContent === "string") {
+        try {
+          // Strip markdown code fences if present
+          const cleaned = rawContent.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+          extracted = JSON.parse(cleaned);
+        } catch (e) {
+          console.error("[AnalyzeApp] JSON parse error:", e);
+          extracted = null;
+        }
+      }
+
+      return res.json({
+        resumeUrl,
+        resumeFileName,
+        coverLetterUrl,
+        coverLetterFileName,
+        extracted,
+      });
+    } catch (err: any) {
+      console.error("[AnalyzeApplication] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Analysis failed" });
     }
   });
 }
