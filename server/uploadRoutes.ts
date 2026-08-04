@@ -7,7 +7,7 @@ import { documents, userProfiles } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { invokeLLM } from "./_core/llm";
-import pdfParse from "pdf-parse";
+import pdfParse from "./lib/pdf-parse-safe";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
