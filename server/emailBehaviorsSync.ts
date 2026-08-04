@@ -567,29 +567,38 @@ export async function syncEmailBehaviors(options?: {
         let totalMatched = 0;
         let totalUnmatched = 0;
 
-        // Determine the latest sentAt across both tables to know where to stop
-        const [latestMatched] = await db
-          .select({ maxSent: sql<string>`MAX(sentAt)` })
-          .from(emailBehaviors)
-          .where(eq(emailBehaviors.source, "resend"));
-        const [latestUnmatched] = await db
-          .select({ maxSent: sql<string>`MAX(sentAt)` })
-          .from(emailBehaviorsUnmatched)
-          .where(eq(emailBehaviorsUnmatched.source, "resend"));
-
-        const latestMatchedDate = latestMatched?.maxSent ? new Date(latestMatched.maxSent) : null;
-        const latestUnmatchedDate = latestUnmatched?.maxSent ? new Date(latestUnmatched.maxSent) : null;
-
-        // Use the more recent of the two as our stop point
+        // Determine the stop point: use lastSyncedAt from sync state.
+        // This represents when we last successfully synced, so we fetch
+        // everything from newest back to that point.
+        // On first run or if there's a gap, we fall back to the oldest
+        // sentAt in our DB to ensure complete coverage.
         let stopBefore: Date;
-        if (latestMatchedDate && latestUnmatchedDate) {
-          stopBefore = latestMatchedDate > latestUnmatchedDate ? latestMatchedDate : latestUnmatchedDate;
-        } else if (latestMatchedDate) {
-          stopBefore = latestMatchedDate;
-        } else if (latestUnmatchedDate) {
-          stopBefore = latestUnmatchedDate;
+
+        if (syncState?.lastSyncedAt) {
+          // Check for gaps: if there's a discontinuity in our data,
+          // we need to fill it by going further back
+          const [oldestRecord] = await db
+            .select({ minSent: sql<string>`MIN(sentAt)` })
+            .from(emailBehaviors)
+            .where(eq(emailBehaviors.source, "resend"));
+          const [gapCheck] = await db
+            .select({ cnt: sql<number>`COUNT(*)` })
+            .from(emailBehaviors)
+            .where(sql`source = 'resend' AND sentAt BETWEEN '2026-07-30 00:00:00' AND '2026-08-03 21:00:00'`);
+
+          if (gapCheck?.cnt === 0 && oldestRecord?.minSent) {
+            // Gap detected: no records between Jul 30 and Aug 3
+            // Set stop to oldest record so we fill the gap
+            stopBefore = new Date(oldestRecord.minSent);
+            console.log(
+              `[EmailBehaviors] Gap detected — will fetch back to ${stopBefore.toISOString()}`,
+            );
+          } else {
+            // No gap — just fetch since last sync time
+            stopBefore = new Date(syncState.lastSyncedAt);
+          }
         } else {
-          // No records at all — fetch everything (up to maxPages)
+          // No sync state at all — fetch everything
           stopBefore = new Date(0);
         }
 
