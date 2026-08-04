@@ -1379,6 +1379,7 @@ export default function AgentProfilePage() {
             <UserExtendedProfileTab
               userId={agentId}
               userRole={agentData.role as "agent" | "admin" | "isa"}
+              isAdmin={isAdmin}
             />
           </TabsContent>
         )}
