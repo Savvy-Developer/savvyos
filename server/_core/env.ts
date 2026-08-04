@@ -19,4 +19,6 @@ export const ENV = {
   aircallApiToken: process.env.AIRCALL_API_TOKEN ?? "",
   // Aircall webhook token — sent in every webhook payload for verification
   aircallWebhookToken: process.env.AIRCALL_WEBHOOK_TOKEN ?? "",
+  // OpenAI API key — used for Whisper transcription (real OpenAI, not Forge proxy)
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
 };

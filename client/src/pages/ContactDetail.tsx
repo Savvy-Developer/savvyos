@@ -1053,6 +1053,32 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                         ) : (
                           <p className="text-sm whitespace-pre-wrap">{communication.body}</p>
                         )}
+                        {/* Call recording audio player */}
+                        {communication.type === "call" && communication.audioFileUrl && (
+                          <div className="mt-3">
+                            <p className="text-xs text-muted-foreground mb-1 font-medium">Recording</p>
+                            <audio
+                              controls
+                              className="w-full h-9"
+                              style={{ borderRadius: '6px' }}
+                              src={communication.audioFileUrl}
+                              preload="none"
+                            >
+                              Your browser does not support audio playback.
+                            </audio>
+                          </div>
+                        )}
+                        {/* AI Transcript */}
+                        {communication.type === "call" && communication.transcription && (
+                          <details className="mt-3">
+                            <summary className="text-xs font-medium text-primary cursor-pointer hover:underline select-none">
+                              View Transcript
+                            </summary>
+                            <div className="mt-2 p-3 bg-muted rounded-md text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+                              {communication.transcription}
+                            </div>
+                          </details>
+                        )}
                         {/* Audit trail: show original text if note was edited */}
                         {communication.editedAt && communication.originalBody && (
                           <details className="mt-2">

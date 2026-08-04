@@ -8,6 +8,7 @@
  *  2. Process the call asynchronously to avoid the 5-second timeout
  *  3. Only act on `call.ended` events (all call data is available at that point)
  *  4. Delegate to processAircallCall() which is fully idempotent
+ *  5. After creating the activity, trigger Whisper transcription + GPT summary async
  *
  * Webhook token verification:
  *  - Aircall sends a `token` field in the payload body
@@ -17,6 +18,7 @@
 
 import type { Express, Request, Response } from "express";
 import { processAircallCall, type AircallCallData } from "./aircall";
+import { transcribeAndSummarize } from "./aircallTranscribe";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,45 @@ function verifyWebhookToken(token: string | undefined): boolean {
   return token === expected;
 }
 
+// ─── Transcription Helper ─────────────────────────────────────────────────────
+
+/**
+ * Fetch the stored S3 audio URL from the communications row and run
+ * transcription + summary. Uses the permanent S3 URL (not the expiring Aircall URL).
+ */
+async function transcribeCallAsync(
+  communicationId: number,
+  callData: AircallCallData
+): Promise<void> {
+  const { getDb } = await import("./db");
+  const { communications } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+
+  const db = await getDb();
+  if (!db) return;
+
+  const rows = await db
+    .select({ audioFileUrl: communications.audioFileUrl })
+    .from(communications)
+    .where(eq(communications.id, communicationId))
+    .limit(1);
+
+  const audioUrl = rows[0]?.audioFileUrl;
+  if (!audioUrl) {
+    console.log(`[Aircall Webhook] No audio URL for comm ${communicationId} — skipping transcription`);
+    return;
+  }
+
+  await transcribeAndSummarize({
+    communicationId,
+    aircallCallId: callData.id,
+    audioUrl,
+    direction: callData.direction,
+    duration: callData.duration ?? null,
+    agentName: callData.user?.name,
+  });
+}
+
 // ─── Async Processor ──────────────────────────────────────────────────────────
 
 async function handleCallEnded(callData: AircallCallData): Promise<void> {
@@ -52,6 +93,17 @@ async function handleCallEnded(callData: AircallCallData): Promise<void> {
         console.log(
           `[Aircall Webhook] call.ended ${callData.id} → contact ${result.contactId}, comm ${result.communicationId}`
         );
+        // Kick off transcription + summary asynchronously (non-blocking)
+        if (result.communicationId) {
+          const hasAudio = !!(callData.recording ?? callData.voicemail);
+          if (hasAudio) {
+            transcribeCallAsync(result.communicationId, callData).catch((err) => {
+              console.error(
+                `[Aircall Webhook] Transcription error for comm ${result.communicationId}: ${err.message}`
+              );
+            });
+          }
+        }
         break;
       case "skipped":
         console.log(`[Aircall Webhook] call.ended ${callData.id} — already processed`);
