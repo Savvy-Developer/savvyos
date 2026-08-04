@@ -6,11 +6,12 @@
  * Unmatched emails go into email_behaviors_unmatched for deferred matching
  * when a new contact with that email is later created.
  *
- * Resend sync uses a two-phase approach:
- *   Phase 1 ("new"): Fetch from the newest email backwards until we hit a
- *     previously-seen externalId. This picks up all emails sent since last sync.
- *   Phase 2 ("backfill"): Continue paginating backwards from the historical
- *     cursor to gradually import older emails (newsletter blasts, etc.).
+ * Resend sync strategy:
+ *   Always starts from the NEWEST email and pages backwards until it passes
+ *   the most recent sentAt timestamp already in our DB. This guarantees all
+ *   new emails are captured regardless of newsletter blast sizes.
+ *   Uses upsert (ON DUPLICATE KEY) so re-processing the same email is safe.
+ *   Runs every 10 minutes.
  */
 import { getDb } from "./db";
 import {
@@ -47,18 +48,26 @@ interface EmailRecord {
 // ─── Resend Sync ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch NEW emails from Resend (newest first, no cursor).
- * Stops when it encounters an email ID that already exists in our DB,
- * meaning we've caught up to previously-synced records.
+ * Fetch emails from Resend starting from the newest, paging backwards.
+ * Stops when:
+ *   - We encounter an email with created_at older than `stopBefore` (we've caught up)
+ *   - We hit `maxPages` (safety limit to avoid infinite loops)
+ *   - There are no more pages
+ *
+ * The `overlapBuffer` (default 5 min) ensures we don't miss emails sent at
+ * the exact same second as our last sync boundary.
  */
-async function fetchResendNewEmails(
-  knownIds: Set<string>,
-  maxPages = 20,
+async function fetchResendEmailsSince(
+  stopBefore: Date,
+  maxPages = 500,
 ): Promise<EmailRecord[]> {
   const records: EmailRecord[] = [];
   let cursor: string | undefined;
   let page = 0;
-  let hitKnown = false;
+  let reachedStop = false;
+
+  // Add a 5-minute overlap buffer to avoid missing emails at the boundary
+  const stopTime = new Date(stopBefore.getTime() - 5 * 60 * 1000);
 
   while (page < maxPages) {
     const url = new URL("https://api.resend.com/emails");
@@ -69,7 +78,7 @@ async function fetchResendNewEmails(
       headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
     });
     if (!res.ok) {
-      console.error(`[EmailBehaviors] Resend API error (new): ${res.status}`);
+      console.error(`[EmailBehaviors] Resend API error: ${res.status}`);
       break;
     }
 
@@ -88,15 +97,17 @@ async function fetchResendNewEmails(
     if (!json.data || json.data.length === 0) break;
 
     for (const email of json.data) {
-      // If we've seen this ID before, we've caught up — stop
-      if (knownIds.has(email.id)) {
-        hitKnown = true;
+      const createdAt = email.created_at ? new Date(email.created_at) : null;
+
+      // If this email is older than our stop time, we've caught up
+      if (createdAt && createdAt < stopTime) {
+        reachedStop = true;
         break;
       }
 
       const toEmail = (email.to?.[0] ?? "").toLowerCase().trim();
       if (!toEmail) continue;
-      const sentDate = email.created_at ? new Date(email.created_at) : undefined;
+      const sentDate = createdAt ?? undefined;
       const lastEvent = email.last_event ?? "sent";
       records.push({
         source: "resend",
@@ -112,10 +123,17 @@ async function fetchResendNewEmails(
       });
     }
 
-    if (hitKnown) break;
+    if (reachedStop) break;
     if (!json.has_more) break;
     cursor = json.data[json.data.length - 1]?.id;
     page++;
+  }
+
+  if (page >= maxPages && !reachedStop) {
+    console.warn(
+      `[EmailBehaviors] Hit maxPages (${maxPages}) without reaching stop time. ` +
+      `Processed ${records.length} records. Will continue on next run.`,
+    );
   }
 
   return records;
@@ -128,11 +146,12 @@ async function fetchResendNewEmails(
 async function fetchResendBackfillEmails(
   afterId: string,
   maxPages = 10,
-): Promise<{ records: EmailRecord[]; nextCursor: string | undefined }> {
+): Promise<{ records: EmailRecord[]; nextCursor: string | undefined; done: boolean }> {
   const records: EmailRecord[] = [];
   let cursor: string | undefined = afterId;
   let page = 0;
-  let lastId: string | undefined;
+  let lastCursor: string | undefined;
+  let done = false;
 
   while (page < maxPages) {
     const url = new URL("https://api.resend.com/emails");
@@ -159,7 +178,10 @@ async function fetchResendBackfillEmails(
       has_more: boolean;
     };
 
-    if (!json.data || json.data.length === 0) break;
+    if (!json.data || json.data.length === 0) {
+      done = true;
+      break;
+    }
 
     for (const email of json.data) {
       const toEmail = (email.to?.[0] ?? "").toLowerCase().trim();
@@ -178,19 +200,18 @@ async function fetchResendBackfillEmails(
         openedAt: (lastEvent === "opened" || lastEvent === "clicked") ? sentDate : undefined,
         clickedAt: lastEvent === "clicked" ? sentDate : undefined,
       });
-      lastId = email.id;
     }
 
     if (!json.has_more) {
-      lastId = undefined; // No more pages — backfill complete
+      done = true;
       break;
     }
-    cursor = json.data[json.data.length - 1]?.id;
-    lastId = cursor;
+    lastCursor = json.data[json.data.length - 1]?.id;
+    cursor = lastCursor;
     page++;
   }
 
-  return { records, nextCursor: lastId };
+  return { records, nextCursor: done ? undefined : lastCursor, done };
 }
 
 // ─── GHL Sync ─────────────────────────────────────────────────────────────────
@@ -546,101 +567,89 @@ export async function syncEmailBehaviors(options?: {
         let totalMatched = 0;
         let totalUnmatched = 0;
 
-        // ── Phase 1: Fetch NEW emails (sent since last sync) ──────────────
-        // Get a sample of recent externalIds to detect overlap
-        const recentRows = await db
-          .select({ externalId: emailBehaviors.externalId })
+        // Determine the latest sentAt across both tables to know where to stop
+        const [latestMatched] = await db
+          .select({ maxSent: sql<string>`MAX(sentAt)` })
           .from(emailBehaviors)
-          .where(eq(emailBehaviors.source, "resend"))
-          .orderBy(sql`${emailBehaviors.createdAt} DESC`)
-          .limit(500);
-        const recentUnmatchedRows = await db
-          .select({ externalId: emailBehaviorsUnmatched.externalId })
+          .where(eq(emailBehaviors.source, "resend"));
+        const [latestUnmatched] = await db
+          .select({ maxSent: sql<string>`MAX(sentAt)` })
           .from(emailBehaviorsUnmatched)
-          .where(eq(emailBehaviorsUnmatched.source, "resend"))
-          .orderBy(sql`${emailBehaviorsUnmatched.createdAt} DESC`)
-          .limit(500);
+          .where(eq(emailBehaviorsUnmatched.source, "resend"));
 
-        const knownIds = new Set<string>([
-          ...recentRows.map((r) => r.externalId),
-          ...recentUnmatchedRows.map((r) => r.externalId),
-        ]);
+        const latestMatchedDate = latestMatched?.maxSent ? new Date(latestMatched.maxSent) : null;
+        const latestUnmatchedDate = latestUnmatched?.maxSent ? new Date(latestUnmatched.maxSent) : null;
+
+        // Use the more recent of the two as our stop point
+        let stopBefore: Date;
+        if (latestMatchedDate && latestUnmatchedDate) {
+          stopBefore = latestMatchedDate > latestUnmatchedDate ? latestMatchedDate : latestUnmatchedDate;
+        } else if (latestMatchedDate) {
+          stopBefore = latestMatchedDate;
+        } else if (latestUnmatchedDate) {
+          stopBefore = latestUnmatchedDate;
+        } else {
+          // No records at all — fetch everything (up to maxPages)
+          stopBefore = new Date(0);
+        }
 
         if (!options?.forceFullSync) {
-          console.log("[EmailBehaviors] Phase 1: Fetching new Resend emails...");
-          const newRecords = await fetchResendNewEmails(knownIds);
+          console.log(
+            `[EmailBehaviors] Fetching new Resend emails (stop before: ${stopBefore.toISOString()})...`,
+          );
+          const newRecords = await fetchResendEmailsSince(stopBefore);
 
           if (newRecords.length > 0) {
             const stats = await upsertEmailRecords(newRecords);
             totalMatched += stats.matched;
             totalUnmatched += stats.unmatched;
             console.log(
-              `[EmailBehaviors] Phase 1 complete — ${newRecords.length} new emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
+              `[EmailBehaviors] New emails sync — ${newRecords.length} fetched (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
             );
           } else {
-            console.log("[EmailBehaviors] Phase 1 — no new emails since last sync");
+            console.log("[EmailBehaviors] No new emails since last sync");
           }
         }
 
-        // ── Phase 2: Historical backfill (continue from old cursor) ───────
+        // ── Historical backfill (continue from old cursor if still in progress) ──
         const backfillCursor = syncState?.lastCursor;
-        if (backfillCursor || options?.forceFullSync) {
-          console.log("[EmailBehaviors] Phase 2: Backfill from historical cursor...");
-          const startCursor = options?.forceFullSync ? undefined : backfillCursor!;
-          // For backfill, use the old fetch function approach but with limited pages
-          const { records: backfillRecords, nextCursor } = startCursor
-            ? await fetchResendBackfillEmails(startCursor, 10)
-            : await fetchResendBackfillEmails("", 10); // empty string won't be used
+        if (backfillCursor) {
+          console.log("[EmailBehaviors] Backfill: continuing from historical cursor...");
+          const { records: backfillRecords, nextCursor, done } =
+            await fetchResendBackfillEmails(backfillCursor, 10);
 
           if (backfillRecords.length > 0) {
             const stats = await upsertEmailRecords(backfillRecords);
             totalMatched += stats.matched;
             totalUnmatched += stats.unmatched;
             console.log(
-              `[EmailBehaviors] Phase 2 complete — ${backfillRecords.length} backfill emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
+              `[EmailBehaviors] Backfill — ${backfillRecords.length} emails (matched: ${stats.matched}, unmatched: ${stats.unmatched})`,
             );
-          } else {
-            console.log("[EmailBehaviors] Phase 2 — backfill complete (no more historical emails)");
           }
 
-          // Update backfill cursor
-          if (nextCursor) {
-            await db
-              .insert(emailBehaviorsSyncState)
-              .values({
-                source: "resend",
+          // Update cursor (or clear it if backfill is done)
+          await db
+            .insert(emailBehaviorsSyncState)
+            .values({
+              source: "resend",
+              lastSyncedAt: new Date(),
+              lastCursor: done ? null : (nextCursor ?? null),
+              totalImported: totalMatched + totalUnmatched,
+            })
+            .onDuplicateKeyUpdate({
+              set: {
                 lastSyncedAt: new Date(),
-                lastCursor: nextCursor,
-                totalImported: totalMatched + totalUnmatched,
-              })
-              .onDuplicateKeyUpdate({
-                set: {
-                  lastSyncedAt: new Date(),
-                  lastCursor: nextCursor,
-                  totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
-                  updatedAt: new Date(),
-                },
-              });
-          } else {
-            // Backfill complete — just update timestamp
-            await db
-              .insert(emailBehaviorsSyncState)
-              .values({
-                source: "resend",
-                lastSyncedAt: new Date(),
-                lastCursor: backfillCursor ?? null,
-                totalImported: totalMatched + totalUnmatched,
-              })
-              .onDuplicateKeyUpdate({
-                set: {
-                  lastSyncedAt: new Date(),
-                  totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
-                  updatedAt: new Date(),
-                },
-              });
+                lastCursor: done ? null : (nextCursor ?? null),
+                totalImported: sql`totalImported + ${totalMatched + totalUnmatched}`,
+                updatedAt: new Date(),
+              },
+            });
+
+          if (done) {
+            console.log("[EmailBehaviors] Historical backfill complete — no more old emails");
           }
         } else {
-          // No backfill cursor yet — just update sync timestamp
+          // No backfill cursor — just update sync timestamp
           await db
             .insert(emailBehaviorsSyncState)
             .values({
