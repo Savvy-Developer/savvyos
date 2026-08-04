@@ -289,8 +289,10 @@ function AgentConnectionCard({
   );
 }
 
-// ─── AiSummaryCard ────────────────────────────────────────────────────────────
-function AiSummaryCard({ contactId }: { contactId: number }) {
+// ─── ActivityTabAiSummary ─────────────────────────────────────────────────────
+// Collapsible AI Summary pinned at the top of the Activity tab.
+function ActivityTabAiSummary({ contactId }: { contactId: number }) {
+  const [collapsed, setCollapsed] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
   const { data, isLoading, isFetching, error, refetch } = trpc.contacts.getAiSummary.useQuery(
     { id: contactId, forceRefresh },
@@ -303,49 +305,63 @@ function AiSummaryCard({ contactId }: { contactId: number }) {
   }
   const updatedAt = data?.updatedAt ? new Date(data.updatedAt) : null;
   return (
-    <Card>
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-violet-500" /> AI Summary
+    <Card className="mb-3 border-violet-200/60 bg-violet-50/30 dark:bg-violet-950/10">
+      <CardContent className="p-0">
+        {/* Header row — always visible */}
+        <button
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-violet-50/50 dark:hover:bg-violet-950/20 transition-colors rounded-t-lg"
+          onClick={() => setCollapsed(v => !v)}
+          aria-expanded={!collapsed}
+        >
+          <span className="text-sm font-semibold flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-violet-500" />
+            AI Summary
             {data?.cached && (
               <span className="text-[10px] font-normal text-muted-foreground flex items-center gap-0.5">
                 <Clock className="h-2.5 w-2.5" /> Cached
               </span>
             )}
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
             {updatedAt && (
               <span className="text-[10px] text-muted-foreground">
-                {updatedAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                Updated {updatedAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </span>
             )}
-            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleRefresh} disabled={isFetching || isLoading}>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleRefresh} disabled={isFetching || isLoading} title="Regenerate summary">
               <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
             </Button>
+            <span className="text-muted-foreground text-xs">{collapsed ? "▼" : "▲"}</span>
           </div>
-        </div>
-        {isLoading || isFetching ? (
-          <div className="space-y-1.5">
-            <div className="h-3 bg-muted rounded animate-pulse w-full" />
-            <div className="h-3 bg-muted rounded animate-pulse w-5/6" />
-            <div className="h-3 bg-muted rounded animate-pulse w-4/6" />
-          </div>
-        ) : error ? (
-          <p className="text-xs text-destructive">Failed to load summary. <button className="underline" onClick={handleRefresh}>Retry</button></p>
-        ) : data?.summary ? (
-          <div className="space-y-1.5">
-            {data.summary.split("\n\n").slice(0, 3).map((p, i) => (
-              <p key={i} className="text-xs leading-relaxed text-muted-foreground">{p}</p>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-4">
-            <Sparkles className="h-6 w-6 mx-auto mb-1.5 text-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground mb-2">No summary yet</p>
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleRefresh} disabled={isFetching}>
-              <Sparkles className="h-3 w-3 mr-1" /> Generate
-            </Button>
+        </button>
+        {/* Collapsible body */}
+        {!collapsed && (
+          <div className="px-4 pb-4 pt-1 border-t border-violet-100/60">
+            {isLoading || isFetching ? (
+              <div className="space-y-2 pt-1">
+                <div className="h-3 bg-violet-100 rounded animate-pulse w-full" />
+                <div className="h-3 bg-violet-100 rounded animate-pulse w-5/6" />
+                <div className="h-3 bg-violet-100 rounded animate-pulse w-4/6" />
+                <div className="h-3 bg-violet-100 rounded animate-pulse w-full" />
+                <div className="h-3 bg-violet-100 rounded animate-pulse w-3/4" />
+              </div>
+            ) : error ? (
+              <p className="text-sm text-destructive pt-1">Failed to load summary. <button className="underline" onClick={handleRefresh}>Retry</button></p>
+            ) : data?.summary ? (
+              <div className="space-y-2 pt-1">
+                {data.summary.split("\n\n").map((p, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-foreground/80">{p}</p>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <Sparkles className="h-7 w-7 mx-auto mb-2 text-violet-300" />
+                <p className="text-sm text-muted-foreground mb-3">No AI summary yet for this contact.</p>
+                <Button size="sm" variant="outline" className="h-8 text-sm border-violet-300 text-violet-700 hover:bg-violet-50" onClick={handleRefresh} disabled={isFetching}>
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Generate Summary
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -948,8 +964,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             </Card>
           )}
 
-          {/* AI Summary — inline in the left column */}
-          <AiSummaryCard contactId={contactId} />
+
         </div>
 
         {/* Right: Tabs */}
@@ -973,6 +988,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             </div>
 
             <TabsContent value="activity">
+              {/* AI Summary — always pinned at top, collapsible */}
+              <ActivityTabAiSummary contactId={contactId} />
               {(!comms || comms.length === 0) && activityEntries.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center text-muted-foreground">

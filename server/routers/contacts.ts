@@ -13,7 +13,7 @@ import {
   archiveContact,
   deleteContact,
 } from "../db";
-import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable } from "../../drizzle/schema";
+import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable } from "../../drizzle/schema";
 import { eq, or, and, desc, like, isNull, aliasedTable, notInArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
@@ -398,26 +398,27 @@ export const contactsRouter = router({
         notes.forEach(n => taskNotesList.push({ taskId: task.id, content: n.content, createdAt: n.createdAt }));
       }
 
-      // Fetch communications
+      // Fetch communications (all types: calls with transcripts, notes, emails, texts)
       const contactComms = await db
         .select({ comm: commsTable })
         .from(commsTable)
         .where(eq(commsTable.relatedContactId, input.id))
         .orderBy(desc(commsTable.communicatedAt))
-        .limit(20);
+        .limit(50);
 
-      // Fetch agent connections (with buy box)
-      const agentConns = await db
-        .select({ conn: agentConnectionsTable })
+      // Fetch agent connections with agent names and full notes
+      const agentConnsWithUsers = await db
+        .select({ conn: agentConnectionsTable, agent: users })
         .from(agentConnectionsTable)
+        .leftJoin(users, eq(agentConnectionsTable.agentId, users.id))
         .where(eq(agentConnectionsTable.contactId, input.id))
         .limit(10);
 
-      // Fetch transactions for this contact
+      // Fetch transactions for this contact (primary or seller)
       const contactTxs = await db
         .select({ tx: txTable })
         .from(txTable)
-        .where(eq(txTable.primaryContactId, input.id))
+        .where(or(eq(txTable.primaryContactId, input.id), eq(txTable.sellerContactId, input.id)))
         .orderBy(desc(txTable.createdAt))
         .limit(10);
 
@@ -432,7 +433,43 @@ export const contactsRouter = router({
         notes.forEach(n => txNotesList.push({ txId: tx.id, content: n.content, createdAt: n.createdAt }));
       }
 
-      // Build the prompt
+      // Fetch listings associated with this contact
+      const contactListings = await db
+        .select({ listing: listings, property: properties })
+        .from(listings)
+        .leftJoin(properties, eq(listings.propertyId, properties.id))
+        .where(eq(listings.contactId, input.id))
+        .orderBy(desc(listings.createdAt))
+        .limit(10);
+
+      // Fetch listing notes
+      const listingNotesList: Array<{ listingId: number; content: string }> = [];
+      for (const { listing } of contactListings.slice(0, 5)) {
+        const lnotes = await db
+          .select({ content: listingNotesTable.content })
+          .from(listingNotesTable)
+          .where(eq(listingNotesTable.listingId, listing.id))
+          .limit(5);
+        lnotes.forEach(n => listingNotesList.push({ listingId: listing.id, content: n.content }));
+      }
+
+      // Fetch smart plan enrollments
+      const smartPlanEnrollments = await db
+        .select({ enrollment: smartPlanEnrollmentsTable, plan: smartPlansTable })
+        .from(smartPlanEnrollmentsTable)
+        .leftJoin(smartPlansTable, eq(smartPlanEnrollmentsTable.planId, smartPlansTable.id))
+        .where(eq(smartPlanEnrollmentsTable.contactId, input.id))
+        .limit(10);
+
+      // Fetch contact-linked properties
+      const linkedProperties = await db
+        .select({ cp: contactProperties, prop: properties })
+        .from(contactProperties)
+        .leftJoin(properties, eq(contactProperties.propertyId, properties.id))
+        .where(eq(contactProperties.contactId, input.id))
+        .limit(10);
+
+      // ─── Build prompt sections ────────────────────────────────────────────────
       const contactName = `${contact.firstName} ${contact.lastName}`;
       const leadSourceLabel = leadSource
         ? (leadSource.parentName ? `${leadSource.parentName} › ${leadSource.name}` : leadSource.name)
@@ -443,64 +480,128 @@ export const contactsRouter = router({
         ? `${new Date(lastComm.communicatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} (${lastComm.type})`
         : "No contact recorded";
 
-      const agentsWhoTalked = agentConns.map(a => `Agent ID ${a.conn.agentId} (status: ${a.conn.pipelineStatus})`).join(", ") || "No agents assigned";
+      // Agent connections: include real names, pipeline status, notes, follow-up dates
+      const agentConnsSummary = agentConnsWithUsers.map(a => {
+        const name = a.agent?.name ?? `Agent ID ${a.conn.agentId}`;
+        const parts = [`${name} (pipeline: ${a.conn.pipelineStatus ?? "unknown"})`];
+        if (a.conn.agentNotes) parts.push(`Agent notes: ${a.conn.agentNotes}`);
+        if (a.conn.followUpDate) parts.push(`Follow-up date: ${new Date(a.conn.followUpDate).toLocaleDateString()}`);
+        if (a.conn.appointmentSet) parts.push(`Appointment set: ${a.conn.appointmentSetAt ? new Date(a.conn.appointmentSetAt).toLocaleDateString() : "yes"}`);
+        return parts.join(" | ");
+      }).join("\n") || "No agents assigned";
 
-      const buyBoxes = agentConns
-        .filter(a => a.conn.minPrice || a.conn.maxPrice || a.conn.propertyType)
+      // Buy box per agent connection
+      const buyBoxes = agentConnsWithUsers
+        .filter(a => a.conn.minPrice || a.conn.maxPrice || a.conn.propertyType || a.conn.investmentNotes || a.conn.strRequirements)
         .map(a => {
-          const parts = [];
+          const agentName = a.agent?.name ?? `Agent ${a.conn.agentId}`;
+          const parts = [`[${agentName}]`];
           if (a.conn.propertyType) parts.push(`Type: ${a.conn.propertyType}`);
           if (a.conn.minPrice || a.conn.maxPrice) parts.push(`Price: $${Number(a.conn.minPrice ?? 0).toLocaleString()} - $${Number(a.conn.maxPrice ?? 0).toLocaleString()}`);
           if (a.conn.minBeds) parts.push(`${a.conn.minBeds}+ beds`);
           if (a.conn.targetCities?.length) parts.push(`Cities: ${a.conn.targetCities.join(", ")}`);
-          if (a.conn.strRequirements) parts.push(`STR: ${a.conn.strRequirements}`);
-          if (a.conn.investmentNotes) parts.push(`Investment: ${a.conn.investmentNotes}`);
+          if (a.conn.strRequirements) parts.push(`STR requirements: ${a.conn.strRequirements}`);
+          if (a.conn.investmentNotes) parts.push(`Investment goals: ${a.conn.investmentNotes}`);
           return parts.join("; ");
         })
-        .join(" | ") || "No buy box defined";
+        .join("\n") || "No buy box defined";
 
-      const tasksSummary = contactTasks.slice(0, 15).map(({ task }) => {
+      // Tasks with notes
+      const tasksSummary = contactTasks.slice(0, 20).map(({ task }) => {
         const notes = taskNotesList.filter(n => n.taskId === task.id).map(n => n.content).join("; ");
         return `- [${task.status}] ${task.title}${task.dueDate ? ` (due ${new Date(task.dueDate).toLocaleDateString()})` : ""}${notes ? ` | Notes: ${notes}` : ""}`;
       }).join("\n") || "No tasks";
 
-      const commsSummary = contactComms.slice(0, 10).map(({ comm }) =>
-        `- ${new Date(comm.communicatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} [${comm.type}${comm.direction ? "/" + comm.direction : ""}]: ${comm.subject || ""} ${comm.body ? comm.body.slice(0, 200) : ""}`
-      ).join("\n") || "No communications logged";
+      // Calls with AI summaries and transcript excerpts
+      const callComms = contactComms.filter(({ comm }) => comm.type === "call");
+      const nonCallComms = contactComms.filter(({ comm }) => comm.type !== "call");
 
+      const callsSummary = callComms.slice(0, 20).map(({ comm }) => {
+        const date = new Date(comm.communicatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        const dir = comm.direction ? `/${comm.direction}` : "";
+        // Include the full body (which contains AI summary) and transcript excerpt
+        const bodyText = (comm.body ?? "").replace(/\n+/g, " ").slice(0, 400);
+        const transcriptExcerpt = comm.transcription ? `\n  Transcript: ${comm.transcription.slice(0, 600)}` : "";
+        return `- ${date} [call${dir}]: ${bodyText}${transcriptExcerpt}`;
+      }).join("\n\n") || "No calls logged";
+
+      // Other communications (notes, emails, texts)
+      const otherCommsSummary = nonCallComms.slice(0, 20).map(({ comm }) => {
+        const date = new Date(comm.communicatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        const dir = comm.direction ? `/${comm.direction}` : "";
+        return `- ${date} [${comm.type}${dir}]: ${comm.subject ? comm.subject + " — " : ""}${comm.body ? comm.body.slice(0, 300) : ""}`;
+      }).join("\n") || "No other communications";
+
+      // Transactions with notes
       const txSummary = contactTxs.map(({ tx }) => {
         const notes = txNotesList.filter(n => n.txId === tx.id).map(n => n.content).join("; ");
         return `- ${tx.transactionNumber ?? "TX"} [${tx.status}] ${tx.transactionType} ${tx.purchasePrice ? `$${Number(tx.purchasePrice).toLocaleString()}` : ""} ${tx.closingDate ? `closed ${new Date(tx.closingDate).toLocaleDateString()}` : ""}${notes ? ` | Notes: ${notes}` : ""}`;
       }).join("\n") || "No transactions";
 
-      const systemPrompt = `You are an expert real estate CRM analyst. Your job is to produce a concise, insightful AI summary for a lead/contact record. The summary should be written in clear, professional prose (2-4 short paragraphs) and cover:
-1. Who this person is and what they are looking for (property type, price range, cities, investment goals, STR requirements, etc.)
-2. Their engagement history — when was the last time anyone made contact, what was discussed, and which agents or ISAs have worked with them
-3. Their current pipeline status and any notable tasks or follow-ups
-4. A recommended next outreach action based on all available context
+      // Listings with property details and notes
+      const listingsSummary = contactListings.map(({ listing, property }) => {
+        const addr = property ? `${property.address}, ${property.city}, ${property.state}` : "Unknown address";
+        const lnotes = listingNotesList.filter(n => n.listingId === listing.id).map(n => n.content).join("; ");
+        return `- [${listing.listingStatus}] ${addr} | List price: ${listing.listPrice ? `$${Number(listing.listPrice).toLocaleString()}` : "N/A"} | MLS: ${listing.mlsNumber ?? "N/A"}${listing.notes ? ` | Notes: ${listing.notes}` : ""}${lnotes ? ` | Listing notes: ${lnotes}` : ""}`;
+      }).join("\n") || "No listings";
 
-Be specific and actionable. Use the data provided. Do not invent facts. If data is missing, note it briefly and move on. Write as if briefing a sales manager before a team meeting.`;
+      // Smart plan enrollments
+      const smartPlansSummary = smartPlanEnrollments.map(({ enrollment, plan }) =>
+        `- ${plan?.name ?? "Unknown plan"} [${enrollment.status}] enrolled ${new Date(enrollment.enrolledAt).toLocaleDateString()}${enrollment.nextStepAt ? ` | next step: ${new Date(enrollment.nextStepAt).toLocaleDateString()}` : ""}`
+      ).join("\n") || "No smart plan enrollments";
+
+      // Linked properties
+      const linkedPropertiesSummary = linkedProperties.map(({ cp, prop }) => {
+        if (!prop) return `- Property ID ${cp.propertyId} (${cp.label ?? "linked"})`;
+        return `- ${prop.address}, ${prop.city}, ${prop.state} (${cp.label ?? "linked"})${prop.strZoning ? ` | STR zoning: ${prop.strZoning}` : ""}${prop.notes ? ` | Notes: ${prop.notes}` : ""}`;
+      }).join("\n") || "No linked properties";
+
+      const systemPrompt = `You are an expert real estate CRM analyst for Savvy STR Agents, a short-term rental investment real estate company. Your job is to produce a comprehensive, insightful AI summary for a contact/lead record.
+
+Write in clear, professional prose organized into 3-5 paragraphs covering:
+1. WHO THEY ARE — name, background, what they are looking for (property type, price range, cities, STR goals, investment strategy)
+2. CALL & COMMUNICATION HISTORY — what has actually been discussed in calls and messages, key topics, objections, interests, and tone of conversations. Quote or paraphrase specific things said when available from transcripts.
+3. ENGAGEMENT & PIPELINE STATUS — which agents/ISAs have worked with them, pipeline stage, appointment history, follow-up dates, smart plan status
+4. TRANSACTIONS & LISTINGS — any active or closed deals, listings, linked properties
+5. RECOMMENDED NEXT ACTION — specific, actionable recommendation for the next outreach based on all context
+
+Be specific and data-driven. Use names, dates, dollar amounts, and direct quotes from transcripts when available. Do not invent facts. If data is missing, note it briefly. Write as if briefing a sales manager who is about to call this person.`;
 
       const userPrompt = `Contact: ${contactName}
+Email: ${contact.email ?? "None"} | Phone: ${contact.phone ?? "None"}
 Lead Source: ${leadSourceLabel}
 ISA Status: ${contact.isaStatus ?? "Not set"}
-Contact Notes: ${contact.notes ?? "None"}
+Contact Notes (general): ${contact.notes ?? "None"}
 Last Contact: ${lastContact}
-Agents/ISAs Who Have Worked With Them: ${agentsWhoTalked}
 
-Buy Box / What They're Looking For:
+=== AGENT CONNECTIONS & NOTES ===
+${agentConnsSummary}
+
+=== BUY BOX / INVESTMENT CRITERIA ===
 ${buyBoxes}
 
-Recent Communications (newest first):
-${commsSummary}
+=== CALL HISTORY (with AI summaries and transcripts) ===
+${callsSummary}
 
-Tasks:
+=== OTHER COMMUNICATIONS (emails, texts, notes) ===
+${otherCommsSummary}
+
+=== TASKS ===
 ${tasksSummary}
 
-Transactions:
+=== TRANSACTIONS ===
 ${txSummary}
 
-Please write the AI summary now.`;
+=== LISTINGS ===
+${listingsSummary}
+
+=== LINKED PROPERTIES ===
+${linkedPropertiesSummary}
+
+=== SMART PLAN ENROLLMENTS ===
+${smartPlansSummary}
+
+Please write the comprehensive AI summary now.`;
 
       let summary = "";
       try {
@@ -622,7 +723,7 @@ Please write the AI summary now.`;
         events.push({
           id: `listing-${l.id}`,
           type: "listing",
-          date: l.listDate ?? l.createdAt,
+          date: (l.listDate ?? l.createdAt) as Date | null,
           title: `Listing${l.mlsNumber ? ` · MLS ${l.mlsNumber}` : ""}`,
           subtitle: `Agent: ${agentName}`,
           outcome: LISTING_STATUS_LABELS[l.listingStatus] ?? l.listingStatus,
