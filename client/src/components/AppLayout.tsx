@@ -57,6 +57,7 @@ import {
   Activity,
   Briefcase,
   GraduationCap,
+  Flame,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -155,6 +156,7 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
       label: "Leads & CRM",
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
+        { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
         { icon: GitBranch, label: "Agent Pipelines", path: "/pipeline" },
         { icon: GitMerge, label: "Connection Requests", path: "/connection-requests", badge: pendingConnReqs > 0 ? pendingConnReqs : undefined },
       ],
@@ -244,6 +246,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "CRM",
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
+        { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
         { icon: GitBranch, label: "All Pipelines", path: "/pipeline" },
         { icon: GitMerge, label: "Connection Requests", path: "/connection-requests", badge: pendingConnReqs > 0 ? pendingConnReqs : undefined },
         { icon: Tag, label: "Lead Sources", path: "/lead-sources" },

@@ -88,6 +88,7 @@ import CoachingHubPage from "./pages/CoachingHubPage";
 import CoachingAgentPage from "./pages/CoachingAgentPage";
 import CoachingSessionPage from "./pages/CoachingSessionPage";
 import CoachingSessionsPage from "./pages/CoachingSessionsPage";
+import HotLeadsPage from "./pages/HotLeadsPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -227,6 +228,7 @@ function Router() {
           <Route path="/coaching/sessions">{() => <AdminRoute><CoachingSessionsPage /></AdminRoute>}</Route>
           <Route path="/coaching/agent/:id">{() => <AdminRoute><CoachingAgentPage /></AdminRoute>}</Route>
           <Route path="/coaching/session/:id">{() => <AdminRoute><CoachingSessionPage /></AdminRoute>}</Route>
+          <Route path="/hot-leads">{() => <AdminOrIsaRoute><HotLeadsPage /></AdminOrIsaRoute>}</Route>
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>

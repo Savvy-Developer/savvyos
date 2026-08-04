@@ -49,6 +49,7 @@ import { aircallRouter } from "./routers/aircall";
 import { jobBoardRouter } from "./routers/jobBoard";
 import { talentProfileRouter } from "./routers/talentProfile";
 import { coachingRouter } from "./routers/coaching";
+import { hotLeadsRouter } from "./routers/hotLeads";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -241,6 +242,7 @@ export const appRouter = router({
   jobBoard: jobBoardRouter,
   talentProfile: talentProfileRouter,
   coaching: coachingRouter,
+  hotLeads: hotLeadsRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
