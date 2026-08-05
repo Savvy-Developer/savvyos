@@ -36,6 +36,19 @@ const ENTITY_TYPE_OPTIONS = [
   { value: "user", label: "Users / Logins" },
   { value: "payout", label: "Payouts" },
   { value: "agent_connection", label: "Agent Connections" },
+  { value: "connection_request", label: "Connection Requests" },
+  { value: "communication", label: "Communications" },
+  { value: "contact_property", label: "Contact Properties" },
+  { value: "document", label: "Documents" },
+  { value: "approval_request", label: "Approval Requests" },
+  { value: "duplicate", label: "Duplicates" },
+  { value: "group", label: "Groups" },
+  { value: "permissions", label: "Permissions" },
+  { value: "commission_exception", label: "Commission Exceptions" },
+  { value: "market_match", label: "Market Match" },
+  { value: "marketing_request", label: "Marketing Requests" },
+  { value: "onboarding", label: "Onboarding" },
+  { value: "auth", label: "Auth" },
 ];
 
 // ─── Entity link builder ──────────────────────────────────────────────────────

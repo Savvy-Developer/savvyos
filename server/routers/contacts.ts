@@ -110,6 +110,7 @@ export const contactsRouter = router({
         action: "contact_created",
         entityType: "contact",
         entityId: id,
+        relatedContactId: id,
         details: { name: `${input.firstName} ${input.lastName}` },
       });
       // Trigger Smart Plans for this contact's lead source (fire-and-forget)
@@ -235,6 +236,7 @@ export const contactsRouter = router({
         action: "contact_updated",
         entityType: "contact",
         entityId: input.id,
+        relatedContactId: input.id,
         details: {
           actorName: ctx.user.name ?? "Unknown",
           actorRole: ctx.user.role,
@@ -272,6 +274,14 @@ export const contactsRouter = router({
         relatedContactId: input.contactId,
         relatedAgentConnectionId: input.agentConnectionId,
       });
+      await logActivity({
+        userId: ctx.user.id,
+        action: "communication_created",
+        entityType: "communication",
+        entityId: id,
+        relatedContactId: input.contactId,
+        details: { type: input.type, subject: input.subject, actorName: ctx.user.name ?? "Unknown" },
+      });
       return { id };
     }),
 
@@ -285,6 +295,7 @@ export const contactsRouter = router({
         action: "contact_archived",
         entityType: "contact",
         entityId: input.id,
+        relatedContactId: input.id,
       });
       return { success: true };
     }),
@@ -293,7 +304,19 @@ export const contactsRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      // Capture contact name before deletion for audit trail
+      const contact = await getContactById(input.id);
+      const contactData = (contact as any)?.contact ?? contact ?? {};
+      const contactName = `${contactData.firstName ?? ""} ${contactData.lastName ?? ""}`.trim() || "Unknown";
       await deleteContact(input.id);
+      await logActivity({
+        userId: ctx.user.id,
+        action: "contact_deleted",
+        entityType: "contact",
+        entityId: input.id,
+        relatedContactId: input.id,
+        details: { contactName, actorName: ctx.user.name ?? "Unknown" },
+      });
       return { success: true };
     }),
 
@@ -664,14 +687,19 @@ Please write the comprehensive AI summary now.`;
         .orderBy(desc(commsTable.communicatedAt))
         .limit(50);
 
-      // Fetch activity log for this contact
+      // Fetch activity log for this contact — uses relatedContactId for comprehensive audit trail
+      // This captures ALL actions related to this contact: direct edits, connection changes,
+      // document uploads, notes, pipeline changes, approval requests, etc.
       const actRows = await db
         .select({ log: activityLog, user: users })
         .from(activityLog)
         .leftJoin(users, eq(activityLog.userId, users.id))
-        .where(and(eq(activityLog.entityType, "contact"), eq(activityLog.entityId, input.contactId)))
+        .where(or(
+          eq(activityLog.relatedContactId, input.contactId),
+          and(eq(activityLog.entityType, "contact"), eq(activityLog.entityId, input.contactId)),
+        ))
         .orderBy(desc(activityLog.createdAt))
-        .limit(50);
+        .limit(100);
 
       type HistoryEvent = {
         id: string;
@@ -765,18 +793,74 @@ Please write the comprehensive AI summary now.`;
       }
 
       const ACTION_LABELS: Record<string, string> = {
+        // Contact actions
         contact_created: "Contact created",
         contact_updated: "Contact details updated",
-        isa_status_updated: "ISA status updated",
         contact_archived: "Contact archived",
+        contact_deleted: "Contact deleted",
+        isa_status_updated: "ISA status updated",
+        // Agent connection actions
+        agent_connection_created: "Agent connection created",
+        agent_connection_updated: "Agent connection updated",
+        connection_request_created: "Connection request submitted",
+        connection_request_approved: "Connection request approved",
+        connection_request_denied: "Connection request denied",
+        // Communication/note actions
+        communication_created: "Communication logged",
+        communication_updated: "Communication edited",
+        contact_property_linked: "Property linked to contact",
+        contact_property_unlinked: "Property unlinked from contact",
+        contact_property_label_updated: "Property link label updated",
+        // Document actions
+        document_saved: "Document uploaded",
+        document_deleted: "Document deleted",
+        // Approval requests
+        approval_request_created: "Deletion request submitted",
+        approval_request_reviewed: "Deletion request reviewed",
+        // Duplicate management
+        duplicate_merged: "Duplicate contact merged",
+        duplicate_dismissed: "Duplicate pair dismissed",
+        // Market Match
+        market_match_session_started: "Market Match session started",
+        market_match_session_completed: "Market Match session completed",
+        // Smart Plan enrollment
+        smart_plan_enrollment_enrolled: "Enrolled in Smart Plan",
+        smart_plan_enrollment_cancelled: "Smart Plan enrollment cancelled",
+        // Pipeline email
+        pipeline_email_sent: "Pipeline email sent",
+        // Property viewed
+        property_viewed: "Viewed a property",
+        // Task actions
+        task_created: "Task created",
+        task_completed: "Task completed",
+        task_updated: "Task updated",
       };
       for (const r of actRows) {
+        const details = (r.log.details ?? {}) as Record<string, unknown>;
+        // Build meta from details (skip internal fields)
+        const meta: Record<string, string | number | null> = {};
+        const SKIP_META = new Set(["path", "actorName", "actorRole", "note"]);
+        if (details.changes && Array.isArray(details.changes)) {
+          // Show field changes as meta entries
+          for (const c of (details.changes as Array<{ field: string; from: unknown; to: unknown }>).slice(0, 5)) {
+            meta[c.field] = `${c.from ?? "(none)"} → ${c.to ?? "(none)"}`;
+          }
+        } else {
+          for (const [k, v] of Object.entries(details)) {
+            if (SKIP_META.has(k)) continue;
+            if (v === null || v === undefined) continue;
+            if (typeof v === "object") continue;
+            meta[k] = String(v);
+            if (Object.keys(meta).length >= 4) break;
+          }
+        }
         events.push({
           id: `activity-${r.log.id}`,
           type: "activity",
           date: r.log.createdAt,
           title: ACTION_LABELS[r.log.action] ?? r.log.action.replace(/_/g, " "),
-          subtitle: (r.user as any)?.name ? `By ${(r.user as any).name}` : "",
+          subtitle: (r.user as any)?.name ? `By ${(r.user as any).name}` : (details.actorName ? `By ${details.actorName}` : ""),
+          meta: Object.keys(meta).length > 0 ? meta : undefined,
         });
       }
 
@@ -1069,6 +1153,15 @@ export const connectionRequestsRouter = router({
         contactId: input.contactId,
         pipelineStatus: input.requestedPipelineStatus as any,
       });
+      // Log the auto-approved connection request
+      await logActivity({
+        userId: ctx.user.id,
+        action: "connection_request_approved",
+        entityType: "connection_request",
+        entityId: input.contactId,
+        relatedContactId: input.contactId,
+        details: { actorName: ctx.user.name ?? "Unknown", agentId: effectiveAgentId, autoApproved: true },
+      });
       return { success: true, autoApproved: true };
     }),
 
@@ -1129,6 +1222,15 @@ export const connectionRequestsRouter = router({
           pipelineStatus: req.requestedPipelineStatus,
         });
       }
+      // Log the approval
+      await logActivity({
+        userId: ctx.user.id,
+        action: "connection_request_approved",
+        entityType: "connection_request",
+        entityId: input.id,
+        relatedContactId: req.contactId,
+        details: { actorName: ctx.user.name ?? "Unknown", agentId: req.agentId, contactId: req.contactId },
+      });
       return { success: true };
     }),
 
@@ -1138,9 +1240,22 @@ export const connectionRequestsRouter = router({
       if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      // Fetch the request to get the contactId for audit trail
+      const [req] = await db.select().from(connectionRequestsTable).where(eq(connectionRequestsTable.id, input.id)).limit(1);
       await db.update(connectionRequestsTable)
         .set({ status: "denied", reviewedById: ctx.user.id, reviewedAt: new Date(), notes: input.notes ?? null })
         .where(eq(connectionRequestsTable.id, input.id));
+      // Log the denial
+      if (req) {
+        await logActivity({
+          userId: ctx.user.id,
+          action: "connection_request_denied",
+          entityType: "connection_request",
+          entityId: input.id,
+          relatedContactId: req.contactId,
+          details: { actorName: ctx.user.name ?? "Unknown", agentId: req.agentId, contactId: req.contactId, notes: input.notes },
+        });
+      }
       return { success: true };
     }),
 

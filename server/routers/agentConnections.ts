@@ -198,6 +198,7 @@ export const agentConnectionsRouter = router({
         action: "agent_connection_created",
         entityType: "agent_connection",
         entityId: id,
+        relatedContactId: input.contactId,
         details: {
           actorName: ctx.user.name ?? "Unknown",
           actorRole: ctx.user.role,
@@ -311,6 +312,7 @@ export const agentConnectionsRouter = router({
         action: "agent_connection_updated",
         entityType: "agent_connection",
         entityId: input.id,
+        relatedContactId: currentConnection.contactId,
         details: {
           actorName: ctx.user.name ?? "Unknown",
           actorRole: ctx.user.role,

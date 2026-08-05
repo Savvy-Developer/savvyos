@@ -451,10 +451,13 @@ export const activityLog = mysqlTable("activity_log", {
   action: varchar("action", { length: 255 }).notNull(),
   entityType: varchar("entityType", { length: 64 }),
   entityId: int("entityId"),
+  relatedContactId: int("relatedContactId"),
   details: json("details"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
+}, (table) => [
+  index("idx_activity_log_entity").on(table.entityType, table.entityId),
+  index("idx_activity_log_contact").on(table.relatedContactId, table.createdAt),
+]);
 export type ActivityLog = typeof activityLog.$inferSelect;
 
 
