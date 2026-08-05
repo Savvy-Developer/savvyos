@@ -53,7 +53,14 @@ export function SimulationBanner() {
       </div>
       <button
         type="button"
-        onClick={() => stopSimulation().catch(() => toast.error("Failed to exit simulation"))}
+        onClick={() =>
+          stopSimulation()
+            .then(() => {
+              toast.success("Exiting simulation…");
+              setTimeout(() => window.location.reload(), 600);
+            })
+            .catch(() => toast.error("Failed to exit simulation"))
+        }
         disabled={isSimulatingLoading}
         className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-md px-3 py-1 text-white text-xs font-semibold transition-colors disabled:opacity-50"
       >
