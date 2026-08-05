@@ -462,46 +462,25 @@ export const propertiesRouter = router({
     .input(z.object({
       propertyId: z.number(),
       title: z.string().optional().nullable(),
-      purchasePrice: z.string(),
-      downPaymentPct: z.string().optional(),
-      closingCostsPct: z.string().optional(),
-      interestRate: z.string().optional(),
-      loanTermYears: z.number().optional(),
-      pmiPct: z.string().optional(),
-      furnishingBudget: z.string().optional(),
-      startupCosts: z.string().optional(),
-      otherCashNeeded: z.string().optional(),
-      revenueScenario1: z.string(),
-      revenueScenario2: z.string().optional().nullable(),
-      revenueScenario3: z.string().optional().nullable(),
-      revenueComps: z.any().optional().nullable(),
-      expUtilities: z.string().optional(),
-      expInsurance: z.string().optional(),
-      expInternet: z.string().optional(),
-      expLandscaping: z.string().optional(),
-      expRepairs: z.string().optional(),
-      expSupplies: z.string().optional(),
-      expSoftware: z.string().optional(),
-      expPestControl: z.string().optional(),
-      expPermits: z.string().optional(),
-      expPropertyTaxAnnual: z.string().optional(),
-      expOther: z.string().optional(),
-      maintenanceReservePct: z.string().optional(),
-      otaFeePct: z.string().optional(),
-      propertyMgmtPct: z.string().optional(),
-      cleaningCostPerTurn: z.string().optional(),
-      avgTurnsPerMonth: z.string().optional(),
-      propertyAppreciationPct: z.string().optional(),
-      revenueAppreciationPct: z.string().optional(),
-      propertyLink: z.string().optional().nullable(),
+      formData: z.any(),
       notes: z.string().optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const fd = input.formData || {};
       const [result] = await db.insert(proformas).values({
-        ...input,
+        propertyId: input.propertyId,
         createdByUserId: ctx.user.id,
+        title: input.title || "Untitled Pro-forma",
+        formData: fd,
+        purchasePrice: fd.purchasePrice || null,
+        grossRevenue: fd._calcGrossRevenue || null,
+        noiAnnual: fd._calcNoi || null,
+        cashFlowAnnual: fd._calcCashFlow || null,
+        cashOnCash: fd._calcCashOnCash || null,
+        capRate: fd._calcCapRate || null,
+        notes: input.notes,
       } as any);
       await logActivity({ userId: ctx.user.id, action: "proforma_created", entityType: "property", entityId: input.propertyId });
       return { id: (result as any).insertId };
@@ -510,42 +489,9 @@ export const propertiesRouter = router({
   updateProforma: protectedProcedure
     .input(z.object({
       id: z.number(),
-      data: z.object({
-        title: z.string().optional().nullable(),
-        purchasePrice: z.string().optional(),
-        downPaymentPct: z.string().optional(),
-        closingCostsPct: z.string().optional(),
-        interestRate: z.string().optional(),
-        loanTermYears: z.number().optional(),
-        pmiPct: z.string().optional(),
-        furnishingBudget: z.string().optional(),
-        startupCosts: z.string().optional(),
-        otherCashNeeded: z.string().optional(),
-        revenueScenario1: z.string().optional(),
-        revenueScenario2: z.string().optional().nullable(),
-        revenueScenario3: z.string().optional().nullable(),
-        revenueComps: z.any().optional().nullable(),
-        expUtilities: z.string().optional(),
-        expInsurance: z.string().optional(),
-        expInternet: z.string().optional(),
-        expLandscaping: z.string().optional(),
-        expRepairs: z.string().optional(),
-        expSupplies: z.string().optional(),
-        expSoftware: z.string().optional(),
-        expPestControl: z.string().optional(),
-        expPermits: z.string().optional(),
-        expPropertyTaxAnnual: z.string().optional(),
-        expOther: z.string().optional(),
-        maintenanceReservePct: z.string().optional(),
-        otaFeePct: z.string().optional(),
-        propertyMgmtPct: z.string().optional(),
-        cleaningCostPerTurn: z.string().optional(),
-        avgTurnsPerMonth: z.string().optional(),
-        propertyAppreciationPct: z.string().optional(),
-        revenueAppreciationPct: z.string().optional(),
-        propertyLink: z.string().optional().nullable(),
-        notes: z.string().optional().nullable(),
-      }),
+      title: z.string().optional().nullable(),
+      formData: z.any(),
+      notes: z.string().optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -555,7 +501,18 @@ export const propertiesRouter = router({
       if (ctx.user.role === "agent" && existing.createdByUserId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      await db.update(proformas).set(input.data as any).where(eq(proformas.id, input.id));
+      const fd = input.formData || {};
+      await db.update(proformas).set({
+        title: input.title ?? existing.title,
+        formData: fd,
+        purchasePrice: fd.purchasePrice || null,
+        grossRevenue: fd._calcGrossRevenue || null,
+        noiAnnual: fd._calcNoi || null,
+        cashFlowAnnual: fd._calcCashFlow || null,
+        cashOnCash: fd._calcCashOnCash || null,
+        capRate: fd._calcCapRate || null,
+        notes: input.notes ?? existing.notes,
+      } as any).where(eq(proformas.id, input.id));
       return { success: true };
     }),
 

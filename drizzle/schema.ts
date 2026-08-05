@@ -2250,57 +2250,24 @@ export type InsertMagicLinkToken = typeof magicLinkTokens.$inferInsert;
 // ─── Pro-formas ──────────────────────────────────────────────────────────────
 export const proformas = mysqlTable("proformas", {
   id: int("id").autoincrement().primaryKey(),
-  propertyId: int("propertyId").notNull().references(() => properties.id),
-  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  propertyId: int("propertyId").notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
   title: varchar("title", { length: 255 }),
+  version: int("version").default(1),
+  status: mysqlEnum("status", ["draft", "final", "archived"]).default("draft"),
 
-  // Property/Purchase Info
-  purchasePrice: decimal("purchasePrice", { precision: 12, scale: 2 }).notNull(),
-  downPaymentPct: decimal("downPaymentPct", { precision: 5, scale: 4 }).default("0.2000"),
-  closingCostsPct: decimal("closingCostsPct", { precision: 5, scale: 4 }).default("0.0200"),
-  interestRate: decimal("interestRate", { precision: 5, scale: 4 }).default("0.0700"),
-  loanTermYears: int("loanTermYears").default(30),
-  pmiPct: decimal("pmiPct", { precision: 5, scale: 4 }).default("0.0000"),
-  furnishingBudget: decimal("furnishingBudget", { precision: 12, scale: 2 }).default("0.00"),
-  startupCosts: decimal("startupCosts", { precision: 12, scale: 2 }).default("0.00"),
-  otherCashNeeded: decimal("otherCashNeeded", { precision: 12, scale: 2 }).default("0.00"),
+  // Key indexed fields for quick queries
+  purchasePrice: decimal("purchasePrice", { precision: 12, scale: 2 }),
+  grossRevenue: decimal("grossRevenue", { precision: 12, scale: 2 }),
+  noiAnnual: decimal("noiAnnual", { precision: 12, scale: 2 }),
+  cashFlowAnnual: decimal("cashFlowAnnual", { precision: 12, scale: 2 }),
+  cashOnCash: decimal("cashOnCash", { precision: 8, scale: 4 }),
+  capRate: decimal("capRate", { precision: 8, scale: 4 }),
 
-  // Revenue Projections (3 scenarios - annual)
-  revenueScenario1: decimal("revenueScenario1", { precision: 12, scale: 2 }).notNull(),
-  revenueScenario2: decimal("revenueScenario2", { precision: 12, scale: 2 }),
-  revenueScenario3: decimal("revenueScenario3", { precision: 12, scale: 2 }),
+  // Full form data as JSON (flexible schema)
+  formData: json("formData").notNull(),
 
-  // Revenue Comps (JSON array)
-  revenueComps: json("revenueComps"),
-
-  // Fixed Expenses (monthly)
-  expUtilities: decimal("expUtilities", { precision: 10, scale: 2 }).default("0.00"),
-  expInsurance: decimal("expInsurance", { precision: 10, scale: 2 }).default("0.00"),
-  expInternet: decimal("expInternet", { precision: 10, scale: 2 }).default("0.00"),
-  expLandscaping: decimal("expLandscaping", { precision: 10, scale: 2 }).default("0.00"),
-  expRepairs: decimal("expRepairs", { precision: 10, scale: 2 }).default("0.00"),
-  expSupplies: decimal("expSupplies", { precision: 10, scale: 2 }).default("0.00"),
-  expSoftware: decimal("expSoftware", { precision: 10, scale: 2 }).default("0.00"),
-  expPestControl: decimal("expPestControl", { precision: 10, scale: 2 }).default("0.00"),
-  expPermits: decimal("expPermits", { precision: 10, scale: 2 }).default("0.00"),
-  expPropertyTaxAnnual: decimal("expPropertyTaxAnnual", { precision: 10, scale: 2 }).default("0.00"),
-  expOther: decimal("expOther", { precision: 10, scale: 2 }).default("0.00"),
-
-  // Variable Expense Rates
-  maintenanceReservePct: decimal("maintenanceReservePct", { precision: 5, scale: 4 }).default("0.0500"),
-  otaFeePct: decimal("otaFeePct", { precision: 5, scale: 4 }).default("0.0300"),
-  propertyMgmtPct: decimal("propertyMgmtPct", { precision: 5, scale: 4 }).default("0.0000"),
-  cleaningCostPerTurn: decimal("cleaningCostPerTurn", { precision: 10, scale: 2 }).default("0.00"),
-  avgTurnsPerMonth: decimal("avgTurnsPerMonth", { precision: 5, scale: 2 }).default("0.00"),
-
-  // Appreciation Assumptions
-  propertyAppreciationPct: decimal("propertyAppreciationPct", { precision: 5, scale: 4 }).default("0.0400"),
-  revenueAppreciationPct: decimal("revenueAppreciationPct", { precision: 5, scale: 4 }).default("0.0300"),
-
-  // Property Link/Notes
-  propertyLink: varchar("propertyLink", { length: 512 }),
   notes: text("notes"),
-
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
