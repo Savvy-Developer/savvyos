@@ -187,6 +187,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewPipeline: "/pipeline",
   canViewConnectionRequests: "/connection-requests",
   canViewLeadSources: "/lead-sources",
+  canViewHotLeads: "/hot-leads",
   canViewTransactions: "/transactions",
   canViewTransactionExports: "/transaction-reporting",
   canViewListings: "/listings",

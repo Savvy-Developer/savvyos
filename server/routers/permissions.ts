@@ -25,6 +25,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewPipeline",           label: "All Pipelines",            group: "CRM" },
   { key: "canViewConnectionRequests", label: "Connection Requests",      group: "CRM" },
   { key: "canViewLeadSources",        label: "Lead Sources",             group: "CRM" },
+  { key: "canViewHotLeads",           label: "Hot Leads",                group: "CRM" },
   // Transactions
   { key: "canViewTransactions",       label: "All Transactions",         group: "Transactions" },
   { key: "canViewTransactionExports", label: "Transaction Exports",      group: "Transactions" },

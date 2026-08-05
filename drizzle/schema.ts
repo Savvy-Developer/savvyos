@@ -1592,6 +1592,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewPipeline: boolean("canViewPipeline").default(true).notNull(),
   canViewConnectionRequests: boolean("canViewConnectionRequests").default(true).notNull(),
   canViewLeadSources: boolean("canViewLeadSources").default(true).notNull(),
+  canViewHotLeads: boolean("canViewHotLeads").default(true).notNull(),
   // Transactions
   canViewTransactions: boolean("canViewTransactions").default(true).notNull(),
   canViewTransactionExports: boolean("canViewTransactionExports").default(true).notNull(),
