@@ -228,7 +228,7 @@ function Router() {
           <Route path="/coaching/sessions">{() => <AdminRoute><CoachingSessionsPage /></AdminRoute>}</Route>
           <Route path="/coaching/agent/:id">{() => <AdminRoute><CoachingAgentPage /></AdminRoute>}</Route>
           <Route path="/coaching/session/:id">{() => <AdminRoute><CoachingSessionPage /></AdminRoute>}</Route>
-          <Route path="/hot-leads">{() => <AdminOrIsaRoute><HotLeadsPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/hot-leads" component={HotLeadsPage} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>

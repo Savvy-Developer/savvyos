@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,13 +23,25 @@ import {
   Loader2,
 } from "lucide-react";
 
+type DaysFilter = "7" | "14" | "30" | "90";
+
 export default function HotLeadsPage() {
+  const { user } = useAuth();
+  const role = (user as any)?.role as string | undefined;
+  const isAgent = role === "agent";
+
   const [page, setPage] = useState(1);
+  const [days, setDays] = useState<DaysFilter>("7");
   const limit = 50;
 
   const { data, isLoading } = trpc.hotLeads.propertyViews.useQuery(
-    { page, limit }
+    { page, limit, days }
   );
+
+  const handleDaysChange = (newDays: DaysFilter) => {
+    setDays(newDays);
+    setPage(1); // Reset to page 1 when changing filter
+  };
 
   return (
     <div className="p-4 sm:p-6 max-w-[1400px] mx-auto">
@@ -49,6 +62,24 @@ export default function HotLeadsPage() {
         <TabsContent value="property-views">
           <Card>
             <CardContent className="p-0">
+              {/* Date range toggle */}
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <span className="text-sm font-medium text-muted-foreground">Time range:</span>
+                <div className="flex items-center gap-1">
+                  {(["7", "14", "30", "90"] as DaysFilter[]).map((d) => (
+                    <Button
+                      key={d}
+                      variant={days === d ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 px-3 text-xs"
+                      onClick={() => handleDaysChange(d)}
+                    >
+                      {d}d
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
               {isLoading ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -57,7 +88,7 @@ export default function HotLeadsPage() {
               ) : !data || data.items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                   <Eye className="h-10 w-10 mb-3 opacity-40" />
-                  <p className="text-sm">No property views in the last 7 days</p>
+                  <p className="text-sm">No property views in the last {days} days</p>
                 </div>
               ) : (
                 <>
@@ -66,7 +97,7 @@ export default function HotLeadsPage() {
                     <div className="flex items-center gap-2">
                       <Flame className="h-4 w-4 text-orange-500" />
                       <span className="text-sm font-medium">
-                        {data.totalCount} contacts viewed properties in the last 7 days
+                        {data.totalCount} contact{data.totalCount !== 1 ? "s" : ""} viewed properties in the last {days} days
                       </span>
                     </div>
                   </div>
@@ -82,8 +113,8 @@ export default function HotLeadsPage() {
                           <TableHead>Last Viewed</TableHead>
                           <TableHead>Last Property</TableHead>
                           <TableHead>Lead Source</TableHead>
-                          <TableHead>Assigned ISA</TableHead>
-                          <TableHead>Connected Agent</TableHead>
+                          {!isAgent && <TableHead>Assigned ISA</TableHead>}
+                          {!isAgent && <TableHead>Connected Agent</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -95,11 +126,11 @@ export default function HotLeadsPage() {
                             <TableCell>
                               <div className="flex flex-col">
                                 <a
-                                  href={`/contacts/${lead.contactId}`}
+                                  href={getContactLink(lead, isAgent)}
                                   className="font-medium text-foreground hover:text-primary hover:underline flex items-center gap-1"
                                 >
                                   {lead.firstName} {lead.lastName}
-                                  <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100" />
+                                  <ExternalLink className="h-3 w-3 opacity-50" />
                                 </a>
                                 <span className="text-xs text-muted-foreground">
                                   {lead.email || lead.phone || "—"}
@@ -118,12 +149,16 @@ export default function HotLeadsPage() {
                             <TableCell className="text-sm text-muted-foreground">
                               {lead.leadSource || "—"}
                             </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {lead.assignedIsa || "—"}
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {lead.connectedAgent || "—"}
-                            </TableCell>
+                            {!isAgent && (
+                              <TableCell className="text-sm text-muted-foreground">
+                                {lead.assignedIsa || "—"}
+                              </TableCell>
+                            )}
+                            {!isAgent && (
+                              <TableCell className="text-sm text-muted-foreground">
+                                {lead.connectedAgent || "—"}
+                              </TableCell>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
@@ -168,10 +203,18 @@ export default function HotLeadsPage() {
   );
 }
 
-// ─── Helper Components ────────────────────────────────────────────────────────
+// ─── Helper Functions ─────────────────────────────────────────────────────────
+
+function getContactLink(lead: { contactId: number; connectionId: number | null }, isAgent: boolean): string {
+  // For agents, link to the pipeline/connection page
+  if (isAgent && lead.connectionId) {
+    return `/pipeline/${lead.connectionId}`;
+  }
+  // For admin/ISA, link to the contact detail page
+  return `/contacts/${lead.contactId}`;
+}
 
 function ViewCountBadge({ count }: { count: number }) {
-  // Color intensity based on view count
   if (count >= 50) {
     return (
       <Badge className="bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800">
@@ -201,8 +244,6 @@ function ViewCountBadge({ count }: { count: number }) {
     </Badge>
   );
 }
-
-// ─── Helper Functions ─────────────────────────────────────────────────────────
 
 function formatRelativeDate(dateStr: string | null): string {
   if (!dateStr) return "—";

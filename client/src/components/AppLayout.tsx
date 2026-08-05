@@ -101,6 +101,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       label: "My CRM",
       items: [
         { icon: GitBranch, label: "My Pipeline", path: "/pipeline" },
+        { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
         { icon: GitMerge, label: "Request Connection", path: "/request-connection" },
       ],
     },
