@@ -204,6 +204,11 @@ export default function PropertyDetail() {
       <PageHeader
         title={formatStreet(property.address)}
         subtitle={formatCityStateZip(property.city, property.state, property.zip)}
+        actions={
+          <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma`)}>
+            <FileText className="h-4 w-4 mr-1" /> Create Pro-forma
+          </Button>
+        }
       />
 
       <Tabs defaultValue="overview" className="mt-6">

@@ -30,6 +30,7 @@ import {
   marketProfiles,
   feedback,
   taskNotes,
+  proformas,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -631,12 +632,37 @@ export async function getProperties(
   sortOrder: "asc" | "desc" = "desc",
   page = 1,
   limit = 100,
+  agentId?: number,
 ) {
   const db = await getDb();
   if (!db) return [];
-  const where = search
-    ? or(like(properties.address, `%${search}%`), like(properties.city, `%${search}%`))
-    : undefined;
+
+  // For agents, build a list of property IDs they should see
+  let agentPropertyIds: number[] | undefined;
+  if (agentId) {
+    // Properties they added
+    const addedProps = await db.select({ id: properties.id })
+      .from(properties)
+      .where(eq(properties.addedByUserId, agentId));
+    // Properties they have transactions with
+    const txProps = await db.select({ id: transactions.propertyId })
+      .from(transactions)
+      .where(and(eq(transactions.agentId, agentId), isNotNull(transactions.propertyId)));
+    const idSet = new Set<number>();
+    for (const r of addedProps) idSet.add(r.id);
+    for (const r of txProps) if (r.id) idSet.add(r.id);
+    agentPropertyIds = Array.from(idSet);
+    if (agentPropertyIds.length === 0) return [];
+  }
+
+  const conditions: any[] = [];
+  if (search) {
+    conditions.push(or(like(properties.address, `%${search}%`), like(properties.city, `%${search}%`)));
+  }
+  if (agentPropertyIds) {
+    conditions.push(inArray(properties.id, agentPropertyIds));
+  }
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
   const offset = Math.max(0, (page - 1) * limit);
 
   // Pre-aggregate per-propertyId once per related table, then LEFT JOIN. Replaces

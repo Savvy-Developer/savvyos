@@ -11,8 +11,8 @@ import {
   getDb,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog } from "../../drizzle/schema";
-import { aliasedTable, eq, desc, or, and } from "drizzle-orm";
+import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas } from "../../drizzle/schema";
+import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
 
 export const propertiesRouter = router({
   list: protectedProcedure
@@ -24,8 +24,10 @@ export const propertiesRouter = router({
         limit: z.number().int().min(1).max(500).default(100),
       }).optional(),
     )
-    .query(async ({ input }) => {
-      return getProperties(input?.search, input?.sortOrder ?? "desc", input?.page ?? 1, input?.limit ?? 100);
+    .query(async ({ input, ctx }) => {
+      // For agents, only show properties they added or are involved in via transactions
+      const agentId = (ctx.user.role === "agent") ? ctx.user.id : undefined;
+      return getProperties(input?.search, input?.sortOrder ?? "desc", input?.page ?? 1, input?.limit ?? 100, agentId);
     }),
 
   get: protectedProcedure
@@ -59,7 +61,7 @@ export const propertiesRouter = router({
       notes: z.string().optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await createProperty(input as any);
+      const id = await createProperty({ ...input, addedByUserId: ctx.user.id } as any);
       await logActivity({ userId: ctx.user.id, action: "property_created", entityType: "property", entityId: id });
       return { id };
     }),
@@ -266,7 +268,7 @@ export const propertiesRouter = router({
         events.push({
           id: `listing-${l.id}`,
           type: "listing",
-          date: l.listDate ?? l.createdAt,
+          date: l.listDate ? new Date(l.listDate) : l.createdAt,
           title: `Listing (${contactName})`,
           subtitle: `Agent: ${agentName}${l.mlsNumber ? ` · MLS ${l.mlsNumber}` : ""}`,
           outcome: LISTING_STATUS_LABELS[l.listingStatus] ?? l.listingStatus,
@@ -428,5 +430,172 @@ export const propertiesRouter = router({
       }
 
       return { created, skipped, errors, results };
+    }),
+
+  // ─── Pro-forma CRUD ──────────────────────────────────────────────────────
+  listProformas: protectedProcedure
+    .input(z.object({ propertyId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const conditions = [eq(proformas.propertyId, input.propertyId)];
+      if (ctx.user.role === "agent") {
+        conditions.push(eq(proformas.createdByUserId, ctx.user.id));
+      }
+      return db.select().from(proformas).where(and(...conditions)).orderBy(desc(proformas.createdAt));
+    }),
+
+  getProforma: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [row] = await db.select().from(proformas).where(eq(proformas.id, input.id)).limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent" && row.createdByUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return row;
+    }),
+
+  createProforma: protectedProcedure
+    .input(z.object({
+      propertyId: z.number(),
+      title: z.string().optional().nullable(),
+      purchasePrice: z.string(),
+      downPaymentPct: z.string().optional(),
+      closingCostsPct: z.string().optional(),
+      interestRate: z.string().optional(),
+      loanTermYears: z.number().optional(),
+      pmiPct: z.string().optional(),
+      furnishingBudget: z.string().optional(),
+      startupCosts: z.string().optional(),
+      otherCashNeeded: z.string().optional(),
+      revenueScenario1: z.string(),
+      revenueScenario2: z.string().optional().nullable(),
+      revenueScenario3: z.string().optional().nullable(),
+      revenueComps: z.any().optional().nullable(),
+      expUtilities: z.string().optional(),
+      expInsurance: z.string().optional(),
+      expInternet: z.string().optional(),
+      expLandscaping: z.string().optional(),
+      expRepairs: z.string().optional(),
+      expSupplies: z.string().optional(),
+      expSoftware: z.string().optional(),
+      expPestControl: z.string().optional(),
+      expPermits: z.string().optional(),
+      expPropertyTaxAnnual: z.string().optional(),
+      expOther: z.string().optional(),
+      maintenanceReservePct: z.string().optional(),
+      otaFeePct: z.string().optional(),
+      propertyMgmtPct: z.string().optional(),
+      cleaningCostPerTurn: z.string().optional(),
+      avgTurnsPerMonth: z.string().optional(),
+      propertyAppreciationPct: z.string().optional(),
+      revenueAppreciationPct: z.string().optional(),
+      propertyLink: z.string().optional().nullable(),
+      notes: z.string().optional().nullable(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [result] = await db.insert(proformas).values({
+        ...input,
+        createdByUserId: ctx.user.id,
+      } as any);
+      await logActivity({ userId: ctx.user.id, action: "proforma_created", entityType: "property", entityId: input.propertyId });
+      return { id: (result as any).insertId };
+    }),
+
+  updateProforma: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      data: z.object({
+        title: z.string().optional().nullable(),
+        purchasePrice: z.string().optional(),
+        downPaymentPct: z.string().optional(),
+        closingCostsPct: z.string().optional(),
+        interestRate: z.string().optional(),
+        loanTermYears: z.number().optional(),
+        pmiPct: z.string().optional(),
+        furnishingBudget: z.string().optional(),
+        startupCosts: z.string().optional(),
+        otherCashNeeded: z.string().optional(),
+        revenueScenario1: z.string().optional(),
+        revenueScenario2: z.string().optional().nullable(),
+        revenueScenario3: z.string().optional().nullable(),
+        revenueComps: z.any().optional().nullable(),
+        expUtilities: z.string().optional(),
+        expInsurance: z.string().optional(),
+        expInternet: z.string().optional(),
+        expLandscaping: z.string().optional(),
+        expRepairs: z.string().optional(),
+        expSupplies: z.string().optional(),
+        expSoftware: z.string().optional(),
+        expPestControl: z.string().optional(),
+        expPermits: z.string().optional(),
+        expPropertyTaxAnnual: z.string().optional(),
+        expOther: z.string().optional(),
+        maintenanceReservePct: z.string().optional(),
+        otaFeePct: z.string().optional(),
+        propertyMgmtPct: z.string().optional(),
+        cleaningCostPerTurn: z.string().optional(),
+        avgTurnsPerMonth: z.string().optional(),
+        propertyAppreciationPct: z.string().optional(),
+        revenueAppreciationPct: z.string().optional(),
+        propertyLink: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db.select().from(proformas).where(eq(proformas.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent" && existing.createdByUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await db.update(proformas).set(input.data as any).where(eq(proformas.id, input.id));
+      return { success: true };
+    }),
+
+  deleteProforma: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db.select().from(proformas).where(eq(proformas.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ctx.user.role === "agent" && existing.createdByUserId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      await db.delete(proformas).where(eq(proformas.id, input.id));
+      return { success: true };
+    }),
+
+  // Get agent branding info for pro-forma PDF
+  getAgentBranding: protectedProcedure
+    .input(z.object({ userId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const targetUserId = input.userId ?? ctx.user.id;
+      const { userProfiles, marketProfiles } = await import("../../drizzle/schema");
+      const [userRow] = await db.select().from(users).where(eq(users.id, targetUserId)).limit(1);
+      if (!userRow) return null;
+      const [profileRow] = await db.select().from(userProfiles).where(eq(userProfiles.userId, targetUserId)).limit(1);
+      let marketName: string | null = null;
+      if (userRow.marketProfileId) {
+        const [mRow] = await db.select({ name: marketProfiles.name, state: marketProfiles.state }).from(marketProfiles).where(eq(marketProfiles.id, userRow.marketProfileId)).limit(1);
+        if (mRow) marketName = `${mRow.name}, ${mRow.state}`;
+      }
+      return {
+        name: userRow.name,
+        email: userRow.email,
+        phone: userRow.phone ?? profileRow?.primaryPhone ?? null,
+        profilePhotoUrl: profileRow?.profilePhotoUrl ?? null,
+        callBookingLink: userRow.callBookingLink ?? null,
+        market: marketName,
+      };
     }),
 });

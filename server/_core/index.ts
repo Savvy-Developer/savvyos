@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
 import { registerUploadRoutes } from "../uploadRoutes";
+import { registerProformaPdfRoute } from "../proformaPdf";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -92,6 +93,8 @@ async function startServer() {
   registerMagicLinkRoutes(app);
   // File upload routes
   registerUploadRoutes(app);
+  // Pro-forma PDF generation
+  registerProformaPdfRoute(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC
   registerWebhookRoute(app);
 

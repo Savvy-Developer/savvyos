@@ -296,6 +296,29 @@ export const transactionsRouter = router({
         }
       }
 
+      // Auto-link contacts to property via contact_properties
+      if (input.propertyId) {
+        try {
+          const dbLink = await getDb();
+          if (dbLink) {
+            const { contactProperties } = await import("../../drizzle/schema");
+            const contactsToLink: Array<{ contactId: number; label: string }> = [];
+            if (input.primaryContactId) {
+              const label = input.transactionType === "buyer" ? "Buyer" : input.transactionType === "seller" ? "Seller" : "Buyer/Seller";
+              contactsToLink.push({ contactId: input.primaryContactId, label });
+            }
+            if (input.sellerContactId) contactsToLink.push({ contactId: input.sellerContactId, label: "Seller" });
+            for (const cl of contactsToLink) {
+              const existing = await dbLink.select({ id: contactProperties.id }).from(contactProperties)
+                .where(and(eq(contactProperties.contactId, cl.contactId), eq(contactProperties.propertyId, input.propertyId))).limit(1);
+              if (existing.length === 0) {
+                await dbLink.insert(contactProperties).values({ contactId: cl.contactId, propertyId: input.propertyId, label: cl.label });
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       // Notify agent of new transaction
       await sendEmailAlert("transaction_created", agentId, {
         transactionNumber: txNumber,
@@ -877,7 +900,7 @@ export const transactionsRouter = router({
         events.push({
           id: `listing-converted-${l.id}`,
           type: "listing_converted",
-          date: l.listDate ?? l.createdAt,
+          date: l.listDate ? new Date(l.listDate) : l.createdAt,
           title: `Converted from Listing${l.mlsNumber ? ` · MLS ${l.mlsNumber}` : ""}`,
           subtitle: `List price: ${l.listPrice ? `$${Number(l.listPrice).toLocaleString()}` : "N/A"} · Listed ${l.listDate ? new Date(l.listDate).toLocaleDateString() : "N/A"}`,
           listingId: l.id,

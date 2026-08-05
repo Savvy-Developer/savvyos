@@ -233,10 +233,12 @@ export const properties = mysqlTable("properties", {
   strZoning: varchar("strZoning", { length: 255 }),
   strNotes: text("strNotes"),
   notes: text("notes"),
+  addedByUserId: int("addedByUserId").references(() => users.id),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   createdAtIdx: index("properties_createdAt_idx").on(table.createdAt),
+  addedByUserIdx: index("idx_properties_addedByUserId").on(table.addedByUserId),
 }));
 
 export type Property = typeof properties.$inferSelect;
@@ -2243,3 +2245,67 @@ export const magicLinkTokens = mysqlTable("magic_link_tokens", {
 ]);
 export type MagicLinkToken = typeof magicLinkTokens.$inferSelect;
 export type InsertMagicLinkToken = typeof magicLinkTokens.$inferInsert;
+
+
+// ─── Pro-formas ──────────────────────────────────────────────────────────────
+export const proformas = mysqlTable("proformas", {
+  id: int("id").autoincrement().primaryKey(),
+  propertyId: int("propertyId").notNull().references(() => properties.id),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  title: varchar("title", { length: 255 }),
+
+  // Property/Purchase Info
+  purchasePrice: decimal("purchasePrice", { precision: 12, scale: 2 }).notNull(),
+  downPaymentPct: decimal("downPaymentPct", { precision: 5, scale: 4 }).default("0.2000"),
+  closingCostsPct: decimal("closingCostsPct", { precision: 5, scale: 4 }).default("0.0200"),
+  interestRate: decimal("interestRate", { precision: 5, scale: 4 }).default("0.0700"),
+  loanTermYears: int("loanTermYears").default(30),
+  pmiPct: decimal("pmiPct", { precision: 5, scale: 4 }).default("0.0000"),
+  furnishingBudget: decimal("furnishingBudget", { precision: 12, scale: 2 }).default("0.00"),
+  startupCosts: decimal("startupCosts", { precision: 12, scale: 2 }).default("0.00"),
+  otherCashNeeded: decimal("otherCashNeeded", { precision: 12, scale: 2 }).default("0.00"),
+
+  // Revenue Projections (3 scenarios - annual)
+  revenueScenario1: decimal("revenueScenario1", { precision: 12, scale: 2 }).notNull(),
+  revenueScenario2: decimal("revenueScenario2", { precision: 12, scale: 2 }),
+  revenueScenario3: decimal("revenueScenario3", { precision: 12, scale: 2 }),
+
+  // Revenue Comps (JSON array)
+  revenueComps: json("revenueComps"),
+
+  // Fixed Expenses (monthly)
+  expUtilities: decimal("expUtilities", { precision: 10, scale: 2 }).default("0.00"),
+  expInsurance: decimal("expInsurance", { precision: 10, scale: 2 }).default("0.00"),
+  expInternet: decimal("expInternet", { precision: 10, scale: 2 }).default("0.00"),
+  expLandscaping: decimal("expLandscaping", { precision: 10, scale: 2 }).default("0.00"),
+  expRepairs: decimal("expRepairs", { precision: 10, scale: 2 }).default("0.00"),
+  expSupplies: decimal("expSupplies", { precision: 10, scale: 2 }).default("0.00"),
+  expSoftware: decimal("expSoftware", { precision: 10, scale: 2 }).default("0.00"),
+  expPestControl: decimal("expPestControl", { precision: 10, scale: 2 }).default("0.00"),
+  expPermits: decimal("expPermits", { precision: 10, scale: 2 }).default("0.00"),
+  expPropertyTaxAnnual: decimal("expPropertyTaxAnnual", { precision: 10, scale: 2 }).default("0.00"),
+  expOther: decimal("expOther", { precision: 10, scale: 2 }).default("0.00"),
+
+  // Variable Expense Rates
+  maintenanceReservePct: decimal("maintenanceReservePct", { precision: 5, scale: 4 }).default("0.0500"),
+  otaFeePct: decimal("otaFeePct", { precision: 5, scale: 4 }).default("0.0300"),
+  propertyMgmtPct: decimal("propertyMgmtPct", { precision: 5, scale: 4 }).default("0.0000"),
+  cleaningCostPerTurn: decimal("cleaningCostPerTurn", { precision: 10, scale: 2 }).default("0.00"),
+  avgTurnsPerMonth: decimal("avgTurnsPerMonth", { precision: 5, scale: 2 }).default("0.00"),
+
+  // Appreciation Assumptions
+  propertyAppreciationPct: decimal("propertyAppreciationPct", { precision: 5, scale: 4 }).default("0.0400"),
+  revenueAppreciationPct: decimal("revenueAppreciationPct", { precision: 5, scale: 4 }).default("0.0300"),
+
+  // Property Link/Notes
+  propertyLink: varchar("propertyLink", { length: 512 }),
+  notes: text("notes"),
+
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  propertyIdx: index("idx_proformas_property").on(table.propertyId),
+  userIdx: index("idx_proformas_user").on(table.createdByUserId),
+}));
+export type Proforma = typeof proformas.$inferSelect;
+export type InsertProforma = typeof proformas.$inferInsert;

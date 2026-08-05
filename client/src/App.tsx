@@ -19,6 +19,7 @@ import TransactionsPage from "./pages/TransactionsPage";
 import TransactionDetail from "./pages/TransactionDetail";
 import PropertiesPage from "./pages/PropertiesPage";
 import PropertyDetail from "./pages/PropertyDetail";
+import ProformaPage from "./pages/ProformaPage";
 import TasksPage from "./pages/TasksPage";
 import ReportingSuitePage from "./pages/ReportingSuitePage";
 import PipelinePage from "./pages/PipelinePage";
@@ -164,6 +165,7 @@ function Router() {
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/properties" component={PropertiesPage} />
           <Route path="/properties/:id" component={PropertyDetail} />
+          <Route path="/properties/:id/proforma" component={ProformaPage} />
           <Route path="/pipeline" component={PipelinePage} />
           <Route path="/pipeline/:id" component={AgentConnectionDetail} />
           <Route path="/connection-requests" component={ConnectionRequestsPage} />
