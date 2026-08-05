@@ -6,6 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -28,37 +35,84 @@ import {
 
 type DaysFilter = "7" | "14" | "30" | "90";
 
+const PIPELINE_STATUSES = [
+  { value: "new_lead", label: "New Lead" },
+  { value: "attempted_contact", label: "Attempted Contact" },
+  { value: "nurture", label: "Nurture" },
+  { value: "active_client", label: "Active Client" },
+  { value: "under_contract", label: "Under Contract" },
+  { value: "closed", label: "Closed" },
+  { value: "dead", label: "Dead" },
+];
+
 export default function HotLeadsPage() {
   const { user } = useAuth();
   const role = (user as any)?.role as string | undefined;
   const isAgent = role === "agent";
+  const isAdminOrIsa = role === "admin" || role === "isa";
 
   const [activeTab, setActiveTab] = useState("property-views");
   const [pvPage, setPvPage] = useState(1);
   const [rvPage, setRvPage] = useState(1);
   const [eePage, setEePage] = useState(1);
   const [days, setDays] = useState<DaysFilter>("7");
+  const [isaFilter, setIsaFilter] = useState<string>("");
+  const [agentFilter, setAgentFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const limit = 50;
+
+  // Fetch ISA and agent lists for filter dropdowns (admin/ISA only)
+  const { data: usersList = [] } = trpc.users.list.useQuery(undefined, { enabled: isAdminOrIsa });
+  const isas = usersList.filter((u: any) => u.role === "isa");
+  const agents = usersList.filter((u: any) => u.role === "agent");
+
+  // Build query params
+  const baseParams = {
+    days,
+    limit,
+    ...(isAdminOrIsa && isaFilter ? { isaId: parseInt(isaFilter) } : {}),
+    ...(isAdminOrIsa && agentFilter ? { agentId: parseInt(agentFilter) } : {}),
+    ...(isAgent && statusFilter ? { pipelineStatus: statusFilter } : {}),
+  };
 
   // Queries for each tab
   const propertyViews = trpc.hotLeads.propertyViews.useQuery(
-    { page: pvPage, limit, days },
+    { ...baseParams, page: pvPage },
     { enabled: activeTab === "property-views" }
   );
   const returnVisitors = trpc.hotLeads.returnVisitors.useQuery(
-    { page: rvPage, limit, days },
+    { ...baseParams, page: rvPage },
     { enabled: activeTab === "return-visitors" }
   );
   const emailEngagement = trpc.hotLeads.emailEngagement.useQuery(
-    { page: eePage, limit, days },
+    { ...baseParams, page: eePage },
     { enabled: activeTab === "email-engagement" }
   );
 
   const handleDaysChange = (newDays: DaysFilter) => {
     setDays(newDays);
+    resetPages();
+  };
+
+  const resetPages = () => {
     setPvPage(1);
     setRvPage(1);
     setEePage(1);
+  };
+
+  const handleIsaChange = (val: string) => {
+    setIsaFilter(val === "all" ? "" : val);
+    resetPages();
+  };
+
+  const handleAgentChange = (val: string) => {
+    setAgentFilter(val === "all" ? "" : val);
+    resetPages();
+  };
+
+  const handleStatusChange = (val: string) => {
+    setStatusFilter(val === "all" ? "" : val);
+    resetPages();
   };
 
   return (
@@ -88,7 +142,20 @@ export default function HotLeadsPage() {
         <TabsContent value="property-views">
           <Card>
             <CardContent className="p-0">
-              <DaysToggle days={days} onChange={handleDaysChange} />
+              <FiltersBar
+                days={days}
+                onDaysChange={handleDaysChange}
+                isAdminOrIsa={isAdminOrIsa}
+                isAgent={isAgent}
+                isas={isas}
+                agents={agents}
+                isaFilter={isaFilter}
+                agentFilter={agentFilter}
+                statusFilter={statusFilter}
+                onIsaChange={handleIsaChange}
+                onAgentChange={handleAgentChange}
+                onStatusChange={handleStatusChange}
+              />
               <DataTable
                 isLoading={propertyViews.isLoading}
                 emptyIcon={<Eye className="h-10 w-10 mb-3 opacity-40" />}
@@ -108,7 +175,7 @@ export default function HotLeadsPage() {
                     <TableHead>Last Property</TableHead>
                     <TableHead>Lead Source</TableHead>
                     {!isAgent && <TableHead>Assigned ISA</TableHead>}
-                    {!isAgent && <TableHead>Connected Agent</TableHead>}
+                    {!isAgent && <TableHead>Connected Agents</TableHead>}
                   </>
                 }
                 rows={propertyViews.data?.items.map((lead, idx) => (
@@ -138,7 +205,7 @@ export default function HotLeadsPage() {
                     )}
                     {!isAgent && (
                       <TableCell className="text-sm text-muted-foreground">
-                        {lead.connectedAgent || "—"}
+                        <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
                     )}
                   </TableRow>
@@ -152,7 +219,20 @@ export default function HotLeadsPage() {
         <TabsContent value="return-visitors">
           <Card>
             <CardContent className="p-0">
-              <DaysToggle days={days} onChange={handleDaysChange} />
+              <FiltersBar
+                days={days}
+                onDaysChange={handleDaysChange}
+                isAdminOrIsa={isAdminOrIsa}
+                isAgent={isAgent}
+                isas={isas}
+                agents={agents}
+                isaFilter={isaFilter}
+                agentFilter={agentFilter}
+                statusFilter={statusFilter}
+                onIsaChange={handleIsaChange}
+                onAgentChange={handleAgentChange}
+                onStatusChange={handleStatusChange}
+              />
               <DataTable
                 isLoading={returnVisitors.isLoading}
                 emptyIcon={<CalendarDays className="h-10 w-10 mb-3 opacity-40" />}
@@ -172,7 +252,7 @@ export default function HotLeadsPage() {
                     <TableHead>Last Viewed</TableHead>
                     <TableHead>Lead Source</TableHead>
                     {!isAgent && <TableHead>Assigned ISA</TableHead>}
-                    {!isAgent && <TableHead>Connected Agent</TableHead>}
+                    {!isAgent && <TableHead>Connected Agents</TableHead>}
                   </>
                 }
                 rows={returnVisitors.data?.items.map((lead, idx) => (
@@ -202,7 +282,7 @@ export default function HotLeadsPage() {
                     )}
                     {!isAgent && (
                       <TableCell className="text-sm text-muted-foreground">
-                        {lead.connectedAgent || "—"}
+                        <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
                     )}
                   </TableRow>
@@ -216,7 +296,20 @@ export default function HotLeadsPage() {
         <TabsContent value="email-engagement">
           <Card>
             <CardContent className="p-0">
-              <DaysToggle days={days} onChange={handleDaysChange} />
+              <FiltersBar
+                days={days}
+                onDaysChange={handleDaysChange}
+                isAdminOrIsa={isAdminOrIsa}
+                isAgent={isAgent}
+                isas={isas}
+                agents={agents}
+                isaFilter={isaFilter}
+                agentFilter={agentFilter}
+                statusFilter={statusFilter}
+                onIsaChange={handleIsaChange}
+                onAgentChange={handleAgentChange}
+                onStatusChange={handleStatusChange}
+              />
               <DataTable
                 isLoading={emailEngagement.isLoading}
                 emptyIcon={<Mail className="h-10 w-10 mb-3 opacity-40" />}
@@ -236,7 +329,7 @@ export default function HotLeadsPage() {
                     <TableHead>Last Engaged</TableHead>
                     <TableHead>Lead Source</TableHead>
                     {!isAgent && <TableHead>Assigned ISA</TableHead>}
-                    {!isAgent && <TableHead>Connected Agent</TableHead>}
+                    {!isAgent && <TableHead>Connected Agents</TableHead>}
                   </>
                 }
                 rows={emailEngagement.data?.items.map((lead, idx) => (
@@ -266,7 +359,7 @@ export default function HotLeadsPage() {
                     )}
                     {!isAgent && (
                       <TableCell className="text-sm text-muted-foreground">
-                        {lead.connectedAgent || "—"}
+                        <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
                     )}
                   </TableRow>
@@ -282,32 +375,139 @@ export default function HotLeadsPage() {
 
 // ─── Shared Components ────────────────────────────────────────────────────────
 
-function DaysToggle({ days, onChange }: { days: DaysFilter; onChange: (d: DaysFilter) => void }) {
+function FiltersBar({
+  days,
+  onDaysChange,
+  isAdminOrIsa,
+  isAgent,
+  isas,
+  agents,
+  isaFilter,
+  agentFilter,
+  statusFilter,
+  onIsaChange,
+  onAgentChange,
+  onStatusChange,
+}: {
+  days: DaysFilter;
+  onDaysChange: (d: DaysFilter) => void;
+  isAdminOrIsa: boolean;
+  isAgent: boolean;
+  isas: any[];
+  agents: any[];
+  isaFilter: string;
+  agentFilter: string;
+  statusFilter: string;
+  onIsaChange: (v: string) => void;
+  onAgentChange: (v: string) => void;
+  onStatusChange: (v: string) => void;
+}) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-b">
-      <span className="text-sm font-medium text-muted-foreground">Time range:</span>
-      <div className="flex items-center gap-1">
-        {(["7", "14", "30", "90"] as DaysFilter[]).map((d) => (
-          <Button
-            key={d}
-            variant={days === d ? "default" : "outline"}
-            size="sm"
-            className="h-7 px-3 text-xs"
-            onClick={() => onChange(d)}
-          >
-            {d}d
-          </Button>
-        ))}
+    <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b">
+      {/* Time range */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-muted-foreground">Time:</span>
+        <div className="flex items-center gap-1">
+          {(["7", "14", "30", "90"] as DaysFilter[]).map((d) => (
+            <Button
+              key={d}
+              variant={days === d ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={() => onDaysChange(d)}
+            >
+              {d}d
+            </Button>
+          ))}
+        </div>
       </div>
+
+      {/* Admin/ISA filters */}
+      {isAdminOrIsa && (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground">ISA:</span>
+            <Select value={isaFilter || "all"} onValueChange={onIsaChange}>
+              <SelectTrigger className="h-7 w-[160px] text-xs">
+                <SelectValue placeholder="All ISAs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All ISAs</SelectItem>
+                {isas.map((isa: any) => (
+                  <SelectItem key={isa.id} value={String(isa.id)}>
+                    {isa.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground">Agent:</span>
+            <Select value={agentFilter || "all"} onValueChange={onAgentChange}>
+              <SelectTrigger className="h-7 w-[160px] text-xs">
+                <SelectValue placeholder="All Agents" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Agents</SelectItem>
+                {agents
+                  .sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? ""))
+                  .map((agent: any) => (
+                    <SelectItem key={agent.id} value={String(agent.id)}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+
+      {/* Agent filter: pipeline status */}
+      {isAgent && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">Status:</span>
+          <Select value={statusFilter || "all"} onValueChange={onStatusChange}>
+            <SelectTrigger className="h-7 w-[170px] text-xs">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              {PIPELINE_STATUSES.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
   );
 }
 
-function ContactCell({ lead, isAgent }: { lead: { contactId: number; connectionId: number | null; firstName: string | null; lastName: string | null; email: string | null; phone: string | null }; isAgent: boolean }) {
+function AgentsList({ agents }: { agents: Array<{ name: string; connectionId: number }> }) {
+  if (!agents || agents.length === 0) return <span>—</span>;
+  if (agents.length === 1) return <span>{agents[0].name}</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {agents.map((a, i) => (
+        <Badge key={i} variant="secondary" className="text-xs font-normal">
+          {a.name}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function ContactCell({ lead, isAgent }: { lead: { contactId: number; connectedAgents: Array<{ name: string; connectionId: number }>; firstName: string | null; lastName: string | null; email: string | null; phone: string | null }; isAgent: boolean }) {
+  const link = isAgent && lead.connectedAgents.length > 0
+    ? `/pipeline/${lead.connectedAgents[0].connectionId}`
+    : `/contacts/${lead.contactId}`;
+
   return (
     <div className="flex flex-col">
       <a
-        href={getContactLink(lead, isAgent)}
+        href={link}
         className="font-medium text-foreground hover:text-primary hover:underline flex items-center gap-1"
       >
         {lead.firstName} {lead.lastName}
@@ -490,13 +690,6 @@ function ClicksBadge({ count }: { count: number }) {
 }
 
 // ─── Helper Functions ─────────────────────────────────────────────────────────
-
-function getContactLink(lead: { contactId: number; connectionId: number | null }, isAgent: boolean): string {
-  if (isAgent && lead.connectionId) {
-    return `/pipeline/${lead.connectionId}`;
-  }
-  return `/contacts/${lead.contactId}`;
-}
 
 function formatRelativeDate(dateStr: string | null): string {
   if (!dateStr) return "—";

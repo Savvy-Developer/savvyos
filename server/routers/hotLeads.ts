@@ -7,10 +7,15 @@ import { TRPCError } from "@trpc/server";
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
 
-const daysInput = z.object({
+const hotLeadsInput = z.object({
   page: z.number().int().min(1).default(1),
   limit: z.number().int().min(1).max(100).default(50),
   days: z.enum(["7", "14", "30", "90"]).default("7"),
+  // Admin/ISA filters
+  isaId: z.number().int().optional(),
+  agentId: z.number().int().optional(),
+  // Agent filter
+  pipelineStatus: z.string().optional(),
 }).optional();
 
 function assertHotLeadsAccess(role: string) {
@@ -39,10 +44,10 @@ async function batchLookupLeadSources(db: any, ids: number[]): Promise<Record<nu
   return Object.fromEntries(rows.map((r: any) => [r.id, r.name]));
 }
 
-/** Batch lookup agent connections */
-async function batchLookupAgents(
+/** Batch lookup ALL agent connections per contact (returns array of agents) */
+async function batchLookupAllAgents(
   db: any, contactIds: number[], role: string, userId: number
-): Promise<Record<number, { name: string; connectionId: number }>> {
+): Promise<Record<number, Array<{ name: string; connectionId: number }>>> {
   if (contactIds.length === 0) return {};
   const agentQuery = role === "agent"
     ? sql`${agentConnections.contactId} IN (${sql.raw(contactIds.join(","))}) AND ${agentConnections.agentId} = ${userId}`
@@ -58,11 +63,10 @@ async function batchLookupAgents(
     .innerJoin(users, eq(agentConnections.agentId, users.id))
     .where(agentQuery);
 
-  const map: Record<number, { name: string; connectionId: number }> = {};
+  const map: Record<number, Array<{ name: string; connectionId: number }>> = {};
   for (const row of rows) {
-    if (!map[row.contactId]) {
-      map[row.contactId] = { name: row.agentName ?? "Unknown", connectionId: row.connectionId };
-    }
+    if (!map[row.contactId]) map[row.contactId] = [];
+    map[row.contactId].push({ name: row.agentName ?? "Unknown", connectionId: row.connectionId });
   }
   return map;
 }
@@ -75,7 +79,7 @@ export const hotLeadsRouter = router({
    * sorted by view count descending.
    */
   propertyViews: protectedProcedure
-    .input(daysInput)
+    .input(hotLeadsInput)
     .query(async ({ ctx, input }) => {
       const role = ctx.user.role;
       assertHotLeadsAccess(role);
@@ -95,10 +99,30 @@ export const hotLeadsRouter = router({
         gte(activityLog.createdAt, sinceDate),
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
       ];
+
+      // Agent scoping
       if (role === "agent") {
-        baseConditions.push(
-          sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id})`
-        );
+        if (input?.pipelineStatus) {
+          baseConditions.push(
+            sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id} AND pipelineStatus = ${input.pipelineStatus})`
+          );
+        } else {
+          baseConditions.push(
+            sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id})`
+          );
+        }
+      }
+
+      // Admin/ISA filters
+      if (role !== "agent") {
+        if (input?.isaId) {
+          baseConditions.push(sql`${contacts.assignedIsaId} = ${input.isaId}`);
+        }
+        if (input?.agentId) {
+          baseConditions.push(
+            sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${input.agentId})`
+          );
+        }
       }
 
       const rows = await db
@@ -135,7 +159,7 @@ export const hotLeadsRouter = router({
       const [isaMap, leadSourceMap, agentMap] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
-        batchLookupAgents(db, contactIds, role, ctx.user.id),
+        batchLookupAllAgents(db, contactIds, role, ctx.user.id),
       ]);
 
       // Last property address lookup
@@ -170,8 +194,7 @@ export const hotLeadsRouter = router({
         lastViewed: row.lastViewed,
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
-        connectedAgent: agentMap[row.contactId!]?.name ?? null,
-        connectionId: agentMap[row.contactId!]?.connectionId ?? null,
+        connectedAgents: agentMap[row.contactId!] ?? [],
         lastPropertyAddress: lastPropertyMap[row.contactId!] ?? null,
       }));
 
@@ -179,12 +202,10 @@ export const hotLeadsRouter = router({
     }),
 
   /**
-   * returnVisitors — contacts who viewed properties on multiple distinct days
-   * in the selected time range. Sorted by number of distinct days descending.
-   * This is a stronger intent signal than raw view count.
+   * returnVisitors — contacts who viewed properties on multiple distinct days.
    */
   returnVisitors: protectedProcedure
-    .input(daysInput)
+    .input(hotLeadsInput)
     .query(async ({ ctx, input }) => {
       const role = ctx.user.role;
       assertHotLeadsAccess(role);
@@ -204,13 +225,30 @@ export const hotLeadsRouter = router({
         gte(activityLog.createdAt, sinceDate),
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
       ];
+
       if (role === "agent") {
-        baseConditions.push(
-          sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id})`
-        );
+        if (input?.pipelineStatus) {
+          baseConditions.push(
+            sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id} AND pipelineStatus = ${input.pipelineStatus})`
+          );
+        } else {
+          baseConditions.push(
+            sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id})`
+          );
+        }
       }
 
-      // Aggregate: distinct days and total views per contact, filter to 2+ days
+      if (role !== "agent") {
+        if (input?.isaId) {
+          baseConditions.push(sql`${contacts.assignedIsaId} = ${input.isaId}`);
+        }
+        if (input?.agentId) {
+          baseConditions.push(
+            sql`${activityLog.entityId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${input.agentId})`
+          );
+        }
+      }
+
       const rows = await db
         .select({
           contactId: activityLog.entityId,
@@ -233,7 +271,6 @@ export const hotLeadsRouter = router({
         .limit(limit)
         .offset(offset);
 
-      // Count total contacts with 2+ distinct days
       const countRows = await db
         .select({
           contactId: activityLog.entityId,
@@ -253,7 +290,7 @@ export const hotLeadsRouter = router({
       const [isaMap, leadSourceMap, agentMap] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
-        batchLookupAgents(db, contactIds, role, ctx.user.id),
+        batchLookupAllAgents(db, contactIds, role, ctx.user.id),
       ]);
 
       const results = rows.map(row => ({
@@ -267,20 +304,17 @@ export const hotLeadsRouter = router({
         lastViewed: row.lastViewed,
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
-        connectedAgent: agentMap[row.contactId!]?.name ?? null,
-        connectionId: agentMap[row.contactId!]?.connectionId ?? null,
+        connectedAgents: agentMap[row.contactId!] ?? [],
       }));
 
       return { items: results, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
     }),
 
   /**
-   * emailEngagement — contacts who opened or clicked emails in the selected
-   * time range. Sorted by clicks descending, then opens descending.
-   * Shows both open count and click count.
+   * emailEngagement — contacts who opened or clicked emails recently.
    */
   emailEngagement: protectedProcedure
-    .input(daysInput)
+    .input(hotLeadsInput)
     .query(async ({ ctx, input }) => {
       const role = ctx.user.role;
       assertHotLeadsAccess(role);
@@ -294,16 +328,33 @@ export const hotLeadsRouter = router({
       const days = parseInt(input?.days ?? "7");
       const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-      // Build conditions for email engagement
       const baseConditions = [
         sql`${emailBehaviors.contactId} IS NOT NULL`,
         sql`(${emailBehaviors.openedAt} >= ${sinceDate} OR ${emailBehaviors.clickedAt} >= ${sinceDate})`,
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
       ];
+
       if (role === "agent") {
-        baseConditions.push(
-          sql`${emailBehaviors.contactId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id})`
-        );
+        if (input?.pipelineStatus) {
+          baseConditions.push(
+            sql`${emailBehaviors.contactId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id} AND pipelineStatus = ${input.pipelineStatus})`
+          );
+        } else {
+          baseConditions.push(
+            sql`${emailBehaviors.contactId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${ctx.user.id})`
+          );
+        }
+      }
+
+      if (role !== "agent") {
+        if (input?.isaId) {
+          baseConditions.push(sql`${contacts.assignedIsaId} = ${input.isaId}`);
+        }
+        if (input?.agentId) {
+          baseConditions.push(
+            sql`${emailBehaviors.contactId} IN (SELECT contactId FROM agent_connections WHERE agentId = ${input.agentId})`
+          );
+        }
       }
 
       const rows = await db
@@ -327,7 +378,6 @@ export const hotLeadsRouter = router({
         .limit(limit)
         .offset(offset);
 
-      // Count total
       const countRows = await db
         .select({ contactId: emailBehaviors.contactId })
         .from(emailBehaviors)
@@ -343,7 +393,7 @@ export const hotLeadsRouter = router({
       const [isaMap, leadSourceMap, agentMap] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
-        batchLookupAgents(db, contactIds, role, ctx.user.id),
+        batchLookupAllAgents(db, contactIds, role, ctx.user.id),
       ]);
 
       const results = rows.map(row => ({
@@ -357,8 +407,7 @@ export const hotLeadsRouter = router({
         lastEngaged: row.lastEngaged,
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
-        connectedAgent: agentMap[row.contactId!]?.name ?? null,
-        connectionId: agentMap[row.contactId!]?.connectionId ?? null,
+        connectedAgents: agentMap[row.contactId!] ?? [],
       }));
 
       return { items: results, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
