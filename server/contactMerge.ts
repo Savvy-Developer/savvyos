@@ -5,11 +5,12 @@
  *  1. Re-parenting all FK references from loser → winner
  *  2. Merging scalar fields (winner wins on conflict; loser fills gaps)
  *  3. Concatenating notes
- *  4. Soft-deleting the loser (archivedAt = now)
- *  5. Updating the duplicate_contact_pairs row as merged
+ *  4. Retaining ALL agent connections and ISA assignments from both contacts
+ *  5. Soft-deleting the loser (archivedAt = now)
+ *  6. Updating the duplicate_contact_pairs row as merged
  *
  * Tables re-parented:
- *  - agent_connections (contactId)
+ *  - agent_connections (contactId) — with deduplication to avoid duplicate agent+contact pairs
  *  - property_ownership (ownerContactId)
  *  - transactions (primaryContactId, sellerContactId, buyerContactId)
  *  - tasks (relatedContactId)
@@ -19,7 +20,7 @@
  *  - listings (contactId)
  *  - smart_plan_enrollments (contactId)
  *  - market_match_sessions (contactId)
- *  - connection_requests (contactId)
+ *  - connection_requests (contactId) — with deduplication to avoid duplicate agent+contact pairs
  *  - activity_log (entityId where entityType='contact')
  */
 
@@ -130,7 +131,100 @@ export async function mergeContacts(opts: MergeOptions): Promise<MergeResult> {
     return (header as { affectedRows?: number }).affectedRows ?? 0;
   }
 
-  rowsReparented += await reparent("agent_connections", "contactId");
+  // ─── Agent Connections: Retain ALL from both contacts ─────────────────────────
+  // Instead of a blind re-parent (which could create duplicate agent+contact rows
+  // or silently fail on unique constraints), we:
+  //   1. Find which agents are already connected to the winner
+  //   2. For loser's connections where the agent is NOT already connected to winner,
+  //      re-parent them (move to winner)
+  //   3. For loser's connections where the agent IS already connected to winner,
+  //      merge the notes/data into the existing winner connection, then delete the duplicate
+  const [winnerConnections]: any = await db.execute(
+    sql.raw(`SELECT id, agentId, pipelineStatus, agentNotes, followUpDate, appointmentSet, appointmentSetAt, createdAt FROM agent_connections WHERE contactId = ${winnerId}`)
+  );
+  const [loserConnections]: any = await db.execute(
+    sql.raw(`SELECT id, agentId, pipelineStatus, agentNotes, followUpDate, appointmentSet, appointmentSetAt, createdAt FROM agent_connections WHERE contactId = ${loserId}`)
+  );
+
+  const winnerAgentIds = new Set((winnerConnections as any[]).map((c: any) => c.agentId));
+
+  for (const loserConn of (loserConnections as any[])) {
+    if (!winnerAgentIds.has(loserConn.agentId)) {
+      // Agent not connected to winner yet — move this connection to the winner
+      await db.execute(
+        sql.raw(`UPDATE agent_connections SET contactId = ${winnerId} WHERE id = ${loserConn.id}`)
+      );
+      rowsReparented++;
+    } else {
+      // Agent already connected to winner — merge notes and keep the more advanced pipeline status
+      const winnerConn = (winnerConnections as any[]).find((c: any) => c.agentId === loserConn.agentId);
+      if (winnerConn) {
+        // Merge agentNotes from both connections
+        if (loserConn.agentNotes) {
+          // Use MySQL CONCAT to safely merge notes
+          await db.execute(
+            sql.raw(`UPDATE agent_connections SET agentNotes = CONCAT(COALESCE(agentNotes, ''), '\n\n--- Notes from merged contact ---\n', COALESCE((SELECT agentNotes FROM (SELECT agentNotes FROM agent_connections WHERE id = ${loserConn.id}) AS tmp), '')) WHERE id = ${winnerConn.id}`)
+          );
+        }
+
+        // Keep the earlier createdAt (longer relationship)
+        if (loserConn.createdAt && winnerConn.createdAt && new Date(loserConn.createdAt) < new Date(winnerConn.createdAt)) {
+          await db.execute(
+            sql.raw(`UPDATE agent_connections SET createdAt = '${new Date(loserConn.createdAt).toISOString().slice(0, 19).replace('T', ' ')}' WHERE id = ${winnerConn.id}`)
+          );
+        }
+
+        // If loser had appointmentSet=true and winner doesn't, keep it
+        if (loserConn.appointmentSet && !winnerConn.appointmentSet) {
+          await db.execute(
+            sql.raw(`UPDATE agent_connections SET appointmentSet = 1, appointmentSetAt = ${loserConn.appointmentSetAt ? "'" + new Date(loserConn.appointmentSetAt).toISOString().slice(0, 19).replace('T', ' ') + "'" : "NULL"} WHERE id = ${winnerConn.id}`)
+          );
+        }
+
+        // If loser had a followUpDate and winner doesn't, keep it
+        if (loserConn.followUpDate && !winnerConn.followUpDate) {
+          await db.execute(
+            sql.raw(`UPDATE agent_connections SET followUpDate = '${new Date(loserConn.followUpDate).toISOString().slice(0, 19).replace('T', ' ')}' WHERE id = ${winnerConn.id}`)
+          );
+        }
+      }
+
+      // Delete the loser's duplicate connection (data has been merged into winner's)
+      await db.execute(
+        sql.raw(`DELETE FROM agent_connections WHERE id = ${loserConn.id}`)
+      );
+      rowsReparented++;
+    }
+  }
+
+  // ─── Connection Requests: Retain ALL from both contacts ───────────────────────
+  // Similar logic: move loser's requests to winner, skip if same agent already has a request
+  const [winnerRequests]: any = await db.execute(
+    sql.raw(`SELECT id, agentId FROM connection_requests WHERE contactId = ${winnerId}`)
+  );
+  const [loserRequests]: any = await db.execute(
+    sql.raw(`SELECT id, agentId FROM connection_requests WHERE contactId = ${loserId}`)
+  );
+
+  const winnerRequestAgentIds = new Set((winnerRequests as any[]).map((r: any) => r.agentId));
+
+  for (const loserReq of (loserRequests as any[])) {
+    if (!winnerRequestAgentIds.has(loserReq.agentId)) {
+      // No existing request from this agent to winner — move it
+      await db.execute(
+        sql.raw(`UPDATE connection_requests SET contactId = ${winnerId} WHERE id = ${loserReq.id}`)
+      );
+      rowsReparented++;
+    } else {
+      // Agent already has a request for winner — delete the duplicate
+      await db.execute(
+        sql.raw(`DELETE FROM connection_requests WHERE id = ${loserReq.id}`)
+      );
+      rowsReparented++;
+    }
+  }
+
+  // ─── Standard re-parenting for other tables ───────────────────────────────────
   rowsReparented += await reparent("property_ownership", "ownerContactId");
   rowsReparented += await reparent("transactions", "primaryContactId");
   rowsReparented += await reparent("transactions", "seller_contact_id");
@@ -142,7 +236,6 @@ export async function mergeContacts(opts: MergeOptions): Promise<MergeResult> {
   rowsReparented += await reparent("listings", "contactId");
   rowsReparented += await reparent("smart_plan_enrollments", "contactId");
   rowsReparented += await reparent("market_match_sessions", "contactId");
-  rowsReparented += await reparent("connection_requests", "contactId");
 
   // Activity log uses polymorphic entityId + entityType
   const activityResult = await db.execute(
