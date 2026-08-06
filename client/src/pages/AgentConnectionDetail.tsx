@@ -441,8 +441,8 @@ export default function AgentConnectionDetail() {
                   <Input value={buyBoxForm.propertyType} onChange={e => setBuyBoxForm({ ...buyBoxForm, propertyType: e.target.value })} placeholder="e.g. Single Family, STR, Condo" className="h-8 mt-1" />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div><Label className="text-xs">Min Price</Label><Input value={buyBoxForm.minPrice} onChange={e => setBuyBoxForm({ ...buyBoxForm, minPrice: e.target.value })} placeholder="e.g. 300000" className="h-8 mt-1" /></div>
-                  <div><Label className="text-xs">Max Price</Label><Input value={buyBoxForm.maxPrice} onChange={e => setBuyBoxForm({ ...buyBoxForm, maxPrice: e.target.value })} placeholder="e.g. 600000" className="h-8 mt-1" /></div>
+                  <div><Label className="text-xs">Min Price</Label><Input value={buyBoxForm.minPrice ? Number(String(buyBoxForm.minPrice).replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""} onChange={e => setBuyBoxForm({ ...buyBoxForm, minPrice: e.target.value.replace(/[^0-9]/g, "") })} placeholder="e.g. 300,000" className="h-8 mt-1" /></div>
+                  <div><Label className="text-xs">Max Price</Label><Input value={buyBoxForm.maxPrice ? Number(String(buyBoxForm.maxPrice).replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""} onChange={e => setBuyBoxForm({ ...buyBoxForm, maxPrice: e.target.value.replace(/[^0-9]/g, "") })} placeholder="e.g. 600,000" className="h-8 mt-1" /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div><Label className="text-xs">Min Beds</Label><Input type="number" value={buyBoxForm.minBeds} onChange={e => setBuyBoxForm({ ...buyBoxForm, minBeds: parseInt(e.target.value) || "" })} className="h-8 mt-1" /></div>

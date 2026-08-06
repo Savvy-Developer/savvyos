@@ -63,7 +63,7 @@ export function isValidEmail(value: string): boolean {
 // ─── Currency ─────────────────────────────────────────────────────────────────
 
 /**
- * Format a raw numeric string or number to "$1,234,567.89".
+ * Format a raw numeric string or number to "$1,234,567".
  * Used for display only — the underlying value stored/sent is the raw number string.
  */
 export function formatCurrency(value: string | number | null | undefined): string {
@@ -73,9 +73,9 @@ export function formatCurrency(value: string | number | null | undefined): strin
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(num));
 }
 
 /**
@@ -88,17 +88,16 @@ export function parseCurrencyInput(value: string): string {
 
 /**
  * Format as the user types a currency field.
- * Strips non-numeric chars (except "."), keeps at most one decimal point.
+ * Strips non-numeric chars, adds thousands separators. No cents.
+ * Returns formatted string with commas (no $ prefix - that's handled by the input UI).
  */
 export function formatCurrencyInput(value: string): string {
-  // Strip everything except digits and the first decimal point
-  const stripped = value.replace(/[^0-9.]/g, "");
-  const parts = stripped.split(".");
-  const intPart = parts[0].replace(/^0+(?=\d)/, ""); // remove leading zeros
-  const decPart = parts.length > 1 ? "." + parts[1].slice(0, 2) : "";
-  // Add thousands separators to the integer part
-  const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return formatted ? `$${formatted}${decPart}` : decPart ? `$0${decPart}` : "";
+  // Strip everything except digits
+  const stripped = value.replace(/[^0-9]/g, "");
+  if (!stripped) return "";
+  const intPart = stripped.replace(/^0+(?=\d)/, ""); // remove leading zeros
+  // Add thousands separators
+  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 // ─── Percentage ───────────────────────────────────────────────────────────────

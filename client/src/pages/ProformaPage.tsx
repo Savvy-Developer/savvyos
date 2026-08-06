@@ -1,5 +1,7 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrencyInput } from "@/lib/inputFormatters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,9 +202,45 @@ export default function ProformaPage() {
   const { data: coreProfile } = trpc.users.getCoreProfile.useQuery({ userId: user?.id ?? 0 }, { enabled: !!user?.id });
   const { data: userRecord } = trpc.users.getById.useQuery({ id: user?.id ?? 0 }, { enabled: !!user?.id });
 
-  const createMutation = trpc.properties.createProforma.useMutation({ onSuccess: () => { refetch(); setEditing(false); } });
+  const createMutation = trpc.properties.createProforma.useMutation({ onSuccess: () => { refetch(); } });
   const updateMutation = trpc.properties.updateProforma.useMutation({ onSuccess: () => { refetch(); } });
   const deleteMutation = trpc.properties.deleteProforma.useMutation({ onSuccess: () => { refetch(); } });
+
+  // ─── AUTO-SAVE (debounced 2s after any field change) ─────────────────────────
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const formRef = useRef(form);
+  const titleRef = useRef(title);
+  const editingIdRef = useRef(editingId);
+  const isSavingRef = useRef(false);
+  formRef.current = form;
+  titleRef.current = title;
+  editingIdRef.current = editingId;
+
+  const doAutoSave = useCallback(async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+    setSaving(true);
+    try {
+      const currentForm = formRef.current;
+      const formData = { ...currentForm };
+      if (editingIdRef.current) {
+        await updateMutation.mutateAsync({ id: editingIdRef.current, title: titleRef.current, formData, notes: currentForm.notes });
+      } else {
+        const result = await createMutation.mutateAsync({ propertyId, title: titleRef.current, formData, notes: currentForm.notes });
+        setEditingId(result.id);
+      }
+    } catch (e) { console.error("Auto-save failed:", e); }
+    isSavingRef.current = false;
+    setSaving(false);
+  }, [propertyId]);
+
+  // Trigger auto-save whenever form or title changes (only when editing)
+  useEffect(() => {
+    if (!editing) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => { doAutoSave(); }, 2000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [form, title, editing, doAutoSave]);
 
   // ─── CALCULATIONS ──────────────────────────────────────────────────────────
   const calc = useMemo(() => {
@@ -357,17 +395,9 @@ export default function ProformaPage() {
 
   // ─── Save / Load ───────────────────────────────────────────────────────────
   const handleSave = async () => {
-    setSaving(true);
-    try {
-      const formData = { ...form, _calcGrossRevenue: calc.s2.grossRevenue, _calcNoi: calc.s2.noi, _calcCashFlow: calc.s2.cashFlow, _calcCashOnCash: calc.s2.cashOnCash, _calcCapRate: calc.s2.capRate };
-      if (editingId) {
-        await updateMutation.mutateAsync({ id: editingId, title, formData, notes: form.notes });
-      } else {
-        const result = await createMutation.mutateAsync({ propertyId, title, formData, notes: form.notes });
-        setEditingId(result.id);
-      }
-    } catch (e) { console.error(e); }
-    setSaving(false);
+    // Force immediate save (cancel pending auto-save)
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    await doAutoSave();
   };
 
   const handleLoad = (proforma: any) => {
@@ -476,7 +506,7 @@ export default function ProformaPage() {
             <Download className="h-4 w-4 mr-1" /> {downloading ? "Generating..." : "Download PDF"}
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
-            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Save"}
+            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Saved"}
           </Button>
         </div>
       </div>
@@ -506,10 +536,7 @@ export default function ProformaPage() {
               <CardContent className="space-y-3">
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Purchase Price *</Label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <Input className="pl-6 h-8 text-sm" value={form.purchasePrice} onChange={e => setField("purchasePrice", e.target.value)} placeholder="700,000" />
-                  </div>
+                  <CurrencyInput value={form.purchasePrice} onChange={v => setField("purchasePrice", v)} placeholder="700,000" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Closing Costs</Label>
@@ -521,31 +548,19 @@ export default function ProformaPage() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Furnishing Budget</Label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <Input className="pl-6 h-8 text-sm" value={form.furnishingBudget} onChange={e => setField("furnishingBudget", e.target.value)} placeholder="25,000" />
-                  </div>
+                  <CurrencyInput value={form.furnishingBudget} onChange={v => setField("furnishingBudget", v)} placeholder="25,000" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Renovation Budget</Label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <Input className="pl-6 h-8 text-sm" value={form.renovationBudget} onChange={e => setField("renovationBudget", e.target.value)} placeholder="0" />
-                  </div>
+                  <CurrencyInput value={form.renovationBudget} onChange={v => setField("renovationBudget", v)} placeholder="0" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Startup Costs (photography, listing, supplies)</Label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <Input className="pl-6 h-8 text-sm" value={form.startupCosts} onChange={e => setField("startupCosts", e.target.value)} placeholder="5,000" />
-                  </div>
+                  <CurrencyInput value={form.startupCosts} onChange={v => setField("startupCosts", v)} placeholder="5,000" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Inspection Costs</Label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <Input className="pl-6 h-8 text-sm" value={form.inspectionCosts} onChange={e => setField("inspectionCosts", e.target.value)} placeholder="1,500" />
-                  </div>
+                  <CurrencyInput value={form.inspectionCosts} onChange={v => setField("inspectionCosts", v)} placeholder="1,500" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Property Listing Link</Label>
@@ -658,9 +673,7 @@ export default function ProformaPage() {
                       <h4 className="font-medium text-sm text-slate-700">{label}</h4>
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Average Daily Rate (ADR)</Label>
-                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                          <Input className="pl-6 h-8 text-sm" value={(form as any)[`${prefix}ADR`]} onChange={e => setField(`${prefix}ADR` as any, e.target.value)} placeholder="250" />
-                        </div>
+                        <CurrencyInput value={(form as any)[`${prefix}ADR`]} onChange={v => setField(`${prefix}ADR` as any, v)} placeholder="250" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Occupancy Rate</Label>
@@ -675,15 +688,11 @@ export default function ProformaPage() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Cleaning Fee Revenue (annual)</Label>
-                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                          <Input className="pl-6 h-8 text-sm" value={(form as any)[`${prefix}CleaningFeeRevenue`]} onChange={e => setField(`${prefix}CleaningFeeRevenue` as any, e.target.value)} placeholder="0" />
-                        </div>
+                        <CurrencyInput value={(form as any)[`${prefix}CleaningFeeRevenue`]} onChange={v => setField(`${prefix}CleaningFeeRevenue` as any, v)} placeholder="0" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Ancillary Revenue (annual)</Label>
-                        <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                          <Input className="pl-6 h-8 text-sm" value={(form as any)[`${prefix}AncillaryRevenue`]} onChange={e => setField(`${prefix}AncillaryRevenue` as any, e.target.value)} placeholder="0" />
-                        </div>
+                        <CurrencyInput value={(form as any)[`${prefix}AncillaryRevenue`]} onChange={v => setField(`${prefix}AncillaryRevenue` as any, v)} placeholder="0" />
                       </div>
                       <div className="border-t pt-2 space-y-1">
                         <div className="flex justify-between text-xs"><span>Sold Nights</span><span className="font-medium">{s.soldNights}</span></div>
@@ -786,7 +795,7 @@ export default function ProformaPage() {
                       <div className="flex items-center gap-2">
                         <div className="relative w-24">
                           <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                          <Input className="pl-5 h-7 text-xs w-full" value={form[field] as string} onChange={e => setField(field, e.target.value)} />
+                          <Input className="pl-5 h-7 text-xs w-full" value={formatCurrencyInput(form[field] as string)} onChange={e => setField(field, e.target.value.replace(/[^0-9]/g, ""))} />
                         </div>
                         <span className="text-xs text-slate-400 w-6">{isAnnual ? "/yr" : "/mo"}</span>
                         <span className="text-xs text-slate-500 w-20 text-right">{fmtDollar(yearly)}/yr</span>
@@ -803,8 +812,8 @@ export default function ProformaPage() {
                     <div className="flex items-center gap-2">
                       <div className="relative w-24">
                         <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                        <Input className="pl-5 h-7 text-xs w-full" value={exp.amount} onChange={e => {
-                          const c = [...(form.customFixedExpenses || [])]; c[i] = { ...c[i], amount: e.target.value }; setField("customFixedExpenses", c);
+                        <Input className="pl-5 h-7 text-xs w-full" value={formatCurrencyInput(exp.amount)} onChange={e => {
+                          const c = [...(form.customFixedExpenses || [])]; c[i] = { ...c[i], amount: e.target.value.replace(/[^0-9]/g, "") }; setField("customFixedExpenses", c);
                         }} />
                       </div>
                       <span className="text-xs text-slate-400 w-6">/mo</span>
@@ -842,10 +851,7 @@ export default function ProformaPage() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Cleaning Cost per Turn</Label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <Input className="pl-6 h-8 text-sm" value={form.cleaningCostPerTurn} onChange={e => setField("cleaningCostPerTurn", e.target.value)} placeholder="150" />
-                  </div>
+                  <CurrencyInput value={form.cleaningCostPerTurn} onChange={v => setField("cleaningCostPerTurn", v)} placeholder="150" />
                   {calc.s2.cleaningExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.cleaningExpense)}/yr (base case)</p>}
                 </div>
                 <div className="space-y-1">
@@ -864,8 +870,8 @@ export default function ProformaPage() {
                     }} />
                     <div className="relative w-24">
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                      <Input className="pl-5 h-7 text-xs" value={exp.amount} onChange={e => {
-                        const c = [...(form.customVariableExpenses || [])]; c[i] = { ...c[i], amount: e.target.value }; setField("customVariableExpenses", c);
+                      <Input className="pl-5 h-7 text-xs" value={formatCurrencyInput(exp.amount)} onChange={e => {
+                        const c = [...(form.customVariableExpenses || [])]; c[i] = { ...c[i], amount: e.target.value.replace(/[^0-9]/g, "") }; setField("customVariableExpenses", c);
                       }} />
                     </div>
                     <span className="text-xs text-slate-400">/mo</span>
@@ -1006,10 +1012,7 @@ export default function ProformaPage() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs font-medium text-slate-600">Cost Seg Study Cost</Label>
-                      <div className="relative">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                        <Input className="pl-6 h-8 text-sm" value={form.costSegStudyCost} onChange={e => setField("costSegStudyCost", e.target.value)} placeholder="3,500" />
-                      </div>
+                      <CurrencyInput value={form.costSegStudyCost} onChange={v => setField("costSegStudyCost", v)} placeholder="3,500" />
                     </div>
                   </>
                 )}

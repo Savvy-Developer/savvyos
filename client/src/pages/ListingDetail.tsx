@@ -1263,9 +1263,9 @@ export default function ListingDetail() {
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   className="pl-8"
-                  value={editForm.listPrice}
-                  onChange={(e) => setEditForm(f => ({ ...f, listPrice: e.target.value.replace(/[^0-9.]/g, "") }))}
-                  placeholder="875000"
+                  value={editForm.listPrice ? Number(editForm.listPrice.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""}
+                  onChange={(e) => setEditForm(f => ({ ...f, listPrice: e.target.value.replace(/[^0-9]/g, "") }))}
+                  placeholder="875,000"
                 />
               </div>
             </div>
@@ -1580,9 +1580,9 @@ export default function ListingDetail() {
                   <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     className="pl-8"
-                    value={convertForm.purchasePrice}
-                    onChange={(e) => setConvertForm(f => ({ ...f, purchasePrice: e.target.value.replace(/[^0-9.]/g, "") }))}
-                    placeholder={listing.listPrice ? String(Number(listing.listPrice)) : "e.g. 875000"}
+                    value={convertForm.purchasePrice ? Number(convertForm.purchasePrice.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""}
+                    onChange={(e) => setConvertForm(f => ({ ...f, purchasePrice: e.target.value.replace(/[^0-9]/g, "") }))}
+                    placeholder={listing.listPrice ? Number(listing.listPrice).toLocaleString("en-US") : "e.g. 875,000"}
                   />
                 </div>
               </div>

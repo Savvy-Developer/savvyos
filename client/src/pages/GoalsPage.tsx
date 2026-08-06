@@ -233,7 +233,7 @@ function AgentGoalDialog({ agent, year, month, onClose }: AgentGoalDialogProps) 
             <Label>GCI Target</Label>
             <div className="relative">
               <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-8" placeholder="e.g. 50000" value={gci} onChange={e => setGci(e.target.value)} type="number" min={0} />
+              <Input className="pl-8" placeholder="e.g. 50,000" value={gci ? Number(gci.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""} onChange={e => setGci(e.target.value.replace(/[^0-9]/g, ""))} />
             </div>
           </div>
           <div className="space-y-1.5">
@@ -247,7 +247,7 @@ function AgentGoalDialog({ agent, year, month, onClose }: AgentGoalDialogProps) 
             <Label>Volume Target</Label>
             <div className="relative">
               <BarChart3 className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-8" placeholder="e.g. 2000000" value={volume} onChange={e => setVolume(e.target.value)} type="number" min={0} />
+              <Input className="pl-8" placeholder="e.g. 2,000,000" value={volume ? Number(volume.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""} onChange={e => setVolume(e.target.value.replace(/[^0-9]/g, ""))} />
             </div>
           </div>
         </div>
@@ -559,11 +559,9 @@ function MarketGoalsTab() {
                   <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     className="pl-8"
-                    placeholder="e.g. 500000"
-                    value={goalInput}
-                    onChange={e => setGoalInput(e.target.value)}
-                    type="number"
-                    min={0}
+                    placeholder="e.g. 500,000"
+                    value={goalInput ? Number(goalInput.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""}
+                    onChange={e => setGoalInput(e.target.value.replace(/[^0-9]/g, ""))}
                   />
                 </div>
               </div>

@@ -844,7 +844,7 @@ export default function ListingsPage() {
                   <Input
                     className="pl-6"
                     placeholder="500,000"
-                    value={form.listPrice}
+                    value={form.listPrice ? Number(parseCurrencyInput(form.listPrice)).toLocaleString("en-US") : ""}
                     onChange={(e) => {
                       const raw = parsePriceInput(e.target.value);
                       setForm({ ...form, listPrice: raw ? Number(raw).toLocaleString("en-US") : "" });
