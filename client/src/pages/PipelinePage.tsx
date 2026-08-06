@@ -101,8 +101,12 @@ export default function PipelinePage() {
   const statusParam = selectedStage === "all" ? undefined : selectedStage;
   const agentIdParam = selectedAgentId === "all" ? undefined : Number(selectedAgentId);
   const leadSourceIdParam = selectedLeadSourceId === "all" ? undefined : selectedLeadSourceId === "unassigned" ? -1 : Number(selectedLeadSourceId);
+  // agent_support users (when not working-as-agent) are server-scoped to their
+  // assigned agents. Pass the selected agent filter like admin/ISA so the backend
+  // can narrow within the allowed set.
+  const effectiveRole = (user as any)?.role;
   const { data: connectionsData, refetch } = trpc.agentConnections.list.useQuery({
-    agentId: (user as any)?.role === "agent" ? (user as any)?.id : agentIdParam,
+    agentId: effectiveRole === "agent" ? (user as any)?.id : agentIdParam,
     isaId: isaIdParam,
     leadSourceId: leadSourceIdParam,
     status: statusParam,

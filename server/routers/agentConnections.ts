@@ -10,7 +10,7 @@ import {
   logActivity,
   updateAgentConnection,
 } from "../db";
-import { agentConnections, users, contacts } from "../../drizzle/schema";
+import { agentConnections, agentSupportAssignments, users, contacts } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { sendTransactionalEmail } from "../_core/resendEmail";
@@ -78,10 +78,28 @@ export const agentConnectionsRouter = router({
     .query(async ({ input, ctx }) => {
       // Agents are always hard-scoped to their own connections. Admin and ISA
       // users can apply the optional agent facet without changing that rule.
+      // Agent Support users are scoped to their assigned agents' connections.
       const followUpDateTo = input?.followUpDateTo ? new Date(input.followUpDateTo) : undefined;
       if (followUpDateTo) followUpDateTo.setHours(23, 59, 59, 999);
+
+      // Resolve agent_support scope: look up assigned agent IDs
+      let scopeAgentIds: number[] | undefined;
+      if (ctx.user.role === "agent_support") {
+        const db = await getDb();
+        if (db) {
+          const assignments = await db
+            .select({ agentId: agentSupportAssignments.agentId })
+            .from(agentSupportAssignments)
+            .where(eq(agentSupportAssignments.agentSupportUserId, ctx.user.id));
+          scopeAgentIds = assignments.map((a) => a.agentId);
+        } else {
+          scopeAgentIds = [];
+        }
+      }
+
       return getAgentConnections({
         scopeAgentId: ctx.user.role === "agent" ? ctx.user.id : undefined,
+        scopeAgentIds,
         agentId: ctx.user.role === "agent" ? undefined : input?.agentId,
         contactId: input?.contactId,
         status: input?.status,

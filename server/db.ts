@@ -404,6 +404,7 @@ export async function deleteContact(id: number) {
 // ─── Agent Connections ────────────────────────────────────────────────────────
 type AgentConnectionListFilters = {
   scopeAgentId?: number;
+  scopeAgentIds?: number[];
   agentId?: number;
   contactId?: number;
   status?: string;
@@ -436,6 +437,23 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
 
   const baseConditions: any[] = [];
   if (filters.scopeAgentId) baseConditions.push(eq(agentConnections.agentId, filters.scopeAgentId));
+  // scopeAgentIds: restrict to a set of agent IDs (used by agent_support role)
+  if (filters.scopeAgentIds) {
+    if (filters.scopeAgentIds.length === 0) {
+      // No assigned agents — return empty results immediately
+      return {
+        rows: [], total: 0, page, limit,
+        stageCounts: {}, agentCounts: {}, isaCounts: {}, leadSourceCounts: {},
+        fullPipelineTotal: 0,
+        stats: {
+          total: 0, openCount: 0, overdueFollowUps: 0, dueToday: 0,
+          avgAgeDays: 0, oldestAgeDays: 0, staleCount: 0,
+          agingBuckets: { fresh: 0, idle: 0, stale: 0, aging: 0, critical: 0 },
+        },
+      };
+    }
+    baseConditions.push(inArray(agentConnections.agentId, filters.scopeAgentIds));
+  }
   if (filters.agentId) baseConditions.push(eq(agentConnections.agentId, filters.agentId));
   if (filters.contactId) baseConditions.push(eq(agentConnections.contactId, filters.contactId));
   if (filters.isaId === -1) {
