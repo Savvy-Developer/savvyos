@@ -107,6 +107,15 @@ interface ProformaForm {
   customVariableExpenses: CustomExpense[];
   // Exit / IRR
   sellingCostsPct: string;
+  // Value-Add / ARV / Cash-Out Refi
+  isValueAdd: string; // "yes" | "no"
+  afterRepairValue: string;
+  isCashoutRefi: string; // "yes" | "no"
+  refiAppraisedValue: string;
+  refiLTV: string;
+  refiInterestRate: string;
+  refiLoanTermYears: string;
+  seasoningPeriodMonths: string;
   // Tax
   costSegEnabled: string;
   landAllocationPct: string;
@@ -177,6 +186,14 @@ const defaultForm: ProformaForm = {
   capExReservePct: "5",
   customVariableExpenses: [],
   sellingCostsPct: "6",
+  isValueAdd: "no",
+  afterRepairValue: "",
+  isCashoutRefi: "no",
+  refiAppraisedValue: "",
+  refiLTV: "75",
+  refiInterestRate: "7",
+  refiLoanTermYears: "30",
+  seasoningPeriodMonths: "6",
   costSegEnabled: "yes",
   landAllocationPct: "20",
   acceleratedDepreciationPct: "25",
@@ -461,6 +478,47 @@ export default function ProformaPage() {
       s3: { y3: calcScenarioIRR(s3, 3, false), y5: calcScenarioIRR(s3, 5, false), y7: calcScenarioIRR(s3, 7, false), y3at: calcScenarioIRR(s3, 3, true), y5at: calcScenarioIRR(s3, 5, true), y7at: calcScenarioIRR(s3, 7, true) },
     };
 
+    // ─── ARV / Cash-Out Refi Calculations ─────────────────────────────────────
+    const isValueAdd = form.isValueAdd === "yes";
+    const arv = parseNum(form.afterRepairValue);
+    const forcedEquity = isValueAdd ? arv - pp : 0;
+    const equityCreatedByReno = isValueAdd ? arv - (pp + renovation) : 0;
+
+    const isCashoutRefi = form.isCashoutRefi === "yes" && isValueAdd;
+    const refiAppraised = parseNum(form.refiAppraisedValue) || arv;
+    const refiLTV = parsePct(form.refiLTV);
+    const refiNewLoanAmount = refiAppraised * refiLTV;
+    const refiCashOut = refiNewLoanAmount - loanAmount; // original loan paid off, remainder is cash out
+    const refiRate = parsePct(form.refiInterestRate);
+    const refiTermYears = parseNum(form.refiLoanTermYears) || 30;
+    const refiMonthlyRate = refiRate / 12;
+    const refiTotalPayments = refiTermYears * 12;
+    const refiMonthlyPI = refiRate === 0 ? refiNewLoanAmount / refiTotalPayments : -(refiRate / 12 * refiNewLoanAmount * Math.pow(1 + refiRate / 12, refiTotalPayments)) / (Math.pow(1 + refiRate / 12, refiTotalPayments) - 1);
+    const refiMonthlyMortgage = Math.abs(refiMonthlyPI);
+    const refiAnnualDebtService = refiMonthlyMortgage * 12;
+    const seasoningMonths = parseNum(form.seasoningPeriodMonths) || 6;
+
+    // Post-refi returns: how much cash is left in the deal
+    const cashLeftInDeal = totalCashNeeded - refiCashOut;
+    // Post-refi cash flow uses new mortgage
+    const postRefiCalcScenario = (scenario: typeof s1) => {
+      const postRefiCashFlow = scenario.noi - refiAnnualDebtService;
+      const postRefiMonthlyCF = postRefiCashFlow / 12;
+      const postRefiCoC = cashLeftInDeal > 0 ? postRefiCashFlow / cashLeftInDeal : (postRefiCashFlow > 0 ? Infinity : 0);
+      // If cashLeftInDeal <= 0, they pulled out more than they put in = "infinite" return
+      const infiniteReturn = cashLeftInDeal <= 0 && postRefiCashFlow > 0;
+      const postRefiDSCR = refiAnnualDebtService > 0 ? scenario.noi / refiAnnualDebtService : Infinity;
+      return { postRefiCashFlow, postRefiMonthlyCF, postRefiCoC, infiniteReturn, postRefiDSCR };
+    };
+
+    const refi = isCashoutRefi ? {
+      refiAppraised, refiNewLoanAmount, refiCashOut, refiMonthlyMortgage, refiAnnualDebtService,
+      cashLeftInDeal, seasoningMonths,
+      s1: postRefiCalcScenario(s1),
+      s2: postRefiCalcScenario(s2),
+      s3: postRefiCalcScenario(s3),
+    } : null;
+
     return {
       pp, downPayment, closingCosts, loanAmount, totalCashNeeded,
       furnishing, renovation, startup, inspection,
@@ -469,6 +527,8 @@ export default function ProformaPage() {
       s1, s2, s3, fiveYear, irr, sellingCostsPct,
       costSegEnabled, buildingBasis, acceleratedAmt, furnishingDeduction,
       totalFirstYearDeduction, taxSavings, costSegCost, netTaxBenefit,
+      isValueAdd, arv, forcedEquity, equityCreatedByReno,
+      isCashoutRefi, refi,
     };
   }, [form]);
 
@@ -516,6 +576,8 @@ export default function ProformaPage() {
             irr: calc.irr, sellingCostsPct: calc.sellingCostsPct,
             costSegEnabled: calc.costSegEnabled, totalFirstYearDeduction: calc.totalFirstYearDeduction,
             taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
+            isValueAdd: calc.isValueAdd, arv: calc.arv, forcedEquity: calc.forcedEquity,
+            equityCreatedByReno: calc.equityCreatedByReno, isCashoutRefi: calc.isCashoutRefi, refi: calc.refi,
           },
           property: property ? { address: property.address, city: property.city, state: property.state, zip: property.zip, beds: property.beds, baths: property.baths, sqft: property.sqft, propertyType: property.propertyType } : null,
           branding: userRecord ? { name: userRecord.name, email: userRecord.email, phone: userRecord.phone, market: (coreProfile as any)?.market || "", profilePhotoUrl: (coreProfile as any)?.profilePhotoUrl || "", callBookingLink: (coreProfile as any)?.callBookingLink || "" } : null,
@@ -608,6 +670,7 @@ export default function ProformaPage() {
         <TabsList className="mb-4 flex-wrap h-auto gap-1">
           <TabsTrigger value="acquisition" className="text-xs"><Home className="h-3 w-3 mr-1" />Acquisition</TabsTrigger>
           <TabsTrigger value="financing" className="text-xs"><Calculator className="h-3 w-3 mr-1" />Financing</TabsTrigger>
+          <TabsTrigger value="valueadd" className="text-xs"><Home className="h-3 w-3 mr-1" />Value-Add / Refi</TabsTrigger>
           <TabsTrigger value="revenue" className="text-xs"><DollarSign className="h-3 w-3 mr-1" />Revenue</TabsTrigger>
           <TabsTrigger value="expenses" className="text-xs"><BarChart3 className="h-3 w-3 mr-1" />Expenses</TabsTrigger>
           <TabsTrigger value="returns" className="text-xs"><TrendingUp className="h-3 w-3 mr-1" />Returns</TabsTrigger>
@@ -740,6 +803,208 @@ export default function ProformaPage() {
                   <div className="flex justify-between text-base font-bold text-slate-800"><span>Monthly Mortgage</span><span>{fmtDollar(calc.monthlyMortgage)}</span></div>
                   <div className="flex justify-between text-sm text-slate-500"><span>Annual Debt Service</span><span>{fmtDollar(calc.annualDebtService)}</span></div>
                 </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ─── TAB: VALUE-ADD / REFI ─────────────────────────────────────── */}
+        <TabsContent value="valueadd">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-3"><CardTitle className="text-sm">Value-Add Strategy</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-slate-600">Is this a value-add deal with an ARV?</Label>
+                  <select className="w-full h-8 text-sm border rounded px-2" value={form.isValueAdd} onChange={e => setField("isValueAdd", e.target.value)}>
+                    <option value="no">No — Standard Purchase</option>
+                    <option value="yes">Yes — Value-Add with ARV</option>
+                  </select>
+                </div>
+
+                {form.isValueAdd === "yes" && (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">After Repair Value (ARV)</Label>
+                      <CurrencyInput value={form.afterRepairValue} onChange={v => setField("afterRepairValue", v)} placeholder="900,000" />
+                    </div>
+
+                    {calc.arv > 0 && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
+                        <h4 className="text-sm font-semibold text-emerald-800">Equity Creation Summary</h4>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="flex justify-between"><span className="text-slate-600">Purchase Price</span><span className="font-medium">{fmtDollar(calc.pp)}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-600">Renovation Budget</span><span className="font-medium">{fmtDollar(calc.renovation)}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-600">All-In Cost</span><span className="font-medium">{fmtDollar(calc.pp + calc.renovation)}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-600">After Repair Value</span><span className="font-medium text-emerald-700">{fmtDollar(calc.arv)}</span></div>
+                          <div className="flex justify-between border-t pt-1"><span className="text-slate-700 font-medium">Forced Equity (ARV - Purchase)</span><span className="font-bold text-emerald-700">{fmtDollar(calc.forcedEquity)}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-700 font-medium">Net Equity Created (ARV - All-In)</span><span className="font-bold text-emerald-700">{fmtDollar(calc.equityCreatedByReno)}</span></div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="border-t pt-4 space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Will the client do a cash-out refinance after value-add?</Label>
+                      <select className="w-full h-8 text-sm border rounded px-2" value={form.isCashoutRefi} onChange={e => setField("isCashoutRefi", e.target.value)}>
+                        <option value="no">No — Keep Original Loan</option>
+                        <option value="yes">Yes — Cash-Out Refinance</option>
+                      </select>
+                    </div>
+
+                    {form.isCashoutRefi === "yes" && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">Refi Appraised Value</Label>
+                            <CurrencyInput value={form.refiAppraisedValue} onChange={v => setField("refiAppraisedValue", v)} placeholder={form.afterRepairValue || "900,000"} />
+                            <p className="text-xs text-slate-400">Defaults to ARV if blank</p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">LTV for Refi</Label>
+                            <div className="relative">
+                              <Input className="pr-6 h-8 text-sm" value={form.refiLTV} onChange={e => setField("refiLTV", e.target.value)} placeholder="75" />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">New Interest Rate</Label>
+                            <div className="relative">
+                              <Input className="pr-6 h-8 text-sm" value={form.refiInterestRate} onChange={e => setField("refiInterestRate", e.target.value)} placeholder="7" />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">New Loan Term</Label>
+                            <div className="relative">
+                              <Input className="pr-12 h-8 text-sm" value={form.refiLoanTermYears} onChange={e => setField("refiLoanTermYears", e.target.value)} placeholder="30" />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">years</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium text-slate-600">Seasoning Period (months before refi)</Label>
+                          <div className="relative w-32">
+                            <Input className="pr-14 h-8 text-sm" value={form.seasoningPeriodMonths} onChange={e => setField("seasoningPeriodMonths", e.target.value)} placeholder="6" />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">months</span>
+                          </div>
+                        </div>
+
+                        {calc.refi && (
+                          <>
+                            {/* Timeline */}
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                              <h4 className="text-sm font-semibold text-blue-800 mb-2">Holding Period Timeline</h4>
+                              <div className="flex items-center gap-1 text-xs">
+                                <div className="bg-amber-100 border border-amber-300 rounded px-2 py-1 text-amber-800 font-medium">
+                                  Months 1–{calc.refi.seasoningMonths}: Original Mortgage ({fmtDollar(calc.monthlyMortgage)}/mo)
+                                </div>
+                                <span className="text-slate-400">→</span>
+                                <div className="bg-emerald-100 border border-emerald-300 rounded px-2 py-1 text-emerald-800 font-medium">
+                                  Month {calc.refi.seasoningMonths + 1}+: Cash-Out Refi ({fmtDollar(calc.refi.refiMonthlyMortgage)}/mo)
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Refi Summary */}
+                            <div className="bg-slate-50 border rounded-lg p-3 space-y-2">
+                              <h4 className="text-sm font-semibold text-slate-700">Cash-Out Refinance Summary</h4>
+                              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                                <div className="flex justify-between"><span className="text-slate-600">Appraised Value</span><span className="font-medium">{fmtDollar(calc.refi.refiAppraised)}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-600">LTV</span><span className="font-medium">{form.refiLTV}%</span></div>
+                                <div className="flex justify-between"><span className="text-slate-600">New Loan Amount</span><span className="font-medium">{fmtDollar(calc.refi.refiNewLoanAmount)}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-600">Original Loan Payoff</span><span className="font-medium">{fmtDollar(calc.loanAmount)}</span></div>
+                                <div className="flex justify-between border-t pt-1"><span className="text-slate-700 font-semibold">Cash Out</span><span className="font-bold text-emerald-700">{fmtDollar(calc.refi.refiCashOut)}</span></div>
+                                <div className="flex justify-between border-t pt-1"><span className="text-slate-700 font-semibold">New Monthly Payment</span><span className="font-bold">{fmtDollar(calc.refi.refiMonthlyMortgage)}</span></div>
+                              </div>
+                            </div>
+
+                            {/* Side-by-side: Pre-Refi vs Post-Refi */}
+                            <div className="border-t pt-4">
+                              <h4 className="text-sm font-semibold text-slate-700 mb-3">Pre-Refi vs. Post-Refi Returns (Side-by-Side)</h4>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="bg-slate-100">
+                                      <th className="p-2 text-left font-medium">Metric</th>
+                                      <th className="p-2 text-right font-medium" colSpan={3}>Pre-Refi (Original)</th>
+                                      <th className="p-2 text-right font-medium" colSpan={3}>Post-Refi (New Loan)</th>
+                                    </tr>
+                                    <tr className="bg-slate-50 text-xs text-slate-500">
+                                      <th className="p-1"></th>
+                                      <th className="p-1 text-right">Cons.</th>
+                                      <th className="p-1 text-right">Base</th>
+                                      <th className="p-1 text-right">Strong</th>
+                                      <th className="p-1 text-right">Cons.</th>
+                                      <th className="p-1 text-right">Base</th>
+                                      <th className="p-1 text-right">Strong</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <tr className="border-b">
+                                      <td className="p-2">Monthly Mortgage</td>
+                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.monthlyMortgage)}</td>
+                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.refi.refiMonthlyMortgage)}</td>
+                                    </tr>
+                                    <tr className="border-b">
+                                      <td className="p-2">Annual Debt Service</td>
+                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.annualDebtService)}</td>
+                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.refi.refiAnnualDebtService)}</td>
+                                    </tr>
+                                    <tr className="border-b">
+                                      <td className="p-2 font-medium">Annual Cash Flow</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.s1.cashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.s2.cashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.s3.cashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi.s1.postRefiCashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi.s2.postRefiCashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi.s3.postRefiCashFlow)}</td>
+                                    </tr>
+                                    <tr className="border-b">
+                                      <td className="p-2">Monthly Cash Flow</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.s1.monthlyCashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.s2.monthlyCashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.s3.monthlyCashFlow)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi.s1.postRefiMonthlyCF)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi.s2.postRefiMonthlyCF)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi.s3.postRefiMonthlyCF)}</td>
+                                    </tr>
+                                    <tr className="border-b">
+                                      <td className="p-2">Cash in Deal</td>
+                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.totalCashNeeded)}</td>
+                                      <td className="p-2 text-right" colSpan={3}>{calc.refi.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0 (pulled out more!)</span> : fmtDollar(calc.refi.cashLeftInDeal)}</td>
+                                    </tr>
+                                    <tr className="border-b bg-emerald-50">
+                                      <td className="p-2 font-bold">Cash-on-Cash Return</td>
+                                      <td className="p-2 text-right font-bold">{fmtPct(calc.s1.cashOnCash)}</td>
+                                      <td className="p-2 text-right font-bold">{fmtPct(calc.s2.cashOnCash)}</td>
+                                      <td className="p-2 text-right font-bold">{fmtPct(calc.s3.cashOnCash)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s1.infiniteReturn ? "∞" : fmtPct(calc.refi.s1.postRefiCoC)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s2.infiniteReturn ? "∞" : fmtPct(calc.refi.s2.postRefiCoC)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s3.infiniteReturn ? "∞" : fmtPct(calc.refi.s3.postRefiCoC)}</td>
+                                    </tr>
+                                    <tr className="border-b">
+                                      <td className="p-2">DSCR</td>
+                                      <td className="p-2 text-right">{calc.s1.dscr === Infinity ? "∞" : `${calc.s1.dscr.toFixed(2)}x`}</td>
+                                      <td className="p-2 text-right">{calc.s2.dscr === Infinity ? "∞" : `${calc.s2.dscr.toFixed(2)}x`}</td>
+                                      <td className="p-2 text-right">{calc.s3.dscr === Infinity ? "∞" : `${calc.s3.dscr.toFixed(2)}x`}</td>
+                                      <td className="p-2 text-right">{calc.refi.s1.postRefiDSCR === Infinity ? "∞" : `${calc.refi.s1.postRefiDSCR.toFixed(2)}x`}</td>
+                                      <td className="p-2 text-right">{calc.refi.s2.postRefiDSCR === Infinity ? "∞" : `${calc.refi.s2.postRefiDSCR.toFixed(2)}x`}</td>
+                                      <td className="p-2 text-right">{calc.refi.s3.postRefiDSCR === Infinity ? "∞" : `${calc.refi.s3.postRefiDSCR.toFixed(2)}x`}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                              {calc.refi.cashLeftInDeal <= 0 && (
+                                <p className="text-xs text-emerald-700 font-medium mt-2">✨ The client pulls out more cash than they invested — effectively infinite cash-on-cash return with positive monthly cash flow!</p>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>

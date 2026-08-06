@@ -398,6 +398,114 @@ export function registerProformaPdfRoute(app: express.Application) {
         y += 50;
       }
 
+      // ─── VALUE-ADD / CASH-OUT REFI PAGE ──────────────────────────────────
+      if (calc.isValueAdd && calc.arv > 0) {
+        doc.addPage(); y = 50;
+        doc.fontSize(14).fillColor(brandGreen).text("Value-Add & Refinance Analysis", 50, y);
+        y += 22;
+
+        // Equity Creation
+        doc.fontSize(10).fillColor(brandDark).text("Equity Creation Summary", 50, y, { underline: true });
+        y += 14;
+        const eqItems = [
+          ["Purchase Price", fmtD(calc.pp)],
+          ["Renovation Budget", fmtD(calc.pp && form.renovationBudget ? parseFloat(form.renovationBudget.replace(/[^0-9]/g, "")) : 0)],
+          ["All-In Cost", fmtD(calc.pp + (form.renovationBudget ? parseFloat(form.renovationBudget.replace(/[^0-9]/g, "")) : 0))],
+          ["After Repair Value (ARV)", fmtD(calc.arv)],
+          ["Forced Equity (ARV - Purchase)", fmtD(calc.forcedEquity)],
+          ["Net Equity Created (ARV - All-In)", fmtD(calc.equityCreatedByReno)],
+        ];
+        eqItems.forEach(([label, value]) => {
+          doc.fontSize(8).fillColor("#475569").text(label as string, 50, y);
+          doc.fontSize(8).fillColor(brandGreen).text(value as string, 50, y, { width: halfW, align: "right" });
+          y += 12;
+        });
+        y += 10;
+
+        // Cash-Out Refi section
+        if (calc.isCashoutRefi && calc.refi) {
+          doc.fontSize(10).fillColor(brandDark).text("Cash-Out Refinance Details", 50, y, { underline: true });
+          y += 14;
+
+          // Timeline
+          doc.fontSize(8).fillColor("#1e40af").text(`Holding Period Timeline:`, 50, y);
+          y += 12;
+          doc.fontSize(7.5).fillColor("#92400e").text(`Months 1\u2013${calc.refi.seasoningMonths}: Original Mortgage (${fmtD(calc.monthlyMortgage)}/mo)`, 60, y);
+          y += 11;
+          doc.fontSize(7.5).fillColor(brandGreen).text(`Month ${calc.refi.seasoningMonths + 1}+: New Mortgage after Cash-Out Refi (${fmtD(calc.refi.refiMonthlyMortgage)}/mo)`, 60, y);
+          y += 16;
+
+          const refiItems = [
+            ["Appraised Value", fmtD(calc.refi.refiAppraised)],
+            ["LTV", `${form.refiLTV || "75"}%`],
+            ["New Loan Amount", fmtD(calc.refi.refiNewLoanAmount)],
+            ["Original Loan Payoff", fmtD(calc.loanAmount)],
+            ["Cash Out", fmtD(calc.refi.refiCashOut)],
+            ["New Monthly Payment", fmtD(calc.refi.refiMonthlyMortgage)],
+            ["New Annual Debt Service", fmtD(calc.refi.refiAnnualDebtService)],
+            ["Cash Left in Deal", calc.refi.cashLeftInDeal <= 0 ? "$0 (pulled out more!)" : fmtD(calc.refi.cashLeftInDeal)],
+          ];
+          refiItems.forEach(([label, value]) => {
+            doc.fontSize(7.5).fillColor("#475569").text(label as string, 50, y);
+            doc.fontSize(7.5).fillColor(brandDark).text(value as string, 50, y, { width: halfW, align: "right" });
+            y += 11;
+          });
+          y += 12;
+
+          // Pre vs Post Refi comparison table
+          doc.fontSize(10).fillColor(brandDark).text("Pre-Refi vs. Post-Refi Returns", 50, y, { underline: true });
+          y += 14;
+
+          // Header row
+          doc.rect(50, y - 2, W, 14).fill(headerBg);
+          doc.fontSize(7).fillColor("#ffffff");
+          doc.text("Metric", 52, y, { width: 90 });
+          doc.text("Pre-Refi", 160, y, { width: 150, align: "center" });
+          doc.text("Post-Refi", 340, y, { width: 150, align: "center" });
+          y += 14;
+
+          // Sub-header
+          doc.rect(50, y - 2, W, 10).fill("#f1f5f9");
+          doc.fontSize(6).fillColor("#64748b");
+          doc.text("", 52, y);
+          doc.text("Cons.", 160, y, { width: 50, align: "center" });
+          doc.text("Base", 210, y, { width: 50, align: "center" });
+          doc.text("Strong", 260, y, { width: 50, align: "center" });
+          doc.text("Cons.", 340, y, { width: 50, align: "center" });
+          doc.text("Base", 390, y, { width: 50, align: "center" });
+          doc.text("Strong", 440, y, { width: 50, align: "center" });
+          y += 12;
+
+          const compRows = [
+            { label: "Annual Cash Flow", pre: [calc.s1.cashFlow, calc.s2.cashFlow, calc.s3.cashFlow], post: [calc.refi.s1.postRefiCashFlow, calc.refi.s2.postRefiCashFlow, calc.refi.s3.postRefiCashFlow] },
+            { label: "Monthly Cash Flow", pre: [calc.s1.monthlyCashFlow, calc.s2.monthlyCashFlow, calc.s3.monthlyCashFlow], post: [calc.refi.s1.postRefiMonthlyCF, calc.refi.s2.postRefiMonthlyCF, calc.refi.s3.postRefiMonthlyCF] },
+            { label: "Cash-on-Cash", pre: [calc.s1.cashOnCash, calc.s2.cashOnCash, calc.s3.cashOnCash], post: [calc.refi.s1.postRefiCoC, calc.refi.s2.postRefiCoC, calc.refi.s3.postRefiCoC], isPct: true, highlight: true },
+            { label: "DSCR", pre: [calc.s1.dscr, calc.s2.dscr, calc.s3.dscr], post: [calc.refi.s1.postRefiDSCR, calc.refi.s2.postRefiDSCR, calc.refi.s3.postRefiDSCR], isDscr: true },
+          ];
+
+          compRows.forEach(row => {
+            if ((row as any).highlight) { doc.rect(50, y - 2, W, 12).fill("#ecfdf5"); }
+            doc.fontSize(7).fillColor(brandDark).text(row.label, 52, y, { width: 90 });
+            row.pre.forEach((v: number, i: number) => {
+              const txt = (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "\u221e" : `${v.toFixed(2)}x`) : fmtD(v);
+              doc.fillColor(brandDark).text(txt, 160 + i * 50, y, { width: 50, align: "center" });
+            });
+            row.post.forEach((v: number, i: number) => {
+              const inf = (row as any).isPct && calc.refi.cashLeftInDeal <= 0 && v > 5;
+              const txt = inf ? "\u221e" : (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "\u221e" : `${v.toFixed(2)}x`) : fmtD(v);
+              doc.fillColor(brandGreen).text(txt, 340 + i * 50, y, { width: 50, align: "center" });
+            });
+            y += 12;
+          });
+
+          if (calc.refi.cashLeftInDeal <= 0) {
+            y += 4;
+            doc.fontSize(7).fillColor(brandGreen).text("\u2728 Client pulls out more cash than invested \u2014 infinite cash-on-cash return with positive monthly cash flow.", 50, y, { width: W });
+            y += 14;
+          }
+        }
+      }
+
       // Disclaimer
       if (y > 660) { doc.addPage(); y = 50; }
       y += 8;
