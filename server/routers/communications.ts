@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createCommunication, getCommunications } from "../db";
+import { createCommunication, getCommunications, resetLeadAgingByConnectionId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
@@ -37,6 +37,12 @@ export const communicationsRouter = router({
         authorId: ctx.user.id,
         communicatedAt: input.communicatedAt ? new Date(input.communicatedAt) : new Date(),
       } as any);
+
+      // Reset the stale/aging clock when an agent logs activity on a connection
+      if (ctx.user.role === "agent" && input.relatedAgentConnectionId) {
+        try { await resetLeadAgingByConnectionId(input.relatedAgentConnectionId); } catch (_) {}
+      }
+
       return { id };
     }),
 

@@ -626,6 +626,17 @@ export async function resetLeadAgingForAgent(contactId: number, agentId: number)
     ));
 }
 
+/** Resets the aging clock directly by connection ID. Used when agent activity
+ *  (communication, task, voice note, email) targets a specific connection. */
+export async function resetLeadAgingByConnectionId(connectionId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(agentConnections)
+    .set({ agingUpdatedAt: new Date() })
+    .where(eq(agentConnections.id, connectionId));
+}
+
 // ─── Properties ───────────────────────────────────────────────────────────────
 export async function getProperties(
   search?: string,

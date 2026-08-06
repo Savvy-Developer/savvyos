@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { createTask, getTasks, getAllTasks, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getMyOverdueTaskCount } from "../db";
+import { createTask, getTasks, getAllTasks, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getMyOverdueTaskCount, resetLeadAgingByConnectionId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { tasks as tasksTable } from "../../drizzle/schema";
@@ -66,7 +66,7 @@ export const tasksRouter = router({
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(50),
     }).optional())
-    .query(async ({ input, ctx }) => {
+    .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return getAllTasks({
         assignedToId: input?.assignedToId,
@@ -109,6 +109,11 @@ export const tasksRouter = router({
             dueDate: input.dueDate ? parseDueDate(input.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }) : undefined,
           });
         } catch (_) {}
+      }
+
+      // Reset the stale/aging clock when an agent creates a task on a connection
+      if (ctx.user.role === "agent" && input.relatedAgentConnectionId) {
+        try { await resetLeadAgingByConnectionId(input.relatedAgentConnectionId); } catch (_) {}
       }
 
       await logActivity({
@@ -161,13 +166,21 @@ export const tasksRouter = router({
       // Admin cannot mark tasks complete for other users
       const { getDb } = await import("../db");
       const db = await getDb();
+      let relatedConnectionId: number | null = null;
       if (db) {
         const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, input.id)).limit(1);
         if (task && task.assignedToId !== ctx.user.id && ctx.user.role === "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admins cannot mark tasks complete for other users" });
         }
+        relatedConnectionId = task?.relatedAgentConnectionId ?? null;
       }
       await updateTask(input.id, { status: "completed", completedAt: new Date() });
+
+      // Reset the stale/aging clock when an agent completes a task on a connection
+      if (ctx.user.role === "agent" && relatedConnectionId) {
+        try { await resetLeadAgingByConnectionId(relatedConnectionId); } catch (_) {}
+      }
+
       await logActivity({ userId: ctx.user.id, action: "task_completed", entityType: "task", entityId: input.id });
       return { success: true };
     }),

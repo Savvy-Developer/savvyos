@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
-import { getDb } from "../db";
+import { getDb, resetLeadAgingByConnectionId } from "../db";
 import {
   activityLog,
   agentConnections,
@@ -514,6 +514,10 @@ export const pipelineEmailRouter = router({
               communicatedAt: new Date(),
             }),
           ]);
+          // Reset the stale/aging clock when an agent sends an email to a connection
+          if (ctx.user.role === "agent") {
+            try { await resetLeadAgingByConnectionId(recipient.connection.id); } catch (_) {}
+          }
           return { success: true };
         }
 

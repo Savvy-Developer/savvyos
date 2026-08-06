@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { transcribeAudio } from "../_core/voiceTranscription";
-import { createCommunication, createTask, logActivity } from "../db";
+import { createCommunication, createTask, logActivity, resetLeadAgingByConnectionId } from "../db";
 import { invokeLLM } from "../_core/llm";
 
 export const voiceRouter = router({
@@ -91,6 +91,11 @@ export const voiceRouter = router({
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         });
         taskIds.push(taskId);
+      }
+
+      // Reset the stale/aging clock when an agent records a voice note on a connection
+      if (ctx.user.role === "agent" && input.agentConnectionId) {
+        try { await resetLeadAgingByConnectionId(input.agentConnectionId); } catch (_) {}
       }
 
       await logActivity({
