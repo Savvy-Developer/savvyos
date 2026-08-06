@@ -113,6 +113,7 @@ interface ProformaForm {
   isCashoutRefi: string; // "yes" | "no"
   refiAppraisedValue: string;
   refiLTV: string;
+  refiLoanAmount: string;
   refiInterestRate: string;
   refiLoanTermYears: string;
   seasoningPeriodMonths: string;
@@ -191,6 +192,7 @@ const defaultForm: ProformaForm = {
   isCashoutRefi: "no",
   refiAppraisedValue: "",
   refiLTV: "75",
+  refiLoanAmount: "",
   refiInterestRate: "7",
   refiLoanTermYears: "30",
   seasoningPeriodMonths: "6",
@@ -272,17 +274,18 @@ export default function ProformaPage() {
     const startup = parseNum(form.startupCosts);
     const inspection = parseNum(form.inspectionCosts);
 
-    const downPayment = pp * downPct;
+    const isCash = form.loanType === "cash";
+    const downPayment = isCash ? pp : pp * downPct;
     const closingCosts = pp * closingPct;
-    const loanAmount = pp - downPayment;
-    const totalCashNeeded = downPayment + closingCosts + furnishing + renovation + startup + inspection;
+    const loanAmount = isCash ? 0 : pp - downPayment;
+    const totalCashNeeded = (isCash ? pp : downPayment) + closingCosts + furnishing + renovation + startup + inspection;
 
     const rate = parsePct(form.interestRate);
     const termYears = parseNum(form.loanTermYears);
     const monthlyRate = rate / 12;
     const totalPayments = termYears * 12;
-    const monthlyPI = form.loanType === "cash" ? 0 : -pmt(monthlyRate, totalPayments, loanAmount);
-    const monthlyPMI = (loanAmount * parsePct(form.pmiPct)) / 12;
+    const monthlyPI = isCash ? 0 : -pmt(monthlyRate, totalPayments, loanAmount);
+    const monthlyPMI = isCash ? 0 : (loanAmount * parsePct(form.pmiPct)) / 12;
     const monthlyMortgage = monthlyPI + monthlyPMI;
     const annualDebtService = monthlyMortgage * 12;
 
@@ -486,8 +489,9 @@ export default function ProformaPage() {
 
     const isCashoutRefi = form.isCashoutRefi === "yes" && isValueAdd;
     const refiAppraised = parseNum(form.refiAppraisedValue) || arv;
-    const refiLTV = parsePct(form.refiLTV);
-    const refiNewLoanAmount = refiAppraised * refiLTV;
+    const refiLoanAmountInput = parseNum(form.refiLoanAmount);
+    const refiLTV = refiLoanAmountInput > 0 && refiAppraised > 0 ? refiLoanAmountInput / refiAppraised : parsePct(form.refiLTV);
+    const refiNewLoanAmount = refiLoanAmountInput > 0 ? refiLoanAmountInput : refiAppraised * refiLTV;
     const refiCashOut = refiNewLoanAmount - loanAmount; // original loan paid off, remainder is cash out
     const refiRate = parsePct(form.refiInterestRate);
     const refiTermYears = parseNum(form.refiLoanTermYears) || 30;
@@ -750,17 +754,21 @@ export default function ProformaPage() {
                   <select className="w-full h-8 text-sm border rounded px-2" value={form.loanType} onChange={e => setField("loanType", e.target.value)}>
                     <option value="dscr">DSCR Loan</option>
                     <option value="conventional">Conventional Investment</option>
+                    <option value="conventional_second">Conventional Second Home</option>
+                    <option value="other">Other</option>
                     <option value="cash">All Cash (No Loan)</option>
                   </select>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium text-slate-600">Down Payment</Label>
-                  <div className="relative">
-                    <Input className="pr-6 h-8 text-sm" value={form.downPaymentPct} onChange={e => setField("downPaymentPct", e.target.value)} placeholder="20" />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                {form.loanType !== "cash" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium text-slate-600">Down Payment</Label>
+                    <div className="relative">
+                      <Input className="pr-6 h-8 text-sm" value={form.downPaymentPct} onChange={e => setField("downPaymentPct", e.target.value)} placeholder="20" />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                    </div>
+                    {calc.downPayment > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.downPayment)}</p>}
                   </div>
-                  {calc.downPayment > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.downPayment)}</p>}
-                </div>
+                )}
                 {form.loanType !== "cash" && (
                   <>
                     <div className="space-y-1">
@@ -856,15 +864,22 @@ export default function ProformaPage() {
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
                             <Label className="text-xs font-medium text-slate-600">Refi Appraised Value</Label>
-                            <CurrencyInput value={form.refiAppraisedValue} onChange={v => setField("refiAppraisedValue", v)} placeholder={form.afterRepairValue || "900,000"} />
-                            <p className="text-xs text-slate-400">Defaults to ARV if blank</p>
+                            <CurrencyInput value={form.refiAppraisedValue || form.afterRepairValue} onChange={v => setField("refiAppraisedValue", v)} placeholder={form.afterRepairValue || "900,000"} />
+                            <p className="text-xs text-slate-400">Defaults to ARV ({form.afterRepairValue ? `$${Number(form.afterRepairValue.replace(/[^0-9]/g, "")).toLocaleString()}` : "not set"})</p>
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs font-medium text-slate-600">LTV for Refi</Label>
                             <div className="relative">
-                              <Input className="pr-6 h-8 text-sm" value={form.refiLTV} onChange={e => setField("refiLTV", e.target.value)} placeholder="75" />
+                              <Input className="pr-6 h-8 text-sm" value={form.refiLoanAmount ? (calc.refi ? (calc.refi.refiNewLoanAmount / calc.refi.refiAppraised * 100).toFixed(1) : form.refiLTV) : form.refiLTV} onChange={e => { setField("refiLTV", e.target.value); setField("refiLoanAmount", ""); }} placeholder="75" />
                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
                             </div>
+                            {calc.refi && !form.refiLoanAmount && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.refi.refiNewLoanAmount)}</p>}
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">New Loan Amount</Label>
+                            <CurrencyInput value={form.refiLoanAmount} onChange={v => setField("refiLoanAmount", v)} placeholder={calc.refi ? Math.round(calc.refi.refiNewLoanAmount).toLocaleString() : "675,000"} />
+                            {form.refiLoanAmount && calc.refi && <p className="text-xs text-emerald-600 font-medium">LTV: {(calc.refi.refiNewLoanAmount / calc.refi.refiAppraised * 100).toFixed(1)}%</p>}
+                            <p className="text-xs text-slate-400">Override to set a specific amount (auto-adjusts LTV)</p>
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs font-medium text-slate-600">New Interest Rate</Label>

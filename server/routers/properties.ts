@@ -622,7 +622,22 @@ export const propertiesRouter = router({
       if (ctx.user.role === "agent") {
         conditions.push(eq(proformas.createdByUserId, ctx.user.id));
       }
-      return db.select().from(proformas).where(and(...conditions)).orderBy(desc(proformas.createdAt));
+      const rows = await db.select({
+        id: proformas.id,
+        propertyId: proformas.propertyId,
+        createdByUserId: proformas.createdByUserId,
+        title: proformas.title,
+        purchasePrice: proformas.purchasePrice,
+        cashOnCash: proformas.cashOnCash,
+        capRate: proformas.capRate,
+        createdAt: proformas.createdAt,
+        updatedAt: proformas.updatedAt,
+        creatorName: users.name,
+      }).from(proformas)
+        .leftJoin(users, eq(proformas.createdByUserId, users.id))
+        .where(and(...conditions))
+        .orderBy(desc(proformas.createdAt));
+      return rows;
     }),
 
   getProforma: protectedProcedure

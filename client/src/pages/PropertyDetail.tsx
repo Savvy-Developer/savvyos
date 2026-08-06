@@ -177,6 +177,10 @@ export default function PropertyDetail() {
     { propertyId: propId },
     { enabled: !!propId }
   );
+  const { data: proformasData } = trpc.properties.listProformas.useQuery(
+    { propertyId: propId },
+    { enabled: !!propId }
+  );
 
   // Delete state
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -239,6 +243,7 @@ export default function PropertyDetail() {
   const listingList = associations?.listings ?? [];
   const contactList = associations?.contacts ?? [];
   const historyEvents: HistoryEvent[] = (historyData?.events ?? []) as HistoryEvent[];
+  const proformasList = proformasData ?? [];
 
   return (
     <div>
@@ -276,6 +281,12 @@ export default function PropertyDetail() {
             History
             {historyEvents.length > 0 && (
               <Badge variant="secondary" className="ml-1.5 text-xs px-1.5 py-0">{historyEvents.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="proformas">
+            Pro-formas
+            {proformasList.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs px-1.5 py-0">{proformasList.length}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -472,6 +483,56 @@ export default function PropertyDetail() {
             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500 inline-block" /> Listing</span>
             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-slate-400 inline-block" /> System event</span>
           </div>
+        </TabsContent>
+        {/* ─── Pro-formas Tab ─────────────────────────────────────────────────── */}
+        <TabsContent value="proformas">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Pro-formas
+                </CardTitle>
+                <Button size="sm" onClick={() => navigate(`/properties/${id}/proforma`)}>
+                  <TrendingUp className="h-3.5 w-3.5 mr-1" /> Create Pro-forma
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {isAgent ? "Pro-formas you have created for this property." : "All pro-formas created for this property by any user."}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {proformasList.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  No pro-formas created yet for this property.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {proformasList.map((pf: any) => (
+                    <div key={pf.id} className="flex items-center justify-between border rounded-lg p-3 hover:bg-slate-50 transition-colors">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm">{pf.title || "Untitled Pro-forma"}</span>
+                          {pf.purchasePrice && <Badge variant="outline" className="text-xs">${Number(pf.purchasePrice).toLocaleString()}</Badge>}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><User className="h-3 w-3" />{pf.creatorName || "Unknown"}</span>
+                          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatDate(pf.createdAt)}</span>
+                          {pf.updatedAt && pf.updatedAt !== pf.createdAt && (
+                            <span>Updated: {formatDate(pf.updatedAt)}</span>
+                          )}
+                          {pf.cashOnCash && <span>CoC: {(Number(pf.cashOnCash) * 100).toFixed(1)}%</span>}
+                          {pf.capRate && <span>Cap: {(Number(pf.capRate) * 100).toFixed(1)}%</span>}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => navigate(`/properties/${id}/proforma?load=${pf.id}`)}>
+                        View
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
