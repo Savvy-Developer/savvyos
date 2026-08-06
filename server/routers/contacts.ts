@@ -1052,6 +1052,9 @@ Please write the comprehensive AI summary now.`;
       const excludeIds = Array.from(new Set([...connectedIds, ...pendingIds]));
       const searchTrimmed = input.search.replace(/\s+/g, " ").trim();
       const term = `%${searchTrimmed}%`;
+      // Normalize phone: strip non-digit chars for phone matching
+      const digitsOnly = searchTrimmed.replace(/[^\d]/g, "");
+      const phoneTerm = digitsOnly.length >= 3 ? `%${digitsOnly}%` : null;
       const baseWhere = and(
         isNull(contactsTable.archivedAt),
         or(
@@ -1059,6 +1062,7 @@ Please write the comprehensive AI summary now.`;
           like(contactsTable.lastName, term),
           like(contactsTable.email, term),
           like(contactsTable.phone, term),
+          ...(phoneTerm && phoneTerm !== term ? [sql`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${contactsTable.phone}, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ${phoneTerm}`] : []),
           sql`CONCAT(TRIM(${contactsTable.firstName}), ' ', TRIM(${contactsTable.lastName})) LIKE ${term}`,
         ),
       );
