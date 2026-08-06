@@ -162,7 +162,7 @@ export default function ProformaDefaultsPage() {
   );
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <div className="mb-4">
         <Button variant="ghost" size="sm" onClick={() => navigate("/profile")}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to Profile

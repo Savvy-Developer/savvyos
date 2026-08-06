@@ -74,7 +74,7 @@ export default function CoachingSessionsPage() {
   });
 
   return (
-    <div className="p-6 max-w-screen-2xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate("/coaching")} className="-ml-2">
@@ -143,7 +143,7 @@ export default function CoachingSessionsPage() {
 
       {/* Sessions Table */}
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

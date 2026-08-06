@@ -134,9 +134,9 @@ export default function EmailNotificationsPage() {
         subtitle="Manage which automated email notifications SavvyOS sends"
       />
       <Tabs defaultValue="notifications" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="notifications">Notification Settings</TabsTrigger>
-          <TabsTrigger value="test">Email Test</TabsTrigger>
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="notifications" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Notification Settings</TabsTrigger>
+          <TabsTrigger value="test" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Email Test</TabsTrigger>
         </TabsList>
         <TabsContent value="test"><EmailTestPage /></TabsContent>
         <TabsContent value="notifications">

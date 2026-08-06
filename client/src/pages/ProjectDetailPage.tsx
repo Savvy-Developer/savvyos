@@ -744,12 +744,12 @@ export default function ProjectDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="tasks">
-        <TabsList className="mb-4">
-          <TabsTrigger value="tasks">
+        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
             Tasks ({tasks.length})
           </TabsTrigger>
-          <TabsTrigger value="notes">
+          <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
             Notes
             {unreadNoteCount > 0 && (
@@ -758,11 +758,11 @@ export default function ProjectDetailPage() {
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="updates">
+          <TabsTrigger value="updates" className="shrink-0 whitespace-nowrap">
             <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
             Weekly Updates ({(project.weeklyUpdates ?? []).length})
           </TabsTrigger>
-          <TabsTrigger value="activity">
+          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
             <Activity className="h-3.5 w-3.5 mr-1.5" />
             Activity
           </TabsTrigger>

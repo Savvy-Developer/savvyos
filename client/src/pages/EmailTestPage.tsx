@@ -323,7 +323,7 @@ export default function EmailTestPage() {
   const editVars = editType ? (TEMPLATE_VARIABLES[editType] ?? []) : [];
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">

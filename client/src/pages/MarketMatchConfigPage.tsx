@@ -353,7 +353,7 @@ function MarketCard({ market, onEdit, onDelete }: { market: MarketProfile; onEdi
   });
   return (
     <Card className="overflow-hidden">
-      <CardContent className="p-0">
+      <CardContent className="p-0 overflow-x-auto">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10"><MapPin className="h-4 w-4 text-primary" /></div>
@@ -500,7 +500,7 @@ function MarketsTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="grid grid-cols-3 gap-3 flex-1 mr-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1 mr-4">
           <Card><CardContent className="p-3 flex items-center gap-2">
             <MapPin className="h-4 w-4 text-primary" />
             <div><p className="text-xl font-bold">{activeMarkets.length}</p><p className="text-xs text-muted-foreground">Active</p></div>
@@ -584,7 +584,7 @@ function PerformanceTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card><CardContent className="p-4 flex items-center gap-3">
           <div className="p-2 rounded-lg bg-emerald-100"><DollarSign className="h-4 w-4 text-emerald-600" /></div>
           <div><p className="text-xl font-bold">{formatCompact(totalGci)}</p><p className="text-xs text-muted-foreground">Total GCI</p></div>
@@ -663,7 +663,7 @@ function PerformanceTab() {
             />
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -692,7 +692,7 @@ function PerformanceTab() {
       {selectedMarketId !== "all" && leaderboard.length > 0 && (
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Agent Leaderboard</CardTitle></CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -735,7 +735,7 @@ export default function MarketMatchConfigPage() {
   const tabs = allTabs;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-5">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">

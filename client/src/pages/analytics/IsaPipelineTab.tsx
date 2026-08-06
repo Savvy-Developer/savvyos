@@ -145,7 +145,7 @@ export default function IsaPipelineTab() {
             />
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? <div className="p-4 text-sm text-muted-foreground">Loading...</div> :
             (report?.isaPerformance ?? []).length === 0 ? <EmptyState /> : (
               <div className="overflow-x-auto">

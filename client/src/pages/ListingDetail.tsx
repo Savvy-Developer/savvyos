@@ -625,7 +625,7 @@ export default function ListingDetail() {
     : listing.mlsNumber ? `MLS #${listing.mlsNumber}` : "Listing";
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       {/* Back + Header */}
       <div>
         <Button variant="ghost" size="sm" onClick={goBack} className="mb-3 -ml-2">
@@ -1427,7 +1427,7 @@ export default function ListingDetail() {
                     <Label className="text-xs">Address *</Label>
                     <Input value={newPropertyForm.address} onChange={(e) => setNewPropertyForm(f => ({ ...f, address: e.target.value }))} placeholder="123 Main St" />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div className="space-y-1 col-span-1">
                       <Label className="text-xs">City</Label>
                       <Input value={newPropertyForm.city} onChange={(e) => setNewPropertyForm(f => ({ ...f, city: e.target.value }))} placeholder="Denver" />

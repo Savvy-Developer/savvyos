@@ -107,7 +107,7 @@ export default function LeadershipDashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <PageHeader
         title="Leadership Dashboard"
         subtitle="All 1-on-1 sessions across the team"
@@ -213,7 +213,7 @@ export default function LeadershipDashboardPage() {
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="py-12 text-center text-muted-foreground text-sm">Loading sessions...</div>
           ) : filtered.length === 0 ? (
@@ -305,7 +305,7 @@ export default function LeadershipDashboardPage() {
                 searchPlaceholder="Search agents…"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Meeting Date *</Label>
                 <Input type="date" value={newForm.meetingDate} onChange={(e) => setNewForm({ ...newForm, meetingDate: e.target.value })} className="h-8 text-sm mt-1" />

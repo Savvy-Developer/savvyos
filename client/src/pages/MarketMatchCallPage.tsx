@@ -157,7 +157,7 @@ function ContactSearchScreen({ onStart }: { onStart: (contactId: number, contact
 
         {/* Search */}
         <Card className="bg-slate-800/50 border-slate-700">
-          <CardContent className="p-6 space-y-4">
+          <CardContent className="p-4 sm:p-6 space-y-4">
             <div className="space-y-2">
               <Label className="text-slate-300">Search for a contact to start the call</Label>
               <div className="relative">
@@ -206,7 +206,7 @@ function ContactSearchScreen({ onStart }: { onStart: (contactId: number, contact
         </Card>
 
         {/* Tips */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { icon: Sparkles, text: "AI market matching" },
             { icon: Target, text: "Live coaching tips" },
@@ -375,7 +375,7 @@ function LiveCallWorkspace({
             {/* Timeline & Budget — 2 cols */}
             <div>
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Timeline & Budget</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-[11px] text-slate-300">Timeline</Label>
                   <Select value={profile.purchaseTimeline ?? ""} onValueChange={(v) => updateProfile("purchaseTimeline", v)}>
@@ -478,7 +478,7 @@ function LiveCallWorkspace({
                     })}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-[11px] text-slate-300">Seasonality</Label>
                     <Select value={profile.seasonalityPreference ?? ""} onValueChange={(v) => updateProfile("seasonalityPreference", v)}>
@@ -514,7 +514,7 @@ function LiveCallWorkspace({
             {/* Operations & Risk — 2 cols */}
             <div>
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Operations & Risk</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-[11px] text-slate-300">Mgmt. Style</Label>
                   <Select value={profile.managementPreference ?? ""} onValueChange={(v) => updateProfile("managementPreference", v)}>
@@ -671,7 +671,7 @@ function LiveCallWorkspace({
                           </div>
                           {expandedRec === i && (
                             <div className="space-y-3 mt-3 pt-3 border-t border-slate-700">
-                              <div className="grid grid-cols-2 gap-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                   <p className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1 mb-1"><CheckCircle2 className="h-3 w-3" /> Why It Fits</p>
                                   <p className="text-xs text-slate-300 leading-relaxed">{rec.whyItFits}</p>
@@ -1243,11 +1243,11 @@ export default function MarketMatchCallPage() {
           {searchTab === "new" ? (
             <>
               <Card className="bg-slate-800/50 border-slate-700">
-                <CardContent className="p-6 space-y-4">
+                <CardContent className="p-4 sm:p-6 space-y-4">
                   <ContactSearchWidget onStart={(cId: number) => startSession.mutate({ contactId: cId })} />
                 </CardContent>
               </Card>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   { icon: Sparkles, text: "AI market matching" },
                   { icon: Target, text: "Live coaching tips" },

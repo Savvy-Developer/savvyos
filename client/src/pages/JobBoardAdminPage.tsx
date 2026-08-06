@@ -365,13 +365,13 @@ export default function JobBoardAdminPage() {
   const updateJob = trpc.jobBoard.updateJob.useMutation({ onSuccess: () => { utils.jobBoard.listJobs.invalidate(); } });
 
   if (selectedAppId) return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <ApplicantDetail appId={selectedAppId} onBack={() => setSelectedAppId(null)} />
     </div>
   );
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Job Board</h1>

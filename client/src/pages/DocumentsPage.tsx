@@ -77,7 +77,7 @@ export default function DocumentsPage() {
       />
 
       <Card>
-        <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm">
+        <CardContent className="p-0 overflow-x-auto"><div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
               <tr>
                 <th className="text-left py-3 px-4 text-muted-foreground font-medium">Document</th>

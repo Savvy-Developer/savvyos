@@ -260,7 +260,7 @@ export default function AgentConnectionDetail() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={goBack}>
@@ -476,13 +476,13 @@ export default function AgentConnectionDetail() {
         {/* Right: Tabs for Communications, Tasks, Documents */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="communications">
-            <TabsList className="mb-4 flex-wrap h-auto gap-y-1 w-full">
-              <TabsTrigger value="communications">Communications ({comms?.length ?? 0})</TabsTrigger>
-              <TabsTrigger value="tasks">Tasks ({tasks?.length ?? 0})</TabsTrigger>
-              <TabsTrigger value="transactions">Transactions ({contactTransactions?.length ?? 0})</TabsTrigger>
-              <TabsTrigger value="documents">Documents ({docs?.length ?? 0})</TabsTrigger>
-              <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
-              <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
+            <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <TabsTrigger value="communications" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Communications ({comms?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Tasks ({tasks?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="transactions" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Transactions ({contactTransactions?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="documents" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Documents ({docs?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="smart-plans" className="shrink-0 whitespace-nowrap"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
+              <TabsTrigger value="email-behaviors" className="shrink-0 whitespace-nowrap"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
             </TabsList>
 
             {/* Communications Tab */}

@@ -163,7 +163,7 @@ export default function CoachingAgentPage() {
   const terminationsToShow = showAllTerminations ? terminations : terminations.slice(0, 5);
 
   return (
-    <div className="p-6 max-w-screen-2xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto space-y-5">
       {/* Back nav */}
       <Button variant="ghost" size="sm" onClick={() => navigate("/coaching")} className="text-muted-foreground -ml-2">
         <ArrowLeft className="h-4 w-4 mr-1" />Coaching Hub
@@ -178,7 +178,7 @@ export default function CoachingAgentPage() {
                 {(agent?.name ?? "?")[0]}
               </div>
               <div>
-                <h1 className="text-xl font-bold flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2 flex-wrap">
                   {agent?.name ?? "—"}
                   {profile?.performanceStatus && (
                     <Badge className={`text-xs border ${PERF_STATUS_COLORS[profile.performanceStatus] ?? ""}`} variant="outline">
@@ -247,7 +247,7 @@ export default function CoachingAgentPage() {
 
       {/* ═══ TABS ═══ */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex flex-wrap h-auto gap-1 bg-transparent p-0 border-b rounded-none">
+        <TabsList className="flex overflow-x-auto h-auto gap-0 bg-transparent p-0 border-b rounded-none" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           {[
             { id: "overview", label: "Overview", icon: BarChart3 },
             { id: "ai-insights", label: "AI Insights", icon: Brain },
@@ -261,8 +261,8 @@ export default function CoachingAgentPage() {
             { id: "market", label: "Market", icon: MapPin },
             { id: "files", label: "Files", icon: FolderOpen },
           ].map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-1.5 rounded-none border-b-2 border-transparent px-3 py-2 text-xs font-medium data-[state=active]:border-primary data-[state=active]:text-primary">
-              <tab.icon className="h-3.5 w-3.5" />
+            <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-1.5 shrink-0 rounded-none border-b-2 border-transparent px-3 py-2 text-xs font-medium whitespace-nowrap data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-none">
+              <tab.icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
               {(tab as any).count > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[9px] font-bold text-primary">{(tab as any).count}</span>}
               {(tab as any).active && <span className="ml-1 h-2 w-2 rounded-full bg-red-500" />}
@@ -320,7 +320,7 @@ export default function CoachingAgentPage() {
                   {/* Buyer vs Seller breakdown */}
                   <div className="mt-3 pt-3 border-t">
                     <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Closed Deal Breakdown</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <StatBox label="Buyer Closed" value={prodStats?.buyerClosedCount ?? 0} accent="text-blue-700" />
                       <StatBox label="Seller Closed" value={prodStats?.sellerClosedCount ?? 0} accent="text-purple-700" />
                       <StatBox label="Dual Closed" value={prodStats?.dualClosedCount ?? 0} accent="text-amber-700" />
@@ -386,7 +386,7 @@ export default function CoachingAgentPage() {
             {/* Recent Sessions */}
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><CalendarDays className="h-4 w-4" />Recent Sessions</CardTitle></CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 {(recentSessions ?? []).length === 0 ? (
                   <div className="text-center py-6 text-muted-foreground"><CalendarDays className="h-6 w-6 mx-auto mb-1 opacity-40" /><p className="text-xs">No coaching sessions recorded</p></div>
                 ) : (
@@ -439,7 +439,7 @@ export default function CoachingAgentPage() {
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><XCircle className="h-4 w-4 text-red-500" />Terminations</CardTitle></CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
                   <StatBox label="Terminated" value={prodStats?.terminatedCount ?? 0} accent="text-red-600" />
                   <StatBox label="Term Rate" value={`${terminationRate}%`} accent={terminationRate > 20 ? "text-red-600" : ""} />
                   <StatBox label="Lost Volume" value={fmtMoney(prodStats?.terminatedVolume ?? 0)} accent="text-red-600" />
@@ -533,7 +533,7 @@ export default function CoachingAgentPage() {
               {goalsData.monthlyGoals && goalsData.monthlyGoals.length > 0 && (
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Monthly Goals</CardTitle></CardHeader>
-                  <CardContent className="p-0"><Table><TableHeader><TableRow><TableHead className="text-[10px]">Month</TableHead><TableHead className="text-[10px]">Target</TableHead><TableHead className="text-[10px]">Actual</TableHead><TableHead className="text-[10px]">Status</TableHead></TableRow></TableHeader>
+                  <CardContent className="p-0 overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="text-[10px]">Month</TableHead><TableHead className="text-[10px]">Target</TableHead><TableHead className="text-[10px]">Actual</TableHead><TableHead className="text-[10px]">Status</TableHead></TableRow></TableHeader>
                   <TableBody>{goalsData.monthlyGoals.map((g: any, i: number) => (
                     <TableRow key={i}><TableCell className="text-xs">{g.month ?? `Month ${i + 1}`}</TableCell><TableCell className="text-xs">{g.targetUnits ?? "—"}</TableCell><TableCell className="text-xs">{g.actualUnits ?? 0}</TableCell><TableCell className="text-xs">{(g.actualUnits ?? 0) >= (g.targetUnits ?? 0) ? <span className="text-emerald-700">Met</span> : <span className="text-amber-600">Behind</span>}</TableCell></TableRow>
                   ))}</TableBody></Table></CardContent>
@@ -590,7 +590,7 @@ export default function CoachingAgentPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between"><CardTitle className="text-sm">Full Coaching History</CardTitle><Button size="sm" onClick={() => setShowNewSession(true)}><Plus className="h-3.5 w-3.5 mr-1" />New Session</Button></div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               {(recentSessions ?? []).length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground"><CalendarDays className="h-8 w-8 mx-auto mb-2 opacity-40" /><p className="text-sm">No coaching sessions recorded</p></div>
               ) : (

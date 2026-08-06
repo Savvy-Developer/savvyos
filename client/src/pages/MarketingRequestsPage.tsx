@@ -563,7 +563,7 @@ export default function MarketingRequestsPage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Marketing Requests</h1>
@@ -578,8 +578,8 @@ export default function MarketingRequestsPage() {
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "active" | "completed")}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="active">
+        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="active" className="shrink-0 whitespace-nowrap">
             Active
             {activeRequests.length > 0 && (
               <span className="ml-1.5 bg-primary text-primary-foreground text-xs rounded-full px-1.5 py-0.5">
@@ -587,7 +587,7 @@ export default function MarketingRequestsPage() {
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="completed">History</TabsTrigger>
+          <TabsTrigger value="completed" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="active">

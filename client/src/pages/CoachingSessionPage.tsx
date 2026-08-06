@@ -253,25 +253,25 @@ export default function CoachingSessionPage() {
   }
 
   return (
-    <div className="p-6 max-w-screen-2xl mx-auto space-y-4">
+    <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate(agent ? `/coaching/agent/${agent.id}` : "/coaching")}>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate(agent ? `/coaching/agent/${agent.id}` : "/coaching")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-lg font-bold flex items-center gap-2">
-              Coaching Session — {agent?.name ?? "Agent"}
-              <Badge className={`text-[10px] ${STATUS_COLORS[session.status] ?? ""}`}>{session.status}</Badge>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-bold flex items-center gap-2 flex-wrap">
+              <span className="truncate">Coaching Session — {agent?.name ?? "Agent"}</span>
+              <Badge className={`text-[10px] shrink-0 ${STATUS_COLORS[session.status] ?? ""}`}>{session.status}</Badge>
             </h1>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground truncate">
               {session.sessionType} • {session.sessionDate ? safeFormat(session.sessionDate, "MMMM d, yyyy h:mm a") : "Unscheduled"}
               {scheduledCoach?.name && ` • Coach: ${actualCoach?.name ?? scheduledCoach.name}`}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
           {session.status === "Scheduled" && (
             <Button size="sm" onClick={() => startSession.mutate({ sessionId })} disabled={startSession.isPending}>
               <Play className="h-3.5 w-3.5 mr-1" />{startSession.isPending ? "Starting..." : "Start Session"}
@@ -292,7 +292,7 @@ export default function CoachingSessionPage() {
       </div>
 
       {/* Stage Progress Bar */}
-      <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-2">
+      <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-2 overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
         {STAGE_ORDER.map((stage, i) => {
           const stageIdx = STAGE_ORDER.indexOf(activeStage);
           const isActive = stage === activeStage;
@@ -376,7 +376,7 @@ export default function CoachingSessionPage() {
           {priorCommitments && priorCommitments.length > 0 && (
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><ListChecks className="h-4 w-4" />Open Commitments to Review ({priorCommitments.length})</CardTitle></CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table><TableHeader><TableRow><TableHead className="text-[10px]">Commitment</TableHead><TableHead className="text-[10px]">Due</TableHead><TableHead className="text-[10px]">Status</TableHead></TableRow></TableHeader>
                 <TableBody>{priorCommitments.map((c: any) => (
                   <TableRow key={c.id}><TableCell className="text-xs">{c.description}</TableCell><TableCell className="text-xs">{c.dueDate ? safeFormat(c.dueDate, "MMM d") : "—"}</TableCell><TableCell><Badge variant="secondary" className="text-[10px]">{c.status}</Badge></TableCell></TableRow>
@@ -496,7 +496,7 @@ export default function CoachingSessionPage() {
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-xs uppercase text-muted-foreground">Diagnosis</CardTitle></CardHeader>
               <CardContent className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {["Commitment", "Capability", "Cadence", "Capacity"].map(d => (
                     <button
                       key={d}
@@ -659,7 +659,7 @@ export default function CoachingSessionPage() {
           {aiCommitments.length > 0 ? (
             <Card className="border-amber-200">
               <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Sparkles className="h-4 w-4 text-amber-600" />AI-Suggested Commitments ({aiCommitments.length})</CardTitle><CardDescription className="text-xs">Review and approve or dismiss each commitment</CardDescription></CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table><TableHeader><TableRow><TableHead className="w-8"></TableHead><TableHead className="text-[10px]">Commitment</TableHead><TableHead className="text-[10px]">Owner</TableHead><TableHead className="text-[10px]">Due</TableHead><TableHead className="text-[10px]">Confidence</TableHead></TableRow></TableHeader>
                 <TableBody>{aiCommitments.map((c: any) => (
                   <TableRow key={c.id}>
@@ -686,7 +686,7 @@ export default function CoachingSessionPage() {
           {approvedCommitments.length > 0 && (
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Active Commitments ({approvedCommitments.length})</CardTitle></CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table><TableHeader><TableRow><TableHead className="text-[10px]">Commitment</TableHead><TableHead className="text-[10px]">Owner</TableHead><TableHead className="text-[10px]">Due</TableHead><TableHead className="text-[10px]">Status</TableHead></TableRow></TableHeader>
                 <TableBody>{approvedCommitments.map((c: any) => (
                   <TableRow key={c.id}><TableCell className="text-xs">{c.description}</TableCell><TableCell className="text-xs">{c.ownerId === agent?.id ? "Agent" : "Coach"}</TableCell><TableCell className="text-xs">{c.dueDate ? safeFormat(c.dueDate, "MMM d") : "—"}</TableCell><TableCell><Badge variant="secondary" className="text-[10px]">{c.status}</Badge></TableCell></TableRow>

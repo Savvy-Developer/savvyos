@@ -131,7 +131,7 @@ export default function TalentProfileAdminPage() {
   ];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Savvy Talent Profile</h1>
         <p className="text-gray-500 text-sm mt-1">Workstyle assessment management — results, role profiles, and item bank</p>
@@ -577,7 +577,7 @@ export default function TalentProfileAdminPage() {
                 {Object.keys(DIMENSION_LABELS).map(dim => {
                   const existing = (roleProfileForm.dimensionRanges ?? []).find((r: any) => r.dimension === dim);
                   return (
-                    <div key={dim} className="grid grid-cols-6 gap-2 items-center p-3 bg-gray-50 rounded-lg">
+                    <div key={dim} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-center p-3 bg-gray-50 rounded-lg">
                       <div className="col-span-2">
                         <span className="text-sm font-medium text-gray-700">{DIMENSION_LABELS[dim]}</span>
                       </div>

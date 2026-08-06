@@ -130,7 +130,7 @@ function PartnerLinksTab() {
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="p-6 text-center text-muted-foreground text-sm">Loading sources…</div>
           ) : filtered.length === 0 ? (

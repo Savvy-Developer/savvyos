@@ -75,7 +75,7 @@ export default function AdminApprovalsPage() {
       />
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
         {(["pending", "approved", "rejected"] as const).map((s) => {
           const cfg = STATUS_CONFIG[s];
           const Icon = cfg.icon;
@@ -98,13 +98,13 @@ export default function AdminApprovalsPage() {
 
       {/* Filter tabs */}
       <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)} className="mb-4">
-        <TabsList>
-          <TabsTrigger value="pending">
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="pending" className="shrink-0 whitespace-nowrap">
             Pending {pendingCount > 0 && <span className="ml-1.5 bg-yellow-500 text-white text-xs rounded-full px-1.5">{pendingCount}</span>}
           </TabsTrigger>
-          <TabsTrigger value="approved">Approved</TabsTrigger>
-          <TabsTrigger value="rejected">Rejected</TabsTrigger>
-          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="approved" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Approved</TabsTrigger>
+          <TabsTrigger value="rejected" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Rejected</TabsTrigger>
+          <TabsTrigger value="all" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">All</TabsTrigger>
         </TabsList>
       </Tabs>
 

@@ -662,7 +662,7 @@ export default function DuplicatesPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -776,13 +776,13 @@ export default function DuplicatesPage() {
 
       {/* Tabs */}
       <Tabs value={statusFilter} onValueChange={handleTabChange}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="pending">
+        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="pending" className="shrink-0 whitespace-nowrap">
             Pending {stats?.pending ? `(${stats.pending})` : ""}
           </TabsTrigger>
-          <TabsTrigger value="merged">Merged</TabsTrigger>
-          <TabsTrigger value="dismissed">Dismissed</TabsTrigger>
-          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="merged" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Merged</TabsTrigger>
+          <TabsTrigger value="dismissed" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Dismissed</TabsTrigger>
+          <TabsTrigger value="all" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">All</TabsTrigger>
         </TabsList>
 
         <TabsContent value={statusFilter}>

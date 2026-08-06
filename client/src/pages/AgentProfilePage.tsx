@@ -761,50 +761,50 @@ export default function AgentProfilePage() {
 
       {/* Tabs */}
       <Tabs defaultValue={agentData.role === "agent" ? "transactions" : "tasks"}>
-        <TabsList>
+        <TabsList className="flex overflow-x-auto h-auto gap-0 bg-transparent p-0 border-b rounded-none w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           {agentData.role === "agent" && (
-            <TabsTrigger value="transactions">
-              <FileText className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="transactions" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <FileText className="h-4 w-4 mr-1.5 shrink-0" />
               Transactions ({txTotal})
             </TabsTrigger>
           )}
           {agentData.role === "agent" && (
-            <TabsTrigger value="contacts">
-              <Users className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="contacts" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <Users className="h-4 w-4 mr-1.5 shrink-0" />
               Contacts ({contactTotal})
             </TabsTrigger>
           )}
-          <TabsTrigger value="tasks">
-            <CheckSquare className="h-4 w-4 mr-1.5" />
+          <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+            <CheckSquare className="h-4 w-4 mr-1.5 shrink-0" />
             Tasks ({taskTotal})
           </TabsTrigger>
           {agentData.role === "agent" && (
-            <TabsTrigger value="analytics">
-              <BarChart3 className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="analytics" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <BarChart3 className="h-4 w-4 mr-1.5 shrink-0" />
               Analytics
             </TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="coach-portal">
-              <BarChart3 className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="coach-portal" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <BarChart3 className="h-4 w-4 mr-1.5 shrink-0" />
               Coach Portal
             </TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="leadership">
-              <MessageSquarePlus className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="leadership" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <MessageSquarePlus className="h-4 w-4 mr-1.5 shrink-0" />
               1-on-1s ({(feedbackList as any[]).length})
             </TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="documents">
-              <FolderOpen className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="documents" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <FolderOpen className="h-4 w-4 mr-1.5 shrink-0" />
               Documents {(userDocs as any[]).length > 0 && `(${(userDocs as any[]).length})`}
             </TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="extended-profile">
-              <ClipboardList className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="extended-profile" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <ClipboardList className="h-4 w-4 mr-1.5 shrink-0" />
               Extended Profile
             </TabsTrigger>
           )}
@@ -813,7 +813,7 @@ export default function AgentProfilePage() {
         {/* Transactions Tab */}
         <TabsContent value="transactions" className="mt-4">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -902,7 +902,7 @@ export default function AgentProfilePage() {
         {/* Contacts Tab */}
         <TabsContent value="contacts" className="mt-4">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -986,7 +986,7 @@ export default function AgentProfilePage() {
         {/* Tasks Tab */}
         <TabsContent value="tasks" className="mt-4">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1240,7 +1240,7 @@ export default function AgentProfilePage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 {(feedbackList as any[]).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <MessageSquarePlus className="h-8 w-8 mb-2 opacity-40" />

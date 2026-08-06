@@ -122,7 +122,7 @@ function ContactHistoryTabContent({ contactId }: { contactId: number }) {
 
   return (
     <Card>
-      <CardContent className="p-0">
+      <CardContent className="p-0 overflow-x-auto">
         <div className="relative">
           <div className="absolute left-5 top-0 bottom-0 w-px bg-border" />
           <div className="space-y-0">
@@ -306,7 +306,7 @@ function ActivityTabAiSummary({ contactId }: { contactId: number }) {
   const updatedAt = data?.updatedAt ? new Date(data.updatedAt) : null;
   return (
     <Card className="mb-3 border-violet-200/60 bg-violet-50/30 dark:bg-violet-950/10">
-      <CardContent className="p-0">
+      <CardContent className="p-0 overflow-x-auto">
         {/* Header row — always visible */}
         <button
           className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-violet-50/50 dark:hover:bg-violet-950/20 transition-colors rounded-t-lg"
@@ -971,14 +971,14 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
         <div className="lg:col-span-2">
           <Tabs defaultValue="activity">
             <div className="mb-4 space-y-2">
-              <TabsList className="flex-wrap h-auto gap-y-1 w-full">
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-                <TabsTrigger value="properties">Properties ({contactProps?.length ?? 0})</TabsTrigger>
-                <TabsTrigger value="transactions">Transactions ({contactTransactions.length})</TabsTrigger>
-                <TabsTrigger value="tasks">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
-                <TabsTrigger value="smart-plans"><Zap className="h-3.5 w-3.5 mr-1 inline" />Smart Plans</TabsTrigger>
-                <TabsTrigger value="email-behaviors"><Inbox className="h-3.5 w-3.5 mr-1 inline" />Email Behaviors</TabsTrigger>
+              <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+                <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
+                <TabsTrigger value="properties" className="shrink-0 whitespace-nowrap">Properties ({contactProps?.length ?? 0})</TabsTrigger>
+                <TabsTrigger value="transactions" className="shrink-0 whitespace-nowrap">Transactions ({contactTransactions.length})</TabsTrigger>
+                <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
+                <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">History</TabsTrigger>
+                <TabsTrigger value="smart-plans" className="shrink-0 whitespace-nowrap"><Zap className="h-3.5 w-3.5 mr-1 inline shrink-0" />Smart Plans</TabsTrigger>
+                <TabsTrigger value="email-behaviors" className="shrink-0 whitespace-nowrap"><Inbox className="h-3.5 w-3.5 mr-1 inline shrink-0" />Email Behaviors</TabsTrigger>
               </TabsList>
               <div className="flex justify-end">
                 <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
@@ -1334,10 +1334,10 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
           <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Edit Contact</DialogTitle></DialogHeader>
             <Tabs defaultValue="primary">
-              <TabsList className="mb-4">
-                <TabsTrigger value="primary">Primary</TabsTrigger>
-                <TabsTrigger value="spouse">Spouse / Partner</TabsTrigger>
-                <TabsTrigger value="details">Details & Source</TabsTrigger>
+              <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+                <TabsTrigger value="primary" className="shrink-0 whitespace-nowrap">Primary</TabsTrigger>
+                <TabsTrigger value="spouse" className="shrink-0 whitespace-nowrap">Spouse / Partner</TabsTrigger>
+                <TabsTrigger value="details" className="shrink-0 whitespace-nowrap">Details & Source</TabsTrigger>
               </TabsList>
 
               <TabsContent value="primary" className="space-y-3">
@@ -1650,7 +1650,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div><Label>Beds</Label><Input className="mt-1" type="number" value={newPropertyForm.beds} onChange={e => setNewPropertyForm(f => ({ ...f, beds: e.target.value }))} /></div>
               <div><Label>Baths</Label><Input className="mt-1" type="number" value={newPropertyForm.baths} onChange={e => setNewPropertyForm(f => ({ ...f, baths: e.target.value }))} /></div>
               <div><Label>Sqft</Label><Input className="mt-1" type="number" value={newPropertyForm.sqft} onChange={e => setNewPropertyForm(f => ({ ...f, sqft: e.target.value }))} /></div>

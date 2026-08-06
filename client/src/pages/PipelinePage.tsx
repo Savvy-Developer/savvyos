@@ -511,7 +511,7 @@ export default function PipelinePage() {
         </p>
       </div>
       <Card>
-        <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm">
+        <CardContent className="p-0 overflow-x-auto"><div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
               <tr>
                 <th className="w-10 py-3 px-2 text-center text-muted-foreground font-medium">

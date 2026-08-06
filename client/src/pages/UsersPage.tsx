@@ -642,9 +642,9 @@ export default function UsersPage() {
         </div>
       </div>
       <Tabs defaultValue="members" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="members">Team Members</TabsTrigger>
-          <TabsTrigger value="groups">Groups</TabsTrigger>
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="members" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Team Members</TabsTrigger>
+          <TabsTrigger value="groups" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Groups</TabsTrigger>
         </TabsList>
         <TabsContent value="groups"><GroupsPage /></TabsContent>
         <TabsContent value="members">

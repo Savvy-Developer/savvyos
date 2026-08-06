@@ -123,16 +123,16 @@ export default function HotLeadsPage() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="property-views" className="gap-2">
+        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="property-views" className="shrink-0 whitespace-nowrap gap-2">
             <Eye className="h-4 w-4" />
             Property Views
           </TabsTrigger>
-          <TabsTrigger value="return-visitors" className="gap-2">
+          <TabsTrigger value="return-visitors" className="shrink-0 whitespace-nowrap gap-2">
             <CalendarDays className="h-4 w-4" />
             Return Visitors
           </TabsTrigger>
-          <TabsTrigger value="email-engagement" className="gap-2">
+          <TabsTrigger value="email-engagement" className="shrink-0 whitespace-nowrap gap-2">
             <Mail className="h-4 w-4" />
             Email Engagement
           </TabsTrigger>
@@ -141,7 +141,7 @@ export default function HotLeadsPage() {
         {/* ─── Property Views Tab ─────────────────────────────────────────── */}
         <TabsContent value="property-views">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <FiltersBar
                 days={days}
                 onDaysChange={handleDaysChange}
@@ -218,7 +218,7 @@ export default function HotLeadsPage() {
         {/* ─── Return Visitors Tab ────────────────────────────────────────── */}
         <TabsContent value="return-visitors">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <FiltersBar
                 days={days}
                 onDaysChange={handleDaysChange}
@@ -295,7 +295,7 @@ export default function HotLeadsPage() {
         {/* ─── Email Engagement Tab ───────────────────────────────────────── */}
         <TabsContent value="email-engagement">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <FiltersBar
                 days={days}
                 onDaysChange={handleDaysChange}

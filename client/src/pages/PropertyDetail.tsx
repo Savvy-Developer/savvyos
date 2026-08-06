@@ -275,15 +275,15 @@ export default function PropertyDetail() {
       />
 
       <Tabs defaultValue="overview" className="mt-6">
-        <TabsList className="mb-4">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="history">
+        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="overview" className="shrink-0 whitespace-nowrap">Overview</TabsTrigger>
+          <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">
             History
             {historyEvents.length > 0 && (
               <Badge variant="secondary" className="ml-1.5 text-xs px-1.5 py-0">{historyEvents.length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="proformas">
+          <TabsTrigger value="proformas" className="shrink-0 whitespace-nowrap">
             Pro-formas
             {proformasList.length > 0 && (
               <Badge variant="secondary" className="ml-1.5 text-xs px-1.5 py-0">{proformasList.length}</Badge>

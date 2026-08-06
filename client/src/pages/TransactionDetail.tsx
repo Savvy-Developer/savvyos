@@ -95,7 +95,7 @@ function TransactionHistoryTabContent({ transactionId, isAgent = false, goToCont
 
   return (
     <Card>
-      <CardContent className="p-0">
+      <CardContent className="p-0 overflow-x-auto">
         <div className="relative">
           <div className="absolute left-5 top-0 bottom-0 w-px bg-border" />
           <div className="space-y-0">
@@ -1246,13 +1246,13 @@ export default function TransactionDetail() {
         {/* Right: Tabs */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="payouts">
-            <TabsList className="mb-4 flex-wrap h-auto gap-1">
-              <TabsTrigger value="payouts">Commission Payouts</TabsTrigger>
-              <TabsTrigger value="documents">Documents{documents && documents.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{documents.length}</span>}</TabsTrigger>
-              <TabsTrigger value="notes">Notes{notes && notes.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{notes.length}</span>}</TabsTrigger>
-              <TabsTrigger value="tasks">Tasks</TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
-              <TabsTrigger value="history">History</TabsTrigger>
+            <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <TabsTrigger value="payouts" className="shrink-0 whitespace-nowrap">Commission Payouts</TabsTrigger>
+              <TabsTrigger value="documents" className="shrink-0 whitespace-nowrap">Documents{documents && documents.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{documents.length}</span>}</TabsTrigger>
+              <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">Notes{notes && notes.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{notes.length}</span>}</TabsTrigger>
+              <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">Tasks</TabsTrigger>
+              <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
+              <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">History</TabsTrigger>
             </TabsList>
 
             {/* Payouts Tab */}

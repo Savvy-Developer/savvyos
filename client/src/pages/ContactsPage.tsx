@@ -733,7 +733,7 @@ export default function ContactsPage() {
 
       {/* ── Contacts Table ── */}
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
@@ -967,10 +967,10 @@ export default function ContactsPage() {
             <DialogTitle>Add New Contact</DialogTitle>
           </DialogHeader>
           <Tabs defaultValue="primary">
-            <TabsList className="mb-4">
-              <TabsTrigger value="primary">Primary Contact</TabsTrigger>
-              <TabsTrigger value="spouse">Spouse / Partner</TabsTrigger>
-              <TabsTrigger value="details">Details & Source</TabsTrigger>
+            <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <TabsTrigger value="primary" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Primary Contact</TabsTrigger>
+              <TabsTrigger value="spouse" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Spouse / Partner</TabsTrigger>
+              <TabsTrigger value="details" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Details & Source</TabsTrigger>
             </TabsList>
 
             <TabsContent value="primary" className="space-y-3">

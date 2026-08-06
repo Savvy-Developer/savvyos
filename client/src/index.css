@@ -178,6 +178,14 @@
     min-height: 44px;
     min-width: 44px;
   }
+  /* Hide scrollbar but keep scrolling */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
   /* Brand cyan text utility */
   .text-brand {
     color: oklch(0.74 0.130 215.1);

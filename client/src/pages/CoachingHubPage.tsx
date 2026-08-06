@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -30,6 +30,7 @@ import {
   CheckCircle2,
   Clock,
   ChevronRight,
+  ChevronLeft,
   Loader2,
   CalendarDays,
   Target,
@@ -82,6 +83,124 @@ const VIEWS: { id: ViewId; label: string; shortLabel: string; icon: any }[] = [
   { id: "help", label: "Help & Definitions", shortLabel: "Help", icon: HelpCircle },
 ];
 
+// ─── Scrollable Tab Nav ────────────────────────────────────────────────────
+function ScrollableTabNav({
+  views,
+  activeView,
+  onSelect,
+  getBadge,
+}: {
+  views: typeof VIEWS;
+  activeView: ViewId;
+  onSelect: (id: ViewId) => void;
+  getBadge: (id: ViewId) => number | null;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 2);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 2);
+  }, []);
+
+  useEffect(() => {
+    checkScroll();
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      ro.disconnect();
+    };
+  }, [checkScroll]);
+
+  // Scroll active tab into view on mount/change
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const activeBtn = el.querySelector(`[data-tab-id="${activeView}"]`) as HTMLElement | null;
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    }
+  }, [activeView]);
+
+  const scroll = (dir: "left" | "right") => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === "left" ? -200 : 200, behavior: "smooth" });
+  };
+
+  return (
+    <div className="relative border-b">
+      {/* Left fade + arrow */}
+      {canScrollLeft && (
+        <div className="absolute left-0 top-0 bottom-px z-10 flex items-center">
+          <div className="w-8 h-full bg-gradient-to-r from-background to-transparent pointer-events-none" />
+          <button
+            type="button"
+            onClick={() => scroll("left")}
+            className="absolute left-0 p-1 rounded-full bg-background/90 border shadow-sm hover:bg-muted transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+      )}
+
+      {/* Scrollable tabs */}
+      <nav
+        ref={scrollRef}
+        className="flex overflow-x-auto scrollbar-none pb-px -mb-px"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
+        {views.map((view) => {
+          const isActive = activeView === view.id;
+          const badge = getBadge(view.id);
+          return (
+            <button
+              key={view.id}
+              data-tab-id={view.id}
+              onClick={() => onSelect(view.id)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors shrink-0 ${
+                isActive
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+              }`}
+            >
+              <view.icon className="h-4 w-4 shrink-0" />
+              <span className="hidden lg:inline">{view.label}</span>
+              <span className="lg:hidden">{view.shortLabel}</span>
+              {badge !== null && badge > 0 && (
+                <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Right fade + arrow */}
+      {canScrollRight && (
+        <div className="absolute right-0 top-0 bottom-px z-10 flex items-center">
+          <div className="w-8 h-full bg-gradient-to-l from-background to-transparent pointer-events-none" />
+          <button
+            type="button"
+            onClick={() => scroll("right")}
+            className="absolute right-0 p-1 rounded-full bg-background/90 border shadow-sm hover:bg-muted transition-colors"
+          >
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CoachingHubPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -95,13 +214,20 @@ export default function CoachingHubPage() {
   const metrics = commandData?.metrics;
   const totalActions = (metrics?.overdueCommitments ?? 0) + (metrics?.noSessionIn14Days ?? 0) + (metrics?.unassignedCoachAgents ?? 0) + (metrics?.activeResets ?? 0);
 
+  const getBadge = useCallback((id: ViewId): number | null => {
+    if (id === "commitments" && metrics?.overdueCommitments) return metrics.overdueCommitments;
+    if (id === "resets" && metrics?.activeResets) return metrics.activeResets;
+    if (id === "escalations" && metrics?.openEscalations) return metrics.openEscalations;
+    return null;
+  }, [metrics]);
+
   return (
-    <div className="p-6 max-w-screen-2xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Zap className="h-6 w-6 text-primary" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             Coaching Hub
             {totalActions > 0 && (
               <Badge variant="destructive" className="ml-2 text-xs">{totalActions} actions</Badge>
@@ -113,39 +239,13 @@ export default function CoachingHubPage() {
         </div>
       </div>
 
-      {/* Sub-Navigation */}
-      <div className="border-b">
-        <nav className="flex gap-1 overflow-x-auto pb-px -mb-px">
-          {VIEWS.map((view) => {
-            const isActive = activeView === view.id;
-            // Badge counts for specific views
-            let badge: number | null = null;
-            if (view.id === "commitments" && metrics?.overdueCommitments) badge = metrics.overdueCommitments;
-            if (view.id === "resets" && metrics?.activeResets) badge = metrics.activeResets;
-            if (view.id === "escalations" && metrics?.openEscalations) badge = metrics.openEscalations;
-            return (
-              <button
-                key={view.id}
-                onClick={() => setActiveView(view.id)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  isActive
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
-                }`}
-              >
-                <view.icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{view.label}</span>
-                <span className="sm:hidden">{view.shortLabel}</span>
-                {badge !== null && badge > 0 && (
-                  <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">
-                    {badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      {/* Sub-Navigation — scrollable with fade indicators */}
+      <ScrollableTabNav
+        views={VIEWS}
+        activeView={activeView}
+        onSelect={setActiveView}
+        getBadge={getBadge}
+      />
 
       {/* Active View */}
       {activeView === "command" && <CoachingCommandCenter />}
@@ -175,7 +275,7 @@ function CoachingSessionsInline() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Coaching Sessions</h2>
         <div className="flex gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -207,16 +307,16 @@ function CoachingSessionsInline() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Agent</TableHead>
                   <TableHead>Coach</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead className="hidden sm:table-cell">Type</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Duration</TableHead>
+                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -230,13 +330,13 @@ function CoachingSessionsInline() {
                     <TableCell className="font-medium text-sm">{row.agent?.name ?? "—"}</TableCell>
                     <TableCell className="text-sm">{row.coach?.name ?? "—"}</TableCell>
                     <TableCell className="text-sm">{safeFormat(row.session.sessionDate, "MMM d, yyyy")}</TableCell>
-                    <TableCell className="text-sm">{row.session.sessionType ?? "—"}</TableCell>
+                    <TableCell className="text-sm hidden sm:table-cell">{row.session.sessionType ?? "—"}</TableCell>
                     <TableCell>
                       <Badge variant={row.session.status === "Completed" ? "default" : row.session.status === "Scheduled" ? "secondary" : "outline"} className="text-xs">
                         {row.session.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{row.session.durationMinutes ? `${row.session.durationMinutes}m` : "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">{row.session.durationMinutes ? `${row.session.durationMinutes}m` : "—"}</TableCell>
                     <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
                   </TableRow>
                 ))}

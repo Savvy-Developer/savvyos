@@ -372,7 +372,7 @@ export default function WebhooksPage() {
   });
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -413,10 +413,10 @@ export default function WebhooksPage() {
       </div>
 
       <Tabs defaultValue="endpoints">
-        <TabsList>
-          <TabsTrigger value="endpoints">Endpoints</TabsTrigger>
-          <TabsTrigger value="logs">Request Logs</TabsTrigger>
-          <TabsTrigger value="docs">Integration Guide</TabsTrigger>
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="endpoints" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Endpoints</TabsTrigger>
+          <TabsTrigger value="logs" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Request Logs</TabsTrigger>
+          <TabsTrigger value="docs" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Integration Guide</TabsTrigger>
         </TabsList>
 
         {/* ── Endpoints Tab ─────────────────────────────────────────────────── */}

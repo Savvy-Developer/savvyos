@@ -38,7 +38,7 @@ export default function PartnerLinksPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Partner Intake Links</h1>
@@ -94,7 +94,7 @@ export default function PartnerLinksPage() {
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="p-6 text-center text-muted-foreground text-sm">Loading sources…</div>
           ) : filtered.length === 0 ? (

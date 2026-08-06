@@ -271,7 +271,7 @@ export default function MarketPerformancePage() {
           <CardHeader>
             <CardTitle className="text-base">Market Comparison</CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -321,7 +321,7 @@ export default function MarketPerformancePage() {
               Agent Leaderboard — {selectedMarket?.marketName}
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>

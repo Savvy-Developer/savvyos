@@ -496,7 +496,7 @@ export default function ListingsPage() {
 
       {/* Table */}
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
@@ -754,7 +754,7 @@ export default function ListingsPage() {
                       value={newPropertyForm.address}
                       onChange={(e) => setNewPropertyForm({ ...newPropertyForm, address: e.target.value })} />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
                       <Label className="text-xs">City</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.city}

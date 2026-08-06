@@ -56,7 +56,7 @@ export default function ReferralPartnersPage() {
 
   return (
     <TooltipProvider>
-      <div className="p-6 space-y-6 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
         <PageHeader
           title="Referral Partners"
           subtitle="Commission breakdown for leads from each referral partner"
@@ -98,7 +98,7 @@ export default function ReferralPartnersPage() {
               Referral Partner Fee Breakdown
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             {isLoading ? (
               <div className="p-8 text-center text-muted-foreground text-sm">Loading referral partners…</div>
             ) : partners.length === 0 ? (

@@ -311,7 +311,7 @@ export default function FinancialPerformanceTab() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {tableLoading ? (
             <div className="p-4 text-sm text-muted-foreground">Loading transactions...</div>
           ) : (rows ?? []).length === 0 ? (

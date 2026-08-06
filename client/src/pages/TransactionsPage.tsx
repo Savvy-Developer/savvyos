@@ -284,7 +284,7 @@ function PropertyPicker({
             <Label className="text-xs">Address *</Label>
             <Input className="mt-0.5 h-8 text-sm" value={newAddress} onChange={(e) => setNewAddress(e.target.value)} />
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
               <Label className="text-xs">City</Label>
               <Input className="mt-0.5 h-8 text-sm" value={newCity} onChange={(e) => setNewCity(e.target.value)} />
@@ -1268,7 +1268,7 @@ export default function TransactionsPage() {
       )}
 
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
@@ -1849,7 +1849,7 @@ export default function TransactionsPage() {
           {bulkStep === "results" && bulkResults && (
             <div className="space-y-4">
               {/* Summary */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-lg border bg-green-50 dark:bg-green-950/20 p-3 text-center">
                   <CheckCircle className="mx-auto h-6 w-6 text-green-600 mb-1" />
                   <p className="text-2xl font-bold text-green-700">{bulkResults.succeeded}</p>

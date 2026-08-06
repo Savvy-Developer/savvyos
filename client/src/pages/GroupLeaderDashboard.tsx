@@ -174,7 +174,7 @@ export default function GroupLeaderDashboard() {
             Agent Performance
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

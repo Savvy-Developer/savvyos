@@ -110,7 +110,7 @@ export default function CommissionPayoutsTab() {
             />
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? <div className="p-4 text-sm text-muted-foreground">Loading...</div> :
             (report?.agentPayouts ?? []).length === 0 ? <EmptyState /> : (
               <div className="overflow-x-auto">
@@ -152,7 +152,7 @@ export default function CommissionPayoutsTab() {
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Commission Exceptions</CardTitle></CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="text-center p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                 <p className="text-2xl font-bold text-yellow-700">{report.exceptions.pending}</p>
                 <p className="text-xs text-yellow-600 mt-1">Pending</p>

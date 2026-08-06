@@ -238,7 +238,7 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">My Payout Items</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
@@ -357,7 +357,7 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
       <div className="mt-6">
         <h3 className="text-sm font-semibold text-foreground mb-3">My Transactions</h3>
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
                 <tr>
@@ -461,21 +461,21 @@ function AdminCommissionView() {
         subtitle="Commission accounting, payout reports, transaction reporting, and exceptions"
       />
       <Tabs defaultValue={defaultTab} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="accounting">Commission Accounting</TabsTrigger>
-          <TabsTrigger value="payouts" className="gap-1.5">
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="accounting" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Commission Accounting</TabsTrigger>
+          <TabsTrigger value="payouts" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap gap-1.5">
             Payout Report
             {unpaidPayoutsCount > 0 && (
               <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold">{unpaidPayoutsCount}</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="reporting" className="gap-1.5">
+          <TabsTrigger value="reporting" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap gap-1.5">
             Transaction Reporting
             {flaggedTxCount > 0 && (
               <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">{flaggedTxCount}</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="exceptions" className="gap-1.5">
+          <TabsTrigger value="exceptions" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap gap-1.5">
             Exceptions
             {pendingExceptionsCount > 0 && (
               <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">{pendingExceptionsCount}</span>
@@ -640,7 +640,7 @@ function GroupLeaderTab() {
         ))}
       </div>
 
-      <Card><CardContent className="p-0">
+      <Card><CardContent className="p-0 overflow-x-auto">
         <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead className="border-b bg-muted/30"><tr>
             <th className="text-left py-3 px-4 text-muted-foreground font-medium">Transaction</th>
@@ -746,9 +746,9 @@ export default function CommissionPage() {
           subtitle="Your personal earnings and group leader payouts"
         />
         <Tabs defaultValue="my-commission" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="my-commission">My Commission</TabsTrigger>
-            <TabsTrigger value="group-leader">Group Leader</TabsTrigger>
+          <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+            <TabsTrigger value="my-commission" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">My Commission</TabsTrigger>
+            <TabsTrigger value="group-leader" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Group Leader</TabsTrigger>
           </TabsList>
           <TabsContent value="my-commission"><AgentCommissionView hideHeader /></TabsContent>
           <TabsContent value="group-leader"><GroupLeaderTab /></TabsContent>

@@ -359,7 +359,7 @@ function AgentGoalsTab() {
         </div>
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b bg-muted/30">
@@ -491,7 +491,7 @@ function MarketGoalsTab() {
         </div>
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b bg-muted/30">
@@ -601,7 +601,7 @@ export default function GoalsPage() {
   const totalMarketGciActual = markets.reduce((sum: number, m: any) => sum + Number(m.totalGci || 0), 0);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -657,12 +657,12 @@ export default function GoalsPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="agents">
-        <TabsList>
-          <TabsTrigger value="agents" className="gap-1.5">
-            <Users className="h-4 w-4" /> Agent Goals
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="agents" className="shrink-0 whitespace-nowrap gap-1.5">
+            <Users className="h-4 w-4 shrink-0" /> Agent Goals
           </TabsTrigger>
-          <TabsTrigger value="markets" className="gap-1.5">
-            <MapPin className="h-4 w-4" /> Market Goals
+          <TabsTrigger value="markets" className="shrink-0 whitespace-nowrap gap-1.5">
+            <MapPin className="h-4 w-4 shrink-0" /> Market Goals
           </TabsTrigger>
         </TabsList>
         <TabsContent value="agents" className="mt-6">

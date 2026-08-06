@@ -164,11 +164,11 @@ export default function TransactionReportingPage() {
       />
 
       <Tabs defaultValue="export" className="space-y-5">
-        <TabsList>
-          <TabsTrigger value="export" className="gap-2">
+        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="export" className="shrink-0 whitespace-nowrap gap-2">
             <FileSpreadsheet className="h-4 w-4" /> Export Transactions
           </TabsTrigger>
-          <TabsTrigger value="history" className="gap-2">
+          <TabsTrigger value="history" className="shrink-0 whitespace-nowrap gap-2">
             <History className="h-4 w-4" /> Export History
             {historyTotal > 0 && <Badge variant="secondary" className="ml-1">{historyTotal}</Badge>}
           </TabsTrigger>
@@ -343,7 +343,7 @@ export default function TransactionReportingPage() {
                 {hasActiveFilters && <Badge variant="secondary">Filters applied</Badge>}
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -413,7 +413,7 @@ export default function TransactionReportingPage() {
               <CardTitle className="text-base">Transaction export audit history</CardTitle>
               <p className="text-sm text-muted-foreground">A permanent record of who exported which filtered transaction set and how many records were included.</p>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>

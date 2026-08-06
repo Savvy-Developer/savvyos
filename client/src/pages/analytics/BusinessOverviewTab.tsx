@@ -90,7 +90,7 @@ export default function BusinessOverviewTab() {
             />
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {leaderboard.length === 0 ? <EmptyState /> : (
             <div className="overflow-x-auto">
               <table className="w-full">

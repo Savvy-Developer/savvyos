@@ -602,7 +602,7 @@ export default function ProformaPage() {
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (!editing) {
     return (
-      <div className="p-6 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-5xl mx-auto">
         <div className="mb-4">
           <Button variant="ghost" size="sm" onClick={() => navigate(`/properties/${propertyId}`)}>
             <ArrowLeft className="h-4 w-4 mr-1" /> Back to Property
@@ -671,16 +671,16 @@ export default function ProformaPage() {
       </div>
 
       <Tabs defaultValue="acquisition" className="w-full">
-        <TabsList className="mb-4 flex-wrap h-auto gap-1">
-          <TabsTrigger value="acquisition" className="text-xs"><Home className="h-3 w-3 mr-1" />Acquisition</TabsTrigger>
-          <TabsTrigger value="financing" className="text-xs"><Calculator className="h-3 w-3 mr-1" />Financing</TabsTrigger>
-          <TabsTrigger value="valueadd" className="text-xs"><Home className="h-3 w-3 mr-1" />Value-Add / Refi</TabsTrigger>
-          <TabsTrigger value="revenue" className="text-xs"><DollarSign className="h-3 w-3 mr-1" />Revenue</TabsTrigger>
-          <TabsTrigger value="expenses" className="text-xs"><BarChart3 className="h-3 w-3 mr-1" />Expenses</TabsTrigger>
-          <TabsTrigger value="returns" className="text-xs"><TrendingUp className="h-3 w-3 mr-1" />Returns</TabsTrigger>
-          <TabsTrigger value="tax" className="text-xs"><Shield className="h-3 w-3 mr-1" />Tax Benefits</TabsTrigger>
-          <TabsTrigger value="comps" className="text-xs"><BookOpen className="h-3 w-3 mr-1" />Comps</TabsTrigger>
-          <TabsTrigger value="notes" className="text-xs"><FileText className="h-3 w-3 mr-1" />Notes</TabsTrigger>
+        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <TabsTrigger value="acquisition" className="shrink-0 whitespace-nowrap text-xs"><Home className="h-3 w-3 mr-1" />Acquisition</TabsTrigger>
+          <TabsTrigger value="financing" className="shrink-0 whitespace-nowrap text-xs"><Calculator className="h-3 w-3 mr-1" />Financing</TabsTrigger>
+          <TabsTrigger value="valueadd" className="shrink-0 whitespace-nowrap text-xs"><Home className="h-3 w-3 mr-1" />Value-Add / Refi</TabsTrigger>
+          <TabsTrigger value="revenue" className="shrink-0 whitespace-nowrap text-xs"><DollarSign className="h-3 w-3 mr-1" />Revenue</TabsTrigger>
+          <TabsTrigger value="expenses" className="shrink-0 whitespace-nowrap text-xs"><BarChart3 className="h-3 w-3 mr-1" />Expenses</TabsTrigger>
+          <TabsTrigger value="returns" className="shrink-0 whitespace-nowrap text-xs"><TrendingUp className="h-3 w-3 mr-1" />Returns</TabsTrigger>
+          <TabsTrigger value="tax" className="shrink-0 whitespace-nowrap text-xs"><Shield className="h-3 w-3 mr-1" />Tax Benefits</TabsTrigger>
+          <TabsTrigger value="comps" className="shrink-0 whitespace-nowrap text-xs"><BookOpen className="h-3 w-3 mr-1" />Comps</TabsTrigger>
+          <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap text-xs"><FileText className="h-3 w-3 mr-1" />Notes</TabsTrigger>
         </TabsList>
 
         {/* ─── TAB: ACQUISITION ─────────────────────────────────────────────── */}
@@ -1076,7 +1076,7 @@ export default function ProformaPage() {
               <Card>
                 <CardHeader className="pb-3"><CardTitle className="text-sm">Channel Mix & Platform Fees</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {(["channelAirbnbPct", "channelVrboPct", "channelDirectPct"] as const).map((f, i) => (
                       <div key={f} className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">{["Airbnb %", "Vrbo %", "Direct %"][i]}</Label>
@@ -1087,7 +1087,7 @@ export default function ProformaPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {(["feeAirbnb", "feeVrbo", "feeDirect"] as const).map((f, i) => (
                       <div key={f} className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">{["Airbnb Fee", "Vrbo Fee", "Direct Fee"][i]}</Label>
@@ -1502,7 +1502,7 @@ export default function ProformaPage() {
                         <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], occupancy: e.target.value }; setField("comps", c); }} placeholder="72%" /></div>
                         <div className="space-y-1"><Label className="text-xs">ADR</Label><Input className="h-7 text-xs" value={comp.adr} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], adr: e.target.value }; setField("comps", c); }} placeholder="$250" /></div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Beds</Label><Input className="h-7 text-xs" value={comp.beds} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], beds: e.target.value }; setField("comps", c); }} /></div>
                         <div className="space-y-1 col-span-2"><Label className="text-xs">Link</Label><Input className="h-7 text-xs" value={comp.link} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], link: e.target.value }; setField("comps", c); }} placeholder="https://..." /></div>
                       </div>
