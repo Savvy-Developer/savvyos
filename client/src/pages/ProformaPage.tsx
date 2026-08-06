@@ -105,6 +105,8 @@ interface ProformaForm {
   cleaningCostPerTurn: string;
   capExReservePct: string;
   customVariableExpenses: CustomExpense[];
+  // Exit / IRR
+  sellingCostsPct: string;
   // Tax
   costSegEnabled: string;
   landAllocationPct: string;
@@ -174,6 +176,7 @@ const defaultForm: ProformaForm = {
   cleaningCostPerTurn: "150",
   capExReservePct: "5",
   customVariableExpenses: [],
+  sellingCostsPct: "6",
   costSegEnabled: "yes",
   landAllocationPct: "20",
   acceleratedDepreciationPct: "25",
@@ -377,12 +380,93 @@ export default function ProformaPage() {
     const costSegCost = parseNum(form.costSegStudyCost);
     const netTaxBenefit = taxSavings - (costSegEnabled ? costSegCost : 0);
 
+    // ─── IRR Calculation ──────────────────────────────────────────────────────
+    const sellingCostsPct = parsePct(form.sellingCostsPct);
+    const marginalTaxRate = parsePct(form.marginalTaxRate);
+
+    // Newton's method IRR solver
+    const calcIRR = (cashFlows: number[], maxIter = 100, tol = 0.0001): number => {
+      if (cashFlows.length < 2) return 0;
+      let guess = 0.10;
+      for (let i = 0; i < maxIter; i++) {
+        let npv = 0, dnpv = 0;
+        for (let t = 0; t < cashFlows.length; t++) {
+          const factor = Math.pow(1 + guess, t);
+          npv += cashFlows[t] / factor;
+          if (t > 0) dnpv -= t * cashFlows[t] / Math.pow(1 + guess, t + 1);
+        }
+        if (Math.abs(dnpv) < 1e-10) break;
+        const newGuess = guess - npv / dnpv;
+        if (Math.abs(newGuess - guess) < tol) return newGuess;
+        guess = newGuess;
+        if (guess < -0.99 || guess > 10) return 0; // diverged
+      }
+      return guess;
+    };
+
+    // Calculate remaining loan balance at year N
+    const loanBalanceAtYear = (yearN: number): number => {
+      if (form.loanType === "cash" || loanAmount <= 0) return 0;
+      let balance = loanAmount;
+      for (let m = 0; m < yearN * 12; m++) {
+        const interest = balance * monthlyRate;
+        const principal = monthlyPI - interest;
+        balance -= principal;
+      }
+      return Math.max(0, balance);
+    };
+
+    // Build IRR for a given scenario and hold period
+    const calcScenarioIRR = (scenario: typeof s1, holdYears: number, includeTax: boolean) => {
+      const cashFlows: number[] = [];
+      // Year 0: initial investment (negative)
+      const initialOutflow = -totalCashNeeded - (costSegEnabled ? costSegCost : 0);
+      cashFlows.push(initialOutflow);
+
+      // Years 1 through holdYears
+      for (let y = 1; y <= holdYears; y++) {
+        const revGrowth = Math.pow(1 + revAppreciation, y - 1);
+        const expGrowth = Math.pow(1 + expInflation, y - 1);
+        const yearNetRev = scenario.netRevenue * revGrowth;
+        const yearExp = (scenario.fixedAnnual + scenario.totalVariableAnnual) * expGrowth;
+        const yearNoi = yearNetRev - yearExp;
+        let yearCF = yearNoi - annualDebtService;
+
+        // Add tax benefit in year 1 if includeTax
+        if (includeTax && y === 1) {
+          yearCF += netTaxBenefit;
+        }
+        // Straight-line depreciation benefit years 2+ (building / 27.5)
+        if (includeTax && y > 1) {
+          const straightLineDeduction = buildingBasis / 27.5;
+          yearCF += straightLineDeduction * marginalTaxRate;
+        }
+
+        // Terminal year: add sale proceeds
+        if (y === holdYears) {
+          const salePrice = pp * Math.pow(1 + propAppreciation, y);
+          const sellingCosts = salePrice * sellingCostsPct;
+          const remainingLoan = loanBalanceAtYear(y);
+          const netProceeds = salePrice - sellingCosts - remainingLoan;
+          yearCF += netProceeds;
+        }
+        cashFlows.push(yearCF);
+      }
+      return calcIRR(cashFlows);
+    };
+
+    const irr = {
+      s1: { y3: calcScenarioIRR(s1, 3, false), y5: calcScenarioIRR(s1, 5, false), y7: calcScenarioIRR(s1, 7, false), y3at: calcScenarioIRR(s1, 3, true), y5at: calcScenarioIRR(s1, 5, true), y7at: calcScenarioIRR(s1, 7, true) },
+      s2: { y3: calcScenarioIRR(s2, 3, false), y5: calcScenarioIRR(s2, 5, false), y7: calcScenarioIRR(s2, 7, false), y3at: calcScenarioIRR(s2, 3, true), y5at: calcScenarioIRR(s2, 5, true), y7at: calcScenarioIRR(s2, 7, true) },
+      s3: { y3: calcScenarioIRR(s3, 3, false), y5: calcScenarioIRR(s3, 5, false), y7: calcScenarioIRR(s3, 7, false), y3at: calcScenarioIRR(s3, 3, true), y5at: calcScenarioIRR(s3, 5, true), y7at: calcScenarioIRR(s3, 7, true) },
+    };
+
     return {
       pp, downPayment, closingCosts, loanAmount, totalCashNeeded,
       furnishing, renovation, startup, inspection,
       monthlyMortgage, annualDebtService, monthlyPI, monthlyPMI,
       fixedMonthly, fixedAnnual, blendedFeeRate,
-      s1, s2, s3, fiveYear,
+      s1, s2, s3, fiveYear, irr, sellingCostsPct,
       costSegEnabled, buildingBasis, acceleratedAmt, furnishingDeduction,
       totalFirstYearDeduction, taxSavings, costSegCost, netTaxBenefit,
     };
@@ -429,6 +513,7 @@ export default function ProformaPage() {
             fixedMonthly: calc.fixedMonthly, fixedAnnual: calc.fixedAnnual,
             blendedFeeRate: calc.blendedFeeRate,
             s1: calc.s1, s2: calc.s2, s3: calc.s3, fiveYear: calc.fiveYear,
+            irr: calc.irr, sellingCostsPct: calc.sellingCostsPct,
             costSegEnabled: calc.costSegEnabled, totalFirstYearDeduction: calc.totalFirstYearDeduction,
             taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
           },
@@ -977,6 +1062,64 @@ export default function ProformaPage() {
                     </tbody>
                   </table>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* IRR Section */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" /> Internal Rate of Return (IRR)
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-1">IRR accounts for cash flow, appreciation, principal paydown, and exit proceeds over the hold period.</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-slate-600">Selling Costs at Exit (agent commissions, closing)</Label>
+                  <div className="relative w-32">
+                    <Input className="pr-6 h-8 text-sm" value={form.sellingCostsPct} onChange={e => setField("sellingCostsPct", e.target.value)} placeholder="6" />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-100 text-left">
+                        <th className="p-2 font-medium">Hold Period</th>
+                        <th className="p-2 font-medium text-right" colSpan={2}>Conservative</th>
+                        <th className="p-2 font-medium text-right" colSpan={2}>Base Case</th>
+                        <th className="p-2 font-medium text-right" colSpan={2}>Strong Execution</th>
+                      </tr>
+                      <tr className="bg-slate-50 text-xs text-slate-500">
+                        <th className="p-1"></th>
+                        <th className="p-1 text-right">Pre-Tax</th>
+                        <th className="p-1 text-right">After-Tax</th>
+                        <th className="p-1 text-right">Pre-Tax</th>
+                        <th className="p-1 text-right">After-Tax</th>
+                        <th className="p-1 text-right">Pre-Tax</th>
+                        <th className="p-1 text-right">After-Tax</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { label: "3-Year Hold", k: "y3" as const, kat: "y3at" as const },
+                        { label: "5-Year Hold", k: "y5" as const, kat: "y5at" as const },
+                        { label: "7-Year Hold", k: "y7" as const, kat: "y7at" as const },
+                      ].map(row => (
+                        <tr key={row.label} className="border-b">
+                          <td className="p-2 font-medium">{row.label}</td>
+                          <td className="p-2 text-right">{fmtPct(calc.irr.s1[row.k])}</td>
+                          <td className="p-2 text-right font-medium text-emerald-700">{fmtPct(calc.irr.s1[row.kat])}</td>
+                          <td className="p-2 text-right">{fmtPct(calc.irr.s2[row.k])}</td>
+                          <td className="p-2 text-right font-medium text-emerald-700">{fmtPct(calc.irr.s2[row.kat])}</td>
+                          <td className="p-2 text-right">{fmtPct(calc.irr.s3[row.k])}</td>
+                          <td className="p-2 text-right font-medium text-emerald-700">{fmtPct(calc.irr.s3[row.kat])}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-slate-400 italic">After-tax IRR includes Year 1 cost segregation / bonus depreciation benefit and ongoing straight-line depreciation tax shield. Assumes {form.sellingCostsPct}% selling costs at exit and {form.propertyAppreciationPct}% annual property appreciation.</p>
               </CardContent>
             </Card>
           </div>

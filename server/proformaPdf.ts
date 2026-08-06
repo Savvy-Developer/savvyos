@@ -290,6 +290,69 @@ export function registerProformaPdfRoute(app: express.Application) {
       }
       y += 12;
 
+      // IRR Table
+      if (calc.irr) {
+        if (y > 560) { doc.addPage(); y = 50; }
+        doc.fontSize(10).fillColor(brandDark).text("Internal Rate of Return (IRR)", 50, y, { underline: true });
+        y += 14;
+        doc.fontSize(6.5).fillColor("#64748b").text(`Assumes ${form.sellingCostsPct || "6"}% selling costs at exit and ${form.propertyAppreciationPct || "4"}% annual property appreciation.`, 50, y, { width: W });
+        y += 12;
+
+        // IRR header
+        const irrColW = [W * 0.16, W * 0.12, W * 0.16, W * 0.12, W * 0.16, W * 0.12, W * 0.16];
+        const drawIrrRow = (cells: string[], yPos: number, header = false, subheader = false) => {
+          if (header) { doc.rect(50, yPos - 2, W, 14).fill(headerBg); doc.fontSize(7).fillColor("#ffffff"); }
+          else if (subheader) { doc.rect(50, yPos - 2, W, 12).fill("#f1f5f9"); doc.fontSize(6).fillColor("#64748b"); }
+          else { doc.fontSize(7).fillColor(brandDark); }
+          let x = 50;
+          cells.forEach((c, i) => { doc.text(c, x + 2, yPos, { width: irrColW[i] - 4, align: i === 0 ? "left" : "right" }); x += irrColW[i]; });
+          return yPos + (header ? 14 : 12);
+        };
+
+        y = drawIrrRow(["Hold Period", "Cons.", "Pre-Tax", "Cons.", "After-Tax", "Base", "Pre-Tax"], y, true);
+        // Actually let's do a cleaner layout
+        y -= 14; // undo the header
+        // Simpler: two-row header
+        doc.rect(50, y - 2, W, 14).fill(headerBg);
+        doc.fontSize(7).fillColor("#ffffff");
+        doc.text("Hold Period", 52, y, { width: 70 });
+        doc.text("Conservative", 130, y, { width: 100, align: "center" });
+        doc.text("Base Case", 250, y, { width: 100, align: "center" });
+        doc.text("Strong Execution", 370, y, { width: 120, align: "center" });
+        y += 14;
+
+        doc.rect(50, y - 2, W, 10).fill("#f1f5f9");
+        doc.fontSize(6).fillColor("#64748b");
+        doc.text("", 52, y);
+        doc.text("Pre-Tax", 130, y, { width: 50, align: "center" });
+        doc.text("After-Tax", 180, y, { width: 50, align: "center" });
+        doc.text("Pre-Tax", 250, y, { width: 50, align: "center" });
+        doc.text("After-Tax", 300, y, { width: 50, align: "center" });
+        doc.text("Pre-Tax", 370, y, { width: 55, align: "center" });
+        doc.text("After-Tax", 425, y, { width: 55, align: "center" });
+        y += 12;
+
+        const irrRows = [
+          { label: "3-Year Hold", s1: calc.irr.s1.y3, s1at: calc.irr.s1.y3at, s2: calc.irr.s2.y3, s2at: calc.irr.s2.y3at, s3: calc.irr.s3.y3, s3at: calc.irr.s3.y3at },
+          { label: "5-Year Hold", s1: calc.irr.s1.y5, s1at: calc.irr.s1.y5at, s2: calc.irr.s2.y5, s2at: calc.irr.s2.y5at, s3: calc.irr.s3.y5, s3at: calc.irr.s3.y5at },
+          { label: "7-Year Hold", s1: calc.irr.s1.y7, s1at: calc.irr.s1.y7at, s2: calc.irr.s2.y7, s2at: calc.irr.s2.y7at, s3: calc.irr.s3.y7, s3at: calc.irr.s3.y7at },
+        ];
+        irrRows.forEach(row => {
+          doc.fontSize(7).fillColor(brandDark);
+          doc.text(row.label, 52, y, { width: 70 });
+          doc.text(fmtP1(row.s1), 130, y, { width: 50, align: "center" });
+          doc.fillColor(brandGreen).text(fmtP1(row.s1at), 180, y, { width: 50, align: "center" });
+          doc.fillColor(brandDark).text(fmtP1(row.s2), 250, y, { width: 50, align: "center" });
+          doc.fillColor(brandGreen).text(fmtP1(row.s2at), 300, y, { width: 50, align: "center" });
+          doc.fillColor(brandDark).text(fmtP1(row.s3), 370, y, { width: 55, align: "center" });
+          doc.fillColor(brandGreen).text(fmtP1(row.s3at), 425, y, { width: 55, align: "center" });
+          y += 12;
+        });
+
+        doc.fontSize(6).fillColor("#94a3b8").text("After-tax IRR includes cost segregation / bonus depreciation (Year 1) and straight-line depreciation tax shield (Years 2+).", 50, y, { width: W });
+        y += 16;
+      }
+
       // Tax Benefits
       if (calc.taxSavings > 0 || calc.netTaxBenefit > 0) {
         doc.fontSize(10).fillColor(brandDark).text("Estimated Year 1 Tax Benefits", 50, y, { underline: true });
