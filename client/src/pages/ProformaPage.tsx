@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
-import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen } from "lucide-react";
+import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings } from "lucide-react";
 import { useParams, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -502,6 +502,9 @@ export default function ProformaPage() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => navigate("/proforma-defaults")}>
+            <Settings className="h-4 w-4 mr-1" /> Defaults
+          </Button>
           <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={downloading}>
             <Download className="h-4 w-4 mr-1" /> {downloading ? "Generating..." : "Download PDF"}
           </Button>
