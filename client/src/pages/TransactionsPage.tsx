@@ -1468,7 +1468,7 @@ export default function TransactionsPage() {
 
       {/* ─── Create Transaction Dialog ─────────────────────────────────────────── */}
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetDialog(); setOpen(v); }}>
-        <DialogContent className="max-w-xl w-[calc(100vw-2rem)] max-h-[92vh] overflow-y-auto">
+        <DialogContent className="max-w-xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {wizardStep === 1 && "Step 1 of 3 — Transaction Type"}
@@ -1740,7 +1740,7 @@ export default function TransactionsPage() {
 
       {/* ─── Bulk Upload Dialog ─────────────────────────────────────────────── */}
       <Dialog open={bulkOpen} onOpenChange={(v) => { if (!v) resetBulkUpload(); setBulkOpen(v); }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="h-5 w-5" /> Bulk Upload Transactions

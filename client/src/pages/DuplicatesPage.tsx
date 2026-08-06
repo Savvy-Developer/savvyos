@@ -12,6 +12,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -28,6 +35,8 @@ import {
   Mail,
   MapPin,
   Loader2,
+  Link2,
+  Heart,
 } from "lucide-react";
 
 type ContactSummary = {
@@ -35,7 +44,9 @@ type ContactSummary = {
   firstName: string;
   lastName: string;
   email: string | null;
+  secondaryEmail: string | null;
   phone: string | null;
+  secondaryPhone: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
@@ -68,14 +79,20 @@ const MATCH_COLORS: Record<string, string> = {
   fuzzy_name: "bg-blue-100 text-blue-700 border-blue-200",
 };
 
-// Fields shown in the side-by-side comparison
+// Fields shown in the side-by-side comparison (excluding email which gets special treatment)
 const COMPARE_FIELDS: Array<{ key: keyof ContactSummary; label: string }> = [
-  { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
   { key: "address", label: "Address" },
   { key: "city", label: "City" },
   { key: "state", label: "State" },
 ];
+
+const RELATIONSHIP_TYPES = [
+  { value: "spouse", label: "Spouse" },
+  { value: "partner", label: "Partner" },
+  { value: "business_partner", label: "Business Partner" },
+  { value: "unknown_relationship", label: "Unknown Relationship" },
+] as const;
 
 function ContactCard({
   contact,
@@ -90,45 +107,51 @@ function ContactCard({
 }) {
   return (
     <div
-      className={`rounded-lg border-2 p-4 transition-all cursor-pointer ${
+      className={`rounded-lg border-2 p-3 transition-all cursor-pointer min-w-0 ${
         isWinner ? "border-green-500 bg-green-50" : "border-border bg-card hover:border-muted-foreground"
       }`}
       onClick={onSetWinner}
     >
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
         {isWinner && (
           <Badge className="bg-green-600 text-white text-xs">
-            <CheckCircle2 className="h-3 w-3 mr-1" /> Keep This
+            <CheckCircle2 className="h-3 w-3 mr-1" /> Keep
           </Badge>
         )}
       </div>
-      <div className="font-semibold text-base mb-2">
+      <div className="font-semibold text-sm mb-2 truncate">
         {contact.firstName} {contact.lastName}
       </div>
-      <div className="space-y-1 text-sm text-muted-foreground">
+      <div className="space-y-1 text-xs text-muted-foreground">
         {contact.email && (
           <div className="flex items-center gap-1.5">
-            <Mail className="h-3.5 w-3.5 shrink-0" />
+            <Mail className="h-3 w-3 shrink-0" />
             <span className="truncate">{contact.email}</span>
+          </div>
+        )}
+        {contact.secondaryEmail && (
+          <div className="flex items-center gap-1.5">
+            <Mail className="h-3 w-3 shrink-0 opacity-50" />
+            <span className="truncate text-muted-foreground/70">{contact.secondaryEmail}</span>
           </div>
         )}
         {contact.phone && (
           <div className="flex items-center gap-1.5">
-            <Phone className="h-3.5 w-3.5 shrink-0" />
+            <Phone className="h-3 w-3 shrink-0" />
             <span>{contact.phone}</span>
           </div>
         )}
         {(contact.address || contact.city) && (
           <div className="flex items-center gap-1.5">
-            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            <MapPin className="h-3 w-3 shrink-0" />
             <span className="truncate">
               {[contact.address, contact.city, contact.state].filter(Boolean).join(", ")}
             </span>
           </div>
         )}
       </div>
-      <div className="mt-3 text-xs text-muted-foreground">
+      <div className="mt-2 text-xs text-muted-foreground">
         ID #{contact.id} · Updated {new Date(contact.updatedAt).toLocaleDateString()}
       </div>
     </div>
@@ -154,6 +177,31 @@ function MergeDialog({
   // Field-level overrides: key → "winner" | "loser"
   const [fieldChoices, setFieldChoices] = useState<Record<string, "winner" | "loser">>({});
 
+  // Multiple email retention: user selects which emails to keep
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+
+  // Relationship linking mode
+  const [linkMode, setLinkMode] = useState(false);
+  const [relationshipType, setRelationshipType] = useState<string>("spouse");
+
+  // Collect all unique emails from both contacts
+  const allEmails: Array<{ value: string; source: string }> = [];
+  if (winner?.email) allEmails.push({ value: winner.email, source: `${winner.firstName} (primary)` });
+  if (winner?.secondaryEmail) allEmails.push({ value: winner.secondaryEmail, source: `${winner.firstName} (secondary)` });
+  if (loser?.email) allEmails.push({ value: loser.email, source: `${loser.firstName} (primary)` });
+  if (loser?.secondaryEmail) allEmails.push({ value: loser.secondaryEmail, source: `${loser.firstName} (secondary)` });
+  // Deduplicate
+  const uniqueEmails = allEmails.filter(
+    (e, i, arr) => arr.findIndex((x) => x.value.toLowerCase() === e.value.toLowerCase()) === i
+  );
+
+  // Initialize selected emails with the winner's primary email
+  useEffect(() => {
+    if (winner?.email && selectedEmails.size === 0) {
+      setSelectedEmails(new Set([winner.email]));
+    }
+  }, [winner?.email]);
+
   const mergeMutation = trpc.duplicates.merge.useMutation({
     onSuccess: () => {
       toast.success("Contacts merged — the duplicate has been consolidated.");
@@ -163,6 +211,19 @@ function MergeDialog({
     },
     onError: (err) => {
       toast.error(`Merge failed: ${err.message}`);
+    },
+  });
+
+  const linkMutation = trpc.duplicates.linkAsRelationship.useMutation({
+    onSuccess: (data) => {
+      const typeLabel = RELATIONSHIP_TYPES.find((t) => t.value === data.relationshipType)?.label ?? data.relationshipType;
+      toast.success(`Contacts linked as "${typeLabel}" — pair resolved.`);
+      utils.duplicates.listPairs.invalidate();
+      utils.duplicates.getStats.invalidate();
+      onMerged();
+    },
+    onError: (err) => {
+      toast.error(`Link failed: ${err.message}`);
     },
   });
 
@@ -177,17 +238,55 @@ function MergeDialog({
   }
 
   function handleMerge() {
+    // Build retainEmails from selected emails
+    const retainEmails: Array<{ field: "email" | "secondaryEmail"; value: string }> = [];
+    const emailsArr = Array.from(selectedEmails);
+    if (emailsArr.length > 0) {
+      retainEmails.push({ field: "email", value: emailsArr[0] });
+    }
+    if (emailsArr.length > 1) {
+      retainEmails.push({ field: "secondaryEmail", value: emailsArr[1] });
+    }
+
     mergeMutation.mutate({
       pairId: pair.id,
       winnerId,
       loserId,
       fieldOverrides: buildOverrides(),
+      retainEmails: retainEmails.length > 0 ? retainEmails : undefined,
+    });
+  }
+
+  function handleLink() {
+    if (!pair.contactA || !pair.contactB) return;
+    linkMutation.mutate({
+      pairId: pair.id,
+      contactAId: pair.contactAId,
+      contactBId: pair.contactBId,
+      relationshipType: relationshipType as "spouse" | "partner" | "business_partner" | "unknown_relationship",
+    });
+  }
+
+  function toggleEmail(email: string) {
+    setSelectedEmails((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) {
+        next.delete(email);
+      } else {
+        // Max 2 emails (primary + secondary)
+        if (next.size >= 2) {
+          toast.error("Maximum 2 emails can be retained (primary + secondary).");
+          return prev;
+        }
+        next.add(email);
+      }
+      return next;
     });
   }
 
   if (!winner || !loser) return null;
 
-  // Detect conflicting fields
+  // Detect conflicting fields (excluding email which is handled separately)
   const conflicts = COMPARE_FIELDS.filter(({ key }) => {
     const wv = winner[key];
     const lv = loser[key];
@@ -196,96 +295,210 @@ function MergeDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <GitMerge className="h-5 w-5 text-primary" />
-            Review & Merge Duplicate Contacts
-          </DialogTitle>
-          <DialogDescription>
-            Click a contact card to select which record to keep. The other will be archived and all its data
-            transferred to the kept record.
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Side-by-side cards */}
-        <div className="grid grid-cols-2 gap-4 mt-2">
-          <ContactCard
-            contact={winner}
-            label="Contact A"
-            isWinner={winnerId === winner.id}
-            onSetWinner={() => setWinnerId(winner.id)}
-          />
-          <ContactCard
-            contact={loser}
-            label="Contact B"
-            isWinner={winnerId === loser.id}
-            onSetWinner={() => setWinnerId(loser.id)}
-          />
+      <DialogContent className="max-w-3xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col overflow-hidden p-0">
+        <div className="flex-shrink-0 p-6 pb-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitMerge className="h-5 w-5 text-primary" />
+              Review & Merge Duplicate Contacts
+            </DialogTitle>
+            <DialogDescription>
+              Click a contact card to select which record to keep, or link them as a relationship instead.
+            </DialogDescription>
+          </DialogHeader>
         </div>
 
-        {/* Conflict resolution */}
-        {conflicts.length > 0 && (
-          <div className="mt-4">
-            <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
-              <AlertCircle className="h-4 w-4 text-amber-500" />
-              Conflicting fields — choose which value to keep:
-            </p>
-            <div className="space-y-2">
-              {conflicts.map(({ key, label }) => {
-                const winnerVal = String(winner[key] ?? "");
-                const loserVal = String(loser[key] ?? "");
-                const choice = fieldChoices[key] ?? "winner";
-                return (
-                  <div key={key} className="flex items-center gap-3 rounded-md border p-3 bg-muted/30">
-                    <span className="text-sm font-medium w-20 shrink-0">{label}</span>
-                    <div className="flex-1 grid grid-cols-2 gap-2 text-sm">
-                      <button
-                        onClick={() => setFieldChoices((p) => ({ ...p, [key]: "winner" }))}
-                        className={`text-left px-2 py-1 rounded border transition-all ${
-                          choice === "winner"
-                            ? "border-green-500 bg-green-50 font-medium"
-                            : "border-border hover:border-muted-foreground"
-                        }`}
-                      >
-                        {winnerVal}
-                      </button>
-                      <button
-                        onClick={() => setFieldChoices((p) => ({ ...p, [key]: "loser" }))}
-                        className={`text-left px-2 py-1 rounded border transition-all ${
-                          choice === "loser"
-                            ? "border-green-500 bg-green-50 font-medium"
-                            : "border-border hover:border-muted-foreground"
-                        }`}
-                      >
-                        {loserVal}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {/* Scrollable content area */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 min-h-0">
+          {/* Mode toggle: Merge vs Link */}
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border">
+            <Button
+              variant={!linkMode ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setLinkMode(false)}
+              className="flex-1"
+            >
+              <GitMerge className="h-3.5 w-3.5 mr-1.5" />
+              Merge Contacts
+            </Button>
+            <Button
+              variant={linkMode ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setLinkMode(true)}
+              className="flex-1"
+            >
+              <Link2 className="h-3.5 w-3.5 mr-1.5" />
+              Link as Relationship
+            </Button>
           </div>
-        )}
 
-        <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleMerge}
-            disabled={mergeMutation.isPending}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            {mergeMutation.isPending ? "Merging…" : "Confirm Merge"}
-          </Button>
-        </DialogFooter>
+          {/* Side-by-side cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ContactCard
+              contact={pair.contactA!}
+              label="Contact A"
+              isWinner={!linkMode && winnerId === pair.contactAId}
+              onSetWinner={() => { if (!linkMode) setWinnerId(pair.contactAId); }}
+            />
+            <ContactCard
+              contact={pair.contactB!}
+              label="Contact B"
+              isWinner={!linkMode && winnerId === pair.contactBId}
+              onSetWinner={() => { if (!linkMode) setWinnerId(pair.contactBId); }}
+            />
+          </div>
+
+          {/* ─── LINK MODE ─────────────────────────────────────────────────────── */}
+          {linkMode && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Heart className="h-4 w-4 text-purple-600" />
+                <span className="text-sm font-medium text-purple-900">Link as Relationship</span>
+              </div>
+              <p className="text-xs text-purple-700">
+                Instead of merging, keep both contacts and link them with a relationship.
+                The duplicate pair will be marked as resolved.
+              </p>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium whitespace-nowrap">Relationship Type:</span>
+                <Select value={relationshipType} onValueChange={setRelationshipType}>
+                  <SelectTrigger className="w-full max-w-[220px] bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RELATIONSHIP_TYPES.map((rt) => (
+                      <SelectItem key={rt.value} value={rt.value}>
+                        {rt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* ─── MERGE MODE ────────────────────────────────────────────────────── */}
+          {!linkMode && (
+            <>
+              {/* Multiple Email Retention */}
+              {uniqueEmails.length > 0 && (
+                <div className="rounded-lg border p-3 bg-muted/30">
+                  <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                    <Mail className="h-4 w-4 text-blue-500" />
+                    Select emails to retain (max 2):
+                  </p>
+                  <div className="space-y-1.5">
+                    {uniqueEmails.map(({ value, source }) => {
+                      const isSelected = selectedEmails.has(value);
+                      return (
+                        <label
+                          key={value}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-all text-sm ${
+                            isSelected
+                              ? "border-blue-500 bg-blue-50 font-medium"
+                              : "border-border hover:border-muted-foreground bg-background"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleEmail(value)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="truncate flex-1">{value}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">({source})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {selectedEmails.size > 1 && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      First selected = Primary email, Second = Secondary email on the merged record.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Conflict resolution */}
+              {conflicts.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                    <AlertCircle className="h-4 w-4 text-amber-500" />
+                    Conflicting fields — choose which value to keep:
+                  </p>
+                  <div className="space-y-2">
+                    {conflicts.map(({ key, label }) => {
+                      const winnerVal = String(winner[key] ?? "");
+                      const loserVal = String(loser[key] ?? "");
+                      const choice = fieldChoices[key] ?? "winner";
+                      return (
+                        <div key={key} className="flex items-center gap-3 rounded-md border p-2.5 bg-muted/30">
+                          <span className="text-xs font-medium w-16 shrink-0">{label}</span>
+                          <div className="flex-1 grid grid-cols-2 gap-2 text-xs min-w-0">
+                            <button
+                              onClick={() => setFieldChoices((p) => ({ ...p, [key]: "winner" }))}
+                              className={`text-left px-2 py-1.5 rounded border transition-all truncate ${
+                                choice === "winner"
+                                  ? "border-green-500 bg-green-50 font-medium"
+                                  : "border-border hover:border-muted-foreground"
+                              }`}
+                              title={winnerVal}
+                            >
+                              {winnerVal}
+                            </button>
+                            <button
+                              onClick={() => setFieldChoices((p) => ({ ...p, [key]: "loser" }))}
+                              className={`text-left px-2 py-1.5 rounded border transition-all truncate ${
+                                choice === "loser"
+                                  ? "border-green-500 bg-green-50 font-medium"
+                                  : "border-border hover:border-muted-foreground"
+                              }`}
+                              title={loserVal}
+                            >
+                              {loserVal}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Fixed footer */}
+        <div className="flex-shrink-0 border-t p-4 bg-background">
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            {linkMode ? (
+              <Button
+                onClick={handleLink}
+                disabled={linkMutation.isPending}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                {linkMutation.isPending ? "Linking…" : "Link as Relationship"}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleMerge}
+                disabled={mergeMutation.isPending}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {mergeMutation.isPending ? "Merging…" : "Confirm Merge"}
+              </Button>
+            )}
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function PairRow({
+function PairRowComponent({
   pair,
   onMerge,
   onDismiss,
@@ -533,7 +746,7 @@ export default function DuplicatesPage() {
 
       {/* Stats cards */}
       {stats && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Pairs</p>
@@ -592,7 +805,7 @@ export default function DuplicatesPage() {
           ) : (
             <div className="space-y-3">
               {pairs.map((pair) => (
-                <PairRow
+                <PairRowComponent
                   key={pair.id}
                   pair={pair}
                   onMerge={setMergeTarget}

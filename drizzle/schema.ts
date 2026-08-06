@@ -2279,3 +2279,28 @@ export const proformas = mysqlTable("proformas", {
 }));
 export type Proforma = typeof proformas.$inferSelect;
 export type InsertProforma = typeof proformas.$inferInsert;
+
+
+// ─── Contact Relationships ──────────────────────────────────────────────────
+// Links two contacts with a named relationship (e.g., spouse, partner, business partner).
+// Created during the merge flow when the user opts to link rather than archive.
+export const contactRelationships = mysqlTable("contact_relationships", {
+  id: int("id").autoincrement().primaryKey(),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  relatedContactId: int("relatedContactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  relationshipType: mysqlEnum("relationshipType", [
+    "spouse",
+    "partner",
+    "business_partner",
+    "unknown_relationship",
+  ]).notNull(),
+  // Optional: which duplicate pair triggered this link
+  sourcePairId: int("sourcePairId").references(() => duplicateContactPairs.id, { onDelete: "set null" }),
+  createdByUserId: int("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  contactIdx: index("idx_contact_relationships_contact").on(table.contactId),
+  relatedIdx: index("idx_contact_relationships_related").on(table.relatedContactId),
+}));
+export type ContactRelationship = typeof contactRelationships.$inferSelect;
+export type InsertContactRelationship = typeof contactRelationships.$inferInsert;

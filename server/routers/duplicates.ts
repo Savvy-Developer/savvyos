@@ -14,7 +14,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { contacts, duplicateContactPairs, users } from "../../drizzle/schema";
+import { contacts, duplicateContactPairs, users, contactRelationships } from "../../drizzle/schema";
 import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
 import { startBackgroundScan, getScanJob, getLatestScanJob, detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { mergeContacts } from "../contactMerge";
@@ -120,7 +120,9 @@ export const duplicatesRouter = router({
           firstName: contacts.firstName,
           lastName: contacts.lastName,
           email: contacts.email,
+          secondaryEmail: contacts.secondaryEmail,
           phone: contacts.phone,
+          secondaryPhone: contacts.secondaryPhone,
           address: contacts.address,
           city: contacts.city,
           state: contacts.state,
@@ -181,17 +183,80 @@ export const duplicatesRouter = router({
         winnerId: z.number().int(),
         loserId: z.number().int(),
         fieldOverrides: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).optional(),
+        // Multiple email retention: which emails to keep on the winner
+        retainEmails: z.array(z.object({
+          field: z.enum(["email", "secondaryEmail"]),
+          value: z.string(),
+        })).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // Build email overrides from retainEmails selection
+      const emailOverrides: Record<string, string | null> = {};
+      if (input.retainEmails && input.retainEmails.length > 0) {
+        // First email goes to primary, second to secondary
+        emailOverrides.email = input.retainEmails[0]?.value ?? null;
+        emailOverrides.secondaryEmail = input.retainEmails[1]?.value ?? null;
+      }
+
+      const mergedFieldOverrides = {
+        ...(input.fieldOverrides as Partial<Record<string, string | number | null>> | undefined),
+        ...emailOverrides,
+      };
+
       const result = await mergeContacts({
         winnerId: input.winnerId,
         loserId: input.loserId,
         pairId: input.pairId,
         reviewedById: ctx.user.id,
-        fieldOverrides: input.fieldOverrides as Partial<Record<string, string | number | null>> | undefined,
+        fieldOverrides: Object.keys(mergedFieldOverrides).length > 0 ? mergedFieldOverrides : undefined,
       });
       return result;
+    }),
+
+  // ─── Link as Relationship ─────────────────────────────────────────────────
+  linkAsRelationship: adminProcedure
+    .input(
+      z.object({
+        pairId: z.number().int(),
+        contactAId: z.number().int(),
+        contactBId: z.number().int(),
+        relationshipType: z.enum(["spouse", "partner", "business_partner", "unknown_relationship"]),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Create bidirectional relationship links
+      await db.insert(contactRelationships).values([
+        {
+          contactId: input.contactAId,
+          relatedContactId: input.contactBId,
+          relationshipType: input.relationshipType,
+          sourcePairId: input.pairId,
+          createdByUserId: ctx.user.id,
+        },
+        {
+          contactId: input.contactBId,
+          relatedContactId: input.contactAId,
+          relationshipType: input.relationshipType,
+          sourcePairId: input.pairId,
+          createdByUserId: ctx.user.id,
+        },
+      ]);
+
+      // Mark the duplicate pair as dismissed (not merged, but resolved)
+      await db
+        .update(duplicateContactPairs)
+        .set({
+          status: "dismissed",
+          reviewedById: ctx.user.id,
+          reviewedAt: new Date(),
+        })
+        .where(eq(duplicateContactPairs.id, input.pairId));
+
+      return { success: true, relationshipType: input.relationshipType };
     }),
 
   // ─── Dismiss ──────────────────────────────────────────────────────────────
@@ -211,5 +276,39 @@ export const duplicatesRouter = router({
         .where(eq(duplicateContactPairs.id, input.pairId));
 
       return { success: true };
+    }),
+
+  // ─── Get Relationships for a Contact ──────────────────────────────────────
+  getRelationships: adminProcedure
+    .input(z.object({ contactId: z.number().int() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const rels = await db
+        .select()
+        .from(contactRelationships)
+        .where(eq(contactRelationships.contactId, input.contactId));
+
+      if (rels.length === 0) return [];
+
+      const relatedIds = rels.map((r) => r.relatedContactId);
+      const relatedContacts = await db
+        .select({
+          id: contacts.id,
+          firstName: contacts.firstName,
+          lastName: contacts.lastName,
+          email: contacts.email,
+          phone: contacts.phone,
+        })
+        .from(contacts)
+        .where(inArray(contacts.id, relatedIds));
+
+      const contactMap = new Map(relatedContacts.map((c) => [c.id, c]));
+
+      return rels.map((r) => ({
+        ...r,
+        relatedContact: contactMap.get(r.relatedContactId) ?? null,
+      }));
     }),
 });

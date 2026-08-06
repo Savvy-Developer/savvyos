@@ -1073,7 +1073,7 @@ export default function TransactionDetail() {
 
           {/* Buyer Side Edit Dialog */}
           <Dialog open={buyerEditOpen} onOpenChange={setBuyerEditOpen}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
               <DialogHeader>
                 <DialogTitle>Edit Buyer Side</DialogTitle>
               </DialogHeader>
@@ -1352,7 +1352,7 @@ export default function TransactionDetail() {
 
               {/* Admin Override Dialog */}
               <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-md w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
                   <DialogHeader>
                     <DialogTitle>Override Payout: {overrideItem?.payeeName}</DialogTitle>
                   </DialogHeader>
@@ -1794,7 +1794,7 @@ export default function TransactionDetail() {
 
       {/* Status Dialog */}
       <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)] p-5">
           <DialogHeader><DialogTitle>Update Transaction Status</DialogTitle></DialogHeader>
           <Select value={newStatus} onValueChange={setNewStatus}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1815,7 +1815,7 @@ export default function TransactionDetail() {
 
       {/* Termination Reason Dialog */}
       <Dialog open={terminationReasonOpen} onOpenChange={(o) => { if (!o) { setTerminationReasonOpen(false); setTerminationReason(""); } }}>
-        <DialogContent>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle>Termination Reason</DialogTitle>
           </DialogHeader>
@@ -1842,7 +1842,7 @@ export default function TransactionDetail() {
 
       {/* ── Edit Transaction Dialog ─────────────────────────────── */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle>Edit Transaction</DialogTitle>
           </DialogHeader>
@@ -2359,7 +2359,7 @@ export default function TransactionDetail() {
 
       {/* Commission Exception Request Dialog */}
       <Dialog open={exceptionOpen} onOpenChange={setExceptionOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle>Request Commission Exception</DialogTitle>
           </DialogHeader>
