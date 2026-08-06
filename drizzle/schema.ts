@@ -211,6 +211,7 @@ export type InsertAgentConnection = typeof agentConnections.$inferInsert;
 export const properties = mysqlTable("properties", {
   id: int("id").autoincrement().primaryKey(),
   address: varchar("address", { length: 512 }).notNull(),
+  normalizedAddress: varchar("normalizedAddress", { length: 512 }),
   city: varchar("city", { length: 128 }),
   state: varchar("state", { length: 64 }),
   zip: varchar("zip", { length: 16 }),
@@ -239,6 +240,7 @@ export const properties = mysqlTable("properties", {
 }, (table) => ({
   createdAtIdx: index("properties_createdAt_idx").on(table.createdAt),
   addedByUserIdx: index("idx_properties_addedByUserId").on(table.addedByUserId),
+  normalizedAddressIdx: index("idx_properties_normalizedAddress").on(table.normalizedAddress),
 }));
 
 export type Property = typeof properties.$inferSelect;

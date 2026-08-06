@@ -11,8 +11,9 @@ import {
   getDb,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas } from "../../drizzle/schema";
+import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents } from "../../drizzle/schema";
 import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
+import { buildNormalizedKey, geocodeAddress } from "../addressNormalization";
 
 export const propertiesRouter = router({
   list: protectedProcedure
@@ -59,11 +60,106 @@ export const propertiesRouter = router({
       strZoning: z.string().optional().nullable(),
       strNotes: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
+      skipDuplicateCheck: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await createProperty({ ...input, addedByUserId: ctx.user.id } as any);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Build normalized key for duplicate detection
+      let normalizedKey = buildNormalizedKey(input.address, input.city, input.state, input.zip);
+
+      // Try geocoding for better normalization and address verification
+      let geocodeResult: Awaited<ReturnType<typeof geocodeAddress>> = null;
+      try {
+        geocodeResult = await geocodeAddress(input.address, input.city, input.state, input.zip);
+        if (geocodeResult?.success && geocodeResult.normalizedKey) {
+          normalizedKey = geocodeResult.normalizedKey;
+        }
+      } catch (_) {}
+
+      // Check for duplicate by normalized address
+      if (!input.skipDuplicateCheck) {
+        const existing = await db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
+          .from(properties)
+          .where(eq(properties.normalizedAddress, normalizedKey))
+          .limit(1);
+        if (existing.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: JSON.stringify({
+              type: "DUPLICATE_PROPERTY",
+              existingId: existing[0].id,
+              existingAddress: [existing[0].address, existing[0].city, existing[0].state, existing[0].zip].filter(Boolean).join(", "),
+            }),
+          });
+        }
+      }
+
+      // If geocoding returned a verified address, optionally use the standardized form
+      const finalAddress = input.address;
+      const finalCity = input.city;
+      const finalState = input.state;
+      const finalZip = input.zip;
+
+      const id = await createProperty({
+        address: finalAddress,
+        normalizedAddress: normalizedKey,
+        city: finalCity,
+        state: finalState,
+        zip: finalZip,
+        beds: input.beds,
+        baths: input.baths,
+        sqft: input.sqft,
+        propertyType: input.propertyType,
+        yearBuilt: input.yearBuilt,
+        listPrice: input.listPrice,
+        strZoning: input.strZoning,
+        strNotes: input.strNotes,
+        notes: input.notes,
+        addedByUserId: ctx.user.id,
+      } as any);
       await logActivity({ userId: ctx.user.id, action: "property_created", entityType: "property", entityId: id });
       return { id };
+    }),
+
+  // Check for duplicate properties before creation
+  checkDuplicate: protectedProcedure
+    .input(z.object({
+      address: z.string().min(1),
+      city: z.string().optional().nullable(),
+      state: z.string().optional().nullable(),
+      zip: z.string().optional().nullable(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { isDuplicate: false, existingProperty: null, geocodeVerified: false };
+
+      let normalizedKey = buildNormalizedKey(input.address, input.city, input.state, input.zip);
+      let geocodeVerified = false;
+
+      // Try geocoding for better normalization
+      try {
+        const geocodeResult = await geocodeAddress(input.address, input.city, input.state, input.zip);
+        if (geocodeResult?.success && geocodeResult.normalizedKey) {
+          normalizedKey = geocodeResult.normalizedKey;
+          geocodeVerified = true;
+        }
+      } catch (_) {}
+
+      const existing = await db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
+        .from(properties)
+        .where(eq(properties.normalizedAddress, normalizedKey))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return {
+          isDuplicate: true,
+          existingProperty: existing[0],
+          geocodeVerified,
+        };
+      }
+      return { isDuplicate: false, existingProperty: null, geocodeVerified };
     }),
 
   update: protectedProcedure
@@ -86,8 +182,92 @@ export const propertiesRouter = router({
       }),
     }))
     .mutation(async ({ input, ctx }) => {
-      await updateProperty(input.id, input.data as any);
+      // If address fields changed, recalculate normalizedAddress
+      const updateData: any = { ...input.data };
+      if (input.data.address !== undefined) {
+        const existing = await getPropertyById(input.id);
+        const addr = input.data.address ?? existing?.address ?? "";
+        const city = input.data.city !== undefined ? input.data.city : existing?.city;
+        const state = input.data.state !== undefined ? input.data.state : existing?.state;
+        const zip = input.data.zip !== undefined ? input.data.zip : existing?.zip;
+        updateData.normalizedAddress = buildNormalizedKey(addr, city, state, zip);
+      }
+      await updateProperty(input.id, updateData);
       await logActivity({ userId: ctx.user.id, action: "property_updated", entityType: "property", entityId: input.id });
+      return { success: true };
+    }),
+
+  // Delete a property (admin only) — blocked if linked records exist
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can delete properties" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Check for linked records
+      const [txCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(transactions).where(eq(transactions.propertyId, input.id));
+      const [listingCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(listings).where(eq(listings.propertyId, input.id));
+      const [cpCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(contactProperties).where(eq(contactProperties.propertyId, input.id));
+
+      const linkedTransactions = Number(txCount?.count ?? 0);
+      const linkedListings = Number(listingCount?.count ?? 0);
+      const linkedContacts = Number(cpCount?.count ?? 0);
+
+      if (linkedTransactions > 0 || linkedListings > 0 || linkedContacts > 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: JSON.stringify({
+            type: "PROPERTY_HAS_LINKED_RECORDS",
+            linkedTransactions,
+            linkedListings,
+            linkedContacts,
+          }),
+        });
+      }
+
+      // Safe to delete — also remove ownership records, documents, proformas, tasks, communications
+      await db.delete(propertyOwnership).where(eq(propertyOwnership.propertyId, input.id));
+      await db.delete(documents).where(eq(documents.relatedPropertyId, input.id));
+      await db.delete(proformas).where(eq(proformas.propertyId, input.id));
+      await db.delete(properties).where(eq(properties.id, input.id));
+      await logActivity({ userId: ctx.user.id, action: "property_deleted", entityType: "property", entityId: input.id });
+      return { success: true };
+    }),
+
+  // Transfer linked records from one property to another
+  transferRecords: protectedProcedure
+    .input(z.object({
+      fromPropertyId: z.number(),
+      toPropertyId: z.number(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can transfer property records" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Transfer transactions
+      await db.update(transactions).set({ propertyId: input.toPropertyId }).where(eq(transactions.propertyId, input.fromPropertyId));
+      // Transfer listings
+      await db.update(listings).set({ propertyId: input.toPropertyId }).where(eq(listings.propertyId, input.fromPropertyId));
+      // Transfer contact_properties (avoid duplicates)
+      const existingCPs = await db.select({ contactId: contactProperties.contactId }).from(contactProperties).where(eq(contactProperties.propertyId, input.toPropertyId));
+      const existingContactIds = new Set(existingCPs.map(r => r.contactId));
+      const fromCPs = await db.select().from(contactProperties).where(eq(contactProperties.propertyId, input.fromPropertyId));
+      for (const cp of fromCPs) {
+        if (!existingContactIds.has(cp.contactId)) {
+          await db.insert(contactProperties).values({ contactId: cp.contactId, propertyId: input.toPropertyId, label: cp.label });
+        }
+      }
+      await db.delete(contactProperties).where(eq(contactProperties.propertyId, input.fromPropertyId));
+      // Transfer documents
+      await db.update(documents).set({ relatedPropertyId: input.toPropertyId }).where(eq(documents.relatedPropertyId, input.fromPropertyId));
+
+      await logActivity({ userId: ctx.user.id, action: "property_records_transferred", entityType: "property", entityId: input.fromPropertyId, details: { toPropertyId: input.toPropertyId } });
       return { success: true };
     }),
 

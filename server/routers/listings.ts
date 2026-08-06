@@ -19,7 +19,7 @@ import {
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
-import { properties as propertiesTable, users, listings as listingsTable, contacts as contactsTable, transactions as transactionsTable } from "../../drizzle/schema";
+import { properties as propertiesTable, users, listings as listingsTable, contacts as contactsTable, transactions as transactionsTable, contactProperties } from "../../drizzle/schema";
 import { eq, or, and } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
 
@@ -166,6 +166,19 @@ export const listingsRouter = router({
           propertyAddress: lstPropertyAddress,
         },
       });
+      // Auto-link contact to property via contact_properties
+      if (input.contactId && input.propertyId) {
+        try {
+          const dbLink = await getDb();
+          if (dbLink) {
+            const existingLink = await dbLink.select({ id: contactProperties.id }).from(contactProperties)
+              .where(and(eq(contactProperties.contactId, input.contactId), eq(contactProperties.propertyId, input.propertyId))).limit(1);
+            if (existingLink.length === 0) {
+              await dbLink.insert(contactProperties).values({ contactId: input.contactId, propertyId: input.propertyId, label: "Seller" });
+            }
+          }
+        } catch (_) {}
+      }
       // Notify agent of new listing
       if (agentId) {
         await sendEmailAlert("listing_created", agentId, {
@@ -294,6 +307,23 @@ export const listingsRouter = router({
           propertyAddress: updPropertyAddress,
         },
       });
+
+      // Auto-link contact to property via contact_properties after update
+      const finalContactId = input.data.contactId ?? oldListing?.listing.contactId;
+      const finalPropertyId = input.data.propertyId ?? oldListing?.listing.propertyId;
+      if (finalContactId && finalPropertyId) {
+        try {
+          const dbLink = await getDb();
+          if (dbLink) {
+            const existingLink = await dbLink.select({ id: contactProperties.id }).from(contactProperties)
+              .where(and(eq(contactProperties.contactId, finalContactId), eq(contactProperties.propertyId, finalPropertyId))).limit(1);
+            if (existingLink.length === 0) {
+              await dbLink.insert(contactProperties).values({ contactId: finalContactId, propertyId: finalPropertyId, label: "Seller" });
+            }
+          }
+        } catch (_) {}
+      }
+
       return { success: true };
     }),
 

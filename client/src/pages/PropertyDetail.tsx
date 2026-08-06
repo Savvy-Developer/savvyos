@@ -1,19 +1,40 @@
-import { trpc } from "@/lib/trpc";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatPhone, formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ArrowLeft, FileText, Home, User, DollarSign, Phone, Mail, Building2,
   History, Link2, UserCheck, TrendingUp, ClipboardList, Calendar,
+  Trash2, Search, ArrowRightLeft, AlertTriangle,
 } from "lucide-react";
 import { useLocation, useParams, Link } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 const TX_STATUS_COLORS: Record<string, string> = {
   under_contract: "bg-blue-100 text-blue-700",
@@ -78,85 +99,53 @@ function EventDotColor(type: HistoryEvent["type"]): string {
 }
 
 function HistoryTimeline({ events, isAgent = false, goToContact }: { events: HistoryEvent[]; isAgent?: boolean; goToContact?: (id: number) => void }) {
+  const [, navigate] = useLocation();
   if (events.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
-        <History className="h-8 w-8 mx-auto mb-2 opacity-40" />
-        <p className="text-sm">No history recorded yet for this property.</p>
+      <div className="py-10 text-center text-sm text-muted-foreground">
+        <History className="h-8 w-8 mx-auto mb-2 opacity-30" />
+        No history recorded for this property yet.
       </div>
     );
   }
-
   return (
-    <div className="relative">
-      {/* Vertical line */}
-      <div className="absolute left-5 top-0 bottom-0 w-px bg-border" />
-      <div className="space-y-0">
-        {events.map((event, idx) => {
-          const isLast = idx === events.length - 1;
-          const dotColor = EventDotColor(event.type);
-          const eventDate = event.date ? new Date(event.date) : null;
-
+    <div className="relative pl-6 py-2">
+      <div className="absolute left-[11px] top-4 bottom-4 w-0.5 bg-border" />
+      <div className="space-y-4">
+        {events.map((event) => {
           const content = (
-            <div
-              className={`relative pl-14 pr-4 py-4 ${!isLast ? "border-b border-border/50" : ""} ${
-                (event.contactId || event.transactionId || event.listingId)
-                  ? "hover:bg-muted/40 cursor-pointer transition-colors rounded-r-lg"
-                  : ""
-              }`}
-            >
-              {/* Dot on timeline */}
-              <div className={`absolute left-3.5 top-5 h-3 w-3 rounded-full border-2 border-background ${dotColor} shadow-sm`} />
-              {/* Icon */}
-              <div className="absolute left-8 top-4 text-muted-foreground">
-                <EventIcon type={event.type} />
-              </div>
-
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-snug">{event.title}</p>
-                  {event.subtitle && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{event.subtitle}</p>
-                  )}
-                  {/* Meta details */}
-                  {event.meta && Object.keys(event.meta).length > 0 && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5">
-                      {Object.entries(event.meta).map(([k, v]) => {
-                        if (!v) return null;
-                        const label = k.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase());
-                        return (
-                          <span key={k} className="text-xs text-muted-foreground">
-                            <span className="font-medium text-foreground/70">{label}:</span> {v}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <div className="flex items-start gap-3 relative">
+              <div className={`absolute -left-6 mt-1.5 h-3 w-3 rounded-full ring-2 ring-background ${EventDotColor(event.type)}`} />
+              <div className="flex-1 min-w-0 bg-card border rounded-lg p-3 hover:bg-muted/30 transition-colors">
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <EventIcon type={event.type} />
+                    <span className="text-sm font-medium truncate">{event.title}</span>
+                  </div>
                   {event.outcome && (
-                    <Badge className={`text-xs ${OUTCOME_COLORS[event.outcomeColor ?? "gray"] ?? "bg-gray-100 text-gray-700"}`}>
+                    <Badge className={`shrink-0 text-[10px] ${OUTCOME_COLORS[event.outcomeColor ?? "gray"]}`}>
                       {event.outcome}
                     </Badge>
                   )}
-                  {eventDate && (
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {formatDate(eventDate)}
-                    </span>
-                  )}
                 </div>
+                {event.subtitle && <p className="text-xs text-muted-foreground ml-6">{event.subtitle}</p>}
+                {event.meta && Object.entries(event.meta).some(([, v]) => v != null) && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 ml-6 text-[11px] text-muted-foreground">
+                    {Object.entries(event.meta).filter(([, v]) => v != null).map(([k, v]) => (
+                      <span key={k}><span className="capitalize">{k.replace(/([A-Z])/g, " $1").trim()}</span>: {v}</span>
+                    ))}
+                  </div>
+                )}
+                {event.date && (
+                  <p className="text-[10px] text-muted-foreground mt-1 ml-6 flex items-center gap-1">
+                    <Calendar className="h-3 w-3" /> {formatDate(event.date)}
+                  </p>
+                )}
               </div>
             </div>
           );
-
-          // Wrap in Link if navigable
-          if (event.transactionId) {
-            return <Link key={event.id} href={`/transactions/${event.transactionId}`}>{content}</Link>;
-          }
-          if (event.listingId) {
-            return <Link key={event.id} href={`/listings/${event.listingId}`}>{content}</Link>;
-          }
+          if (event.transactionId) return <Link key={event.id} href={`/transactions/${event.transactionId}`}>{content}</Link>;
+          if (event.listingId) return <Link key={event.id} href={`/listings/${event.listingId}`}>{content}</Link>;
           if (event.contactId) {
             if (isAgent && goToContact) return <div key={event.id} className="cursor-pointer" onClick={() => goToContact(event.contactId!)}>{content}</div>;
             return <Link key={event.id} href={`/contacts/${event.contactId}`}>{content}</Link>;
@@ -174,8 +163,10 @@ export default function PropertyDetail() {
   const goBack = useAppBack("/properties");
   const propId = parseInt(id ?? "0");
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const isAgent = user?.role === "agent";
   const goToContact = useAgentContactNav();
+  const utils = trpc.useUtils();
 
   const { data: property } = trpc.properties.get.useQuery({ id: propId });
   const { data: associations } = trpc.properties.getAssociations.useQuery(
@@ -186,6 +177,61 @@ export default function PropertyDetail() {
     { propertyId: propId },
     { enabled: !!propId }
   );
+
+  // Delete state
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBlocked, setDeleteBlocked] = useState<{ linkedTransactions: number; linkedListings: number; linkedContacts: number } | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferSearch, setTransferSearch] = useState("");
+  const [transferTargetId, setTransferTargetId] = useState<number | null>(null);
+  const [transferTargetName, setTransferTargetName] = useState("");
+
+  const { data: transferSearchResults = [] } = trpc.properties.list.useQuery(
+    { search: transferSearch, limit: 10 },
+    { enabled: transferSearch.length >= 2 }
+  );
+  const transferProperties = (transferSearchResults as any[])?.filter((p: any) => p.property.id !== propId) ?? [];
+
+  const deleteMutation = trpc.properties.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Property deleted");
+      navigate("/properties");
+    },
+    onError: (e) => {
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.type === "PROPERTY_HAS_LINKED_RECORDS") {
+          setDeleteBlocked(parsed);
+          return;
+        }
+      } catch {}
+      toast.error(e.message);
+    },
+  });
+
+  const transferMutation = trpc.properties.transferRecords.useMutation({
+    onSuccess: () => {
+      toast.success("Records transferred successfully");
+      setTransferOpen(false);
+      setDeleteBlocked(null);
+      // Now try to delete again
+      deleteMutation.mutate({ id: propId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const handleDelete = () => {
+    setDeleteBlocked(null);
+    deleteMutation.mutate({ id: propId });
+  };
+
+  const handleTransfer = () => {
+    if (!transferTargetId) {
+      toast.error("Please select a property to transfer records to");
+      return;
+    }
+    transferMutation.mutate({ fromPropertyId: propId, toPropertyId: transferTargetId });
+  };
 
   if (!property) return <div className="p-6 text-muted-foreground">Loading...</div>;
 
@@ -205,9 +251,21 @@ export default function PropertyDetail() {
         title={formatStreet(property.address)}
         subtitle={formatCityStateZip(property.city, property.state, property.zip)}
         actions={
-          <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma`)}>
-            <FileText className="h-4 w-4 mr-1" /> Create Pro-forma
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma`)}>
+              <FileText className="h-4 w-4 mr-1" /> Create Pro-forma
+            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => { setDeleteOpen(true); setDeleteBlocked(null); }}
+              >
+                <Trash2 className="h-4 w-4 mr-1" /> Delete
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -416,6 +474,132 @@ export default function PropertyDetail() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* ─── Delete Confirmation Dialog ─────────────────────────────────────── */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-600" /> Delete Property
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteBlocked ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-800">Cannot delete — linked records exist</p>
+                        <ul className="text-xs text-amber-700 mt-1 space-y-0.5">
+                          {deleteBlocked.linkedTransactions > 0 && <li>{deleteBlocked.linkedTransactions} transaction{deleteBlocked.linkedTransactions !== 1 ? "s" : ""}</li>}
+                          {deleteBlocked.linkedListings > 0 && <li>{deleteBlocked.linkedListings} listing{deleteBlocked.linkedListings !== 1 ? "s" : ""}</li>}
+                          {deleteBlocked.linkedContacts > 0 && <li>{deleteBlocked.linkedContacts} linked contact{deleteBlocked.linkedContacts !== 1 ? "s" : ""}</li>}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-foreground">Would you like to transfer these records to another property?</p>
+                </div>
+              ) : (
+                <span>Are you sure you want to permanently delete this property? This action cannot be undone.</span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteBlocked(null)}>Cancel</AlertDialogCancel>
+            {deleteBlocked ? (
+              <Button
+                variant="default"
+                onClick={() => {
+                  setDeleteOpen(false);
+                  setTransferOpen(true);
+                  setTransferSearch("");
+                  setTransferTargetId(null);
+                  setTransferTargetName("");
+                }}
+              >
+                <ArrowRightLeft className="h-4 w-4 mr-1.5" /> Transfer Records
+              </Button>
+            ) : (
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? "Deleting..." : "Delete Property"}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ─── Transfer Records Dialog ─────────────────────────────────────── */}
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5" /> Transfer Records to Another Property
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              All transactions, listings, and contacts linked to this property will be transferred to the selected property. After transfer, this property will be deleted.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Search for target property</label>
+              <div className="relative mt-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by address..."
+                  value={transferSearch}
+                  onChange={(e) => { setTransferSearch(e.target.value); setTransferTargetId(null); setTransferTargetName(""); }}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            {transferTargetId && (
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-800">{transferTargetName}</p>
+                  <p className="text-xs text-green-600">Selected as transfer target</p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => { setTransferTargetId(null); setTransferTargetName(""); }}>Change</Button>
+              </div>
+            )}
+            {!transferTargetId && transferSearch.length >= 2 && (
+              <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
+                {transferProperties.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No matching properties found</p>
+                ) : (
+                  transferProperties.map((row: any) => (
+                    <button
+                      key={row.property.id}
+                      className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors"
+                      onClick={() => {
+                        setTransferTargetId(row.property.id);
+                        setTransferTargetName([row.property.address, row.property.city, row.property.state].filter(Boolean).join(", "));
+                      }}
+                    >
+                      <p className="text-sm font-medium">{row.property.address}</p>
+                      <p className="text-xs text-muted-foreground">{[row.property.city, row.property.state, row.property.zip].filter(Boolean).join(", ")}</p>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleTransfer}
+              disabled={!transferTargetId || transferMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {transferMutation.isPending ? "Transferring..." : "Transfer & Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

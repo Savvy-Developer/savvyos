@@ -850,6 +850,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
             case "gci": return d(transactions.grossCommissionIncome);
             case "status": return d(transactions.status);
             case "contract_date": return d(transactions.contractDate);
+            case "date_added": return d(transactions.createdAt);
             case "closing_date":
             default: return sortOrder === "asc" ? asc(transactions.closingDate) : desc(transactions.closingDate);
           }

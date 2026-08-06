@@ -1302,13 +1302,16 @@ export default function TransactionsPage() {
                   <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("closing_date")}>
                     Closing<SortIcon col="closing_date" />
                   </th>
+                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("date_added")}>
+                    Date Added<SortIcon col="date_added" />
+                  </th>
                   <th className="py-3 px-4"></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isAdmin ? 10 : 9} className="text-center py-12 text-muted-foreground">
+                    <td colSpan={isAdmin ? 11 : 10} className="text-center py-12 text-muted-foreground">
                       <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
                       <p>No transactions found</p>
                     </td>
@@ -1339,6 +1342,7 @@ export default function TransactionsPage() {
                         )}
                       </td>
                       <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.closingDate ? safeFormat(transaction.closingDate, "MMM d, yyyy") : "—"}</td>
+                      <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.createdAt ? safeFormat(transaction.createdAt, "MMM d, yyyy") : "—"}</td>
                       <td className="py-3 px-4"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/transactions/${transaction.id}`); }}>View</Button></td>
                     </tr>
                   ))

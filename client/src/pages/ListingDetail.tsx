@@ -709,8 +709,8 @@ export default function ListingDetail() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Details */}
-        <div className="space-y-4">
+        {/* Left column: Details (compact) */}
+        <div className="space-y-3">
           {/* Listing Details */}
           <Card>
             <CardHeader className="pb-2">
@@ -888,9 +888,10 @@ export default function ListingDetail() {
           )}
         </div>
 
-        {/* Right: Notes Thread */}
-        <div className="lg:col-span-2">
-          <Card className="h-full">
+        {/* Right: Notes + Documents (stacked) */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Notes */}
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" /> Notes
@@ -915,12 +916,12 @@ export default function ListingDetail() {
               </div>
               <Separator />
               {!notes || notes.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  <MessageSquare className="h-6 w-6 mx-auto mb-2 opacity-30" />
                   No notes yet. Add the first note above.
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
                   {notes.map(({ note, author }) => (
                     <div key={note.id} className="bg-muted/50 rounded-lg p-3">
                       <div className="flex items-center justify-between mb-1.5">
@@ -934,243 +935,202 @@ export default function ListingDetail() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </div>
 
-
-      {/* ─── Documents Section ─────────────────────────────────────────────────── */}
-      <div className="mt-6 space-y-4">
-
-        {/* Bulk Upload Card */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <FileText className="h-4 w-4" /> Documents
-                {listingDocuments && listingDocuments.length > 0 && (
-                  <span className="text-xs font-normal text-muted-foreground">({listingDocuments.length})</span>
+          {/* Documents — moved up into the grid */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Documents
+                  {listingDocuments && listingDocuments.length > 0 && (
+                    <span className="text-xs font-normal text-muted-foreground">({listingDocuments.length})</span>
+                  )}
+                </CardTitle>
+                {bulkListingFiles.length > 0 && (
+                  <span className="text-xs text-muted-foreground">{bulkListingFiles.length} file{bulkListingFiles.length !== 1 ? "s" : ""} queued</span>
                 )}
-              </CardTitle>
-              {bulkListingFiles.length > 0 && (
-                <span className="text-xs text-muted-foreground">{bulkListingFiles.length} file{bulkListingFiles.length !== 1 ? "s" : ""} queued</span>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* Drag-and-drop zone */}
-            <div
-              className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
-                bulkListingDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
-              }`}
-              onClick={() => bulkListingFileInputRef.current?.click()}
-              onDragOver={e => { e.preventDefault(); setBulkListingDragOver(true); }}
-              onDragLeave={() => setBulkListingDragOver(false)}
-              onDrop={e => {
-                e.preventDefault();
-                setBulkListingDragOver(false);
-                if (e.dataTransfer.files.length) addBulkListingFiles(e.dataTransfer.files);
-              }}
-            >
-              <input
-                ref={bulkListingFileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
-                onChange={e => { if (e.target.files?.length) { addBulkListingFiles(e.target.files); e.target.value = ""; } }}
-              />
-              <FolderOpen className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-              <p className="text-sm font-medium text-foreground/70">
-                {bulkListingDragOver ? "Drop files here" : "Drag & drop files, or click to browse"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">PDF, Word, Excel, or images · up to 16 MB each · up to 20 files at once</p>
-            </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Drag-and-drop zone */}
+              <div
+                className={`relative border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer ${
+                  bulkListingDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
+                }`}
+                onClick={() => bulkListingFileInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); setBulkListingDragOver(true); }}
+                onDragLeave={() => setBulkListingDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setBulkListingDragOver(false);
+                  if (e.dataTransfer.files.length) addBulkListingFiles(e.dataTransfer.files);
+                }}
+              >
+                <input
+                  ref={bulkListingFileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+                  onChange={e => { if (e.target.files?.length) { addBulkListingFiles(e.target.files); e.target.value = ""; } }}
+                />
+                <FolderOpen className="h-6 w-6 mx-auto mb-1.5 text-muted-foreground/50" />
+                <p className="text-sm font-medium text-foreground/70">
+                  {bulkListingDragOver ? "Drop files here" : "Drag & drop files, or click to browse"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">PDF, Word, Excel, or images · up to 16 MB each</p>
+              </div>
 
-            {/* Queued file list with per-file label picker */}
-            {bulkListingFiles.length > 0 && (
-              <div className="space-y-2">
-                {bulkListingFiles.map(bf => (
-                  <div key={bf.id} className="flex items-start gap-2 p-2 rounded-lg border bg-muted/20">
-                    <div className="mt-1 shrink-0">
-                      {bf.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                      {bf.status === "error" && <AlertTriangle className="h-4 w-4 text-red-500" />}
-                      {bf.status === "uploading" && <Loader2 className="h-4 w-4 text-primary animate-spin" />}
-                      {bf.status === "pending" && <FileText className="h-4 w-4 text-muted-foreground" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{bf.file.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatListingFileSize(bf.file.size)}</p>
-                      {bf.status === "error" && <p className="text-xs text-red-500 mt-0.5">{bf.error}</p>}
+              {/* Queued file list with per-file label picker */}
+              {bulkListingFiles.length > 0 && (
+                <div className="space-y-2">
+                  {bulkListingFiles.map(bf => (
+                    <div key={bf.id} className="flex items-start gap-2 p-2 rounded-lg border bg-muted/20">
+                      <div className="mt-1 shrink-0">
+                        {bf.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                        {bf.status === "error" && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                        {bf.status === "uploading" && <Loader2 className="h-4 w-4 text-primary animate-spin" />}
+                        {bf.status === "pending" && <FileText className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{bf.file.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatListingFileSize(bf.file.size)}</p>
+                        {bf.status === "error" && <p className="text-xs text-red-500 mt-0.5">{bf.error}</p>}
+                        {bf.status === "pending" && (
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <Select
+                              value={bf.label}
+                              onValueChange={val => setBulkListingFileLabel(bf.id, val as ListingDocLabel)}
+                            >
+                              <SelectTrigger className="h-7 text-xs w-48">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {LISTING_DOCUMENT_LABELS.map(l => (
+                                  <SelectItem key={l.value} value={l.value} className="text-xs">{l.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {bf.label === "other" && (
+                              <Input
+                                className="h-7 text-xs w-44"
+                                placeholder="Custom label..."
+                                value={bf.customLabel}
+                                onChange={e => setBulkListingFileCustomLabel(bf.id, e.target.value)}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
                       {bf.status === "pending" && (
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          <Select
-                            value={bf.label}
-                            onValueChange={val => setBulkListingFileLabel(bf.id, val as ListingDocLabel)}
-                          >
-                            <SelectTrigger className="h-7 text-xs w-48">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {LISTING_DOCUMENT_LABELS.map(l => (
-                                <SelectItem key={l.value} value={l.value} className="text-xs">{l.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {bf.label === "other" && (
-                            <Input
-                              className="h-7 text-xs w-44"
-                              placeholder="Custom label..."
-                              value={bf.customLabel}
-                              onChange={e => setBulkListingFileCustomLabel(bf.id, e.target.value)}
-                            />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 shrink-0 mt-0.5"
+                          onClick={() => removeBulkListingFile(bf.id)}
+                          title="Remove"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Action row */}
+                  <div className="flex items-center justify-between pt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => setBulkListingFiles([])}
+                      disabled={bulkListingUploading}
+                    >
+                      Clear all
+                    </Button>
+                    <Button
+                      onClick={handleBulkListingUploadSubmit}
+                      disabled={bulkListingUploading || bulkListingFiles.every(f => f.status !== "pending")}
+                      size="sm"
+                    >
+                      {bulkListingUploading ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
+                      ) : (
+                        <><Upload className="h-4 w-4 mr-2" />Upload {bulkListingFiles.filter(f => f.status === "pending").length} File{bulkListingFiles.filter(f => f.status === "pending").length !== 1 ? "s" : ""}</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Existing documents list */}
+              {listingDocuments && listingDocuments.length > 0 && (
+                <div className="space-y-2 pt-2 border-t">
+                  {listingDocuments.map((row: any) => {
+                    const d = row.doc ?? row;
+                    return (
+                      <div key={d.id} className="flex items-center justify-between gap-3 p-2 rounded-lg border">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            {renameListingDocId === d.id ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={renameListingDocName}
+                                  onChange={e => setRenameListingDocName(e.target.value)}
+                                  className="h-7 text-sm w-52"
+                                  onKeyDown={e => { if (e.key === "Enter" && renameListingDocName.trim()) renameListingDoc.mutate({ id: d.id, fileName: renameListingDocName.trim() }); if (e.key === "Escape") setRenameListingDocId(null); }}
+                                  autoFocus
+                                />
+                                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { if (renameListingDocName.trim()) renameListingDoc.mutate({ id: d.id, fileName: renameListingDocName.trim() }); }}>Save</Button>
+                                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setRenameListingDocId(null)}>Cancel</Button>
+                              </div>
+                            ) : (
+                              <span className="text-sm font-medium truncate block">{d.fileName}</span>
+                            )}
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-xs bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded">{getListingDocLabel(d)}</span>
+                              {d.fileSize && <span className="text-xs text-muted-foreground">{formatListingFileSize(d.fileSize)}</span>}
+                              <span className="text-xs text-muted-foreground">{safeFormat(d.createdAt, "MMM d, yyyy")}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="View" onClick={() => window.open(d.fileUrl, "_blank")}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Download" onClick={() => {
+                            const a = document.createElement("a");
+                            a.href = d.fileUrl;
+                            a.download = d.fileName;
+                            a.target = "_blank";
+                            a.click();
+                          }}>
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                          {isAdmin && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => { setRenameListingDocId(d.id); setRenameListingDocName(d.fileName); }}>
+                                  <Pencil className="h-4 w-4 mr-2" /> Rename
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-red-600" onClick={() => deleteListingDoc.mutate({ id: d.id })}>
+                                  <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           )}
                         </div>
-                      )}
-                    </div>
-                    {bf.status === "pending" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0 shrink-0 mt-0.5"
-                        onClick={() => removeBulkListingFile(bf.id)}
-                        title="Remove"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-
-                {/* Action row */}
-                <div className="flex items-center justify-between pt-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => setBulkListingFiles([])}
-                    disabled={bulkListingUploading}
-                  >
-                    Clear all
-                  </Button>
-                  <Button
-                    onClick={handleBulkListingUploadSubmit}
-                    disabled={bulkListingUploading || bulkListingFiles.every(f => f.status !== "pending")}
-                    size="sm"
-                  >
-                    {bulkListingUploading ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
-                    ) : (
-                      <><Upload className="h-4 w-4 mr-2" />Upload {bulkListingFiles.filter(f => f.status === "pending").length} File{bulkListingFiles.filter(f => f.status === "pending").length !== 1 ? "s" : ""}</>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Single-file fallback */}
-            <details className="group">
-              <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
-                Upload a single file with a pre-set label
-              </summary>
-              <div className="mt-2 space-y-2 pl-1">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Document Type</Label>
-                    <Select value={docLabel} onValueChange={v => setDocLabel(v as ListingDocLabel)}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {LISTING_DOCUMENT_LABELS.map(l => (
-                          <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {docLabel === "other" && (
-                    <div>
-                      <Label className="text-xs">Custom Label *</Label>
-                      <Input className="mt-1 h-8 text-xs" value={docCustomLabel} onChange={e => setDocCustomLabel(e.target.value)} placeholder="e.g. Survey, Title Commitment..." />
-                    </div>
-                  )}
-                </div>
-                <input ref={listingFileInputRef} type="file" className="hidden" onChange={handleListingFileUpload} accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls" />
-                <Button variant="outline" size="sm" onClick={() => listingFileInputRef.current?.click()} disabled={docUploading} className="border-dashed text-xs">
-                  <Upload className="h-3.5 w-3.5 mr-1.5" />
-                  {docUploading ? "Uploading..." : "Choose Single File"}
-                </Button>
-              </div>
-            </details>
-          </CardContent>
-        </Card>
-
-        {/* Document list */}
-        {listingDocuments && listingDocuments.length > 0 && (
-          <div className="space-y-2">
-            {listingDocuments.map((row: any) => {
-              const d = row.doc ?? row;
-              return (
-                <Card key={d.id}>
-                  <CardContent className="p-4 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        {renameListingDocId === d.id ? (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              value={renameListingDocName}
-                              onChange={e => setRenameListingDocName(e.target.value)}
-                              className="h-7 text-sm w-64"
-                              onKeyDown={e => { if (e.key === "Enter" && renameListingDocName.trim()) renameListingDoc.mutate({ id: d.id, fileName: renameListingDocName.trim() }); if (e.key === "Escape") setRenameListingDocId(null); }}
-                              autoFocus
-                            />
-                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { if (renameListingDocName.trim()) renameListingDoc.mutate({ id: d.id, fileName: renameListingDocName.trim() }); }}>Save</Button>
-                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setRenameListingDocId(null)}>Cancel</Button>
-                          </div>
-                        ) : (
-                          <span className="text-sm font-medium truncate block">{d.fileName}</span>
-                        )}
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs bg-primary/10 text-primary font-medium px-2 py-0.5 rounded">{getListingDocLabel(d)}</span>
-                          {d.fileSize && <span className="text-xs text-muted-foreground">{formatListingFileSize(d.fileSize)}</span>}
-                          <span className="text-xs text-muted-foreground">{safeFormat(d.createdAt, "MMM d, yyyy")}</span>
-                          {row.uploader && <span className="text-xs text-muted-foreground">by {row.uploader.name}</span>}
-                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button size="sm" variant="ghost" title="View" onClick={() => window.open(d.fileUrl, "_blank")}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button size="sm" variant="ghost" title="Download" onClick={() => {
-                        const a = document.createElement("a");
-                        a.href = d.fileUrl;
-                        a.download = d.fileName;
-                        a.target = "_blank";
-                        a.click();
-                      }}>
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      {isAdmin && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setRenameListingDocId(d.id); setRenameListingDocName(d.fileName); }}>
-                              <Pencil className="h-4 w-4 mr-2" /> Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-600" onClick={() => deleteListingDoc.mutate({ id: d.id })}>
-                              <Trash2 className="h-4 w-4 mr-2" /> Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* ─── Listing History ──────────────────────────────────────────────── */}

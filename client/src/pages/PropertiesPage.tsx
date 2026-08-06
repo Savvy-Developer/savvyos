@@ -24,6 +24,7 @@ export default function PropertiesPage() {
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("properties.sortOrder", "desc");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ address: "", city: "", state: "", zip: "", propertyType: "single_family", beds: "", baths: "", sqft: "", listPrice: "", notes: "" });
+  const [duplicateInfo, setDuplicateInfo] = useState<{ id: number; address: string } | null>(null);
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const bulkUploadMutation = trpc.properties.bulkUpload.useMutation();
@@ -55,11 +56,38 @@ export default function PropertiesPage() {
       toast.success("Property created");
       setOpen(false);
       setForm({ address: "", city: "", state: "", zip: "", propertyType: "single_family", beds: "", baths: "", sqft: "", listPrice: "", notes: "" });
+      setDuplicateInfo(null);
       refetch();
       navigate(`/properties/${data.id}`);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      // Handle duplicate property error
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.type === "DUPLICATE_PROPERTY") {
+          setDuplicateInfo({ id: parsed.existingId, address: parsed.existingAddress });
+          return;
+        }
+      } catch {}
+      toast.error(e.message);
+    },
   });
+
+  const handleCreate = () => {
+    setDuplicateInfo(null);
+    create.mutate({
+      address: form.address,
+      city: form.city || null,
+      state: form.state || null,
+      zip: form.zip || null,
+      propertyType: form.propertyType as any,
+      beds: form.beds || null,
+      baths: form.baths || null,
+      sqft: form.sqft ? parseInt(form.sqft) : null,
+      listPrice: form.listPrice || null,
+      notes: form.notes || null,
+    });
+  };
 
   return (
     <div>
@@ -73,7 +101,7 @@ export default function PropertiesPage() {
                 <Upload className="h-4 w-4 mr-1" /> Bulk Upload
               </Button>
             )}
-            <Button onClick={() => setOpen(true)} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Property</Button>
+            <Button onClick={() => { setOpen(true); setDuplicateInfo(null); }} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Property</Button>
           </div>
         }
       />
@@ -222,7 +250,7 @@ export default function PropertiesPage() {
           </table></div></CardContent>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setDuplicateInfo(null); }}>
         <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add Property</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -245,10 +273,35 @@ export default function PropertiesPage() {
               <div><Label>Sqft</Label><Input type="number" value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value })} /></div>
             </div>
             <div><Label>List Price</Label><Input placeholder="e.g. 450000" value={form.listPrice} onChange={(e) => setForm({ ...form, listPrice: e.target.value })} /></div>
+
+            {/* Duplicate Warning */}
+            {duplicateInfo && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">This property already exists</p>
+                    <p className="text-xs text-amber-700 mt-0.5">{duplicateInfo.address}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-amber-300 text-amber-800 hover:bg-amber-100"
+                  onClick={() => {
+                    setOpen(false);
+                    setDuplicateInfo(null);
+                    navigate(`/properties/${duplicateInfo.id}`);
+                  }}
+                >
+                  Go to existing property
+                </Button>
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => create.mutate({ address: form.address, city: form.city || null, state: form.state || null, zip: form.zip || null, propertyType: form.propertyType as any, beds: form.beds || null, baths: form.baths || null, sqft: form.sqft ? parseInt(form.sqft) : null, listPrice: form.listPrice || null, notes: form.notes || null })} disabled={!form.address || create.isPending}>
+            <Button variant="outline" onClick={() => { setOpen(false); setDuplicateInfo(null); }}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!form.address || create.isPending}>
               {create.isPending ? "Creating..." : "Create Property"}
             </Button>
           </DialogFooter>
