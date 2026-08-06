@@ -25,6 +25,7 @@ import {
   groupMembers,
   agentProfiles,
   userProfiles,
+  listings,
 } from "../../drizzle/schema";
 import { eq, desc, asc, and, sql, or, inArray, isNull, isNotNull, ne, gte, lte, lt, gt, between, like } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
@@ -43,25 +44,54 @@ async function getAgentProductionStats(db: any, agentId: number) {
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const yearStart = new Date(now.getFullYear(), 0, 1);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
+  // Core production stats
   const [prodStats] = await db
     .select({
-      trailing90Units: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END)`,
-      trailing90Volume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
-      trailing90GCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
-      trailing30Units: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${thirtyDaysAgo} THEN ${transactions.id} END)`,
-      trailing30Volume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${thirtyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      // Closed (trailing 90 days)
+      closedUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END)`,
+      closedVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      closedGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      // Under contract
+      ucUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'under_contract' THEN ${transactions.id} END)`,
+      ucVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      // Terminated (all time for rate calculation)
+      terminatedCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'terminated' THEN ${transactions.id} END)`,
+      terminatedVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'terminated' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      // Buyer vs Seller breakdown (all transactions)
+      buyerCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.transactionType} = 'buyer' THEN ${transactions.id} END)`,
+      sellerCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.transactionType} = 'seller' THEN ${transactions.id} END)`,
+      dualCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.transactionType} = 'dual' THEN ${transactions.id} END)`,
+      // Buyer/Seller for closed only
+      buyerClosedCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.transactionType} = 'buyer' AND ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
+      sellerClosedCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.transactionType} = 'seller' AND ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
+      dualClosedCount: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.transactionType} = 'dual' AND ${transactions.status} = 'closed' THEN ${transactions.id} END)`,
+      // Average purchase price (closed)
+      avgPurchasePrice: sql<number>`COALESCE(AVG(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) END), 0)`,
+      avgBuyerPrice: sql<number>`COALESCE(AVG(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.transactionType} = 'buyer' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) END), 0)`,
+      avgSellerPrice: sql<number>`COALESCE(AVG(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.transactionType} = 'seller' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) END), 0)`,
+      // Commission rates (closed deals with valid rates)
+      avgCommissionRate: sql<number>`COALESCE(ROUND(AVG(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.commissionRate} > 0 AND ${transactions.commissionRate} < 0.10 THEN CAST(${transactions.commissionRate} AS DECIMAL(5,4)) * 100 END), 2), 0)`,
+      // YTD stats
       ytdUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN ${transactions.id} END)`,
       ytdVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
       ytdGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' AND ${transactions.closingDate} >= ${yearStart} THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
-      underContractUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'under_contract' THEN ${transactions.id} END)`,
-      underContractVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
-      underContractGCI: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'under_contract' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
-      terminatedUnits: sql<number>`COUNT(DISTINCT CASE WHEN ${transactions.status} = 'terminated' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN ${transactions.id} END)`,
-      terminatedVolume: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.status} = 'terminated' AND ${transactions.closingDate} >= ${ninetyDaysAgo} THEN CAST(${transactions.purchasePrice} AS DECIMAL(15,2)) ELSE 0 END), 0)`,
+      // Total transaction count for termination rate
+      totalTransactions: sql<number>`COUNT(DISTINCT ${transactions.id})`,
     })
     .from(transactions)
     .where(eq(transactions.agentId, agentId));
+
+  // Company-wide commission benchmarks
+  const [companyRates] = await db
+    .select({
+      companyAvgRate: sql<number>`COALESCE(ROUND(AVG(CASE WHEN ${transactions.commissionRate} > 0 AND ${transactions.commissionRate} < 0.10 THEN CAST(${transactions.commissionRate} AS DECIMAL(5,4)) * 100 END), 2), 0)`,
+      companyMedianRate: sql<number>`COALESCE(ROUND(AVG(CASE WHEN ${transactions.commissionRate} > 0 AND ${transactions.commissionRate} < 0.10 THEN CAST(${transactions.commissionRate} AS DECIMAL(5,4)) * 100 END), 2), 0)`,
+    })
+    .from(transactions)
+    .where(eq(transactions.status, "closed"));
 
   // Lead stats
   const [leadStats] = await db
@@ -71,8 +101,12 @@ async function getAgentProductionStats(db: any, agentId: number) {
       newLeads30d: sql<number>`COUNT(CASE WHEN ${agentConnections.createdAt} >= ${thirtyDaysAgo} THEN 1 END)`,
       underContractLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} = 'under_contract' THEN 1 END)`,
       deadLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} = 'dead' THEN 1 END)`,
-      avgLeadAgeDays: sql<number>`COALESCE(AVG(DATEDIFF(NOW(), ${agentConnections.createdAt})), 0)`,
+      avgLeadAge: sql<number>`COALESCE(ROUND(AVG(DATEDIFF(NOW(), ${agentConnections.createdAt}))), 0)`,
       staleLeads: sql<number>`COUNT(CASE WHEN ${agentConnections.pipelineStatus} IN ('new_lead','attempted_contact','nurture','active_client') AND ${agentConnections.agingUpdatedAt} < ${thirtyDaysAgo} THEN 1 END)`,
+      leads0to7: sql<number>`COUNT(CASE WHEN DATEDIFF(NOW(), ${agentConnections.createdAt}) <= 7 THEN 1 END)`,
+      leads8to30: sql<number>`COUNT(CASE WHEN DATEDIFF(NOW(), ${agentConnections.createdAt}) BETWEEN 8 AND 30 THEN 1 END)`,
+      leads31to90: sql<number>`COUNT(CASE WHEN DATEDIFF(NOW(), ${agentConnections.createdAt}) BETWEEN 31 AND 90 THEN 1 END)`,
+      leads90plus: sql<number>`COUNT(CASE WHEN DATEDIFF(NOW(), ${agentConnections.createdAt}) > 90 THEN 1 END)`,
     })
     .from(agentConnections)
     .where(eq(agentConnections.agentId, agentId));
@@ -80,17 +114,88 @@ async function getAgentProductionStats(db: any, agentId: number) {
   // Task stats
   const [taskStats] = await db
     .select({
-      totalPendingTasks: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' THEN 1 END)`,
+      openTasks: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' THEN 1 END)`,
       overdueTasks: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' AND ${tasks.dueDate} < NOW() THEN 1 END)`,
-      completedTasks30d: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND ${tasks.completedAt} >= ${thirtyDaysAgo} THEN 1 END)`,
+      tasksDueToday: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'pending' AND ${tasks.dueDate} >= ${today} AND ${tasks.dueDate} < ${tomorrow} THEN 1 END)`,
+      tasksCompleted30d: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND ${tasks.completedAt} >= ${thirtyDaysAgo} THEN 1 END)`,
     })
     .from(tasks)
     .where(eq(tasks.assignedToId, agentId));
 
+  // Listing stats
+  const [listingStats] = await db
+    .select({
+      activeListings: sql<number>`COUNT(CASE WHEN ${listings.listingStatus} = 'active' THEN 1 END)`,
+      soldListings: sql<number>`COUNT(CASE WHEN ${listings.listingStatus} = 'closed' THEN 1 END)`,
+      ucListings: sql<number>`COUNT(CASE WHEN ${listings.listingStatus} = 'under_contract' THEN 1 END)`,
+      terminatedListings: sql<number>`COUNT(CASE WHEN ${listings.listingStatus} = 'terminated' THEN 1 END)`,
+      expiredListings: sql<number>`COUNT(CASE WHEN ${listings.listingStatus} = 'expired' THEN 1 END)`,
+      totalListings: sql<number>`COUNT(*)`,
+    })
+    .from(listings)
+    .where(eq(listings.agentId, agentId));
+
+  // Calculate derived stats
+  const closedUnits = Number(prodStats?.closedUnits ?? 0);
+  const terminatedCount = Number(prodStats?.terminatedCount ?? 0);
+  const totalTxns = Number(prodStats?.totalTransactions ?? 0);
+  const terminationRate = totalTxns > 0 ? Math.round((terminatedCount / totalTxns) * 100) : 0;
+
+  // Annualized pace based on YTD
+  const dayOfYear = Math.floor((now.getTime() - yearStart.getTime()) / (1000 * 60 * 60 * 24));
+  const ytdUnits = Number(prodStats?.ytdUnits ?? 0);
+  const annualizedPace = dayOfYear > 0 ? Math.round((ytdUnits / dayOfYear) * 365) : 0;
+
   return {
-    ...(prodStats ?? {}),
-    ...(leadStats ?? {}),
-    ...(taskStats ?? {}),
+    // Core production (field names match frontend expectations)
+    closedUnits,
+    closedVolume: Number(prodStats?.closedVolume ?? 0),
+    closedGCI: Number(prodStats?.closedGCI ?? 0),
+    ucUnits: Number(prodStats?.ucUnits ?? 0),
+    ucVolume: Number(prodStats?.ucVolume ?? 0),
+    terminatedCount,
+    terminatedVolume: Number(prodStats?.terminatedVolume ?? 0),
+    terminationRate,
+    // Buyer/Seller breakdown
+    buyerCount: Number(prodStats?.buyerCount ?? 0),
+    sellerCount: Number(prodStats?.sellerCount ?? 0),
+    dualCount: Number(prodStats?.dualCount ?? 0),
+    buyerClosedCount: Number(prodStats?.buyerClosedCount ?? 0),
+    sellerClosedCount: Number(prodStats?.sellerClosedCount ?? 0),
+    dualClosedCount: Number(prodStats?.dualClosedCount ?? 0),
+    // Averages
+    avgPurchasePrice: Math.round(Number(prodStats?.avgPurchasePrice ?? 0)),
+    avgBuyerPrice: Math.round(Number(prodStats?.avgBuyerPrice ?? 0)),
+    avgSellerPrice: Math.round(Number(prodStats?.avgSellerPrice ?? 0)),
+    avgCommissionRate: Number(prodStats?.avgCommissionRate ?? 0),
+    // Company benchmarks
+    companyAvgRate: Number(companyRates?.companyAvgRate ?? 0),
+    companyMedianRate: Number(companyRates?.companyMedianRate ?? 0),
+    // Pace
+    annualizedPace,
+    ytdUnits,
+    ytdVolume: Number(prodStats?.ytdVolume ?? 0),
+    ytdGCI: Number(prodStats?.ytdGCI ?? 0),
+    // Leads (field names match frontend expectations)
+    totalLeads: Number(leadStats?.totalLeads ?? 0),
+    activeLeads: Number(leadStats?.activeLeads ?? 0),
+    avgLeadAge: Number(leadStats?.avgLeadAge ?? 0),
+    leads0to7: Number(leadStats?.leads0to7 ?? 0),
+    leads8to30: Number(leadStats?.leads8to30 ?? 0),
+    leads31to90: Number(leadStats?.leads31to90 ?? 0),
+    leads90plus: Number(leadStats?.leads90plus ?? 0),
+    // Tasks (field names match frontend expectations)
+    openTasks: Number(taskStats?.openTasks ?? 0),
+    overdueTasks: Number(taskStats?.overdueTasks ?? 0),
+    tasksDueToday: Number(taskStats?.tasksDueToday ?? 0),
+    tasksCompleted30d: Number(taskStats?.tasksCompleted30d ?? 0),
+    // Listings
+    activeListings: Number(listingStats?.activeListings ?? 0),
+    soldListings: Number(listingStats?.soldListings ?? 0),
+    ucListings: Number(listingStats?.ucListings ?? 0),
+    terminatedListings: Number(listingStats?.terminatedListings ?? 0),
+    expiredListings: Number(listingStats?.expiredListings ?? 0),
+    totalListings: Number(listingStats?.totalListings ?? 0),
   };
 }
 
@@ -851,18 +956,50 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
       const prodStats = await getAgentProductionStats(db, input.agentId);
 
       // Get goals with progress
-      const goalsData = await getAgentGoalsWithProgress(db, input.agentId);
+      const rawGoalsData = await getAgentGoalsWithProgress(db, input.agentId);
+      // Map goalsData to what frontend expects
+      const annualGoal = rawGoalsData.annualGoal;
+      const ytdClosed = Number(rawGoalsData.ytdActuals?.ytdClosings ?? 0);
+      const targetUnits = Number(annualGoal?.closingsTarget ?? 0);
+      const progressPct = targetUnits > 0 ? Math.round((ytdClosed / targetUnits) * 100) : 0;
+      // Calculate on-pace: expected closings by now vs actual
+      const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / (1000 * 60 * 60 * 24));
+      const expectedByNow = targetUnits > 0 ? (targetUnits * dayOfYear) / 365 : 0;
+      const onPace = ytdClosed >= expectedByNow;
+      const goalsData = {
+        annualGoal: annualGoal ? { ...annualGoal, targetUnits: annualGoal.closingsTarget, targetVolume: annualGoal.volumeTarget } : null,
+        monthlyGoals: rawGoalsData.monthlyGoals.map((g: any) => ({ ...g, targetUnits: g.closingsTarget, month: g.month })),
+        ytdClosed,
+        progressPct,
+        onPace,
+        ytdActuals: rawGoalsData.ytdActuals,
+      };
 
       // Get pipeline data
       const pipelineData = await getAgentPipelineData(db, input.agentId);
 
-      // Get recent sessions
+      // Get recent sessions WITH coach names
+      const scheduledCoachAlias = aliasedTable(users, "scheduledCoach");
+      const actualCoachAlias = aliasedTable(users, "actualCoach");
       const recentSessions = await db
-        .select()
+        .select({
+          id: coachingSessions.id,
+          agentId: coachingSessions.agentId,
+          sessionDate: coachingSessions.sessionDate,
+          sessionType: coachingSessions.sessionType,
+          status: coachingSessions.status,
+          durationMinutes: coachingSessions.durationMinutes,
+          aiSummary: coachingSessions.aiSummary,
+          recordingUrl: coachingSessions.recordingFileUrl,
+          scheduledCoachName: scheduledCoachAlias.name,
+          actualCoachName: actualCoachAlias.name,
+        })
         .from(coachingSessions)
+        .leftJoin(scheduledCoachAlias, eq(coachingSessions.scheduledCoachId, scheduledCoachAlias.id))
+        .leftJoin(actualCoachAlias, eq(coachingSessions.actualCoachId, actualCoachAlias.id))
         .where(eq(coachingSessions.agentId, input.agentId))
         .orderBy(desc(coachingSessions.sessionDate))
-        .limit(10);
+        .limit(20);
 
       // Get open commitments
       const openCommitments = await db
@@ -914,8 +1051,9 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         .where(eq(coachingAssessments.agentId, input.agentId))
         .orderBy(desc(coachingAssessments.assessmentDate));
 
-      // Session stats
-      const [sessionStats] = await db
+      // Session stats with last coach name
+      const lastCompletedSession = recentSessions.find((s: any) => s.status === "Completed");
+      const sessionStatsRaw = await db
         .select({
           totalSessions: sql<number>`COUNT(*)`,
           completedSessions: sql<number>`COUNT(CASE WHEN ${coachingSessions.status} = 'Completed' THEN 1 END)`,
@@ -924,6 +1062,29 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         })
         .from(coachingSessions)
         .where(eq(coachingSessions.agentId, input.agentId));
+      const sessionStats = {
+        ...(sessionStatsRaw[0] ?? { totalSessions: 0, completedSessions: 0, noShowSessions: 0, canceledSessions: 0 }),
+        lastCoachName: lastCompletedSession?.actualCoachName ?? lastCompletedSession?.scheduledCoachName ?? null,
+        lastSessionDate: lastCompletedSession?.sessionDate ?? null,
+      };
+
+      // Get terminated transactions with reasons (for termination reasons panel)
+      const terminatedTransactions = await db
+        .select({
+          id: transactions.id,
+          transactionType: transactions.transactionType,
+          purchasePrice: transactions.purchasePrice,
+          terminationReason: transactions.terminationReason,
+          closingDate: transactions.closingDate,
+          contractDate: transactions.contractDate,
+        })
+        .from(transactions)
+        .where(and(
+          eq(transactions.agentId, input.agentId),
+          eq(transactions.status, "terminated"),
+        ))
+        .orderBy(desc(transactions.closingDate))
+        .limit(20);
 
       return {
         profile: typedRow.profile,
@@ -939,7 +1100,8 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         activeReset: activeReset ?? null,
         marketAssignments,
         assessments,
-        sessionStats: sessionStats ?? { totalSessions: 0, completedSessions: 0, noShowSessions: 0, canceledSessions: 0 },
+        sessionStats,
+        terminatedTransactions,
       };
     }),
 
@@ -1097,11 +1259,12 @@ Current Coaching Status: ${profile?.performanceStatus ?? 'No profile'} | Risk: $
 Launch Phase: ${profile?.launchHealthStatus ?? 'N/A'}
 
 PRODUCTION DATA:
-- Trailing 90-day: ${prodStats.trailing90Units} units, $${Number(prodStats.trailing90Volume).toLocaleString()} volume, $${Number(prodStats.trailing90GCI).toLocaleString()} GCI
-- Trailing 30-day: ${prodStats.trailing30Units} units, $${Number(prodStats.trailing30Volume).toLocaleString()} volume
-- Under Contract: ${prodStats.underContractUnits} units, $${Number(prodStats.underContractVolume).toLocaleString()} volume
+- Trailing 90-day: ${prodStats.closedUnits} units, $${Number(prodStats.closedVolume).toLocaleString()} volume, $${Number(prodStats.closedGCI).toLocaleString()} GCI
+- Under Contract: ${prodStats.ucUnits} units, $${Number(prodStats.ucVolume).toLocaleString()} volume
 - YTD: ${prodStats.ytdUnits} units, $${Number(prodStats.ytdVolume).toLocaleString()} volume, $${Number(prodStats.ytdGCI).toLocaleString()} GCI
-- Terminated (all time): ${terminations.length} deals
+- Buyer Deals: ${prodStats.buyerCount}, Seller Deals: ${prodStats.sellerCount}, Dual: ${prodStats.dualCount}
+- Avg Purchase Price: $${Number(prodStats.avgPurchasePrice).toLocaleString()}, Avg Commission: ${prodStats.avgCommissionRate}%
+- Terminated (all time): ${prodStats.terminatedCount} deals (${prodStats.terminationRate}% rate)
 - Termination Details: ${terminationSummary}
 
 COMPANY BENCHMARKS:
@@ -1114,13 +1277,16 @@ GOALS:
 - Goal Attainment: ${goalsData.annualGoal?.closingsTarget ? `${Math.round((goalsData.ytdActuals.ytdClosings / goalsData.annualGoal.closingsTarget) * 100)}% of closings goal` : 'No goal set'}
 
 LEADS & PIPELINE:
-- Total Leads: ${prodStats.totalLeads}, Active: ${prodStats.activeLeads}, New (30d): ${prodStats.newLeads30d}
-- Stale Leads (no activity 30d): ${prodStats.staleLeads}, Dead: ${prodStats.deadLeads}
-- Avg Lead Age: ${Math.round(prodStats.avgLeadAgeDays)} days
+- Total Leads: ${prodStats.totalLeads}, Active: ${prodStats.activeLeads}
+- Avg Lead Age: ${prodStats.avgLeadAge} days
 - Pipeline Breakdown: ${JSON.stringify(pipelineData.pipelineByStatus)}
 
 TASKS:
-- Pending: ${prodStats.totalPendingTasks}, Overdue: ${prodStats.overdueTasks}, Completed (30d): ${prodStats.completedTasks30d}
+- Open: ${prodStats.openTasks}, Overdue: ${prodStats.overdueTasks}, Completed (30d): ${prodStats.tasksCompleted30d}
+
+LISTINGS:
+- Active: ${prodStats.activeListings}, Under Contract: ${prodStats.ucListings}, Sold: ${prodStats.soldListings}
+- Terminated: ${prodStats.terminatedListings}, Expired: ${prodStats.expiredListings}
 
 PERSONALITY ASSESSMENTS:
 ${assessments.map((a: any) => `- ${a.assessmentType}:\n  Communication: ${a.communicationStyle ?? 'N/A'}\n  Decision-Making: ${a.decisionMakingStyle ?? 'N/A'}\n  Motivators: ${a.motivators ?? 'N/A'}\n  Stress Behaviors: ${a.stressBehaviors ?? 'N/A'}\n  Accountability Pref: ${a.accountabilityPreferences ?? 'N/A'}\n  Strengths: ${a.likelyStrengths ?? 'N/A'}\n  Blind Spots: ${a.likelyBlindSpots ?? 'N/A'}\n  Coaching Style: ${a.preferredCoachingStyle ?? 'N/A'}`).join("\n") || "None uploaded - recommend uploading DISC or similar assessment"}
@@ -1368,7 +1534,7 @@ Please provide your comprehensive coaching analysis.`,
           {
             role: "user",
             content: `Agent: ${agentRow?.name ?? 'Unknown'} | Status: ${profile?.performanceStatus ?? 'Unknown'} | Session Type: ${session.sessionType}
-Production: ${prodStats.trailing90Units} closings (90d), ${prodStats.underContractUnits} under contract, ${prodStats.overdueTasks} overdue tasks
+Production: ${prodStats.closedUnits} closings (90d), ${prodStats.ucUnits} under contract, ${prodStats.overdueTasks} overdue tasks
 Goals: Annual=${goalsData.annualGoal?.closingsTarget ?? 'Not set'} closings, YTD=${goalsData.ytdActuals.ytdClosings} closings
 Last Session: ${lastSessionSummary.substring(0, 500)}
 Open Commitments:\n${openCommitments || "None"}`,
