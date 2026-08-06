@@ -107,6 +107,7 @@ export const tasksRouter = router({
           await sendEmailAlert("task_assigned", input.assignedToId, {
             taskTitle: input.title,
             dueDate: input.dueDate ? parseDueDate(input.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }) : undefined,
+            taskId: id,
           });
         } catch (_) {}
       }

@@ -323,6 +323,7 @@ export const transactionsRouter = router({
       await sendEmailAlert("transaction_created", agentId, {
         transactionNumber: txNumber,
         transactionType: input.transactionType,
+        transactionId: id,
       }).catch(() => {});
       return { id, transactionNumber: txNumber, autoPayouts: autoPayoutResult };
     }),
@@ -375,6 +376,7 @@ export const transactionsRouter = router({
         transactionNumber: txForEmail.transaction.transactionNumber,
         contactName: txForEmail.contact ? `${txForEmail.contact.firstName} ${txForEmail.contact.lastName}`.trim() : undefined,
         amount: txForEmail.transaction.purchasePrice ? `$${Number(txForEmail.transaction.purchasePrice).toLocaleString()}` : undefined,
+        transactionId: input.id,
       } : {};
 
       // Automation: transaction closed → check payout integrity
@@ -537,7 +539,10 @@ export const transactionsRouter = router({
       const tx = await getTransactionById(input.transactionId);
       if (tx && input.payeeUserId) {
         try {
-          await sendEmailAlert("commission_calculated", input.payeeUserId);
+          await sendEmailAlert("commission_calculated", input.payeeUserId, {
+            transactionId: input.transactionId,
+            transactionNumber: tx.transaction.transactionNumber,
+          });
         } catch (_) {}
       }
 

@@ -644,6 +644,7 @@ Generate the following in JSON:
         callSummarySnippet: session.callSummary?.slice(0, 400) ?? undefined,
         handoffNotes: session.handoffNotes ?? undefined,
         isaName: ctx.user.name ?? undefined,
+        contactId: String(session.contactId),
       });
 
       if (input.sendToInvestor && contact.email) {
@@ -658,6 +659,7 @@ Generate the following in JSON:
           callSummarySnippet: session.callSummary?.slice(0, 400) ?? undefined,
           handoffNotes: session.handoffNotes ?? undefined,
           isaName: ctx.user.name ?? undefined,
+          contactId: String(session.contactId),
         });
       }
 

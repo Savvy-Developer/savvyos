@@ -1206,11 +1206,12 @@ export const connectionRequestsRouter = router({
       if (!req) throw new TRPCError({ code: "NOT_FOUND" });
       if (req.status !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: "Request is no longer pending" });
       // Create the agent connection
-      await db.insert(agentConnectionsTable).values({
+      const [insertResult] = await db.insert(agentConnectionsTable).values({
         agentId: req.agentId,
         contactId: req.contactId,
         pipelineStatus: req.requestedPipelineStatus as any,
       });
+      const newConnectionId = insertResult?.insertId;
       // Mark request as approved
       await db.update(connectionRequestsTable)
         .set({ status: "approved", reviewedById: ctx.user.id, reviewedAt: new Date() })
@@ -1224,6 +1225,7 @@ export const connectionRequestsRouter = router({
           recipientName: agent.name ?? "Agent",
           contactName: `${contact.firstName} ${contact.lastName}`,
           pipelineStatus: req.requestedPipelineStatus,
+          connectionId: newConnectionId ? String(newConnectionId) : undefined,
         });
       }
       // Log the approval

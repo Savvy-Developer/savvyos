@@ -89,6 +89,12 @@ interface EmailContext {
   reportDate?: string;
   reportAsOf?: string;
   reportTableHtml?: string;
+  // Deep-link entity IDs (numeric DB IDs for direct navigation)
+  transactionId?: string;
+  taskId?: string;
+  listingId?: string;
+  connectionId?: string;
+  contactId?: string;
 }
 
 // ─── Shared Layout Wrapper ────────────────────────────────────────────────────
@@ -210,7 +216,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${ctx.callSummarySnippet ? `<p style="margin:16px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Call Summary</p><p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;background:#F9FAFB;border-radius:6px;padding:12px 16px;">${ctx.callSummarySnippet}</p>` : ""}
       ${ctx.handoffNotes ? `<p style="margin:16px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Handoff Notes from ISA</p><p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;background:#F0F9FF;border-radius:6px;padding:12px 16px;border-left:3px solid #0891B2;">${ctx.handoffNotes}</p>` : ""}
       ${bodyText("Please reach out to this investor within 24 hours to introduce yourself and schedule a discovery call.")}
-      ${ctaButton("View Investor Profile", APP_URL + "/market-match-call", "#0891B2")}`,
+      ${ctaButton("View Investor Profile", APP_URL + "/market-match-call" + (ctx.contactId ? `?contactId=${ctx.contactId}` : ""), "#0891B2")}`,
       `New investor introduction — ${ctx.investorFirstName ?? "Investor"} is interested in ${ctx.marketName ?? "your market"}`
     ),
   }),
@@ -226,7 +232,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName ?? "—"}`,
         ...(ctx.notes ? [`<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${ctx.notes}`] : []),
       ])}
-      ${ctaButton("View Contact", APP_URL)}`,
+      ${ctaButton("View Contact", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
       `New lead assigned: ${ctx.contactName ?? "New Contact"}`
     ),
   }),
@@ -243,7 +249,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.contactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
         ...(ctx.status ? [`<strong style="color:${BLACK};">New Status</strong>&nbsp;&nbsp; <span style="color:${CYAN};font-weight:600;">${ctx.status}</span>`] : []),
       ])}
-      ${ctaButton("View Transaction", APP_URL)}`,
+      ${ctaButton("View Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `Transaction status updated${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
@@ -260,7 +266,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.contactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
         ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:600;">${ctx.amount}</span>`] : []),
       ], "#059669")}
-      ${ctaButton("View Payout Details", APP_URL, "#059669")}`,
+      ${ctaButton("View Payout Details", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"), "#059669")}`,
       `Transaction closed${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
@@ -277,7 +283,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.percentage ? [`<strong style="color:${BLACK};">Your Share</strong>&nbsp;&nbsp; ${ctx.percentage}%`] : []),
         ...(ctx.amount ? [`<strong style="color:${BLACK};">Estimated Amount</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${ctx.amount}</span>`] : []),
       ])}
-      ${ctaButton("View Payout Breakdown", APP_URL)}`,
+      ${ctaButton("View Payout Breakdown", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `Commission calculated${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
@@ -294,7 +300,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.dueDate ? [`<strong style="color:${BLACK};">Due Date</strong>&nbsp;&nbsp; ${ctx.dueDate}`] : []),
         ...(ctx.contactName ? [`<strong style="color:${BLACK};">Related Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
       ])}
-      ${ctaButton("View Task", APP_URL)}`,
+      ${ctaButton("View Task", APP_URL + (ctx.taskId ? `/tasks/${ctx.taskId}` : "/tasks"))}`,
       `New task: ${ctx.taskTitle ?? "Task"}`
     ),
   }),
@@ -310,7 +316,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         `<strong style="color:${BLACK};">Task</strong>&nbsp;&nbsp; ${ctx.taskTitle ?? "—"}`,
         ...(ctx.dueDate ? [`<strong style="color:${BLACK};">Due</strong>&nbsp;&nbsp; <span style="color:#D97706;font-weight:600;">${ctx.dueDate}</span>`] : []),
       ], "#D97706")}
-      ${ctaButton("Complete Task", APP_URL, "#D97706")}`,
+      ${ctaButton("Complete Task", APP_URL + (ctx.taskId ? `/tasks/${ctx.taskId}` : "/tasks"), "#D97706")}`,
       `Task due soon: ${ctx.taskTitle ?? "Task"}`
     ),
   }),
@@ -329,7 +335,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${ctx.propertyAddress}`] : []),
         ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; ${ctx.amount}`] : []),
       ])}
-      ${ctaButton("View Transaction", APP_URL)}`,
+      ${ctaButton("View Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `New transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""} created`
     ),
   }),
@@ -348,7 +354,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.listingDate ? [`<strong style="color:${BLACK};">Listed</strong>&nbsp;&nbsp; ${ctx.listingDate}`] : []),
         ...(ctx.expirationDate ? [`<strong style="color:${BLACK};">Expires</strong>&nbsp;&nbsp; ${ctx.expirationDate}`] : []),
       ])}
-      ${ctaButton("View Listing", APP_URL + "/listings")}`,
+      ${ctaButton("View Listing", APP_URL + (ctx.listingId ? `/listings/${ctx.listingId}` : "/listings"))}`,
       `New listing created${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`
     ),
   }),
@@ -366,7 +372,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ...(ctx.listPrice ? [`<strong style="color:${BLACK};">List Price</strong>&nbsp;&nbsp; ${ctx.listPrice}`] : []),
         ...(ctx.expirationDate ? [`<strong style="color:${BLACK};">Expired</strong>&nbsp;&nbsp; <span style="color:#DC2626;font-weight:600;">${ctx.expirationDate}</span>`] : []),
       ], "#D97706")}
-      ${ctaButton("Update Listing", APP_URL + "/listings", "#D97706")}`,
+      ${ctaButton("Update Listing", APP_URL + (ctx.listingId ? `/listings/${ctx.listingId}` : "/listings"), "#D97706")}`,
       `Listing expired${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`
     ),
   }),
@@ -392,7 +398,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${greeting(ctx.recipientName)}
       ${bodyText(`A commission exception was approved for Transaction${ctx.transactionNumber ? ` <strong>#${ctx.transactionNumber}</strong>` : ""} with the following warnings:`)}
       ${ctx.notes ? infoCard(ctx.notes.split("\n").filter(Boolean), "#D97706") : ""}
-      ${ctaButton("Review Transaction", APP_URL + "/transactions", "#D97706")}`,
+      ${ctaButton("Review Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"), "#D97706")}`,
       `Commission exception warning${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
@@ -409,7 +415,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
           ? `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`
           : `<strong style="color:#DC2626;">Action required</strong>&nbsp;&nbsp; Review all open transactions`,
       ], "#DC2626")}
-      ${ctaButton("Review Now", APP_URL, "#DC2626")}`,
+      ${ctaButton("Review Now", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"), "#DC2626")}`,
       "Commission integrity issue — action required"
     ),
   }),
@@ -425,7 +431,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName ?? "—"}`,
         ...(ctx.pipelineStatus ? [`<strong style="color:${BLACK};">Pipeline Stage</strong>&nbsp;&nbsp; ${ctx.pipelineStatus.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}`] : []),
       ], "#059669")}
-      ${ctaButton("View in Pipeline", APP_URL + "/pipeline")}`,
+      ${ctaButton("View in Pipeline", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
       `Connection request approved — ${ctx.contactName ?? "contact"} added to your pipeline`
     ),
   }),

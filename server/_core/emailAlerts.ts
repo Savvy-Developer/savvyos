@@ -58,6 +58,12 @@ export async function sendEmailAlert(
         expirationDate: context.expirationDate as string | undefined,
         overdueCount: context.overdueCount as string | undefined,
         taskList: context.taskList as string | undefined,
+        // Deep-link entity IDs
+        transactionId: context.transactionId != null ? String(context.transactionId) : undefined,
+        taskId: context.taskId != null ? String(context.taskId) : undefined,
+        listingId: context.listingId != null ? String(context.listingId) : undefined,
+        connectionId: context.connectionId != null ? String(context.connectionId) : undefined,
+        contactId: context.contactId != null ? String(context.contactId) : undefined,
       });
     }
   } catch (err) {

@@ -198,6 +198,7 @@ export const commissionExceptionsRouter = router({
             recipientEmail: PROTECTED_EMAIL,
             recipientName: "Tyler",
             transactionNumber: String(exc.transactionId),
+            transactionId: String(exc.transactionId),
             notes: warnings.join("\n"),
           });
         }
@@ -299,6 +300,7 @@ export const commissionExceptionsRouter = router({
           recipientEmail: PROTECTED_EMAIL,
           recipientName: "Tyler",
           transactionNumber: String(input.transactionId),
+          transactionId: String(input.transactionId),
           notes: warnings.join("\n"),
         });
       }

@@ -93,6 +93,7 @@ export async function checkExpiredListings(): Promise<void> {
         contactName,
         listPrice,
         expirationDate,
+        listingId: String(listing.id),
       });
 
       // Mark reminder as sent so we don't spam daily

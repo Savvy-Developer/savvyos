@@ -186,6 +186,7 @@ export const listingsRouter = router({
           listPrice: input.listPrice ? `$${Number(input.listPrice).toLocaleString()}` : undefined,
           listingDate: input.listDate ? new Date(input.listDate).toLocaleDateString() : undefined,
           expirationDate: input.expirationDate ? new Date(input.expirationDate).toLocaleDateString() : undefined,
+          listingId: id,
         }).catch(() => {});
       }
       return { id };
