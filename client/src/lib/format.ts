@@ -95,7 +95,7 @@ export function formatCurrency(
   if (amount === null || amount === undefined || amount === "") return "";
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return "";
-  const decimals = opts?.decimals ?? 2;
+  const decimals = opts?.decimals ?? 0;
   const symbol = opts?.symbol ?? "$";
   return `${symbol}${num.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
 }

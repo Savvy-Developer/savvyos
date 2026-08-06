@@ -374,6 +374,17 @@ export default function ProfilePage() {
           </dl>
         </CardContent>
       </Card>
+
+      {/* Pro-forma Defaults Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Pro-forma Defaults</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">Set your personal default values for new pro-forma analyses.</p>
+          <a href="/proforma-defaults" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">Manage Defaults &rarr;</a>
+        </CardContent>
+      </Card>
     </div>
   );
 }

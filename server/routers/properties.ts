@@ -555,4 +555,23 @@ export const propertiesRouter = router({
         market: marketName,
       };
     }),
+
+  // ─── Pro-forma Defaults (per user) ─────────────────────────────────────────
+  getProformaDefaults: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const [row] = await db.execute(sql`SELECT defaults FROM proforma_defaults WHERE userId = ${ctx.user.id} LIMIT 1`);
+      return (row as any)?.defaults ? JSON.parse((row as any).defaults) : null;
+    }),
+
+  saveProformaDefaults: protectedProcedure
+    .input(z.object({ defaults: z.any() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const jsonStr = JSON.stringify(input.defaults);
+      await db.execute(sql`INSERT INTO proforma_defaults (userId, \`defaults\`) VALUES (${ctx.user.id}, ${jsonStr}) ON DUPLICATE KEY UPDATE \`defaults\` = ${jsonStr}`);
+      return { success: true };
+    }),
 });
