@@ -283,7 +283,7 @@ export function registerProformaPdfRoute(app: express.Application) {
       };
 
       y = drawProjRow(["Year", "Net Revenue", "Expenses", "NOI", "Cash Flow", "Prop. Value", "Equity"], y, true);
-      if (calc.fiveYear) {
+      if (calc.fiveYear && Array.isArray(calc.fiveYear) && calc.fiveYear.length > 0) {
         calc.fiveYear.forEach((yr: any) => {
           y = drawProjRow([`Year ${yr.year}`, fmtD(yr.revenue), fmtD(yr.expenses), fmtD(yr.noi), fmtD(yr.cashFlow), fmtD(yr.propertyValue), fmtD(yr.equity)], y);
         });
@@ -291,7 +291,7 @@ export function registerProformaPdfRoute(app: express.Application) {
       y += 12;
 
       // IRR Table
-      if (calc.irr) {
+      if (calc.irr && calc.irr.s1 && calc.irr.s2 && calc.irr.s3) {
         if (y > 560) { doc.addPage(); y = 50; }
         doc.fontSize(10).fillColor(brandDark).text("Internal Rate of Return (IRR)", 50, y, { underline: true });
         y += 14;
@@ -423,7 +423,7 @@ export function registerProformaPdfRoute(app: express.Application) {
         y += 10;
 
         // Cash-Out Refi section
-        if (calc.isCashoutRefi && calc.refi) {
+        if (calc.isCashoutRefi && calc.refi && calc.refi.refiNewLoanAmount) {
           doc.fontSize(10).fillColor(brandDark).text("Cash-Out Refinance Details", 50, y, { underline: true });
           y += 14;
 
@@ -476,11 +476,12 @@ export function registerProformaPdfRoute(app: express.Application) {
           doc.text("Strong", 440, y, { width: 50, align: "center" });
           y += 12;
 
+          const rs1 = calc.refi.s1 || {}, rs2 = calc.refi.s2 || {}, rs3 = calc.refi.s3 || {};
           const compRows = [
-            { label: "Annual Cash Flow", pre: [calc.s1.cashFlow, calc.s2.cashFlow, calc.s3.cashFlow], post: [calc.refi.s1.postRefiCashFlow, calc.refi.s2.postRefiCashFlow, calc.refi.s3.postRefiCashFlow] },
-            { label: "Monthly Cash Flow", pre: [calc.s1.monthlyCashFlow, calc.s2.monthlyCashFlow, calc.s3.monthlyCashFlow], post: [calc.refi.s1.postRefiMonthlyCF, calc.refi.s2.postRefiMonthlyCF, calc.refi.s3.postRefiMonthlyCF] },
-            { label: "Cash-on-Cash", pre: [calc.s1.cashOnCash, calc.s2.cashOnCash, calc.s3.cashOnCash], post: [calc.refi.s1.postRefiCoC, calc.refi.s2.postRefiCoC, calc.refi.s3.postRefiCoC], isPct: true, highlight: true },
-            { label: "DSCR", pre: [calc.s1.dscr, calc.s2.dscr, calc.s3.dscr], post: [calc.refi.s1.postRefiDSCR, calc.refi.s2.postRefiDSCR, calc.refi.s3.postRefiDSCR], isDscr: true },
+            { label: "Annual Cash Flow", pre: [calc.s1.cashFlow, calc.s2.cashFlow, calc.s3.cashFlow], post: [rs1.postRefiCashFlow ?? 0, rs2.postRefiCashFlow ?? 0, rs3.postRefiCashFlow ?? 0] },
+            { label: "Monthly Cash Flow", pre: [calc.s1.monthlyCashFlow, calc.s2.monthlyCashFlow, calc.s3.monthlyCashFlow], post: [rs1.postRefiMonthlyCF ?? 0, rs2.postRefiMonthlyCF ?? 0, rs3.postRefiMonthlyCF ?? 0] },
+            { label: "Cash-on-Cash", pre: [calc.s1.cashOnCash, calc.s2.cashOnCash, calc.s3.cashOnCash], post: [rs1.postRefiCoC ?? 0, rs2.postRefiCoC ?? 0, rs3.postRefiCoC ?? 0], isPct: true, highlight: true },
+            { label: "DSCR", pre: [calc.s1.dscr, calc.s2.dscr, calc.s3.dscr], post: [rs1.postRefiDSCR ?? 0, rs2.postRefiDSCR ?? 0, rs3.postRefiDSCR ?? 0], isDscr: true },
           ];
 
           compRows.forEach(row => {

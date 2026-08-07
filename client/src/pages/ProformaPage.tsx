@@ -567,6 +567,7 @@ export default function ProformaPage() {
     try {
       const response = await fetch("/api/proforma/pdf", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           form,
@@ -588,6 +589,10 @@ export default function ProformaPage() {
           title,
         }),
       });
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`PDF generation failed (${response.status}): ${errText}`);
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -595,7 +600,7 @@ export default function ProformaPage() {
       a.download = `Proforma_${property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property"}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { console.error(e); alert(`PDF download failed: ${e.message || "Unknown error"}. Please try again.`); }
     setDownloading(false);
   };
 
