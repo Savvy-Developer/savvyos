@@ -403,6 +403,55 @@ export function registerProformaPdfRoute(app: express.Application) {
         });
         doc.font("Helvetica").fontSize(6.5).fillColor("#94a3b8").text("* Requires material participation (avg stay ≤7 days). 100% bonus depreciation permanent post Jan 2025. Consult CPA.", 50, y, { width: W });
         y += 16;
+
+        // Ongoing Annual Tax Benefits
+        const straightLineDep = calc.straightLineDepreciation ?? (calc.buildingBasis / 27.5);
+        const mortgageInterest = calc.year1MortgageInterest ?? (calc.loanAmount * (parseFloat(form.interestRate || "7") / 100));
+        const ongoingDeduction = straightLineDep + mortgageInterest;
+        const ongoingTaxBenefit = ongoingDeduction * (parseFloat(form.marginalTaxRate || "35") / 100);
+        if (ongoingTaxBenefit > 0) {
+          if (y > 640) { doc.addPage(); y = 50; }
+          doc.font("Helvetica-Bold").fontSize(9).fillColor(brandDark).text("Ongoing Annual Tax Benefits (Year 2+)", 50, y);
+          y += 12;
+          const ongoingItems: [string, string][] = [
+            ["Straight-Line Depreciation (building / 27.5 yrs)", `${fmtD(Math.round(straightLineDep))}/yr`],
+          ];
+          if (mortgageInterest > 0) ongoingItems.push(["Mortgage Interest Deduction (approx)", `${fmtD(Math.round(mortgageInterest))}/yr`]);
+          ongoingItems.push(["Annual Tax Savings", `${fmtD(Math.round(ongoingTaxBenefit))}/yr`]);
+          ongoingItems.forEach(([label, value]) => {
+            doc.font("Helvetica").fontSize(7.5).fillColor("#475569").text(label, 50, y);
+            doc.font("Helvetica-Bold").fontSize(7.5).fillColor(brandGreen).text(value, 50, y, { width: halfW, align: "right" });
+            y += 11;
+          });
+          y += 8;
+        }
+
+        // Returns Including Tax Benefits table
+        if (calc.taxReturns) {
+          if (y > 600) { doc.addPage(); y = 50; }
+          doc.font("Helvetica-Bold").fontSize(9).fillColor(brandGreen).text("Returns Including Tax Benefits", 50, y);
+          y += 14;
+          const taxRetHeaders = ["", "Conservative", "Base Case", "Strong"];
+          const colW2 = W / 4;
+          taxRetHeaders.forEach((h, i) => {
+            doc.font("Helvetica-Bold").fontSize(7).fillColor(brandDark).text(h, 50 + i * colW2, y, { width: colW2, align: i === 0 ? "left" : "right" });
+          });
+          y += 11;
+          const tr = calc.taxReturns;
+          const taxRetRows = [
+            ["Year 1 Cash Flow (w/ tax)", fmtD(Math.round(tr.s1?.year1CashFlowWithTax ?? 0)), fmtD(Math.round(tr.s2?.year1CashFlowWithTax ?? 0)), fmtD(Math.round(tr.s3?.year1CashFlowWithTax ?? 0))],
+            ["Year 1 CoC Return (w/ tax)", `${((tr.s1?.year1CoCWithTax ?? 0) * 100).toFixed(1)}%`, `${((tr.s2?.year1CoCWithTax ?? 0) * 100).toFixed(1)}%`, `${((tr.s3?.year1CoCWithTax ?? 0) * 100).toFixed(1)}%`],
+            ["Ongoing Cash Flow (yr 2+)", fmtD(Math.round(tr.s1?.ongoingCashFlowWithTax ?? 0)), fmtD(Math.round(tr.s2?.ongoingCashFlowWithTax ?? 0)), fmtD(Math.round(tr.s3?.ongoingCashFlowWithTax ?? 0))],
+            ["Ongoing CoC Return (yr 2+)", `${((tr.s1?.ongoingCoCWithTax ?? 0) * 100).toFixed(1)}%`, `${((tr.s2?.ongoingCoCWithTax ?? 0) * 100).toFixed(1)}%`, `${((tr.s3?.ongoingCoCWithTax ?? 0) * 100).toFixed(1)}%`],
+          ];
+          taxRetRows.forEach(row => {
+            row.forEach((cell, i) => {
+              doc.font(i === 0 ? "Helvetica" : "Helvetica-Bold").fontSize(7.5).fillColor(i === 0 ? "#475569" : brandGreen).text(cell, 50 + i * colW2, y, { width: colW2, align: i === 0 ? "left" : "right" });
+            });
+            y += 11;
+          });
+          y += 8;
+        }
       }
 
       // Comps - enhanced with full-width photos
