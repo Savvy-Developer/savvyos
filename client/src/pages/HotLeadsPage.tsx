@@ -694,8 +694,13 @@ function ClicksBadge({ count }: { count: number }) {
 function formatRelativeDate(dateStr: string | null): string {
   if (!dateStr) return "—";
   const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "—";
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
+
+  // Guard against negative values (clock skew or future timestamps)
+  if (diffMs < 0) return "Just now";
+
   const diffMins = Math.floor(diffMs / (1000 * 60));
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));

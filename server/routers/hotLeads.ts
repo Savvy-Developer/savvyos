@@ -71,6 +71,19 @@ async function batchLookupAllAgents(
   return map;
 }
 
+/** Ensure a timestamp string from MySQL is treated as UTC on the client.
+ * Drizzle returns sql<string> MAX(timestamp) as 'YYYY-MM-DD HH:mm:ss' without
+ * a timezone indicator. Browsers parse such strings as local time, causing
+ * negative relative-time values for users west of UTC. Appending 'Z' marks it
+ * as UTC so Date parsing is correct regardless of the client's timezone. */
+function ensureUtc(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  // Already has timezone info (ISO 8601 Z or offset)
+  if (ts.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(ts)) return ts;
+  // Convert space-separated MySQL format to ISO and append Z
+  return ts.replace(' ', 'T') + 'Z';
+}
+
 // ─── Hot Leads Router ─────────────────────────────────────────────────────────
 
 export const hotLeadsRouter = router({
@@ -191,7 +204,7 @@ export const hotLeadsRouter = router({
         email: row.email,
         phone: row.phone,
         viewCount: row.viewCount,
-        lastViewed: row.lastViewed,
+        lastViewed: ensureUtc(row.lastViewed),
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId!] ?? [],
@@ -301,7 +314,7 @@ export const hotLeadsRouter = router({
         phone: row.phone,
         distinctDays: row.distinctDays,
         totalViews: row.totalViews,
-        lastViewed: row.lastViewed,
+        lastViewed: ensureUtc(row.lastViewed),
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId!] ?? [],
@@ -404,7 +417,7 @@ export const hotLeadsRouter = router({
         phone: row.phone,
         opens: row.opens,
         clicks: row.clicks,
-        lastEngaged: row.lastEngaged,
+        lastEngaged: ensureUtc(row.lastEngaged),
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId!] ?? [],
