@@ -827,7 +827,11 @@ export default function ProformaPage() {
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (!editing) {
-    // No list page — redirect back to property detail which has the proformas list
+    // If URL has ?load= or ?new=, wait for the useEffect to set editing=true
+    if (loadIdFromUrl || isNewFromUrl) {
+      return <div className="p-8 text-center text-slate-500">Loading pro-forma...</div>;
+    }
+    // Otherwise redirect back to property detail which has the proformas list
     navigate(`/properties/${propertyId}`);
     return null;
   }
