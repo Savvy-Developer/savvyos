@@ -60,24 +60,24 @@ export function registerProformaPdfRoute(app: express.Application) {
         doc.image(logoBuffer, 50, 35, { width: 120 });
       } catch { doc.fontSize(16).font("Helvetica-Bold").fillColor(brandGreen).text("SAVVY STR AGENTS", 50, 40); }
 
-      // Agent branding (right side - larger headshot)
+      // Agent branding (right side - headshot + contact info)
       if (branding) {
         let bx = 350, by = 32;
         if (branding.profilePhotoUrl) {
           try {
             const img = await fetchImage(branding.profilePhotoUrl);
             doc.save();
-            doc.circle(bx + W - 350 + 82, by + 30, 28).clip();
-            doc.image(img, bx + W - 350 + 54, by + 2, { width: 56, height: 56 });
+            doc.circle(bx + 100, by + 28, 24).clip();
+            doc.image(img, bx + 76, by + 4, { width: 48, height: 48 });
             doc.restore();
           } catch {}
         }
-        doc.font("Helvetica-Bold").fontSize(11).fillColor(brandDark).text(branding.name ?? "", bx, by);
-        by += 14;
-        if (branding.market) { doc.font("Helvetica").fontSize(8).fillColor("#64748b").text(branding.market, bx, by); by += 11; }
-        if (branding.email) { doc.font("Helvetica").fontSize(8).fillColor("#64748b").text(branding.email, bx, by); by += 11; }
-        if (branding.phone) { doc.font("Helvetica").fontSize(8).fillColor("#64748b").text(branding.phone, bx, by); by += 11; }
-        if (branding.callBookingLink) { doc.font("Helvetica").fontSize(8).fillColor(brandGreen).text("Book a Call →", bx, by, { link: branding.callBookingLink, underline: true }); }
+        doc.font("Helvetica-Bold").fontSize(10).fillColor(brandDark).text(branding.name ?? "", bx, by, { width: 70, align: "right" });
+        by += 13;
+        if (branding.market) { doc.font("Helvetica").fontSize(7.5).fillColor("#64748b").text(branding.market, bx, by, { width: 70, align: "right" }); by += 10; }
+        if (branding.email) { doc.font("Helvetica").fontSize(7.5).fillColor("#64748b").text(branding.email, bx, by, { width: 70, align: "right" }); by += 10; }
+        if (branding.phone) { doc.font("Helvetica").fontSize(7.5).fillColor("#64748b").text(branding.phone, bx, by, { width: 70, align: "right" }); by += 10; }
+        if (branding.callBookingLink) { doc.font("Helvetica").fontSize(7.5).fillColor(brandGreen).text("Book a Call →", bx, by, { link: branding.callBookingLink, underline: true, width: 70, align: "right" }); }
       }
 
       // Title section
@@ -174,6 +174,18 @@ export function registerProformaPdfRoute(app: express.Application) {
       y = drawRow(["Annual Debt Service", fmtD(calc.annualDebtService), fmtD(calc.annualDebtService), fmtD(calc.annualDebtService)], y);
       y = drawRow(["Net Cash Flow", fmtD(s1.cashFlow), fmtD(s2.cashFlow), fmtD(s3.cashFlow)], y, { highlight: true, bold: true });
       y = drawRow(["Cash-on-Cash Return", fmtP(s1.cashOnCash), fmtP(s2.cashOnCash), fmtP(s3.cashOnCash)], y, { bold: true });
+      // Tax benefit returns
+      const tr = calc.taxReturns || {};
+      if (tr.s1 && tr.s2 && tr.s3) {
+        y = drawRow(["CoC w/ Tax Benefits (Yr 1)", fmtP(tr.s1.year1CoCWithTax), fmtP(tr.s2.year1CoCWithTax), fmtP(tr.s3.year1CoCWithTax)], y, { highlight: true, bold: true });
+        y = drawRow(["CoC w/ Tax Benefits (Yr 2+)", fmtP(tr.s1.ongoingCoCWithTax), fmtP(tr.s2.ongoingCoCWithTax), fmtP(tr.s3.ongoingCoCWithTax)], y, { highlight: true });
+      }
+      // Effective cash after tax benefits
+      if (calc.netTaxBenefit > 0) {
+        y += 4;
+        doc.font("Helvetica").fontSize(7).fillColor(brandGreen).text(`Total Cash In Deal: ${fmtD(calc.totalCashNeeded)}  |  Yr 1 Tax Benefit: -${fmtD(calc.netTaxBenefit)}  |  Effective Cash Basis: ${fmtD(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit))}`, 50, y, { width: W });
+        y += 10;
+      }
       y = drawRow(["Cap Rate", fmtP(s1.capRate), fmtP(s2.capRate), fmtP(s3.capRate)], y);
       y = drawRow(["DSCR", `${(s1.dscr ?? 0) === Infinity ? "∞" : (s1.dscr ?? 0).toFixed(2)}x`, `${(s2.dscr ?? 0) === Infinity ? "∞" : (s2.dscr ?? 0).toFixed(2)}x`, `${(s3.dscr ?? 0) === Infinity ? "∞" : (s3.dscr ?? 0).toFixed(2)}x`], y);
       y = drawRow(["Break-Even Occupancy", fmtP1(s1.breakEvenOcc), fmtP1(s2.breakEvenOcc), fmtP1(s3.breakEvenOcc)], y);
@@ -270,7 +282,14 @@ export function registerProformaPdfRoute(app: express.Application) {
         varExpenses.push(["Property Mgmt", `${form.propertyMgmtPct}% of net rev = ${fmtD(s2.mgmtExpense ?? 0)}/yr`]);
       }
       if ((s2.cleaningExpense ?? 0) > 0) {
-        varExpenses.push(["Cleaning", `${fmtD(parseFloat(form.cleaningCostPerTurn || "0"))}/turn = ${fmtD(s2.cleaningExpense ?? 0)}/yr`]);
+        const cleanIncome = parseFloat(String(form.scenario2CleaningFee || form.cleaningCostPerTurn || "0").replace(/[^0-9.]/g, ""));
+        const cleanExpense = parseFloat(String(form.scenario2CleaningExpense || form.cleaningCostPerTurn || "0").replace(/[^0-9.]/g, ""));
+        if (cleanIncome > 0 && cleanExpense > 0) {
+          varExpenses.push(["Cleaning Income", `$${cleanIncome}/booking × ${s2.bookings ?? 0} = ${fmtD(cleanIncome * (s2.bookings ?? 0))}/yr`]);
+          varExpenses.push(["Cleaning Expense", `$${cleanExpense}/turn × ${s2.bookings ?? 0} = ${fmtD(s2.cleaningExpense ?? 0)}/yr`]);
+        } else {
+          varExpenses.push(["Cleaning", `$${cleanExpense}/turn × ${s2.bookings ?? 0} = ${fmtD(s2.cleaningExpense ?? 0)}/yr`]);
+        }
       }
       if (parseFloat(form.capExReservePct || "0") > 0) {
         varExpenses.push(["CapEx Reserve", `${form.capExReservePct}% of gross = ${fmtD(s2.capExReserve ?? 0)}/yr`]);
@@ -327,13 +346,23 @@ export function registerProformaPdfRoute(app: express.Application) {
         return yPos + (header ? 14 : 12);
       };
 
-      y = drawProjRow(["Year", "Net Revenue", "Expenses", "NOI", "Cash Flow", "Prop. Value", "Equity"], y, true);
+      y = drawProjRow(["Year", "Revenue", "Cash Flow", "Cumul. CF", "Tax Benefit", "Prop. Value", "Equity"], y, true);
       if (calc.fiveYear && Array.isArray(calc.fiveYear) && calc.fiveYear.length > 0) {
-        calc.fiveYear.forEach((yr: any) => {
-          y = drawProjRow([`Year ${yr.year}`, fmtD(yr.revenue), fmtD(yr.expenses), fmtD(yr.noi), fmtD(yr.cashFlow), fmtD(yr.propertyValue), fmtD(yr.equity)], y);
+        let cumulCF = 0;
+        calc.fiveYear.forEach((yr: any, i: number) => {
+          cumulCF += yr.cashFlow;
+          const taxBen = i === 0 ? (calc.netTaxBenefit || 0) + (calc.ongoingAnnualTaxBenefit || 0) : (calc.ongoingAnnualTaxBenefit || 0);
+          y = drawProjRow([`Year ${yr.year}`, fmtD(yr.revenue), fmtD(yr.cashFlow), fmtD(cumulCF), fmtD(taxBen), fmtD(yr.propertyValue), fmtD(yr.equity)], y);
         });
+        // Total 5-year return summary
+        const totalCF = calc.fiveYear.reduce((s: number, yr: any) => s + yr.cashFlow, 0);
+        const totalTax = (calc.netTaxBenefit || 0) + (calc.ongoingAnnualTaxBenefit || 0) * 5;
+        const finalEquity = calc.fiveYear[4]?.equity || 0;
+        y += 4;
+        doc.font("Helvetica-Bold").fontSize(7).fillColor(brandGreen).text(`5-Year Total Return: CF ${fmtD(totalCF)} + Tax Benefits ${fmtD(totalTax)} + Equity ${fmtD(finalEquity)} = ${fmtD(totalCF + totalTax + finalEquity)}`, 50, y, { width: W });
+        y += 12;
       }
-      y += 12;
+      y += 8;
 
       // IRR Table
       if (calc.irr && calc.irr.s1 && calc.irr.s2 && calc.irr.s3) {
@@ -458,48 +487,53 @@ export function registerProformaPdfRoute(app: express.Application) {
         }
       }
 
-      // Comps - enhanced with full-width photos
+      // Comps - photo on left, info on right (compact layout)
       if (form.comps && form.comps.length > 0) {
         if (y > 500) { doc.addPage(); y = 50; }
         doc.font("Helvetica-Bold").fontSize(10).fillColor(brandDark).text("Revenue Comparable Properties", 50, y);
         y += 15;
         for (const [i, comp] of form.comps.entries()) {
           if (y > 620) { doc.addPage(); y = 50; }
+          const compStartY = y;
+          const photoW = 90;
+          const photoH = 65;
+          let textX = 50;
 
-          // Full-width comp photo - constrained height
+          // Photo on the left
           if (comp.photoUrl) {
-            if (y > 550) { doc.addPage(); y = 50; }
             try {
               const photoBuffer = await fetchImage(comp.photoUrl);
-              doc.image(photoBuffer, 50, y, { fit: [W, 100], align: "center", valign: "center" });
-              y += 106;
-            } catch {}
+              doc.image(photoBuffer, 50, y, { fit: [photoW, photoH], align: "center", valign: "center" });
+              textX = 50 + photoW + 10;
+            } catch { textX = 50; }
           }
 
-          // Comp details
-          doc.font("Helvetica-Bold").fontSize(8).fillColor(brandDark).text(`Comp ${i + 1}: ${comp.name || "—"}`, 50, y);
-          y += 11;
-          const details = [];
-          // Auto-calculate revenue from ADR/Occ if available
+          // Info to the right of photo
+          const textW = W - (textX - 50);
+          doc.font("Helvetica-Bold").fontSize(8.5).fillColor(brandDark).text(`Comp ${i + 1}: ${comp.name || "\u2014"}`, textX, y, { width: textW });
+          y += 12;
+          // Revenue line
           const compAdr = parseFloat(String(comp.adr || "0").replace(/[$,]/g, ""));
           const compOcc = parseFloat(String(comp.occupancy || "0").replace(/%/g, "")) / 100;
           const compRev = compAdr > 0 && compOcc > 0 ? Math.round(compAdr * compOcc * 365) : 0;
-          if (compRev > 0) details.push(`Rev: ${fmtD(compRev)}`);
-          else if (comp.annualRevenue) details.push(`Rev: ${comp.annualRevenue}`);
-          if (comp.occupancy) details.push(`Occ: ${comp.occupancy}%`);
+          if (compRev > 0) {
+            doc.font("Helvetica-Bold").fontSize(8).fillColor(brandGreen).text(`${fmtD(compRev)}/yr`, textX, y, { width: textW });
+            y += 11;
+          }
+          // Details line
+          const details = [];
           if (comp.adr) details.push(`ADR: $${String(comp.adr).replace(/[$]/g, "")}`);
+          if (comp.occupancy) details.push(`Occ: ${comp.occupancy}%`);
           if (comp.beds) details.push(`${comp.beds} beds`);
           if (comp.city) details.push(comp.city);
-          if (comp.rating) details.push(`Rating: ${comp.rating}${comp.reviewCount ? ` (${comp.reviewCount} reviews)` : ""}`);
-          doc.font("Helvetica").fontSize(7).fillColor("#64748b").text(details.join("  |  ") + (comp.notes ? `  —  ${comp.notes}` : ""), 50, y, { width: W });
-          y += comp.notes ? 20 : 12;
-          if (comp.link) {
-            doc.font("Helvetica").fontSize(6.5).fillColor("#3b82f6").text(comp.link, 50, y, { link: comp.link, underline: true, width: W });
-            y += 10;
-          }
-          y += 6; // spacing between comps
+          if (comp.rating) details.push(`\u2b50 ${comp.rating}${comp.reviewCount ? ` (${comp.reviewCount})` : ""}`);
+          if (details.length) { doc.font("Helvetica").fontSize(7).fillColor("#64748b").text(details.join("  \u2022  "), textX, y, { width: textW }); y += 10; }
+          if (comp.notes) { doc.font("Helvetica").fontSize(6.5).fillColor("#94a3b8").text(comp.notes, textX, y, { width: textW }); y += 10; }
+          if (comp.link) { doc.font("Helvetica").fontSize(6).fillColor("#3b82f6").text(comp.link, textX, y, { link: comp.link, underline: true, width: textW }); y += 9; }
+          // Ensure we advance past the photo height
+          y = Math.max(y, compStartY + photoH) + 8;
         }
-        y += 8;
+        y += 4;
       }
 
       // Revenue Methodology
