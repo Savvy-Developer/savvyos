@@ -425,13 +425,13 @@ export default function ListingDetail() {
       if (!editPropertyId) { toast.error("Please select a property"); return; }
       finalPropertyId = editPropertyId;
     } else if (editPropertyMode === "new") {
-      if (!newPropertyForm.address) { toast.error("Property address is required"); return; }
+      if (!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip) { toast.error("Address, City, State, and ZIP are all required"); return; }
       try {
         const result = await createProperty.mutateAsync({
           address: newPropertyForm.address,
-          city: newPropertyForm.city || undefined,
-          state: newPropertyForm.state || undefined,
-          zip: newPropertyForm.zip || undefined,
+          city: newPropertyForm.city,
+          state: newPropertyForm.state,
+          zip: newPropertyForm.zip,
           propertyType: newPropertyForm.propertyType as any,
         });
         finalPropertyId = result.id;
@@ -1429,15 +1429,15 @@ export default function ListingDetail() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div className="space-y-1 col-span-1">
-                      <Label className="text-xs">City</Label>
+                      <Label className="text-xs">City *</Label>
                       <Input value={newPropertyForm.city} onChange={(e) => setNewPropertyForm(f => ({ ...f, city: e.target.value }))} placeholder="Denver" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">State</Label>
+                      <Label className="text-xs">State *</Label>
                       <Input value={newPropertyForm.state} onChange={(e) => setNewPropertyForm(f => ({ ...f, state: e.target.value }))} placeholder="CO" maxLength={2} />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">ZIP</Label>
+                      <Label className="text-xs">ZIP *</Label>
                       <Input value={newPropertyForm.zip} onChange={(e) => setNewPropertyForm(f => ({ ...f, zip: e.target.value }))} placeholder="80202" />
                     </div>
                   </div>

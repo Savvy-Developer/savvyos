@@ -74,12 +74,16 @@ export default function PropertiesPage() {
   });
 
   const handleCreate = () => {
+    if (!form.address || !form.city || !form.state || !form.zip) {
+      toast.error("Address, City, State, and ZIP are all required");
+      return;
+    }
     setDuplicateInfo(null);
     create.mutate({
       address: form.address,
-      city: form.city || null,
-      state: form.state || null,
-      zip: form.zip || null,
+      city: form.city,
+      state: form.state,
+      zip: form.zip,
       propertyType: form.propertyType as any,
       beds: form.beds || null,
       baths: form.baths || null,
@@ -256,9 +260,9 @@ export default function PropertiesPage() {
           <div className="space-y-3">
             <div><Label>Address *</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
-              <div><Label>State</Label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></div>
-              <div><Label>ZIP</Label><Input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} /></div>
+              <div><Label>City *</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="e.g. Glendale" /></div>
+              <div><Label>State *</Label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="e.g. UT" maxLength={2} /></div>
+              <div><Label>ZIP *</Label><Input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder="e.g. 84729" /></div>
             </div>
             <div>
               <Label>Property Type</Label>
@@ -301,7 +305,7 @@ export default function PropertiesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setOpen(false); setDuplicateInfo(null); }}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!form.address || create.isPending}>
+            <Button onClick={handleCreate} disabled={!form.address || !form.city || !form.state || !form.zip || create.isPending}>
               {create.isPending ? "Creating..." : "Create Property"}
             </Button>
           </DialogFooter>

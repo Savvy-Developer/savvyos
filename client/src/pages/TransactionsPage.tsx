@@ -286,16 +286,16 @@ function PropertyPicker({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
-              <Label className="text-xs">City</Label>
-              <Input className="mt-0.5 h-8 text-sm" value={newCity} onChange={(e) => setNewCity(e.target.value)} />
+              <Label className="text-xs">City *</Label>
+              <Input className="mt-0.5 h-8 text-sm" value={newCity} onChange={(e) => setNewCity(e.target.value)} placeholder="e.g. Glendale" />
             </div>
             <div>
-              <Label className="text-xs">State</Label>
-              <Input className="mt-0.5 h-8 text-sm" value={newState} onChange={(e) => setNewState(e.target.value)} placeholder="TN" />
+              <Label className="text-xs">State *</Label>
+              <Input className="mt-0.5 h-8 text-sm" value={newState} onChange={(e) => setNewState(e.target.value)} placeholder="e.g. UT" maxLength={2} />
             </div>
             <div>
-              <Label className="text-xs">ZIP</Label>
-              <Input className="mt-0.5 h-8 text-sm" value={newZip} onChange={(e) => setNewZip(e.target.value)} />
+              <Label className="text-xs">ZIP *</Label>
+              <Input className="mt-0.5 h-8 text-sm" value={newZip} onChange={(e) => setNewZip(e.target.value)} placeholder="e.g. 84729" />
             </div>
           </div>
           <div className="flex gap-2 pt-1">
@@ -303,8 +303,8 @@ function PropertyPicker({
             <Button
               size="sm"
               className="h-7 text-xs"
-              disabled={!newAddress || createProperty.isPending}
-              onClick={() => createProperty.mutate({ address: newAddress, city: newCity || null, state: newState || null, zip: newZip || null })}
+              disabled={!newAddress || !newCity || !newState || !newZip || createProperty.isPending}
+              onClick={() => createProperty.mutate({ address: newAddress, city: newCity, state: newState, zip: newZip })}
             >
               {createProperty.isPending ? "Adding..." : "Add Property"}
             </Button>

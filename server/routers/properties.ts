@@ -13,7 +13,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents } from "../../drizzle/schema";
 import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
-import { buildNormalizedKey, geocodeAddress } from "../addressNormalization";
+import { buildNormalizedKey, geocodeAddress, capitalizeAddress, capitalizeCity, normalizeState } from "../addressNormalization";
 
 export const propertiesRouter = router({
   list: protectedProcedure
@@ -48,9 +48,9 @@ export const propertiesRouter = router({
   create: protectedProcedure
     .input(z.object({
       address: z.string().min(1),
-      city: z.string().optional().nullable(),
-      state: z.string().optional().nullable(),
-      zip: z.string().optional().nullable(),
+      city: z.string().min(1, "City is required"),
+      state: z.string().min(1, "State is required"),
+      zip: z.string().min(3, "ZIP code is required"),
       beds: z.string().optional().nullable(),
       baths: z.string().optional().nullable(),
       sqft: z.number().optional().nullable(),
@@ -66,13 +66,19 @@ export const propertiesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      // Apply proper capitalization to address fields
+      const cleanAddress = capitalizeAddress(input.address);
+      const cleanCity = capitalizeCity(input.city);
+      const cleanState = normalizeState(input.state);
+      const cleanZip = input.zip.trim();
+
       // Build normalized key for duplicate detection
-      let normalizedKey = buildNormalizedKey(input.address, input.city, input.state, input.zip);
+      let normalizedKey = buildNormalizedKey(cleanAddress, cleanCity, cleanState, cleanZip);
 
       // Try geocoding for better normalization and address verification
       let geocodeResult: Awaited<ReturnType<typeof geocodeAddress>> = null;
       try {
-        geocodeResult = await geocodeAddress(input.address, input.city, input.state, input.zip);
+        geocodeResult = await geocodeAddress(cleanAddress, cleanCity, cleanState, cleanZip);
         if (geocodeResult?.success && geocodeResult.normalizedKey) {
           normalizedKey = geocodeResult.normalizedKey;
         }
@@ -96,11 +102,13 @@ export const propertiesRouter = router({
         }
       }
 
-      // If geocoding returned a verified address, optionally use the standardized form
-      const finalAddress = input.address;
-      const finalCity = input.city;
-      const finalState = input.state;
-      const finalZip = input.zip;
+      // Use geocoded data to fill/correct fields if available
+      const finalAddress = geocodeResult?.success && geocodeResult.streetNumber && geocodeResult.route
+        ? capitalizeAddress(`${geocodeResult.streetNumber} ${geocodeResult.route}`)
+        : cleanAddress;
+      const finalCity = geocodeResult?.success && geocodeResult.city ? capitalizeCity(geocodeResult.city) : cleanCity;
+      const finalState = geocodeResult?.success && geocodeResult.state ? normalizeState(geocodeResult.state) : cleanState;
+      const finalZip = geocodeResult?.success && geocodeResult.zip ? geocodeResult.zip : cleanZip;
 
       const id = await createProperty({
         address: finalAddress,
@@ -182,15 +190,22 @@ export const propertiesRouter = router({
       }),
     }))
     .mutation(async ({ input, ctx }) => {
-      // If address fields changed, recalculate normalizedAddress
+      // If address fields changed, recalculate normalizedAddress and apply capitalization
       const updateData: any = { ...input.data };
       if (updateData.listPrice) updateData.listPrice = updateData.listPrice.replace(/[^0-9.]/g, "");
-      if (input.data.address !== undefined) {
+
+      // Apply proper capitalization to any provided address fields
+      if (updateData.address) updateData.address = capitalizeAddress(updateData.address);
+      if (updateData.city) updateData.city = capitalizeCity(updateData.city);
+      if (updateData.state) updateData.state = normalizeState(updateData.state);
+      if (updateData.zip) updateData.zip = updateData.zip.trim();
+
+      if (input.data.address !== undefined || input.data.city !== undefined || input.data.state !== undefined || input.data.zip !== undefined) {
         const existing = await getPropertyById(input.id);
-        const addr = input.data.address ?? existing?.address ?? "";
-        const city = input.data.city !== undefined ? input.data.city : existing?.city;
-        const state = input.data.state !== undefined ? input.data.state : existing?.state;
-        const zip = input.data.zip !== undefined ? input.data.zip : existing?.zip;
+        const addr = updateData.address ?? existing?.address ?? "";
+        const city = updateData.city !== undefined ? updateData.city : existing?.city;
+        const state = updateData.state !== undefined ? updateData.state : existing?.state;
+        const zip = updateData.zip !== undefined ? updateData.zip : existing?.zip;
         updateData.normalizedAddress = buildNormalizedKey(addr, city, state, zip);
       }
       await updateProperty(input.id, updateData);
@@ -551,11 +566,18 @@ export const propertiesRouter = router({
             errors++;
             continue;
           }
-          // Duplicate check by address
-          const { properties: propertiesTable } = await import("../../drizzle/schema");
-          const existing = await db.select({ id: propertiesTable.id })
-            .from(propertiesTable)
-            .where(eq(propertiesTable.address, row.address.trim()))
+
+          // Apply proper capitalization
+          const cleanAddr = capitalizeAddress(row.address);
+          const cleanCity = row.city?.trim() ? capitalizeCity(row.city) : null;
+          const cleanState = row.state?.trim() ? normalizeState(row.state) : null;
+          const cleanZip = row.zip?.trim() || null;
+
+          // Duplicate check by normalized address
+          const normalizedKey = buildNormalizedKey(cleanAddr, cleanCity, cleanState, cleanZip);
+          const existing = await db.select({ id: properties.id })
+            .from(properties)
+            .where(eq(properties.normalizedAddress, normalizedKey))
             .limit(1);
           if (existing.length > 0) {
             results.push({ row: rowNum, status: "skipped", reason: "Property with this address already exists", address: row.address });
@@ -564,10 +586,11 @@ export const propertiesRouter = router({
           }
           const propType = row.propertyType?.toLowerCase().replace(/ /g, "_");
           const id = await createProperty({
-            address: row.address.trim(),
-            city: row.city?.trim() || null,
-            state: row.state?.trim() || null,
-            zip: row.zip?.trim() || null,
+            address: cleanAddr,
+            normalizedAddress: normalizedKey,
+            city: cleanCity,
+            state: cleanState,
+            zip: cleanZip,
             beds: row.beds?.trim() || null,
             baths: row.baths?.trim() || null,
             sqft: row.sqft ? parseInt(row.sqft) || null : null,
@@ -601,8 +624,8 @@ export const propertiesRouter = router({
             }
           }
 
-          await logActivity({ userId: ctx.user.id, action: "property_created", entityType: "property", entityId: id, details: { address: row.address, source: "bulk_upload" } });
-          results.push({ row: rowNum, status: "created", address: row.address });
+          await logActivity({ userId: ctx.user.id, action: "property_created", entityType: "property", entityId: id, details: { address: cleanAddr, source: "bulk_upload" } });
+          results.push({ row: rowNum, status: "created", address: cleanAddr });
           created++;
         } catch (err: any) {
           results.push({ row: rowNum, status: "error", reason: err?.message ?? "Unknown error", address: row.address });

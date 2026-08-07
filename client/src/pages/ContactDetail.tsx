@@ -1635,9 +1635,9 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               <Input className="mt-1" value={newPropertyForm.address} onChange={e => setNewPropertyForm(f => ({ ...f, address: e.target.value }))} placeholder="123 Main St" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div><Label>City</Label><Input className="mt-1" value={newPropertyForm.city} onChange={e => setNewPropertyForm(f => ({ ...f, city: e.target.value }))} /></div>
-              <div><Label>State</Label><Input className="mt-1" value={newPropertyForm.state} onChange={e => setNewPropertyForm(f => ({ ...f, state: e.target.value }))} /></div>
-              <div><Label>ZIP</Label><Input className="mt-1" value={newPropertyForm.zip} onChange={e => setNewPropertyForm(f => ({ ...f, zip: e.target.value }))} /></div>
+              <div><Label>City *</Label><Input className="mt-1" value={newPropertyForm.city} onChange={e => setNewPropertyForm(f => ({ ...f, city: e.target.value }))} placeholder="e.g. Glendale" /></div>
+              <div><Label>State *</Label><Input className="mt-1" value={newPropertyForm.state} onChange={e => setNewPropertyForm(f => ({ ...f, state: e.target.value }))} placeholder="e.g. UT" maxLength={2} /></div>
+              <div><Label>ZIP *</Label><Input className="mt-1" value={newPropertyForm.zip} onChange={e => setNewPropertyForm(f => ({ ...f, zip: e.target.value }))} placeholder="e.g. 84729" /></div>
             </div>
             <div>
               <Label>Property Type</Label>
@@ -1659,12 +1659,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddPropertyOpen(false)}>Cancel</Button>
             <Button
-              disabled={!newPropertyForm.address || createProperty.isPending || linkProperty.isPending}
+              disabled={!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip || createProperty.isPending || linkProperty.isPending}
               onClick={() => createProperty.mutate({
                 address: newPropertyForm.address,
-                city: newPropertyForm.city || null,
-                state: newPropertyForm.state || null,
-                zip: newPropertyForm.zip || null,
+                city: newPropertyForm.city,
+                state: newPropertyForm.state,
+                zip: newPropertyForm.zip,
                 propertyType: newPropertyForm.propertyType as any,
                 beds: newPropertyForm.beds ? newPropertyForm.beds : null,
                 baths: newPropertyForm.baths ? newPropertyForm.baths : null,

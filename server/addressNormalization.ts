@@ -5,6 +5,7 @@
  * 1. Normalize: lowercase, strip punctuation, collapse whitespace, expand common abbreviations
  * 2. Geocode via Google Maps API for verification and canonical address
  * 3. Build a normalized key from address + city + state + zip for duplicate detection
+ * 4. Capitalize: proper title-case for stored addresses
  */
 
 import { makeRequest, type GeocodingResult } from "./_core/map";
@@ -41,6 +42,17 @@ const DIRECTIONAL_ABBREVIATIONS: Record<string, string> = {
   se: "southeast",
   sw: "southwest",
 };
+
+// US state abbreviations (for proper capitalization — always uppercase)
+const STATE_ABBREVIATIONS = new Set([
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+  "VA","WA","WV","WI","WY","DC",
+]);
+
+// Directional abbreviations that should stay uppercase when used as abbreviations
+const DIRECTIONAL_ABBREVS_UPPER = new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW"]);
 
 /**
  * Normalize an address string for comparison purposes.
@@ -80,6 +92,59 @@ export function buildNormalizedKey(
   const parts = [address, city, state, zip].filter(Boolean).map(p => p!.trim());
   const combined = parts.join(" ");
   return normalizeAddressString(combined);
+}
+
+/**
+ * Properly capitalize an address string for display/storage.
+ * Rules:
+ * - Numbers stay as-is
+ * - Directional abbreviations (N, S, E, W, NE, etc.) stay uppercase
+ * - State abbreviations stay uppercase
+ * - Everything else is title-cased (first letter uppercase, rest lowercase)
+ * - Unit/apt designators: "#" prefix stays, number stays
+ */
+export function capitalizeAddress(addr: string | null | undefined): string {
+  if (!addr) return "";
+  const trimmed = addr.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+
+  const words = trimmed.split(" ");
+  const capitalized = words.map((word) => {
+    // Pure numbers stay as-is
+    if (/^\d+$/.test(word)) return word;
+    // Alphanumeric (like unit "3B") stays uppercase
+    if (/^\d+[A-Za-z]$/.test(word)) return word.toUpperCase();
+    // Hash-prefixed unit numbers stay as-is
+    if (word.startsWith("#")) return word;
+    // Check if it's a directional abbreviation (case-insensitive)
+    if (DIRECTIONAL_ABBREVS_UPPER.has(word.toUpperCase()) && word.length <= 2) return word.toUpperCase();
+    // State abbreviation
+    if (STATE_ABBREVIATIONS.has(word.toUpperCase()) && word.length === 2) return word.toUpperCase();
+    // Title case everything else
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+
+  return capitalized.join(" ");
+}
+
+/**
+ * Capitalize a city name (title case).
+ */
+export function capitalizeCity(city: string | null | undefined): string {
+  if (!city) return "";
+  return city.trim().split(/\s+/).map(w => 
+    w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  ).join(" ");
+}
+
+/**
+ * Normalize state to uppercase 2-letter abbreviation.
+ */
+export function normalizeState(state: string | null | undefined): string {
+  if (!state) return "";
+  const upper = state.trim().toUpperCase();
+  if (STATE_ABBREVIATIONS.has(upper)) return upper;
+  return upper; // Return as-is if not a recognized abbreviation
 }
 
 /**

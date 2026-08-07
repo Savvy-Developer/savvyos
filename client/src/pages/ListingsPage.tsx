@@ -248,13 +248,13 @@ export default function ListingsPage() {
 
     // Create new property if needed
     if (showNewProperty) {
-      if (!newPropertyForm.address) { toast.error("Property address is required"); return; }
+      if (!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip) { toast.error("Address, City, State, and ZIP are all required"); return; }
       try {
         const result = await createProperty.mutateAsync({
           address: newPropertyForm.address,
-          city: newPropertyForm.city || undefined,
-          state: newPropertyForm.state || undefined,
-          zip: newPropertyForm.zip || undefined,
+          city: newPropertyForm.city,
+          state: newPropertyForm.state,
+          zip: newPropertyForm.zip,
           propertyType: newPropertyForm.propertyType as any,
         });
         propertyId = result.id;
@@ -756,19 +756,19 @@ export default function ListingsPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
-                      <Label className="text-xs">City</Label>
+                      <Label className="text-xs">City *</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.city}
-                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, city: e.target.value })} />
+                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, city: e.target.value })} placeholder="e.g. Glendale" />
                     </div>
                     <div>
-                      <Label className="text-xs">State</Label>
+                      <Label className="text-xs">State *</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.state}
-                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, state: e.target.value })} />
+                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, state: e.target.value })} placeholder="e.g. UT" maxLength={2} />
                     </div>
                     <div>
-                      <Label className="text-xs">Zip</Label>
+                      <Label className="text-xs">ZIP *</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.zip}
-                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, zip: e.target.value })} />
+                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, zip: e.target.value })} placeholder="e.g. 84729" />
                     </div>
                   </div>
                   <div>
