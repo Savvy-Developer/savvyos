@@ -97,12 +97,12 @@ export function registerProformaPdfRoute(app: express.Application) {
       doc.font("Helvetica").fontSize(8).fillColor("#94a3b8").text(`Report Date: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, 50, y);
       y += 8;
 
-      // Property photo (from Zillow import) - maintain aspect ratio
+      // Property photo (from Zillow import) - maintain aspect ratio, constrained
       if (form.propertyPhotoUrl) {
         try {
           const propPhoto = await fetchImage(form.propertyPhotoUrl);
-          doc.image(propPhoto, 50, y, { width: W, height: 140, cover: [W, 140], align: "center", valign: "center" } as any);
-          y += 146;
+          doc.image(propPhoto, 50, y, { fit: [W, 160], align: "center", valign: "center" });
+          y += 166;
         } catch { y += 10; }
       } else {
         y += 10;
@@ -413,12 +413,13 @@ export function registerProformaPdfRoute(app: express.Application) {
         for (const [i, comp] of form.comps.entries()) {
           if (y > 620) { doc.addPage(); y = 50; }
 
-          // Full-width comp photo
+          // Full-width comp photo - constrained height
           if (comp.photoUrl) {
+            if (y > 550) { doc.addPage(); y = 50; }
             try {
               const photoBuffer = await fetchImage(comp.photoUrl);
-              doc.image(photoBuffer, 50, y, { width: W, height: 80, cover: [W, 80], align: "center", valign: "center" } as any);
-              y += 84;
+              doc.image(photoBuffer, 50, y, { fit: [W, 100], align: "center", valign: "center" });
+              y += 106;
             } catch {}
           }
 
