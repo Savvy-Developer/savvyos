@@ -94,6 +94,10 @@ export function registerProformaPdfRoute(app: express.Application) {
         if (property.sqft) details.push(`${Number(property.sqft).toLocaleString()} sqft`);
         if (details.length) { doc.fontSize(9).fillColor("#94a3b8").text(details.join("  •  "), 50, y); y += 12; }
       }
+      if (form.propertyLink) {
+        doc.font("Helvetica").fontSize(7.5).fillColor("#3b82f6").text(`Listing: ${form.propertyLink}`, 50, y, { link: form.propertyLink, underline: true, width: W });
+        y += 11;
+      }
       doc.font("Helvetica").fontSize(8).fillColor("#94a3b8").text(`Report Date: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, 50, y);
       y += 8;
 
@@ -489,6 +493,10 @@ export function registerProformaPdfRoute(app: express.Application) {
           if (comp.rating) details.push(`Rating: ${comp.rating}${comp.reviewCount ? ` (${comp.reviewCount} reviews)` : ""}`);
           doc.font("Helvetica").fontSize(7).fillColor("#64748b").text(details.join("  |  ") + (comp.notes ? `  —  ${comp.notes}` : ""), 50, y, { width: W });
           y += comp.notes ? 20 : 12;
+          if (comp.link) {
+            doc.font("Helvetica").fontSize(6.5).fillColor("#3b82f6").text(comp.link, 50, y, { link: comp.link, underline: true, width: W });
+            y += 10;
+          }
           y += 6; // spacing between comps
         }
         y += 8;
