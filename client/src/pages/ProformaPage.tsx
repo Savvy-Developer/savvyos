@@ -67,16 +67,19 @@ interface ProformaForm {
   scenario1Occupancy: string;
   scenario1AvailableNights: string;
   scenario1CleaningFeeRevenue: string;
+  scenario1CleaningFeeExpense: string;
   scenario1AncillaryRevenue: string;
   scenario2ADR: string;
   scenario2Occupancy: string;
   scenario2AvailableNights: string;
   scenario2CleaningFeeRevenue: string;
+  scenario2CleaningFeeExpense: string;
   scenario2AncillaryRevenue: string;
   scenario3ADR: string;
   scenario3Occupancy: string;
   scenario3AvailableNights: string;
   scenario3CleaningFeeRevenue: string;
+  scenario3CleaningFeeExpense: string;
   scenario3AncillaryRevenue: string;
   avgLengthOfStay: string;
   channelAirbnbPct: string;
@@ -152,16 +155,19 @@ const defaultForm: ProformaForm = {
   scenario1Occupancy: "65",
   scenario1AvailableNights: "365",
   scenario1CleaningFeeRevenue: "0",
+  scenario1CleaningFeeExpense: "",
   scenario1AncillaryRevenue: "0",
   scenario2ADR: "",
   scenario2Occupancy: "72",
   scenario2AvailableNights: "365",
   scenario2CleaningFeeRevenue: "0",
+  scenario2CleaningFeeExpense: "",
   scenario2AncillaryRevenue: "0",
   scenario3ADR: "",
   scenario3Occupancy: "80",
   scenario3AvailableNights: "365",
   scenario3CleaningFeeRevenue: "0",
+  scenario3CleaningFeeExpense: "",
   scenario3AncillaryRevenue: "0",
   avgLengthOfStay: "3.5",
   channelAirbnbPct: "60",
@@ -364,7 +370,7 @@ export default function ProformaPage() {
     // Custom variable expenses (monthly)
     const customVariableMonthly = (form.customVariableExpenses || []).reduce((sum, e) => sum + parseNum(e.amount), 0);
 
-    const calcScenario = (adrStr: string, occStr: string, nightsStr: string, cleaningRevStr: string, ancillaryStr: string) => {
+    const calcScenario = (adrStr: string, occStr: string, nightsStr: string, cleaningRevStr: string, cleaningExpStr: string, ancillaryStr: string) => {
       const adr = parseNum(adrStr);
       const occ = parsePct(occStr);
       const availNights = parseNum(nightsStr) || 365;
@@ -373,7 +379,13 @@ export default function ProformaPage() {
       const bookings = soldNights / avgLOS;
 
       const nightlyRevenue = adr * soldNights;
-      const cleaningFeeRevenue = parseNum(cleaningRevStr);
+      // Cleaning fee: income per booking charged to guest
+      const cleaningFeeIncome = parseNum(cleaningRevStr);
+      // Cleaning fee: expense per turn paid to cleaner (defaults to income if blank)
+      const cleaningFeeExpensePerTurn = cleaningExpStr === "" ? cleaningFeeIncome : parseNum(cleaningExpStr);
+      const cleaningFeeRevenue = cleaningFeeIncome * bookings;
+      const cleaningFeeExpenseTotal = cleaningFeeExpensePerTurn * bookings;
+      const cleaningNetProfit = cleaningFeeRevenue - cleaningFeeExpenseTotal;
       const ancillaryRevenue = parseNum(ancillaryStr);
       const grossBeforeCleaning = nightlyRevenue + ancillaryRevenue;
       const grossRevenue = nightlyRevenue + cleaningFeeRevenue + ancillaryRevenue;
@@ -383,8 +395,7 @@ export default function ProformaPage() {
 
       const mgmtPct = parsePct(form.propertyMgmtPct);
       const mgmtExpense = netRevenue * mgmtPct;
-      const hasCleaningRevenue = cleaningFeeRevenue > 0;
-      const cleaningExpense = hasCleaningRevenue ? parseNum(form.cleaningCostPerTurn) * bookings : 0;
+      const cleaningExpense = cleaningFeeExpenseTotal;
       const capExReserve = grossRevenue * parsePct(form.capExReservePct);
       const customVarAnnual = customVariableMonthly * 12;
       const totalVariableAnnual = mgmtExpense + cleaningExpense + capExReserve + customVarAnnual;
@@ -410,7 +421,7 @@ export default function ProformaPage() {
 
       return {
         adr, occ, availNights, soldNights, bookings,
-        nightlyRevenue, cleaningFeeRevenue, ancillaryRevenue, grossBeforeCleaning, grossRevenue,
+        nightlyRevenue, cleaningFeeIncome, cleaningFeeExpensePerTurn, cleaningFeeRevenue, cleaningFeeExpenseTotal, cleaningNetProfit, ancillaryRevenue, grossBeforeCleaning, grossRevenue,
         platformFees, netRevenue,
         mgmtExpense, cleaningExpense, capExReserve, customVarAnnual, totalVariableAnnual,
         fixedAnnual, totalExpensesAnnual,
@@ -419,9 +430,9 @@ export default function ProformaPage() {
       };
     };
 
-    const s1 = calcScenario(form.scenario1ADR, form.scenario1Occupancy, form.scenario1AvailableNights, form.scenario1CleaningFeeRevenue, form.scenario1AncillaryRevenue);
-    const s2 = calcScenario(form.scenario2ADR, form.scenario2Occupancy, form.scenario2AvailableNights, form.scenario2CleaningFeeRevenue, form.scenario2AncillaryRevenue);
-    const s3 = calcScenario(form.scenario3ADR, form.scenario3Occupancy, form.scenario3AvailableNights, form.scenario3CleaningFeeRevenue, form.scenario3AncillaryRevenue);
+    const s1 = calcScenario(form.scenario1ADR, form.scenario1Occupancy, form.scenario1AvailableNights, form.scenario1CleaningFeeRevenue, form.scenario1CleaningFeeExpense, form.scenario1AncillaryRevenue);
+    const s2 = calcScenario(form.scenario2ADR, form.scenario2Occupancy, form.scenario2AvailableNights, form.scenario2CleaningFeeRevenue, form.scenario2CleaningFeeExpense, form.scenario2AncillaryRevenue);
+    const s3 = calcScenario(form.scenario3ADR, form.scenario3Occupancy, form.scenario3AvailableNights, form.scenario3CleaningFeeRevenue, form.scenario3CleaningFeeExpense, form.scenario3AncillaryRevenue);
 
     const revAppreciation = parsePct(form.revenueAppreciationPct);
     const propAppreciation = parsePct(form.propertyAppreciationPct);
@@ -532,6 +543,24 @@ export default function ProformaPage() {
       return calcIRR(cashFlows);
     };
 
+    // ─── Ongoing Annual Tax Benefits ─────────────────────────────────────────
+    const straightLineDepreciation = buildingBasis / 27.5;
+    const year1MortgageInterest = isCash ? 0 : loanAmount * rate; // approx first year interest
+    const ongoingAnnualDeduction = straightLineDepreciation + year1MortgageInterest;
+    const ongoingAnnualTaxBenefit = ongoingAnnualDeduction * marginalTaxRate;
+
+    // Returns including tax benefits (Year 1 = cost seg + ongoing, Year 2+ = ongoing only)
+    const calcReturnsWithTax = (scenario: typeof s1) => {
+      const year1TaxBenefit = netTaxBenefit + ongoingAnnualTaxBenefit;
+      const ongoingTaxBenefit = ongoingAnnualTaxBenefit;
+      const year1CashFlowWithTax = scenario.cashFlow + year1TaxBenefit;
+      const ongoingCashFlowWithTax = scenario.cashFlow + ongoingTaxBenefit;
+      const year1CoCWithTax = totalCashNeeded > 0 ? year1CashFlowWithTax / totalCashNeeded : 0;
+      const ongoingCoCWithTax = totalCashNeeded > 0 ? ongoingCashFlowWithTax / totalCashNeeded : 0;
+      return { year1TaxBenefit, ongoingTaxBenefit, year1CashFlowWithTax, ongoingCashFlowWithTax, year1CoCWithTax, ongoingCoCWithTax };
+    };
+    const taxReturns = { s1: calcReturnsWithTax(s1), s2: calcReturnsWithTax(s2), s3: calcReturnsWithTax(s3) };
+
     const irr = {
       s1: { y3: calcScenarioIRR(s1, 3, false), y5: calcScenarioIRR(s1, 5, false), y7: calcScenarioIRR(s1, 7, false), y3at: calcScenarioIRR(s1, 3, true), y5at: calcScenarioIRR(s1, 5, true), y7at: calcScenarioIRR(s1, 7, true) },
       s2: { y3: calcScenarioIRR(s2, 3, false), y5: calcScenarioIRR(s2, 5, false), y7: calcScenarioIRR(s2, 7, false), y3at: calcScenarioIRR(s2, 3, true), y5at: calcScenarioIRR(s2, 5, true), y7at: calcScenarioIRR(s2, 7, true) },
@@ -572,12 +601,22 @@ export default function ProformaPage() {
       return { postRefiCashFlow, postRefiMonthlyCF, postRefiCoC, infiniteReturn, postRefiDSCR };
     };
 
+    // Post-refi returns with tax benefits
+    const postRefiCalcScenarioWithTax = (scenario: typeof s1) => {
+      const base = postRefiCalcScenario(scenario);
+      const postRefiYear1CashFlowWithTax = base.postRefiCashFlow + (netTaxBenefit + ongoingAnnualTaxBenefit);
+      const postRefiOngoingCashFlowWithTax = base.postRefiCashFlow + ongoingAnnualTaxBenefit;
+      const postRefiYear1CoCWithTax = cashLeftInDeal > 0 ? postRefiYear1CashFlowWithTax / cashLeftInDeal : (postRefiYear1CashFlowWithTax > 0 ? Infinity : 0);
+      const postRefiOngoingCoCWithTax = cashLeftInDeal > 0 ? postRefiOngoingCashFlowWithTax / cashLeftInDeal : (postRefiOngoingCashFlowWithTax > 0 ? Infinity : 0);
+      return { ...base, postRefiYear1CashFlowWithTax, postRefiOngoingCashFlowWithTax, postRefiYear1CoCWithTax, postRefiOngoingCoCWithTax };
+    };
+
     const refi = isCashoutRefi ? {
       refiAppraised, refiNewLoanAmount, refiCashOut, refiMonthlyMortgage, refiAnnualDebtService,
       cashLeftInDeal, seasoningMonths,
-      s1: postRefiCalcScenario(s1),
-      s2: postRefiCalcScenario(s2),
-      s3: postRefiCalcScenario(s3),
+      s1: postRefiCalcScenarioWithTax(s1),
+      s2: postRefiCalcScenarioWithTax(s2),
+      s3: postRefiCalcScenarioWithTax(s3),
     } : null;
 
     return {
@@ -586,8 +625,9 @@ export default function ProformaPage() {
       monthlyMortgage, annualDebtService, monthlyPI, monthlyPMI,
       fixedMonthly, fixedAnnual, blendedFeeRate,
       s1, s2, s3, fiveYear, irr, sellingCostsPct,
-      costSegEnabled, buildingBasis, acceleratedAmt, furnishingDeduction,
+      costSegEnabled, buildingBasis, acceleratedAmt, furnishingDeduction, renovationDeduction,
       totalFirstYearDeduction, taxSavings, costSegCost, netTaxBenefit,
+      straightLineDepreciation, year1MortgageInterest, ongoingAnnualDeduction, ongoingAnnualTaxBenefit, taxReturns,
       isValueAdd, arv, forcedEquity, equityCreatedByReno,
       isCashoutRefi, refi,
     };
@@ -1189,6 +1229,24 @@ export default function ProformaPage() {
                                       <td className="p-2 text-right">{calc.refi.s2.postRefiDSCR === Infinity ? "∞" : `${calc.refi.s2.postRefiDSCR.toFixed(2)}x`}</td>
                                       <td className="p-2 text-right">{calc.refi.s3.postRefiDSCR === Infinity ? "∞" : `${calc.refi.s3.postRefiDSCR.toFixed(2)}x`}</td>
                                     </tr>
+                                    <tr className="border-b bg-emerald-50">
+                                      <td className="p-2 font-medium text-emerald-800">CoC w/ Tax Benefits (Yr 1)</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s1.year1CoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s2.year1CoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s3.year1CoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s1.postRefiYear1CoCWithTax === Infinity ? "∞" : fmtPct(calc.refi.s1.postRefiYear1CoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s2.postRefiYear1CoCWithTax === Infinity ? "∞" : fmtPct(calc.refi.s2.postRefiYear1CoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s3.postRefiYear1CoCWithTax === Infinity ? "∞" : fmtPct(calc.refi.s3.postRefiYear1CoCWithTax)}</td>
+                                    </tr>
+                                    <tr className="bg-emerald-50">
+                                      <td className="p-2 font-medium text-emerald-800">CoC w/ Tax Benefits (Yr 2+)</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s1.ongoingCoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s2.ongoingCoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s3.ongoingCoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s1.postRefiOngoingCoCWithTax === Infinity ? "∞" : fmtPct(calc.refi.s1.postRefiOngoingCoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s2.postRefiOngoingCoCWithTax === Infinity ? "∞" : fmtPct(calc.refi.s2.postRefiOngoingCoCWithTax)}</td>
+                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s3.postRefiOngoingCoCWithTax === Infinity ? "∞" : fmtPct(calc.refi.s3.postRefiOngoingCoCWithTax)}</td>
+                                    </tr>
                                   </tbody>
                                 </table>
                               </div>
@@ -1237,14 +1295,19 @@ export default function ProformaPage() {
                         <Input className="h-8 text-sm" value={(form as any)[`${prefix}AvailableNights`]} onChange={e => setField(`${prefix}AvailableNights` as any, e.target.value)} placeholder="365" />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs font-medium text-slate-600">Cleaning Fee Revenue (annual)</Label>
-                        <CurrencyInput value={(form as any)[`${prefix}CleaningFeeRevenue`]} onChange={v => setField(`${prefix}CleaningFeeRevenue` as any, v)} placeholder="0" />
+                        <Label className="text-xs font-medium text-slate-600">Cleaning Fee Income (per booking, charged to guest)</Label>
+                        <CurrencyInput value={(form as any)[`${prefix}CleaningFeeRevenue`]} onChange={v => setField(`${prefix}CleaningFeeRevenue` as any, v)} placeholder="150" />
                       </div>
-                      {parseNum((form as any)[`${prefix}CleaningFeeRevenue`]) > 0 && (
-                        <div className="space-y-1">
-                          <Label className="text-xs font-medium text-slate-600">Cleaning Cost per Turn</Label>
-                          <CurrencyInput value={form.cleaningCostPerTurn} onChange={v => setField("cleaningCostPerTurn", v)} placeholder="150" />
-                          {s.cleaningExpense > 0 && <p className="text-xs text-emerald-600 font-medium">Cost: {fmtDollar(s.cleaningExpense)}/yr | Net: {fmtDollar(parseNum((form as any)[`${prefix}CleaningFeeRevenue`]) - s.cleaningExpense)}/yr</p>}
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium text-slate-600">Cleaning Fee Expense (per turn, paid to cleaner)</Label>
+                        <CurrencyInput value={(form as any)[`${prefix}CleaningFeeExpense`]} onChange={v => setField(`${prefix}CleaningFeeExpense` as any, v)} placeholder={`${(form as any)[`${prefix}CleaningFeeRevenue`] || "Same as income"}`} />
+                        <p className="text-xs text-slate-400">Defaults to same as income if left blank</p>
+                      </div>
+                      {s.cleaningFeeRevenue > 0 && (
+                        <div className="bg-slate-50 rounded p-2 text-xs space-y-0.5">
+                          <div className="flex justify-between"><span>Cleaning Income ({Math.round(s.bookings)} bookings × {fmtDollar(s.cleaningFeeIncome)})</span><span className="text-emerald-600 font-medium">+{fmtDollar(s.cleaningFeeRevenue)}</span></div>
+                          <div className="flex justify-between"><span>Cleaning Expense ({Math.round(s.bookings)} turns × {fmtDollar(s.cleaningFeeExpensePerTurn)})</span><span className="text-red-600 font-medium">-{fmtDollar(s.cleaningFeeExpenseTotal)}</span></div>
+                          <div className="flex justify-between font-bold border-t pt-0.5"><span>Net Cleaning {s.cleaningNetProfit >= 0 ? "Profit" : "Loss"}</span><span className={s.cleaningNetProfit >= 0 ? "text-emerald-700" : "text-red-700"}>{fmtDollar(s.cleaningNetProfit)}/yr</span></div>
                         </div>
                       )}
                       <div className="space-y-1">
@@ -1323,8 +1386,8 @@ export default function ProformaPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Fixed Monthly Expenses</CardTitle>
-                  <Button size="sm" variant="ghost" onClick={() => setField("customFixedExpenses", [...(form.customFixedExpenses || []), { label: "", amount: "" }])}>
-                    <Plus className="h-3 w-3 mr-1" /> Add
+                  <Button size="sm" variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" onClick={() => setField("customFixedExpenses", [...(form.customFixedExpenses || []), { label: "", amount: "" }])}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Expense
                   </Button>
                 </div>
               </CardHeader>
@@ -1353,6 +1416,7 @@ export default function ProformaPage() {
                       <div className="flex items-center gap-1 flex-1">
                         <Label className="text-xs text-slate-600">{label}</Label>
                         {label === "STR Insurance" && <a href="https://www.insurestr.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">(Get Quote)</a>}
+                        {field === "expPropertyTaxAnnual" && form.propertyPhotoUrl && <span className="text-xs text-blue-400 italic">(from Zillow)</span>}
                       </div>
                       <div className="flex items-center gap-1">
                         <div className="relative w-20">
@@ -1407,8 +1471,8 @@ export default function ProformaPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Variable Expenses</CardTitle>
-                  <Button size="sm" variant="ghost" onClick={() => setField("customVariableExpenses", [...(form.customVariableExpenses || []), { label: "", amount: "" }])}>
-                    <Plus className="h-3 w-3 mr-1" /> Add
+                  <Button size="sm" variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" onClick={() => setField("customVariableExpenses", [...(form.customVariableExpenses || []), { label: "", amount: "" }])}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Expense
                   </Button>
                 </div>
               </CardHeader>
@@ -1424,10 +1488,10 @@ export default function ProformaPage() {
                 {calc.s2.cleaningExpense > 0 && (
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm text-slate-600">
-                      <span>Cleaning Cost ({fmtDollar(parseNum(form.cleaningCostPerTurn))}/turn)</span>
+                      <span>Cleaning Expense (base case)</span>
                       <span className="font-medium">{fmtDollar(calc.s2.cleaningExpense)}/yr</span>
                     </div>
-                    <p className="text-xs text-slate-400">Set on Revenue tab alongside cleaning fee revenue</p>
+                    <p className="text-xs text-slate-400">Configured per scenario on Revenue tab (income vs expense per turn)</p>
                   </div>
                 )}
                 <div className="space-y-1">
@@ -1611,6 +1675,25 @@ export default function ProformaPage() {
                 <p className="text-xs text-slate-400 italic">After-tax IRR includes Year 1 cost segregation / bonus depreciation benefit and ongoing straight-line depreciation tax shield. Assumes {form.sellingCostsPct}% selling costs at exit and {form.propertyAppreciationPct}% annual property appreciation.</p>
               </CardContent>
             </Card>
+
+            {/* Returns Including Tax Benefits */}
+            <Card className="border-emerald-200 bg-emerald-50/30">
+              <CardHeader className="pb-3"><CardTitle className="text-sm text-emerald-800">Returns Including Tax Benefits</CardTitle></CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="bg-emerald-100"><th className="p-2 text-left">Metric</th><th className="p-2 text-right">Conservative</th><th className="p-2 text-right">Base Case</th><th className="p-2 text-right">Strong</th></tr></thead>
+                    <tbody>
+                      <tr className="border-b"><td className="p-2 font-medium">Year 1 Cash Flow (w/ tax benefits)</td><td className="p-2 text-right">{fmtDollar(calc.taxReturns.s1.year1CashFlowWithTax)}</td><td className="p-2 text-right">{fmtDollar(calc.taxReturns.s2.year1CashFlowWithTax)}</td><td className="p-2 text-right">{fmtDollar(calc.taxReturns.s3.year1CashFlowWithTax)}</td></tr>
+                      <tr className="border-b"><td className="p-2 font-medium">Year 1 CoC Return (w/ tax benefits)</td><td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s1.year1CoCWithTax)}</td><td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s2.year1CoCWithTax)}</td><td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s3.year1CoCWithTax)}</td></tr>
+                      <tr className="border-b"><td className="p-2 font-medium">Ongoing Cash Flow (yr 2+, w/ depreciation + interest)</td><td className="p-2 text-right">{fmtDollar(calc.taxReturns.s1.ongoingCashFlowWithTax)}</td><td className="p-2 text-right">{fmtDollar(calc.taxReturns.s2.ongoingCashFlowWithTax)}</td><td className="p-2 text-right">{fmtDollar(calc.taxReturns.s3.ongoingCashFlowWithTax)}</td></tr>
+                      <tr><td className="p-2 font-medium">Ongoing CoC Return (yr 2+)</td><td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s1.ongoingCoCWithTax)}</td><td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s2.ongoingCoCWithTax)}</td><td className="p-2 text-right font-bold text-emerald-700">{fmtPct(calc.taxReturns.s3.ongoingCoCWithTax)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">Year 1 includes cost seg + bonus depreciation + ongoing benefits. Year 2+ includes straight-line depreciation ({fmtDollar(calc.straightLineDepreciation)}/yr) + mortgage interest ({fmtDollar(calc.year1MortgageInterest)}/yr) deductions.</p>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
@@ -1680,6 +1763,19 @@ export default function ProformaPage() {
               </CardContent>
             </Card>
           </div>
+          {/* Ongoing Annual Tax Benefits */}
+          <Card className="mt-4">
+            <CardHeader className="pb-3"><CardTitle className="text-sm">Ongoing Annual Tax Benefits (Year 2+)</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm"><span>Straight-Line Depreciation (building / 27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
+                {calc.year1MortgageInterest > 0 && <div className="flex justify-between text-sm"><span>Mortgage Interest Deduction (approx Year 1)</span><span className="font-medium">{fmtDollar(calc.year1MortgageInterest)}/yr</span></div>}
+                <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Total Annual Deduction</span><span>{fmtDollar(calc.ongoingAnnualDeduction)}/yr</span></div>
+                <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Annual Tax Savings @ {form.marginalTaxRate}%</span><span>{fmtDollar(calc.ongoingAnnualTaxBenefit)}/yr</span></div>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">Mortgage interest deduction decreases annually as principal is paid down. This estimate uses Year 1 interest.</p>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ─── TAB: COMPS ──────────────────────────────────────────────────── */}
