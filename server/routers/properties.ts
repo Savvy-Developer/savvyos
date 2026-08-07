@@ -773,7 +773,7 @@ export const propertiesRouter = router({
           const formData = typeof row.formData === "string" ? JSON.parse(row.formData) : row.formData;
           const comps = formData?.comps || [];
           for (const comp of comps) {
-            if (comp.name || comp.annualRevenue || comp.adr) {
+            if (comp.link && comp.link.includes("airbnb")) {
               allComps.push({ ...comp, addedBy: row.userName || "Unknown" });
             }
           }

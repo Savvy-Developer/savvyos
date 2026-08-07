@@ -52,6 +52,7 @@ interface ProformaForm {
   renovationBudget: string;
   startupCosts: string;
   inspectionCosts: string;
+  sellerCredit: string;
   propertyLink: string;
   propertyPhotoUrl: string;
   propertyDescription: string;
@@ -86,7 +87,6 @@ interface ProformaForm {
   feeDirect: string;
   revenueAppreciationPct: string;
   propertyAppreciationPct: string;
-  expenseInflationPct: string;
   // Fixed Expenses (monthly)
   expUtilities: string;
   expInsuranceAnnual: string;
@@ -96,8 +96,8 @@ interface ProformaForm {
   expLandscaping: string;
   expPestControl: string;
   expHotTubPool: string;
-  expPMSSoftware: string;
-  expDynamicPricing: string;
+  expSoftware: string;
+  expTrash: string;
   expSmartLocks: string;
   expAccounting: string;
   expPermits: string;
@@ -139,6 +139,7 @@ const defaultForm: ProformaForm = {
   renovationBudget: "0",
   startupCosts: "5000",
   inspectionCosts: "1500",
+  sellerCredit: "0",
   propertyLink: "",
   propertyPhotoUrl: "",
   propertyDescription: "",
@@ -171,7 +172,6 @@ const defaultForm: ProformaForm = {
   feeDirect: "3",
   revenueAppreciationPct: "3",
   propertyAppreciationPct: "4",
-  expenseInflationPct: "3",
   expUtilities: "400",
   expInsuranceAnnual: "3600",
   expPropertyTaxAnnual: "3000",
@@ -180,8 +180,8 @@ const defaultForm: ProformaForm = {
   expLandscaping: "100",
   expPestControl: "50",
   expHotTubPool: "100",
-  expPMSSoftware: "50",
-  expDynamicPricing: "40",
+  expSoftware: "90",
+  expTrash: "50",
   expSmartLocks: "20",
   expAccounting: "150",
   expPermits: "0",
@@ -201,8 +201,8 @@ const defaultForm: ProformaForm = {
   refiLoanTermYears: "30",
   seasoningPeriodMonths: "6",
   costSegEnabled: "yes",
-  landAllocationPct: "20",
-  acceleratedDepreciationPct: "25",
+  landAllocationPct: "15",
+  acceleratedDepreciationPct: "30",
   marginalTaxRate: "35",
   costSegStudyCost: "3500",
   comps: [],
@@ -282,12 +282,13 @@ export default function ProformaPage() {
     const renovation = parseNum(form.renovationBudget);
     const startup = parseNum(form.startupCosts);
     const inspection = parseNum(form.inspectionCosts);
+    const sellerCredit = parseNum(form.sellerCredit);
 
     const isCash = form.loanType === "cash";
     const downPayment = isCash ? pp : pp * downPct;
     const closingCosts = pp * closingPct;
     const loanAmount = isCash ? 0 : pp - downPayment;
-    const totalCashNeeded = (isCash ? pp : downPayment) + closingCosts + furnishing + renovation + startup + inspection;
+    const totalCashNeeded = (isCash ? pp : downPayment) + closingCosts + furnishing + renovation + startup + inspection - sellerCredit;
 
     const rate = parsePct(form.interestRate);
     const termYears = parseNum(form.loanTermYears);
@@ -311,7 +312,7 @@ export default function ProformaPage() {
     const fixedMonthly = parseNum(form.expUtilities) + (parseNum(form.expInsuranceAnnual) / 12) +
       (parseNum(form.expPropertyTaxAnnual) / 12) + parseNum(form.expHOA) + parseNum(form.expInternet) +
       parseNum(form.expLandscaping) + parseNum(form.expPestControl) + parseNum(form.expHotTubPool) +
-      parseNum(form.expPMSSoftware) + parseNum(form.expDynamicPricing) + parseNum(form.expSmartLocks) +
+      parseNum(form.expSoftware) + parseNum(form.expTrash) + parseNum(form.expSmartLocks) +
       parseNum(form.expAccounting) + parseNum(form.expPermits) + customFixedTotal;
     const fixedAnnual = fixedMonthly * 12;
 
@@ -329,6 +330,7 @@ export default function ProformaPage() {
       const nightlyRevenue = adr * soldNights;
       const cleaningFeeRevenue = parseNum(cleaningRevStr);
       const ancillaryRevenue = parseNum(ancillaryStr);
+      const grossBeforeCleaning = nightlyRevenue + ancillaryRevenue;
       const grossRevenue = nightlyRevenue + cleaningFeeRevenue + ancillaryRevenue;
 
       const platformFees = grossRevenue * blendedFeeRate;
@@ -336,7 +338,8 @@ export default function ProformaPage() {
 
       const mgmtPct = parsePct(form.propertyMgmtPct);
       const mgmtExpense = netRevenue * mgmtPct;
-      const cleaningExpense = parseNum(form.cleaningCostPerTurn) * bookings;
+      const hasCleaningRevenue = cleaningFeeRevenue > 0;
+      const cleaningExpense = hasCleaningRevenue ? parseNum(form.cleaningCostPerTurn) * bookings : 0;
       const capExReserve = grossRevenue * parsePct(form.capExReservePct);
       const customVarAnnual = customVariableMonthly * 12;
       const totalVariableAnnual = mgmtExpense + cleaningExpense + capExReserve + customVarAnnual;
@@ -362,7 +365,7 @@ export default function ProformaPage() {
 
       return {
         adr, occ, availNights, soldNights, bookings,
-        nightlyRevenue, cleaningFeeRevenue, ancillaryRevenue, grossRevenue,
+        nightlyRevenue, cleaningFeeRevenue, ancillaryRevenue, grossBeforeCleaning, grossRevenue,
         platformFees, netRevenue,
         mgmtExpense, cleaningExpense, capExReserve, customVarAnnual, totalVariableAnnual,
         fixedAnnual, totalExpensesAnnual,
@@ -377,11 +380,10 @@ export default function ProformaPage() {
 
     const revAppreciation = parsePct(form.revenueAppreciationPct);
     const propAppreciation = parsePct(form.propertyAppreciationPct);
-    const expInflation = parsePct(form.expenseInflationPct);
     const fiveYear = Array.from({ length: 5 }, (_, i) => {
       const year = i + 1;
       const revGrowth = Math.pow(1 + revAppreciation, i);
-      const expGrowth = Math.pow(1 + expInflation, i);
+      const expGrowth = 1; // expenses held constant (no inflation assumption)
       const propValue = pp * Math.pow(1 + propAppreciation, year);
       const yearRev = s2.netRevenue * revGrowth;
       const yearExp = (s2.fixedAnnual + s2.totalVariableAnnual) * expGrowth;
@@ -455,7 +457,7 @@ export default function ProformaPage() {
       // Years 1 through holdYears
       for (let y = 1; y <= holdYears; y++) {
         const revGrowth = Math.pow(1 + revAppreciation, y - 1);
-        const expGrowth = Math.pow(1 + expInflation, y - 1);
+        const expGrowth = 1; // expenses held constant
         const yearNetRev = scenario.netRevenue * revGrowth;
         const yearExp = (scenario.fixedAnnual + scenario.totalVariableAnnual) * expGrowth;
         const yearNoi = yearNetRev - yearExp;
@@ -533,7 +535,7 @@ export default function ProformaPage() {
     } : null;
 
     return {
-      pp, downPayment, closingCosts, loanAmount, totalCashNeeded,
+      pp, downPayment, closingCosts, loanAmount, totalCashNeeded, sellerCredit,
       furnishing, renovation, startup, inspection,
       monthlyMortgage, annualDebtService, monthlyPI, monthlyPMI,
       fixedMonthly, fixedAnnual, blendedFeeRate,
@@ -606,7 +608,7 @@ export default function ProformaPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Proforma_${property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property"}.pdf`;
+      a.download = `SavvyProforma_${property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property"}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) { console.error(e); alert(`PDF download failed: ${e.message || "Unknown error"}. Please try again.`); }
@@ -742,7 +744,7 @@ export default function ProformaPage() {
 
       <div className="mb-4">
         <Input className="text-lg font-semibold border-none shadow-none px-0 focus-visible:ring-0" value={title} onChange={e => setTitle(e.target.value)} placeholder="Pro-forma Title" />
-        <p className="text-sm text-slate-500">{property?.address}, {property?.city} {property?.state} {property?.zip}</p>
+        <p className="text-sm text-slate-500">{property?.address ? `${property.address},` : ""} {property?.city} {property?.state} {property?.zip}</p>
       </div>
 
       <Tabs defaultValue="acquisition" className="w-full">
@@ -760,6 +762,26 @@ export default function ProformaPage() {
 
         {/* ─── TAB: ACQUISITION ─────────────────────────────────────────────── */}
         <TabsContent value="acquisition">
+          {/* Import from Zillow - at the top */}
+          <Card className="mb-4 border-blue-200 bg-blue-50/30">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Import Details from Zillow</p>
+                  <p className="text-xs text-slate-500">Auto-fills price, photo, insurance, and tax from Zillow listing data</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleImportZillow} disabled={importingZillow}>
+                  <Home className="h-3 w-3 mr-1" /> {importingZillow ? "Importing..." : "Import from Zillow"}
+                </Button>
+              </div>
+              {form.propertyPhotoUrl && (
+                <div className="mt-2">
+                  <img src={form.propertyPhotoUrl} alt="Property" className="w-full h-32 object-cover rounded border" />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><Home className="h-4 w-4" /> Purchase Details</CardTitle></CardHeader>
@@ -793,20 +815,14 @@ export default function ProformaPage() {
                   <CurrencyInput value={form.inspectionCosts} onChange={v => setField("inspectionCosts", v)} placeholder="1,500" />
                 </div>
                 <div className="space-y-1">
+                  <Label className="text-xs font-medium text-slate-600">Seller Credit</Label>
+                  <CurrencyInput value={form.sellerCredit} onChange={v => setField("sellerCredit", v)} placeholder="0" />
+                  {parseNum(form.sellerCredit) > 0 && <p className="text-xs text-emerald-600 font-medium">Reduces cash to close by {fmtDollar(parseNum(form.sellerCredit))}</p>}
+                </div>
+                <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Property Listing Link</Label>
                   <Input className="h-8 text-sm" value={form.propertyLink} onChange={e => setField("propertyLink", e.target.value)} placeholder="https://..." />
                 </div>
-                <div className="pt-2 border-t">
-                  <Button variant="outline" size="sm" className="w-full" onClick={handleImportZillow} disabled={importingZillow}>
-                    <Home className="h-3 w-3 mr-1" /> {importingZillow ? "Importing from Zillow..." : "Import Details from Zillow"}
-                  </Button>
-                  <p className="text-xs text-slate-400 mt-1">Auto-fills price, photo, insurance, and tax from Zillow listing data</p>
-                </div>
-                {form.propertyPhotoUrl && (
-                  <div className="pt-2">
-                    <img src={form.propertyPhotoUrl} alt="Property" className="w-full h-32 object-cover rounded border" />
-                  </div>
-                )}
               </CardContent>
             </Card>
 
@@ -820,6 +836,7 @@ export default function ProformaPage() {
                   {calc.renovation > 0 && <div className="flex justify-between text-sm"><span>Renovation</span><span className="font-medium">{fmtDollar(calc.renovation)}</span></div>}
                   <div className="flex justify-between text-sm"><span>Startup Costs</span><span className="font-medium">{fmtDollar(calc.startup)}</span></div>
                   <div className="flex justify-between text-sm"><span>Inspections</span><span className="font-medium">{fmtDollar(calc.inspection)}</span></div>
+                  {calc.sellerCredit > 0 && <div className="flex justify-between text-sm text-emerald-600"><span>Seller Credit</span><span className="font-medium">-{fmtDollar(calc.sellerCredit)}</span></div>}
                   <div className="border-t pt-2 flex justify-between text-base font-bold text-emerald-700">
                     <span>Total Cash Needed</span><span>{fmtDollar(calc.totalCashNeeded)}</span>
                   </div>
@@ -1151,6 +1168,7 @@ export default function ProformaPage() {
                       <div className="border-t pt-2 space-y-1">
                         <div className="flex justify-between text-xs"><span>Sold Nights</span><span className="font-medium">{s.soldNights}</span></div>
                         <div className="flex justify-between text-xs"><span>Bookings (~{form.avgLengthOfStay} night avg)</span><span className="font-medium">{Math.round(s.bookings)}</span></div>
+                        <div className="flex justify-between text-xs"><span>Gross Before Cleaning</span><span className="font-medium">{fmtDollar(s.grossBeforeCleaning)}</span></div>
                         <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Gross Revenue</span><span>{fmtDollar(s.grossRevenue)}</span></div>
                       </div>
                     </div>
@@ -1190,9 +1208,9 @@ export default function ProformaPage() {
               <Card>
                 <CardHeader className="pb-3"><CardTitle className="text-sm">Growth Assumptions</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  {(["revenueAppreciationPct", "propertyAppreciationPct", "expenseInflationPct"] as const).map((f, i) => (
+                  {(["revenueAppreciationPct", "propertyAppreciationPct"] as const).map((f, i) => (
                     <div key={f} className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">{["Revenue Appreciation (annual)", "Property Appreciation (annual)", "Expense Inflation (annual)"][i]}</Label>
+                      <Label className="text-xs font-medium text-slate-600">{["Revenue Appreciation (annual)", "Property Appreciation (annual)"][i]}</Label>
                       <div className="relative">
                         <Input className="pr-6 h-8 text-sm" value={form[f]} onChange={e => setField(f, e.target.value)} />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
@@ -1235,24 +1253,38 @@ export default function ProformaPage() {
                   ["Landscaping / Snow Removal", "expLandscaping", false],
                   ["Pest Control", "expPestControl", false],
                   ["Hot Tub / Pool Service", "expHotTubPool", false],
-                  ["PMS Software", "expPMSSoftware", false],
-                  ["Dynamic Pricing Software", "expDynamicPricing", false],
+                  ["Software (PMS + Dynamic Pricing)", "expSoftware", false],
+                  ["Trash Service", "expTrash", false],
                   ["Smart Locks / Security / Noise", "expSmartLocks", false],
                   ["Accounting / Bookkeeping", "expAccounting", false],
                   ["Permits & Licenses", "expPermits", false],
                 ] as [string, keyof ProformaForm, boolean][]).map(([label, field, isAnnual]) => {
                   const val = parseNum(form[field] as string);
+                  const monthly = isAnnual ? val / 12 : val;
                   const yearly = isAnnual ? val : val * 12;
                   return (
                     <div key={field} className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                      <Label className="text-xs text-slate-600 flex-1">{label}</Label>
-                      <div className="flex items-center gap-2">
-                        <div className="relative w-24">
+                      <div className="flex items-center gap-1 flex-1">
+                        <Label className="text-xs text-slate-600">{label}</Label>
+                        {label === "STR Insurance" && <a href="https://www.insurestr.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">(Get Quote)</a>}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="relative w-20">
                           <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                          <Input className="pl-5 h-7 text-xs w-full" value={formatCurrencyInput(form[field] as string)} onChange={e => setField(field, e.target.value.replace(/[^0-9]/g, ""))} />
+                          <Input className="pl-4 h-7 text-xs w-full" value={formatCurrencyInput(isAnnual ? String(Math.round(monthly)) : form[field] as string)} onChange={e => {
+                            const v = e.target.value.replace(/[^0-9]/g, "");
+                            setField(field, isAnnual ? String(parseNum(v) * 12) : v);
+                          }} />
                         </div>
-                        <span className="text-xs text-slate-400 w-6">{isAnnual ? "/yr" : "/mo"}</span>
-                        <span className="text-xs text-slate-500 w-20 text-right">{fmtDollar(yearly)}/yr</span>
+                        <span className="text-xs text-slate-400 w-5">/mo</span>
+                        <div className="relative w-20">
+                          <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
+                          <Input className="pl-4 h-7 text-xs w-full" value={formatCurrencyInput(isAnnual ? form[field] as string : String(Math.round(yearly)))} onChange={e => {
+                            const v = e.target.value.replace(/[^0-9]/g, "");
+                            setField(field, isAnnual ? v : String(Math.round(parseNum(v) / 12)));
+                          }} />
+                        </div>
+                        <span className="text-xs text-slate-400 w-5">/yr</span>
                       </div>
                     </div>
                   );
@@ -1296,17 +1328,23 @@ export default function ProformaPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-1">
-                  <Label className="text-xs font-medium text-slate-600">Property Management Fee (% of net revenue)</Label>
+                  <Label className="text-xs font-medium text-slate-600">Property Management Fee (% of net revenue after platform fees)</Label>
                   <div className="relative">
                     <Input className="pr-6 h-8 text-sm" value={form.propertyMgmtPct} onChange={e => setField("propertyMgmtPct", e.target.value)} placeholder="0" />
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
                   </div>
-                  {calc.s2.mgmtExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.mgmtExpense)}/yr</p>}
+                  {calc.s2.mgmtExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.mgmtExpense)}/yr (base case: {form.propertyMgmtPct}% × {fmtDollar(calc.s2.netRevenue)} net rev)</p>}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">Cleaning Cost per Turn</Label>
-                  <CurrencyInput value={form.cleaningCostPerTurn} onChange={v => setField("cleaningCostPerTurn", v)} placeholder="150" />
-                  {calc.s2.cleaningExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.cleaningExpense)}/yr (base case)</p>}
+                  {parseNum(form.scenario1CleaningFeeRevenue) === 0 && parseNum(form.scenario2CleaningFeeRevenue) === 0 && parseNum(form.scenario3CleaningFeeRevenue) === 0 ? (
+                    <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">To include cleaning costs, first add Cleaning Fee Revenue in the Revenue tab. Cleaning costs are only calculated when you charge guests a cleaning fee.</p>
+                  ) : (
+                    <>
+                      <CurrencyInput value={form.cleaningCostPerTurn} onChange={v => setField("cleaningCostPerTurn", v)} placeholder="150" />
+                      {calc.s2.cleaningExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.cleaningExpense)}/yr (base case)</p>}
+                    </>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">CapEx / Maintenance Reserve (% of gross revenue)</Label>
@@ -1379,6 +1417,7 @@ export default function ProformaPage() {
                         { label: "ADR", v: [fmtDollar(calc.s1.adr), fmtDollar(calc.s2.adr), fmtDollar(calc.s3.adr)] },
                         { label: "Occupancy", v: [fmtPctWhole(calc.s1.occ), fmtPctWhole(calc.s2.occ), fmtPctWhole(calc.s3.occ)] },
                         { label: "Sold Nights", v: [String(calc.s1.soldNights), String(calc.s2.soldNights), String(calc.s3.soldNights)] },
+                        { label: "Gross Before Cleaning", v: [fmtDollar(calc.s1.grossBeforeCleaning), fmtDollar(calc.s2.grossBeforeCleaning), fmtDollar(calc.s3.grossBeforeCleaning)] },
                         { label: "Gross Revenue", v: [fmtDollar(calc.s1.grossRevenue), fmtDollar(calc.s2.grossRevenue), fmtDollar(calc.s3.grossRevenue)], bold: true },
                         { label: "Platform Fees", v: [fmtDollar(calc.s1.platformFees), fmtDollar(calc.s2.platformFees), fmtDollar(calc.s3.platformFees)] },
                         { label: "Net Revenue", v: [fmtDollar(calc.s1.netRevenue), fmtDollar(calc.s2.netRevenue), fmtDollar(calc.s3.netRevenue)] },
@@ -1579,7 +1618,12 @@ export default function ProformaPage() {
                 <p className="text-sm text-slate-500 text-center py-4">No comps added yet. Add comparable properties to support your revenue projections.</p>
               ) : (
                 <div className="space-y-3">
-                  {form.comps.map((comp, i) => (
+                  {form.comps.map((comp, i) => {
+                    // Auto-calculate annual revenue from ADR and occupancy
+                    const compAdr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
+                    const compOcc = parseFloat(comp.occupancy?.replace(/%/g, "") || "0") / 100;
+                    const compCalcRevenue = compAdr > 0 && compOcc > 0 ? Math.round(compAdr * compOcc * 365) : 0;
+                    return (
                     <div key={i} className="border rounded p-3 space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -1590,34 +1634,29 @@ export default function ProformaPage() {
                           <Trash2 className="h-3 w-3 text-red-400" />
                         </Button>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <div className="space-y-1"><Label className="text-xs">Name/ID</Label><Input className="h-7 text-xs" value={comp.name} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], name: e.target.value }; setField("comps", c); }} /></div>
-                        <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><Input className="h-7 text-xs" value={comp.annualRevenue} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: e.target.value }; setField("comps", c); }} placeholder="$120,000" /></div>
-                        <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], occupancy: e.target.value }; setField("comps", c); }} placeholder="72%" /></div>
-                        <div className="space-y-1"><Label className="text-xs">ADR</Label><Input className="h-7 text-xs" value={comp.adr} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], adr: e.target.value }; setField("comps", c); }} placeholder="$250" /></div>
+                      {/* Link + Import first */}
+                      <div className="flex items-center gap-2">
+                        <div className="space-y-1 flex-1"><Label className="text-xs">Airbnb / Listing Link</Label><Input className="h-7 text-xs" value={comp.link} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], link: e.target.value }; setField("comps", c); }} placeholder="https://www.airbnb.com/rooms/..." /></div>
+                        {comp.link && comp.link.includes("airbnb") && (
+                          <Button variant="outline" size="sm" className="text-xs mt-4" onClick={() => handleImportAirbnb(comp.link, i)} disabled={importingAirbnb}>
+                            {importingAirbnb ? "Importing..." : "Import"}
+                          </Button>
+                        )}
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="space-y-1"><Label className="text-xs">Name/Title</Label><Input className="h-7 text-xs" value={comp.name} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], name: e.target.value }; setField("comps", c); }} /></div>
+                        <div className="space-y-1"><Label className="text-xs">ADR</Label><Input className="h-7 text-xs" value={comp.adr} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], adr: e.target.value }; setField("comps", c); }} placeholder="$250" /></div>
+                        <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], occupancy: e.target.value }; setField("comps", c); }} placeholder="72" /></div>
+                        <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><Input className="h-7 text-xs bg-slate-50" value={compCalcRevenue > 0 ? `$${compCalcRevenue.toLocaleString()}` : (comp.annualRevenue || "")} readOnly={compCalcRevenue > 0} onChange={e => { if (compCalcRevenue === 0) { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: e.target.value }; setField("comps", c); } }} placeholder="Auto from ADR × Occ" /></div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Beds</Label><Input className="h-7 text-xs" value={comp.beds} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], beds: e.target.value }; setField("comps", c); }} /></div>
                         <div className="space-y-1"><Label className="text-xs">City</Label><Input className="h-7 text-xs" value={comp.city || ""} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], city: e.target.value }; setField("comps", c); }} placeholder="Gatlinburg" /></div>
-                        <div className="space-y-1 col-span-2"><Label className="text-xs">Link</Label><Input className="h-7 text-xs" value={comp.link} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], link: e.target.value }; setField("comps", c); }} placeholder="https://..." /></div>
+                        <div className="space-y-1"><Label className="text-xs">Notes</Label><Input className="h-7 text-xs" value={comp.notes} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], notes: e.target.value }; setField("comps", c); }} placeholder="Hot tub, mountain view..." /></div>
                       </div>
-                      <div className="space-y-1"><Label className="text-xs">Notes</Label><Input className="h-7 text-xs" value={comp.notes} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], notes: e.target.value }; setField("comps", c); }} placeholder="Similar property, hot tub, mountain view..." /></div>
-                      {/* Airbnb Import Button */}
-                      {comp.link && comp.link.includes("airbnb") && !comp.photoUrl && (
-                        <Button variant="ghost" size="sm" className="text-xs text-blue-600" onClick={() => handleImportAirbnb(comp.link, i)} disabled={importingAirbnb}>
-                          {importingAirbnb ? "Importing..." : "Import details from Airbnb"}
-                        </Button>
-                      )}
-                      {!comp.link && (
-                        <div className="flex items-center gap-2">
-                          <Input className="h-7 text-xs flex-1" placeholder="Paste Airbnb URL to auto-import..." onKeyDown={e => { if (e.key === "Enter") { const url = (e.target as HTMLInputElement).value; if (url.includes("airbnb")) { const c = [...form.comps]; c[i] = { ...c[i], link: url }; setField("comps", c); handleImportAirbnb(url, i); } } }} />
-                          <Button variant="ghost" size="sm" className="text-xs text-blue-600" onClick={() => { const linkEl = document.querySelector(`[data-comp-link-${i}]`) as HTMLInputElement; if (linkEl?.value) handleImportAirbnb(linkEl.value, i); }}>
-                            Import
-                          </Button>
-                        </div>
-                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

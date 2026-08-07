@@ -179,7 +179,7 @@ export function registerProformaPdfRoute(app: express.Application) {
       doc.fontSize(10).fillColor(brandDark).text("Loan Details", 50 + halfW + 16, y, { underline: true });
       y += 15;
 
-      const leftItems = [
+      const leftItems: [string, string][] = [
         ["Purchase Price", fmtD(calc.pp)],
         [`Down Payment (${form.downPaymentPct}%)`, fmtD(calc.downPayment)],
         [`Closing Costs (${form.closingCostsPct}%)`, fmtD(calc.closingCosts)],
@@ -187,8 +187,9 @@ export function registerProformaPdfRoute(app: express.Application) {
         ["Renovation Budget", fmtD(calc.renovation ?? 0)],
         ["Startup Costs", fmtD(calc.startup ?? 0)],
         ["Inspections", fmtD(calc.inspection ?? 0)],
-        ["Total Cash Needed", fmtD(calc.totalCashNeeded)],
       ];
+      if (calc.sellerCredit > 0) leftItems.push(["Seller Credit", `-${fmtD(calc.sellerCredit)}`]);
+      leftItems.push(["Total Cash Needed", fmtD(calc.totalCashNeeded)]);
       const rightItems = [
         ["Loan Amount", fmtD(calc.loanAmount)],
         ["Interest Rate", `${form.interestRate}%`],
@@ -225,30 +226,33 @@ export function registerProformaPdfRoute(app: express.Application) {
 
       const fixedExpenses = [
         ["Utilities", form.expUtilities, false],
-        ["STR Insurance", form.expInsuranceAnnual, true],
+        ["STR Insurance (insurestr.com)", form.expInsuranceAnnual, true],
         ["Property Tax", form.expPropertyTaxAnnual, true],
         ["HOA/POA", form.expHOA, false],
         ["Internet/Cable", form.expInternet, false],
         ["Landscaping", form.expLandscaping, false],
         ["Pest Control", form.expPestControl, false],
         ["Hot Tub/Pool", form.expHotTubPool, false],
-        ["PMS Software", form.expPMSSoftware, false],
-        ["Dynamic Pricing", form.expDynamicPricing, false],
+        ["Software (PMS + Pricing)", form.expSoftware, false],
+        ["Trash Service", form.expTrash, false],
         ["Smart Locks/Security", form.expSmartLocks, false],
         ["Accounting", form.expAccounting, false],
         ["Permits", form.expPermits, false],
-        ["Other Fixed", form.expOtherFixed, false],
       ].filter(([, v]) => parseFloat(v as string) > 0);
 
-      const varExpenses = [
-        ["Property Mgmt", `${form.propertyMgmtPct}% → ${fmtD(s2.mgmtExpense ?? 0)}/yr`],
+      const varExpenses: [string, string][] = [
+        ["Property Mgmt", `${form.propertyMgmtPct}% of net rev → ${fmtD(s2.mgmtExpense ?? 0)}/yr`],
         ["Cleaning", `${fmtD(parseFloat(form.cleaningCostPerTurn || "0"))}/turn → ${fmtD(s2.cleaningExpense ?? 0)}/yr`],
-        ["Laundry/Linen Svc", `${fmtD(parseFloat(form.laundryPerTurn || "0"))}/turn → ${fmtD(s2.laundryExpense ?? 0)}/yr`],
-        ["Supplies", `${fmtD(parseFloat(form.suppliesPerTurn || "0"))}/turn → ${fmtD(s2.suppliesExpense ?? 0)}/yr`],
-        ["CapEx Reserve", `${form.capExReservePct}% → ${fmtD(s2.capExReserve ?? 0)}/yr`],
-        ["Linen Replacement", `${fmtD(parseFloat(form.linenReplacementAnnual || "0"))}/yr`],
-        ["Routine Repairs", `${fmtD(parseFloat(form.routineRepairsMonthly || "0"))}/mo → ${fmtD((parseFloat(form.routineRepairsMonthly || "0")) * 12)}/yr`],
+        ["CapEx Reserve", `${form.capExReservePct}% of gross → ${fmtD(s2.capExReserve ?? 0)}/yr`],
       ];
+      // Add custom variable expenses
+      if (form.customVariableExpenses) {
+        form.customVariableExpenses.forEach((e: any) => {
+          if (e.label && parseFloat(e.amount) > 0) {
+            varExpenses.push([e.label, `${fmtD(parseFloat(e.amount))}/mo → ${fmtD(parseFloat(e.amount) * 12)}/yr`]);
+          }
+        });
+      }
 
       let fey = y;
       fixedExpenses.forEach(([label, value, isAnnual]) => {
