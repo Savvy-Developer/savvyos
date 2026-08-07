@@ -1581,17 +1581,20 @@ export default function ProformaPage() {
         {/* ─── TAB: RETURNS ────────────────────────────────────────────────── */}
         <TabsContent value="returns">
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* Investment Summary */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
-                { label: "Total Cash Needed", value: fmtDollar(calc.totalCashNeeded) },
+                { label: "Total Cash In Deal", value: fmtDollar(calc.totalCashNeeded) },
+                { label: "Yr 1 Tax Benefit", value: fmtDollar(calc.netTaxBenefit), color: "text-emerald-700" },
+                { label: "Effective Cash (after tax)", value: fmtDollar(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit)), color: "text-blue-700" },
                 { label: "Monthly Mortgage", value: fmtDollar(calc.monthlyMortgage) },
                 { label: "Base Case Cash Flow", value: fmtDollar(calc.s2.cashFlow), color: calc.s2.cashFlow >= 0 ? "text-emerald-700" : "text-red-600" },
-                { label: "Base Case CoC Return", value: fmtPct(calc.s2.cashOnCash), color: calc.s2.cashOnCash >= 0.08 ? "text-emerald-700" : "text-amber-600" },
+                { label: "Base Case CoC", value: fmtPct(calc.s2.cashOnCash), color: calc.s2.cashOnCash >= 0.08 ? "text-emerald-700" : "text-amber-600" },
               ].map(m => (
                 <Card key={m.label} className="bg-slate-50">
                   <CardContent className="p-3 text-center">
-                    <p className="text-xs text-slate-500">{m.label}</p>
-                    <p className={`text-lg font-bold ${m.color || "text-slate-800"}`}>{m.value}</p>
+                    <p className="text-[10px] text-slate-500 leading-tight">{m.label}</p>
+                    <p className={`text-base font-bold ${m.color || "text-slate-800"}`}>{m.value}</p>
                   </CardContent>
                 </Card>
               ))}
@@ -1617,6 +1620,8 @@ export default function ProformaPage() {
                         { label: "Net Cash Flow", v: [fmtDollar(calc.s1.cashFlow), fmtDollar(calc.s2.cashFlow), fmtDollar(calc.s3.cashFlow)], bold: true, highlight: true },
                         { label: "Monthly Cash Flow", v: [fmtDollar(calc.s1.monthlyCashFlow), fmtDollar(calc.s2.monthlyCashFlow), fmtDollar(calc.s3.monthlyCashFlow)] },
                         { label: "Cash-on-Cash Return", v: [fmtPct(calc.s1.cashOnCash), fmtPct(calc.s2.cashOnCash), fmtPct(calc.s3.cashOnCash)], bold: true },
+                        { label: "CoC w/ Tax Benefits (Yr 1)", v: [fmtPct(calc.taxReturns.s1.year1CoCWithTax), fmtPct(calc.taxReturns.s2.year1CoCWithTax), fmtPct(calc.taxReturns.s3.year1CoCWithTax)], bold: true, highlight: true },
+                        { label: "CoC w/ Tax Benefits (Yr 2+)", v: [fmtPct(calc.taxReturns.s1.ongoingCoCWithTax), fmtPct(calc.taxReturns.s2.ongoingCoCWithTax), fmtPct(calc.taxReturns.s3.ongoingCoCWithTax)], highlight: true },
                         { label: "Cap Rate", v: [fmtPct(calc.s1.capRate), fmtPct(calc.s2.capRate), fmtPct(calc.s3.capRate)] },
                         { label: "Gross Yield", v: [fmtPct(calc.s1.grossYield), fmtPct(calc.s2.grossYield), fmtPct(calc.s3.grossYield)] },
                         { label: "DSCR", v: [`${calc.s1.dscr === Infinity ? "∞" : calc.s1.dscr.toFixed(2)}x`, `${calc.s2.dscr === Infinity ? "∞" : calc.s2.dscr.toFixed(2)}x`, `${calc.s3.dscr === Infinity ? "∞" : calc.s3.dscr.toFixed(2)}x`] },
@@ -1637,26 +1642,37 @@ export default function ProformaPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-sm">5-Year Projection (Base Case)</CardTitle></CardHeader>
+              <CardHeader className="pb-3"><CardTitle className="text-sm">5-Year Wealth Building (Base Case)</CardTitle></CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="bg-slate-100 text-left"><th className="p-2">Year</th><th className="p-2 text-right">Net Revenue</th><th className="p-2 text-right">Expenses</th><th className="p-2 text-right">NOI</th><th className="p-2 text-right">Cash Flow</th><th className="p-2 text-right">Property Value</th><th className="p-2 text-right">Total Equity</th></tr></thead>
+                  <table className="w-full text-xs">
+                    <thead><tr className="bg-slate-100 text-left"><th className="p-2">Year</th><th className="p-2 text-right">Revenue</th><th className="p-2 text-right">Cash Flow</th><th className="p-2 text-right">Cumul. CF</th><th className="p-2 text-right">Tax Benefit</th><th className="p-2 text-right">Debt Paydown</th><th className="p-2 text-right">Appreciation</th><th className="p-2 text-right">Property Value</th><th className="p-2 text-right">Total Equity</th></tr></thead>
                     <tbody>
-                      {calc.fiveYear.map(yr => (
-                        <tr key={yr.year} className="border-b">
-                          <td className="p-2 font-medium">Year {yr.year}</td>
-                          <td className="p-2 text-right">{fmtDollar(yr.revenue)}</td>
-                          <td className="p-2 text-right">{fmtDollar(yr.expenses)}</td>
-                          <td className="p-2 text-right">{fmtDollar(yr.noi)}</td>
-                          <td className="p-2 text-right font-medium">{fmtDollar(yr.cashFlow)}</td>
-                          <td className="p-2 text-right">{fmtDollar(yr.propertyValue)}</td>
-                          <td className="p-2 text-right font-medium text-emerald-700">{fmtDollar(yr.equity)}</td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        let cumulCF = 0;
+                        return calc.fiveYear.map((yr, i) => {
+                          cumulCF += yr.cashFlow;
+                          const taxBen = i === 0 ? calc.netTaxBenefit + calc.ongoingAnnualTaxBenefit : calc.ongoingAnnualTaxBenefit;
+                          const appreciation = yr.propertyValue - calc.pp;
+                          return (
+                            <tr key={yr.year} className="border-b">
+                              <td className="p-2 font-medium">Year {yr.year}</td>
+                              <td className="p-2 text-right">{fmtDollar(yr.revenue)}</td>
+                              <td className="p-2 text-right">{fmtDollar(yr.cashFlow)}</td>
+                              <td className="p-2 text-right font-medium">{fmtDollar(cumulCF)}</td>
+                              <td className="p-2 text-right text-emerald-600">{fmtDollar(taxBen)}</td>
+                              <td className="p-2 text-right">{fmtDollar(yr.principalPaid)}</td>
+                              <td className="p-2 text-right">{fmtDollar(appreciation)}</td>
+                              <td className="p-2 text-right">{fmtDollar(yr.propertyValue)}</td>
+                              <td className="p-2 text-right font-bold text-emerald-700">{fmtDollar(yr.equity)}</td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
+                <p className="text-xs text-slate-400 mt-2">Total 5-Year Return: Cumulative Cash Flow ({fmtDollar(calc.fiveYear.reduce((s, y) => s + y.cashFlow, 0))}) + Tax Benefits ({fmtDollar(calc.netTaxBenefit + calc.ongoingAnnualTaxBenefit * 5)}) + Equity ({fmtDollar(calc.fiveYear[4]?.equity || 0)}) = <span className="font-bold text-emerald-700">{fmtDollar(calc.fiveYear.reduce((s, y) => s + y.cashFlow, 0) + calc.netTaxBenefit + calc.ongoingAnnualTaxBenefit * 5 + (calc.fiveYear[4]?.equity || 0))}</span></p>
               </CardContent>
             </Card>
 
