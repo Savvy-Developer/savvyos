@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
-import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings } from "lucide-react";
+import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -813,6 +813,7 @@ export default function ProformaPage() {
         photoUrl: data.photos?.[0] || "",
         rating: data.rating ? String(data.rating) : "",
         reviewCount: data.reviewCount ? String(data.reviewCount) : "",
+        saved: true, // Auto-save after import
       };
       setField("comps", comps);
       alert(`Imported from Airbnb:\n• Title: ${data.title}\n• Rating: ${data.rating} (${data.reviewCount} reviews)\n• Beds: ${data.bedrooms || "N/A"}\n• Photo: ${data.photos?.length ? "Yes" : "No"}`);
@@ -1846,7 +1847,7 @@ export default function ProformaPage() {
                   <Button size="sm" variant="outline" onClick={() => setShowExistingComps(true)}>
                     <BookOpen className="h-3 w-3 mr-1" /> Import Existing Comps
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setField("comps", [...form.comps, { name: "", annualRevenue: "", occupancy: "", adr: "", beds: "", link: "", notes: "" }])}>
+                  <Button size="sm" variant="outline" onClick={() => setField("comps", [...form.comps, { name: "", annualRevenue: "", occupancy: "", adr: "", beds: "", link: "", notes: "", saved: false }])}>
                     <Plus className="h-3 w-3 mr-1" /> Add Comp
                   </Button>
                 </div>
@@ -1858,26 +1859,75 @@ export default function ProformaPage() {
               ) : (
                 <div className="space-y-3">
                   {form.comps.map((comp, i) => {
-                    // Auto-calculate annual revenue from ADR and occupancy
                     const compAdr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
                     const compOcc = parseFloat(comp.occupancy?.replace(/%/g, "") || "0") / 100;
                     const compCalcRevenue = compAdr > 0 && compOcc > 0 ? Math.round(compAdr * compOcc * 365) : 0;
+                    const isSaved = comp.saved === true || comp.saved === "true";
+
+                    // SAVED/DISPLAY MODE: show comp as text with edit button
+                    if (isSaved) {
+                      return (
+                        <div key={i} className="border rounded p-3 bg-slate-50">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3 flex-1">
+                              {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-16 h-16 rounded object-cover flex-shrink-0" />}
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm">{comp.name || `Comp ${i + 1}`}</span>
+                                  {comp.rating && <span className="text-xs text-amber-600">\u2b50 {comp.rating}{comp.reviewCount ? ` (${comp.reviewCount})` : ""}</span>}
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-600">
+                                  {compCalcRevenue > 0 && <span className="font-semibold text-emerald-700">Rev: ${compCalcRevenue.toLocaleString()}/yr</span>}
+                                  {comp.adr && <span>ADR: ${comp.adr}</span>}
+                                  {comp.occupancy && <span>Occ: {comp.occupancy}%</span>}
+                                  {comp.beds && <span>{comp.beds} beds</span>}
+                                  {comp.city && <span>{comp.city}</span>}
+                                </div>
+                                {comp.notes && <p className="text-xs text-slate-500 mt-1 italic">{comp.notes}</p>}
+                                {comp.link && <a href={comp.link} target="_blank" rel="noopener" className="text-[10px] text-blue-500 hover:underline mt-1 block truncate">{comp.link}</a>}
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => { const c = [...form.comps]; c[i] = { ...c[i], saved: false }; setField("comps", c); }}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => { const c = [...form.comps]; c.splice(i, 1); setField("comps", c); }}>
+                                <Trash2 className="h-3 w-3 text-red-400" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // EDIT MODE: show inputs
                     return (
-                    <div key={i} className="border rounded p-3 space-y-2">
+                    <div key={i} className="border rounded p-3 space-y-2 border-blue-200 bg-blue-50/30">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-10 h-10 rounded object-cover" />}
-                          <span className="text-xs font-medium text-slate-500">Comp {i + 1}{comp.rating ? ` • ⭐ ${comp.rating}` : ""}{comp.reviewCount ? ` (${comp.reviewCount} reviews)` : ""}</span>
+                          <span className="text-xs font-medium text-slate-500">Comp {i + 1}{comp.rating ? ` \u2022 \u2b50 ${comp.rating}` : ""}{comp.reviewCount ? ` (${comp.reviewCount} reviews)` : ""}</span>
+                          {compCalcRevenue > 0 && <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Gross: ${compCalcRevenue.toLocaleString()}/yr</span>}
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => { const c = [...form.comps]; c.splice(i, 1); setField("comps", c); }}>
-                          <Trash2 className="h-3 w-3 text-red-400" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button variant="default" size="sm" className="text-xs bg-emerald-600 hover:bg-emerald-700" onClick={() => { const c = [...form.comps]; c[i] = { ...c[i], saved: true }; setField("comps", c); }}>
+                            <Save className="h-3 w-3 mr-1" /> Save
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => { const c = [...form.comps]; c.splice(i, 1); setField("comps", c); }}>
+                            <Trash2 className="h-3 w-3 text-red-400" />
+                          </Button>
+                        </div>
                       </div>
                       {/* Link + Import first */}
                       <div className="flex items-center gap-2">
                         <div className="space-y-1 flex-1"><Label className="text-xs">Airbnb / Listing Link</Label><Input className="h-7 text-xs" value={comp.link} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], link: e.target.value }; setField("comps", c); }} placeholder="https://www.airbnb.com/rooms/..." /></div>
                         {comp.link && comp.link.includes("airbnb") && (
-                          <Button variant="outline" size="sm" className="text-xs mt-4" onClick={() => handleImportAirbnb(comp.link, i)} disabled={importingAirbnb}>
+                          <Button variant="outline" size="sm" className="text-xs mt-4" onClick={() => {
+                            // Dedup check: if this link already exists in another comp, warn
+                            const existingIdx = form.comps.findIndex((c, idx) => idx !== i && c.link && c.link === comp.link);
+                            if (existingIdx >= 0) { alert(`This Airbnb link is already added as Comp ${existingIdx + 1}. Remove the duplicate or use a different link.`); return; }
+                            handleImportAirbnb(comp.link, i);
+                          }} disabled={importingAirbnb}>
                             {importingAirbnb ? "Importing..." : "Import"}
                           </Button>
                         )}
@@ -1886,7 +1936,7 @@ export default function ProformaPage() {
                         <div className="space-y-1"><Label className="text-xs">Name/Title</Label><Input className="h-7 text-xs" value={comp.name} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], name: e.target.value }; setField("comps", c); }} /></div>
                         <div className="space-y-1"><Label className="text-xs">ADR</Label><div className="relative"><span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span><Input className="pl-4 h-7 text-xs" value={formatCurrencyInput(comp.adr?.replace(/[$]/g, "") || "")} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); const n = parseInt(v); const c = [...form.comps]; c[i] = { ...c[i], adr: n > 9999 ? "9999" : v }; setField("comps", c); }} placeholder="250" /></div></div>
                         <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const v = e.target.value; const n = parseFloat(v); const c = [...form.comps]; c[i] = { ...c[i], occupancy: n > 100 ? "100" : v }; setField("comps", c); }} placeholder="72" /></div>
-                        <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><Input className="h-7 text-xs bg-slate-50" value={compCalcRevenue > 0 ? `$${compCalcRevenue.toLocaleString()}` : (comp.annualRevenue || "")} readOnly={compCalcRevenue > 0} onChange={e => { if (compCalcRevenue === 0) { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: e.target.value }; setField("comps", c); } }} placeholder="Auto from ADR × Occ" /></div>
+                        <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><Input className="h-7 text-xs bg-slate-50" value={compCalcRevenue > 0 ? `$${compCalcRevenue.toLocaleString()}` : (comp.annualRevenue || "")} readOnly={compCalcRevenue > 0} onChange={e => { if (compCalcRevenue === 0) { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: e.target.value }; setField("comps", c); } }} placeholder="Auto from ADR \u00d7 Occ" /></div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Beds</Label><Input className="h-7 text-xs" value={comp.beds} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], beds: e.target.value }; setField("comps", c); }} /></div>
@@ -1905,7 +1955,15 @@ export default function ProformaPage() {
           {showExistingComps && (
             <ExistingCompsModal
               onClose={() => setShowExistingComps(false)}
-              onImport={(comps) => { setField("comps", [...form.comps, ...comps]); setShowExistingComps(false); }}
+              onImport={(comps) => {
+                // Dedup: don't add comps that already exist by link
+                const existingLinks = new Set(form.comps.map(c => c.link).filter(Boolean));
+                const newComps = comps.filter((c: any) => !c.link || !existingLinks.has(c.link)).map((c: any) => ({ ...c, saved: true }));
+                const dupeCount = comps.length - newComps.length;
+                if (dupeCount > 0) alert(`${dupeCount} comp(s) already exist in this proforma and were skipped.`);
+                if (newComps.length > 0) setField("comps", [...form.comps, ...newComps]);
+                setShowExistingComps(false);
+              }}
               isAdmin={(user as any)?.role === "admin"}
               userId={(user as any)?.id}
             />
