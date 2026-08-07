@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,9 +31,18 @@ import {
   CalendarDays,
   Mail,
   MousePointerClick,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 
 type DaysFilter = "7" | "14" | "30" | "90";
+type SortDir = "asc" | "desc";
+
+// Sort keys for each tab
+type PVSortKey = "viewCount" | "lastViewed" | "contact" | "leadSource";
+type RVSortKey = "distinctDays" | "totalViews" | "lastViewed" | "contact" | "leadSource";
+type EESortKey = "clicks" | "opens" | "lastEngaged" | "contact" | "leadSource";
 
 const PIPELINE_STATUSES = [
   { value: "new_lead", label: "New Lead" },
@@ -60,6 +69,14 @@ export default function HotLeadsPage() {
   const [agentFilter, setAgentFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const limit = 50;
+
+  // Sort state for each tab
+  const [pvSortKey, setPvSortKey] = useState<PVSortKey>("viewCount");
+  const [pvSortDir, setPvSortDir] = useState<SortDir>("desc");
+  const [rvSortKey, setRvSortKey] = useState<RVSortKey>("distinctDays");
+  const [rvSortDir, setRvSortDir] = useState<SortDir>("desc");
+  const [eeSortKey, setEeSortKey] = useState<EESortKey>("clicks");
+  const [eeSortDir, setEeSortDir] = useState<SortDir>("desc");
 
   // Fetch ISA and agent lists for filter dropdowns (admin/ISA only)
   const { data: usersList = [] } = trpc.users.list.useQuery(undefined, { enabled: isAdminOrIsa });
@@ -89,6 +106,105 @@ export default function HotLeadsPage() {
     { enabled: activeTab === "email-engagement" }
   );
 
+  // Client-side sorting for Property Views
+  const sortedPvItems = useMemo(() => {
+    const items = propertyViews.data?.items ?? [];
+    if (!items.length) return items;
+    const sorted = [...items];
+    sorted.sort((a: any, b: any) => {
+      let aVal: any, bVal: any;
+      switch (pvSortKey) {
+        case "viewCount": aVal = a.viewCount ?? 0; bVal = b.viewCount ?? 0; break;
+        case "lastViewed": aVal = a.lastViewed ? new Date(a.lastViewed).getTime() : 0; bVal = b.lastViewed ? new Date(b.lastViewed).getTime() : 0; break;
+        case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
+        case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        default: aVal = a.viewCount ?? 0; bVal = b.viewCount ?? 0;
+      }
+      if (typeof aVal === "string") {
+        const cmp = aVal.localeCompare(bVal);
+        return pvSortDir === "asc" ? cmp : -cmp;
+      }
+      return pvSortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [propertyViews.data?.items, pvSortKey, pvSortDir]);
+
+  // Client-side sorting for Return Visitors
+  const sortedRvItems = useMemo(() => {
+    const items = returnVisitors.data?.items ?? [];
+    if (!items.length) return items;
+    const sorted = [...items];
+    sorted.sort((a: any, b: any) => {
+      let aVal: any, bVal: any;
+      switch (rvSortKey) {
+        case "distinctDays": aVal = a.distinctDays ?? 0; bVal = b.distinctDays ?? 0; break;
+        case "totalViews": aVal = a.totalViews ?? 0; bVal = b.totalViews ?? 0; break;
+        case "lastViewed": aVal = a.lastViewed ? new Date(a.lastViewed).getTime() : 0; bVal = b.lastViewed ? new Date(b.lastViewed).getTime() : 0; break;
+        case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
+        case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        default: aVal = a.distinctDays ?? 0; bVal = b.distinctDays ?? 0;
+      }
+      if (typeof aVal === "string") {
+        const cmp = aVal.localeCompare(bVal);
+        return rvSortDir === "asc" ? cmp : -cmp;
+      }
+      return rvSortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [returnVisitors.data?.items, rvSortKey, rvSortDir]);
+
+  // Client-side sorting for Email Engagement
+  const sortedEeItems = useMemo(() => {
+    const items = emailEngagement.data?.items ?? [];
+    if (!items.length) return items;
+    const sorted = [...items];
+    sorted.sort((a: any, b: any) => {
+      let aVal: any, bVal: any;
+      switch (eeSortKey) {
+        case "clicks": aVal = a.clicks ?? 0; bVal = b.clicks ?? 0; break;
+        case "opens": aVal = a.opens ?? 0; bVal = b.opens ?? 0; break;
+        case "lastEngaged": aVal = a.lastEngaged ? new Date(a.lastEngaged).getTime() : 0; bVal = b.lastEngaged ? new Date(b.lastEngaged).getTime() : 0; break;
+        case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
+        case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        default: aVal = a.clicks ?? 0; bVal = b.clicks ?? 0;
+      }
+      if (typeof aVal === "string") {
+        const cmp = aVal.localeCompare(bVal);
+        return eeSortDir === "asc" ? cmp : -cmp;
+      }
+      return eeSortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [emailEngagement.data?.items, eeSortKey, eeSortDir]);
+
+  // Sort handlers
+  const handlePvSort = (key: PVSortKey) => {
+    if (pvSortKey === key) {
+      setPvSortDir(pvSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setPvSortKey(key);
+      setPvSortDir("desc");
+    }
+  };
+
+  const handleRvSort = (key: RVSortKey) => {
+    if (rvSortKey === key) {
+      setRvSortDir(rvSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setRvSortKey(key);
+      setRvSortDir("desc");
+    }
+  };
+
+  const handleEeSort = (key: EESortKey) => {
+    if (eeSortKey === key) {
+      setEeSortDir(eeSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setEeSortKey(key);
+      setEeSortDir("desc");
+    }
+  };
+
   const handleDaysChange = (newDays: DaysFilter) => {
     setDays(newDays);
     resetPages();
@@ -113,6 +229,14 @@ export default function HotLeadsPage() {
   const handleStatusChange = (val: string) => {
     setStatusFilter(val === "all" ? "" : val);
     resetPages();
+  };
+
+  // Sort icon component
+  const SortIcon = ({ col, activeKey, activeDir }: { col: string; activeKey: string; activeDir: SortDir }) => {
+    if (activeKey !== col) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />;
+    return activeDir === "asc"
+      ? <ArrowUp className="h-3 w-3 ml-1 text-primary" />
+      : <ArrowDown className="h-3 w-3 ml-1 text-primary" />;
   };
 
   return (
@@ -169,16 +293,24 @@ export default function HotLeadsPage() {
                 headers={
                   <>
                     <TableHead className="w-[50px] text-center">#</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead className="text-center">Views</TableHead>
-                    <TableHead>Last Viewed</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handlePvSort("contact")}>
+                      <span className="inline-flex items-center">Contact <SortIcon col="contact" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="text-center cursor-pointer select-none" onClick={() => handlePvSort("viewCount")}>
+                      <span className="inline-flex items-center justify-center w-full">Views <SortIcon col="viewCount" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handlePvSort("lastViewed")}>
+                      <span className="inline-flex items-center">Last Viewed <SortIcon col="lastViewed" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
+                    </TableHead>
                     <TableHead>Last Property</TableHead>
-                    <TableHead>Lead Source</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handlePvSort("leadSource")}>
+                      <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
+                    </TableHead>
                     {!isAgent && <TableHead>Assigned ISA</TableHead>}
                     {!isAgent && <TableHead>Connected Agents</TableHead>}
                   </>
                 }
-                rows={propertyViews.data?.items.map((lead, idx) => (
+                rows={sortedPvItems.map((lead, idx) => (
                   <TableRow key={lead.contactId} className="hover:bg-muted/50">
                     <TableCell className="text-center text-muted-foreground text-xs">
                       {(pvPage - 1) * limit + idx + 1}
@@ -246,16 +378,26 @@ export default function HotLeadsPage() {
                 headers={
                   <>
                     <TableHead className="w-[50px] text-center">#</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead className="text-center">Days Active</TableHead>
-                    <TableHead className="text-center">Total Views</TableHead>
-                    <TableHead>Last Viewed</TableHead>
-                    <TableHead>Lead Source</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("contact")}>
+                      <span className="inline-flex items-center">Contact <SortIcon col="contact" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="text-center cursor-pointer select-none" onClick={() => handleRvSort("distinctDays")}>
+                      <span className="inline-flex items-center justify-center w-full">Days Active <SortIcon col="distinctDays" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="text-center cursor-pointer select-none" onClick={() => handleRvSort("totalViews")}>
+                      <span className="inline-flex items-center justify-center w-full">Total Views <SortIcon col="totalViews" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("lastViewed")}>
+                      <span className="inline-flex items-center">Last Viewed <SortIcon col="lastViewed" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("leadSource")}>
+                      <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
+                    </TableHead>
                     {!isAgent && <TableHead>Assigned ISA</TableHead>}
                     {!isAgent && <TableHead>Connected Agents</TableHead>}
                   </>
                 }
-                rows={returnVisitors.data?.items.map((lead, idx) => (
+                rows={sortedRvItems.map((lead, idx) => (
                   <TableRow key={lead.contactId} className="hover:bg-muted/50">
                     <TableCell className="text-center text-muted-foreground text-xs">
                       {(rvPage - 1) * limit + idx + 1}
@@ -323,16 +465,26 @@ export default function HotLeadsPage() {
                 headers={
                   <>
                     <TableHead className="w-[50px] text-center">#</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead className="text-center">Clicks</TableHead>
-                    <TableHead className="text-center">Opens</TableHead>
-                    <TableHead>Last Engaged</TableHead>
-                    <TableHead>Lead Source</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("contact")}>
+                      <span className="inline-flex items-center">Contact <SortIcon col="contact" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="text-center cursor-pointer select-none" onClick={() => handleEeSort("clicks")}>
+                      <span className="inline-flex items-center justify-center w-full">Clicks <SortIcon col="clicks" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="text-center cursor-pointer select-none" onClick={() => handleEeSort("opens")}>
+                      <span className="inline-flex items-center justify-center w-full">Opens <SortIcon col="opens" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("lastEngaged")}>
+                      <span className="inline-flex items-center">Last Engaged <SortIcon col="lastEngaged" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("leadSource")}>
+                      <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
+                    </TableHead>
                     {!isAgent && <TableHead>Assigned ISA</TableHead>}
                     {!isAgent && <TableHead>Connected Agents</TableHead>}
                   </>
                 }
-                rows={emailEngagement.data?.items.map((lead, idx) => (
+                rows={sortedEeItems.map((lead, idx) => (
                   <TableRow key={lead.contactId} className="hover:bg-muted/50">
                     <TableCell className="text-center text-muted-foreground text-xs">
                       {(eePage - 1) * limit + idx + 1}
