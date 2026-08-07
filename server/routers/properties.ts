@@ -113,7 +113,7 @@ export const propertiesRouter = router({
         sqft: input.sqft,
         propertyType: input.propertyType,
         yearBuilt: input.yearBuilt,
-        listPrice: input.listPrice,
+        listPrice: input.listPrice ? input.listPrice.replace(/[^0-9.]/g, "") : null,
         strZoning: input.strZoning,
         strNotes: input.strNotes,
         notes: input.notes,
@@ -184,6 +184,7 @@ export const propertiesRouter = router({
     .mutation(async ({ input, ctx }) => {
       // If address fields changed, recalculate normalizedAddress
       const updateData: any = { ...input.data };
+      if (updateData.listPrice) updateData.listPrice = updateData.listPrice.replace(/[^0-9.]/g, "");
       if (input.data.address !== undefined) {
         const existing = await getPropertyById(input.id);
         const addr = input.data.address ?? existing?.address ?? "";
@@ -572,7 +573,7 @@ export const propertiesRouter = router({
             sqft: row.sqft ? parseInt(row.sqft) || null : null,
             propertyType: (validPropertyTypes.includes(propType ?? "") ? propType : null) as any,
             yearBuilt: row.yearBuilt ? parseInt(row.yearBuilt) || null : null,
-            listPrice: row.listPrice?.trim() || null,
+            listPrice: row.listPrice?.trim()?.replace(/[^0-9.]/g, "") || null,
             strZoning: row.strZoning?.trim() || null,
             notes: row.notes?.trim() || null,
           } as any);
