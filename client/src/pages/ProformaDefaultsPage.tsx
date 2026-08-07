@@ -147,7 +147,8 @@ export default function ProformaDefaultsPage() {
     try {
       await saveMutation.mutateAsync({ defaults, userId: selectedUserId });
       refetch();
-    } catch (e) { console.error(e); }
+      alert("Defaults saved successfully! These will be applied to all new pro-formas you create.");
+    } catch (e) { console.error(e); alert("Failed to save defaults. Please try again."); }
     setSaving(false);
   };
 

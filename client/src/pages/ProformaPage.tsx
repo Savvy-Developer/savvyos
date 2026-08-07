@@ -242,6 +242,8 @@ export default function ProformaPage() {
   const { data: coreProfile } = trpc.users.getCoreProfile.useQuery({ userId: user?.id ?? 0 }, { enabled: !!user?.id });
   const { data: userRecord } = trpc.users.getById.useQuery({ id: user?.id ?? 0 }, { enabled: !!user?.id });
 
+  const { data: userDefaults } = trpc.properties.getProformaDefaults.useQuery(undefined, { enabled: !!user?.id });
+
   const createMutation = trpc.properties.createProforma.useMutation({ onSuccess: () => { refetch(); } });
   const updateMutation = trpc.properties.updateProforma.useMutation({ onSuccess: () => { refetch(); } });
   const deleteMutation = trpc.properties.deleteProforma.useMutation({ onSuccess: () => { refetch(); } });
@@ -323,6 +325,19 @@ export default function ProformaPage() {
     hasDirtyChanges.current = false;
     setAutoLoadDone(true);
   }, [autoLoadProforma, loadIdFromUrl, autoLoadDone]);
+
+  // Helper: start a new proforma with user's saved defaults applied
+  const startNewProforma = () => {
+    // userDefaults is the parsed JSON object directly from getProformaDefaults (or null if none saved)
+    const userDefaultData = userDefaults && typeof userDefaults === "object" ? userDefaults : {};
+    const newForm = { ...defaultForm, ...userDefaultData };
+    setForm(newForm);
+    setEditingId(null);
+    setTitle("STR Investment Analysis");
+    setEditing(true);
+    lastSavedForm.current = "";
+    hasDirtyChanges.current = false;
+  };
 
   // ─── CALCULATIONS ──────────────────────────────────────────────────────────
   const calc = useMemo(() => {
@@ -793,7 +808,7 @@ export default function ProformaPage() {
         <PageHeader
           title="Pro-forma Analysis"
           subtitle={property ? `${property.address}, ${property.city} ${property.state}` : ""}
-          actions={<Button size="sm" onClick={() => setEditing(true)}><Plus className="h-4 w-4 mr-1" /> New Pro-forma</Button>}
+          actions={<Button size="sm" onClick={startNewProforma}><Plus className="h-4 w-4 mr-1" /> New Pro-forma</Button>}
         />
         {proformas && proformas.length > 0 ? (
           <div className="space-y-3 mt-6">
@@ -819,7 +834,7 @@ export default function ProformaPage() {
             <CardContent className="p-8 text-center">
               <FileText className="h-12 w-12 mx-auto text-slate-300 mb-3" />
               <p className="text-slate-500 mb-4">No pro-formas created yet for this property.</p>
-              <Button onClick={() => setEditing(true)}><Plus className="h-4 w-4 mr-1" /> Create Pro-forma</Button>
+              <Button onClick={startNewProforma}><Plus className="h-4 w-4 mr-1" /> Create Pro-forma</Button>
             </CardContent>
           </Card>
         )}
