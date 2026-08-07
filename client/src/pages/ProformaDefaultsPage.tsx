@@ -6,11 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
-import { ArrowLeft, Save, RotateCcw } from "lucide-react";
+import { ArrowLeft, Save, RotateCcw, Users } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-
-const fmtDollar = (val: number): string => `$${Math.round(val).toLocaleString("en-US")}`;
 
 interface DefaultsData {
   downPaymentPct: string;
@@ -109,24 +107,46 @@ const systemDefaults: DefaultsData = {
 export default function ProformaDefaultsPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
   const [defaults, setDefaults] = useState<DefaultsData>(systemDefaults);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number | undefined>(undefined);
 
-  const { data: savedDefaults } = trpc.properties.getProformaDefaults.useQuery(undefined, { enabled: !!user });
+  // Fetch list of agents for admin dropdown
+  const { data: allUsers = [] } = trpc.users.list.useQuery({}, { enabled: isAdmin });
+
+  // Fetch defaults for the selected user (or self)
+  const { data: savedDefaults, refetch } = trpc.properties.getProformaDefaults.useQuery(
+    selectedUserId ? { userId: selectedUserId } : undefined,
+    { enabled: !!user }
+  );
   const saveMutation = trpc.properties.saveProformaDefaults.useMutation();
 
   useEffect(() => {
-    if (savedDefaults && !loaded) {
+    if (savedDefaults) {
       setDefaults({ ...systemDefaults, ...(savedDefaults as any) });
       setLoaded(true);
+    } else if (loaded) {
+      // If switching to a user with no defaults, show system defaults
+      setDefaults(systemDefaults);
     }
-  }, [savedDefaults, loaded]);
+  }, [savedDefaults]);
+
+  // When admin changes the selected user, reset loaded state and refetch
+  const handleUserChange = (userId: string) => {
+    const id = userId === "self" ? undefined : Number(userId);
+    setSelectedUserId(id);
+    setLoaded(false);
+    setDefaults(systemDefaults);
+    // refetch will happen automatically due to query key change
+  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await saveMutation.mutateAsync({ defaults });
+      await saveMutation.mutateAsync({ defaults, userId: selectedUserId });
+      refetch();
     } catch (e) { console.error(e); }
     setSaving(false);
   };
@@ -161,6 +181,11 @@ export default function ProformaDefaultsPage() {
     </div>
   );
 
+  // Get the display name for the currently selected user
+  const selectedUserName = selectedUserId
+    ? (allUsers as any[]).find((u: any) => u.id === selectedUserId)?.name || "Unknown"
+    : "My Defaults";
+
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <div className="mb-4">
@@ -170,7 +195,10 @@ export default function ProformaDefaultsPage() {
       </div>
       <PageHeader
         title="Pro-forma Defaults"
-        subtitle="Set your personal default values for new pro-formas. These will pre-fill when you create a new analysis."
+        subtitle={selectedUserId
+          ? `Viewing defaults for: ${selectedUserName}`
+          : "Set your personal default values for new pro-formas. These will pre-fill when you create a new analysis."
+        }
         actions={
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleReset}><RotateCcw className="h-4 w-4 mr-1" /> Reset</Button>
@@ -178,6 +206,59 @@ export default function ProformaDefaultsPage() {
           </div>
         }
       />
+
+      {/* Admin: User selector dropdown */}
+      {isAdmin && (
+        <div className="mt-4 mb-2">
+          <Card>
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center gap-3">
+                <Users className="h-4 w-4 text-slate-500" />
+                <Label className="text-sm font-medium text-slate-700">Viewing defaults for:</Label>
+                <select
+                  className="h-8 text-sm border rounded-md px-3 py-1 min-w-[220px] bg-white"
+                  value={selectedUserId ?? "self"}
+                  onChange={e => handleUserChange(e.target.value)}
+                >
+                  <option value="self">My Defaults (Admin)</option>
+                  <optgroup label="Agents">
+                    {(allUsers as any[])
+                      .filter((u: any) => u.role === "agent" && u.isActive !== false)
+                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                      .map((u: any) => (
+                        <option key={u.id} value={u.id}>{u.name || u.email} ({u.market || "No market"})</option>
+                      ))
+                    }
+                  </optgroup>
+                  <optgroup label="ISAs">
+                    {(allUsers as any[])
+                      .filter((u: any) => u.role === "isa" && u.isActive !== false)
+                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                      .map((u: any) => (
+                        <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                      ))
+                    }
+                  </optgroup>
+                  <optgroup label="Other Admins">
+                    {(allUsers as any[])
+                      .filter((u: any) => u.role === "admin" && u.id !== (user as any)?.id && u.isActive !== false)
+                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                      .map((u: any) => (
+                        <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                      ))
+                    }
+                  </optgroup>
+                </select>
+                {selectedUserId && (
+                  <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                    Editing {selectedUserName}'s defaults
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
         {/* Financing Defaults */}
@@ -188,8 +269,10 @@ export default function ProformaDefaultsPage() {
               <Label className="text-xs text-slate-600 flex-1">Loan Type</Label>
               <select className="h-7 text-xs border rounded px-2 w-32" value={defaults.loanType} onChange={e => setField("loanType", e.target.value)}>
                 <option value="dscr">DSCR</option>
-                <option value="conventional">Conventional</option>
-                <option value="cash">Cash</option>
+                <option value="conventional">Conventional Investment</option>
+                <option value="conventional_second">Conventional Second Home</option>
+                <option value="other">Other</option>
+                <option value="cash">All Cash</option>
               </select>
             </div>
             <PctRow label="Down Payment" field="downPaymentPct" />
