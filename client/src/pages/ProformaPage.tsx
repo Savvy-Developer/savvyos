@@ -275,7 +275,17 @@ export default function ProformaPage() {
     isSavingRef.current = true;
     setSaving(true);
     try {
-      const formData = { ...currentForm };
+      // Include calculated summary fields for the list view
+      const formData = { ...currentForm } as any;
+      // Use calcRef for summary metrics
+      if (calcRef.current) {
+        const c = calcRef.current;
+        formData._calcGrossRevenue = c.s2?.grossRevenue > 0 ? c.s2.grossRevenue.toFixed(2) : null;
+        formData._calcNoi = c.s2?.noi ? c.s2.noi.toFixed(2) : null;
+        formData._calcCashFlow = c.s2?.cashFlow ? c.s2.cashFlow.toFixed(2) : null;
+        formData._calcCashOnCash = c.s2?.cashOnCash ? c.s2.cashOnCash.toFixed(4) : null;
+        formData._calcCapRate = c.s2?.capRate ? c.s2.capRate.toFixed(4) : null;
+      }
       if (editingIdRef.current) {
         await updateMutation.mutateAsync({ id: editingIdRef.current, title: titleRef.current, formData, notes: currentForm.notes });
       } else {
@@ -304,11 +314,22 @@ export default function ProformaPage() {
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [form, title, editing, doAutoSave]);
 
-  // Auto-load proforma from ?load=ID URL parameter
+  // Auto-load proforma from ?load=ID URL parameter, or auto-start new from ?new=true
   const loadIdFromUrl = (() => {
     const params = new URLSearchParams(searchString);
     return params.get("load") ? parseInt(params.get("load")!) : null;
   })();
+  const isNewFromUrl = (() => {
+    const params = new URLSearchParams(searchString);
+    return params.get("new") === "true";
+  })();
+  // Auto-start new proforma if ?new=true
+  useEffect(() => {
+    if (isNewFromUrl && !editing && !autoLoadDone) {
+      startNewProforma();
+      setAutoLoadDone(true);
+    }
+  }, [isNewFromUrl, userDefaults]);
   const { data: autoLoadProforma } = trpc.properties.getProforma.useQuery(
     { id: loadIdFromUrl! },
     { enabled: !!loadIdFromUrl && !autoLoadDone }
@@ -647,6 +668,9 @@ export default function ProformaPage() {
       isCashoutRefi, refi,
     };
   }, [form]);
+
+  const calcRef = useRef(calc);
+  calcRef.current = calc;
 
   // ─── Field Change Handler (stable reference) ──────────────────────────────
   const setField = useCallback((field: keyof ProformaForm, value: any) => {

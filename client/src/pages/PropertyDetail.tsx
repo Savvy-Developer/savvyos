@@ -257,7 +257,7 @@ export default function PropertyDetail() {
         subtitle={formatCityStateZip(property.city, property.state, property.zip)}
         actions={
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma`)}>
+            <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma?new=true`)}>
               <FileText className="h-4 w-4 mr-1" /> Create Pro-forma
             </Button>
             {isAdmin && (
@@ -492,7 +492,7 @@ export default function PropertyDetail() {
                 <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                   <FileText className="h-4 w-4" /> Pro-formas
                 </CardTitle>
-                <Button size="sm" onClick={() => navigate(`/properties/${id}/proforma`)}>
+                <Button size="sm" onClick={() => navigate(`/properties/${id}/proforma?new=true`)}>
                   <TrendingUp className="h-3.5 w-3.5 mr-1" /> Create Pro-forma
                 </Button>
               </div>
@@ -517,10 +517,12 @@ export default function PropertyDetail() {
                         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1"><User className="h-3 w-3" />{pf.creatorName || "Unknown"}</span>
                           <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatDate(pf.createdAt)}</span>
-                          {pf.updatedAt && pf.updatedAt !== pf.createdAt && (
-                            <span>Updated: {formatDate(pf.updatedAt)}</span>
-                          )}
-                          {pf.cashOnCash && <span>CoC: {(Number(pf.cashOnCash) * 100).toFixed(1)}%</span>}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+                          {pf.grossRevenue && <span className="font-medium">Rev: ${Number(pf.grossRevenue).toLocaleString(undefined, {maximumFractionDigits: 0})}</span>}
+                          {pf.noiAnnual && <span>NOI: ${Number(pf.noiAnnual).toLocaleString(undefined, {maximumFractionDigits: 0})}</span>}
+                          {pf.cashFlowAnnual && <span className={Number(pf.cashFlowAnnual) >= 0 ? "text-emerald-600" : "text-red-500"}>CF: ${Number(pf.cashFlowAnnual).toLocaleString(undefined, {maximumFractionDigits: 0})}</span>}
+                          {pf.cashOnCash && <span className="font-medium text-emerald-600">CoC: {(Number(pf.cashOnCash) * 100).toFixed(1)}%</span>}
                           {pf.capRate && <span>Cap: {(Number(pf.capRate) * 100).toFixed(1)}%</span>}
                         </div>
                       </div>
