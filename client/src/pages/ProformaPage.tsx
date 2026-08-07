@@ -406,7 +406,8 @@ export default function ProformaPage() {
     const buildingBasis = pp * (1 - parsePct(form.landAllocationPct));
     const acceleratedAmt = buildingBasis * parsePct(form.acceleratedDepreciationPct);
     const furnishingDeduction = furnishing;
-    const totalFirstYearDeduction = costSegEnabled ? acceleratedAmt + furnishingDeduction : furnishingDeduction;
+    const renovationDeduction = renovation; // Renovation also 100% bonus-eligible
+    const totalFirstYearDeduction = costSegEnabled ? acceleratedAmt + furnishingDeduction + renovationDeduction : furnishingDeduction + renovationDeduction;
     const taxSavings = totalFirstYearDeduction * parsePct(form.marginalTaxRate);
     const costSegCost = parseNum(form.costSegStudyCost);
     const netTaxBenefit = taxSavings - (costSegEnabled ? costSegCost : 0);
@@ -744,18 +745,18 @@ export default function ProformaPage() {
 
       <div className="mb-4">
         <Input className="text-lg font-semibold border-none shadow-none px-0 focus-visible:ring-0" value={title} onChange={e => setTitle(e.target.value)} placeholder="Pro-forma Title" />
-        <p className="text-sm text-slate-500">{property?.address ? `${property.address},` : ""} {property?.city} {property?.state} {property?.zip}</p>
+        <p className="text-sm text-slate-500">{[property?.address, [property?.city, property?.state, property?.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</p>
       </div>
 
       <Tabs defaultValue="acquisition" className="w-full">
         <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="acquisition" className="shrink-0 whitespace-nowrap text-xs"><Home className="h-3 w-3 mr-1" />Acquisition</TabsTrigger>
           <TabsTrigger value="financing" className="shrink-0 whitespace-nowrap text-xs"><Calculator className="h-3 w-3 mr-1" />Financing</TabsTrigger>
-          <TabsTrigger value="valueadd" className="shrink-0 whitespace-nowrap text-xs"><Home className="h-3 w-3 mr-1" />Value-Add / Refi</TabsTrigger>
           <TabsTrigger value="revenue" className="shrink-0 whitespace-nowrap text-xs"><DollarSign className="h-3 w-3 mr-1" />Revenue</TabsTrigger>
           <TabsTrigger value="expenses" className="shrink-0 whitespace-nowrap text-xs"><BarChart3 className="h-3 w-3 mr-1" />Expenses</TabsTrigger>
-          <TabsTrigger value="returns" className="shrink-0 whitespace-nowrap text-xs"><TrendingUp className="h-3 w-3 mr-1" />Returns</TabsTrigger>
           <TabsTrigger value="tax" className="shrink-0 whitespace-nowrap text-xs"><Shield className="h-3 w-3 mr-1" />Tax Benefits</TabsTrigger>
+          <TabsTrigger value="valueadd" className="shrink-0 whitespace-nowrap text-xs"><Home className="h-3 w-3 mr-1" />Value-Add / Refi</TabsTrigger>
+          <TabsTrigger value="returns" className="shrink-0 whitespace-nowrap text-xs"><TrendingUp className="h-3 w-3 mr-1" />Returns</TabsTrigger>
           <TabsTrigger value="comps" className="shrink-0 whitespace-nowrap text-xs"><BookOpen className="h-3 w-3 mr-1" />Comps</TabsTrigger>
           <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap text-xs"><FileText className="h-3 w-3 mr-1" />Notes</TabsTrigger>
         </TabsList>
@@ -769,6 +770,10 @@ export default function ProformaPage() {
                 <div className="flex-1">
                   <p className="text-sm font-medium">Import Details from Zillow</p>
                   <p className="text-xs text-slate-500">Auto-fills price, photo, insurance, and tax from Zillow listing data</p>
+                  <div className="mt-2 space-y-1">
+                    <Label className="text-xs font-medium text-slate-600">Property Listing Link</Label>
+                    <Input className="h-8 text-sm" value={form.propertyLink} onChange={e => setField("propertyLink", e.target.value)} placeholder="https://www.zillow.com/..." />
+                  </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={handleImportZillow} disabled={importingZillow}>
                   <Home className="h-3 w-3 mr-1" /> {importingZillow ? "Importing..." : "Import from Zillow"}
@@ -818,10 +823,6 @@ export default function ProformaPage() {
                   <Label className="text-xs font-medium text-slate-600">Seller Credit</Label>
                   <CurrencyInput value={form.sellerCredit} onChange={v => setField("sellerCredit", v)} placeholder="0" />
                   {parseNum(form.sellerCredit) > 0 && <p className="text-xs text-emerald-600 font-medium">Reduces cash to close by {fmtDollar(parseNum(form.sellerCredit))}</p>}
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium text-slate-600">Property Listing Link</Label>
-                  <Input className="h-8 text-sm" value={form.propertyLink} onChange={e => setField("propertyLink", e.target.value)} placeholder="https://..." />
                 </div>
               </CardContent>
             </Card>
@@ -893,6 +894,12 @@ export default function ProformaPage() {
                       <div className="relative">
                         <Input className="pr-6 h-8 text-sm" value={form.pmiPct} onChange={e => setField("pmiPct", e.target.value)} placeholder="0" />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-slate-500">Avg PMI rate: 0.60%</p>
+                        {parseFloat(form.downPaymentPct || "20") < 20 && form.pmiPct !== "0.60" && (
+                          <Button variant="ghost" size="sm" className="h-5 text-xs text-blue-600 p-0" onClick={() => setField("pmiPct", "0.60")}>Apply 0.60%</Button>
+                        )}
                       </div>
                       {calc.monthlyPMI > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.monthlyPMI * 12)}/yr</p>}
                     </div>
@@ -1144,12 +1151,12 @@ export default function ProformaPage() {
                       <h4 className="font-medium text-sm text-slate-700">{label}</h4>
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Average Daily Rate (ADR)</Label>
-                        <CurrencyInput value={(form as any)[`${prefix}ADR`]} onChange={v => setField(`${prefix}ADR` as any, v)} placeholder="250" />
+                        <CurrencyInput value={(form as any)[`${prefix}ADR`]} onChange={v => { const n = parseNum(v); setField(`${prefix}ADR` as any, n > 9999 ? "9999" : v); }} placeholder="250" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Occupancy Rate</Label>
                         <div className="relative">
-                          <Input className="pr-6 h-8 text-sm" value={(form as any)[`${prefix}Occupancy`]} onChange={e => setField(`${prefix}Occupancy` as any, e.target.value)} placeholder="65" />
+                          <Input className="pr-6 h-8 text-sm" value={(form as any)[`${prefix}Occupancy`]} onChange={e => { const v = e.target.value; const n = parseFloat(v); setField(`${prefix}Occupancy` as any, n > 100 ? "100" : v); }} placeholder="65" />
                           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
                         </div>
                       </div>
@@ -1161,6 +1168,13 @@ export default function ProformaPage() {
                         <Label className="text-xs font-medium text-slate-600">Cleaning Fee Revenue (annual)</Label>
                         <CurrencyInput value={(form as any)[`${prefix}CleaningFeeRevenue`]} onChange={v => setField(`${prefix}CleaningFeeRevenue` as any, v)} placeholder="0" />
                       </div>
+                      {parseNum((form as any)[`${prefix}CleaningFeeRevenue`]) > 0 && (
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium text-slate-600">Cleaning Cost per Turn</Label>
+                          <CurrencyInput value={form.cleaningCostPerTurn} onChange={v => setField("cleaningCostPerTurn", v)} placeholder="150" />
+                          {s.cleaningExpense > 0 && <p className="text-xs text-emerald-600 font-medium">Cost: {fmtDollar(s.cleaningExpense)}/yr | Net: {fmtDollar(parseNum((form as any)[`${prefix}CleaningFeeRevenue`]) - s.cleaningExpense)}/yr</p>}
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">Ancillary Revenue (annual)</Label>
                         <CurrencyInput value={(form as any)[`${prefix}AncillaryRevenue`]} onChange={v => setField(`${prefix}AncillaryRevenue` as any, v)} placeholder="0" />
@@ -1335,17 +1349,15 @@ export default function ProformaPage() {
                   </div>
                   {calc.s2.mgmtExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.mgmtExpense)}/yr (base case: {form.propertyMgmtPct}% × {fmtDollar(calc.s2.netRevenue)} net rev)</p>}
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium text-slate-600">Cleaning Cost per Turn</Label>
-                  {parseNum(form.scenario1CleaningFeeRevenue) === 0 && parseNum(form.scenario2CleaningFeeRevenue) === 0 && parseNum(form.scenario3CleaningFeeRevenue) === 0 ? (
-                    <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">To include cleaning costs, first add Cleaning Fee Revenue in the Revenue tab. Cleaning costs are only calculated when you charge guests a cleaning fee.</p>
-                  ) : (
-                    <>
-                      <CurrencyInput value={form.cleaningCostPerTurn} onChange={v => setField("cleaningCostPerTurn", v)} placeholder="150" />
-                      {calc.s2.cleaningExpense > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.cleaningExpense)}/yr (base case)</p>}
-                    </>
-                  )}
-                </div>
+                {calc.s2.cleaningExpense > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>Cleaning Cost ({fmtDollar(parseNum(form.cleaningCostPerTurn))}/turn)</span>
+                      <span className="font-medium">{fmtDollar(calc.s2.cleaningExpense)}/yr</span>
+                    </div>
+                    <p className="text-xs text-slate-400">Set on Revenue tab alongside cleaning fee revenue</p>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label className="text-xs font-medium text-slate-600">CapEx / Maintenance Reserve (% of gross revenue)</Label>
                   <div className="relative">
@@ -1584,6 +1596,7 @@ export default function ProformaPage() {
                   <div className="flex justify-between text-sm"><span>Building Basis (after land)</span><span className="font-medium">{fmtDollar(calc.buildingBasis)}</span></div>
                   {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Accelerated Depreciation</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
                   <div className="flex justify-between text-sm"><span>Furnishing Depreciation (100%)</span><span className="font-medium">{fmtDollar(calc.furnishing)}</span></div>
+                  {calc.renovation > 0 && <div className="flex justify-between text-sm"><span>Renovation Depreciation (100%)</span><span className="font-medium">{fmtDollar(calc.renovation)}</span></div>}
                   <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Total Year 1 Deduction</span><span>{fmtDollar(calc.totalFirstYearDeduction)}</span></div>
                   <div className="flex justify-between text-sm"><span>Tax Savings @ {form.marginalTaxRate}%</span><span className="font-medium text-emerald-700">{fmtDollar(calc.taxSavings)}</span></div>
                   {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Less: Study Cost</span><span className="text-red-500">-{fmtDollar(calc.costSegCost)}</span></div>}
@@ -1645,8 +1658,8 @@ export default function ProformaPage() {
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Name/Title</Label><Input className="h-7 text-xs" value={comp.name} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], name: e.target.value }; setField("comps", c); }} /></div>
-                        <div className="space-y-1"><Label className="text-xs">ADR</Label><Input className="h-7 text-xs" value={comp.adr} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], adr: e.target.value }; setField("comps", c); }} placeholder="$250" /></div>
-                        <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], occupancy: e.target.value }; setField("comps", c); }} placeholder="72" /></div>
+                        <div className="space-y-1"><Label className="text-xs">ADR</Label><div className="relative"><span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span><Input className="pl-4 h-7 text-xs" value={formatCurrencyInput(comp.adr?.replace(/[$]/g, "") || "")} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); const n = parseInt(v); const c = [...form.comps]; c[i] = { ...c[i], adr: n > 9999 ? "9999" : v }; setField("comps", c); }} placeholder="250" /></div></div>
+                        <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const v = e.target.value; const n = parseFloat(v); const c = [...form.comps]; c[i] = { ...c[i], occupancy: n > 100 ? "100" : v }; setField("comps", c); }} placeholder="72" /></div>
                         <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><Input className="h-7 text-xs bg-slate-50" value={compCalcRevenue > 0 ? `$${compCalcRevenue.toLocaleString()}` : (comp.annualRevenue || "")} readOnly={compCalcRevenue > 0} onChange={e => { if (compCalcRevenue === 0) { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: e.target.value }; setField("comps", c); } }} placeholder="Auto from ADR × Occ" /></div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
