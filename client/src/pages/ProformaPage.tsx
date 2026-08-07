@@ -823,56 +823,17 @@ export default function ProformaPage() {
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (!editing) {
-    return (
-      <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-        <div className="mb-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/properties/${propertyId}`)}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back to Property
-          </Button>
-        </div>
-        <PageHeader
-          title="Pro-forma Analysis"
-          subtitle={property ? `${property.address}, ${property.city} ${property.state}` : ""}
-          actions={<Button size="sm" onClick={startNewProforma}><Plus className="h-4 w-4 mr-1" /> New Pro-forma</Button>}
-        />
-        {proformas && proformas.length > 0 ? (
-          <div className="space-y-3 mt-6">
-            {proformas.map((p: any) => (
-              <Card key={p.id} className="cursor-pointer hover:border-cyan-300 transition-colors">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div onClick={() => handleLoad(p)} className="flex-1">
-                    <h3 className="font-medium text-sm">{p.title || "Untitled"}</h3>
-                    <div className="flex gap-4 mt-1 text-xs text-slate-500">
-                      {p.purchasePrice && <span>Purchase: {fmtDollar(parseFloat(p.purchasePrice))}</span>}
-                      {p.cashOnCash && <span>CoC: {fmtPct(parseFloat(p.cashOnCash))}</span>}
-                      {p.capRate && <span>Cap: {fmtPct(parseFloat(p.capRate))}</span>}
-                      <span>{new Date(p.createdAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)}><Trash2 className="h-4 w-4 text-red-400" /></Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : (
-          <Card className="mt-6">
-            <CardContent className="p-8 text-center">
-              <FileText className="h-12 w-12 mx-auto text-slate-300 mb-3" />
-              <p className="text-slate-500 mb-4">No pro-formas created yet for this property.</p>
-              <Button onClick={startNewProforma}><Plus className="h-4 w-4 mr-1" /> Create Pro-forma</Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    );
+    // No list page — redirect back to property detail which has the proformas list
+    navigate(`/properties/${propertyId}`);
+    return null;
   }
 
   // ─── EDITING VIEW ──────────────────────────────────────────────────────────
   return (
     <div className="p-4 max-w-7xl mx-auto">
       <div className="mb-3 flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setEditingId(null); setForm(defaultForm); }}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Back
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/properties/${propertyId}`)}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> Back to Property
         </Button>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => navigate("/proforma-defaults")}>
@@ -1254,14 +1215,23 @@ export default function ProformaPage() {
                                       <td className="p-2 text-right">{calc.refi?.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0</span> : fmtDollar(calc.refi?.cashLeftInDeal ?? 0)}</td>
                                       <td className="p-2 text-right">{calc.refi?.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0</span> : fmtDollar(calc.refi?.cashLeftInDeal ?? 0)}</td>
                                     </tr>
-                                    <tr className="border-b bg-emerald-50">
+                                    <tr className="border-b text-xs bg-blue-50">
+                                      <td className="p-2 text-blue-700">Effective Cash (after Yr 1 tax benefit)</td>
+                                      <td className="p-2 text-right text-blue-700">{fmtDollar(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit))}</td>
+                                      <td className="p-2 text-right text-blue-700">{fmtDollar(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit))}</td>
+                                      <td className="p-2 text-right text-blue-700">{fmtDollar(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit))}</td>
+                                      <td className="p-2 text-right text-blue-700">{fmtDollar(Math.max(0, (calc.refi?.cashLeftInDeal ?? 0) - calc.netTaxBenefit))}</td>
+                                      <td className="p-2 text-right text-blue-700">{fmtDollar(Math.max(0, (calc.refi?.cashLeftInDeal ?? 0) - calc.netTaxBenefit))}</td>
+                                      <td className="p-2 text-right text-blue-700">{fmtDollar(Math.max(0, (calc.refi?.cashLeftInDeal ?? 0) - calc.netTaxBenefit))}</td>
+                                    </tr>
+                                    <tr className="border-b bg-slate-50">
                                       <td className="p-2 font-bold">Cash-on-Cash Return</td>
                                       <td className="p-2 text-right font-bold">{fmtPct(calc.s1.cashOnCash)}</td>
                                       <td className="p-2 text-right font-bold">{fmtPct(calc.s2.cashOnCash)}</td>
                                       <td className="p-2 text-right font-bold">{fmtPct(calc.s3.cashOnCash)}</td>
-                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s1.infiniteReturn ? "∞" : fmtPct(calc.refi.s1.postRefiCoC)}</td>
-                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s2.infiniteReturn ? "∞" : fmtPct(calc.refi.s2.postRefiCoC)}</td>
-                                      <td className="p-2 text-right font-bold text-emerald-700">{calc.refi.s3.infiniteReturn ? "∞" : fmtPct(calc.refi.s3.postRefiCoC)}</td>
+                                      <td className="p-2 text-right font-bold">{calc.refi.s1.infiniteReturn ? "\u221e" : fmtPct(calc.refi.s1.postRefiCoC)}</td>
+                                      <td className="p-2 text-right font-bold">{calc.refi.s2.infiniteReturn ? "\u221e" : fmtPct(calc.refi.s2.postRefiCoC)}</td>
+                                      <td className="p-2 text-right font-bold">{calc.refi.s3.infiniteReturn ? "\u221e" : fmtPct(calc.refi.s3.postRefiCoC)}</td>
                                     </tr>
                                     <tr className="border-b">
                                       <td className="p-2">DSCR</td>
@@ -1429,7 +1399,7 @@ export default function ProformaPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Fixed Monthly Expenses</CardTitle>
-                  <Button size="sm" variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" onClick={() => setField("customFixedExpenses", [...(form.customFixedExpenses || []), { label: "", amount: "" }])}>
+                  <Button size="sm" variant="outline" onClick={() => setField("customFixedExpenses", [...(form.customFixedExpenses || []), { label: "", amount: "" }])}>
                     <Plus className="h-3 w-3 mr-1" /> Add Expense
                   </Button>
                 </div>
@@ -1514,7 +1484,7 @@ export default function ProformaPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Variable Expenses</CardTitle>
-                  <Button size="sm" variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" onClick={() => setField("customVariableExpenses", [...(form.customVariableExpenses || []), { label: "", amount: "" }])}>
+                  <Button size="sm" variant="outline" onClick={() => setField("customVariableExpenses", [...(form.customVariableExpenses || []), { label: "", amount: "" }])}>
                     <Plus className="h-3 w-3 mr-1" /> Add Expense
                   </Button>
                 </div>
@@ -1862,7 +1832,8 @@ export default function ProformaPage() {
                     const compAdr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
                     const compOcc = parseFloat(comp.occupancy?.replace(/%/g, "") || "0") / 100;
                     const compCalcRevenue = compAdr > 0 && compOcc > 0 ? Math.round(compAdr * compOcc * 365) : 0;
-                    const isSaved = comp.saved === true || comp.saved === "true";
+                    // Treat comps as saved if explicitly marked OR if they have data (loaded from DB)
+                    const isSaved = comp.saved === true || comp.saved === "true" || (comp.saved === undefined && (comp.name || comp.link));
 
                     // SAVED/DISPLAY MODE: show comp as text with edit button
                     if (isSaved) {
@@ -1910,7 +1881,7 @@ export default function ProformaPage() {
                           {compCalcRevenue > 0 && <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Gross: ${compCalcRevenue.toLocaleString()}/yr</span>}
                         </div>
                         <div className="flex gap-1">
-                          <Button variant="default" size="sm" className="text-xs bg-emerald-600 hover:bg-emerald-700" onClick={() => { const c = [...form.comps]; c[i] = { ...c[i], saved: true }; setField("comps", c); }}>
+                          <Button variant="default" size="sm" className="text-xs" onClick={() => { const c = [...form.comps]; c[i] = { ...c[i], saved: true }; setField("comps", c); }}>
                             <Save className="h-3 w-3 mr-1" /> Save
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => { const c = [...form.comps]; c.splice(i, 1); setField("comps", c); }}>

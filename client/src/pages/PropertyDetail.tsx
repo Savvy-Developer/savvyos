@@ -508,7 +508,7 @@ export default function PropertyDetail() {
               ) : (
                 <div className="space-y-2">
                   {proformasList.map((pf: any) => (
-                    <div key={pf.id} className="flex items-center justify-between border rounded-lg p-3 hover:bg-slate-50 transition-colors">
+                    <div key={pf.id} className="flex items-center justify-between border rounded-lg p-3 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate(`/properties/${id}/proforma?load=${pf.id}`)}>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm">{pf.title || "Untitled Pro-forma"}</span>
@@ -526,9 +526,6 @@ export default function PropertyDetail() {
                           {pf.capRate && <span>Cap: {(Number(pf.capRate) * 100).toFixed(1)}%</span>}
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/properties/${id}/proforma?load=${pf.id}`)}>
-                        View
-                      </Button>
                     </div>
                   ))}
                 </div>
