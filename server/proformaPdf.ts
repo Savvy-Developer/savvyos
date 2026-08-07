@@ -86,7 +86,18 @@ export function registerProformaPdfRoute(app: express.Application) {
         if (details.length) { doc.fontSize(8.5).fillColor("#94a3b8").text(details.join(" | "), 50, y); y += 12; }
       }
       doc.fontSize(7.5).fillColor("#94a3b8").text(`Report Date: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, 50, y);
-      y += 20;
+      y += 6;
+
+      // Property photo (from Zillow import)
+      if (form.propertyPhotoUrl) {
+        try {
+          const propPhoto = await fetchImage(form.propertyPhotoUrl);
+          doc.image(propPhoto, 50, y, { width: W, height: 120 });
+          y += 126;
+        } catch { y += 14; }
+      } else {
+        y += 14;
+      }
 
       // Key Metrics Boxes
       const boxW = W / 4 - 6;
@@ -373,19 +384,32 @@ export function registerProformaPdfRoute(app: express.Application) {
 
       // Comps
       if (form.comps && form.comps.length > 0) {
-        if (y > 580) { doc.addPage(); y = 50; }
+        if (y > 540) { doc.addPage(); y = 50; }
         doc.fontSize(10).fillColor(brandDark).text("Revenue Comparable Properties", 50, y, { underline: true });
         y += 15;
-        form.comps.forEach((comp: any, i: number) => {
-          doc.fontSize(7.5).fillColor(brandDark).text(`Comp ${i + 1}: ${comp.name || "—"}`, 50, y);
+        for (const [i, comp] of form.comps.entries()) {
+          if (y > 680) { doc.addPage(); y = 50; }
+          // Try to include comp photo
+          let photoLoaded = false;
+          if (comp.photoUrl) {
+            try {
+              const photoBuffer = await fetchImage(comp.photoUrl);
+              doc.image(photoBuffer, 50, y, { width: 40, height: 30 });
+              photoLoaded = true;
+            } catch {}
+          }
+          const textX = photoLoaded ? 96 : 50;
+          doc.fontSize(7.5).fillColor(brandDark).text(`Comp ${i + 1}: ${comp.name || "—"}`, textX, y);
           const details = [];
           if (comp.annualRevenue) details.push(`Rev: ${comp.annualRevenue}`);
           if (comp.occupancy) details.push(`Occ: ${comp.occupancy}%`);
           if (comp.adr) details.push(`ADR: ${comp.adr}`);
           if (comp.beds) details.push(`${comp.beds} beds`);
-          doc.fontSize(7).fillColor("#64748b").text(details.join(" | ") + (comp.notes ? ` — ${comp.notes}` : ""), 50, y + 10, { width: W });
-          y += 22;
-        });
+          if (comp.city) details.push(comp.city);
+          if (comp.rating) details.push(`⭐ ${comp.rating}${comp.reviewCount ? ` (${comp.reviewCount})` : ""}`);
+          doc.fontSize(7).fillColor("#64748b").text(details.join(" | ") + (comp.notes ? ` — ${comp.notes}` : ""), textX, y + 10, { width: W - (photoLoaded ? 46 : 0) });
+          y += photoLoaded ? 36 : 24;
+        }
         y += 8;
       }
 

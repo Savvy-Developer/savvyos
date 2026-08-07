@@ -751,6 +751,37 @@ export const propertiesRouter = router({
       };
     }),
 
+  // ─── List All Comps (for Import Existing Comps) ──────────────────────────────
+  listAllComps: protectedProcedure
+    .input(z.object({ isAdmin: z.boolean().optional() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      // Get all proformas (admin sees all, agent sees only theirs)
+      let rows: any;
+      if (input?.isAdmin && ctx.user.role === "admin") {
+        const result = await db.execute(sql`SELECT p.formData, p.createdByUserId, u.name as userName FROM proformas p LEFT JOIN users u ON p.createdByUserId = u.id`);
+        rows = result[0];
+      } else {
+        const result = await db.execute(sql`SELECT p.formData, p.createdByUserId, u.name as userName FROM proformas p LEFT JOIN users u ON p.createdByUserId = u.id WHERE p.createdByUserId = ${ctx.user.id}`);
+        rows = result[0];
+      }
+      // Extract comps from each proforma's formData
+      const allComps: any[] = [];
+      for (const row of (rows as any[])) {
+        try {
+          const formData = typeof row.formData === "string" ? JSON.parse(row.formData) : row.formData;
+          const comps = formData?.comps || [];
+          for (const comp of comps) {
+            if (comp.name || comp.annualRevenue || comp.adr) {
+              allComps.push({ ...comp, addedBy: row.userName || "Unknown" });
+            }
+          }
+        } catch {}
+      }
+      return allComps;
+    }),
+
   // ─── Pro-forma Defaults (per user) ─────────────────────────────────────────
   getProformaDefaults: protectedProcedure
     .input(z.object({ userId: z.number().optional() }).optional())

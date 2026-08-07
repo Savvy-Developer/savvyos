@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
 import { registerUploadRoutes } from "../uploadRoutes";
 import { registerProformaPdfRoute } from "../proformaPdf";
+import { registerExternalApiRoutes } from "../externalApis";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -95,6 +96,8 @@ async function startServer() {
   registerUploadRoutes(app);
   // Pro-forma PDF generation
   registerProformaPdfRoute(app);
+  // External API proxies (Zillow, Airbnb)
+  registerExternalApiRoutes(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC
   registerWebhookRoute(app);
 

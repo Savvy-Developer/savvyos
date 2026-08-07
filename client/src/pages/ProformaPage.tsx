@@ -53,6 +53,8 @@ interface ProformaForm {
   startupCosts: string;
   inspectionCosts: string;
   propertyLink: string;
+  propertyPhotoUrl: string;
+  propertyDescription: string;
   // Financing (down payment moved here)
   downPaymentPct: string;
   interestRate: string;
@@ -124,7 +126,7 @@ interface ProformaForm {
   marginalTaxRate: string;
   costSegStudyCost: string;
   // Comps
-  comps: Array<{ name: string; annualRevenue: string; occupancy: string; adr: string; beds: string; link: string; notes: string; }>;
+  comps: Array<{ name: string; annualRevenue: string; occupancy: string; adr: string; beds: string; link: string; notes: string; photoUrl?: string; rating?: string; reviewCount?: string; city?: string; }>;
   // Notes
   notes: string;
   revenueMethodology: string;
@@ -138,6 +140,8 @@ const defaultForm: ProformaForm = {
   startupCosts: "5000",
   inspectionCosts: "1500",
   propertyLink: "",
+  propertyPhotoUrl: "",
+  propertyDescription: "",
   downPaymentPct: "20",
   interestRate: "7",
   loanTermYears: "30",
@@ -218,6 +222,11 @@ export default function ProformaPage() {
   const [title, setTitle] = useState("STR Investment Analysis");
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [importingZillow, setImportingZillow] = useState(false);
+  const [importingAirbnb, setImportingAirbnb] = useState(false);
+  const [airbnbImportUrl, setAirbnbImportUrl] = useState("");
+  const [showAirbnbImport, setShowAirbnbImport] = useState(false);
+  const [showExistingComps, setShowExistingComps] = useState(false);
 
   const { data: property } = trpc.properties.get.useQuery({ id: propertyId });
   const { data: proformas, refetch } = trpc.properties.listProformas.useQuery({ propertyId });
@@ -604,6 +613,67 @@ export default function ProformaPage() {
     setDownloading(false);
   };
 
+  // ─── IMPORT HANDLERS ──────────────────────────────────────────────────────
+  const handleImportZillow = async () => {
+    if (!property) return;
+    const address = [property.address, property.city, property.state, property.zip].filter(Boolean).join(", ");
+    if (!address) { alert("No property address available to look up."); return; }
+    setImportingZillow(true);
+    try {
+      const response = await fetch("/api/external/zillow-lookup", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const { data } = await response.json();
+      if (!data) throw new Error("No data returned from Zillow");
+      // Auto-fill fields from Zillow data
+      const updates: Partial<ProformaForm> = {};
+      if (data.price && !form.purchasePrice) updates.purchasePrice = String(data.price);
+      if (data.photoUrl) updates.propertyPhotoUrl = data.photoUrl;
+      if (data.description) updates.propertyDescription = data.description.substring(0, 500);
+      if (data.zillowUrl && !form.propertyLink) updates.propertyLink = data.zillowUrl;
+      if (data.annualInsurance) updates.expInsuranceAnnual = String(Math.round(data.annualInsurance));
+      if (data.taxHistory?.taxPaid) updates.expPropertyTaxAnnual = String(Math.round(data.taxHistory.taxPaid));
+      if (Object.keys(updates).length > 0) {
+        setForm(prev => ({ ...prev, ...updates }));
+      }
+      alert(`Imported from Zillow:\n• Price: $${data.price?.toLocaleString() || "N/A"}\n• ${data.bedrooms || "?"} beds / ${data.bathrooms || "?"} baths / ${data.sqft?.toLocaleString() || "?"} sqft\n• Year Built: ${data.yearBuilt || "N/A"}\n• Photo: ${data.photoUrl ? "Yes" : "No"}\n• Insurance: $${data.annualInsurance?.toLocaleString() || "N/A"}/yr\n• Tax: $${data.taxHistory?.taxPaid?.toLocaleString() || "N/A"}/yr`);
+    } catch (e: any) { alert(`Zillow import failed: ${e.message}`); }
+    setImportingZillow(false);
+  };
+
+  const handleImportAirbnb = async (url: string, compIndex: number) => {
+    if (!url) { alert("Please enter an Airbnb listing URL."); return; }
+    setImportingAirbnb(true);
+    try {
+      const response = await fetch("/api/external/airbnb-lookup", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const { data } = await response.json();
+      if (!data) throw new Error("No data returned from Airbnb");
+      // Update the comp at the given index
+      const comps = [...form.comps];
+      comps[compIndex] = {
+        ...comps[compIndex],
+        name: data.title || comps[compIndex].name,
+        beds: data.bedrooms ? String(data.bedrooms) : comps[compIndex].beds,
+        link: data.airbnbUrl || comps[compIndex].link,
+        notes: `Rating: ${data.rating || "N/A"} (${data.reviewCount || 0} reviews). ${data.roomType || ""}. ${data.isSuperhost ? "Superhost." : ""}`,
+        photoUrl: data.photos?.[0] || "",
+        rating: data.rating ? String(data.rating) : "",
+        reviewCount: data.reviewCount ? String(data.reviewCount) : "",
+      };
+      setField("comps", comps);
+      alert(`Imported from Airbnb:\n• Title: ${data.title}\n• Rating: ${data.rating} (${data.reviewCount} reviews)\n• Beds: ${data.bedrooms || "N/A"}\n• Photo: ${data.photos?.length ? "Yes" : "No"}`);
+    } catch (e: any) { alert(`Airbnb import failed: ${e.message}`); }
+    setImportingAirbnb(false);
+  };
+
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (!editing) {
     return (
@@ -726,6 +796,17 @@ export default function ProformaPage() {
                   <Label className="text-xs font-medium text-slate-600">Property Listing Link</Label>
                   <Input className="h-8 text-sm" value={form.propertyLink} onChange={e => setField("propertyLink", e.target.value)} placeholder="https://..." />
                 </div>
+                <div className="pt-2 border-t">
+                  <Button variant="outline" size="sm" className="w-full" onClick={handleImportZillow} disabled={importingZillow}>
+                    <Home className="h-3 w-3 mr-1" /> {importingZillow ? "Importing from Zillow..." : "Import Details from Zillow"}
+                  </Button>
+                  <p className="text-xs text-slate-400 mt-1">Auto-fills price, photo, insurance, and tax from Zillow listing data</p>
+                </div>
+                {form.propertyPhotoUrl && (
+                  <div className="pt-2">
+                    <img src={form.propertyPhotoUrl} alt="Property" className="w-full h-32 object-cover rounded border" />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1483,9 +1564,14 @@ export default function ProformaPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm">Revenue Comparable Properties</CardTitle>
-                <Button size="sm" variant="outline" onClick={() => setField("comps", [...form.comps, { name: "", annualRevenue: "", occupancy: "", adr: "", beds: "", link: "", notes: "" }])}>
-                  <Plus className="h-3 w-3 mr-1" /> Add Comp
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setShowExistingComps(true)}>
+                    <BookOpen className="h-3 w-3 mr-1" /> Import Existing Comps
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setField("comps", [...form.comps, { name: "", annualRevenue: "", occupancy: "", adr: "", beds: "", link: "", notes: "" }])}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Comp
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1496,7 +1582,10 @@ export default function ProformaPage() {
                   {form.comps.map((comp, i) => (
                     <div key={i} className="border rounded p-3 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-slate-500">Comp {i + 1}</span>
+                        <div className="flex items-center gap-2">
+                          {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-10 h-10 rounded object-cover" />}
+                          <span className="text-xs font-medium text-slate-500">Comp {i + 1}{comp.rating ? ` • ⭐ ${comp.rating}` : ""}{comp.reviewCount ? ` (${comp.reviewCount} reviews)` : ""}</span>
+                        </div>
                         <Button variant="ghost" size="sm" onClick={() => { const c = [...form.comps]; c.splice(i, 1); setField("comps", c); }}>
                           <Trash2 className="h-3 w-3 text-red-400" />
                         </Button>
@@ -1507,17 +1596,42 @@ export default function ProformaPage() {
                         <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], occupancy: e.target.value }; setField("comps", c); }} placeholder="72%" /></div>
                         <div className="space-y-1"><Label className="text-xs">ADR</Label><Input className="h-7 text-xs" value={comp.adr} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], adr: e.target.value }; setField("comps", c); }} placeholder="$250" /></div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Beds</Label><Input className="h-7 text-xs" value={comp.beds} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], beds: e.target.value }; setField("comps", c); }} /></div>
+                        <div className="space-y-1"><Label className="text-xs">City</Label><Input className="h-7 text-xs" value={comp.city || ""} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], city: e.target.value }; setField("comps", c); }} placeholder="Gatlinburg" /></div>
                         <div className="space-y-1 col-span-2"><Label className="text-xs">Link</Label><Input className="h-7 text-xs" value={comp.link} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], link: e.target.value }; setField("comps", c); }} placeholder="https://..." /></div>
                       </div>
                       <div className="space-y-1"><Label className="text-xs">Notes</Label><Input className="h-7 text-xs" value={comp.notes} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], notes: e.target.value }; setField("comps", c); }} placeholder="Similar property, hot tub, mountain view..." /></div>
+                      {/* Airbnb Import Button */}
+                      {comp.link && comp.link.includes("airbnb") && !comp.photoUrl && (
+                        <Button variant="ghost" size="sm" className="text-xs text-blue-600" onClick={() => handleImportAirbnb(comp.link, i)} disabled={importingAirbnb}>
+                          {importingAirbnb ? "Importing..." : "Import details from Airbnb"}
+                        </Button>
+                      )}
+                      {!comp.link && (
+                        <div className="flex items-center gap-2">
+                          <Input className="h-7 text-xs flex-1" placeholder="Paste Airbnb URL to auto-import..." onKeyDown={e => { if (e.key === "Enter") { const url = (e.target as HTMLInputElement).value; if (url.includes("airbnb")) { const c = [...form.comps]; c[i] = { ...c[i], link: url }; setField("comps", c); handleImportAirbnb(url, i); } } }} />
+                          <Button variant="ghost" size="sm" className="text-xs text-blue-600" onClick={() => { const linkEl = document.querySelector(`[data-comp-link-${i}]`) as HTMLInputElement; if (linkEl?.value) handleImportAirbnb(linkEl.value, i); }}>
+                            Import
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Import Existing Comps Modal */}
+          {showExistingComps && (
+            <ExistingCompsModal
+              onClose={() => setShowExistingComps(false)}
+              onImport={(comps) => { setField("comps", [...form.comps, ...comps]); setShowExistingComps(false); }}
+              isAdmin={(user as any)?.role === "admin"}
+              userId={(user as any)?.id}
+            />
+          )}
         </TabsContent>
 
         {/* ─── TAB: NOTES ──────────────────────────────────────────────────── */}
@@ -1538,6 +1652,140 @@ export default function ProformaPage() {
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+
+// ─── EXISTING COMPS MODAL ─────────────────────────────────────────────────────
+function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
+  onClose: () => void;
+  onImport: (comps: any[]) => void;
+  isAdmin: boolean;
+  userId: number;
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [filterBeds, setFilterBeds] = useState("");
+  const [filterCity, setFilterCity] = useState("");
+  const [filterMinRevenue, setFilterMinRevenue] = useState("");
+  const [filterMaxRevenue, setFilterMaxRevenue] = useState("");
+  const [filterMinADR, setFilterMinADR] = useState("");
+
+  // Fetch all comps from other proformas
+  const { data: allComps = [] } = trpc.properties.listAllComps.useQuery({ isAdmin });
+
+  // Filter comps
+  const filteredComps = (allComps as any[]).filter((comp: any) => {
+    if (filterBeds && comp.beds && !comp.beds.includes(filterBeds)) return false;
+    if (filterCity && comp.city && !comp.city.toLowerCase().includes(filterCity.toLowerCase())) return false;
+    if (filterMinRevenue) {
+      const rev = parseFloat(comp.annualRevenue?.replace(/[$,]/g, "") || "0");
+      if (rev < parseFloat(filterMinRevenue)) return false;
+    }
+    if (filterMaxRevenue) {
+      const rev = parseFloat(comp.annualRevenue?.replace(/[$,]/g, "") || "0");
+      if (rev > parseFloat(filterMaxRevenue)) return false;
+    }
+    if (filterMinADR) {
+      const adr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
+      if (adr < parseFloat(filterMinADR)) return false;
+    }
+    return true;
+  });
+
+  const toggleSelect = (idx: number) => {
+    const next = new Set(selected);
+    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    setSelected(next);
+  };
+
+  const handleImport = () => {
+    const compsToImport = filteredComps.filter((_: any, i: number) => selected.has(i)).map((c: any) => ({
+      name: c.name || "",
+      annualRevenue: c.annualRevenue || "",
+      occupancy: c.occupancy || "",
+      adr: c.adr || "",
+      beds: c.beds || "",
+      link: c.link || "",
+      notes: c.notes || "",
+      photoUrl: c.photoUrl || "",
+      rating: c.rating || "",
+      reviewCount: c.reviewCount || "",
+      city: c.city || "",
+    }));
+    onImport(compsToImport);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+        <div className="p-4 border-b flex items-center justify-between">
+          <h3 className="font-semibold text-lg">Import Existing Comps</h3>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleImport} disabled={selected.size === 0}>
+              Import {selected.size} Selected
+            </Button>
+            <Button size="sm" variant="outline" onClick={onClose}>Close</Button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="p-3 border-b bg-slate-50">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Beds</Label>
+              <Input className="h-7 text-xs" value={filterBeds} onChange={e => setFilterBeds(e.target.value)} placeholder="e.g. 3" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">City</Label>
+              <Input className="h-7 text-xs" value={filterCity} onChange={e => setFilterCity(e.target.value)} placeholder="Gatlinburg" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Min Revenue</Label>
+              <Input className="h-7 text-xs" value={filterMinRevenue} onChange={e => setFilterMinRevenue(e.target.value)} placeholder="50000" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Max Revenue</Label>
+              <Input className="h-7 text-xs" value={filterMaxRevenue} onChange={e => setFilterMaxRevenue(e.target.value)} placeholder="200000" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Min ADR</Label>
+              <Input className="h-7 text-xs" value={filterMinADR} onChange={e => setFilterMinADR(e.target.value)} placeholder="200" />
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">{filteredComps.length} comps found{!isAdmin ? " (your comps only)" : " (all users)"}</p>
+        </div>
+
+        {/* Comp List */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {filteredComps.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-8">No comps match your filters.</p>
+          ) : (
+            <div className="space-y-2">
+              {filteredComps.map((comp: any, i: number) => (
+                <div
+                  key={i}
+                  className={`border rounded p-2 cursor-pointer transition-colors ${selected.has(i) ? "border-emerald-500 bg-emerald-50" : "hover:bg-slate-50"}`}
+                  onClick={() => toggleSelect(i)}
+                >
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={selected.has(i)} readOnly className="rounded" />
+                    {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-10 h-10 rounded object-cover" />}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{comp.name || "Unnamed Comp"}</p>
+                      <p className="text-xs text-slate-500">
+                        {comp.beds ? `${comp.beds} beds` : ""}{comp.city ? ` • ${comp.city}` : ""}{comp.annualRevenue ? ` • Rev: ${comp.annualRevenue}` : ""}{comp.adr ? ` • ADR: ${comp.adr}` : ""}{comp.occupancy ? ` • Occ: ${comp.occupancy}` : ""}
+                      </p>
+                    </div>
+                    {comp.rating && <span className="text-xs text-amber-600">⭐ {comp.rating}</span>}
+                    {comp.addedBy && <span className="text-xs text-slate-400">{comp.addedBy}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
