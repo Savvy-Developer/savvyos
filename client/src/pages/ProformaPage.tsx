@@ -766,22 +766,21 @@ export default function ProformaPage() {
           {/* Import from Zillow - at the top */}
           <Card className="mb-4 border-blue-200 bg-blue-50/30">
             <CardContent className="p-3">
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
+              <div className="flex items-center justify-between mb-2">
+                <div>
                   <p className="text-sm font-medium">Import Details from Zillow</p>
                   <p className="text-xs text-slate-500">Auto-fills price, photo, insurance, and tax from Zillow listing data</p>
-                  <div className="mt-2 space-y-1">
-                    <Label className="text-xs font-medium text-slate-600">Property Listing Link</Label>
-                    <Input className="h-8 text-sm" value={form.propertyLink} onChange={e => setField("propertyLink", e.target.value)} placeholder="https://www.zillow.com/..." />
-                  </div>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleImportZillow} disabled={importingZillow}>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input className="h-8 text-sm flex-1" value={form.propertyLink} onChange={e => setField("propertyLink", e.target.value)} placeholder="https://www.zillow.com/homedetails/..." />
+                <Button variant="outline" size="sm" className="shrink-0" onClick={handleImportZillow} disabled={importingZillow}>
                   <Home className="h-3 w-3 mr-1" /> {importingZillow ? "Importing..." : "Import from Zillow"}
                 </Button>
               </div>
               {form.propertyPhotoUrl && (
-                <div className="mt-2">
-                  <img src={form.propertyPhotoUrl} alt="Property" className="w-full h-32 object-cover rounded border" />
+                <div className="mt-3">
+                  <img src={form.propertyPhotoUrl} alt="Property" className="w-full max-h-48 object-contain rounded border bg-white" />
                 </div>
               )}
             </CardContent>
@@ -1068,13 +1067,21 @@ export default function ProformaPage() {
                                   <tbody>
                                     <tr className="border-b">
                                       <td className="p-2">Monthly Mortgage</td>
-                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.monthlyMortgage)}</td>
-                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.refi.refiMonthlyMortgage)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.monthlyMortgage)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.monthlyMortgage)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.monthlyMortgage)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi?.refiMonthlyMortgage ?? 0)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi?.refiMonthlyMortgage ?? 0)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi?.refiMonthlyMortgage ?? 0)}</td>
                                     </tr>
                                     <tr className="border-b">
                                       <td className="p-2">Annual Debt Service</td>
-                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.annualDebtService)}</td>
-                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.refi.refiAnnualDebtService)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.annualDebtService)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.annualDebtService)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.annualDebtService)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi?.refiAnnualDebtService ?? 0)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi?.refiAnnualDebtService ?? 0)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.refi?.refiAnnualDebtService ?? 0)}</td>
                                     </tr>
                                     <tr className="border-b">
                                       <td className="p-2 font-medium">Annual Cash Flow</td>
@@ -1096,8 +1103,12 @@ export default function ProformaPage() {
                                     </tr>
                                     <tr className="border-b">
                                       <td className="p-2">Cash in Deal</td>
-                                      <td className="p-2 text-right" colSpan={3}>{fmtDollar(calc.totalCashNeeded)}</td>
-                                      <td className="p-2 text-right" colSpan={3}>{calc.refi.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0 (pulled out more!)</span> : fmtDollar(calc.refi.cashLeftInDeal)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.totalCashNeeded)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.totalCashNeeded)}</td>
+                                      <td className="p-2 text-right">{fmtDollar(calc.totalCashNeeded)}</td>
+                                      <td className="p-2 text-right">{calc.refi?.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0</span> : fmtDollar(calc.refi?.cashLeftInDeal ?? 0)}</td>
+                                      <td className="p-2 text-right">{calc.refi?.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0</span> : fmtDollar(calc.refi?.cashLeftInDeal ?? 0)}</td>
+                                      <td className="p-2 text-right">{calc.refi?.cashLeftInDeal <= 0 ? <span className="text-emerald-700 font-bold">$0</span> : fmtDollar(calc.refi?.cashLeftInDeal ?? 0)}</td>
                                     </tr>
                                     <tr className="border-b bg-emerald-50">
                                       <td className="p-2 font-bold">Cash-on-Cash Return</td>
