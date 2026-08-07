@@ -243,16 +243,27 @@ export default function ProformaPage() {
   const titleRef = useRef(title);
   const editingIdRef = useRef(editingId);
   const isSavingRef = useRef(false);
+  const hasDirtyChanges = useRef(false);
+  const pendingSaveNeeded = useRef(false);
+  const lastSavedForm = useRef<string>("");
   formRef.current = form;
   titleRef.current = title;
   editingIdRef.current = editingId;
 
   const doAutoSave = useCallback(async () => {
-    if (isSavingRef.current) return;
+    if (isSavingRef.current) {
+      // Mark that we need another save after the current one finishes
+      pendingSaveNeeded.current = true;
+      return;
+    }
+    const currentForm = formRef.current;
+    const formJson = JSON.stringify(currentForm);
+    // Don't save if nothing changed since last save
+    if (formJson === lastSavedForm.current && editingIdRef.current) return;
+    
     isSavingRef.current = true;
     setSaving(true);
     try {
-      const currentForm = formRef.current;
       const formData = { ...currentForm };
       if (editingIdRef.current) {
         await updateMutation.mutateAsync({ id: editingIdRef.current, title: titleRef.current, formData, notes: currentForm.notes });
@@ -260,14 +271,23 @@ export default function ProformaPage() {
         const result = await createMutation.mutateAsync({ propertyId, title: titleRef.current, formData, notes: currentForm.notes });
         setEditingId(result.id);
       }
+      lastSavedForm.current = formJson;
+      hasDirtyChanges.current = false;
     } catch (e) { console.error("Auto-save failed:", e); }
     isSavingRef.current = false;
     setSaving(false);
+    // If changes came in while we were saving, save again
+    if (pendingSaveNeeded.current) {
+      pendingSaveNeeded.current = false;
+      setTimeout(() => doAutoSave(), 500);
+    }
   }, [propertyId]);
 
-  // Trigger auto-save whenever form or title changes (only when editing)
+  // Trigger auto-save whenever form or title changes (only when editing AND user has made changes)
   useEffect(() => {
     if (!editing) return;
+    // Skip the initial render when editing first becomes true (no user changes yet)
+    if (!hasDirtyChanges.current) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => { doAutoSave(); }, 2000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
@@ -550,6 +570,7 @@ export default function ProformaPage() {
 
   // ─── Field Change Handler (stable reference) ──────────────────────────────
   const setField = useCallback((field: keyof ProformaForm, value: any) => {
+    hasDirtyChanges.current = true;
     setForm(prev => ({ ...prev, [field]: value }));
   }, []);
 
@@ -562,10 +583,14 @@ export default function ProformaPage() {
 
   const handleLoad = (proforma: any) => {
     const fd = proforma.formData as ProformaForm;
-    setForm({ ...defaultForm, ...fd });
+    const loadedForm = { ...defaultForm, ...fd };
+    setForm(loadedForm);
     setTitle(proforma.title || "STR Investment Analysis");
     setEditingId(proforma.id);
     setEditing(true);
+    // Mark the loaded state as the "last saved" so we don't re-save unchanged data
+    lastSavedForm.current = JSON.stringify(loadedForm);
+    hasDirtyChanges.current = false;
   };
 
   const handleDelete = async (id: number) => {
@@ -640,6 +665,7 @@ export default function ProformaPage() {
       if (data.annualInsurance) updates.expInsuranceAnnual = String(Math.round(data.annualInsurance));
       if (data.taxHistory?.taxPaid) updates.expPropertyTaxAnnual = String(Math.round(data.taxHistory.taxPaid));
       if (Object.keys(updates).length > 0) {
+        hasDirtyChanges.current = true;
         setForm(prev => ({ ...prev, ...updates }));
       }
       alert(`Imported from Zillow:\n• Price: $${data.price?.toLocaleString() || "N/A"}\n• ${data.bedrooms || "?"} beds / ${data.bathrooms || "?"} baths / ${data.sqft?.toLocaleString() || "?"} sqft\n• Year Built: ${data.yearBuilt || "N/A"}\n• Photo: ${data.photoUrl ? "Yes" : "No"}\n• Insurance: $${data.annualInsurance?.toLocaleString() || "N/A"}/yr\n• Tax: $${data.taxHistory?.taxPaid?.toLocaleString() || "N/A"}/yr`);
@@ -738,7 +764,7 @@ export default function ProformaPage() {
             <Download className="h-4 w-4 mr-1" /> {downloading ? "Generating..." : "Download PDF"}
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
-            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : "Saved"}
+            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : hasDirtyChanges.current ? "Save" : "Saved"}
           </Button>
         </div>
       </div>
