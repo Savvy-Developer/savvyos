@@ -46,7 +46,7 @@ export function registerExternalApiRoutes(app: express.Application) {
         lotSize: pd.lotAreaValue || null,
         lotSizeUnit: pd.lotAreaUnit || "acres",
         description: pd.description || null,
-        photoUrl: pd.hiResImageLink || null,
+        photoUrl: pd.hiResImageLink || pd.imgSrc || (pd.originalPhotos?.[0]?.mixedSources?.jpeg?.[1]?.url) || (pd.originalPhotos?.[0]?.mixedSources?.jpeg?.[0]?.url) || data?.imgSrc || null,
         address: pd.address || null,
         latitude: pd.latitude || null,
         longitude: pd.longitude || null,
@@ -182,6 +182,14 @@ export function registerExternalApiRoutes(app: express.Application) {
       if (bedroomMatch) bedrooms = parseInt(bedroomMatch[1]);
       if (bathroomMatch) bathrooms = parseInt(bathroomMatch[1]);
 
+      // Extract city from loggingContext or title
+      let city: string | null = loggingContext.listingCity || loggingContext.city || null;
+      if (!city) {
+        // Try to extract from title patterns like "Cabin in Gatlinburg" or "Home in Nashville"
+        const cityMatch = title.match(/(?:in|near)\s+([A-Z][a-zA-Z\s]+?)(?:,|$|\s*[-·•])/i);
+        if (cityMatch) city = cityMatch[1].trim();
+      }
+
       const result = {
         source: "airbnb",
         listingId: id,
@@ -193,6 +201,7 @@ export function registerExternalApiRoutes(app: express.Application) {
         bedrooms,
         bathrooms,
         guests,
+        city,
         roomType: loggingContext.roomType || null,
         isSuperhost: loggingContext.isSuperhost || false,
         latitude: loggingContext.listingLat || null,

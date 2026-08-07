@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
 import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings } from "lucide-react";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 // ─── Formatting Helpers ──────────────────────────────────────────────────────
@@ -213,6 +213,7 @@ const defaultForm: ProformaForm = {
 export default function ProformaPage() {
   const { id: propId } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const searchString = useSearch();
   const { user } = useAuth();
   const propertyId = parseInt(propId || "0");
 
@@ -227,6 +228,7 @@ export default function ProformaPage() {
   const [airbnbImportUrl, setAirbnbImportUrl] = useState("");
   const [showAirbnbImport, setShowAirbnbImport] = useState(false);
   const [showExistingComps, setShowExistingComps] = useState(false);
+  const [autoLoadDone, setAutoLoadDone] = useState(false);
 
   const { data: property } = trpc.properties.get.useQuery({ id: propertyId });
   const { data: proformas, refetch } = trpc.properties.listProformas.useQuery({ propertyId });
@@ -292,6 +294,28 @@ export default function ProformaPage() {
     autoSaveTimer.current = setTimeout(() => { doAutoSave(); }, 2000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [form, title, editing, doAutoSave]);
+
+  // Auto-load proforma from ?load=ID URL parameter
+  const loadIdFromUrl = (() => {
+    const params = new URLSearchParams(searchString);
+    return params.get("load") ? parseInt(params.get("load")!) : null;
+  })();
+  const { data: autoLoadProforma } = trpc.properties.getProforma.useQuery(
+    { id: loadIdFromUrl! },
+    { enabled: !!loadIdFromUrl && !autoLoadDone }
+  );
+  useEffect(() => {
+    if (autoLoadDone || !loadIdFromUrl || !autoLoadProforma) return;
+    const fd = (autoLoadProforma.formData || {}) as ProformaForm;
+    const loadedForm = { ...defaultForm, ...fd };
+    setForm(loadedForm);
+    setTitle(autoLoadProforma.title || "STR Investment Analysis");
+    setEditingId(autoLoadProforma.id);
+    setEditing(true);
+    lastSavedForm.current = JSON.stringify(loadedForm);
+    hasDirtyChanges.current = false;
+    setAutoLoadDone(true);
+  }, [autoLoadProforma, loadIdFromUrl, autoLoadDone]);
 
   // ─── CALCULATIONS ──────────────────────────────────────────────────────────
   const calc = useMemo(() => {
@@ -614,9 +638,12 @@ export default function ProformaPage() {
             monthlyMortgage: calc.monthlyMortgage, annualDebtService: calc.annualDebtService,
             fixedMonthly: calc.fixedMonthly, fixedAnnual: calc.fixedAnnual,
             blendedFeeRate: calc.blendedFeeRate,
+            furnishing: calc.furnishing, renovation: calc.renovation,
+            startup: calc.startup, inspection: calc.inspection, sellerCredit: calc.sellerCredit,
             s1: calc.s1, s2: calc.s2, s3: calc.s3, fiveYear: calc.fiveYear,
             irr: calc.irr, sellingCostsPct: calc.sellingCostsPct,
-            costSegEnabled: calc.costSegEnabled, totalFirstYearDeduction: calc.totalFirstYearDeduction,
+            costSegEnabled: calc.costSegEnabled, costSegCost: calc.costSegCost,
+            totalFirstYearDeduction: calc.totalFirstYearDeduction,
             taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
             isValueAdd: calc.isValueAdd, arv: calc.arv, forcedEquity: calc.forcedEquity,
             equityCreatedByReno: calc.equityCreatedByReno, isCashoutRefi: calc.isCashoutRefi, refi: calc.refi,
@@ -661,7 +688,7 @@ export default function ProformaPage() {
       if (data.price && !form.purchasePrice) updates.purchasePrice = String(data.price);
       if (data.photoUrl) updates.propertyPhotoUrl = data.photoUrl;
       if (data.description) updates.propertyDescription = data.description.substring(0, 500);
-      if (data.zillowUrl && !form.propertyLink) updates.propertyLink = data.zillowUrl;
+      if (data.zillowUrl) updates.propertyLink = data.zillowUrl;
       if (data.annualInsurance) updates.expInsuranceAnnual = String(Math.round(data.annualInsurance));
       if (data.taxHistory?.taxPaid) updates.expPropertyTaxAnnual = String(Math.round(data.taxHistory.taxPaid));
       if (Object.keys(updates).length > 0) {
@@ -691,6 +718,7 @@ export default function ProformaPage() {
         ...comps[compIndex],
         name: data.title || comps[compIndex].name,
         beds: data.bedrooms ? String(data.bedrooms) : comps[compIndex].beds,
+        city: data.city || comps[compIndex].city || "",
         link: data.airbnbUrl || comps[compIndex].link,
         notes: `Rating: ${data.rating || "N/A"} (${data.reviewCount || 0} reviews). ${data.roomType || ""}. ${data.isSuperhost ? "Superhost." : ""}`,
         photoUrl: data.photos?.[0] || "",
