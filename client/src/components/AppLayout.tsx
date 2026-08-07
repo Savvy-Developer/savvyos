@@ -357,7 +357,7 @@ function SidebarNav({
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-3">
+      <nav className="flex-1 overflow-y-auto overscroll-y-contain py-3 px-2 space-y-3">
         {navGroups.map((group) => (
           <div key={group.label}>
             {!collapsed && (
@@ -822,7 +822,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <WorkAsAgentBanner />
 
         {/* Page content — extra bottom padding on mobile for the dev switcher */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-background pb-safe">
+        <main className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 bg-background pb-safe">
           {children}
         </main>
 
