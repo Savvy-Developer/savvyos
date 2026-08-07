@@ -143,21 +143,43 @@ export function registerProformaPdfRoute(app: express.Application) {
       });
       y += 52;
 
-      // ─── INVESTMENT SUMMARY (Page 1) ───────────────────────────────────
+      // ─── AI INVESTMENT ANALYSIS (Page 1 — Featured Box) ─────────────────
       if (calc.s2 && calc.totalCashNeeded > 0) {
-        const loanTypeLabel = form.loanType === "dscr" ? "DSCR" : form.loanType === "cash" ? "All Cash" : form.loanType === "conventional_second" ? "Conv. Second Home" : "Conventional";
-        const summaryText = `This ${property?.beds || "\u2014"}-bed/${property?.baths || "\u2014"}-bath property is analyzed as a short-term rental investment at ${fmtD(calc.pp)} using ${loanTypeLabel} financing. ` +
-          `The base case projects ${fmtD(s2.grossRevenue)} gross annual revenue (${fmtD(s2.adr)} ADR at ${Math.round((s2.occ ?? 0) * 100)}% occupancy), yielding ${fmtD(s2.noi)} NOI and ${fmtD(s2.cashFlow)} annual cash flow. ` +
-          `Cash-on-Cash return is ${fmtP1(s2.cashOnCash)}${calc.taxReturns?.s2 ? ` (${fmtP1(calc.taxReturns.s2.year1CoCWithTax)} w/ Year 1 tax benefits)` : ""}. ` +
-          `Total cash required: ${fmtD(calc.totalCashNeeded)}${calc.netTaxBenefit > 0 ? ` (effective basis: ${fmtD(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit))} after tax benefits)` : ""}. ` +
-          (calc.isValueAdd && calc.arv > 0 ? `Value-add with ARV of ${fmtD(calc.arv)}, creating ${fmtD(calc.forcedEquity)} in forced equity. ` : "") +
-          (calc.isCashoutRefi && calc.refi?.refiCashOut > 0 ? `Cash-out refi at ${form.refiLTV || "75"}% LTV returns ${fmtD(calc.refi.refiCashOut)}.` : "");
-        doc.font("Helvetica").fontSize(7.5).fillColor("#475569").text(summaryText, 50, y, { width: W, lineGap: 2 });
-        const summaryH = doc.heightOfString(summaryText, { width: W, lineGap: 2 });
-        y += summaryH + 10;
+        // Generate AI analysis text based on the deal numbers
+        let aiAnalysis = "";
+        try {
+          const { invokeLLM } = await import("./_core/llm");
+          const loanTypeLabel = form.loanType === "dscr" ? "DSCR" : form.loanType === "cash" ? "All Cash" : form.loanType === "conventional_second" ? "Conv. Second Home" : "Conventional";
+          const prompt = `You are a short-term rental investment analyst. Write a 3-4 sentence analysis of this STR deal for an investor. Be specific about what makes this deal attractive or what risks exist. Be direct and insightful, not generic.\n\nProperty: ${property?.beds || "?"} bed/${property?.baths || "?"} bath, ${property?.sqft || "?"} sqft in ${property?.city || "?"}, ${property?.state || ""}\nPurchase Price: ${fmtD(calc.pp)}\nTotal Cash Needed: ${fmtD(calc.totalCashNeeded)}\nFinancing: ${loanTypeLabel} at ${form.interestRate || "7"}%\nBase Case Revenue: ${fmtD(s2.grossRevenue)} (ADR ${fmtD(s2.adr)}, ${Math.round((s2.occ ?? 0) * 100)}% occ)\nNOI: ${fmtD(s2.noi)}\nAnnual Cash Flow: ${fmtD(s2.cashFlow)}\nCash-on-Cash: ${fmtP1(s2.cashOnCash)}\nCap Rate: ${fmtP1(s2.capRate)}\nDSCR: ${(s2.dscr ?? 0).toFixed(2)}x\nBreak-Even Occupancy: ${fmtP1(s2.breakEvenOcc)}\nYear 1 Tax Benefit: ${fmtD(calc.netTaxBenefit)}\nCoC w/ Tax Benefits: ${calc.taxReturns?.s2 ? fmtP1(calc.taxReturns.s2.year1CoCWithTax) : "N/A"}\n${calc.isValueAdd && calc.arv > 0 ? `ARV: ${fmtD(calc.arv)}, Forced Equity: ${fmtD(calc.forcedEquity)}` : ""}\n${calc.isCashoutRefi && calc.refi?.refiCashOut > 0 ? `Cash-Out Refi: ${fmtD(calc.refi.refiCashOut)} returned` : ""}\n\nWrite ONLY the analysis paragraph. No headers, no bullet points. Focus on: what stands out about this deal, the strength of the returns, risk factors (break-even occ, DSCR), and overall investment thesis.`;
+          const result = await invokeLLM({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }],
+            maxTokens: 250,
+          });
+          const msg = result.choices?.[0]?.message?.content;
+          aiAnalysis = (typeof msg === "string" ? msg : "").trim();
+        } catch (e) {
+          // Fallback to a generated summary if AI call fails
+          const loanTypeLabel = form.loanType === "dscr" ? "DSCR" : form.loanType === "cash" ? "All Cash" : form.loanType === "conventional_second" ? "Conv. Second Home" : "Conventional";
+          aiAnalysis = `This ${property?.beds || "\u2014"}-bed/${property?.baths || "\u2014"}-bath property in ${property?.city || "\u2014"}, ${property?.state || ""} is priced at ${fmtD(calc.pp)} with ${loanTypeLabel} financing. The base case projects ${fmtD(s2.grossRevenue)} gross revenue at ${fmtD(s2.adr)} ADR and ${Math.round((s2.occ ?? 0) * 100)}% occupancy, yielding ${fmtP1(s2.cashOnCash)} cash-on-cash return${calc.taxReturns?.s2 ? ` (${fmtP1(calc.taxReturns.s2.year1CoCWithTax)} including Year 1 tax benefits)` : ""}. Break-even occupancy of ${fmtP1(s2.breakEvenOcc)} and DSCR of ${(s2.dscr ?? 0).toFixed(2)}x provide a ${(s2.breakEvenOcc ?? 0) < 0.55 ? "strong" : (s2.breakEvenOcc ?? 0) < 0.70 ? "moderate" : "thin"} margin of safety.`;
+        }
+
+        // Draw the featured AI Analysis box
+        const boxPadding = 12;
+        const analysisH = doc.heightOfString(aiAnalysis, { width: W - boxPadding * 2, lineGap: 3 });
+        const boxH = analysisH + 40; // title + padding + text
+        doc.roundedRect(50, y, W, boxH, 6).lineWidth(1.5).strokeColor(brandGreen).stroke();
+        doc.roundedRect(50, y, W, boxH, 6).fillOpacity(0.03).fill(brandGreen).fillOpacity(1);
+        y += boxPadding;
+        doc.font("Helvetica-Bold").fontSize(11).fillColor(brandGreen).text("\u2728 Investment Analysis", 50 + boxPadding, y, { width: W - boxPadding * 2 });
+        y += 18;
+        doc.font("Helvetica").fontSize(8.5).fillColor("#334155").text(aiAnalysis, 50 + boxPadding, y, { width: W - boxPadding * 2, lineGap: 3 });
+        y += analysisH + boxPadding + 8;
       }
 
-      // ─── SCENARIO COMPARISON TABLE ───────────────────────────────────────
+      // ─── SCENARIO COMPARISON TABLE (Page 2) ───────────────────────────────
+      doc.addPage();
+      y = 50;
       doc.font("Helvetica-Bold").fontSize(11).fillColor(brandDark).text("Scenario Comparison", 50, y);
       y += 16;
 
