@@ -43,10 +43,10 @@ export function registerProformaPdfRoute(app: express.Application) {
       const pdfDone = new Promise<Buffer>((resolve) => { doc.on("end", () => resolve(Buffer.concat(buffers))); });
 
       const W = 512; // page width minus margins
-      const brandGreen = "#1a5c3a";
+      const brandGreen = "#0891b2"; // SavvyOS teal/cyan brand color
       const brandDark = "#1e293b";
       const lightGray = "#f8fafc";
-      const headerBg = "#0f4c2e";
+      const headerBg = "#155e75"; // Darker teal for table headers
       const halfW = W / 2 - 8;
 
       const s1 = calc.s1 || {}, s2 = calc.s2 || {}, s3 = calc.s3 || {};
@@ -137,11 +137,25 @@ export function registerProformaPdfRoute(app: express.Application) {
       ];
       metrics2.forEach((m, i) => {
         const bx = 50 + i * (boxW + 8);
-        doc.roundedRect(bx, y, boxW, 40, 4).fill("#ecfdf5");
+        doc.roundedRect(bx, y, boxW, 40, 4).fill("#ecfeff");
         doc.font("Helvetica").fontSize(6.5).fillColor("#64748b").text(m.label, bx + 4, y + 7, { width: boxW - 8, align: "center" });
         doc.font("Helvetica-Bold").fontSize(11).fillColor(brandGreen).text(m.value, bx + 4, y + 20, { width: boxW - 8, align: "center" });
       });
       y += 52;
+
+      // ─── INVESTMENT SUMMARY (Page 1) ───────────────────────────────────
+      if (calc.s2 && calc.totalCashNeeded > 0) {
+        const loanTypeLabel = form.loanType === "dscr" ? "DSCR" : form.loanType === "cash" ? "All Cash" : form.loanType === "conventional_second" ? "Conv. Second Home" : "Conventional";
+        const summaryText = `This ${property?.beds || "\u2014"}-bed/${property?.baths || "\u2014"}-bath property is analyzed as a short-term rental investment at ${fmtD(calc.pp)} using ${loanTypeLabel} financing. ` +
+          `The base case projects ${fmtD(s2.grossRevenue)} gross annual revenue (${fmtD(s2.adr)} ADR at ${Math.round((s2.occ ?? 0) * 100)}% occupancy), yielding ${fmtD(s2.noi)} NOI and ${fmtD(s2.cashFlow)} annual cash flow. ` +
+          `Cash-on-Cash return is ${fmtP1(s2.cashOnCash)}${calc.taxReturns?.s2 ? ` (${fmtP1(calc.taxReturns.s2.year1CoCWithTax)} w/ Year 1 tax benefits)` : ""}. ` +
+          `Total cash required: ${fmtD(calc.totalCashNeeded)}${calc.netTaxBenefit > 0 ? ` (effective basis: ${fmtD(Math.max(0, calc.totalCashNeeded - calc.netTaxBenefit))} after tax benefits)` : ""}. ` +
+          (calc.isValueAdd && calc.arv > 0 ? `Value-add with ARV of ${fmtD(calc.arv)}, creating ${fmtD(calc.forcedEquity)} in forced equity. ` : "") +
+          (calc.isCashoutRefi && calc.refi?.refiCashOut > 0 ? `Cash-out refi at ${form.refiLTV || "75"}% LTV returns ${fmtD(calc.refi.refiCashOut)}.` : "");
+        doc.font("Helvetica").fontSize(7.5).fillColor("#475569").text(summaryText, 50, y, { width: W, lineGap: 2 });
+        const summaryH = doc.heightOfString(summaryText, { width: W, lineGap: 2 });
+        y += summaryH + 10;
+      }
 
       // ─── SCENARIO COMPARISON TABLE ───────────────────────────────────────
       doc.font("Helvetica-Bold").fontSize(11).fillColor(brandDark).text("Scenario Comparison", 50, y);
@@ -150,7 +164,7 @@ export function registerProformaPdfRoute(app: express.Application) {
       const colW = [W * 0.32, W * 0.22, W * 0.23, W * 0.23];
       const drawRow = (cells: string[], yPos: number, opts?: { header?: boolean; bold?: boolean; highlight?: boolean }) => {
         if (opts?.header) { doc.rect(50, yPos - 2, W, 15).fill(headerBg); doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#ffffff"); }
-        else if (opts?.highlight) { doc.rect(50, yPos - 2, W, 13).fill("#ecfdf5"); doc.font(opts?.bold ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).fillColor(brandDark); }
+        else if (opts?.highlight) { doc.rect(50, yPos - 2, W, 13).fill("#ecfeff"); doc.font(opts?.bold ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).fillColor(brandDark); }
         else { doc.font(opts?.bold ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).fillColor("#475569"); }
         let x = 50;
         cells.forEach((c, i) => {
@@ -281,14 +295,19 @@ export function registerProformaPdfRoute(app: express.Application) {
       if (parseFloat(form.propertyMgmtPct || "0") > 0) {
         varExpenses.push(["Property Mgmt", `${form.propertyMgmtPct}% of net rev = ${fmtD(s2.mgmtExpense ?? 0)}/yr`]);
       }
-      if ((s2.cleaningExpense ?? 0) > 0) {
-        const cleanIncome = parseFloat(String(form.scenario2CleaningFee || form.cleaningCostPerTurn || "0").replace(/[^0-9.]/g, ""));
-        const cleanExpense = parseFloat(String(form.scenario2CleaningExpense || form.cleaningCostPerTurn || "0").replace(/[^0-9.]/g, ""));
-        if (cleanIncome > 0 && cleanExpense > 0) {
-          varExpenses.push(["Cleaning Income", `$${cleanIncome}/booking × ${s2.bookings ?? 0} = ${fmtD(cleanIncome * (s2.bookings ?? 0))}/yr`]);
-          varExpenses.push(["Cleaning Expense", `$${cleanExpense}/turn × ${s2.bookings ?? 0} = ${fmtD(s2.cleaningExpense ?? 0)}/yr`]);
-        } else {
-          varExpenses.push(["Cleaning", `$${cleanExpense}/turn × ${s2.bookings ?? 0} = ${fmtD(s2.cleaningExpense ?? 0)}/yr`]);
+      if ((s2.cleaningFeeExpenseTotal ?? s2.cleaningExpense ?? 0) > 0 || (s2.cleaningFeeRevenue ?? 0) > 0) {
+        const cleanIncome = s2.cleaningFeeIncome ?? 0;
+        const cleanExpPerTurn = s2.cleaningFeeExpensePerTurn ?? 0;
+        const bookingCount = Math.round(s2.bookings ?? 0);
+        if (cleanIncome > 0) {
+          varExpenses.push(["Cleaning Income", `$${Math.round(cleanIncome)}/booking \u00d7 ${bookingCount} = ${fmtD(s2.cleaningFeeRevenue ?? 0)}/yr`]);
+        }
+        if (cleanExpPerTurn > 0) {
+          varExpenses.push(["Cleaning Expense", `$${Math.round(cleanExpPerTurn)}/turn \u00d7 ${bookingCount} = ${fmtD(s2.cleaningFeeExpenseTotal ?? s2.cleaningExpense ?? 0)}/yr`]);
+        }
+        const netClean = (s2.cleaningNetProfit ?? 0);
+        if (cleanIncome > 0 && cleanExpPerTurn > 0) {
+          varExpenses.push([`Net Cleaning ${netClean >= 0 ? "Profit" : "Loss"}`, fmtD(netClean) + "/yr"]);
         }
       }
       if (parseFloat(form.capExReservePct || "0") > 0) {
@@ -633,7 +652,7 @@ export function registerProformaPdfRoute(app: express.Application) {
           ];
 
           compRows.forEach(row => {
-            if ((row as any).highlight) { doc.rect(50, y - 2, W, 12).fill("#ecfdf5"); }
+            if ((row as any).highlight) { doc.rect(50, y - 2, W, 12).fill("#ecfeff"); }
             doc.font("Helvetica").fontSize(7).fillColor(brandDark).text(row.label, 52, y, { width: 90 });
             row.pre.forEach((v: number, i: number) => {
               const txt = (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "∞" : `${v.toFixed(2)}x`) : fmtD(v);
@@ -654,6 +673,18 @@ export function registerProformaPdfRoute(app: express.Application) {
           }
         }
       }
+
+      // Additional Notes & Assumptions
+      if (form.notes) {
+        if (y > 580) { doc.addPage(); y = 50; }
+        doc.font("Helvetica-Bold").fontSize(10).fillColor(brandDark).text("Additional Notes & Assumptions", 50, y);
+        y += 14;
+        doc.font("Helvetica").fontSize(7.5).fillColor("#475569").text(form.notes, 50, y, { width: W, lineGap: 2 });
+        const notesHeight = doc.heightOfString(form.notes, { width: W, lineGap: 2 });
+        y += Math.min(notesHeight, 200) + 12;
+      }
+
+
 
       // Disclaimer
       if (y > 660) { doc.addPage(); y = 50; }
