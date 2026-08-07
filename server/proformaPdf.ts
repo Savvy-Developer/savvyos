@@ -163,16 +163,19 @@ export function registerProformaPdfRoute(app: express.Application) {
 
       const colW = [W * 0.32, W * 0.22, W * 0.23, W * 0.23];
       const drawRow = (cells: string[], yPos: number, opts?: { header?: boolean; bold?: boolean; highlight?: boolean }) => {
-        if (opts?.header) { doc.rect(50, yPos - 2, W, 15).fill(headerBg); doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#ffffff"); }
-        else if (opts?.highlight) { doc.rect(50, yPos - 2, W, 13).fill("#ecfeff"); doc.font(opts?.bold ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).fillColor(brandDark); }
+        const rowH = opts?.header ? 15 : 13;
+        // Page break check: if row would overflow, start a new page
+        if (yPos + rowH > 710) { doc.addPage(); yPos = 50; }
+        if (opts?.header) { doc.rect(50, yPos - 2, W, rowH).fill(headerBg); doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#ffffff"); }
+        else if (opts?.highlight) { doc.rect(50, yPos - 2, W, rowH).fill("#ecfeff"); doc.font(opts?.bold ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).fillColor(brandDark); }
         else { doc.font(opts?.bold ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).fillColor("#475569"); }
         let x = 50;
         cells.forEach((c, i) => {
           const align = i === 0 ? "left" : "right";
-          doc.text(c, x + 3, yPos, { width: colW[i] - 6, align });
+          doc.text(c, x + 3, yPos, { width: colW[i] - 6, align, lineBreak: false });
           x += colW[i];
         });
-        return yPos + (opts?.header ? 15 : 13);
+        return yPos + rowH;
       };
 
       y = drawRow(["Metric", "Conservative", "Base Case", "Strong Execution"], y, { header: true });
@@ -358,11 +361,13 @@ export function registerProformaPdfRoute(app: express.Application) {
       y += 15;
       const projCols = [W * 0.1, W * 0.18, W * 0.16, W * 0.14, W * 0.14, W * 0.14, W * 0.14];
       const drawProjRow = (cells: string[], yPos: number, header = false) => {
-        if (header) { doc.rect(50, yPos - 2, W, 14).fill(headerBg); doc.font("Helvetica-Bold").fontSize(7).fillColor("#ffffff"); }
+        const rowH = header ? 14 : 12;
+        if (yPos + rowH > 710) { doc.addPage(); yPos = 50; }
+        if (header) { doc.rect(50, yPos - 2, W, rowH).fill(headerBg); doc.font("Helvetica-Bold").fontSize(7).fillColor("#ffffff"); }
         else { doc.font("Helvetica").fontSize(7).fillColor(brandDark); }
         let x = 50;
-        cells.forEach((c, i) => { doc.text(c, x + 2, yPos, { width: projCols[i] - 4, align: i === 0 ? "left" : "right" }); x += projCols[i]; });
-        return yPos + (header ? 14 : 12);
+        cells.forEach((c, i) => { doc.text(c, x + 2, yPos, { width: projCols[i] - 4, align: i === 0 ? "left" : "right", lineBreak: false }); x += projCols[i]; });
+        return yPos + rowH;
       };
 
       y = drawProjRow(["Year", "Revenue", "Cash Flow", "Cumul. CF", "Tax Benefit", "Prop. Value", "Equity"], y, true);
@@ -394,21 +399,21 @@ export function registerProformaPdfRoute(app: express.Application) {
         // IRR header
         doc.rect(50, y - 2, W, 14).fill(headerBg);
         doc.font("Helvetica-Bold").fontSize(7).fillColor("#ffffff");
-        doc.text("Hold Period", 52, y, { width: 70 });
-        doc.text("Conservative", 130, y, { width: 100, align: "center" });
-        doc.text("Base Case", 250, y, { width: 100, align: "center" });
-        doc.text("Strong Execution", 370, y, { width: 120, align: "center" });
+        doc.text("Hold Period", 52, y, { width: 70, lineBreak: false });
+        doc.text("Conservative", 130, y, { width: 100, align: "center", lineBreak: false });
+        doc.text("Base Case", 250, y, { width: 100, align: "center", lineBreak: false });
+        doc.text("Strong Execution", 370, y, { width: 120, align: "center", lineBreak: false });
         y += 14;
 
         doc.rect(50, y - 2, W, 10).fill("#f1f5f9");
         doc.font("Helvetica").fontSize(6).fillColor("#64748b");
-        doc.text("", 52, y);
-        doc.text("Pre-Tax", 130, y, { width: 50, align: "center" });
-        doc.text("After-Tax", 180, y, { width: 50, align: "center" });
-        doc.text("Pre-Tax", 250, y, { width: 50, align: "center" });
-        doc.text("After-Tax", 300, y, { width: 50, align: "center" });
-        doc.text("Pre-Tax", 370, y, { width: 55, align: "center" });
-        doc.text("After-Tax", 425, y, { width: 55, align: "center" });
+        doc.text("", 52, y, { lineBreak: false });
+        doc.text("Pre-Tax", 130, y, { width: 50, align: "center", lineBreak: false });
+        doc.text("After-Tax", 180, y, { width: 50, align: "center", lineBreak: false });
+        doc.text("Pre-Tax", 250, y, { width: 50, align: "center", lineBreak: false });
+        doc.text("After-Tax", 300, y, { width: 50, align: "center", lineBreak: false });
+        doc.text("Pre-Tax", 370, y, { width: 55, align: "center", lineBreak: false });
+        doc.text("After-Tax", 425, y, { width: 55, align: "center", lineBreak: false });
         y += 12;
 
         const irrRows = [
@@ -417,14 +422,15 @@ export function registerProformaPdfRoute(app: express.Application) {
           { label: "7-Year Hold", s1: calc.irr.s1.y7, s1at: calc.irr.s1.y7at, s2: calc.irr.s2.y7, s2at: calc.irr.s2.y7at, s3: calc.irr.s3.y7, s3at: calc.irr.s3.y7at },
         ];
         irrRows.forEach(row => {
+          if (y + 12 > 710) { doc.addPage(); y = 50; }
           doc.font("Helvetica").fontSize(7).fillColor(brandDark);
-          doc.text(row.label, 52, y, { width: 70 });
-          doc.text(fmtP1(row.s1), 130, y, { width: 50, align: "center" });
-          doc.fillColor(brandGreen).text(fmtP1(row.s1at), 180, y, { width: 50, align: "center" });
-          doc.fillColor(brandDark).text(fmtP1(row.s2), 250, y, { width: 50, align: "center" });
-          doc.fillColor(brandGreen).text(fmtP1(row.s2at), 300, y, { width: 50, align: "center" });
-          doc.fillColor(brandDark).text(fmtP1(row.s3), 370, y, { width: 55, align: "center" });
-          doc.fillColor(brandGreen).text(fmtP1(row.s3at), 425, y, { width: 55, align: "center" });
+          doc.text(row.label, 52, y, { width: 70, lineBreak: false });
+          doc.text(fmtP1(row.s1), 130, y, { width: 50, align: "center", lineBreak: false });
+          doc.fillColor(brandGreen).text(fmtP1(row.s1at), 180, y, { width: 50, align: "center", lineBreak: false });
+          doc.fillColor(brandDark).text(fmtP1(row.s2), 250, y, { width: 50, align: "center", lineBreak: false });
+          doc.fillColor(brandGreen).text(fmtP1(row.s2at), 300, y, { width: 50, align: "center", lineBreak: false });
+          doc.fillColor(brandDark).text(fmtP1(row.s3), 370, y, { width: 55, align: "center", lineBreak: false });
+          doc.fillColor(brandGreen).text(fmtP1(row.s3at), 425, y, { width: 55, align: "center", lineBreak: false });
           y += 12;
         });
 
@@ -486,7 +492,7 @@ export function registerProformaPdfRoute(app: express.Application) {
           const taxRetHeaders = ["", "Conservative", "Base Case", "Strong"];
           const colW2 = W / 4;
           taxRetHeaders.forEach((h, i) => {
-            doc.font("Helvetica-Bold").fontSize(7).fillColor(brandDark).text(h, 50 + i * colW2, y, { width: colW2, align: i === 0 ? "left" : "right" });
+            doc.font("Helvetica-Bold").fontSize(7).fillColor(brandDark).text(h, 50 + i * colW2, y, { width: colW2, align: i === 0 ? "left" : "right", lineBreak: false });
           });
           y += 11;
           const tr = calc.taxReturns;
@@ -497,8 +503,9 @@ export function registerProformaPdfRoute(app: express.Application) {
             ["Ongoing CoC Return (yr 2+)", `${((tr.s1?.ongoingCoCWithTax ?? 0) * 100).toFixed(1)}%`, `${((tr.s2?.ongoingCoCWithTax ?? 0) * 100).toFixed(1)}%`, `${((tr.s3?.ongoingCoCWithTax ?? 0) * 100).toFixed(1)}%`],
           ];
           taxRetRows.forEach(row => {
+            if (y + 11 > 710) { doc.addPage(); y = 50; }
             row.forEach((cell, i) => {
-              doc.font(i === 0 ? "Helvetica" : "Helvetica-Bold").fontSize(7.5).fillColor(i === 0 ? "#475569" : brandGreen).text(cell, 50 + i * colW2, y, { width: colW2, align: i === 0 ? "left" : "right" });
+              doc.font(i === 0 ? "Helvetica" : "Helvetica-Bold").fontSize(7.5).fillColor(i === 0 ? "#475569" : brandGreen).text(cell, 50 + i * colW2, y, { width: colW2, align: i === 0 ? "left" : "right", lineBreak: false });
             });
             y += 11;
           });
@@ -626,21 +633,21 @@ export function registerProformaPdfRoute(app: express.Application) {
           // Header row
           doc.rect(50, y - 2, W, 14).fill(headerBg);
           doc.font("Helvetica-Bold").fontSize(7).fillColor("#ffffff");
-          doc.text("Metric", 52, y, { width: 90 });
-          doc.text("Pre-Refi", 160, y, { width: 150, align: "center" });
-          doc.text("Post-Refi", 340, y, { width: 150, align: "center" });
+          doc.text("Metric", 52, y, { width: 90, lineBreak: false });
+          doc.text("Pre-Refi", 160, y, { width: 150, align: "center", lineBreak: false });
+          doc.text("Post-Refi", 340, y, { width: 150, align: "center", lineBreak: false });
           y += 14;
 
           // Sub-header
           doc.rect(50, y - 2, W, 10).fill("#f1f5f9");
           doc.font("Helvetica").fontSize(6).fillColor("#64748b");
-          doc.text("", 52, y);
-          doc.text("Cons.", 160, y, { width: 50, align: "center" });
-          doc.text("Base", 210, y, { width: 50, align: "center" });
-          doc.text("Strong", 260, y, { width: 50, align: "center" });
-          doc.text("Cons.", 340, y, { width: 50, align: "center" });
-          doc.text("Base", 390, y, { width: 50, align: "center" });
-          doc.text("Strong", 440, y, { width: 50, align: "center" });
+          doc.text("", 52, y, { lineBreak: false });
+          doc.text("Cons.", 160, y, { width: 50, align: "center", lineBreak: false });
+          doc.text("Base", 210, y, { width: 50, align: "center", lineBreak: false });
+          doc.text("Strong", 260, y, { width: 50, align: "center", lineBreak: false });
+          doc.text("Cons.", 340, y, { width: 50, align: "center", lineBreak: false });
+          doc.text("Base", 390, y, { width: 50, align: "center", lineBreak: false });
+          doc.text("Strong", 440, y, { width: 50, align: "center", lineBreak: false });
           y += 12;
 
           const rs1 = calc.refi.s1 || {}, rs2 = calc.refi.s2 || {}, rs3 = calc.refi.s3 || {};
@@ -652,16 +659,17 @@ export function registerProformaPdfRoute(app: express.Application) {
           ];
 
           compRows.forEach(row => {
+            if (y + 12 > 710) { doc.addPage(); y = 50; }
             if ((row as any).highlight) { doc.rect(50, y - 2, W, 12).fill("#ecfeff"); }
-            doc.font("Helvetica").fontSize(7).fillColor(brandDark).text(row.label, 52, y, { width: 90 });
+            doc.font("Helvetica").fontSize(7).fillColor(brandDark).text(row.label, 52, y, { width: 90, lineBreak: false });
             row.pre.forEach((v: number, i: number) => {
-              const txt = (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "∞" : `${v.toFixed(2)}x`) : fmtD(v);
-              doc.fillColor(brandDark).text(txt, 160 + i * 50, y, { width: 50, align: "center" });
+              const txt = (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "\u221e" : `${v.toFixed(2)}x`) : fmtD(v);
+              doc.fillColor(brandDark).text(txt, 160 + i * 50, y, { width: 50, align: "center", lineBreak: false });
             });
             row.post.forEach((v: number, i: number) => {
               const inf = (row as any).isPct && calc.refi.cashLeftInDeal <= 0 && v > 5;
-              const txt = inf ? "∞" : (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "∞" : `${v.toFixed(2)}x`) : fmtD(v);
-              doc.fillColor(brandGreen).text(txt, 340 + i * 50, y, { width: 50, align: "center" });
+              const txt = inf ? "\u221e" : (row as any).isPct ? fmtP1(v) : (row as any).isDscr ? (v === Infinity ? "\u221e" : `${v.toFixed(2)}x`) : fmtD(v);
+              doc.fillColor(brandGreen).text(txt, 340 + i * 50, y, { width: 50, align: "center", lineBreak: false });
             });
             y += 12;
           });
