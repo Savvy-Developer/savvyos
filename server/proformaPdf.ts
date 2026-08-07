@@ -37,7 +37,7 @@ export function registerProformaPdfRoute(app: express.Application) {
       const { form, calc, property, branding, title } = req.body;
       if (!form || !calc) return res.status(400).json({ error: "Missing data" });
 
-      const doc = new PDFDocument({ size: "LETTER", margins: { top: 40, bottom: 40, left: 50, right: 50 }, font: "Helvetica" });
+      const doc = new PDFDocument({ size: "LETTER", margins: { top: 40, bottom: 40, left: 50, right: 50 }, font: "Helvetica", bufferPages: true });
       const buffers: Buffer[] = [];
       doc.on("data", (chunk: Buffer) => buffers.push(chunk));
       const pdfDone = new Promise<Buffer>((resolve) => { doc.on("end", () => resolve(Buffer.concat(buffers))); });
@@ -578,6 +578,7 @@ export function registerProformaPdfRoute(app: express.Application) {
         doc.font("Helvetica").fontSize(7).fillColor("#94a3b8").text(`SavvyProforma  |  Generated ${new Date().toLocaleDateString()}  |  Page ${p + 1} of ${pageCount}`, 50, 730, { width: W, align: "center" });
       }
 
+      doc.flushPages();
       doc.end();
       const pdfBuffer = await pdfDone;
       res.setHeader("Content-Type", "application/pdf");
