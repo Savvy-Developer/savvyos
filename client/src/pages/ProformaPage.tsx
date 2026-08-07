@@ -230,6 +230,7 @@ export default function ProformaPage() {
   const [showExistingComps, setShowExistingComps] = useState(false);
   const [autoLoadDone, setAutoLoadDone] = useState(false);
 
+  const utils = trpc.useUtils();
   const { data: property } = trpc.properties.get.useQuery({ id: propertyId });
   const { data: proformas, refetch } = trpc.properties.listProformas.useQuery({ propertyId });
   const { data: coreProfile } = trpc.users.getCoreProfile.useQuery({ userId: user?.id ?? 0 }, { enabled: !!user?.id });
@@ -605,16 +606,22 @@ export default function ProformaPage() {
     await doAutoSave();
   };
 
-  const handleLoad = (proforma: any) => {
-    const fd = proforma.formData as ProformaForm;
-    const loadedForm = { ...defaultForm, ...fd };
-    setForm(loadedForm);
-    setTitle(proforma.title || "STR Investment Analysis");
-    setEditingId(proforma.id);
-    setEditing(true);
-    // Mark the loaded state as the "last saved" so we don't re-save unchanged data
-    lastSavedForm.current = JSON.stringify(loadedForm);
-    hasDirtyChanges.current = false;
+  const handleLoad = async (proforma: any) => {
+    // Fetch the full proforma data (list only has summary fields, not formData)
+    try {
+      const fullData = await utils.properties.getProforma.fetch({ id: proforma.id });
+      const fd = (fullData.formData || {}) as ProformaForm;
+      const loadedForm = { ...defaultForm, ...fd };
+      setForm(loadedForm);
+      setTitle(fullData.title || "STR Investment Analysis");
+      setEditingId(fullData.id);
+      setEditing(true);
+      // Mark the loaded state as the "last saved" so we don't re-save unchanged data
+      lastSavedForm.current = JSON.stringify(loadedForm);
+      hasDirtyChanges.current = false;
+    } catch (e: any) {
+      alert(`Failed to load pro-forma: ${e.message}`);
+    }
   };
 
   const handleDelete = async (id: number) => {
