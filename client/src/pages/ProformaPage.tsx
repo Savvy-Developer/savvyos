@@ -560,9 +560,10 @@ export default function ProformaPage() {
         if (includeTax && y === 1) {
           yearCF += netTaxBenefit;
         }
-        // Straight-line depreciation benefit years 2+ (building / 27.5)
+        // Straight-line depreciation benefit years 2+ (remaining building basis / 27.5)
         if (includeTax && y > 1) {
-          const straightLineDeduction = buildingBasis / 27.5;
+          const remainingBasis = costSegEnabled ? buildingBasis - acceleratedAmt : buildingBasis;
+          const straightLineDeduction = remainingBasis / 27.5;
           yearCF += straightLineDeduction * marginalTaxRate;
         }
 
@@ -580,7 +581,10 @@ export default function ProformaPage() {
     };
 
     // ─── Ongoing Annual Tax Benefits ─────────────────────────────────────────
-    const straightLineDepreciation = buildingBasis / 27.5;
+    // Per IRS rules: after cost seg, the remaining building basis (not the accelerated portion)
+    // is what continues to depreciate over 27.5 years
+    const remainingBuildingBasis = costSegEnabled ? buildingBasis - acceleratedAmt : buildingBasis;
+    const straightLineDepreciation = remainingBuildingBasis / 27.5;
     const year1MortgageInterest = isCash ? 0 : loanAmount * rate; // approx first year interest
     const ongoingAnnualDeduction = straightLineDepreciation + year1MortgageInterest;
     const ongoingAnnualTaxBenefit = ongoingAnnualDeduction * marginalTaxRate;
