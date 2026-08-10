@@ -384,9 +384,19 @@ if (ctx2) {
 
       // Render HTML to PDF using Puppeteer
       const puppeteer = await import("puppeteer");
+      // Find system chromium - try common paths
+      const fs = await import("fs");
+      const chromePaths = [
+        process.env.PUPPETEER_EXECUTABLE_PATH,
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+      ].filter(Boolean) as string[];
+      const execPath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
       const browser = await puppeteer.default.launch({
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        executablePath: execPath || undefined,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--font-render-hinting=none"],
       });
       const page = await browser.newPage();
