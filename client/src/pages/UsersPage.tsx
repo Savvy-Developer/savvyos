@@ -924,14 +924,14 @@ export default function UsersPage() {
 
       {/* ── Agent Support Assignments Dialog ── */}
       <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <UserCheck className="h-5 w-5 text-teal-600" />
               Manage Assignments — {assignTarget?.name}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
             {/* Current assignments */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Currently Assigned Agents</p>
@@ -983,7 +983,7 @@ export default function UsersPage() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={() => setAssignTarget(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
