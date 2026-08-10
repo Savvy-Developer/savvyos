@@ -384,24 +384,11 @@ if (ctx2) {
 
       // Render HTML to PDF using Puppeteer
       const puppeteer = await import("puppeteer-core");
-      // Find system chromium - try common paths
-      const fs = await import("fs");
-      const chromePaths = [
-        process.env.PUPPETEER_EXECUTABLE_PATH,
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
-        "/snap/bin/chromium",
-      ].filter(Boolean) as string[];
-      const execPath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
-      if (!execPath) {
-        return res.status(500).json({ error: "Chromium not found on server. Available paths checked: " + chromePaths.join(", ") });
-      }
+      const chromium = await import("@sparticuz/chromium");
       const browser = await puppeteer.default.launch({
-        headless: true,
-        executablePath: execPath,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--font-render-hinting=none"],
+        headless: chromium.default.headless,
+        executablePath: await chromium.default.executablePath(),
+        args: chromium.default.args,
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0", timeout: 15000 });
