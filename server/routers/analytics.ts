@@ -126,7 +126,7 @@ const reportingSuiteInput = z.object({
   transactionType: z.enum(["all", "buyer", "seller", "dual"]).optional(),
   includeLeaderStats: z.boolean().optional(),
   page: z.number().int().min(1).optional(),
-  limit: z.number().int().min(10).max(100).optional(),
+  limit: z.number().int().min(10).max(500).optional(),
 });
 
 function parseDates(input?: { dateFrom?: string; dateTo?: string }) {

@@ -76,7 +76,7 @@ function withCondition(scope: SQL, condition: SQL): SQL {
 
 function pagination(filters: ExpansionFilters) {
   const page = Math.max(1, Math.floor(asNumber(filters.page) || 1));
-  const limit = Math.min(100, Math.max(10, Math.floor(asNumber(filters.limit) || 25)));
+  const limit = Math.min(500, Math.max(10, Math.floor(asNumber(filters.limit) || 25)));
   return { page, limit, offset: (page - 1) * limit };
 }
 
@@ -722,8 +722,29 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
 export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}) {
   const contactsWhere = contactScope(filters);
   const closedTransactionsWhere = transactionScope(filters, { closedOnly: true });
-  const { page, limit, offset } = pagination(filters);
-  const [summaryRows, sourceRows, revenueRows, monthlyRows] = await Promise.all([
+  // Under-contract transactions scope (no closedOnly restriction, just UC status)
+  const ucTransactionsWhere = where([
+    (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
+    filters.groupLeaderId ? sql`EXISTS (
+      SELECT 1
+      FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )` : undefined,
+    filters.marketProfileId ? sql`EXISTS (
+      SELECT 1 FROM \`users\` market_agent
+      WHERE market_agent.id = t.\`agentId\` AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
+    )` : undefined,
+    (filters.leadSourceIds?.length ? sql`EXISTS (
+      SELECT 1 FROM \`contacts\` source_contact
+      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})
+    )` : filters.leadSourceId ? sql`EXISTS (
+      SELECT 1 FROM \`contacts\` source_contact
+      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` = ${filters.leadSourceId}
+    )` : undefined),
+    sql`t.\`status\` = 'under_contract'`,
+  ]);
+  const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT
         COUNT(*) AS leads,
@@ -764,6 +785,24 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     `),
     runRows<Row>(sql`
       SELECT
+        COALESCE(c.\`leadSourceId\`, 0) AS sourceId,
+        COUNT(DISTINCT t.id) AS underContract
+      FROM \`transactions\` t
+      INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
+      ${ucTransactionsWhere}
+      GROUP BY c.\`leadSourceId\`
+    `),
+    runRows<Row>(sql`
+      SELECT
+        COALESCE(c.\`leadSourceId\`, 0) AS sourceId,
+        SUM(CASE WHEN ac.\`appointmentSet\` = 1 THEN 1 ELSE 0 END) AS appointmentsSet
+      FROM \`contacts\` c
+      INNER JOIN \`agent_connections\` ac ON ac.\`contactId\` = c.id
+      ${contactsWhere}
+      GROUP BY c.\`leadSourceId\`
+    `),
+    runRows<Row>(sql`
+      SELECT
         DATE_FORMAT(c.\`createdAt\`, '%Y-%m') AS month,
         COUNT(*) AS leads,
         SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients,
@@ -775,6 +814,8 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     `),
   ]);
   const revenueBySource = new Map(revenueRows.map((row) => [asNumber(row.sourceId), row]));
+  const ucBySource = new Map(ucRows.map((row) => [asNumber(row.sourceId), asNumber(row.underContract)]));
+  const appointmentsBySource = new Map(appointmentRows.map((row) => [asNumber(row.sourceId), asNumber(row.appointmentsSet)]));
   const sources = sourceRows.map((row) => {
     const sourceId = asNumber(row.sourceId);
     const revenue = revenueBySource.get(sourceId);
@@ -790,6 +831,8 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       activeClients: asNumber(row.activeClients),
       closed,
       closeRate: leads ? (closed / leads) * 100 : null,
+      underContract: ucBySource.get(sourceId) ?? 0,
+      appointmentsSet: appointmentsBySource.get(sourceId) ?? 0,
       closings: asNumber(revenue?.closings),
       volume: asNumber(revenue?.volume),
       grossCommission: asNumber(revenue?.grossCommission),
@@ -821,7 +864,6 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       ...revenue,
     },
     monthly: monthlyRows.map((row) => ({ month: String(row.month ?? ""), leads: asNumber(row.leads), activeClients: asNumber(row.activeClients), closed: asNumber(row.closed) })),
-    sources: sources.slice(offset, offset + limit),
-    pagination: paginationResult(page, limit, sources.length),
+    sources,
   };
 }

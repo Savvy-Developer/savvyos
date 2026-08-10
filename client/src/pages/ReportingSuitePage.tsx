@@ -102,7 +102,7 @@ function startOfYear(date = new Date()): string {
 
 
 
-type DatePreset = "ytd" | "last_year" | "last_90" | "this_quarter" | "last_quarter" | "last_30" | "custom";
+type DatePreset = "ytd" | "last_year" | "last_90" | "this_quarter" | "last_quarter" | "this_month" | "last_month" | "last_30" | "custom";
 
 const datePresetOptions: Array<{ value: DatePreset; label: string }> = [
   { value: "ytd", label: "Year to date" },
@@ -110,6 +110,8 @@ const datePresetOptions: Array<{ value: DatePreset; label: string }> = [
   { value: "last_90", label: "Last 90 days" },
   { value: "this_quarter", label: "This quarter" },
   { value: "last_quarter", label: "Last quarter" },
+  { value: "this_month", label: "This month" },
+  { value: "last_month", label: "Last month" },
   { value: "last_30", label: "Last 30 days" },
   { value: "custom", label: "Custom range" },
 ];
@@ -131,6 +133,12 @@ function dateRangeForPreset(preset: DatePreset, today = new Date()): { from: str
   if (preset === "last_30") return { from: localDay(addDays(today, -29)), to: end };
   if (preset === "last_90") return { from: localDay(addDays(today, -89)), to: end };
   if (preset === "this_quarter") return { from: localDay(startOfQuarter(today)), to: end };
+  if (preset === "this_month") return { from: localDay(new Date(today.getFullYear(), today.getMonth(), 1)), to: end };
+  if (preset === "last_month") {
+    const firstOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { from: localDay(firstOfLastMonth), to: localDay(lastOfLastMonth) };
+  }
   if (preset === "last_year") return { from: localDay(new Date(today.getFullYear() - 1, 0, 1)), to: localDay(new Date(today.getFullYear() - 1, 11, 31)) };
   const thisQuarter = startOfQuarter(today);
   return { from: localDay(new Date(thisQuarter.getFullYear(), thisQuarter.getMonth() - 3, 1)), to: localDay(addDays(thisQuarter, -1)) };
@@ -517,7 +525,7 @@ export default function ReportingSuitePage() {
   const marketQuery = trpc.analytics.marketAnalyticsReport.useQuery(marketFilters, { enabled: activeReport === "markets", staleTime: 20_000 });
   const tasksQuery = trpc.analytics.tasksReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "tasks", staleTime: 20_000 });
   const isaQuery = trpc.analytics.isaActivitiesReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "isa", staleTime: 20_000 });
-  const sourcesQuery = trpc.analytics.leadSourcesReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "sources", staleTime: 20_000 });
+  const sourcesQuery = trpc.analytics.leadSourcesReport.useQuery({ ...baseFilters, limit: 500 }, { enabled: activeReport === "sources", staleTime: 20_000 });
   const businessInsightsQuery = trpc.analytics.businessInsights.useQuery(undefined, { enabled: activeReport === "business_insights", staleTime: 60_000, refetchOnWindowFocus: false });
   const utils = trpc.useUtils();
   const refreshBusinessInsights = trpc.analytics.refreshBusinessInsights.useMutation({
