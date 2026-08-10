@@ -66,6 +66,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
+import LeadSourcePicker from "@/components/LeadSourcePicker";
 import React from "react";
 import { useAppBack } from "@/lib/navigationHistory";
 
@@ -127,7 +128,7 @@ function formatDate(val: Date | string | null | undefined): string {
 
 const formatPhone = _formatPhone;
 
-const EMPTY_CONTACT_FORM = { firstName: "", lastName: "", email: "", phone: "" };
+const EMPTY_CONTACT_FORM = { firstName: "", lastName: "", email: "", phone: "", leadSourceId: null as number | null };
 const EMPTY_PROPERTY_FORM = { address: "", city: "", state: "", zip: "", propertyType: "single_family" as string };
 
 const LISTING_DOCUMENT_LABELS = [
@@ -400,6 +401,10 @@ export default function ListingDetail() {
         toast.error("Contact first and last name are required");
         return;
       }
+      if (!newContactForm.leadSourceId) {
+        toast.error("Lead source is required — every contact needs a source for attribution.");
+        return;
+      }
       if (newContactForm.email && !isValidEmail(newContactForm.email)) {
         toast.error("Please enter a valid email address for the contact");
         return;
@@ -414,6 +419,7 @@ export default function ListingDetail() {
           lastName: newContactForm.lastName,
           email: newContactForm.email || undefined,
           phone: newContactForm.phone || undefined,
+          leadSourceId: newContactForm.leadSourceId,
         });
         finalContactId = result.id;
       } catch { return; }
@@ -1346,6 +1352,14 @@ export default function ListingDetail() {
                   <div className="space-y-1">
                     <Label className="text-xs">Phone</Label>
                     <Input value={newContactForm.phone} onChange={(e) => setNewContactForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} placeholder="e.g. 5551234567" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Lead Source <span className="text-destructive">*</span></Label>
+                    <LeadSourcePicker
+                      className="mt-0.5"
+                      value={newContactForm.leadSourceId}
+                      onChange={(id) => setNewContactForm(f => ({ ...f, leadSourceId: id }))}
+                    />
                   </div>
                   <Button type="button" variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditContactMode("keep")}>
                     Cancel

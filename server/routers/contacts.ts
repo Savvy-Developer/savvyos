@@ -80,6 +80,10 @@ export const contactsRouter = router({
   create: protectedProcedure
     .input(contactInput)
     .mutation(async ({ input, ctx }) => {
+      // Every contact must have a lead source for attribution.
+      if (!input.leadSourceId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A lead source is required. Every contact must have a source for attribution." });
+      }
       // Every lead must be reachable: require at least an email or a phone.
       const hasEmail = !!input.email?.trim();
       const hasPhone = !!input.phone?.trim();

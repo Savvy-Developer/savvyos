@@ -16,6 +16,7 @@ import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
 import { Plus, Building2, ArrowRightLeft, Search, XCircle, Clock, MessageSquare, Send, Loader2, ChevronRight, AlertTriangle, Filter, X, Upload, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
+import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { useLocation } from "wouter";
@@ -53,7 +54,7 @@ const EMPTY_FORM = {
   notes: "",
 };
 
-const EMPTY_CONTACT_FORM = { firstName: "", lastName: "", email: "", phone: "" };
+const EMPTY_CONTACT_FORM = { firstName: "", lastName: "", email: "", phone: "", leadSourceId: null as number | null };
 const EMPTY_PROPERTY_FORM = { address: "", city: "", state: "", zip: "", propertyType: "single_family" as string };
 const EMPTY_CONVERT_FORM = {
   transactionType: "seller" as "seller" | "dual",
@@ -227,6 +228,10 @@ export default function ListingsPage() {
         toast.error("Contact first and last name are required");
         return;
       }
+      if (!newContactForm.leadSourceId) {
+        toast.error("Lead source is required — every contact needs a source for attribution.");
+        return;
+      }
       if (newContactForm.email && !isValidEmail(newContactForm.email)) {
         toast.error("Please enter a valid email address for the contact");
         return;
@@ -241,6 +246,7 @@ export default function ListingsPage() {
           lastName: newContactForm.lastName,
           email: newContactForm.email || undefined,
           phone: newContactForm.phone || undefined,
+          leadSourceId: newContactForm.leadSourceId,
         });
         contactId = result.id;
       } catch { return; }
@@ -298,12 +304,17 @@ export default function ListingsPage() {
         toast.error("Contact first and last name are required");
         return;
       }
+      if (!newConvertContactForm.leadSourceId) {
+        toast.error("Lead source is required — every contact needs a source for attribution.");
+        return;
+      }
       try {
         const result = await createContact.mutateAsync({
           firstName: newConvertContactForm.firstName,
           lastName: newConvertContactForm.lastName,
           email: newConvertContactForm.email || undefined,
           phone: newConvertContactForm.phone || undefined,
+          leadSourceId: newConvertContactForm.leadSourceId,
         });
         primaryContactId = result.id;
       } catch { return; }
@@ -702,6 +713,14 @@ export default function ListingsPage() {
                         onChange={(e) => setNewContactForm({ ...newContactForm, phone: formatPhone(e.target.value) })} />
                     </div>
                   </div>
+                  <div>
+                    <Label className="text-xs">Lead Source <span className="text-destructive">*</span></Label>
+                    <LeadSourcePicker
+                      className="mt-0.5"
+                      value={newContactForm.leadSourceId}
+                      onChange={(id) => setNewContactForm({ ...newContactForm, leadSourceId: id })}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div>
@@ -938,6 +957,14 @@ export default function ListingsPage() {
                       <Input className="mt-0.5 h-8 text-sm" value={newConvertContactForm.phone}
                         onChange={(e) => setNewConvertContactForm({ ...newConvertContactForm, phone: formatPhone(e.target.value) })} />
                     </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Lead Source <span className="text-destructive">*</span></Label>
+                    <LeadSourcePicker
+                      className="mt-0.5"
+                      value={newConvertContactForm.leadSourceId}
+                      onChange={(id) => setNewConvertContactForm({ ...newConvertContactForm, leadSourceId: id })}
+                    />
                   </div>
                 </div>
               ) : (

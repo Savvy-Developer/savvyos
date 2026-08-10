@@ -17,6 +17,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput as _parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
+import LeadSourcePicker from "@/components/LeadSourcePicker";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const formatCurrency = (val: string | null | undefined) => {
@@ -49,6 +50,7 @@ function ContactPicker({
   const [newLast, setNewLast] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [newLeadSourceId, setNewLeadSourceId] = useState<number | null>(null);
 
   const { data: searchData } = trpc.contacts.list.useQuery(
     { search: search || undefined, limit: 25 },
@@ -63,7 +65,7 @@ function ContactPicker({
       onChange({ id: data.id, firstName: newFirst, lastName: newLast, email: newEmail || null });
       setShowCreate(false);
       setSearch(`${newFirst} ${newLast}`);
-      setNewFirst(""); setNewLast(""); setNewEmail(""); setNewPhone("");
+      setNewFirst(""); setNewLast(""); setNewEmail(""); setNewPhone(""); setNewLeadSourceId(null);
       toast.success("Contact created");
     },
     onError: (e: any) => toast.error(e.message),
@@ -155,13 +157,22 @@ function ContactPicker({
             <Label className="text-xs">Phone</Label>
             <Input className="mt-0.5 h-8 text-sm" value={newPhone} onChange={(e) => setNewPhone(formatPhoneDisplay(e.target.value))} placeholder="e.g. 5551234567" />
           </div>
+          <div>
+            <Label className="text-xs">Lead Source <span className="text-destructive">*</span></Label>
+            <LeadSourcePicker
+              className="mt-0.5"
+              value={newLeadSourceId}
+              onChange={(id) => setNewLeadSourceId(id)}
+            />
+          </div>
           <div className="flex gap-2 pt-1">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button
               size="sm"
               className="h-7 text-xs"
-              disabled={!newFirst || !newLast || createContact.isPending}
+              disabled={!newFirst || !newLast || !newLeadSourceId || createContact.isPending}
               onClick={() => {
+                if (!newLeadSourceId) { toast.error("Lead source is required \u2014 every contact needs a source for attribution."); return; }
                 if (newEmail && !isValidEmail(newEmail)) { toast.error("Please enter a valid email address"); return; }
                 if (newPhone && !isValidPhone(newPhone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
                 createContact.mutate({
@@ -169,6 +180,7 @@ function ContactPicker({
                   lastName: newLast,
                   email: newEmail || undefined,
                   phone: newPhone || undefined,
+                  leadSourceId: newLeadSourceId,
                 });
               }}
             >

@@ -142,6 +142,7 @@ export default function PipelinePage() {
   async function handleAddContact(forceCreate = false) {
     const f = addContactForm;
     if (!f.firstName.trim() || !f.lastName.trim()) { toast.error("First and last name are required"); return; }
+    if (!f.leadSourceId) { toast.error("Lead source is required — every contact needs a source for attribution."); return; }
     if (f.email && !isValidEmail(f.email)) { toast.error("Please enter a valid email address"); return; }
     if (f.phone && !isValidPhone(f.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
     if ((user as any)?.role === "agent" && !f.email.trim() && !f.phone.trim()) { toast.error("Please provide at least an email address or phone number"); return; }
@@ -1048,7 +1049,7 @@ export default function PipelinePage() {
                   <p className="text-xs text-muted-foreground">At least one of email or phone is required.</p>
                 )}
                 <div>
-                  <Label>Lead Source</Label>
+                  <Label>Lead Source <span className="text-destructive">*</span></Label>
                   <LeadSourcePicker
                     className="mt-1"
                     value={addContactForm.leadSourceId ? Number(addContactForm.leadSourceId) : null}
@@ -1067,7 +1068,7 @@ export default function PipelinePage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setAddContactOpen(false)}>Cancel</Button>
-                <Button onClick={() => handleAddContact(false)} disabled={createContact.isPending || createConnection.isPending || checkDup.isPending}>
+                <Button onClick={() => handleAddContact(false)} disabled={createContact.isPending || createConnection.isPending || checkDup.isPending || !addContactForm.leadSourceId}>
                   {(createContact.isPending || createConnection.isPending || checkDup.isPending) ? "Checking..." : "Add to Pipeline"}
                 </Button>
               </DialogFooter>
