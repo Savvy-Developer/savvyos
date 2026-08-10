@@ -52,7 +52,7 @@ export const contactsRouter = router({
       isaId: z.number().optional(),
       agentId: z.number().optional(), // admin can filter by specific agent
       marketId: z.number().optional(), // filter by agent's market
-      leadSourceId: z.number().optional(), // filter by lead source
+      leadSourceId: z.number().optional(), // filter by lead source; -1 = no source (NULL)
       isaStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),

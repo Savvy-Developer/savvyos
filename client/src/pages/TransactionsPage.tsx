@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import PageHeader from "@/components/PageHeader";
 import { TransactionStatusBadge } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { Plus, FileText, AlertTriangle, Search, ChevronLeft, ChevronRight, Home, User, DollarSign, CheckCircle2, Upload, Download, CheckCircle, XCircle, AlertCircle, ArrowUpAZ, ArrowDownAZ, ChevronDown, BarChart2, TrendingUp } from "lucide-react";
+import { Plus, FileText, AlertTriangle, Search, ChevronLeft, ChevronRight, Home, User, DollarSign, CheckCircle2, Upload, Download, CheckCircle, XCircle, AlertCircle, ArrowUpAZ, ArrowDownAZ, ChevronDown, BarChart2, TrendingUp, Settings2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -599,6 +599,8 @@ export default function TransactionsPage() {
   const [sortColumn, setSortColumn] = usePersistentState<string>("transactions.sortColumn", "closing_date");
   const [aggregateMode, setAggregateMode] = usePersistentState<"sum" | "avg" | "median" | "count">("transactions.aggregateMode", "sum");
   const [txLimit, setTxLimit] = usePersistentState<number>("transactions.limit", 25);
+  const [visibleColumns, setVisibleColumns] = usePersistentState<string[]>("transactions.visibleColumns", ["contact", "property", "agent", "type", "price", "gci", "savvy_net", "status", "closing_date", "date_added"]);
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
   const [flagNoClosingDate, setFlagNoClosingDate] = useState(false);
   const [flagPastClosingDate, setFlagPastClosingDate] = useState(false);
   const [flagPayoutIntegrity, setFlagPayoutIntegrity] = useState(false);
@@ -1267,85 +1269,102 @@ export default function TransactionsPage() {
         </div>
       )}
 
+      {/* Column configuration */}
+      <div className="flex justify-end mb-2">
+        <div className="relative">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={() => setColumnsMenuOpen(!columnsMenuOpen)}>
+            <Settings2 className="h-3.5 w-3.5" />Columns
+          </Button>
+          {columnsMenuOpen && (
+            <div className="absolute right-0 top-9 z-50 w-64 rounded-lg border bg-background p-3 shadow-lg">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Toggle columns</p>
+              <div className="space-y-1.5 max-h-[320px] overflow-y-auto">
+                {([
+                  { id: "contact", label: "Contact" },
+                  { id: "property", label: "Property" },
+                  { id: "agent", label: "Agent" },
+                  { id: "lead_source", label: "Lead Source" },
+                  { id: "type", label: "Type" },
+                  { id: "price", label: "Price" },
+                  { id: "gci", label: "GCI" },
+                  { id: "savvy_net", label: "Savvy Net" },
+                  { id: "commission_rate", label: "Commission Rate" },
+                  { id: "status", label: "Status" },
+                  { id: "closing_date", label: "Closing Date" },
+                  { id: "contract_date", label: "Contract Date" },
+                  { id: "date_added", label: "Date Added" },
+                  { id: "transaction_number", label: "Transaction #" },
+                ] as const).map((col) => (
+                  <label key={col.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 rounded px-1.5 py-1">
+                    <input type="checkbox" className="rounded border-muted-foreground/30" checked={visibleColumns.includes(col.id)} onChange={(e) => { if (e.target.checked) { setVisibleColumns([...visibleColumns, col.id]); } else { setVisibleColumns(visibleColumns.filter(c => c !== col.id)); } }} />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 pt-2 border-t flex gap-2">
+                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "type", "price", "gci", "savvy_net", "status", "closing_date", "date_added"])}>Reset</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "lead_source", "type", "price", "gci", "savvy_net", "commission_rate", "status", "closing_date", "contract_date", "date_added", "transaction_number"])}>All</Button>
+                <Button size="sm" className="h-7 text-xs flex-1" onClick={() => setColumnsMenuOpen(false)}>Done</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
                 <tr>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("contact")}>
-                    Contact<SortIcon col="contact" />
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("property")}>
-                    Property<SortIcon col="property" />
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("agent")}>
-                    Agent<SortIcon col="agent" />
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("type")}>
-                    Type<SortIcon col="type" />
-                  </th>
-                  <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("price")}>
-                    Price<SortIcon col="price" />
-                  </th>
-                  <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("gci")}>
-                    GCI<SortIcon col="gci" />
-                  </th>
-                  {isAdmin && (
-                    <th className="text-right py-3 px-4 text-muted-foreground font-medium select-none">
-                      Savvy Net
-                    </th>
-                  )}
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("status")}>
-                    Status<SortIcon col="status" />
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("closing_date")}>
-                    Closing<SortIcon col="closing_date" />
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("date_added")}>
-                    Date Added<SortIcon col="date_added" />
-                  </th>
+                  {visibleColumns.includes("contact") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("contact")}>Contact<SortIcon col="contact" /></th>}
+                  {visibleColumns.includes("property") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("property")}>Property<SortIcon col="property" /></th>}
+                  {visibleColumns.includes("agent") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("agent")}>Agent<SortIcon col="agent" /></th>}
+                  {visibleColumns.includes("lead_source") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("lead_source")}>Lead Source<SortIcon col="lead_source" /></th>}
+                  {visibleColumns.includes("type") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("type")}>Type<SortIcon col="type" /></th>}
+                  {visibleColumns.includes("price") && <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("price")}>Price<SortIcon col="price" /></th>}
+                  {visibleColumns.includes("gci") && <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("gci")}>GCI<SortIcon col="gci" /></th>}
+                  {visibleColumns.includes("savvy_net") && isAdmin && <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("savvy_net")}>Savvy Net<SortIcon col="savvy_net" /></th>}
+                  {visibleColumns.includes("commission_rate") && <th className="text-right py-3 px-4 text-muted-foreground font-medium select-none">Comm %</th>}
+                  {visibleColumns.includes("status") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("status")}>Status<SortIcon col="status" /></th>}
+                  {visibleColumns.includes("closing_date") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("closing_date")}>Closing<SortIcon col="closing_date" /></th>}
+                  {visibleColumns.includes("contract_date") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("contract_date")}>Contract<SortIcon col="contract_date" /></th>}
+                  {visibleColumns.includes("date_added") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("date_added")}>Date Added<SortIcon col="date_added" /></th>}
+                  {visibleColumns.includes("transaction_number") && <th className="text-left py-3 px-4 text-muted-foreground font-medium select-none">Txn #</th>}
                   <th className="py-3 px-4"></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isAdmin ? 11 : 10} className="text-center py-12 text-muted-foreground">
+                    <td colSpan={visibleColumns.length + 1} className="text-center py-12 text-muted-foreground">
                       <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
                       <p>No transactions found</p>
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(({ transaction, contact, agent, property, savvyNet }: any) => (
+                  filtered.map(({ transaction, contact, agent, property, savvyNet, leadSource, parentLeadSource }: any) => {
+                    const lsLabel = leadSource?.name ? (parentLeadSource?.name ? `${parentLeadSource.name} \u203A ${leadSource.name}` : leadSource.name) : null;
+                    return (
                     <tr key={transaction.id} className="border-b last:border-0 hover:bg-muted/20 cursor-pointer" onClick={() => navigate(`/transactions/${transaction.id}`)}>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5">
-                          <p className="font-medium text-foreground">{contact?.firstName} {contact?.lastName}</p>
-                          {transaction.payoutIntegrityFlag && <AlertTriangle className="h-3.5 w-3.5 text-red-500" />}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground">{property?.address ?? <span className="italic text-muted-foreground/50">No property</span>}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{agent?.name ?? "—"}</td>
-                      <td className="py-3 px-4 text-muted-foreground capitalize">{transaction.transactionType}</td>
-                      <td className="py-3 px-4 text-right">{formatCurrency(transaction.purchasePrice)}</td>
-                      <td className="py-3 px-4 text-right font-medium text-emerald-600">{formatCurrency(transaction.grossCommissionIncome)}</td>
-                      {isAdmin && (
-                        <td className="py-3 px-4 text-right font-medium text-blue-600">{savvyNet ? formatCurrency(savvyNet) : <span className="text-muted-foreground/50 font-normal">—</span>}</td>
-                      )}
-                      <td className="py-3 px-4">
-                        <TransactionStatusBadge status={transaction.status} />
-                        {transaction.status === "terminated" && transaction.terminationReason && (
-                          <p className="text-xs text-red-600 mt-0.5 truncate max-w-[180px]" title={transaction.terminationReason}>
-                            {transaction.terminationReason}
-                          </p>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.closingDate ? safeFormat(transaction.closingDate, "MMM d, yyyy") : "—"}</td>
-                      <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.createdAt ? safeFormat(transaction.createdAt, "MMM d, yyyy") : "—"}</td>
+                      {visibleColumns.includes("contact") && <td className="py-3 px-4"><div className="flex items-center gap-1.5"><p className="font-medium text-foreground">{contact?.firstName} {contact?.lastName}</p>{transaction.payoutIntegrityFlag && <AlertTriangle className="h-3.5 w-3.5 text-red-500" />}</div></td>}
+                      {visibleColumns.includes("property") && <td className="py-3 px-4 text-muted-foreground">{property?.address ?? <span className="italic text-muted-foreground/50">No property</span>}</td>}
+                      {visibleColumns.includes("agent") && <td className="py-3 px-4 text-muted-foreground">{agent?.name ?? "\u2014"}</td>}
+                      {visibleColumns.includes("lead_source") && <td className="py-3 px-4 text-muted-foreground text-xs">{lsLabel ?? <span className="italic text-muted-foreground/50">No source</span>}</td>}
+                      {visibleColumns.includes("type") && <td className="py-3 px-4 text-muted-foreground capitalize">{transaction.transactionType}</td>}
+                      {visibleColumns.includes("price") && <td className="py-3 px-4 text-right">{formatCurrency(transaction.purchasePrice)}</td>}
+                      {visibleColumns.includes("gci") && <td className="py-3 px-4 text-right font-medium text-emerald-600">{formatCurrency(transaction.grossCommissionIncome)}</td>}
+                      {visibleColumns.includes("savvy_net") && isAdmin && <td className="py-3 px-4 text-right font-medium text-blue-600">{savvyNet ? formatCurrency(savvyNet) : <span className="text-muted-foreground/50 font-normal">\u2014</span>}</td>}
+                      {visibleColumns.includes("commission_rate") && <td className="py-3 px-4 text-right text-muted-foreground">{transaction.commissionRate ? `${(parseFloat(transaction.commissionRate) * 100).toFixed(2)}%` : "\u2014"}</td>}
+                      {visibleColumns.includes("status") && <td className="py-3 px-4"><TransactionStatusBadge status={transaction.status} />{transaction.status === "terminated" && transaction.terminationReason && (<p className="text-xs text-red-600 mt-0.5 truncate max-w-[180px]" title={transaction.terminationReason}>{transaction.terminationReason}</p>)}</td>}
+                      {visibleColumns.includes("closing_date") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.closingDate ? safeFormat(transaction.closingDate, "MMM d, yyyy") : "\u2014"}</td>}
+                      {visibleColumns.includes("contract_date") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.contractDate ? safeFormat(transaction.contractDate, "MMM d, yyyy") : "\u2014"}</td>}
+                      {visibleColumns.includes("date_added") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.createdAt ? safeFormat(transaction.createdAt, "MMM d, yyyy") : "\u2014"}</td>}
+                      {visibleColumns.includes("transaction_number") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.transactionNumber ?? "\u2014"}</td>}
                       <td className="py-3 px-4"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/transactions/${transaction.id}`); }}>View</Button></td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
               {/* Aggregation Footer */}

@@ -60,7 +60,7 @@ const transactionExportFiltersSchema = z.object({
   includeLeaderStats: z.boolean().optional(),
   leadSourceId: z.number().optional(),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
-  sortBy: z.enum(["contact", "property", "agent", "type", "price", "gci", "status", "contract_date", "closing_date"]).default("closing_date"),
+  sortBy: z.enum(["contact", "property", "agent", "type", "price", "gci", "savvy_net", "lead_source", "status", "contract_date", "closing_date"]).default("closing_date"),
 });
 
 export const transactionsRouter = router({
@@ -80,7 +80,7 @@ export const transactionsRouter = router({
       flagPayoutIntegrity: z.boolean().optional(),
       groupLeaderId: z.number().optional(),
       includeLeaderStats: z.boolean().optional(),
-      leadSourceId: z.number().optional(),
+      leadSourceId: z.number().optional(), // -1 = no source (NULL)
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),

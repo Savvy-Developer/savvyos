@@ -240,8 +240,10 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
   }
   // Exclude archived contacts by default
   conditions.push(isNull(contacts.archivedAt));
-  // Filter by lead source
-  if (leadSourceId) {
+  // Filter by lead source (-1 = no source / null)
+  if (leadSourceId === -1) {
+    conditions.push(isNull(contacts.leadSourceId));
+  } else if (leadSourceId) {
     conditions.push(eq(contacts.leadSourceId, leadSourceId));
   }
   // Date range filters for "Added" (createdAt)
@@ -805,7 +807,8 @@ export async function getTransactions(agentId?: number, status?: string, search?
   if (flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
   if (flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
   if (flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
-  if (leadSourceId) conditions.push(eq(contacts.leadSourceId, leadSourceId));
+  if (leadSourceId === -1) conditions.push(isNull(contacts.leadSourceId));
+  else if (leadSourceId) conditions.push(eq(contacts.leadSourceId, leadSourceId));
   if (transactionType) conditions.push(eq(transactions.transactionType, transactionType as any));
   if (groupLeaderId) conditions.push(includeLeaderStats ? sql`(
     ${transactions.agentId} = ${groupLeaderId}
@@ -866,6 +869,8 @@ export async function getTransactions(agentId?: number, status?: string, search?
             case "type": return d(transactions.transactionType);
             case "price": return d(transactions.purchasePrice);
             case "gci": return d(transactions.grossCommissionIncome);
+            case "savvy_net": return d(sql`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), 0)`);
+            case "lead_source": return d(leadSources.name);
             case "status": return d(transactions.status);
             case "contract_date": return d(transactions.contractDate);
             case "date_added": return d(transactions.createdAt);
