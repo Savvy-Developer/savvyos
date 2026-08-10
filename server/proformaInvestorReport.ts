@@ -383,7 +383,7 @@ if (ctx2) {
 </html>`;
 
       // Render HTML to PDF using Puppeteer
-      const puppeteer = await import("puppeteer");
+      const puppeteer = await import("puppeteer-core");
       // Find system chromium - try common paths
       const fs = await import("fs");
       const chromePaths = [
@@ -392,11 +392,15 @@ if (ctx2) {
         "/usr/bin/chromium-browser",
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
+        "/snap/bin/chromium",
       ].filter(Boolean) as string[];
       const execPath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!execPath) {
+        return res.status(500).json({ error: "Chromium not found on server. Available paths checked: " + chromePaths.join(", ") });
+      }
       const browser = await puppeteer.default.launch({
         headless: true,
-        executablePath: execPath || undefined,
+        executablePath: execPath,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--font-render-hinting=none"],
       });
       const page = await browser.newPage();
