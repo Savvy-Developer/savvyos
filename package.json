@@ -84,6 +84,7 @@
     "openai": "^7.4.0",
     "pdf-parse": "1.1.1",
     "pdfkit": "^0.19.1",
+    "puppeteer": "^25.5.0",
     "react": "^19.2.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.2.1",
