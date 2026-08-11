@@ -11,10 +11,13 @@ const loanLabel = (lt: string) => ({ dscr: "DSCR Loan", conventional_investment:
 async function toDataUrl(url: string): Promise<string> {
   if (!url) return "";
   try {
-    const res = await fetch(url, { mode: "cors" });
+    // Add cache-busting param to avoid browser caching a pre-CORS failure
+    const separator = url.includes("?") ? "&" : "?";
+    const res = await fetch(`${url}${separator}_cb=${Date.now()}`, { mode: "cors", cache: "no-store" });
+    if (!res.ok) return "";
     const blob = await res.blob();
     return new Promise((resolve) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.readAsDataURL(blob); });
-  } catch { return url; } // fallback to URL if CORS fails
+  } catch { return ""; } // return empty if CORS fails
 }
 
 export async function generateInvestorReport(data: ReportData): Promise<void> {
