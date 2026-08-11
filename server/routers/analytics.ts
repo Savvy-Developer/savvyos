@@ -14,6 +14,7 @@ import {
   getMonthlyGciTrendExtended,
   getFinancialPerformanceSummary,
   getMasterMetrics,
+  getIsaDashboardStats,
 } from "../db-analytics";
 import {
   getAgentPerformance,
@@ -110,6 +111,13 @@ const leadCohortConversionInput = z.object({
   lifecycleStage: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"]).optional(),
 });
 
+const isaDashboardInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  isaId: z.number().int().positive().optional(),
+  statuses: z.array(z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"])).optional(),
+});
+
 const reportingSuiteInput = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -134,6 +142,10 @@ function parseDates(input?: { dateFrom?: string; dateTo?: string }) {
     dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
     dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
   };
+}
+
+function parseInclusiveDateTo(value?: string) {
+  return value ? new Date(`${value}T23:59:59.999Z`) : undefined;
 }
 
 export const analyticsRouter = router({
@@ -218,6 +230,25 @@ export const analyticsRouter = router({
     .query(async ({ input }) => {
       const { dateFrom, dateTo } = parseDates(input);
       return getTransactionTypeBreakdown(dateFrom, dateTo);
+    }),
+
+  /** Personal ISA performance dashboard with scope-safe activity and outcome metrics. */
+  isaDashboard: protectedProcedure
+    .input(isaDashboardInput.optional())
+    .query(async ({ ctx, input }) => {
+      const requestedIsaId = input?.isaId;
+      if (ctx.user.role === "isa" && requestedIsaId && requestedIsaId !== ctx.user.id) {
+        throw new Error("ISAs can only view their own performance data.");
+      }
+      if (ctx.user.role !== "admin" && ctx.user.role !== "isa") {
+        throw new Error("ISA performance stats are available to ISAs and administrators only.");
+      }
+      return getIsaDashboardStats({
+        isaId: ctx.user.role === "isa" ? ctx.user.id : requestedIsaId,
+        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+        dateTo: parseInclusiveDateTo(input?.dateTo),
+        statuses: input?.statuses,
+      });
     }),
 
   /** ISA pipeline status funnel: contacts per stage, optionally filtered by ISA */

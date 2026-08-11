@@ -1224,3 +1224,173 @@ export async function getMasterMetrics(opts?: {
     };
   });
 }
+
+
+// ─── ISA Performance Dashboard ────────────────────────────────────────────────
+
+const ISA_DASHBOARD_STATUSES = [
+  "new_lead",
+  "attempted_contact",
+  "nurture",
+  "active_client",
+  "under_contract",
+  "closed",
+  "dead",
+] as const;
+
+export type IsaDashboardStatus = (typeof ISA_DASHBOARD_STATUSES)[number];
+
+/**
+ * A personal ISA performance view. The selected date range is applied to the
+ * relevant activity date for each metric: contacts use assignment/creation date,
+ * appointments use appointmentSetAt (falling back to connection creation for
+ * legacy records), sessions use startedAt, and completed tasks use completedAt.
+ * Appointment outcomes intentionally use the contact's current ISA status so an
+ * ISA can follow the long-term downstream result of appointments they generated.
+ */
+export async function getIsaDashboardStats(opts: {
+  isaId?: number;
+  dateFrom?: Date;
+  dateTo?: Date;
+  statuses?: IsaDashboardStatus[];
+}) {
+  const db = await getDb();
+  const { isaId, dateFrom, dateTo, statuses } = opts;
+  const selectedStatuses = statuses?.filter((status) => ISA_DASHBOARD_STATUSES.includes(status)) ?? [];
+  const contactStatusFilter = selectedStatuses.length
+    ? inArray(contacts.isaStatus, selectedStatuses)
+    : undefined;
+
+  const contactCohortWhere = and(
+    isaId ? eq(contacts.assignedIsaId, isaId) : undefined,
+    dateFrom ? gte(contacts.createdAt, dateFrom) : undefined,
+    dateTo ? lte(contacts.createdAt, dateTo) : undefined,
+    contactStatusFilter,
+    isNull(contacts.archivedAt),
+  );
+
+  const appointmentWhere = and(
+    eq(agentConnections.appointmentSet, true),
+    isaId ? eq(contacts.assignedIsaId, isaId) : undefined,
+    dateFrom ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${dateFrom}` : undefined,
+    dateTo ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${dateTo}` : undefined,
+    contactStatusFilter,
+    isNull(contacts.archivedAt),
+  );
+
+  const sessionWhere = and(
+    isaId ? eq(marketMatchSessions.isaId, isaId) : undefined,
+    dateFrom ? gte(marketMatchSessions.startedAt, dateFrom) : undefined,
+    dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined,
+  );
+
+  const taskCompletionWhere = and(
+    isaId ? eq(tasks.assignedToId, isaId) : undefined,
+    eq(tasks.status, "completed"),
+    dateFrom ? gte(tasks.completedAt, dateFrom) : undefined,
+    dateTo ? lte(tasks.completedAt, dateTo) : undefined,
+  );
+
+  const overdueFollowUpWhere = and(
+    isaId ? eq(tasks.assignedToId, isaId) : undefined,
+    inArray(tasks.status, ["pending", "in_progress"]),
+    lte(tasks.dueDate, new Date()),
+  );
+
+  const [leadRows, appointmentRows, outcomeRows, sessionRows, completedTaskRows, overdueTaskRows, trendRows] = await Promise.all([
+    db
+      .select({
+        assignedLeads: sql<number>`COUNT(*)`,
+        untouchedLeads: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'new_lead' THEN 1 ELSE 0 END)`,
+        engagedLeads: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} <> 'new_lead' THEN 1 ELSE 0 END)`,
+        activeLeads: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} IN ('attempted_contact', 'nurture', 'active_client') THEN 1 ELSE 0 END)`,
+      })
+      .from(contacts)
+      .where(contactCohortWhere),
+    db
+      .select({
+        appointmentsSet: sql<number>`COUNT(*)`,
+        contactsWithAppointments: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})`,
+      })
+      .from(agentConnections)
+      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(appointmentWhere),
+    db
+      .select({
+        underContract: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'under_contract' THEN 1 ELSE 0 END)`,
+        closed: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'closed' THEN 1 ELSE 0 END)`,
+        activeClients: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'active_client' THEN 1 ELSE 0 END)`,
+        dead: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'dead' THEN 1 ELSE 0 END)`,
+      })
+      .from(agentConnections)
+      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(appointmentWhere),
+    db
+      .select({
+        total: sql<number>`COUNT(*)`,
+        completed: sql<number>`SUM(CASE WHEN ${marketMatchSessions.status} = 'completed' THEN 1 ELSE 0 END)`,
+        avgDurationSeconds: sql<number>`AVG(${marketMatchSessions.durationSeconds})`,
+      })
+      .from(marketMatchSessions)
+      .where(sessionWhere),
+    db
+      .select({ completed: sql<number>`COUNT(*)` })
+      .from(tasks)
+      .where(taskCompletionWhere),
+    db
+      .select({ overdue: sql<number>`COUNT(*)` })
+      .from(tasks)
+      .where(overdueFollowUpWhere),
+    db
+      .select({
+        month: sql<string>`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m')`,
+        appointmentsSet: sql<number>`COUNT(*)`,
+        uniqueContacts: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})`,
+      })
+      .from(agentConnections)
+      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(appointmentWhere)
+      .groupBy(sql`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m')`)
+      .orderBy(sql`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m') ASC`),
+  ]);
+
+  const leads = leadRows[0] ?? {};
+  const appointments = appointmentRows[0] ?? {};
+  const outcomes = outcomeRows[0] ?? {};
+  const sessions = sessionRows[0] ?? {};
+  const assignedLeads = Number(leads.assignedLeads ?? 0);
+  const engagedLeads = Number(leads.engagedLeads ?? 0);
+  const appointmentsSet = Number(appointments.appointmentsSet ?? 0);
+  const underContract = Number(outcomes.underContract ?? 0);
+  const closed = Number(outcomes.closed ?? 0);
+
+  return {
+    summary: {
+      assignedLeads,
+      untouchedLeads: Number(leads.untouchedLeads ?? 0),
+      engagedLeads,
+      activeLeads: Number(leads.activeLeads ?? 0),
+      engagementRate: assignedLeads > 0 ? (engagedLeads / assignedLeads) * 100 : null,
+      appointmentsSet,
+      contactsWithAppointments: Number(appointments.contactsWithAppointments ?? 0),
+      underContract,
+      closed,
+      activeClients: Number(outcomes.activeClients ?? 0),
+      dead: Number(outcomes.dead ?? 0),
+      appointmentToContractRate: appointmentsSet > 0 ? (underContract / appointmentsSet) * 100 : null,
+      appointmentToCloseRate: appointmentsSet > 0 ? (closed / appointmentsSet) * 100 : null,
+      completedFollowUps: Number(completedTaskRows[0]?.completed ?? 0),
+      overdueFollowUps: Number(overdueTaskRows[0]?.overdue ?? 0),
+      marketMatchSessions: Number(sessions.total ?? 0),
+      completedMarketMatchSessions: Number(sessions.completed ?? 0),
+      averageMarketMatchMinutes: sessions.avgDurationSeconds
+        ? Number(sessions.avgDurationSeconds) / 60
+        : null,
+    },
+    trend: trendRows.map((row) => ({
+      month: String(row.month ?? ""),
+      appointmentsSet: Number(row.appointmentsSet ?? 0),
+      uniqueContacts: Number(row.uniqueContacts ?? 0),
+    })),
+  };
+}

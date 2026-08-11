@@ -59,6 +59,7 @@ import {
   GraduationCap,
   Flame,
   Lock,
+  TrendingUp,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -152,6 +153,7 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
       label: "Overview",
       items: [
         { icon: PhoneCall, label: "ISA Dashboard", path: "/" },
+        { icon: TrendingUp, label: "My Performance", path: "/isa-stats" },
       ],
     },
     {

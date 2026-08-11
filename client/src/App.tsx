@@ -13,6 +13,7 @@ import AppLayout from "./components/AppLayout";
 
 // Pages
 import Dashboard from "./pages/Dashboard";
+import IsaStatsPage from "./pages/isa/IsaStatsPage";
 import ContactsPage from "./pages/ContactsPage";
 import ContactDetail from "./pages/ContactDetail";
 import TransactionsPage from "./pages/TransactionsPage";
@@ -163,6 +164,7 @@ function Router() {
       <AppLayout>
         <Switch>
           <Route path="/" component={Dashboard} />
+          <Route path="/isa-stats">{() => <AdminOrIsaRoute><IsaStatsPage /></AdminOrIsaRoute>}</Route>
           <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
           <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
           <Route path="/transactions" component={TransactionsPage} />
