@@ -30,6 +30,7 @@ import {
   agentGoals,
   adminPermissions,
   coachingProfiles,
+  rolesResponsibilities,
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
 
@@ -662,6 +663,12 @@ export const usersRouter = router({
         .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
         .from(userProfiles);
       const photoMap = new Map(photoRows.map((r) => [r.userId, r.profilePhotoUrl]));
+      const responsibilityCounts = await db
+        .select({ ownerId: rolesResponsibilities.ownerId, count: sql<number>`count(*)` })
+        .from(rolesResponsibilities)
+        .where(eq(rolesResponsibilities.status, "active"))
+        .groupBy(rolesResponsibilities.ownerId);
+      const responsibilityCountMap = new Map(responsibilityCounts.map((row) => [row.ownerId, Number(row.count)]));
 
       return (all as any[]).map((u: any) => ({
         id: u.id as number,
@@ -676,6 +683,7 @@ export const usersRouter = router({
         groupName: groupMap.get(u.id) ?? leaderGroupMap.get(u.id) ?? null,
         openId: u.openId as string,
         profilePhotoUrl: photoMap.get(u.id) ?? null,
+        activeResponsibilityCount: responsibilityCountMap.get(u.id) ?? 0,
       }));
     }),
 

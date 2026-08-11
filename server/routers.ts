@@ -51,6 +51,7 @@ import { talentProfileRouter } from "./routers/talentProfile";
 import { coachingRouter } from "./routers/coaching";
 import { hotLeadsRouter } from "./routers/hotLeads";
 import { passwordsRouter } from "./routers/passwords";
+import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -245,6 +246,7 @@ export const appRouter = router({
   coaching: coachingRouter,
   hotLeads: hotLeadsRouter,
   passwords: passwordsRouter,
+  rolesResponsibilities: rolesResponsibilitiesRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

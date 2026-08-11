@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +17,7 @@ import {
   Expand,
   Minimize2,
   X,
+  ExternalLink,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +34,7 @@ type OrgUser = {
   groupName: string | null;
   openId: string;
   profilePhotoUrl?: string | null;
+  activeResponsibilityCount?: number;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -84,6 +88,8 @@ function OrgNode({
   detailSet,
   toggleDetail,
   searchQuery,
+  canViewRr,
+  openProfile,
 }: {
   user: OrgUser;
   directChildren: OrgUser[];
@@ -94,6 +100,8 @@ function OrgNode({
   detailSet: Set<number>;
   toggleDetail: (id: number) => void;
   searchQuery: string;
+  canViewRr: boolean;
+  openProfile: (userId: number) => void;
 }) {
   const isExpanded = expandedSet.has(user.id);
   const isDetailOpen = detailSet.has(user.id);
@@ -152,6 +160,11 @@ function OrgNode({
             {user.title && (
               <span className="text-xs text-muted-foreground">{user.title}</span>
             )}
+            {user.activeResponsibilityCount ? (
+              <Badge variant="outline" className="text-xs px-1.5 py-0 bg-primary/5 text-primary border-primary/20">
+                {user.activeResponsibilityCount} R&R{user.activeResponsibilityCount === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
           </div>
 
           {/* Market / Group tags */}
@@ -200,6 +213,15 @@ function OrgNode({
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 shrink-0">
+          {canViewRr && user.role === "admin" && (
+            <button
+              onClick={() => openProfile(user.id)}
+              className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+              title="View staff profile and Roles & Responsibilities"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+          )}
           {/* Toggle contact info */}
           <button
             onClick={() => toggleDetail(user.id)}
@@ -262,6 +284,8 @@ function OrgNode({
                   detailSet={detailSet}
                   toggleDetail={toggleDetail}
                   searchQuery={searchQuery}
+                  canViewRr={canViewRr}
+                  openProfile={openProfile}
                 />
               ))}
             </div>
@@ -274,6 +298,10 @@ function OrgNode({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function OrgChartPage() {
+  const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const canViewRr = (user as any)?.role === "admin";
+  const openProfile = (userId: number) => navigate(`/agents/${userId}`);
   const { data: rawUsers = [], isLoading } = trpc.users.orgChart.useQuery(undefined, {
     staleTime: 60_000,
   });
@@ -438,6 +466,8 @@ export default function OrgChartPage() {
               detailSet={detailSet}
               toggleDetail={toggleDetail}
               searchQuery={searchQuery}
+              canViewRr={canViewRr}
+              openProfile={openProfile}
             />
           ))
         )}

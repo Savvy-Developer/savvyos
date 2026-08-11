@@ -23,6 +23,7 @@ import { registerWebhookRoute } from "../webhookRoute";
 import { detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
 import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
+import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -226,6 +227,9 @@ async function startServer() {
 
   // Temporary permission grant expiry: revoke expired temp grants every 15 min
   scheduleTempGrantExpiry();
+
+  // R&R scorecard metrics: bounded automatic refresh every six hours.
+  scheduleRrMetricRefresh();
 }
 
 startServer().catch(console.error);

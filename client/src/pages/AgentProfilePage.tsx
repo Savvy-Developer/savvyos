@@ -90,6 +90,7 @@ import {
 } from "recharts";
 import { useAppBack } from "@/lib/navigationHistory";
 import AdminPermissionsDialog from "@/components/AdminPermissionsDialog";
+import RoleResponsibilityProfilePanel from "@/components/roles-responsibilities/RoleResponsibilityProfilePanel";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -802,6 +803,12 @@ export default function AgentProfilePage() {
               Documents {(userDocs as any[]).length > 0 && `(${(userDocs as any[]).length})`}
             </TabsTrigger>
           )}
+          {isAdmin && agentData.role === "admin" && (
+            <TabsTrigger value="roles-responsibilities" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <ClipboardList className="h-4 w-4 mr-1.5 shrink-0" />
+              Roles & Responsibilities
+            </TabsTrigger>
+          )}
           {isAdmin && (
             <TabsTrigger value="extended-profile" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
               <ClipboardList className="h-4 w-4 mr-1.5 shrink-0" />
@@ -1380,6 +1387,12 @@ export default function AgentProfilePage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+
+        {isAdmin && agentData.role === "admin" && (
+          <TabsContent value="roles-responsibilities" className="mt-4">
+            <RoleResponsibilityProfilePanel ownerId={agentId} ownerName={agentData.name ?? "this staff member"} isAdmin={isAdmin} />
           </TabsContent>
         )}
 

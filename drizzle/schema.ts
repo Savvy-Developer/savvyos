@@ -804,7 +804,151 @@ export const userDocuments = mysqlTable("user_documents", {
 export type UserDocument = typeof userDocuments.$inferSelect;
 export type InsertUserDocument = typeof userDocuments.$inferInsert;
 
-// ─── User Core Profile (all roles) ───────────────────────────────────────────
+// ─── Roles & Responsibilities ─────────────────────────────────────────────────
+// Responsibilities belong directly to an existing administrator. Child records use
+// foreign keys so that an individual responsibility can be transferred atomically
+// without duplicating its SOPs, resources, scorecard configuration, or values.
+export const rolesResponsibilities = mysqlTable("roles_responsibilities", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  ownerId: int("ownerId").notNull().references(() => users.id, { onDelete: "restrict" }),
+  description: text("description"),
+  cadence: mysqlEnum("cadence", ["ongoing", "daily", "weekly", "biweekly", "monthly", "quarterly", "annually", "as_needed", "custom"]).default("ongoing").notNull(),
+  cadenceDetails: text("cadenceDetails"),
+  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("rr_owner_status_idx").on(table.ownerId, table.status, table.sortOrder),
+  index("rr_title_idx").on(table.title),
+]);
+export type RoleResponsibility = typeof rolesResponsibilities.$inferSelect;
+export type InsertRoleResponsibility = typeof rolesResponsibilities.$inferInsert;
+
+export const rrSops = mysqlTable("rr_sops", {
+  id: int("id").autoincrement().primaryKey(),
+  responsibilityId: int("responsibilityId").notNull().references(() => rolesResponsibilities.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  overview: text("overview"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("rr_sops_responsibility_idx").on(table.responsibilityId, table.sortOrder)]);
+export type RrSop = typeof rrSops.$inferSelect;
+export type InsertRrSop = typeof rrSops.$inferInsert;
+
+export const rrSopSteps = mysqlTable("rr_sop_steps", {
+  id: int("id").autoincrement().primaryKey(),
+  sopId: int("sopId").notNull().references(() => rrSops.id, { onDelete: "cascade" }),
+  instruction: text("instruction").notNull(),
+  details: text("details"),
+  showCheckbox: boolean("showCheckbox").default(true).notNull(),
+  resourceLabel: varchar("resourceLabel", { length: 255 }),
+  resourceUrl: text("resourceUrl"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("rr_sop_steps_sop_idx").on(table.sopId, table.sortOrder)]);
+export type RrSopStep = typeof rrSopSteps.$inferSelect;
+export type InsertRrSopStep = typeof rrSopSteps.$inferInsert;
+
+export const rrResources = mysqlTable("rr_resources", {
+  id: int("id").autoincrement().primaryKey(),
+  responsibilityId: int("responsibilityId").references(() => rolesResponsibilities.id, { onDelete: "cascade" }),
+  sopId: int("sopId").references(() => rrSops.id, { onDelete: "cascade" }),
+  resourceType: mysqlEnum("resourceType", ["link", "document", "file", "savvy_page", "template", "form", "video"]).default("link").notNull(),
+  label: varchar("label", { length: 255 }).notNull(),
+  url: text("url"),
+  userDocumentId: int("userDocumentId").references(() => userDocuments.id, { onDelete: "set null" }),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("rr_resources_responsibility_idx").on(table.responsibilityId, table.sortOrder),
+  index("rr_resources_sop_idx").on(table.sopId, table.sortOrder),
+]);
+export type RrResource = typeof rrResources.$inferSelect;
+export type InsertRrResource = typeof rrResources.$inferInsert;
+
+// Explicit task links preserve the existing Tasks system while allowing only the
+// linked open tasks to follow a responsibility during an ownership transfer.
+export const rrTaskLinks = mysqlTable("rr_task_links", {
+  id: int("id").autoincrement().primaryKey(),
+  responsibilityId: int("responsibilityId").notNull().references(() => rolesResponsibilities.id, { onDelete: "cascade" }),
+  taskId: int("taskId").notNull().unique().references(() => tasks.id, { onDelete: "cascade" }),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("rr_task_links_responsibility_idx").on(table.responsibilityId)]);
+export type RrTaskLink = typeof rrTaskLinks.$inferSelect;
+export type InsertRrTaskLink = typeof rrTaskLinks.$inferInsert;
+
+export const rrScorecardMetrics = mysqlTable("rr_scorecard_metrics", {
+  id: int("id").autoincrement().primaryKey(),
+  responsibilityId: int("responsibilityId").notNull().references(() => rolesResponsibilities.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  metricType: mysqlEnum("metricType", ["manual", "automatic"]).default("manual").notNull(),
+  frequency: mysqlEnum("frequency", ["weekly", "monthly", "quarterly", "annually"]).default("monthly").notNull(),
+  targetValue: decimal("targetValue", { precision: 16, scale: 4 }),
+  performanceDirection: mysqlEnum("performanceDirection", ["higher", "lower"]).default("higher").notNull(),
+  displayFormat: mysqlEnum("displayFormat", ["number", "percentage", "currency", "duration"]).default("number").notNull(),
+  rollupMethod: mysqlEnum("rollupMethod", ["sum", "average", "count", "percentage", "latest"]).default("sum").notNull(),
+  isCumulative: boolean("isCumulative").default(false).notNull(),
+  cumulativeReset: mysqlEnum("cumulativeReset", ["monthly", "quarterly", "annually", "never"]),
+  status: mysqlEnum("status", ["active", "inactive"]).default("active").notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("rr_metrics_responsibility_idx").on(table.responsibilityId, table.status),
+  index("rr_metrics_name_idx").on(table.name),
+]);
+export type RrScorecardMetric = typeof rrScorecardMetrics.$inferSelect;
+export type InsertRrScorecardMetric = typeof rrScorecardMetrics.$inferInsert;
+
+export const rrMetricValues = mysqlTable("rr_metric_values", {
+  id: int("id").autoincrement().primaryKey(),
+  metricId: int("metricId").notNull().references(() => rrScorecardMetrics.id, { onDelete: "cascade" }),
+  periodStart: date("periodStart", { mode: "string" }).notNull(),
+  periodEnd: date("periodEnd", { mode: "string" }).notNull(),
+  actualValue: decimal("actualValue", { precision: 18, scale: 4 }).notNull(),
+  note: text("note"),
+  valueSource: mysqlEnum("valueSource", ["manual", "automatic"]).default("manual").notNull(),
+  calculationMetadata: json("calculationMetadata"),
+  enteredById: int("enteredById").references(() => users.id, { onDelete: "set null" }),
+  enteredAt: timestamp("enteredAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("rr_metric_period_unique").on(table.metricId, table.periodStart, table.periodEnd),
+  index("rr_metric_values_period_idx").on(table.metricId, table.periodEnd),
+]);
+export type RrMetricValue = typeof rrMetricValues.$inferSelect;
+export type InsertRrMetricValue = typeof rrMetricValues.$inferInsert;
+
+// The automatic builder only exposes enum-backed SavvyOS sources and validates
+// fields in the API; it never stores or executes arbitrary SQL.
+export const rrMetricAutoConfigs = mysqlTable("rr_metric_auto_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  metricId: int("metricId").notNull().unique().references(() => rrScorecardMetrics.id, { onDelete: "cascade" }),
+  dataSource: mysqlEnum("dataSource", ["tasks", "transactions", "agent_connections"]).notNull(),
+  dateField: varchar("dateField", { length: 64 }).notNull(),
+  calculation: mysqlEnum("calculation", ["count", "sum", "average", "percentage", "latest"]).notNull(),
+  valueField: varchar("valueField", { length: 64 }),
+  filters: json("filters"),
+  numeratorFilters: json("numeratorFilters"),
+  denominatorFilters: json("denominatorFilters"),
+  lastRefreshedAt: timestamp("lastRefreshedAt"),
+  lastRecordCount: int("lastRecordCount"),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type RrMetricAutoConfig = typeof rrMetricAutoConfigs.$inferSelect;
+export type InsertRrMetricAutoConfig = typeof rrMetricAutoConfigs.$inferInsert;
+
+// ─── User Core Profile (all roles) ───────────────────────────────────────────"
 export const userProfiles = mysqlTable("user_profiles", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
@@ -1625,6 +1769,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewAdminApprovals: boolean("canViewAdminApprovals").default(true).notNull(),
   canViewMarketMatch: boolean("canViewMarketMatch").default(true).notNull(),
   canViewOrgChart: boolean("canViewOrgChart").default(true).notNull(),
+  canViewRolesResponsibilities: boolean("canViewRolesResponsibilities").default(true).notNull(),
   canViewFeedback: boolean("canViewFeedback").default(true).notNull(),
   canViewMarketingAdmin: boolean("canViewMarketingAdmin").default(true).notNull(),
   canViewGoals: boolean("canViewGoals").default(true).notNull(),

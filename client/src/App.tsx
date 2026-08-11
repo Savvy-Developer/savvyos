@@ -92,6 +92,8 @@ import CoachingSessionPage from "./pages/CoachingSessionPage";
 import CoachingSessionsPage from "./pages/CoachingSessionsPage";
 import HotLeadsPage from "./pages/HotLeadsPage";
 import PasswordsPage from "./pages/PasswordsPage";
+import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
+import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -205,6 +207,8 @@ function Router() {
           <Route path="/referral-partners" component={ReferralPartnersPage} />
           <Route path="/my-onboarding" component={MyOnboardingPage} />
           <Route path="/org-chart" component={OrgChartPage} />
+          <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
+          <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />
