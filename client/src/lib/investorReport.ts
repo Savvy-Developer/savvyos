@@ -22,25 +22,30 @@ const pct = (n: number | undefined | null) => {
 
 export async function generateInvestorReport(data: ReportData): Promise<void> {
   const { form, calc, property, branding, title } = data;
-  const s1 = calc.s1 || {};
-  const s2 = calc.s2 || {};
-  const s3 = calc.s3 || {};
 
-  // Build the HTML report
-  const html = buildReportHTML(data);
+  // Build the full HTML document (self-contained, no external CSS)
+  const htmlContent = buildReportHTML(data);
+  const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1a2e; background: white; }</style></head><body>${htmlContent}</body></html>`;
 
-  // Create a hidden container to render the HTML
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "-9999px";
-  container.style.top = "0";
-  container.style.width = "816px"; // Letter width at 96dpi
-  container.style.background = "white";
-  container.innerHTML = html;
-  document.body.appendChild(container);
+  // Use an iframe for complete CSS isolation (prevents oklch inheritance from page)
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.left = "-9999px";
+  iframe.style.top = "0";
+  iframe.style.width = "816px";
+  iframe.style.height = "3200px";
+  iframe.style.border = "none";
+  document.body.appendChild(iframe);
 
-  // Wait for images to load
-  const images = container.querySelectorAll("img");
+  // Write the HTML into the iframe
+  const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!iframeDoc) { document.body.removeChild(iframe); throw new Error("Could not access iframe document"); }
+  iframeDoc.open();
+  iframeDoc.write(fullHtml);
+  iframeDoc.close();
+
+  // Wait for images to load inside the iframe
+  const images = iframeDoc.querySelectorAll("img");
   await Promise.all(
     Array.from(images).map(
       (img) =>
@@ -54,11 +59,11 @@ export async function generateInvestorReport(data: ReportData): Promise<void> {
     )
   );
 
-  // Wait a tick for rendering
-  await new Promise((r) => setTimeout(r, 500));
+  // Wait for rendering
+  await new Promise((r) => setTimeout(r, 800));
 
-  // Capture each page section
-  const pages = container.querySelectorAll(".pdf-page");
+  // Capture each page section from the iframe
+  const pages = iframeDoc.querySelectorAll(".pdf-page");
   const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "letter" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
@@ -70,6 +75,7 @@ export async function generateInvestorReport(data: ReportData): Promise<void> {
       useCORS: true,
       allowTaint: true,
       backgroundColor: "#ffffff",
+      foreignObjectRendering: false,
     });
     const imgData = canvas.toDataURL("image/jpeg", 0.92);
     const imgWidth = pageWidth;
@@ -78,7 +84,7 @@ export async function generateInvestorReport(data: ReportData): Promise<void> {
   }
 
   // Cleanup
-  document.body.removeChild(container);
+  document.body.removeChild(iframe);
 
   // Download
   const address = property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property";
