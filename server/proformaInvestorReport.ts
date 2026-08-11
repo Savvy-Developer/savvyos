@@ -384,11 +384,11 @@ if (ctx2) {
 
       // Render HTML to PDF using Puppeteer
       const puppeteer = await import("puppeteer-core");
-      const chromium = await import("@sparticuz/chromium");
+      const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium";
       const browser = await puppeteer.default.launch({
-        headless: chromium.default.headless,
-        executablePath: await chromium.default.executablePath(),
-        args: chromium.default.args,
+        headless: true,
+        executablePath: execPath,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--font-render-hinting=none"],
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0", timeout: 15000 });
