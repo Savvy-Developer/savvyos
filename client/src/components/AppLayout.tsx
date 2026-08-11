@@ -58,6 +58,7 @@ import {
   Briefcase,
   GraduationCap,
   Flame,
+  Lock,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -213,6 +214,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewProjects: "/projects",
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
+  canViewPasswords: "/passwords",
   canViewSuperPermissions: "/admin/super-permissions",
 };
 
@@ -286,6 +288,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Target, label: "Goals", path: "/goals" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
+        { icon: Lock, label: "Passwords", path: "/passwords" },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
       ],
     },

@@ -1630,6 +1630,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewProjects: boolean("canViewProjects").default(false).notNull(),
   canViewSmartPlans: boolean("canViewSmartPlans").default(false).notNull(),
   canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
+  // Passwords
+  canViewPasswords: boolean("canViewPasswords").default(true).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)
   canViewSuperPermissions: boolean("canViewSuperPermissions").default(false).notNull(),
   // JSON map of { permissionKey: ISO-timestamp } for temporarily-granted permissions
@@ -2306,3 +2308,33 @@ export const contactRelationships = mysqlTable("contact_relationships", {
 }));
 export type ContactRelationship = typeof contactRelationships.$inferSelect;
 export type InsertContactRelationship = typeof contactRelationships.$inferInsert;
+
+// ─── Password Lists & Entries ───────────────────────────────────────────────
+// Stores organized lists of passwords/credentials for the team.
+export const passwordLists = mysqlTable("password_lists", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  createdByUserId: int("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PasswordList = typeof passwordLists.$inferSelect;
+export type InsertPasswordList = typeof passwordLists.$inferInsert;
+
+export const passwordEntries = mysqlTable("password_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  listId: int("listId").notNull().references(() => passwordLists.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  username: varchar("username", { length: 255 }),
+  password: varchar("password", { length: 500 }),
+  loginUrl: varchar("loginUrl", { length: 1000 }),
+  notes: text("notes"),
+  createdByUserId: int("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  listIdx: index("idx_password_entries_list").on(table.listId),
+}));
+export type PasswordEntry = typeof passwordEntries.$inferSelect;
+export type InsertPasswordEntry = typeof passwordEntries.$inferInsert;
