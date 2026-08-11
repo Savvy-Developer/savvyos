@@ -765,47 +765,32 @@ export default function ProformaPage() {
   const handleDownloadInvestorReport = async () => {
     setDownloadingReport(true);
     try {
-      const response = await fetch("/api/proforma/investor-report", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          form,
-          calc: {
-            pp: calc.pp, downPayment: calc.downPayment, closingCosts: calc.closingCosts,
-            loanAmount: calc.loanAmount, totalCashNeeded: calc.totalCashNeeded,
-            monthlyMortgage: calc.monthlyMortgage, annualDebtService: calc.annualDebtService,
-            fixedExpensesAnnual: calc.fixedAnnual, variableExpensesAnnual: (calc.s2?.totalExpensesAnnual ?? 0) - (calc.fixedAnnual ?? 0),
-            blendedFeeRate: calc.blendedFeeRate,
-            furnishing: calc.furnishing, renovation: calc.renovation,
-            startup: calc.startup, inspection: calc.inspection, sellerCredit: calc.sellerCredit,
-            s1: calc.s1, s2: calc.s2, s3: calc.s3, fiveYear: calc.fiveYear,
-            irr: calc.irr, sellingCostsPct: calc.sellingCostsPct,
-            costSegEnabled: calc.costSegEnabled, costSegCost: calc.costSegCost,
-            totalFirstYearDeduction: calc.totalFirstYearDeduction,
-            taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
-            buildingBasis: calc.buildingBasis, straightLineDepreciation: calc.straightLineDepreciation,
-            year1MortgageInterest: calc.year1MortgageInterest, ongoingAnnualTaxBenefit: calc.ongoingAnnualTaxBenefit,
-            taxReturns: calc.taxReturns,
-            isValueAdd: calc.isValueAdd, arv: calc.arv, forcedEquity: calc.forcedEquity,
-            equityCreatedByReno: calc.equityCreatedByReno, isCashoutRefi: calc.isCashoutRefi, refi: calc.refi,
-          },
-          property: property ? { address: property.address, city: property.city, state: property.state, zip: property.zip, beds: property.beds, baths: property.baths, sqft: property.sqft, propertyType: property.propertyType } : null,
-          branding: userRecord ? { name: userRecord.name, email: userRecord.email, phone: userRecord.phone, headshot: (coreProfile as any)?.profilePhotoUrl || "", market: (coreProfile as any)?.market || "", callBookingLink: (coreProfile as any)?.callBookingLink || "" } : null,
-          title,
-        }),
+      const { generateInvestorReport } = await import("../lib/investorReport");
+      await generateInvestorReport({
+        form,
+        calc: {
+          pp: calc.pp, downPayment: calc.downPayment, closingCosts: calc.closingCosts,
+          loanAmount: calc.loanAmount, totalCashNeeded: calc.totalCashNeeded,
+          monthlyMortgage: calc.monthlyMortgage, annualDebtService: calc.annualDebtService,
+          fixedExpensesAnnual: calc.fixedAnnual, variableExpensesAnnual: (calc.s2?.totalExpensesAnnual ?? 0) - (calc.fixedAnnual ?? 0),
+          blendedFeeRate: calc.blendedFeeRate,
+          furnishing: calc.furnishing, renovation: calc.renovation,
+          startup: calc.startup, inspection: calc.inspection, sellerCredit: calc.sellerCredit,
+          s1: calc.s1, s2: calc.s2, s3: calc.s3, fiveYear: calc.fiveYear,
+          irr: calc.irr, sellingCostsPct: calc.sellingCostsPct,
+          costSegEnabled: calc.costSegEnabled, costSegCost: calc.costSegCost,
+          totalFirstYearDeduction: calc.totalFirstYearDeduction,
+          taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
+          buildingBasis: calc.buildingBasis, straightLineDepreciation: calc.straightLineDepreciation,
+          year1MortgageInterest: calc.year1MortgageInterest, ongoingAnnualTaxBenefit: calc.ongoingAnnualTaxBenefit,
+          taxReturns: calc.taxReturns,
+          isValueAdd: calc.isValueAdd, arv: calc.arv, forcedEquity: calc.forcedEquity,
+          equityCreatedByReno: calc.equityCreatedByReno, isCashoutRefi: calc.isCashoutRefi, refi: calc.refi,
+        },
+        property: property ? { address: property.address, city: property.city, state: property.state, zip: property.zip, beds: property.beds, baths: property.baths, sqft: property.sqft, propertyType: property.propertyType } : null,
+        branding: userRecord ? { name: userRecord.name, email: userRecord.email, phone: userRecord.phone, headshot: (coreProfile as any)?.profilePhotoUrl || "", market: (coreProfile as any)?.market || "", callBookingLink: (coreProfile as any)?.callBookingLink || "" } : null,
+        title,
       });
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Report generation failed (${response.status}): ${errText}`);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `SavvyProforma_InvestorReport_${property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property"}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
     } catch (e: any) { console.error(e); alert(`Investor Report download failed: ${e.message || "Unknown error"}. Please try again.`); }
     setDownloadingReport(false);
   };
