@@ -8,11 +8,26 @@ async function getDatabase() {
   if (!d) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
   return d;
 }
+
+async function requireAdminAssignee(db: Awaited<ReturnType<typeof getDatabase>>, adminUserId: number | null | undefined): Promise<number> {
+  if (!adminUserId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Select an admin user for admin-assigned onboarding tasks." });
+  }
+  const [adminUser] = await db
+    .select({ id: users.id, role: users.role, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, adminUserId));
+  if (!adminUser || adminUser.role !== "admin" || !adminUser.isActive) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "The selected user must be an active admin user." });
+  }
+  return adminUser.id;
+}
 import {
   onboardingTemplates,
   onboardingTemplateTasks,
   onboardingInstances,
   onboardingInstanceTasks,
+  tasks as tasksTable,
   users,
 } from "../../drizzle/schema";
 import { eq, asc, and, desc, sql, isNotNull, lt } from "drizzle-orm";
@@ -110,12 +125,16 @@ export const onboardingRouter = router({
       title: z.string().min(1),
       description: z.string().optional(),
       assignee: z.enum(["admin", "agent"]).default("admin"),
+      adminUserId: z.number().nullable().optional(),
       sortOrder: z.number().default(0),
       dueDaysOffset: z.number().min(1).nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
+      const adminUserId = input.assignee === "admin"
+        ? await requireAdminAssignee(db, input.adminUserId)
+        : null;
       // Auto-set sortOrder to next available
       const [maxOrder] = await db
         .select({ max: sql<number>`COALESCE(MAX(sortOrder), -1)` })
@@ -127,6 +146,7 @@ export const onboardingRouter = router({
         title: input.title,
         description: input.description,
         assignee: input.assignee,
+        adminUserId,
         sortOrder,
         dueDaysOffset: input.dueDaysOffset ?? null,
       });
@@ -139,14 +159,25 @@ export const onboardingRouter = router({
       title: z.string().min(1).optional(),
       description: z.string().optional().nullable(),
       assignee: z.enum(["admin", "agent"]).optional(),
+      adminUserId: z.number().nullable().optional(),
       sortOrder: z.number().optional(),
       dueDaysOffset: z.number().min(1).nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
-      const { id, ...data } = input;
-      await db.update(onboardingTemplateTasks).set(data).where(eq(onboardingTemplateTasks.id, id));
+      const [currentTask] = await db
+        .select()
+        .from(onboardingTemplateTasks)
+        .where(eq(onboardingTemplateTasks.id, input.id));
+      if (!currentTask) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const assignee = input.assignee ?? currentTask.assignee;
+      const adminUserId = assignee === "admin"
+        ? await requireAdminAssignee(db, input.adminUserId !== undefined ? input.adminUserId : currentTask.adminUserId)
+        : null;
+      const { id, adminUserId: _adminUserId, assignee: _assignee, ...data } = input;
+      await db.update(onboardingTemplateTasks).set({ ...data, assignee, adminUserId }).where(eq(onboardingTemplateTasks.id, id));
       return { success: true };
     }),
 
@@ -183,23 +214,44 @@ export const onboardingRouter = router({
         .where(eq(onboardingTemplateTasks.templateId, input.templateId))
         .orderBy(asc(onboardingTemplateTasks.sortOrder));
       if (templateTasks.length > 0) {
-        await db.insert(onboardingInstanceTasks).values(
-          templateTasks.map((t) => {
-            let dueDate: Date | null = null;
-            if (t.dueDaysOffset != null && t.dueDaysOffset > 0) {
-              dueDate = new Date(startedAt.getTime() + t.dueDaysOffset * 24 * 60 * 60 * 1000);
-            }
-            return {
-              instanceId,
-              templateTaskId: t.id,
-              title: t.title,
-              description: t.description,
-              assignee: t.assignee,
-              sortOrder: t.sortOrder,
+        for (const templateTask of templateTasks) {
+          let dueDate: Date | null = null;
+          if (templateTask.dueDaysOffset != null && templateTask.dueDaysOffset > 0) {
+            dueDate = new Date(startedAt.getTime() + templateTask.dueDaysOffset * 24 * 60 * 60 * 1000);
+          }
+
+          const adminUserId = templateTask.assignee === "admin" ? templateTask.adminUserId : null;
+          const [instanceTaskResult] = await db.insert(onboardingInstanceTasks).values({
+            instanceId,
+            templateTaskId: templateTask.id,
+            title: templateTask.title,
+            description: templateTask.description,
+            assignee: templateTask.assignee,
+            adminUserId,
+            sortOrder: templateTask.sortOrder,
+            dueDate,
+          });
+          const onboardingInstanceTaskId = instanceTaskResult.insertId;
+
+          // Admin-assigned checklist items also become standard tasks so they
+          // appear in the selected admin's existing task list and overdue badge.
+          if (adminUserId) {
+            const [linkedTaskResult] = await db.insert(tasksTable).values({
+              title: templateTask.title,
+              description: [templateTask.description, `Onboarding checklist item for agent #${input.agentUserId}.`]
+                .filter(Boolean)
+                .join("\n\n"),
+              assignedToId: adminUserId,
+              createdById: ctx.user.id,
               dueDate,
-            };
-          })
-        );
+              taskType: "other",
+              onboardingInstanceTaskId,
+            });
+            await db.update(onboardingInstanceTasks)
+              .set({ linkedTaskId: linkedTaskResult.insertId })
+              .where(eq(onboardingInstanceTasks.id, onboardingInstanceTaskId));
+          }
+        }
       }
       return { id: instanceId };
     }),
@@ -462,11 +514,21 @@ export const onboardingRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "You can only complete tasks assigned to you." });
         }
       }
+      const completedAt = input.completed ? new Date() : null;
       await db.update(onboardingInstanceTasks).set({
         completed: input.completed,
-        completedAt: input.completed ? new Date() : null,
+        completedAt,
         completedByUserId: input.completed ? ctx.user.id : null,
       }).where(eq(onboardingInstanceTasks.id, input.taskId));
+
+      // Keep the linked standard task in sync when a checklist item is completed
+      // directly from the onboarding tracker.
+      if (task.linkedTaskId) {
+        await db.update(tasksTable).set({
+          status: input.completed ? "completed" : "pending",
+          completedAt,
+        }).where(eq(tasksTable.id, task.linkedTaskId));
+      }
 
       // Check if all tasks are completed → auto-complete instance
       const [remaining] = await db

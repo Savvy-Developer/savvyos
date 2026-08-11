@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { createTask, getTasks, getAllTasks, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getMyOverdueTaskCount, resetLeadAgingByConnectionId } from "../db";
+import { createTask, getTasks, getAllTasks, getDb, logActivity, updateTask, getTaskNotes, createTaskNote, getTaskById, getMyOverdueTaskCount, resetLeadAgingByConnectionId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
-import { tasks as tasksTable } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { onboardingInstanceTasks, onboardingInstances, tasks as tasksTable } from "../../drizzle/schema";
+import { and, eq, sql } from "drizzle-orm";
 
 /**
  * Parse a due-date string from the client into a Date object.
@@ -18,6 +18,41 @@ function parseDueDate(s: string): Date {
     return new Date(`${s}T12:00:00Z`);
   }
   return new Date(s);
+}
+
+async function syncLinkedOnboardingTask(
+  onboardingInstanceTaskId: number,
+  completed: boolean,
+  completedByUserId: number | null,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const [onboardingTask] = await db
+    .select({ instanceId: onboardingInstanceTasks.instanceId })
+    .from(onboardingInstanceTasks)
+    .where(eq(onboardingInstanceTasks.id, onboardingInstanceTaskId));
+  if (!onboardingTask) return;
+
+  const completedAt = completed ? new Date() : null;
+  await db.update(onboardingInstanceTasks).set({
+    completed,
+    completedAt,
+    completedByUserId: completed ? completedByUserId : null,
+  }).where(eq(onboardingInstanceTasks.id, onboardingInstanceTaskId));
+
+  const [remaining] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(onboardingInstanceTasks)
+    .where(and(
+      eq(onboardingInstanceTasks.instanceId, onboardingTask.instanceId),
+      eq(onboardingInstanceTasks.completed, false),
+    ));
+  const allCompleted = Number(remaining?.count ?? 0) === 0;
+  await db.update(onboardingInstances).set({
+    status: allCompleted ? "completed" : "in_progress",
+    completedAt: allCompleted ? completedAt : null,
+  }).where(eq(onboardingInstances.id, onboardingTask.instanceId));
 }
 
 export const tasksRouter = router({
@@ -151,6 +186,17 @@ export const tasksRouter = router({
         updateData.completedAt = new Date();
       }
       await updateTask(input.id, updateData);
+      if (input.data.status) {
+        const db = await getDb();
+        if (db) {
+          const [task] = await db.select({ onboardingInstanceTaskId: tasksTable.onboardingInstanceTaskId })
+            .from(tasksTable)
+            .where(eq(tasksTable.id, input.id));
+          if (task?.onboardingInstanceTaskId) {
+            await syncLinkedOnboardingTask(task.onboardingInstanceTaskId, input.data.status === "completed", input.data.status === "completed" ? ctx.user.id : null);
+          }
+        }
+      }
       await logActivity({
         userId: ctx.user.id,
         action: "task_updated",
@@ -165,17 +211,21 @@ export const tasksRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       // Admin cannot mark tasks complete for other users
-      const { getDb } = await import("../db");
       const db = await getDb();
       let relatedConnectionId: number | null = null;
+      let onboardingInstanceTaskId: number | null = null;
       if (db) {
         const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, input.id)).limit(1);
         if (task && task.assignedToId !== ctx.user.id && ctx.user.role === "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admins cannot mark tasks complete for other users" });
         }
         relatedConnectionId = task?.relatedAgentConnectionId ?? null;
+        onboardingInstanceTaskId = task?.onboardingInstanceTaskId ?? null;
       }
       await updateTask(input.id, { status: "completed", completedAt: new Date() });
+      if (onboardingInstanceTaskId) {
+        await syncLinkedOnboardingTask(onboardingInstanceTaskId, true, ctx.user.id);
+      }
 
       // Reset the stale/aging clock when an agent completes a task on a connection
       if (ctx.user.role === "agent" && relatedConnectionId) {

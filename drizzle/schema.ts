@@ -365,6 +365,8 @@ export const tasks = mysqlTable("tasks", {
   relatedTransactionId: int("relatedTransactionId").references(() => transactions.id),
   relatedPropertyId: int("relatedPropertyId").references(() => properties.id),
   relatedAgentConnectionId: int("relatedAgentConnectionId").references(() => agentConnections.id),
+  // Links a standard task to its source onboarding checklist item when applicable.
+  onboardingInstanceTaskId: int("onboardingInstanceTaskId"),
   priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
   status: mysqlEnum("status", ["pending", "in_progress", "completed", "cancelled"]).default("pending").notNull(),
   dueDate: timestamp("dueDate"),
@@ -689,6 +691,8 @@ export const onboardingTemplateTasks = mysqlTable("onboarding_template_tasks", {
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   assignee: mysqlEnum("assignee", ["admin", "agent"]).default("admin").notNull(),
+  // Required for newly configured admin tasks; null is retained for legacy templates.
+  adminUserId: int("adminUserId").references(() => users.id),
   sortOrder: int("sortOrder").default(0).notNull(),
   // Relative due date: number of days from onboarding start date (null = no deadline)
   dueDaysOffset: int("dueDaysOffset"),
@@ -713,6 +717,10 @@ export const onboardingInstanceTasks = mysqlTable("onboarding_instance_tasks", {
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   assignee: mysqlEnum("assignee", ["admin", "agent"]).default("admin").notNull(),
+  // The specific admin selected by the template, when this is an admin task.
+  adminUserId: int("adminUserId").references(() => users.id),
+  // The corresponding standard task that appears in the selected admin's task list.
+  linkedTaskId: int("linkedTaskId").references(() => tasks.id),
   sortOrder: int("sortOrder").default(0).notNull(),
   completed: boolean("completed").default(false).notNull(),
   completedAt: timestamp("completedAt"),

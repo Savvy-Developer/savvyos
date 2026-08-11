@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Plus, Pencil, Trash2, GripVertical, ClipboardList, Users, UserCheck, Calendar, LogIn, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,16 +39,23 @@ export default function OnboardingTemplatesPage() {
   // Detail view state
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<{ id: number; title: string; description: string | null; assignee: string; dueDaysOffset: number | null } | null>(null);
+  const [editingTask, setEditingTask] = useState<{ id: number; title: string; description: string | null; assignee: string; adminUserId: number | null; dueDaysOffset: number | null } | null>(null);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDesc, setTaskDesc] = useState("");
   const [taskAssignee, setTaskAssignee] = useState<"admin" | "agent">("admin");
+  const [taskAdminUserId, setTaskAdminUserId] = useState("");
   const [taskDueDays, setTaskDueDays] = useState("");
 
   // Filter
   const [typeFilter, setTypeFilter] = useState<"all" | "onboarding" | "offboarding">("all");
 
   const { data: templates, isLoading } = trpc.onboarding.listTemplates.useQuery();
+  const { data: adminUsers } = trpc.users.list.useQuery(
+    { role: "admin" },
+    { enabled: user?.role === "admin" }
+  );
+  const activeAdminUsers = (adminUsers ?? []).filter((admin: any) => admin.isActive !== false);
+  const adminNameById = new Map(activeAdminUsers.map((admin: any) => [admin.id, admin.name ?? admin.email ?? `Admin #${admin.id}`]));
   const { data: templateDetail } = trpc.onboarding.getTemplate.useQuery(
     { id: selectedTemplateId! },
     { enabled: !!selectedTemplateId }
@@ -116,6 +124,7 @@ export default function OnboardingTemplatesPage() {
     setTaskTitle("");
     setTaskDesc("");
     setTaskAssignee("admin");
+    setTaskAdminUserId("");
     setTaskDueDays("");
   }
 
@@ -281,7 +290,7 @@ export default function OnboardingTemplatesPage() {
                               {task.assignee === "agent" ? (
                                 <><UserCheck className="h-3 w-3 mr-1" /> Agent</>
                               ) : (
-                                <><Users className="h-3 w-3 mr-1" /> Admin</>
+                                <><Users className="h-3 w-3 mr-1" /> {task.adminUserId ? adminNameById.get(task.adminUserId) ?? `Admin #${task.adminUserId}` : "Admin not selected"}</>
                               )}
                             </Badge>
                             {task.dueDaysOffset != null && task.dueDaysOffset > 0 && (
@@ -306,11 +315,13 @@ export default function OnboardingTemplatesPage() {
                                 title: task.title,
                                 description: task.description,
                                 assignee: task.assignee,
+                                adminUserId: task.adminUserId,
                                 dueDaysOffset: task.dueDaysOffset,
                               });
                               setTaskTitle(task.title);
                               setTaskDesc(task.description ?? "");
                               setTaskAssignee(task.assignee as "admin" | "agent");
+                              setTaskAdminUserId(task.adminUserId ? String(task.adminUserId) : "");
                               setTaskDueDays(task.dueDaysOffset != null ? String(task.dueDaysOffset) : "");
                             }}
                           >
@@ -443,21 +454,34 @@ export default function OnboardingTemplatesPage() {
             </div>
             <div>
               <Label>Assigned To</Label>
-              <Select value={taskAssignee} onValueChange={(v) => setTaskAssignee(v as "admin" | "agent")}>
+              <Select value={taskAssignee} onValueChange={(v) => { const assignee = v as "admin" | "agent"; setTaskAssignee(assignee); if (assignee === "agent") setTaskAdminUserId(""); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin (you complete this)</SelectItem>
+                  <SelectItem value="admin">Admin (select recipient)</SelectItem>
                   <SelectItem value="agent">Agent (agent completes this)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground mt-1">
                 {taskAssignee === "agent"
                   ? "The agent will see this task on their checklist and can mark it complete."
-                  : "Only admins can mark this task as complete."}
+                  : "Choose the administrator who should receive this task in their task list."}
               </p>
             </div>
+            {taskAssignee === "admin" && (
+              <div>
+                <Label>Admin User *</Label>
+                <SearchableSelect
+                  className="mt-1 w-full"
+                  options={activeAdminUsers.map((admin: any) => ({ value: String(admin.id), label: admin.name ?? admin.email ?? `Admin #${admin.id}` }))}
+                  value={taskAdminUserId}
+                  onValueChange={setTaskAdminUserId}
+                  placeholder="Select an admin…"
+                  searchPlaceholder="Search admins…"
+                />
+              </div>
+            )}
             <div>
               <Label>Due Date (days after start)</Label>
               <Input
@@ -477,7 +501,7 @@ export default function OnboardingTemplatesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddTaskOpen(false)}>Cancel</Button>
             <Button
-              disabled={!taskTitle.trim() || addTaskMut.isPending}
+              disabled={!taskTitle.trim() || addTaskMut.isPending || (taskAssignee === "admin" && !taskAdminUserId)}
               onClick={() =>
                 selectedTemplateId &&
                 addTaskMut.mutate({
@@ -485,6 +509,7 @@ export default function OnboardingTemplatesPage() {
                   title: taskTitle.trim(),
                   description: taskDesc.trim() || undefined,
                   assignee: taskAssignee,
+                  adminUserId: taskAssignee === "admin" ? Number(taskAdminUserId) : null,
                   dueDaysOffset: taskDueDays && Number(taskDueDays) > 0 ? Number(taskDueDays) : null,
                 })
               }
@@ -512,7 +537,7 @@ export default function OnboardingTemplatesPage() {
             </div>
             <div>
               <Label>Assigned To</Label>
-              <Select value={taskAssignee} onValueChange={(v) => setTaskAssignee(v as "admin" | "agent")}>
+              <Select value={taskAssignee} onValueChange={(v) => { const assignee = v as "admin" | "agent"; setTaskAssignee(assignee); if (assignee === "agent") setTaskAdminUserId(""); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -541,7 +566,7 @@ export default function OnboardingTemplatesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingTask(null)}>Cancel</Button>
             <Button
-              disabled={!taskTitle.trim() || updateTaskMut.isPending}
+              disabled={!taskTitle.trim() || updateTaskMut.isPending || (taskAssignee === "admin" && !taskAdminUserId)}
               onClick={() =>
                 editingTask &&
                 updateTaskMut.mutate({
@@ -549,6 +574,7 @@ export default function OnboardingTemplatesPage() {
                   title: taskTitle.trim(),
                   description: taskDesc.trim() || null,
                   assignee: taskAssignee,
+                  adminUserId: taskAssignee === "admin" ? Number(taskAdminUserId) : null,
                   dueDaysOffset: taskDueDays && Number(taskDueDays) > 0 ? Number(taskDueDays) : null,
                 })
               }
