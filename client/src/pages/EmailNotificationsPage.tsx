@@ -6,11 +6,12 @@
  */
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Mail, Search, Bell, Zap, Clock, CheckCircle2 } from "lucide-react";
+import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -90,6 +91,7 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
 
 export default function EmailNotificationsPage() {
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("notifications");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [triggerFilter, setTriggerFilter] = useState<string>("all");
 
@@ -132,12 +134,20 @@ export default function EmailNotificationsPage() {
       <PageHeader
         title="Email Notifications"
         subtitle="Manage which automated email notifications SavvyOS sends"
+        actions={
+          <Button onClick={() => setActiveTab("builder")}>
+            <Plus className="h-4 w-4 mr-2" />
+            Build Email Notification
+          </Button>
+        }
       />
-      <Tabs defaultValue="notifications" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="notifications" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Notification Settings</TabsTrigger>
-          <TabsTrigger value="test" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Email Test</TabsTrigger>
+          <TabsTrigger value="builder" className="shrink-0 whitespace-nowrap">Email Builder</TabsTrigger>
+          <TabsTrigger value="test" className="shrink-0 whitespace-nowrap">Email Test</TabsTrigger>
         </TabsList>
+        <TabsContent value="builder"><EmailTestPage /></TabsContent>
         <TabsContent value="test"><EmailTestPage /></TabsContent>
         <TabsContent value="notifications">
 
