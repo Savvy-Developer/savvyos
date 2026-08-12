@@ -440,6 +440,19 @@ export const workManagementRouter = router({
       await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Removed a project member.", metadata: { userId: input.userId } });
       return { success: true };
     }),
+    deletionPreview: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.id, "admin");
+      const db = await getRequiredDb();
+      const memberships = await db.select({ taskId: workTaskProjectMemberships.taskId }).from(workTaskProjectMemberships)
+        .where(and(eq(workTaskProjectMemberships.projectId, input.id), isNull(workTaskProjectMemberships.deletedAt)));
+      const taskIds = Array.from(new Set(memberships.map(membership => membership.taskId)));
+      const membershipCounts = taskIds.length ? await db.select({ taskId: workTaskProjectMemberships.taskId, count: sql<number>`count(*)` })
+        .from(workTaskProjectMemberships).where(and(inArray(workTaskProjectMemberships.taskId, taskIds), isNull(workTaskProjectMemberships.deletedAt))).groupBy(workTaskProjectMemberships.taskId) : [];
+      const countByTask = new Map(membershipCounts.map(row => [row.taskId, Number(row.count)]));
+      const sections = await db.select({ count: sql<number>`count(*)` }).from(workProjectSections).where(and(eq(workProjectSections.projectId, input.id), isNull(workProjectSections.deletedAt)));
+      const tasksOnlyInProject = taskIds.filter(taskId => (countByTask.get(taskId) ?? 0) === 1).length;
+      return { tasksInProject: taskIds.length, tasksOnlyInProject, tasksSurvivingViaOtherProjects: taskIds.length - tasksOnlyInProject, sections: Number(sections[0]?.count ?? 0), deletionMode: "soft_delete" as const };
+    }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.id, "admin");
       const db = await getRequiredDb();
