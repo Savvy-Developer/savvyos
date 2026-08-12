@@ -232,7 +232,8 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        // If this path has a permission key, enforce it; otherwise always show
+        // Work is one governed capability: every Work route inherits the existing Projects permission.
+        if (item.path === "/work" || item.path.startsWith("/work/")) return permissions.canViewProjects === true;
         const hasPermKey = Object.values(PERM_PATH_MAP).includes(item.path);
         return !hasPermKey || allowedPaths.has(item.path);
       }),

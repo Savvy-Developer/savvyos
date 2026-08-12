@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
 
@@ -160,6 +161,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function WorkRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewProjects) return <NotFound />;
+  return <>{children}</>;
+}
+
+function WorkPage() {
+  return <WorkRoute><WorkManagementPage /></WorkRoute>;
+}
+
 function WorkRedirect() {
   const [, navigate] = useLocation();
   useEffect(() => { navigate("/work/projects", { replace: true }); }, [navigate]);
@@ -228,21 +243,21 @@ function Router() {
           <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
-          <Route path="/work" component={WorkManagementPage} />
-          <Route path="/work/my-tasks" component={WorkManagementPage} />
-          <Route path="/work/inbox" component={WorkManagementPage} />
-          <Route path="/work/search" component={WorkManagementPage} />
-          <Route path="/work/projects" component={WorkManagementPage} />
-          <Route path="/work/projects/:projectId/tasks/:taskId" component={WorkManagementPage} />
-          <Route path="/work/projects/:projectId/:view" component={WorkManagementPage} />
-          <Route path="/work/projects/:projectId" component={WorkManagementPage} />
-          <Route path="/work/tasks/:taskId" component={WorkManagementPage} />
-          <Route path="/work/portfolios" component={WorkManagementPage} />
-          <Route path="/work/portfolios/:portfolioId/:view" component={WorkManagementPage} />
-          <Route path="/work/portfolios/:portfolioId" component={WorkManagementPage} />
-          <Route path="/work/teams/:teamId" component={WorkManagementPage} />
-          <Route path="/work/settings/:section" component={WorkManagementPage} />
-          <Route path="/projects" component={WorkRedirect} />
+          <Route path="/work" component={WorkPage} />
+          <Route path="/work/my-tasks" component={WorkPage} />
+          <Route path="/work/inbox" component={WorkPage} />
+          <Route path="/work/search" component={WorkPage} />
+          <Route path="/work/projects" component={WorkPage} />
+          <Route path="/work/projects/:projectId/tasks/:taskId" component={WorkPage} />
+          <Route path="/work/projects/:projectId/:view" component={WorkPage} />
+          <Route path="/work/projects/:projectId" component={WorkPage} />
+          <Route path="/work/tasks/:taskId" component={WorkPage} />
+          <Route path="/work/portfolios" component={WorkPage} />
+          <Route path="/work/portfolios/:portfolioId/:view" component={WorkPage} />
+          <Route path="/work/portfolios/:portfolioId" component={WorkPage} />
+          <Route path="/work/teams/:teamId" component={WorkPage} />
+          <Route path="/work/settings/:section" component={WorkPage} />
+          <Route path="/projects">{() => <WorkRoute><WorkRedirect /></WorkRoute>}</Route>
           <Route path="/projects/legacy" component={ProjectsPage} />
           <Route path="/projects/:id" component={WorkRedirect} />
           <Route path="/departments" component={DepartmentManagementPage} />
