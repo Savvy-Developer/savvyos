@@ -4,6 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { needsRebalance, rankBetween, rebalanceRanks } from "../lib/fractionalRank";
 import {
   users,
   workAttachments,
@@ -70,6 +71,40 @@ function slugify(value: string) {
 
 function nextRank() {
   return `${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
+}
+
+async function rebalanceMembershipRanks(db: any, projectId: number, sectionId: number | null) {
+  const rows = await db.select({ id: workTaskProjectMemberships.id })
+    .from(workTaskProjectMemberships)
+    .where(and(eq(workTaskProjectMemberships.projectId, projectId), sectionId === null ? isNull(workTaskProjectMemberships.sectionId) : eq(workTaskProjectMemberships.sectionId, sectionId), isNull(workTaskProjectMemberships.deletedAt)))
+    .orderBy(asc(workTaskProjectMemberships.position), asc(workTaskProjectMemberships.id));
+  const ranks = rebalanceRanks(rows.length);
+  for (let index = 0; index < rows.length; index += 1) {
+    await db.update(workTaskProjectMemberships).set({ position: ranks[index] }).where(eq(workTaskProjectMemberships.id, rows[index].id));
+  }
+}
+
+async function membershipRank(db: any, projectId: number, sectionId: number | null, beforeTaskId?: number, afterTaskId?: number, hasRebalanced = false): Promise<string> {
+  if (beforeTaskId && afterTaskId) throw new TRPCError({ code: "BAD_REQUEST", message: "Specify either beforeTaskId or afterTaskId, not both." });
+  const membershipFor = async (taskId: number) => (await db.select({ position: workTaskProjectMemberships.position }).from(workTaskProjectMemberships).where(and(eq(workTaskProjectMemberships.taskId, taskId), eq(workTaskProjectMemberships.projectId, projectId), sectionId === null ? isNull(workTaskProjectMemberships.sectionId) : eq(workTaskProjectMemberships.sectionId, sectionId), isNull(workTaskProjectMemberships.deletedAt))).limit(1))[0] ?? null;
+  let rank: string;
+  if (beforeTaskId) {
+    const before = await membershipFor(beforeTaskId);
+    if (!before) throw new TRPCError({ code: "NOT_FOUND", message: "The before task is not in the requested project section." });
+    rank = rankBetween(null, before.position);
+  } else if (afterTaskId) {
+    const after = await membershipFor(afterTaskId);
+    if (!after) throw new TRPCError({ code: "NOT_FOUND", message: "The after task is not in the requested project section." });
+    rank = rankBetween(after.position, null);
+  } else {
+    const [last] = await db.select({ position: workTaskProjectMemberships.position }).from(workTaskProjectMemberships).where(and(eq(workTaskProjectMemberships.projectId, projectId), sectionId === null ? isNull(workTaskProjectMemberships.sectionId) : eq(workTaskProjectMemberships.sectionId, sectionId), isNull(workTaskProjectMemberships.deletedAt))).orderBy(desc(workTaskProjectMemberships.position), desc(workTaskProjectMemberships.id)).limit(1);
+    rank = rankBetween(last?.position ?? null, null);
+  }
+  if (needsRebalance(rank) && !hasRebalanced) {
+    await rebalanceMembershipRanks(db, projectId, sectionId);
+    return membershipRank(db, projectId, sectionId, beforeTaskId, afterTaskId, true);
+  }
+  return rank;
 }
 
 function plainTextFromDoc(doc: Record<string, unknown> | undefined, fallback = "") {
@@ -615,22 +650,25 @@ export const workManagementRouter = router({
       }
       return { success: true };
     }),
-    move: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), projectId: z.number().int().positive(), sectionId: z.number().int().positive().nullable(), position: z.string().min(1).max(64) })).mutation(async ({ ctx, input }) => {
+    move: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), projectId: z.number().int().positive(), sectionId: z.number().int().positive().nullable(), position: rankInput, beforeTaskId: z.number().int().positive().optional(), afterTaskId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.projectId, "editor");
       await requireTaskAccess(ctx.user, input.taskId, "editor");
       const db = await getRequiredDb();
-      await db.update(workTaskProjectMemberships).set({ sectionId: input.sectionId, position: input.position }).where(and(eq(workTaskProjectMemberships.taskId, input.taskId), eq(workTaskProjectMemberships.projectId, input.projectId), isNull(workTaskProjectMemberships.deletedAt)));
+      const position = input.position ?? await membershipRank(db, input.projectId, input.sectionId, input.beforeTaskId, input.afterTaskId);
+      await db.update(workTaskProjectMemberships).set({ sectionId: input.sectionId, position }).where(and(eq(workTaskProjectMemberships.taskId, input.taskId), eq(workTaskProjectMemberships.projectId, input.projectId), isNull(workTaskProjectMemberships.deletedAt)));
       await writeStory({ taskId: input.taskId, projectId: input.projectId, actorId: ctx.user.id, storyType: "section_changed", contentPlainText: "Moved task.", metadata: { sectionId: input.sectionId } });
       await evaluateProjectRules(input.projectId, input.taskId, "task_moved", ctx.user.id, { sectionId: input.sectionId });
       return { success: true };
     }),
-    addToProject: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), projectId: z.number().int().positive(), sectionId: z.number().int().positive().nullable().optional(), position: rankInput })).mutation(async ({ ctx, input }) => {
+    addToProject: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), projectId: z.number().int().positive(), sectionId: z.number().int().positive().nullable().optional(), position: rankInput, beforeTaskId: z.number().int().positive().optional(), afterTaskId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
       await requireTaskAccess(ctx.user, input.taskId, "editor");
       await requireProjectAccess(ctx.user, input.projectId, "editor");
       const db = await getRequiredDb();
+      const sectionId = input.sectionId ?? null;
+      const position = input.position ?? await membershipRank(db, input.projectId, sectionId, input.beforeTaskId, input.afterTaskId);
       const [existing] = await db.select().from(workTaskProjectMemberships).where(and(eq(workTaskProjectMemberships.taskId, input.taskId), eq(workTaskProjectMemberships.projectId, input.projectId))).limit(1);
-      if (existing) await db.update(workTaskProjectMemberships).set({ sectionId: input.sectionId ?? null, position: input.position ?? nextRank(), deletedAt: null }).where(eq(workTaskProjectMemberships.id, existing.id));
-      else await db.insert(workTaskProjectMemberships).values({ taskId: input.taskId, projectId: input.projectId, sectionId: input.sectionId ?? null, position: input.position ?? nextRank(), addedById: ctx.user.id });
+      if (existing) await db.update(workTaskProjectMemberships).set({ sectionId, position, deletedAt: null }).where(eq(workTaskProjectMemberships.id, existing.id));
+      else await db.insert(workTaskProjectMemberships).values({ taskId: input.taskId, projectId: input.projectId, sectionId, position, addedById: ctx.user.id });
       await writeStory({ taskId: input.taskId, projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Added task to project." });
       return { success: true };
     }),
