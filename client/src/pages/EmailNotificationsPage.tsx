@@ -17,6 +17,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EmailTestPage from "./EmailTestPage";
+import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } from "@/components/EmailNotificationBuilderDialog";
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ interface NotifMeta {
   triggerType: TriggerType;
   recipient: Recipient;
   category: Category;
+  customId?: number;
+  isEnabled?: boolean;
 }
 
 const NOTIFICATIONS: NotifMeta[] = [
@@ -91,7 +94,7 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
 
 export default function EmailNotificationsPage() {
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState("notifications");
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [triggerFilter, setTriggerFilter] = useState<string>("all");
 
@@ -101,23 +104,57 @@ export default function EmailNotificationsPage() {
     onSuccess: () => { refetch(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetch(); },
   });
+  const { data: customNotifications = [], isLoading: isCustomLoading, refetch: refetchCustomNotifications } = trpc.customEmailNotifications.list.useQuery();
+  const createCustomNotificationMutation = trpc.customEmailNotifications.create.useMutation({
+    onSuccess: () => {
+      toast.success("Custom email notification created.");
+      setBuilderOpen(false);
+      refetchCustomNotifications();
+    },
+    onError: (err) => toast.error(`Failed to create notification: ${err.message}`),
+  });
+  const toggleCustomNotificationMutation = trpc.customEmailNotifications.toggle.useMutation({
+    onSuccess: () => { refetchCustomNotifications(); },
+    onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetchCustomNotifications(); },
+  });
 
   // Build a quick lookup map: notificationKey → isEnabled
   const enabledMap = new Map<string, boolean>(
     settings.map((s: { notificationKey: string; isEnabled: boolean }) => [s.notificationKey, s.isEnabled])
   );
 
-  function isEnabled(id: string): boolean {
-    // Default to true if not yet seeded
-    return enabledMap.has(id) ? enabledMap.get(id)! : true;
+  const customNotificationMeta: NotifMeta[] = customNotifications.map((notification) => ({
+    id: notification.notificationKey,
+    customId: notification.id,
+    isEnabled: notification.isEnabled,
+    name: notification.name,
+    description: notification.description || "Custom email notification.",
+    trigger: notification.trigger,
+    triggerType: notification.triggerType as TriggerType,
+    recipient: notification.recipient as Recipient,
+    category: notification.category as Category,
+  }));
+  const notificationItems = [...NOTIFICATIONS, ...customNotificationMeta];
+
+  function isEnabled(notification: NotifMeta): boolean {
+    if (notification.customId !== undefined) return notification.isEnabled ?? true;
+    // Default to true if the system setting has not yet been seeded.
+    return enabledMap.has(notification.id) ? enabledMap.get(notification.id)! : true;
   }
 
-  function handleToggle(id: string, newValue: boolean) {
-    // Optimistic: update local map immediately via refetch after mutation
-    toggleMutation.mutate({ notificationKey: id, isEnabled: newValue });
+  function handleToggle(notification: NotifMeta, newValue: boolean) {
+    if (notification.customId !== undefined) {
+      toggleCustomNotificationMutation.mutate({ id: notification.customId, isEnabled: newValue });
+      return;
+    }
+    toggleMutation.mutate({ notificationKey: notification.id, isEnabled: newValue });
   }
 
-  const filtered = NOTIFICATIONS.filter((n) => {
+  function handleCreateCustomNotification(values: CustomNotificationFormValues) {
+    createCustomNotificationMutation.mutate(values);
+  }
+
+  const filtered = notificationItems.filter((n) => {
     const q = search.toLowerCase();
     const matchesSearch = !q || n.name.toLowerCase().includes(q) || n.description.toLowerCase().includes(q) || n.trigger.toLowerCase().includes(q);
     const matchesCategory = categoryFilter === "all" || n.category === categoryFilter;
@@ -125,9 +162,9 @@ export default function EmailNotificationsPage() {
     return matchesSearch && matchesCategory && matchesTrigger;
   });
 
-  const totalEnabled = NOTIFICATIONS.filter((n) => isEnabled(n.id)).length;
-  const eventCount = NOTIFICATIONS.filter((n) => n.triggerType === "Event").length;
-  const scheduledCount = NOTIFICATIONS.filter((n) => n.triggerType === "Scheduled").length;
+  const totalEnabled = notificationItems.filter(isEnabled).length;
+  const eventCount = notificationItems.filter((n) => n.triggerType === "Event").length;
+  const scheduledCount = notificationItems.filter((n) => n.triggerType === "Scheduled").length;
 
   return (
     <div className="space-y-6">
@@ -135,19 +172,17 @@ export default function EmailNotificationsPage() {
         title="Email Notifications"
         subtitle="Manage which automated email notifications SavvyOS sends"
         actions={
-          <Button onClick={() => setActiveTab("builder")}>
+          <Button onClick={() => setBuilderOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Build Email Notification
           </Button>
         }
       />
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+      <Tabs defaultValue="notifications" className="space-y-6">
         <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          <TabsTrigger value="notifications" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Notification Settings</TabsTrigger>
-          <TabsTrigger value="builder" className="shrink-0 whitespace-nowrap">Email Builder</TabsTrigger>
+          <TabsTrigger value="notifications" className="shrink-0 whitespace-nowrap">Notification Settings</TabsTrigger>
           <TabsTrigger value="test" className="shrink-0 whitespace-nowrap">Email Test</TabsTrigger>
         </TabsList>
-        <TabsContent value="builder"><EmailTestPage /></TabsContent>
         <TabsContent value="test"><EmailTestPage /></TabsContent>
         <TabsContent value="notifications">
 
@@ -160,7 +195,7 @@ export default function EmailNotificationsPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total</p>
-              <p className="text-xl font-bold">{NOTIFICATIONS.length}</p>
+              <p className="text-xl font-bold">{notificationItems.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -171,7 +206,7 @@ export default function EmailNotificationsPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Enabled</p>
-              <p className="text-xl font-bold">{isLoading ? "—" : totalEnabled}</p>
+              <p className="text-xl font-bold">{isLoading || isCustomLoading ? "—" : totalEnabled}</p>
             </div>
           </CardContent>
         </Card>
@@ -242,7 +277,7 @@ export default function EmailNotificationsPage() {
       ) : (
         <div className="grid gap-3">
           {filtered.map((n) => {
-            const enabled = isEnabled(n.id);
+            const enabled = isEnabled(n);
             return (
               <Card key={n.id} className={`transition-shadow hover:shadow-sm ${!enabled ? "opacity-60" : ""}`}>
                 <CardContent className="p-4">
@@ -260,6 +295,9 @@ export default function EmailNotificationsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <h3 className="font-semibold text-sm">{n.name}</h3>
+                        {n.customId !== undefined && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-0 bg-primary/10 text-primary">Custom</Badge>
+                        )}
                         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border-0 ${CATEGORY_COLORS[n.category]}`}>
                           {n.category}
                         </Badge>
@@ -281,8 +319,8 @@ export default function EmailNotificationsPage() {
                     <div className="shrink-0 flex flex-col items-center gap-1.5">
                       <Switch
                         checked={enabled}
-                        onCheckedChange={(val) => handleToggle(n.id, val)}
-                        disabled={toggleMutation.isPending}
+                        onCheckedChange={(val) => handleToggle(n, val)}
+                        disabled={n.customId !== undefined ? toggleCustomNotificationMutation.isPending : toggleMutation.isPending}
                         aria-label={`Toggle ${n.name}`}
                       />
                       <span className={`text-[10px] font-medium ${enabled ? "text-emerald-600" : "text-muted-foreground"}`}>
@@ -299,10 +337,16 @@ export default function EmailNotificationsPage() {
 
       {/* Footer count */}
       <p className="text-xs text-muted-foreground text-center pb-4">
-        Showing {filtered.length} of {NOTIFICATIONS.length} notifications &bull; {totalEnabled} enabled
+        Showing {filtered.length} of {notificationItems.length} notifications &bull; {totalEnabled} enabled
       </p>
         </TabsContent>
       </Tabs>
+      <EmailNotificationBuilderDialog
+        open={builderOpen}
+        onOpenChange={setBuilderOpen}
+        onCreate={handleCreateCustomNotification}
+        isSaving={createCustomNotificationMutation.isPending}
+      />
     </div>
   );
 }

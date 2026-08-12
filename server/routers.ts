@@ -11,7 +11,7 @@ import { sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
-import { emailTemplates, emailNotificationSettings } from "../drizzle/schema";
+import { customEmailNotifications, emailTemplates, emailNotificationSettings } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
@@ -288,6 +288,66 @@ export const appRouter = router({
       }),
   }),
 
+  // ─── Admin: Custom Email Notification Builder ───────────────────────────
+  customEmailNotifications: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db2 = await db.getDb();
+      if (!db2) return [];
+      return db2.select().from(customEmailNotifications);
+    }),
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().trim().min(2).max(160),
+        description: z.string().trim().max(500).optional(),
+        trigger: z.string().trim().min(2).max(255),
+        triggerType: z.enum(["Event", "Scheduled"]),
+        recipient: z.enum(["Agent", "Admin", "ISA", "Agent + Admin", "Mentioned User"]),
+        category: z.enum(["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Recognition", "Reporting"]),
+        subject: z.string().trim().min(1).max(512),
+        bodyText: z.string().trim().min(1),
+        isEnabled: z.boolean(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db2 = await db.getDb();
+        if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const slug = input.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 100) || "notification";
+        const notificationKey = `custom_${slug}_${crypto.randomUUID().slice(0, 8)}`;
+
+        await db2.insert(customEmailNotifications).values({
+          notificationKey,
+          name: input.name,
+          description: input.description || null,
+          trigger: input.trigger,
+          triggerType: input.triggerType,
+          recipient: input.recipient,
+          category: input.category,
+          subject: input.subject,
+          bodyText: input.bodyText,
+          isEnabled: input.isEnabled,
+          createdById: ctx.user.id,
+        });
+
+        return { success: true, notificationKey };
+      }),
+    toggle: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), isEnabled: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db2 = await db.getDb();
+        if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db2.update(customEmailNotifications)
+          .set({ isEnabled: input.isEnabled })
+          .where(eq(customEmailNotifications.id, input.id));
+        return { success: true };
+      }),
+  }),
   // ─── Admin: Email Template Editor ─────────────────────────────────────────
   emailTemplates: router({
     list: protectedProcedure.query(async ({ ctx }) => {

@@ -1274,7 +1274,30 @@ export const emailTemplates = mysqlTable("email_templates", {
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
 
+// ─── Custom Email Notifications ───────────────────────────────────────────────
+// Stores the admin-defined notification metadata and email copy created through
+// the Email Notifications builder. Delivery wiring can reference notificationKey.
+export const customEmailNotifications = mysqlTable("custom_email_notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  notificationKey: varchar("notificationKey", { length: 128 }).notNull().unique(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  trigger: varchar("trigger", { length: 255 }).notNull(),
+  triggerType: varchar("triggerType", { length: 20 }).notNull(),
+  recipient: varchar("recipient", { length: 64 }).notNull(),
+  category: varchar("category", { length: 64 }).notNull(),
+  subject: varchar("subject", { length: 512 }).notNull(),
+  bodyText: text("bodyText").notNull(),
+  isEnabled: boolean("isEnabled").notNull().default(true),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CustomEmailNotification = typeof customEmailNotifications.$inferSelect;
+export type InsertCustomEmailNotification = typeof customEmailNotifications.$inferInsert;
+
 // ─── Pipeline Outreach Email ──────────────────────────────────────────────────
+
 // These templates are separate from the transactional email template overrides
 // above. Pipeline templates contain complete WYSIWYG HTML and are owned by the
 // user who created them. Admins may share a template with any combination of
