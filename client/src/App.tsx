@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
+import { useEffect } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
@@ -159,6 +160,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function WorkRedirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate("/work/projects", { replace: true }); }, [navigate]);
+  return <div className="min-h-[40vh]" />;
+}
+
 function Router() {
   return (
     <AuthGuard>
@@ -221,9 +228,11 @@ function Router() {
           <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
-          <Route path="/projects" component={WorkManagementPage} />
+          <Route path="/work" component={WorkManagementPage} />
+          <Route path="/work/:rest*" component={WorkManagementPage} />
+          <Route path="/projects" component={WorkRedirect} />
           <Route path="/projects/legacy" component={ProjectsPage} />
-          <Route path="/projects/:id" component={ProjectDetailPage} />
+          <Route path="/projects/:id" component={WorkRedirect} />
           <Route path="/departments" component={DepartmentManagementPage} />
           <Route path="/kb" component={KnowledgeBasePage} />
           <Route path="/agent-support" component={AgentSupportPage} />

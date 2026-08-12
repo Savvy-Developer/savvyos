@@ -214,7 +214,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewWebhooks: "/webhooks",
   canViewDuplicates: "/duplicates",
   canViewKnowledgeBase: "/kb",
-  canViewProjects: "/projects",
+  canViewProjects: "/work/projects",
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
   canViewPasswords: "/passwords",
@@ -270,6 +270,16 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       ],
     },
     {
+      label: "Work",
+      items: [
+        { icon: Home, label: "Home", path: "/work" },
+        { icon: CheckSquare, label: "My Tasks", path: "/work/my-tasks" },
+        { icon: Bell, label: "Inbox", path: "/work/inbox" },
+        { icon: Layers, label: "Projects", path: "/work/projects" },
+        { icon: Briefcase, label: "Portfolios", path: "/work/portfolios" },
+      ],
+    },
+    {
       label: "Operations",
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
@@ -310,9 +320,8 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       ],
     },
     {
-      label: "Projects & Plans",
+      label: "Automation",
       items: [
-        { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Zap, label: "Smart Plans", path: "/smart-plans" },
         { icon: Mail, label: "Email Notifications", path: "/email-notifications" },
       ],
@@ -380,9 +389,9 @@ function SidebarNav({
                     : currentPath.startsWith(item.path);
                 return (
                   <li key={item.path}>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate(item.path)}
+                    <a
+                      href={item.path}
+                      onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) { event.preventDefault(); onNavigate(item.path); } }}
                       title={collapsed ? item.label : undefined}
                       className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
                         isActive
@@ -404,7 +413,7 @@ function SidebarNav({
                           {item.badge}
                         </span>
                       )}
-                    </button>
+                    </a>
                   </li>
                 );
               })}
