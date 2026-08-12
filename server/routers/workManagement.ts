@@ -382,6 +382,32 @@ export const workManagementRouter = router({
       await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "member_added", contentPlainText: "Added a project member.", metadata: { userId: input.userId, accessLevel: input.accessLevel } });
       return { success: true };
     }),
+    archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.id, "editor");
+      await (await getRequiredDb()).update(workProjects).set({ archivedAt: new Date() }).where(eq(workProjects.id, input.id));
+      await writeStory({ projectId: input.id, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Archived project." });
+      return { success: true };
+    }),
+    unarchive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.id, "editor");
+      await (await getRequiredDb()).update(workProjects).set({ archivedAt: null }).where(eq(workProjects.id, input.id));
+      await writeStory({ projectId: input.id, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Unarchived project." });
+      return { success: true };
+    }),
+    moveToTeam: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), teamId: z.number().int().positive().nullable() })).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "admin");
+      if (input.teamId && !atLeast(await getTeamAccess(ctx.user, input.teamId), "editor")) throw new TRPCError({ code: "FORBIDDEN", message: "Team editor access is required." });
+      await (await getRequiredDb()).update(workProjects).set({ teamId: input.teamId }).where(eq(workProjects.id, input.projectId));
+      await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: input.teamId ? "Moved project to a team." : "Removed project from its team." });
+      return { success: true };
+    }),
+    removeMember: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), userId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "admin");
+      const db = await getRequiredDb();
+      await db.update(workProjectMembers).set({ deletedAt: new Date() }).where(and(eq(workProjectMembers.projectId, input.projectId), eq(workProjectMembers.userId, input.userId), isNull(workProjectMembers.deletedAt)));
+      await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Removed a project member.", metadata: { userId: input.userId } });
+      return { success: true };
+    }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.id, "admin");
       const db = await getRequiredDb();
