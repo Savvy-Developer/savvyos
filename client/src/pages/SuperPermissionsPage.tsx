@@ -43,7 +43,8 @@ const GROUP_ORDER = [
   "Admin",
   "Dev Tools",
   "Resources",
-  "Projects & Plans",
+  "Work",
+  "Automation",
 ];
 
 const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -54,7 +55,8 @@ const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }>
   "Admin":            { bg: "#fff1f2", text: "#9f1239", border: "#fecdd3" },
   "Dev Tools":        { bg: "#f8fafc", text: "#475569", border: "#e2e8f0" },
   "Resources":        { bg: "#f0fdfa", text: "#134e4a", border: "#99f6e4" },
-  "Projects & Plans": { bg: "#fff7ed", text: "#9a3412", border: "#fed7aa" },
+  "Work":             { bg: "#f0f9ff", text: "#075985", border: "#bae6fd" },
+  "Automation":       { bg: "#fff7ed", text: "#9a3412", border: "#fed7aa" },
 };
 
 const TEMP_DURATIONS = [
