@@ -382,6 +382,20 @@ export const workManagementRouter = router({
       await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "member_added", contentPlainText: "Added a project member.", metadata: { userId: input.userId, accessLevel: input.accessLevel } });
       return { success: true };
     }),
+    addMessage: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), subject: z.string().max(255).optional(), contentJson: richText, contentPlainText: z.string().min(1).max(100000), mentionedUserIds: z.array(z.number().int().positive()).optional() })).mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "commenter");
+      const storyId = await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "comment", contentJson: input.contentJson, contentPlainText: input.contentPlainText, metadata: { subject: input.subject?.trim() || null, channel: "project_messages" } });
+      await notifyUsers({ userIds: input.mentionedUserIds ?? [], actorId: ctx.user.id, type: "mention", title: input.subject?.trim() || "You were mentioned in a project message", body: input.contentPlainText.slice(0, 500), projectId: input.projectId, storyId });
+      return { id: storyId };
+    }),
+    listMessages: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), limit: z.number().int().min(1).max(100).optional() })).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "viewer");
+      const db = await getRequiredDb();
+      return db.select({ id: workStories.id, contentPlainText: workStories.contentPlainText, metadata: workStories.metadata, actorId: workStories.actorId, actorName: users.name, createdAt: workStories.createdAt })
+        .from(workStories).leftJoin(users, eq(workStories.actorId, users.id))
+        .where(and(eq(workStories.projectId, input.projectId), eq(workStories.storyType, "comment")))
+        .orderBy(desc(workStories.createdAt)).limit(input.limit ?? 100);
+    }),
     archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.id, "editor");
       await (await getRequiredDb()).update(workProjects).set({ archivedAt: new Date() }).where(eq(workProjects.id, input.id));
