@@ -648,6 +648,17 @@ export const workManagementRouter = router({
       const items = rows.slice(0, limit);
       return { items, nextCursor: rows.length > limit ? items.at(-1)?.id ?? null : null };
     }),
+    assignedToOthers: protectedProcedure.input(z.object({ cursor: z.number().int().positive().optional(), limit: z.number().int().min(1).max(100).optional() }).optional()).query(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const limit = validateCursorLimit(input?.limit);
+      const conditions: any[] = [eq(workTasks.createdById, ctx.user.id), sql`${workTaskAssignees.userId} <> ${ctx.user.id}`, isNull(workTaskAssignees.deletedAt), isNull(workTasks.deletedAt)];
+      if (input?.cursor) conditions.push(gt(workTasks.id, input.cursor));
+      const rows = await db.select({ id: workTasks.id, slug: workTasks.slug, name: workTasks.name, completionStatus: workTasks.completionStatus, dueOn: workTasks.dueOn, dueAt: workTasks.dueAt, assigneeId: workTaskAssignees.userId, assigneeName: users.name, createdAt: workTasks.createdAt })
+        .from(workTasks).innerJoin(workTaskAssignees, eq(workTaskAssignees.taskId, workTasks.id)).leftJoin(users, eq(workTaskAssignees.userId, users.id))
+        .where(and(...conditions)).orderBy(asc(users.name), asc(workTasks.dueOn), asc(workTasks.id)).limit(limit + 1);
+      const items = rows.slice(0, limit);
+      return { items, nextCursor: rows.length > limit ? items.at(-1)?.id ?? null : null };
+    }),
     createSection: protectedProcedure.input(z.object({ name: z.string().min(1).max(255), position: rankInput })).mutation(async ({ ctx, input }) => {
       const db = await getRequiredDb();
       const [result] = await db.insert(workMyTaskSections).values({ userId: ctx.user.id, name: input.name.trim(), position: input.position ?? nextRank() });
