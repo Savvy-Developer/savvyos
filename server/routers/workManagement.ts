@@ -821,10 +821,18 @@ export const workManagementRouter = router({
       if (!form) throw new TRPCError({ code: "NOT_FOUND", message: "Form not found." });
       const [project] = await db.select().from(workProjects).where(eq(workProjects.id, form.projectId)).limit(1);
       if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found." });
-      const [taskResult] = await db.insert(workTasks).values({ slug: slugify(input.title), name: input.title.trim(), descriptionPlainText: input.description ?? null, createdById: project.createdById });
+      const fields = await db.select().from(workFormFields).where(and(eq(workFormFields.formId, form.id), isNull(workFormFields.deletedAt)));
+      const suppliedById = new Map((input.values ?? []).map(supplied => [supplied.fieldId, supplied.value]));
+      const missing = fields.filter(field => field.isRequired && (suppliedById.get(field.id) === undefined || suppliedById.get(field.id) === null || suppliedById.get(field.id) === ""));
+      if (missing.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Please complete: ${missing.map(field => field.label).join(", ")}.` });
+      const answers = fields.flatMap(field => {
+        const value = suppliedById.get(field.id);
+        return value === undefined || value === null || value === "" ? [] : [`${field.label}: ${typeof value === "string" ? value : JSON.stringify(value)}`];
+      });
+      const descriptionPlainText = [input.description?.trim(), answers.length ? `Form submission\n${answers.join("\n")}` : null].filter(Boolean).join("\n\n") || null;
+      const [taskResult] = await db.insert(workTasks).values({ slug: slugify(input.title), name: input.title.trim(), descriptionPlainText, createdById: project.createdById });
       const taskId = Number(taskResult.insertId);
       await db.insert(workTaskProjectMemberships).values({ taskId, projectId: form.projectId, sectionId: form.targetSectionId, position: nextRank(), addedById: project.createdById });
-      const fields = await db.select().from(workFormFields).where(and(eq(workFormFields.formId, form.id), isNull(workFormFields.deletedAt)));
       for (const supplied of input.values ?? []) {
         const field = fields.find(f => f.id === supplied.fieldId);
         if (field?.customFieldId) await db.insert(workTaskCustomFieldValues).values({ taskId, customFieldId: field.customFieldId, value: supplied.value, plainTextValue: typeof supplied.value === "string" ? supplied.value : JSON.stringify(supplied.value) });
