@@ -543,12 +543,39 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "edit";
       break;
 
+    // ── savvy-web activity ────────────────────────────────────────────────────
+    // Fired by the savvy-web webhooks against the contact matched on email.
+    // Each renders as: <title> / <property address> / <timestamp>. The address
+    // is absent when savvy-web had no property metadata to send, so every case
+    // degrades to a bare title rather than an empty bullet.
     case "property_viewed":
-      // Fired when an identified (logged-in) savvy-web lead views a property
-      // detail page. Renders as: "Viewed Property" / <address> / <timestamp>.
       title = "Viewed Property";
       lines = details.propertyAddress ? [details.propertyAddress as string] : [];
       icon = "info";
+      break;
+
+    case "property_favorited":
+      title = "Favorited Property";
+      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      icon = "check";
+      break;
+
+    case "property_contact_requested":
+      title = "Requested Contact";
+      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      icon = "alert";
+      break;
+
+    case "analysis_requested":
+      title = "Requested Analysis";
+      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      icon = "alert";
+      break;
+
+    case "showing_requested":
+      title = "Requested Showing";
+      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      icon = "alert";
       break;
 
     // ── Smart Plans ──────────────────────────────────────────────────────────

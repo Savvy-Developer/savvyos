@@ -832,8 +832,12 @@ Please write the comprehensive AI summary now.`;
         smart_plan_enrollment_cancelled: "Smart Plan enrollment cancelled",
         // Pipeline email
         pipeline_email_sent: "Pipeline email sent",
-        // Property viewed
+        // savvy-web activity
         property_viewed: "Viewed a property",
+        property_favorited: "Favorited a property",
+        property_contact_requested: "Requested contact about a property",
+        analysis_requested: "Requested an analysis",
+        showing_requested: "Requested a showing",
         // Task actions
         task_created: "Task created",
         task_completed: "Task completed",

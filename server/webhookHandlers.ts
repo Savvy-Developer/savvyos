@@ -334,57 +334,227 @@ const contactUpdateHandler: HandlerFn = async (rawPayload, endpoint) => {
   return { contactId: existingId, action: "updated", message: `Contact updated: id=${existingId}` };
 };
 
-// ─── Handler: property_view ───────────────────────────────────────────────────
-// Records a "property viewed" activity on an EXISTING contact. Fired by the
-// savvy-web `property.viewed` webhook when an identified (logged-in) lead opens a
-// property detail page (already deduped to once per 30 min per lead+property on
-// the savvy-web side). Matches the contact by email; if no contact exists yet the
-// view is skipped — we never create a contact from a page view. This handler only
-// appends to the activity timeline; it does not modify the contact.
+// ─── savvy-web events ─────────────────────────────────────────────────────────
+// savvy-web emits every webhook as an envelope: { event, timestamp, data: {…} }.
+// Each supported event appends a row to the matching contact's activity timeline.
+//
+// `createsContact` decides what happens when no contact matches the email:
+//   false — the signal is too weak to justify a contact record, so we skip it.
+//           Page views are the only case: they fire on every property a
+//           logged-in lead opens, so creating from them would flood the CRM.
+//   true  — the signal is deliberate (a favourite, a request), so a brand-new
+//           visitor is worth capturing. We create the contact, then log against
+//           it. Without this the visitor's first real intent signal is lost.
 
-const propertyViewHandler: HandlerFn = async (rawPayload, _endpoint) => {
-  // savvy-web wraps the event fields under `data`; fall back to a flat payload.
-  const data = ((rawPayload.data as Record<string, unknown>) ?? rawPayload);
+interface SavvyWebEventSpec {
+  /** activity_log.action written for this event. */
+  action: string;
+  /** Create the contact when the email matches nothing? */
+  createsContact: boolean;
+  /** Human label used in the webhook response body. */
+  label: string;
+}
 
-  const email = (data.leadEmail as string) || (data.email as string) || undefined;
+export const SAVVY_WEB_EVENTS: Record<string, SavvyWebEventSpec> = {
+  "property.viewed": {
+    action: "property_viewed", createsContact: false, label: "Property view",
+  },
+  "activity.favorite": {
+    action: "property_favorited", createsContact: true, label: "Property favorite",
+  },
+  "activity.contact": {
+    action: "property_contact_requested", createsContact: true, label: "Contact request",
+  },
+  "lead.analysis_requested": {
+    action: "analysis_requested", createsContact: true, label: "Analysis request",
+  },
+  "lead.showing_requested": {
+    action: "showing_requested", createsContact: true, label: "Showing request",
+  },
+};
+
+/**
+ * Read the first present value for `keys`, checking the envelope's `data`
+ * object first and then the top level.
+ *
+ * The top-level fallback is per-key on purpose. The previous implementation
+ * fell back to the flat payload only when `data` was absent entirely, so a
+ * payload carrying `data` without an email threw instead of checking the top
+ * level for one.
+ */
+function pickField(
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = data[key] ?? raw[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return undefined;
+}
+
+/**
+ * Build a display name from an email local-part, for visitors whose savvy-web
+ * profile has no name on it. Contacts cannot be created without a first name,
+ * so without this fallback every nameless visitor's activity would be dropped.
+ *
+ *   jane.doe@x.com  → Jane Doe
+ *   j.smith92@x.com → J Smith
+ *   hello@x.com     → Hello
+ */
+export function deriveNameFromEmail(email: string): { firstName: string; lastName: string } {
+  const local = (email.split("@")[0] ?? "").trim();
+  const parts = local
+    .split(/[._+\-]+/)
+    .map((part) => part.replace(/\d+$/, ""))
+    .filter(Boolean);
+  if (parts.length === 0) return { firstName: email, lastName: "" };
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  return { firstName: cap(parts[0]), lastName: parts.slice(1).map(cap).join(" ") };
+}
+
+/** Resolve a contact name from the payload, falling back to the email. */
+export function resolveContactName(
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  email: string
+): { firstName: string; lastName: string } {
+  const firstName = pickField(data, raw, ["firstName", "first_name", "fname"]);
+  const lastName = pickField(data, raw, ["lastName", "last_name", "lname"]) ?? "";
+  if (firstName) return { firstName, lastName };
+
+  const fullName = pickField(data, raw, ["name", "fullName", "full_name"]);
+  if (fullName) {
+    const segments = fullName.split(/\s+/);
+    return { firstName: segments[0], lastName: segments.slice(1).join(" ") };
+  }
+
+  return deriveNameFromEmail(email);
+}
+
+/**
+ * Create a contact from a savvy-web event. Mirrors the lead_ingest create path:
+ * always attributed to a lead source, always leaves a `contact_created` row on
+ * the timeline, and syncs outbound to GHL like any other webhook-created lead.
+ */
+async function createContactFromEvent(
+  email: string,
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  endpoint: WebhookEndpoint
+): Promise<number> {
+  const db = await getDb();
+  const { firstName, lastName } = resolveContactName(data, raw, email);
+  const phone = pickField(data, raw, ["phone", "mobile", "cell"]) ?? null;
+
+  const leadSourceId =
+    (await resolveLeadSourceId(undefined, endpoint.defaultLeadSourceId)) ??
+    (await getOrCreateFallbackLeadSourceId());
+
+  const [result] = await db.insert(contacts).values({
+    firstName,
+    lastName: lastName || "",
+    email,
+    phone,
+    leadSourceId,
+  });
+  const contactId = (result as any).insertId as number;
+
+  await logActivity({
+    userId: null,
+    action: "contact_created",
+    entityType: "contact",
+    entityId: contactId,
+    details: { via: "webhook", endpoint: endpoint.name, slug: endpoint.slug, event: raw.event },
+  });
+
+  triggerGhlContactSync(contactId);
+  return contactId;
+}
+
+/**
+ * Records a savvy-web event on the matching contact's activity timeline,
+ * creating the contact first when the event warrants it (see SAVVY_WEB_EVENTS).
+ */
+const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
+  const event = typeof rawPayload.event === "string" ? rawPayload.event : "";
+  const spec = SAVVY_WEB_EVENTS[event];
+  if (!spec) throw new Error(`Unsupported savvy-web event: ${event || "(none)"}`);
+
+  const data = (rawPayload.data as Record<string, unknown>) ?? {};
+
+  const email = pickField(data, rawPayload, ["leadEmail", "email"]);
   if (!email) throw new Error("leadEmail is required");
 
-  const propertyId = data.propertyId ?? null;
-  const propertyAddress = (data.propertyAddress as string) ?? null;
-  const viewedAt = (data.viewedAt as string) ?? new Date().toISOString();
+  // savvy-web calls this `propertyAddress` on view/activity events and
+  // `propertyTitle` on lead events — same concept, so accept either rather than
+  // making the sender normalise a field other consumers already depend on.
+  const propertyAddress = pickField(data, rawPayload, ["propertyAddress", "propertyTitle"]) ?? null;
+  const propertyId = data.propertyId ?? rawPayload.propertyId ?? null;
+  const leadId = data.leadId ?? rawPayload.leadId ?? null;
+  const occurredAt =
+    pickField(data, rawPayload, ["viewedAt", "occurredAt", "requestedAt"]) ??
+    pickField({}, rawPayload, ["timestamp"]) ??
+    new Date().toISOString();
 
-  const contactId = await findExistingContact(email);
+  let contactId = await findExistingContact(email);
+  let createdContact = false;
+
   if (!contactId) {
-    return { action: "skipped", message: `No contact found for ${email}` };
+    if (!spec.createsContact) {
+      return { action: "skipped", message: `No contact found for ${email}` };
+    }
+    contactId = await createContactFromEvent(email, data, rawPayload, endpoint);
+    createdContact = true;
   }
 
   await logActivity({
     userId: null,
-    action: "property_viewed",
+    action: spec.action,
     entityType: "contact",
     entityId: contactId,
-    details: { propertyId, propertyAddress, viewedAt, via: "savvy-web" },
+    details: { propertyId, propertyAddress, leadId, occurredAt, event, via: "savvy-web" },
   });
 
   return {
     contactId,
-    action: "logged",
-    message: `Property view logged for contact ${contactId}`,
+    action: createdContact ? "created" : "logged",
+    message: `${spec.label} logged for contact ${contactId}${createdContact ? " (contact created)" : ""}`,
   };
 };
 
+// ─── Handler: property_view ───────────────────────────────────────────────────
+// Retained for endpoints configured with the dedicated `property_view` handler
+// type. Defaults the event so a bare property-view payload still resolves.
+
+const propertyViewHandler: HandlerFn = async (rawPayload, endpoint) =>
+  savvyWebEventHandler(
+    { ...rawPayload, event: rawPayload.event ?? "property.viewed" },
+    endpoint
+  );
+
 // ─── Handler: custom ─────────────────────────────────────────────────────────
-// Logs the payload (no-op) — EXCEPT it routes a savvy-web `property.viewed`
-// event to the property-view handler. This lets the property-view integration be
-// wired up on an endpoint whose handlerType is still "custom", so it works
-// without waiting on the enum migration. Once the migration is applied you can
-// switch the endpoint to the dedicated "property_view" type for a clearer label.
+// Logs the payload (no-op) — EXCEPT it routes any recognised savvy-web event to
+// the savvy-web handler. This lets the integration be wired up on an endpoint
+// whose handlerType is still "custom", so it works without waiting on the enum
+// migration. Once the migration is applied you can switch the endpoint to a
+// dedicated handler type for a clearer label.
 
 const customHandler: HandlerFn = async (payload, endpoint) => {
-  if (payload.event === "property.viewed") {
-    return propertyViewHandler(payload, endpoint);
+  const event = typeof payload.event === "string" ? payload.event : "";
+  if (SAVVY_WEB_EVENTS[event]) {
+    return savvyWebEventHandler(payload, endpoint);
   }
-  return { action: "logged", message: "Payload logged (custom handler)" };
+  // Name the unhandled event in the response. A no-op still returns 200, so
+  // without this the delivery log reads as healthy while nothing is recorded.
+  return {
+    action: "logged",
+    message: event
+      ? `Unhandled event "${event}" — payload logged (custom handler)`
+      : "Payload logged (custom handler)",
+  };
 };
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
@@ -396,3 +566,6 @@ export const HANDLERS: Record<string, HandlerFn> = {
   property_view: propertyViewHandler,
   custom: customHandler,
 };
+
+// Exported for tests.
+export { savvyWebEventHandler, customHandler, propertyViewHandler };
