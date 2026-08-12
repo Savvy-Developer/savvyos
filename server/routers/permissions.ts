@@ -53,10 +53,10 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewDuplicates",         label: "Duplicate Contacts",       group: "Dev Tools" },
   // Resources
   { key: "canViewKnowledgeBase",      label: "Knowledge Base",           group: "Resources" },
-  // Formerly hidden (default OFF)
-  { key: "canViewProjects",           label: "Projects",                 group: "Projects & Plans" },
-  { key: "canViewSmartPlans",         label: "Smart Plans",              group: "Projects & Plans" },
-  { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Projects & Plans" },
+  // Work module — the existing canViewProjects key governs the entire Work route tree.
+  { key: "canViewProjects",           label: "Work",                     group: "Work" },
+  { key: "canViewSmartPlans",         label: "Smart Plans",              group: "Automation" },
+  { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Automation" },
   // Admin — Passwords
   { key: "canViewPasswords",           label: "Passwords",                group: "Admin" },
   // Super admin tools (default OFF — only Tyler/Elana/Dyl can use this page anyway)
