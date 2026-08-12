@@ -229,7 +229,19 @@ function Router() {
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
           <Route path="/work" component={WorkManagementPage} />
-          <Route path="/work/:rest*" component={WorkManagementPage} />
+          <Route path="/work/my-tasks" component={WorkManagementPage} />
+          <Route path="/work/inbox" component={WorkManagementPage} />
+          <Route path="/work/search" component={WorkManagementPage} />
+          <Route path="/work/projects" component={WorkManagementPage} />
+          <Route path="/work/projects/:projectId/tasks/:taskId" component={WorkManagementPage} />
+          <Route path="/work/projects/:projectId/:view" component={WorkManagementPage} />
+          <Route path="/work/projects/:projectId" component={WorkManagementPage} />
+          <Route path="/work/tasks/:taskId" component={WorkManagementPage} />
+          <Route path="/work/portfolios" component={WorkManagementPage} />
+          <Route path="/work/portfolios/:portfolioId/:view" component={WorkManagementPage} />
+          <Route path="/work/portfolios/:portfolioId" component={WorkManagementPage} />
+          <Route path="/work/teams/:teamId" component={WorkManagementPage} />
+          <Route path="/work/settings/:section" component={WorkManagementPage} />
           <Route path="/projects" component={WorkRedirect} />
           <Route path="/projects/legacy" component={ProjectsPage} />
           <Route path="/projects/:id" component={WorkRedirect} />
