@@ -4,7 +4,6 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { rankAfter } from "../lib/fractionalRank";
 import {
   users,
   workAttachments,
@@ -54,7 +53,7 @@ const jsonObject = z.record(z.string(), z.unknown());
 const richText = jsonObject.optional();
 const dateInput = z.coerce.date().nullable().optional();
 const dateTimeInput = z.coerce.date().nullable().optional();
-const rankInput = z.string().regex(/^[0-9a-z]+$/, "Ranks must use lowercase base-36 characters.").min(1).max(64).optional();
+const rankInput = z.string().min(1).max(64).optional();
 const accessLevelInput = z.enum(["admin", "editor", "commenter", "viewer"]);
 
 function slugify(value: string) {
@@ -70,7 +69,7 @@ function slugify(value: string) {
 }
 
 function nextRank() {
-  return rankAfter(Date.now().toString(36));
+  return `${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
 }
 
 function plainTextFromDoc(doc: Record<string, unknown> | undefined, fallback = "") {
@@ -227,37 +226,6 @@ async function projectTaskContext(taskId: number) {
   const memberships = await db.select({ projectId: workTaskProjectMemberships.projectId }).from(workTaskProjectMemberships)
     .where(and(eq(workTaskProjectMemberships.taskId, taskId), isNull(workTaskProjectMemberships.deletedAt)));
   return memberships.map(m => m.projectId);
-}
-
-async function isAncestorTask(ancestorTaskId: number, taskId: number) {
-  const db = await getRequiredDb();
-  const visited = new Set<number>();
-  let currentId: number | null = taskId;
-  while (currentId !== null && !visited.has(currentId)) {
-    visited.add(currentId);
-    const [task] = await db.select({ parentTaskId: workTasks.parentTaskId }).from(workTasks).where(eq(workTasks.id, currentId)).limit(1);
-    currentId = task?.parentTaskId ?? null;
-    if (currentId === ancestorTaskId) return true;
-  }
-  return false;
-}
-
-async function wouldCreateDependencyCycle(taskId: number, dependsOnTaskId: number) {
-  const db = await getRequiredDb();
-  const dependencies = await db.select({ taskId: workTaskDependencies.taskId, dependsOnTaskId: workTaskDependencies.dependsOnTaskId })
-    .from(workTaskDependencies).where(isNull(workTaskDependencies.deletedAt));
-  const byTask = new Map<number, number[]>();
-  for (const dependency of dependencies) byTask.set(dependency.taskId, [...(byTask.get(dependency.taskId) ?? []), dependency.dependsOnTaskId]);
-  const stack = [dependsOnTaskId];
-  const visited = new Set<number>();
-  while (stack.length) {
-    const currentId = stack.pop()!;
-    if (currentId === taskId) return true;
-    if (visited.has(currentId)) continue;
-    visited.add(currentId);
-    stack.push(...(byTask.get(currentId) ?? []));
-  }
-  return false;
 }
 
 async function evaluateProjectRules(projectId: number, taskId: number, trigger: "task_added" | "task_completed" | "task_moved" | "due_date_changed" | "custom_field_changed" | "form_submitted", actorId: number, event: Record<string, unknown>) {
@@ -443,11 +411,9 @@ export const workManagementRouter = router({
       const [section] = await db.select().from(workProjectSections).where(and(eq(workProjectSections.id, input.id), isNull(workProjectSections.deletedAt))).limit(1);
       if (!section) throw new TRPCError({ code: "NOT_FOUND", message: "Section not found." });
       await requireProjectAccess(ctx.user, section.projectId, "editor");
-      const [replacementSection] = await db.select().from(workProjectSections).where(and(eq(workProjectSections.projectId, section.projectId), isNull(workProjectSections.deletedAt), sql`${workProjectSections.id} <> ${input.id}`)).orderBy(asc(workProjectSections.position)).limit(1);
-      const replacementSectionId = replacementSection?.id ?? Number((await db.insert(workProjectSections).values({ projectId: section.projectId, name: "General", position: nextRank(), createdById: ctx.user.id })).insertId);
       await db.update(workProjectSections).set({ deletedAt: new Date() }).where(eq(workProjectSections.id, input.id));
-      await db.update(workTaskProjectMemberships).set({ sectionId: replacementSectionId }).where(and(eq(workTaskProjectMemberships.sectionId, input.id), isNull(workTaskProjectMemberships.deletedAt)));
-      return { success: true, replacementSectionId };
+      await db.update(workTaskProjectMemberships).set({ sectionId: null }).where(and(eq(workTaskProjectMemberships.sectionId, input.id), isNull(workTaskProjectMemberships.deletedAt)));
+      return { success: true };
     }),
   }),
 
@@ -608,12 +574,6 @@ export const workManagementRouter = router({
       if (input.taskId === input.dependsOnTaskId) throw new TRPCError({ code: "BAD_REQUEST", message: "A task cannot depend on itself." });
       await requireTaskAccess(ctx.user, input.taskId, "editor");
       await requireTaskAccess(ctx.user, input.dependsOnTaskId, "viewer");
-      if (await isAncestorTask(input.taskId, input.dependsOnTaskId)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A task cannot depend on one of its own subtasks." });
-      }
-      if (await wouldCreateDependencyCycle(input.taskId, input.dependsOnTaskId)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This dependency would create a task dependency cycle." });
-      }
       const db = await getRequiredDb();
       const [existing] = await db.select().from(workTaskDependencies).where(and(eq(workTaskDependencies.taskId, input.taskId), eq(workTaskDependencies.dependsOnTaskId, input.dependsOnTaskId))).limit(1);
       if (existing) await db.update(workTaskDependencies).set({ deletedAt: null }).where(eq(workTaskDependencies.id, existing.id));
