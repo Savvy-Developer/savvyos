@@ -140,6 +140,23 @@ async function requireProjectAccess(user: AppUser, projectId: number, required: 
   return access;
 }
 
+async function getPortfolioAccess(user: AppUser, portfolioId: number): Promise<AccessLevel | null> {
+  if (user.role === "admin") return "admin";
+  const db = await getRequiredDb();
+  const [portfolio] = await db.select().from(workPortfolios).where(and(eq(workPortfolios.id, portfolioId), isNull(workPortfolios.deletedAt))).limit(1);
+  if (!portfolio) throw new TRPCError({ code: "NOT_FOUND", message: "Portfolio not found." });
+  if (portfolio.createdById === user.id || portfolio.ownerId === user.id) return "admin";
+  const [membership] = await db.select().from(workPortfolioMembers).where(and(eq(workPortfolioMembers.portfolioId, portfolioId), eq(workPortfolioMembers.userId, user.id), isNull(workPortfolioMembers.deletedAt))).limit(1);
+  if (membership) return membership.accessLevel;
+  return portfolio.privacy === "public_to_workspace" ? "viewer" : null;
+}
+
+async function requirePortfolioAccess(user: AppUser, portfolioId: number, required: AccessLevel) {
+  const access = await getPortfolioAccess(user, portfolioId);
+  if (!atLeast(access, required)) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this portfolio." });
+  return access;
+}
+
 async function getTaskAccess(user: AppUser, taskId: number): Promise<AccessLevel | null> {
   if (user.role === "admin") return "admin";
   const db = await getRequiredDb();
@@ -717,8 +734,7 @@ export const workManagementRouter = router({
       const db = await getRequiredDb();
       const [portfolio] = await db.select().from(workPortfolios).where(and(eq(workPortfolios.id, input.portfolioId), isNull(workPortfolios.deletedAt))).limit(1);
       if (!portfolio) throw new TRPCError({ code: "NOT_FOUND", message: "Portfolio not found." });
-      const [member] = await db.select().from(workPortfolioMembers).where(and(eq(workPortfolioMembers.portfolioId, input.portfolioId), eq(workPortfolioMembers.userId, ctx.user.id), isNull(workPortfolioMembers.deletedAt))).limit(1);
-      if (ctx.user.role !== "admin" && portfolio.createdById !== ctx.user.id && portfolio.ownerId !== ctx.user.id && portfolio.privacy !== "public_to_workspace" && !member) throw new TRPCError({ code: "FORBIDDEN" });
+      await requirePortfolioAccess(ctx.user, input.portfolioId, "viewer");
       return db.select({ id: workPortfolioItems.id, projectId: workPortfolioItems.projectId, projectName: workProjects.name, childPortfolioId: workPortfolioItems.childPortfolioId, childPortfolioName: workPortfolios.name, position: workPortfolioItems.position }).from(workPortfolioItems).leftJoin(workProjects, eq(workPortfolioItems.projectId, workProjects.id)).leftJoin(workPortfolios, eq(workPortfolioItems.childPortfolioId, workPortfolios.id)).where(and(eq(workPortfolioItems.portfolioId, input.portfolioId), isNull(workPortfolioItems.deletedAt))).orderBy(asc(workPortfolioItems.position));
     }),
     addProject: protectedProcedure.input(z.object({ portfolioId: z.number().int().positive(), projectId: z.number().int().positive(), position: rankInput })).mutation(async ({ ctx, input }) => {
@@ -735,6 +751,7 @@ export const workManagementRouter = router({
   statusUpdates: router({
     create: protectedProcedure.input(z.object({ projectId: z.number().int().positive().optional(), portfolioId: z.number().int().positive().optional(), status: z.enum(["on_track", "at_risk", "off_track", "complete"]), title: z.string().max(255).optional(), bodyJson: richText, bodyPlainText: z.string().max(100000).optional() }).refine(value => !!value.projectId || !!value.portfolioId, "A project or portfolio is required.")).mutation(async ({ ctx, input }) => {
       if (input.projectId) await requireProjectAccess(ctx.user, input.projectId, "editor");
+      if (input.portfolioId) await requirePortfolioAccess(ctx.user, input.portfolioId, "editor");
       const db = await getRequiredDb();
       const [result] = await db.insert(workStatusUpdates).values({ projectId: input.projectId ?? null, portfolioId: input.portfolioId ?? null, status: input.status, title: input.title ?? null, bodyJson: input.bodyJson ?? null, bodyPlainText: (input.bodyPlainText ?? plainTextFromDoc(input.bodyJson)) || null, authorId: ctx.user.id });
       if (input.projectId) await writeStory({ projectId: input.projectId, actorId: ctx.user.id, storyType: "status_update", contentPlainText: input.title ?? "Posted a status update." });
