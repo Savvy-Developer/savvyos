@@ -262,6 +262,7 @@ async function evaluateProjectRules(projectId: number, taskId: number, trigger: 
       return true;
     });
     if (!matches) continue;
+    await writeStory({ taskId, projectId, actorId, storyType: "updated", contentPlainText: `Rule triggered: ${rule.name}`, metadata: { ruleId: rule.id, trigger, automation: true } });
     const actions = await db.select().from(workRuleActions)
       .where(and(eq(workRuleActions.ruleId, rule.id), isNull(workRuleActions.deletedAt)))
       .orderBy(asc(workRuleActions.position));
