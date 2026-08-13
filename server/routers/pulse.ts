@@ -23,6 +23,7 @@ import { canAssign, canCreate, canDeliver, canManageMeeting, canView, canViewWor
 import { addCanonicalWorkComment, assignCanonicalWorkItem, createCanonicalWorkItem, enrichCanonicalWorkItems, moveCanonicalWorkItem, transitionCanonicalWorkItem, voteCanonicalIssue } from "../pulse/work";
 import { captureRunnerItem, castSessionVote, completeMeetingSession, createMeetingRegistry, enterSessionStep, getMeetingReport, getRunnerSession, listMeetingHistory, listVisibleMeetingRegistry, setMeetingRegistryActive, startMeetingSession, updateMeetingRegistry } from "../pulse/runner";
 import { createMeasurable, createStrategyNode, getAnalyticsScorecard, getDashboardScorecard, getReportScorecard, getScopeScorecard, getScopeStrategy, getVto, placeMeasurable, recordMeasurableEntry, setStrategyNodeStatus, setStrategyRaci, setStrategyScopePresentation, updateMeasurable } from "../pulse/measurables";
+import { acknowledgeCommunication, createCommunication, getCommunicationAudience, listMyCommunications, processPulseCommunicationDeliveryBatch, publishCommunication } from "../pulse/communications";
 
 const scopeTypeSchema = z.enum(["company", "l10", "team", "one_on_one", "private"]);
 const membershipPolicySchema = z.enum(["explicit", "active_accounts", "owner_only"]);
@@ -530,5 +531,35 @@ export const pulseRouter = router({
     const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
     try { return getVto(db, actor, input.scopeId); }
     catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  createCommunication: protectedProcedure.input(z.object({ communicationType: z.enum(["cascade", "announcement"]), sourceScopeId: z.number().int().positive(), title: z.string().trim().min(2).max(512), body: z.string().trim().min(1).max(30000), targetScopeIds: z.array(z.number().int().positive()).min(1).max(100) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return { id: await createCommunication(db, actor, input) }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  publishCommunication: protectedProcedure.input(z.object({ communicationId: z.number().int().positive(), channels: z.array(z.enum(["in_app", "email", "slack"])).min(1).max(3).optional() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return publishCommunication(db, actor, input); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  myCommunications: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return listMyCommunications(db, actor); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  communicationAudience: protectedProcedure.input(z.object({ communicationId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getCommunicationAudience(db, actor, input.communicationId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  acknowledgeCommunication: protectedProcedure.input(z.object({ communicationId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return acknowledgeCommunication(db, actor, input.communicationId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  runCommunicationDeliveryWorker: protectedProcedure.input(z.object({ limit: z.number().int().min(1).max(500).default(100), dryRun: z.boolean().default(false) })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx); const db = await requireDb();
+    return processPulseCommunicationDeliveryBatch(db, input);
   }),
 });

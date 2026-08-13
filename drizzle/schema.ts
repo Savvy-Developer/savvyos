@@ -1994,7 +1994,7 @@ export type PulseHoliday = typeof pulseHolidays.$inferSelect;
 // restrict payload classes by event type; triggers reject UPDATE and DELETE.
 export const pulseDomainEvents = mysqlTable("pulse_domain_events", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "meeting_created", "meeting_deactivated", "meeting_reactivated", "session_started", "session_step_entered", "session_ids_snapshot", "session_item_captured", "session_vote_cast", "session_completed", "session_auto_closed", "session_report_created", "measurable_created", "measurable_placed", "measurable_entry_recorded", "measurable_alert_raised", "strategy_node_created", "strategy_node_status_changed", "strategy_scope_placed", "strategy_raci_updated", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
+  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "meeting_created", "meeting_deactivated", "meeting_reactivated", "session_started", "session_step_entered", "session_ids_snapshot", "session_item_captured", "session_vote_cast", "session_completed", "session_auto_closed", "session_report_created", "measurable_created", "measurable_placed", "measurable_entry_recorded", "measurable_alert_raised", "strategy_node_created", "strategy_node_status_changed", "strategy_scope_placed", "strategy_raci_updated", "communication_created", "communication_published", "notification_intent_created", "notification_delivered", "notification_suppressed", "communication_acknowledged", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
   scopeId: int("scopeId").references(() => pulseScopes.id, { onDelete: "set null" }),
   actorPersonId: int("actorPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
   payload: json("payload").$type<Record<string, unknown>>().notNull(),
@@ -2281,6 +2281,94 @@ export const pulseStrategyScopePlacements = mysqlTable("pulse_strategy_scope_pla
   index("pulse_strategy_scope_placements_scope_visible_idx").on(table.scopeId, table.isVisible, table.nodeId),
 ]);
 export type PulseStrategyScopePlacement = typeof pulseStrategyScopePlacements.$inferSelect;
+
+// ─── Pulse Communication Domain ───────────────────────────────────────────────
+// Features create these durable communication/intent records; only the delivery worker invokes a transport.
+export const pulseCommunications = mysqlTable("pulse_communications", {
+  id: int("id").autoincrement().primaryKey(),
+  communicationType: mysqlEnum("communicationType", ["cascade", "announcement"]).notNull(),
+  sourceScopeId: int("sourceScopeId").notNull().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  title: varchar("title", { length: 512 }).notNull(),
+  body: text("body").notNull(),
+  status: mysqlEnum("status", ["draft", "published", "cancelled"]).default("draft").notNull(),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  publishedAt: timestamp("publishedAt"),
+  cancelledAt: timestamp("cancelledAt"),
+}, (table) => [
+  index("pulse_communications_source_status_time_idx").on(table.sourceScopeId, table.status, table.publishedAt),
+]);
+export type PulseCommunication = typeof pulseCommunications.$inferSelect;
+
+export const pulseCommunicationTargets = mysqlTable("pulse_communication_targets", {
+  id: int("id").autoincrement().primaryKey(),
+  communicationId: int("communicationId").notNull().references(() => pulseCommunications.id, { onDelete: "cascade" }),
+  targetScopeId: int("targetScopeId").notNull().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_communication_targets_communication_scope_unique").on(table.communicationId, table.targetScopeId),
+  index("pulse_communication_targets_scope_idx").on(table.targetScopeId, table.communicationId),
+]);
+export type PulseCommunicationTarget = typeof pulseCommunicationTargets.$inferSelect;
+
+// This is frozen at publish time. Audience and delivery APIs read it directly, never expand current Scope membership.
+export const pulseCommunicationRecipientLedger = mysqlTable("pulse_communication_recipient_ledger", {
+  id: int("id").autoincrement().primaryKey(),
+  communicationId: int("communicationId").notNull().references(() => pulseCommunications.id, { onDelete: "cascade" }),
+  recipientPersonId: int("recipientPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  targetScopeIds: json("targetScopeIds").$type<number[]>().notNull(),
+  frozenAt: timestamp("frozenAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_comm_recipient_ledger_comm_person_uq").on(table.communicationId, table.recipientPersonId),
+  index("pulse_communication_recipient_ledger_recipient_idx").on(table.recipientPersonId, table.communicationId),
+]);
+export type PulseCommunicationRecipientLedger = typeof pulseCommunicationRecipientLedger.$inferSelect;
+
+export const pulseNotificationIntents = mysqlTable("pulse_notification_intents", {
+  id: int("id").autoincrement().primaryKey(),
+  communicationId: int("communicationId").notNull().references(() => pulseCommunications.id, { onDelete: "cascade" }),
+  recipientLedgerId: int("recipientLedgerId").notNull().references(() => pulseCommunicationRecipientLedger.id, { onDelete: "cascade" }),
+  recipientPersonId: int("recipientPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  requestedChannels: json("requestedChannels").$type<Array<"in_app" | "email" | "slack">>().notNull(),
+  scheduledFor: timestamp("scheduledFor").defaultNow().notNull(),
+  status: mysqlEnum("status", ["pending", "evaluated", "delivered", "suppressed", "cancelled"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  evaluatedAt: timestamp("evaluatedAt"),
+}, (table) => [
+  uniqueIndex("pulse_notification_intents_communication_recipient_unique").on(table.communicationId, table.recipientPersonId),
+  index("pulse_notification_intents_status_schedule_idx").on(table.status, table.scheduledFor),
+]);
+export type PulseNotificationIntent = typeof pulseNotificationIntents.$inferSelect;
+
+// One delivery ledger, deduplicated across worker retries and across every transport channel.
+export const pulseNotificationDeliveries = mysqlTable("pulse_notification_deliveries", {
+  id: int("id").autoincrement().primaryKey(),
+  intentId: int("intentId").notNull().references(() => pulseNotificationIntents.id, { onDelete: "cascade" }),
+  communicationId: int("communicationId").notNull().references(() => pulseCommunications.id, { onDelete: "cascade" }),
+  recipientPersonId: int("recipientPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  channel: mysqlEnum("channel", ["in_app", "email", "slack"]).notNull(),
+  outcome: mysqlEnum("outcome", ["queued", "delivered", "suppressed", "skipped", "failed"]).notNull(),
+  deduplicationKey: varchar("deduplicationKey", { length: 255 }).notNull(),
+  reason: text("reason"),
+  providerMessageId: varchar("providerMessageId", { length: 255 }),
+  attemptedAt: timestamp("attemptedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+}, (table) => [
+  uniqueIndex("pulse_notification_deliveries_dedup_unique").on(table.deduplicationKey),
+  index("pulse_notification_deliveries_communication_recipient_idx").on(table.communicationId, table.recipientPersonId),
+]);
+export type PulseNotificationDelivery = typeof pulseNotificationDeliveries.$inferSelect;
+
+// Acknowledgment is explicit, once per person, and unrelated to any future reaction model.
+export const pulseCommunicationAcknowledgments = mysqlTable("pulse_communication_acknowledgments", {
+  id: int("id").autoincrement().primaryKey(),
+  communicationId: int("communicationId").notNull().references(() => pulseCommunications.id, { onDelete: "cascade" }),
+  recipientPersonId: int("recipientPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  acknowledgedAt: timestamp("acknowledgedAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_comm_ack_comm_person_uq").on(table.communicationId, table.recipientPersonId),
+]);
+export type PulseCommunicationAcknowledgment = typeof pulseCommunicationAcknowledgments.$inferSelect;
 
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.
