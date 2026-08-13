@@ -9,7 +9,13 @@ export type PulseEventType =
   | "membership_revoked"
   | "calendar_configured"
   | "reporting_period_created"
-  | "holiday_created";
+  | "holiday_created"
+  | "work_item_created"
+  | "work_item_moved"
+  | "work_item_status_changed"
+  | "work_item_assigned"
+  | "work_item_comment_added"
+  | "work_item_mention_added";
 
 export type PulseEventInput = {
   eventType: PulseEventType;

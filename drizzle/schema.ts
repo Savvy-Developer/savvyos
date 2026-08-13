@@ -1881,7 +1881,7 @@ export type PulseHoliday = typeof pulseHolidays.$inferSelect;
 // restrict payload classes by event type; triggers reject UPDATE and DELETE.
 export const pulseDomainEvents = mysqlTable("pulse_domain_events", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created"]).notNull(),
+  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
   scopeId: int("scopeId").references(() => pulseScopes.id, { onDelete: "set null" }),
   actorPersonId: int("actorPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
   payload: json("payload").$type<Record<string, unknown>>().notNull(),
@@ -1891,6 +1891,152 @@ export const pulseDomainEvents = mysqlTable("pulse_domain_events", {
   index("pulse_domain_events_type_time_idx").on(table.eventType, table.occurredAt),
 ]);
 export type PulseDomainEvent = typeof pulseDomainEvents.$inferSelect;
+
+// ─── Pulse Canonical Work Items ────────────────────────────────────────────────
+// The type registry lets an additional subtype be introduced with its own extension table
+// without altering the shared work-item base or its scope/access/provenance contract.
+export const pulseWorkItemTypes = mysqlTable("pulse_work_item_types", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  displayName: varchar("displayName", { length: 128 }).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type PulseWorkItemType = typeof pulseWorkItemTypes.$inferSelect;
+
+export const pulseWorkItems = mysqlTable("pulse_work_items", {
+  id: int("id").autoincrement().primaryKey(),
+  itemType: varchar("itemType", { length: 64 }).notNull().references(() => pulseWorkItemTypes.key, { onDelete: "restrict" }),
+  title: varchar("title", { length: 512 }).notNull(),
+  description: text("description"),
+  // Present-day ownership/access context. A move changes this field and writes activity/event history.
+  primaryScopeId: int("primaryScopeId").notNull().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  assigneePersonId: int("assigneePersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  status: mysqlEnum("status", ["not_started", "in_progress", "blocked", "complete", "skipped"]).default("not_started").notNull(),
+  lastTransitionNote: text("lastTransitionNote"),
+  lastTransitionMode: mysqlEnum("lastTransitionMode", ["standard", "runner_bulk_completion"]).default("standard").notNull(),
+  blockerType: mysqlEnum("blockerType", ["person", "dependency", "waiting", "external", "decision", "other"]),
+  blockerPersonId: int("blockerPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  // Immutable creation provenance. It is never rewritten when current scope or assignee changes.
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdInSessionId: varchar("createdInSessionId", { length: 128 }),
+  createdInScopeId: int("createdInScopeId").references(() => pulseScopes.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_work_items_scope_status_idx").on(table.primaryScopeId, table.status, table.updatedAt),
+  index("pulse_work_items_assignee_status_idx").on(table.assigneePersonId, table.status, table.updatedAt),
+  index("pulse_work_items_created_scope_idx").on(table.createdInScopeId, table.createdAt),
+]);
+export type PulseWorkItem = typeof pulseWorkItems.$inferSelect;
+
+// Normalized optional secondary placement. There are no routing strings or comma-separated scopes.
+export const pulseWorkItemPlacements = mysqlTable("pulse_work_item_placements", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  placementKind: mysqlEnum("placementKind", ["secondary", "reference", "notification_context"]).default("secondary").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  addedByPersonId: int("addedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_work_item_placements_item_scope_unique").on(table.itemId, table.scopeId),
+  index("pulse_work_item_placements_scope_active_idx").on(table.scopeId, table.isActive, table.itemId),
+]);
+export type PulseWorkItemPlacement = typeof pulseWorkItemPlacements.$inferSelect;
+
+export const pulseWorkItemRecurrences = mysqlTable("pulse_work_item_recurrences", {
+  id: int("id").autoincrement().primaryKey(),
+  frequency: mysqlEnum("frequency", ["weekly", "monthly", "quarterly", "custom"]).notNull(),
+  intervalCount: int("intervalCount").default(1).notNull(),
+  rule: json("rule").$type<Record<string, unknown>>().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PulseWorkItemRecurrence = typeof pulseWorkItemRecurrences.$inferSelect;
+
+// Todo-specific state is isolated from the base.
+export const pulseTodos = mysqlTable("pulse_todos", {
+  itemId: int("itemId").primaryKey().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  dueDate: date("dueDate"),
+  priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
+  isFlagged: boolean("isFlagged").default(false).notNull(),
+  recurrenceId: int("recurrenceId").references(() => pulseWorkItemRecurrences.id, { onDelete: "set null" }),
+  completionNote: text("completionNote"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("pulse_todos_due_priority_idx").on(table.dueDate, table.priority)]);
+export type PulseTodo = typeof pulseTodos.$inferSelect;
+
+// Issue-specific state is isolated from the base.
+export const pulseIssues = mysqlTable("pulse_issues", {
+  itemId: int("itemId").primaryKey().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  priority: mysqlEnum("priority", ["low", "medium", "high", "critical"]).default("medium").notNull(),
+  timeframe: mysqlEnum("timeframe", ["this_week", "this_quarter", "this_year", "someday", "unscheduled"]).default("unscheduled").notNull(),
+  resolution: text("resolution"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PulseIssue = typeof pulseIssues.$inferSelect;
+
+export const pulseIssueVotes = mysqlTable("pulse_issue_votes", {
+  id: int("id").autoincrement().primaryKey(),
+  issueItemId: int("issueItemId").notNull().references(() => pulseIssues.itemId, { onDelete: "cascade" }),
+  voterPersonId: int("voterPersonId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  sessionId: varchar("sessionId", { length: 128 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("pulse_issue_votes_issue_voter_session_unique").on(table.issueItemId, table.voterPersonId, table.sessionId)]);
+export type PulseIssueVote = typeof pulseIssueVotes.$inferSelect;
+
+// Shared inspectable history across todos and issues.
+export const pulseWorkItemActivity = mysqlTable("pulse_work_item_activity", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  itemId: int("itemId").notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  activityType: mysqlEnum("activityType", ["created", "moved", "status_changed", "assigned", "comment_added", "mention_added", "placement_added", "placement_removed"]).notNull(),
+  actorPersonId: int("actorPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  note: text("note"),
+  payload: json("payload").$type<Record<string, unknown>>().notNull(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+}, (table) => [
+  index("pulse_work_item_activity_item_time_idx").on(table.itemId, table.occurredAt),
+  index("pulse_work_item_activity_type_time_idx").on(table.activityType, table.occurredAt),
+]);
+export type PulseWorkItemActivity = typeof pulseWorkItemActivity.$inferSelect;
+
+export const pulseWorkItemComments = mysqlTable("pulse_work_item_comments", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  authorPersonId: int("authorPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("pulse_work_item_comments_item_time_idx").on(table.itemId, table.createdAt)]);
+export type PulseWorkItemComment = typeof pulseWorkItemComments.$inferSelect;
+
+export const pulseWorkItemMentions = mysqlTable("pulse_work_item_mentions", {
+  id: int("id").autoincrement().primaryKey(),
+  commentId: int("commentId").references(() => pulseWorkItemComments.id, { onDelete: "cascade" }),
+  itemId: int("itemId").notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  mentionedPersonId: int("mentionedPersonId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("pulse_work_item_mentions_person_time_idx").on(table.mentionedPersonId, table.createdAt)]);
+export type PulseWorkItemMention = typeof pulseWorkItemMentions.$inferSelect;
+
+// Feature mutations create notification intents; delivery must call the canonical canDeliver policy.
+export const pulseWorkItemNotificationIntents = mysqlTable("pulse_work_item_notification_intents", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  recipientPersonId: int("recipientPersonId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  intentType: mysqlEnum("intentType", ["assignment", "mention", "status_change", "comment"]).notNull(),
+  status: mysqlEnum("status", ["pending", "suppressed", "delivered", "cancelled"]).default("pending").notNull(),
+  payload: json("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+}, (table) => [index("pulse_work_item_notification_intents_recipient_status_idx").on(table.recipientPersonId, table.status, table.createdAt)]);
+export type PulseWorkItemNotificationIntent = typeof pulseWorkItemNotificationIntents.$inferSelect;
 
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.

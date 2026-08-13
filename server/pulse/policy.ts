@@ -1,11 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { pulsePeople, pulsePersonAccounts, pulseScopeMemberships, pulseScopes, users } from "../../drizzle/schema";
+import { pulsePeople, pulsePersonAccounts, pulseScopeMemberships, pulseScopes, pulseWorkItemPlacements, pulseWorkItems, users } from "../../drizzle/schema";
 
 /** Shared query surface for both the root Drizzle client and transaction callbacks. */
 export type PulsePolicyDb = any;
 export type PulseActor = { userId: number };
 export type ScopeBoundItem = { primaryScopeId: number; assigneePersonId?: number | null };
 export type ScopeBoundNotification = { scopeId: number; recipientPersonId: number };
+export type WorkItemDecision = ScopeDecision & { accessScopeId?: number; viaPlacement?: boolean };
 
 export type ScopeDecision = {
   allowed: boolean;
@@ -73,6 +74,23 @@ async function resolveViewDecision(db: PulsePolicyDb, scopeId: number, actor: Pu
 export async function canView(db: PulsePolicyDb, scopeId: number, actor: PulseActor): Promise<ScopeDecision> {
   const decision = await resolveViewDecision(db, scopeId, actor);
   return { allowed: decision.allowed, reason: decision.reason };
+}
+
+/**
+ * Canonical work-item decision. The item's primary Scope is evaluated first, then each active
+ * normalized placement. Each candidate delegates to canView, preserving archive-first semantics.
+ */
+export async function canViewWorkItem(db: PulsePolicyDb, itemId: number, actor: PulseActor): Promise<WorkItemDecision> {
+  const item = await db.select({ primaryScopeId: pulseWorkItems.primaryScopeId }).from(pulseWorkItems).where(eq(pulseWorkItems.id, itemId)).limit(1);
+  if (!item[0]) return { allowed: false, reason: "no_membership" };
+  const primary = await canView(db, item[0].primaryScopeId, actor);
+  if (primary.allowed) return { ...primary, accessScopeId: item[0].primaryScopeId, viaPlacement: false };
+  const placements = await db.select({ scopeId: pulseWorkItemPlacements.scopeId }).from(pulseWorkItemPlacements).where(and(eq(pulseWorkItemPlacements.itemId, itemId), eq(pulseWorkItemPlacements.isActive, true)));
+  for (const placement of placements) {
+    const decision = await canView(db, placement.scopeId, actor);
+    if (decision.allowed) return { ...decision, accessScopeId: placement.scopeId, viaPlacement: true };
+  }
+  return primary;
 }
 
 /**

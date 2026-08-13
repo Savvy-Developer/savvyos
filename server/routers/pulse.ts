@@ -19,7 +19,8 @@ import { canAdminUsePermission } from "./permissions";
 import { resolvePulseCalendar } from "../pulse/calendar";
 import { appendPulseEvent } from "../pulse/events";
 import { ensurePulsePersonForAccount } from "../pulse/people";
-import { canAssign, canCreate, canDeliver, canManageMeeting, canView, canVote, getActiveScope, visibleScopes } from "../pulse/policy";
+import { canAssign, canCreate, canDeliver, canManageMeeting, canView, canViewWorkItem, canVote, getActiveScope, visibleScopes } from "../pulse/policy";
+import { addCanonicalWorkComment, assignCanonicalWorkItem, createCanonicalWorkItem, enrichCanonicalWorkItems, moveCanonicalWorkItem, transitionCanonicalWorkItem, voteCanonicalIssue } from "../pulse/work";
 
 const scopeTypeSchema = z.enum(["company", "l10", "team", "one_on_one", "private"]);
 const membershipPolicySchema = z.enum(["explicit", "active_accounts", "owner_only"]);
@@ -258,5 +259,92 @@ export const pulseRouter = router({
       canManageMeeting: await canManageMeeting(db, input.scopeId, actor),
       canDeliver: input.recipientPersonId ? await canDeliver(db, { scopeId: input.scopeId, recipientPersonId: input.recipientPersonId }, actor) : null,
     };
+  }),
+
+  createWorkItem: protectedProcedure.input(z.object({
+    itemType: z.enum(["todo", "issue"]),
+    title: z.string().trim().min(2).max(512),
+    description: z.string().trim().max(10000).optional().nullable(),
+    primaryScopeId: z.number().int().positive(),
+    assigneePersonId: z.number().int().positive().optional().nullable(),
+    createdInScopeId: z.number().int().positive().optional().nullable(),
+    createdInSessionId: z.string().trim().min(1).max(128).optional().nullable(),
+    placementScopeIds: z.array(z.number().int().positive()).max(25).default([]),
+    todo: z.object({ dueDate: z.coerce.date().optional().nullable(), priority: z.enum(["low", "medium", "high", "urgent"]).optional(), isFlagged: z.boolean().optional(), recurrenceId: z.number().int().positive().optional().nullable() }).optional(),
+    issue: z.object({ priority: z.enum(["low", "medium", "high", "critical"]).optional(), timeframe: z.enum(["this_week", "this_quarter", "this_year", "someday", "unscheduled"]).optional() }).optional(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    try { return { id: await createCanonicalWorkItem(db, actor, input) }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  myWork: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    return enrichCanonicalWorkItems(db, actor, { assigneePersonId: actor.personId });
+  }),
+
+  scopeWork: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    return enrichCanonicalWorkItems(db, actor, { scopeId: input.scopeId });
+  }),
+
+  notificationWork: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    return enrichCanonicalWorkItems(db, actor, { notificationRecipientPersonId: actor.personId });
+  }),
+
+  getWorkItem: protectedProcedure.input(z.object({ itemId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const access = await canViewWorkItem(db, input.itemId, actor);
+    if (!access.allowed) throw new TRPCError({ code: access.reason === "scope_inactive" ? "NOT_FOUND" : "FORBIDDEN", message: "This work item is unavailable." });
+    return (await enrichCanonicalWorkItems(db, actor)).find((item: any) => item.id === input.itemId) ?? null;
+  }),
+
+  moveWorkItem: protectedProcedure.input(z.object({ itemId: z.number().int().positive(), toScopeId: z.number().int().positive(), note: z.string().trim().min(3).max(5000) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    try { await moveCanonicalWorkItem(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  transitionWorkItem: protectedProcedure.input(z.object({
+    itemId: z.number().int().positive(),
+    status: z.enum(["not_started", "in_progress", "blocked", "complete", "skipped"]),
+    note: z.string().trim().max(5000).optional().nullable(),
+    mode: z.enum(["standard", "runner_bulk_completion"]).default("standard"),
+    blockerType: z.enum(["person", "dependency", "waiting", "external", "decision", "other"]).optional().nullable(),
+    blockerPersonId: z.number().int().positive().optional().nullable(),
+    completionNote: z.string().trim().max(5000).optional().nullable(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    try { await transitionCanonicalWorkItem(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "BAD_REQUEST", message: error.message }); }
+  }),
+
+  assignWorkItem: protectedProcedure.input(z.object({ itemId: z.number().int().positive(), assigneePersonId: z.number().int().positive().nullable() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    try { await assignCanonicalWorkItem(db, actor, input.itemId, input.assigneePersonId); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  addWorkComment: protectedProcedure.input(z.object({ itemId: z.number().int().positive(), body: z.string().trim().min(3).max(10000), mentionedPersonIds: z.array(z.number().int().positive()).max(50).default([]) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    try { return { id: await addCanonicalWorkComment(db, actor, input) }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  voteIssue: protectedProcedure.input(z.object({ itemId: z.number().int().positive(), sessionId: z.string().trim().min(1).max(128).optional().nullable() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    try { await voteCanonicalIssue(db, actor, input.itemId, input.sessionId); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
   }),
 });
