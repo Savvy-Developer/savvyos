@@ -3650,10 +3650,12 @@ export const workNotifications = mysqlTable("work_notifications", {
   body: text("body"),
   readAt: timestamp("readAt"),
   deletedAt: timestamp("deletedAt"),
+  snoozedUntil: timestamp("snoozedUntil"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   index("work_notifications_user_read_idx").on(table.userId, table.readAt, table.createdAt, table.deletedAt),
+  index("work_notifications_user_snoozed_idx").on(table.userId, table.snoozedUntil, table.deletedAt),
 ]);
 
 export const workSavedViews = mysqlTable("work_saved_views", {
