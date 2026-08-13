@@ -1760,123 +1760,137 @@ export const duplicateScanJobs = mysqlTable("duplicate_scan_jobs", {
 });
 export type DuplicateScanJob = typeof duplicateScanJobs.$inferSelect;
 
-// ─── Pulse ─────────────────────────────────────────────────────────────────────
-// The registry is durable configuration; operational meeting sessions are introduced later.
-export const pulseMeetings = mysqlTable("pulse_meetings", {
+// ─── Pulse Scope Foundation ───────────────────────────────────────────────────
+// Blueprint authority: Pulse business relationships use people; SavvyOS users are only
+// authenticated accounts explicitly linked to people. Pulse never infers this from missing fields.
+export const pulsePeople = mysqlTable("pulse_people", {
   id: int("id").autoincrement().primaryKey(),
-  meetingKey: varchar("meetingKey", { length: 120 }).notNull().unique(),
+  displayName: varchar("displayName", { length: 255 }).notNull(),
+  primaryEmail: varchar("primaryEmail", { length: 320 }),
+  timezone: varchar("timezone", { length: 64 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("pulse_people_active_name_idx").on(table.isActive, table.displayName)]);
+export type PulsePerson = typeof pulsePeople.$inferSelect;
+
+// An account is a linked SavvyOS authenticated user, not a person-type boolean.
+export const pulsePersonAccounts = mysqlTable("pulse_person_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  personId: int("personId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  isPrimary: boolean("isPrimary").default(true).notNull(),
+  linkedAt: timestamp("linkedAt").defaultNow().notNull(),
+  unlinkedAt: timestamp("unlinkedAt"),
+}, (table) => [index("pulse_person_accounts_person_active_idx").on(table.personId, table.unlinkedAt)]);
+export type PulsePersonAccount = typeof pulsePersonAccounts.$inferSelect;
+
+// Scope is Pulse's sole current-visibility and provenance container. Archive is a state transition
+// here and every policy/query evaluates `isActive` before any role or membership decision.
+export const pulseScopes = mysqlTable("pulse_scopes", {
+  id: int("id").autoincrement().primaryKey(),
+  scopeType: mysqlEnum("scopeType", ["company", "l10", "team", "one_on_one", "private"]).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  membershipPolicy: mysqlEnum("membershipPolicy", ["explicit", "active_accounts", "owner_only"]).default("explicit").notNull(),
+  accessPolicy: mysqlEnum("accessPolicy", ["members", "explicit_members", "owner_only"]).default("members").notNull(),
+  ownerPersonId: int("ownerPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  isActive: boolean("isActive").default(true).notNull(),
+  archivedAt: timestamp("archivedAt"),
+  archivedByPersonId: int("archivedByPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  archiveReason: text("archiveReason"),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_scopes_active_type_name_idx").on(table.isActive, table.scopeType, table.name),
+  index("pulse_scopes_owner_active_idx").on(table.ownerPersonId, table.isActive),
+]);
+export type PulseScope = typeof pulseScopes.$inferSelect;
+
+// Membership is normalized once for every scope type. There are no meeting/team/1:1 access tables.
+export const pulseScopeMemberships = mysqlTable("pulse_scope_memberships", {
+  id: int("id").autoincrement().primaryKey(),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  personId: int("personId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  membershipRole: mysqlEnum("membershipRole", ["owner", "manager", "member", "viewer"]).default("member").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  grantedByPersonId: int("grantedByPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  grantedAt: timestamp("grantedAt").defaultNow().notNull(),
+  revokedAt: timestamp("revokedAt"),
+  revokedByPersonId: int("revokedByPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_scope_memberships_scope_person_unique").on(table.scopeId, table.personId),
+  index("pulse_scope_memberships_person_active_idx").on(table.personId, table.isActive, table.scopeId),
+  index("pulse_scope_memberships_scope_active_idx").on(table.scopeId, table.isActive),
+]);
+export type PulseScopeMembership = typeof pulseScopeMemberships.$inferSelect;
+
+// L10 configuration belongs to an L10 scope; it does not create another access model.
+export const pulseL10Settings = mysqlTable("pulse_l10_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  scopeId: int("scopeId").notNull().unique().references(() => pulseScopes.id, { onDelete: "cascade" }),
   scheduleDay: mysqlEnum("scheduleDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]).notNull(),
   scheduleTime: varchar("scheduleTime", { length: 5 }).notNull(),
   timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
-  facilitatorUserId: int("facilitatorUserId").references(() => users.id, { onDelete: "set null" }),
   durationMinutes: int("durationMinutes").default(90).notNull(),
   sectionVisibility: json("sectionVisibility").$type<Record<string, boolean>>().notNull(),
-  // Archive is the primary availability gate. Inactive meetings are absent before any role/access check.
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PulseL10Settings = typeof pulseL10Settings.$inferSelect;
+
+// Calendar is the single owner of fiscal, operating-week, holiday, and due-window rules.
+export const pulseCalendarConfig = mysqlTable("pulse_calendar_config", {
+  id: int("id").autoincrement().primaryKey(),
+  timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
+  fiscalYearStartMonth: int("fiscalYearStartMonth").default(1).notNull(),
+  operatingWeekStartsOn: int("operatingWeekStartsOn").default(1).notNull(),
+  dueWindowDays: int("dueWindowDays").default(7).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
-  archivedAt: timestamp("archivedAt"),
-  archivedById: int("archivedById").references(() => users.id, { onDelete: "set null" }),
-  archiveNote: text("archiveNote"),
-  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  updatedByPersonId: int("updatedByPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [
-  index("pulse_meetings_active_schedule_idx").on(table.isActive, table.scheduleDay, table.scheduleTime),
-  index("pulse_meetings_facilitator_idx").on(table.facilitatorUserId, table.isActive),
-]);
-export type PulseMeeting = typeof pulseMeetings.$inferSelect;
-export type InsertPulseMeeting = typeof pulseMeetings.$inferInsert;
+});
+export type PulseCalendarConfig = typeof pulseCalendarConfig.$inferSelect;
 
-// Exactly one entitlement relationship exists for a person and meeting. Revocation updates this row;
-// legacy per-user access booleans are intentionally not modeled in Pulse.
-export const pulseMeetingAccess = mysqlTable("pulse_meeting_access", {
+export const pulseReportingPeriods = mysqlTable("pulse_reporting_periods", {
   id: int("id").autoincrement().primaryKey(),
-  meetingId: int("meetingId").notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
-  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  accessLevel: mysqlEnum("accessLevel", ["member", "facilitator"]).default("member").notNull(),
-  grantedById: int("grantedById").notNull().references(() => users.id, { onDelete: "restrict" }),
-  grantedAt: timestamp("grantedAt").defaultNow().notNull(),
-  revokedAt: timestamp("revokedAt"),
-  revokedById: int("revokedById").references(() => users.id, { onDelete: "set null" }),
+  calendarConfigId: int("calendarConfigId").notNull().references(() => pulseCalendarConfig.id, { onDelete: "cascade" }),
+  periodType: mysqlEnum("periodType", ["month", "quarter", "year", "custom"]).notNull(),
+  name: varchar("name", { length: 128 }).notNull(),
+  startsOn: date("startsOn").notNull(),
+  endsOn: date("endsOn").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [
-  uniqueIndex("pulse_meeting_access_meeting_user_unique").on(table.meetingId, table.userId),
-  index("pulse_meeting_access_user_active_idx").on(table.userId, table.revokedAt, table.meetingId),
-  index("pulse_meeting_access_meeting_active_idx").on(table.meetingId, table.revokedAt),
-]);
-export type PulseMeetingAccess = typeof pulseMeetingAccess.$inferSelect;
-export type InsertPulseMeetingAccess = typeof pulseMeetingAccess.$inferInsert;
+}, (table) => [index("pulse_reporting_periods_calendar_dates_idx").on(table.calendarConfigId, table.startsOn, table.endsOn)]);
+export type PulseReportingPeriod = typeof pulseReportingPeriods.$inferSelect;
 
-// Pulse operational teams are distinct from SavvyOS Work-project teams. Membership is the
-// authorization source of truth for a team; linked meetings do not confer team membership.
-export const pulseTeams = mysqlTable("pulse_teams", {
+export const pulseHolidays = mysqlTable("pulse_holidays", {
   id: int("id").autoincrement().primaryKey(),
-  teamKey: varchar("teamKey", { length: 120 }).notNull().unique(),
+  calendarConfigId: int("calendarConfigId").notNull().references(() => pulseCalendarConfig.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
-  purpose: text("purpose"),
-  color: varchar("color", { length: 32 }),
-  linkedMeetingId: int("linkedMeetingId").references(() => pulseMeetings.id, { onDelete: "set null" }),
-  isActive: boolean("isActive").default(true).notNull(),
-  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  holidayDate: date("holidayDate").notNull(),
+  isBusinessDay: boolean("isBusinessDay").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [
-  index("pulse_teams_active_name_idx").on(table.isActive, table.name),
-  index("pulse_teams_linked_meeting_idx").on(table.linkedMeetingId, table.isActive),
-]);
-export type PulseTeam = typeof pulseTeams.$inferSelect;
+}, (table) => [uniqueIndex("pulse_holidays_calendar_date_unique").on(table.calendarConfigId, table.holidayDate)]);
+export type PulseHoliday = typeof pulseHolidays.$inferSelect;
 
-export const pulseTeamMembers = mysqlTable("pulse_team_members", {
-  id: int("id").autoincrement().primaryKey(),
-  teamId: int("teamId").notNull().references(() => pulseTeams.id, { onDelete: "cascade" }),
-  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  role: mysqlEnum("role", ["member", "lead"]).default("member").notNull(),
-  joinedAt: timestamp("joinedAt").defaultNow().notNull(),
-  removedAt: timestamp("removedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+// The append-only event stream is the canonical Pulse activity history. SQL migration constraints
+// restrict payload classes by event type; triggers reject UPDATE and DELETE.
+export const pulseDomainEvents = mysqlTable("pulse_domain_events", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created"]).notNull(),
+  scopeId: int("scopeId").references(() => pulseScopes.id, { onDelete: "set null" }),
+  actorPersonId: int("actorPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  payload: json("payload").$type<Record<string, unknown>>().notNull(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
 }, (table) => [
-  uniqueIndex("pulse_team_members_team_user_unique").on(table.teamId, table.userId),
-  index("pulse_team_members_user_active_idx").on(table.userId, table.removedAt, table.teamId),
-  index("pulse_team_members_team_active_idx").on(table.teamId, table.removedAt),
+  index("pulse_domain_events_scope_time_idx").on(table.scopeId, table.occurredAt),
+  index("pulse_domain_events_type_time_idx").on(table.eventType, table.occurredAt),
 ]);
-export type PulseTeamMember = typeof pulseTeamMembers.$inferSelect;
-
-// A 1:1 is normally visible to its two named participants. Additional viewers must receive
-// an explicit normalized grant; administrator role alone never provides 1:1 visibility.
-export const pulseOneOnOnes = mysqlTable("pulse_one_on_ones", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  primaryUserId: int("primaryUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
-  secondaryUserId: int("secondaryUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
-  sectionVisibility: json("sectionVisibility").$type<Record<string, boolean>>().notNull(),
-  isActive: boolean("isActive").default(true).notNull(),
-  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [
-  index("pulse_one_on_ones_primary_active_idx").on(table.primaryUserId, table.isActive),
-  index("pulse_one_on_ones_secondary_active_idx").on(table.secondaryUserId, table.isActive),
-]);
-export type PulseOneOnOne = typeof pulseOneOnOnes.$inferSelect;
-
-export const pulseOneOnOneAccess = mysqlTable("pulse_one_on_one_access", {
-  id: int("id").autoincrement().primaryKey(),
-  oneOnOneId: int("oneOnOneId").notNull().references(() => pulseOneOnOnes.id, { onDelete: "cascade" }),
-  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  accessLevel: mysqlEnum("accessLevel", ["viewer"]).default("viewer").notNull(),
-  grantedById: int("grantedById").notNull().references(() => users.id, { onDelete: "restrict" }),
-  grantedAt: timestamp("grantedAt").defaultNow().notNull(),
-  revokedAt: timestamp("revokedAt"),
-  revokedById: int("revokedById").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [
-  uniqueIndex("pulse_one_on_one_access_user_unique").on(table.oneOnOneId, table.userId),
-  index("pulse_one_on_one_access_user_active_idx").on(table.userId, table.revokedAt, table.oneOnOneId),
-]);
-export type PulseOneOnOneAccess = typeof pulseOneOnOneAccess.$inferSelect;
+export type PulseDomainEvent = typeof pulseDomainEvents.$inferSelect;
 
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.

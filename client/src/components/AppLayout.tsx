@@ -218,6 +218,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
   canViewPasswords: "/passwords",
+  canViewPulse: "/pulse",
   canViewSuperPermissions: "/admin/super-permissions",
 };
 
@@ -298,6 +299,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: ClipboardList, label: "Roles & Responsibilities", path: "/roles-responsibilities" },
+        { icon: Activity, label: "Pulse", path: "/pulse" },
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
         { icon: Target, label: "Goals", path: "/goals" },
@@ -586,12 +588,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: role === "admin", staleTime: 30000 }
   );
 
-  // Pulse is a top-level section. Its visibility remains access-derived: it is shown only
-  // when this Full User has an active Pulse resource or a centralized Pulse configuration grant.
-  const { data: pulseNavigation = [] } = trpc.pulse.getNavigation.useQuery(
-    undefined,
-    { enabled: !!user && (user as any)?.personType === "full_user", staleTime: 30000 }
-  );
 
   // ── Early returns (all hooks must be above this line) ──────────────────────
   if (loading) return <DashboardLayoutSkeleton />;
@@ -625,11 +621,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const basePermittedNavGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
     : baseNavGroups;
-  const canViewPulseSection = (pulseNavigation as any[]).length > 0 || (adminPerms as any)?.canViewPulse === true;
-  const pulseSectionNav: NavGroup[] = canViewPulseSection
-    ? [{ label: "Pulse", items: [{ icon: Activity, label: "Pulse", path: "/pulse" }] }]
-    : [];
-  const navGroups: NavGroup[] = [...basePermittedNavGroups, ...pulseSectionNav];
+  const navGroups: NavGroup[] = basePermittedNavGroups;
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"

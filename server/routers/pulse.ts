@@ -1,554 +1,262 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { pulseMeetingAccess, pulseMeetings, pulseOneOnOneAccess, pulseOneOnOnes, pulseTeamMembers, pulseTeams, users } from "../../drizzle/schema";
+import {
+  pulseCalendarConfig,
+  pulseDomainEvents,
+  pulseHolidays,
+  pulseL10Settings,
+  pulsePeople,
+  pulsePersonAccounts,
+  pulseReportingPeriods,
+  pulseScopeMemberships,
+  pulseScopes,
+  users,
+} from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
+import { resolvePulseCalendar } from "../pulse/calendar";
+import { appendPulseEvent } from "../pulse/events";
+import { ensurePulsePersonForAccount } from "../pulse/people";
+import { canAssign, canCreate, canDeliver, canManageMeeting, canView, canVote, getActiveScope, visibleScopes } from "../pulse/policy";
 
-const meetingDaySchema = z.enum([
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday",
-]);
+const scopeTypeSchema = z.enum(["company", "l10", "team", "one_on_one", "private"]);
+const membershipPolicySchema = z.enum(["explicit", "active_accounts", "owner_only"]);
+const accessPolicySchema = z.enum(["members", "explicit_members", "owner_only"]);
+const membershipRoleSchema = z.enum(["owner", "manager", "member", "viewer"]);
+const daySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
 
-const sectionVisibilitySchema = z.record(z.string(), z.boolean());
+function l10SettingsSchema() {
+  return z.object({
+    scheduleDay: daySchema.default("monday"),
+    scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("09:00"),
+    timezone: z.string().trim().min(1).max(64).default("America/New_York"),
+    durationMinutes: z.number().int().min(15).max(480).default(90),
+    sectionVisibility: z.record(z.string(), z.boolean()).default({ overview: true, scorecard: true, rocks: true, todos: true, issues: true }),
+  });
+}
 
-const meetingInputSchema = z.object({
-  meetingKey: z.string().trim().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and hyphens only."),
-  name: z.string().trim().min(2).max(255),
-  scheduleDay: meetingDaySchema,
-  scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour HH:MM time."),
-  timezone: z.string().trim().min(1).max(64),
-  durationMinutes: z.number().int().min(15).max(480),
-  sectionVisibility: sectionVisibilitySchema,
-});
+type Db = any;
+type Actor = { userId: number; personId: number };
 
-const accessInputSchema = z.object({
-  facilitatorUserId: z.number().int().positive(),
-  memberUserIds: z.array(z.number().int().positive()).max(200),
-});
+async function requireDb() {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  return db as Db;
+}
 
-// Both the root Drizzle client and its transaction callback provide the same query surface used below.
-type PulseDb = any;
-type PulseContext = { user: { id: number; role: string; email?: string | null; personType: "full_user" | "teammate" } };
-type AssignablePerson = { id: number; name: string | null; personType: "full_user" | "teammate"; isActive: boolean };
-type ActiveMeetingAccess = { id: number; userId: number };
-type AccessibleMeeting = { id: number; meetingKey: string; name: string; scheduleDay: string; scheduleTime: string; timezone: string; facilitatorUserId: number | null; durationMinutes: number; sectionVisibility: Record<string, boolean>; accessLevel: "member" | "facilitator"; updatedAt: Date };
-type AccessibleTeam = { id: number; teamKey: string; name: string; purpose: string | null; color: string | null; linkedMeetingId: number | null; membershipRole: "member" | "lead" };
-type AccessibleOneOnOne = { id: number; name: string; primaryUserId: number; secondaryUserId: number; sectionVisibility: Record<string, boolean>; accessLevel: "participant" | "viewer" };
-type AccessRosterEntry = { meetingId: number; userId: number; name: string | null; email: string | null; accessLevel: "member" | "facilitator" };
-type DirectoryPerson = { id: number; name: string | null; email: string | null; title: string | null; personType: "full_user" | "teammate"; isActive: boolean };
-
-async function requirePulseConfiguration(ctx: PulseContext) {
+async function requirePulseAdmin(ctx: { user: { id: number; role: string; email?: string | null } }) {
   if (!(await canAdminUsePermission(ctx.user, "canViewPulse"))) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Pulse configuration access is required." });
   }
 }
 
-function requireFullUser(ctx: PulseContext) {
-  if (ctx.user.personType !== "full_user") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Teammate directory records cannot use Pulse." });
-  }
+async function resolveActor(db: Db, userId: number): Promise<Actor> {
+  return { userId, personId: await ensurePulsePersonForAccount(db, userId) };
 }
 
-/** Archive is intentionally evaluated before any membership/facilitator privilege. */
-async function getActiveMeetingOrThrow(db: PulseDb, meetingId: number) {
-  const rows = await db
-    .select()
-    .from(pulseMeetings)
-    .where(and(eq(pulseMeetings.id, meetingId), eq(pulseMeetings.isActive, true)))
-    .limit(1);
-  if (!rows[0]) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "This meeting is unavailable." });
-  }
-  return rows[0];
+function defaultPolicies(scopeType: z.infer<typeof scopeTypeSchema>) {
+  if (scopeType === "company") return { membershipPolicy: "active_accounts" as const, accessPolicy: "members" as const };
+  if (scopeType === "private") return { membershipPolicy: "owner_only" as const, accessPolicy: "owner_only" as const };
+  return { membershipPolicy: "explicit" as const, accessPolicy: "members" as const };
 }
 
-async function requireActiveFacilitator(db: PulseDb, meetingId: number, userId: number) {
-  await getActiveMeetingOrThrow(db, meetingId);
-  const rows = await db
-    .select({ id: pulseMeetingAccess.id })
-    .from(pulseMeetingAccess)
-    .where(and(
-      eq(pulseMeetingAccess.meetingId, meetingId),
-      eq(pulseMeetingAccess.userId, userId),
-      eq(pulseMeetingAccess.accessLevel, "facilitator"),
-      isNull(pulseMeetingAccess.revokedAt),
-    ))
-    .limit(1);
-  if (!rows[0]) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Facilitator access is required for this meeting." });
-  }
-}
-
-async function assertAssignableFullUsers(db: PulseDb, userIds: number[]) {
-  const uniqueIds = Array.from(new Set(userIds));
-  if (uniqueIds.length === 0) return;
-  const rows: AssignablePerson[] = await db
-    .select({ id: users.id, name: users.name, personType: users.personType, isActive: users.isActive })
-    .from(users)
-    .where(inArray(users.id, uniqueIds));
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  const invalid = uniqueIds.find((id) => {
-    const user = byId.get(id);
-    return !user || user.personType !== "full_user" || !user.isActive;
-  });
-  if (invalid) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Meeting facilitators and members must be active Full Users.",
-    });
-  }
-}
-
-function normalizeAccess(input: z.infer<typeof accessInputSchema>) {
-  const memberUserIds = Array.from(new Set(input.memberUserIds)).filter((userId) => userId !== input.facilitatorUserId);
-  return { facilitatorUserId: input.facilitatorUserId, memberUserIds };
-}
-
-async function replaceActiveAccess(
-  db: PulseDb,
-  meetingId: number,
-  input: z.infer<typeof accessInputSchema>,
-  actorId: number,
-) {
-  const { facilitatorUserId, memberUserIds } = normalizeAccess(input);
-  const desiredIds = [facilitatorUserId, ...memberUserIds];
-  await assertAssignableFullUsers(db, desiredIds);
-
-  const existing: ActiveMeetingAccess[] = await db
-    .select({ id: pulseMeetingAccess.id, userId: pulseMeetingAccess.userId })
-    .from(pulseMeetingAccess)
-    .where(and(eq(pulseMeetingAccess.meetingId, meetingId), isNull(pulseMeetingAccess.revokedAt)));
-
-  const now = new Date();
-  const desiredSet = new Set(desiredIds);
-  const revokeIds = existing.filter((row) => !desiredSet.has(row.userId)).map((row) => row.id);
-  if (revokeIds.length > 0) {
-    await db
-      .update(pulseMeetingAccess)
-      .set({ revokedAt: now, revokedById: actorId })
-      .where(inArray(pulseMeetingAccess.id, revokeIds));
-  }
-
-  for (const userId of desiredIds) {
-    await db
-      .insert(pulseMeetingAccess)
-      .values({
-        meetingId,
-        userId,
-        accessLevel: userId === facilitatorUserId ? "facilitator" : "member",
-        grantedById: actorId,
-        grantedAt: now,
-        revokedAt: null,
-        revokedById: null,
-      })
-      .onDuplicateKeyUpdate({
-        set: {
-          accessLevel: userId === facilitatorUserId ? "facilitator" : "member",
-          grantedById: actorId,
-          grantedAt: now,
-          revokedAt: null,
-          revokedById: null,
-        },
-      });
-  }
-
-  await db
-    .update(pulseMeetings)
-    .set({ facilitatorUserId })
-    .where(eq(pulseMeetings.id, meetingId));
-}
-
-async function getAccessibleMeetings(db: PulseDb, userId: number): Promise<AccessibleMeeting[]> {
-  return db
-    .select({
-      id: pulseMeetings.id,
-      meetingKey: pulseMeetings.meetingKey,
-      name: pulseMeetings.name,
-      scheduleDay: pulseMeetings.scheduleDay,
-      scheduleTime: pulseMeetings.scheduleTime,
-      timezone: pulseMeetings.timezone,
-      facilitatorUserId: pulseMeetings.facilitatorUserId,
-      durationMinutes: pulseMeetings.durationMinutes,
-      sectionVisibility: pulseMeetings.sectionVisibility,
-      accessLevel: pulseMeetingAccess.accessLevel,
-      updatedAt: pulseMeetings.updatedAt,
-    })
-    .from(pulseMeetingAccess)
-    .innerJoin(pulseMeetings, eq(pulseMeetingAccess.meetingId, pulseMeetings.id))
-    .where(and(
-      // This condition intentionally comes first in every discovery query.
-      eq(pulseMeetings.isActive, true),
-      eq(pulseMeetingAccess.userId, userId),
-      isNull(pulseMeetingAccess.revokedAt),
-    ))
-    .orderBy(asc(pulseMeetings.scheduleDay), asc(pulseMeetings.scheduleTime), asc(pulseMeetings.name));
-}
-
-async function getAccessibleTeams(db: PulseDb, userId: number): Promise<AccessibleTeam[]> {
-  return db
-    .select({
-      id: pulseTeams.id,
-      teamKey: pulseTeams.teamKey,
-      name: pulseTeams.name,
-      purpose: pulseTeams.purpose,
-      color: pulseTeams.color,
-      linkedMeetingId: pulseTeams.linkedMeetingId,
-      membershipRole: pulseTeamMembers.role,
-    })
-    .from(pulseTeamMembers)
-    .innerJoin(pulseTeams, eq(pulseTeamMembers.teamId, pulseTeams.id))
-    .where(and(
-      eq(pulseTeams.isActive, true),
-      eq(pulseTeamMembers.userId, userId),
-      isNull(pulseTeamMembers.removedAt),
-    ))
-    .orderBy(asc(pulseTeams.name));
-}
-
-async function getAccessibleOneOnOnes(db: PulseDb, userId: number): Promise<AccessibleOneOnOne[]> {
-  const participantRecords: Array<Omit<AccessibleOneOnOne, "accessLevel"> & { accessLevel: number }> = await db
-    .select({
-      id: pulseOneOnOnes.id,
-      name: pulseOneOnOnes.name,
-      primaryUserId: pulseOneOnOnes.primaryUserId,
-      secondaryUserId: pulseOneOnOnes.secondaryUserId,
-      sectionVisibility: pulseOneOnOnes.sectionVisibility,
-      accessLevel: pulseOneOnOnes.primaryUserId,
-    })
-    .from(pulseOneOnOnes)
-    .where(and(
-      eq(pulseOneOnOnes.isActive, true),
-      or(eq(pulseOneOnOnes.primaryUserId, userId), eq(pulseOneOnOnes.secondaryUserId, userId)),
-    ));
-
-  const viewerRecords: AccessibleOneOnOne[] = await db
-    .select({
-      id: pulseOneOnOnes.id,
-      name: pulseOneOnOnes.name,
-      primaryUserId: pulseOneOnOnes.primaryUserId,
-      secondaryUserId: pulseOneOnOnes.secondaryUserId,
-      sectionVisibility: pulseOneOnOnes.sectionVisibility,
-      accessLevel: pulseOneOnOneAccess.accessLevel,
-    })
-    .from(pulseOneOnOneAccess)
-    .innerJoin(pulseOneOnOnes, eq(pulseOneOnOneAccess.oneOnOneId, pulseOneOnOnes.id))
-    .where(and(
-      eq(pulseOneOnOnes.isActive, true),
-      eq(pulseOneOnOneAccess.userId, userId),
-      isNull(pulseOneOnOneAccess.revokedAt),
-    ));
-
-  const records = new Map<number, AccessibleOneOnOne>();
-  for (const record of participantRecords) records.set(record.id, { ...record, accessLevel: "participant" });
-  for (const record of viewerRecords) if (!records.has(record.id)) records.set(record.id, record);
-  return Array.from(records.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function getActiveTeamOrThrow(db: PulseDb, teamId: number) {
-  const rows = await db.select().from(pulseTeams).where(and(eq(pulseTeams.id, teamId), eq(pulseTeams.isActive, true))).limit(1);
-  if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "This team is unavailable." });
-  return rows[0];
-}
-
-async function getActiveOneOnOneOrThrow(db: PulseDb, oneOnOneId: number) {
-  const rows = await db.select().from(pulseOneOnOnes).where(and(eq(pulseOneOnOnes.id, oneOnOneId), eq(pulseOneOnOnes.isActive, true))).limit(1);
-  if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "This 1:1 is unavailable." });
-  return rows[0];
+async function requireManageScope(db: Db, scopeId: number, actor: Actor) {
+  const permission = await canCreate(db, "scope_configuration", scopeId, actor);
+  if (!permission.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot manage this active scope." });
 }
 
 export const pulseRouter = router({
-  /** Accessible meeting configuration only; a static registry is never returned. */
-  getRegistry: protectedProcedure.query(async ({ ctx }) => {
-    requireFullUser(ctx as PulseContext);
-    await requirePulseConfiguration(ctx as PulseContext);
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-
-    const meetings = await getAccessibleMeetings(db, ctx.user.id);
-    const meetingIds = meetings.map((meeting) => meeting.id);
-    const accessRows: AccessRosterEntry[] = meetingIds.length === 0
-      ? []
-      : await db
-        .select({
-          meetingId: pulseMeetingAccess.meetingId,
-          userId: users.id,
-          name: users.name,
-          email: users.email,
-          accessLevel: pulseMeetingAccess.accessLevel,
-        })
-        .from(pulseMeetingAccess)
-        .innerJoin(users, eq(pulseMeetingAccess.userId, users.id))
-        .where(and(inArray(pulseMeetingAccess.meetingId, meetingIds), isNull(pulseMeetingAccess.revokedAt)))
-        .orderBy(asc(users.name));
-
-    return meetings.map((meeting) => ({
-      ...meeting,
-      access: accessRows.filter((access) => access.meetingId === meeting.id),
-    }));
+  /** Admin tab contract: configuration exists only under centralized SavvyOS super permission. */
+  getFoundation: protectedProcedure.query(async ({ ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const scopes = await visibleScopes(db, actor);
+    const scopeIds = scopes.map((scope: any) => scope.id);
+    const [memberships, l10Settings, people, calendar, events, calendarSnapshot] = await Promise.all([
+      scopeIds.length ? db.select().from(pulseScopeMemberships).where(and(inArray(pulseScopeMemberships.scopeId, scopeIds), eq(pulseScopeMemberships.isActive, true))).orderBy(asc(pulseScopeMemberships.scopeId)) : [],
+      scopeIds.length ? db.select().from(pulseL10Settings).where(inArray(pulseL10Settings.scopeId, scopeIds)) : [],
+      db.select({ id: pulsePeople.id, displayName: pulsePeople.displayName, primaryEmail: pulsePeople.primaryEmail, isActive: pulsePeople.isActive, accountUserId: pulsePersonAccounts.userId, accountActive: users.isActive })
+        .from(pulsePeople)
+        .leftJoin(pulsePersonAccounts, and(eq(pulsePersonAccounts.personId, pulsePeople.id), isNull(pulsePersonAccounts.unlinkedAt)))
+        .leftJoin(users, eq(pulsePersonAccounts.userId, users.id))
+        .orderBy(asc(pulsePeople.displayName)),
+      db.select().from(pulseCalendarConfig).where(eq(pulseCalendarConfig.isActive, true)).orderBy(asc(pulseCalendarConfig.id)).limit(1),
+      scopeIds.length
+        ? db.select().from(pulseDomainEvents).where(or(inArray(pulseDomainEvents.scopeId, scopeIds), isNull(pulseDomainEvents.scopeId))).orderBy(desc(pulseDomainEvents.occurredAt)).limit(30)
+        : db.select().from(pulseDomainEvents).where(isNull(pulseDomainEvents.scopeId)).orderBy(desc(pulseDomainEvents.occurredAt)).limit(30),
+      resolvePulseCalendar(db),
+    ]);
+    return { actorPersonId: actor.personId, scopes, memberships, l10Settings, people, calendar: calendar[0] ?? null, calendarSnapshot, events };
   }),
 
-  /** Directory data is separated by person type so Teammates are never assignable. */
-  getDirectory: protectedProcedure.query(async ({ ctx }) => {
-    requireFullUser(ctx as PulseContext);
-    await requirePulseConfiguration(ctx as PulseContext);
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  /** Single query-led scope list for API and UI; every type uses the same archive-first policy resolver. */
+  visibleScopes: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    return visibleScopes(db, actor);
+  }),
 
-    const directory: DirectoryPerson[] = await db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        title: users.title,
-        personType: users.personType,
-        isActive: users.isActive,
-      })
-      .from(users)
-      .orderBy(asc(users.name));
+  getScope: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const decision = await canView(db, input.scopeId, actor);
+    if (!decision.allowed) throw new TRPCError({ code: decision.reason === "scope_inactive" ? "NOT_FOUND" : "FORBIDDEN", message: "This Pulse scope is unavailable." });
+    return getActiveScope(db, input.scopeId);
+  }),
 
+  /** Compatibility navigation remains a policy-backed resource list; it exposes no static resource names. */
+  getNavigation: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const scopes = await visibleScopes(db, actor);
+    return scopes.map((scope: any) => ({ id: `scope-${scope.id}`, label: scope.name, path: `/pulse?scope=${scope.id}`, resourceType: scope.scopeType, scopeId: scope.id }));
+  }),
+
+  createPerson: protectedProcedure.input(z.object({ displayName: z.string().trim().min(2).max(255), primaryEmail: z.string().email().optional().nullable(), timezone: z.string().trim().max(64).optional().nullable() })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    await resolveActor(db, ctx.user.id);
+    const [result] = await db.insert(pulsePeople).values({ displayName: input.displayName, primaryEmail: input.primaryEmail ?? null, timezone: input.timezone ?? null, isActive: true });
+    return { id: Number((result as any).insertId) };
+  }),
+
+  createScope: protectedProcedure.input(z.object({
+    scopeType: scopeTypeSchema,
+    name: z.string().trim().min(2).max(255),
+    description: z.string().trim().max(5000).optional().nullable(),
+    ownerPersonId: z.number().int().positive().optional(),
+    membershipPolicy: membershipPolicySchema.optional(),
+    accessPolicy: accessPolicySchema.optional(),
+    memberPersonIds: z.array(z.number().int().positive()).max(200).default([]),
+    l10: l10SettingsSchema().optional(),
+  })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const defaults = defaultPolicies(input.scopeType);
+    const ownerPersonId = input.ownerPersonId ?? actor.personId;
+    if (input.scopeType === "private" && ownerPersonId !== actor.personId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Private scopes must be owned by their creator." });
+    }
+    const memberIds = Array.from(new Set([ownerPersonId, ...input.memberPersonIds]));
+    const existingPeople = await db.select({ id: pulsePeople.id }).from(pulsePeople).where(and(inArray(pulsePeople.id, memberIds), eq(pulsePeople.isActive, true)));
+    if (existingPeople.length !== memberIds.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Every scope member must be an active Pulse person." });
+
+    const scopeId = await db.transaction(async (tx: Db) => {
+      const [created] = await tx.insert(pulseScopes).values({
+        scopeType: input.scopeType,
+        name: input.name,
+        description: input.description ?? null,
+        membershipPolicy: input.membershipPolicy ?? defaults.membershipPolicy,
+        accessPolicy: input.accessPolicy ?? defaults.accessPolicy,
+        ownerPersonId,
+        createdByPersonId: actor.personId,
+        isActive: true,
+      });
+      const id = Number((created as any).insertId);
+      for (const personId of memberIds) {
+        await tx.insert(pulseScopeMemberships).values({
+          scopeId: id,
+          personId,
+          membershipRole: personId === ownerPersonId ? "owner" : "member",
+          grantedByPersonId: actor.personId,
+          isActive: true,
+        });
+      }
+      if (input.scopeType === "l10") {
+        const config = input.l10 ?? l10SettingsSchema().parse({});
+        await tx.insert(pulseL10Settings).values({ scopeId: id, ...config });
+      }
+      await appendPulseEvent(tx, { eventType: "scope_created", scopeId: id, actorPersonId: actor.personId, payload: { scopeType: input.scopeType, name: input.name } });
+      return id;
+    });
+    return { id: scopeId };
+  }),
+
+  grantMembership: protectedProcedure.input(z.object({ scopeId: z.number().int().positive(), personId: z.number().int().positive(), membershipRole: membershipRoleSchema.default("member") })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    await requireManageScope(db, input.scopeId, actor);
+    const target = await db.select({ id: pulsePeople.id }).from(pulsePeople).where(and(eq(pulsePeople.id, input.personId), eq(pulsePeople.isActive, true))).limit(1);
+    if (!target[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Membership recipient must be an active Pulse person." });
+    await db.transaction(async (tx: Db) => {
+      await tx.insert(pulseScopeMemberships).values({ scopeId: input.scopeId, personId: input.personId, membershipRole: input.membershipRole, grantedByPersonId: actor.personId, isActive: true, revokedAt: null, revokedByPersonId: null }).onDuplicateKeyUpdate({ set: { membershipRole: input.membershipRole, grantedByPersonId: actor.personId, grantedAt: new Date(), isActive: true, revokedAt: null, revokedByPersonId: null } });
+      await appendPulseEvent(tx, { eventType: "membership_granted", scopeId: input.scopeId, actorPersonId: actor.personId, payload: { scopeId: input.scopeId, personId: input.personId, membershipRole: input.membershipRole } });
+    });
+    return { success: true };
+  }),
+
+  archiveScope: protectedProcedure.input(z.object({ scopeId: z.number().int().positive(), reason: z.string().trim().max(2000).optional() })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    // This policy call evaluates scope.active before management capability; there is no role bypass.
+    await requireManageScope(db, input.scopeId, actor);
+    await db.transaction(async (tx: Db) => {
+      await tx.update(pulseScopes).set({ isActive: false, archivedAt: new Date(), archivedByPersonId: actor.personId, archiveReason: input.reason ?? null }).where(eq(pulseScopes.id, input.scopeId));
+      await appendPulseEvent(tx, { eventType: "scope_archived", scopeId: input.scopeId, actorPersonId: actor.personId, payload: { scopeId: input.scopeId, reason: input.reason ?? null } });
+    });
+    return { success: true };
+  }),
+
+  getCalendar: protectedProcedure.query(async ({ ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    await resolveActor(db, ctx.user.id);
+    return resolvePulseCalendar(db);
+  }),
+
+  configureCalendar: protectedProcedure.input(z.object({ timezone: z.string().trim().min(1).max(64), fiscalYearStartMonth: z.number().int().min(1).max(12), operatingWeekStartsOn: z.number().int().min(0).max(6), dueWindowDays: z.number().int().min(0).max(90) })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    await db.transaction(async (tx: Db) => {
+      const current = await tx.select().from(pulseCalendarConfig).where(eq(pulseCalendarConfig.isActive, true)).limit(1);
+      if (current[0]) await tx.update(pulseCalendarConfig).set({ ...input, updatedByPersonId: actor.personId }).where(eq(pulseCalendarConfig.id, current[0].id));
+      else await tx.insert(pulseCalendarConfig).values({ ...input, updatedByPersonId: actor.personId, isActive: true });
+      await appendPulseEvent(tx, { eventType: "calendar_configured", actorPersonId: actor.personId, payload: { timezone: input.timezone, fiscalYearStartMonth: input.fiscalYearStartMonth, operatingWeekStartsOn: input.operatingWeekStartsOn, dueWindowDays: input.dueWindowDays } });
+    });
+    return { success: true };
+  }),
+
+  addReportingPeriod: protectedProcedure.input(z.object({ periodType: z.enum(["month", "quarter", "year", "custom"]), name: z.string().trim().min(2).max(128), startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const calendar = await db.select().from(pulseCalendarConfig).where(eq(pulseCalendarConfig.isActive, true)).limit(1);
+    if (!calendar[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure the Pulse calendar before adding reporting periods." });
+    const [result] = await db.insert(pulseReportingPeriods).values({ calendarConfigId: calendar[0].id, ...input });
+    await appendPulseEvent(db, { eventType: "reporting_period_created", actorPersonId: actor.personId, payload: { periodType: input.periodType, name: input.name, startsOn: input.startsOn, endsOn: input.endsOn } });
+    return { id: Number((result as any).insertId) };
+  }),
+
+  addHoliday: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(255), holidayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), isBusinessDay: z.boolean().default(false) })).mutation(async ({ input, ctx }) => {
+    await requirePulseAdmin(ctx);
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const calendar = await db.select().from(pulseCalendarConfig).where(eq(pulseCalendarConfig.isActive, true)).limit(1);
+    if (!calendar[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure the Pulse calendar before adding holidays." });
+    const [result] = await db.insert(pulseHolidays).values({ calendarConfigId: calendar[0].id, ...input });
+    await appendPulseEvent(db, { eventType: "holiday_created", actorPersonId: actor.personId, payload: { name: input.name, holidayDate: input.holidayDate, isBusinessDay: input.isBusinessDay } });
+    return { id: Number((result as any).insertId) };
+  }),
+
+  /** Policy-contract endpoint used by acceptance tests and future query-led surfaces. */
+  policyPreview: protectedProcedure.input(z.object({ scopeId: z.number().int().positive(), recipientPersonId: z.number().int().positive().optional() })).query(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    const item = { primaryScopeId: input.scopeId };
     return {
-      fullUsers: directory.filter((person) => person.personType === "full_user" && person.isActive),
-      teammates: directory.filter((person) => person.personType === "teammate"),
+      canView: await canView(db, input.scopeId, actor),
+      canCreate: await canCreate(db, "work_item", input.scopeId, actor),
+      canAssign: input.recipientPersonId ? await canAssign(db, item, input.recipientPersonId, actor) : null,
+      canVote: await canVote(db, item, 0, actor),
+      canManageMeeting: await canManageMeeting(db, input.scopeId, actor),
+      canDeliver: input.recipientPersonId ? await canDeliver(db, { scopeId: input.scopeId, recipientPersonId: input.recipientPersonId }, actor) : null,
     };
   }),
-
-  /** Operational navigation is accessible to all Full Users and never exposes inaccessible names. */
-  getNavigation: protectedProcedure.query(async ({ ctx }) => {
-    requireFullUser(ctx as PulseContext);
-    const db = await getDb();
-    if (!db) return [];
-    const [meetings, teams, oneOnOnes] = await Promise.all([
-      getAccessibleMeetings(db, ctx.user.id),
-      getAccessibleTeams(db, ctx.user.id),
-      getAccessibleOneOnOnes(db, ctx.user.id),
-    ]);
-    const items = [
-      ...meetings.map((meeting) => ({
-        id: `meeting-${meeting.id}`,
-        label: meeting.name,
-        path: `/pulse/meetings/${meeting.id}`,
-        resourceType: "meeting" as const,
-        accessLevel: meeting.accessLevel,
-      })),
-      ...teams.map((team) => ({
-        id: `team-${team.id}`,
-        label: team.name,
-        path: `/pulse/teams/${team.id}`,
-        resourceType: "team" as const,
-        accessLevel: team.membershipRole,
-      })),
-      ...oneOnOnes.map((oneOnOne) => ({
-        id: `one-on-one-${oneOnOne.id}`,
-        label: oneOnOne.name,
-        path: `/pulse/1on1/${oneOnOne.id}`,
-        resourceType: "one_on_one" as const,
-        accessLevel: oneOnOne.accessLevel,
-      })),
-    ];
-    return items.length === 0 ? [] : [{ id: "operate", label: "Operate", items }];
-  }),
-
-  /** Active meeting read resolves archive state before the caller's grant. */
-  getMeeting: protectedProcedure
-    .input(z.object({ meetingId: z.number().int().positive() }))
-    .query(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      const meeting = await getActiveMeetingOrThrow(db, input.meetingId);
-      const access = await db
-        .select({ accessLevel: pulseMeetingAccess.accessLevel })
-        .from(pulseMeetingAccess)
-        .where(and(
-          eq(pulseMeetingAccess.meetingId, meeting.id),
-          eq(pulseMeetingAccess.userId, ctx.user.id),
-          isNull(pulseMeetingAccess.revokedAt),
-        ))
-        .limit(1);
-      if (!access[0]) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot open this meeting." });
-      return { ...meeting, accessLevel: access[0].accessLevel };
-    }),
-
-  getTeam: protectedProcedure
-    .input(z.object({ teamId: z.number().int().positive() }))
-    .query(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      // Active-state availability is evaluated before membership, including for privileged callers.
-      const team = await getActiveTeamOrThrow(db, input.teamId);
-      const membership = await db.select({ role: pulseTeamMembers.role }).from(pulseTeamMembers).where(and(
-        eq(pulseTeamMembers.teamId, team.id),
-        eq(pulseTeamMembers.userId, ctx.user.id),
-        isNull(pulseTeamMembers.removedAt),
-      )).limit(1);
-      if (!membership[0]) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot open this team." });
-      return { ...team, membershipRole: membership[0].role };
-    }),
-
-  getOneOnOne: protectedProcedure
-    .input(z.object({ oneOnOneId: z.number().int().positive() }))
-    .query(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      // Active-state availability is evaluated before participant/viewer access.
-      const oneOnOne = await getActiveOneOnOneOrThrow(db, input.oneOnOneId);
-      const isParticipant = oneOnOne.primaryUserId === ctx.user.id || oneOnOne.secondaryUserId === ctx.user.id;
-      if (isParticipant) return { ...oneOnOne, accessLevel: "participant" as const };
-      const viewer = await db.select({ accessLevel: pulseOneOnOneAccess.accessLevel }).from(pulseOneOnOneAccess).where(and(
-        eq(pulseOneOnOneAccess.oneOnOneId, oneOnOne.id),
-        eq(pulseOneOnOneAccess.userId, ctx.user.id),
-        isNull(pulseOneOnOneAccess.revokedAt),
-      )).limit(1);
-      if (!viewer[0]) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot open this 1:1." });
-      return { ...oneOnOne, accessLevel: viewer[0].accessLevel };
-    }),
-
-  createMeeting: protectedProcedure
-    .input(meetingInputSchema.merge(accessInputSchema))
-    .mutation(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      await requirePulseConfiguration(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-
-      const accessInput = normalizeAccess(input);
-      await assertAssignableFullUsers(db, [accessInput.facilitatorUserId, ...accessInput.memberUserIds]);
-      try {
-        const meetingId = await db.transaction(async (tx: PulseDb) => {
-          const [inserted] = await tx.insert(pulseMeetings).values({
-            meetingKey: input.meetingKey,
-            name: input.name,
-            scheduleDay: input.scheduleDay,
-            scheduleTime: input.scheduleTime,
-            timezone: input.timezone,
-            facilitatorUserId: accessInput.facilitatorUserId,
-            durationMinutes: input.durationMinutes,
-            sectionVisibility: input.sectionVisibility,
-            createdById: ctx.user.id,
-          });
-          const createdMeetingId = Number((inserted as any).insertId);
-          await replaceActiveAccess(tx, createdMeetingId, accessInput, ctx.user.id);
-          return createdMeetingId;
-        });
-        return { id: meetingId };
-      } catch (error: any) {
-        if (error?.code === "ER_DUP_ENTRY") {
-          throw new TRPCError({ code: "CONFLICT", message: "A meeting already uses that key." });
-        }
-        throw error;
-      }
-    }),
-
-  updateMeeting: protectedProcedure
-    .input(z.object({ meetingId: z.number().int().positive(), ...meetingInputSchema.shape }))
-    .mutation(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      await requirePulseConfiguration(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      await requireActiveFacilitator(db, input.meetingId, ctx.user.id);
-      try {
-        await db.update(pulseMeetings).set({
-          meetingKey: input.meetingKey,
-          name: input.name,
-          scheduleDay: input.scheduleDay,
-          scheduleTime: input.scheduleTime,
-          timezone: input.timezone,
-          durationMinutes: input.durationMinutes,
-          sectionVisibility: input.sectionVisibility,
-        }).where(eq(pulseMeetings.id, input.meetingId));
-        return { success: true };
-      } catch (error: any) {
-        if (error?.code === "ER_DUP_ENTRY") {
-          throw new TRPCError({ code: "CONFLICT", message: "A meeting already uses that key." });
-        }
-        throw error;
-      }
-    }),
-
-  replaceMeetingAccess: protectedProcedure
-    .input(z.object({ meetingId: z.number().int().positive() }).merge(accessInputSchema))
-    .mutation(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      await requirePulseConfiguration(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      await requireActiveFacilitator(db, input.meetingId, ctx.user.id);
-      await db.transaction(async (tx: PulseDb) => {
-        await replaceActiveAccess(tx, input.meetingId, input, ctx.user.id);
-      });
-      return { success: true };
-    }),
-
-  archiveMeeting: protectedProcedure
-    .input(z.object({ meetingId: z.number().int().positive(), archiveNote: z.string().trim().max(2000).optional() }))
-    .mutation(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      await requirePulseConfiguration(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      await requireActiveFacilitator(db, input.meetingId, ctx.user.id);
-      await db.update(pulseMeetings).set({
-        isActive: false,
-        archivedAt: new Date(),
-        archivedById: ctx.user.id,
-        archiveNote: input.archiveNote || null,
-      }).where(eq(pulseMeetings.id, input.meetingId));
-      return { success: true };
-    }),
-
-  /** Reactivation accepts an explicit registry ID; inactive records are intentionally never listed or navigated. */
-  reactivateMeeting: protectedProcedure
-    .input(z.object({ meetingId: z.number().int().positive() }))
-    .mutation(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      await requirePulseConfiguration(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      const result = await db.update(pulseMeetings).set({
-        isActive: true,
-        archivedAt: null,
-        archivedById: null,
-        archiveNote: null,
-      }).where(eq(pulseMeetings.id, input.meetingId));
-      if (Number((result as any)[0]?.affectedRows ?? 0) === 0) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Meeting not found." });
-      }
-      return { success: true };
-    }),
-
-  createTeammate: protectedProcedure
-    .input(z.object({
-      name: z.string().trim().min(2).max(255),
-      title: z.string().trim().max(128).optional(),
-      reportsToId: z.number().int().positive().optional().nullable(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      requireFullUser(ctx as PulseContext);
-      await requirePulseConfiguration(ctx as PulseContext);
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-      const [result] = await db.insert(users).values({
-        openId: `pulse_teammate_${randomUUID()}`,
-        name: input.name,
-        title: input.title || null,
-        reportsToId: input.reportsToId ?? null,
-        personType: "teammate",
-        role: "agent",
-        loginMethod: "pulse_directory",
-        isActive: true,
-        lastSignedIn: new Date(),
-      });
-      return { id: Number((result as any).insertId) };
-    }),
 });
