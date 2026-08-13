@@ -101,6 +101,7 @@ import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseRegistryPage from "./pages/PulseRegistryPage";
 import PulseMeetingPage from "./pages/PulseMeetingPage";
 import PulseScopedResourcePage from "./pages/PulseScopedResourcePage";
+import PulseSectionPage from "./pages/PulseSectionPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -251,10 +252,14 @@ function Router() {
           <Route path="/org-chart" component={OrgChartPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
-          <Route path="/pulse" component={PulseConfigPage} />
+          <Route path="/pulse/administer" component={PulseConfigPage} />
           <Route path="/pulse/meetings/:id">{(params: any) => <PulseMeetingPage meetingId={Number(params.id)} />}</Route>
           <Route path="/pulse/teams/:id">{(params: any) => <PulseScopedResourcePage resourceType="team" resourceId={Number(params.id)} />}</Route>
           <Route path="/pulse/1on1/:id">{(params: any) => <PulseScopedResourcePage resourceType="one_on_one" resourceId={Number(params.id)} />}</Route>
+          <Route path="/pulse/meetings">{() => <PulseSectionPage requestedTab="meetings" />}</Route>
+          <Route path="/pulse/teams">{() => <PulseSectionPage requestedTab="teams" />}</Route>
+          <Route path="/pulse/one-on-ones">{() => <PulseSectionPage requestedTab="one-on-ones" />}</Route>
+          <Route path="/pulse" component={PulseSectionPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />
