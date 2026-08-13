@@ -88,6 +88,7 @@ import {
   getIsaActivitiesReport,
   getLeadSourcesReport,
 } from "../analytics/reportingSuite";
+import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 
 const dateRangeInput = z.object({
   dateFrom: z.string().optional(),
@@ -828,6 +829,13 @@ Return only valid JSON array.`;
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getLeadSourcesReport(input ?? {});
+    }),
+
+  /** Agent SavvyOS usage, engagement, pipeline stewardship, and adoption score. */
+  savvyOsAdoptionReport: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getSavvyOsAdoptionReport();
     }),
 
   // ─── Analytics Workspace v1 ───────────────────────────────────────────────
