@@ -90,6 +90,13 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Lightweight process liveness endpoint for Railway deployment health checks.
+  // It must remain independent of the database and frontend fallback so a 200
+  // confirms that the HTTP server is accepting requests.
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // Magic link auth — auto-login from email links
