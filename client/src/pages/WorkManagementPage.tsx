@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   Bell, CalendarDays, CheckCircle2, ChevronRight, Circle, Columns3, FolderKanban,
   Inbox, LayoutList, ListTodo, Plus, Search, ShieldCheck, Sparkles, Users, X,
-  BriefcaseBusiness, Files, CalendarRange, GanttChartSquare, MessageSquare,
+  BriefcaseBusiness, Files, CalendarRange, GanttChartSquare, MessageSquare, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
