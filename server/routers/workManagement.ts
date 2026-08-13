@@ -221,6 +221,18 @@ async function requireTaskAccess(user: AppUser, taskId: number, required: Access
   return access;
 }
 
+async function requireArchivedTaskRecoveryAccess(user: AppUser, taskId: number, required: AccessLevel) {
+  if (user.role === "admin") return "admin" as AccessLevel;
+  const db = await getRequiredDb();
+  const [task] = await db.select().from(workTasks).where(and(eq(workTasks.id, taskId), isNotNull(workTasks.deletedAt))).limit(1);
+  if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Archived task not found." });
+  if (task.createdById === user.id) return "admin" as AccessLevel;
+  const memberships = await db.select({ projectId: workTaskProjectMemberships.projectId }).from(workTaskProjectMemberships).where(and(eq(workTaskProjectMemberships.taskId, taskId), isNull(workTaskProjectMemberships.deletedAt)));
+  const access = (await Promise.all(memberships.map(membership => getProjectAccess(user, membership.projectId)))).filter((value): value is AccessLevel => Boolean(value)).sort((a, b) => accessWeight[b] - accessWeight[a])[0] ?? null;
+  if (!atLeast(access, required)) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have recovery access to this task." });
+  return access;
+}
+
 async function writeStory(input: {
   taskId?: number | null;
   projectId?: number | null;
@@ -736,6 +748,16 @@ export const workManagementRouter = router({
       const [existing] = await db.select().from(workTaskFollowers).where(and(eq(workTaskFollowers.taskId, input.taskId), eq(workTaskFollowers.userId, ctx.user.id))).limit(1);
       if (existing) await db.update(workTaskFollowers).set({ deletedAt: input.following ? null : new Date() }).where(eq(workTaskFollowers.id, existing.id));
       else if (input.following) await db.insert(workTaskFollowers).values({ taskId: input.taskId, userId: ctx.user.id });
+      return { success: true };
+    }),
+    listArchivedForProject: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), limit: z.number().int().min(1).max(100).optional() })).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "editor");
+      const db = await getRequiredDb();
+      return db.select({ id: workTasks.id, name: workTasks.name, deletedAt: workTasks.deletedAt, dueOn: workTasks.dueOn }).from(workTaskProjectMemberships).innerJoin(workTasks, eq(workTaskProjectMemberships.taskId, workTasks.id)).where(and(eq(workTaskProjectMemberships.projectId, input.projectId), isNull(workTaskProjectMemberships.deletedAt), isNotNull(workTasks.deletedAt))).orderBy(desc(workTasks.deletedAt)).limit(input.limit ?? 100);
+    }),
+    restore: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireArchivedTaskRecoveryAccess(ctx.user, input.id, "editor");
+      await (await getRequiredDb()).update(workTasks).set({ deletedAt: null }).where(and(eq(workTasks.id, input.id), isNotNull(workTasks.deletedAt)));
       return { success: true };
     }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
