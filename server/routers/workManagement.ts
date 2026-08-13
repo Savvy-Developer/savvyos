@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
@@ -783,10 +783,10 @@ export const workManagementRouter = router({
   }),
 
   inbox: router({
-    list: protectedProcedure.input(z.object({ cursor: z.number().int().positive().optional(), limit: z.number().int().min(1).max(100).optional(), unreadOnly: z.boolean().optional() }).optional()).query(async ({ ctx, input }) => {
+    list: protectedProcedure.input(z.object({ cursor: z.number().int().positive().optional(), limit: z.number().int().min(1).max(100).optional(), unreadOnly: z.boolean().optional(), archived: z.boolean().optional() }).optional()).query(async ({ ctx, input }) => {
       const db = await getRequiredDb();
       const limit = validateCursorLimit(input?.limit);
-      const conditions: any[] = [eq(workNotifications.userId, ctx.user.id), isNull(workNotifications.deletedAt)];
+      const conditions: any[] = [eq(workNotifications.userId, ctx.user.id), input?.archived ? isNotNull(workNotifications.deletedAt) : isNull(workNotifications.deletedAt)];
       if (input?.cursor) conditions.push(gt(workNotifications.id, input.cursor));
       if (input?.unreadOnly) conditions.push(isNull(workNotifications.readAt));
       const rows = await db.select().from(workNotifications).where(and(...conditions)).orderBy(desc(workNotifications.createdAt), desc(workNotifications.id)).limit(limit + 1);
@@ -796,6 +796,11 @@ export const workManagementRouter = router({
     markRead: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1), read: z.boolean() })).mutation(async ({ ctx, input }) => {
       const db = await getRequiredDb();
       await db.update(workNotifications).set({ readAt: input.read ? new Date() : null }).where(and(eq(workNotifications.userId, ctx.user.id), inArray(workNotifications.id, input.ids), isNull(workNotifications.deletedAt)));
+      return { success: true };
+    }),
+    archive: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1), archived: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      await db.update(workNotifications).set({ deletedAt: input.archived ? new Date() : null }).where(and(eq(workNotifications.userId, ctx.user.id), inArray(workNotifications.id, input.ids), input.archived ? isNull(workNotifications.deletedAt) : isNotNull(workNotifications.deletedAt)));
       return { success: true };
     }),
   }),
