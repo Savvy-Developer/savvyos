@@ -145,7 +145,7 @@ export async function canVote(db: PulsePolicyDb, issue: ScopeBoundItem, _session
 export async function canManageMeeting(db: PulsePolicyDb, scopeId: number, actor: PulseActor): Promise<ScopeDecision> {
   const decision = await resolveViewDecision(db, scopeId, actor);
   if (!decision.allowed) return { allowed: false, reason: decision.reason };
-  if (decision.scope?.scopeType !== "l10") return { allowed: false, reason: "not_l10" };
+  if (!["l10", "one_on_one"].includes(decision.scope?.scopeType ?? "")) return { allowed: false, reason: "not_l10" };
   return ["owner", "manager"].includes(decision.role ?? "")
     ? { allowed: true, reason: "allowed" }
     : { allowed: false, reason: "no_membership" };

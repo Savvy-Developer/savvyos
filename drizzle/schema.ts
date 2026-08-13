@@ -1842,6 +1842,119 @@ export const pulseL10Settings = mysqlTable("pulse_l10_settings", {
 });
 export type PulseL10Settings = typeof pulseL10Settings.$inferSelect;
 
+// ─── Pulse Meeting Registry, Sessions, and Reports ───────────────────────────
+// Registry entries are durable configuration. Sessions and reports never become a second
+// source of truth for Scope membership, work ownership, or present-day access.
+export const pulseMeetingRegistry = mysqlTable("pulse_meeting_registry", {
+  id: int("id").autoincrement().primaryKey(),
+  scopeId: int("scopeId").notNull().unique().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  meetingKind: mysqlEnum("meetingKind", ["l10", "one_on_one"]).notNull(),
+  displayName: varchar("displayName", { length: 255 }).notNull(),
+  scheduleDay: mysqlEnum("scheduleDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
+  scheduleTime: varchar("scheduleTime", { length: 5 }),
+  timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
+  expectedDurationMinutes: int("expectedDurationMinutes").default(90).notNull(),
+  minimumValidDurationMinutes: int("minimumValidDurationMinutes").default(15).notNull(),
+  sectionVisibility: json("sectionVisibility").$type<Record<string, boolean>>().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  deactivatedAt: timestamp("deactivatedAt"),
+  deactivatedByPersonId: int("deactivatedByPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  deactivationReason: text("deactivationReason"),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_meeting_registry_active_kind_idx").on(table.isActive, table.meetingKind, table.displayName),
+]);
+export type PulseMeetingRegistry = typeof pulseMeetingRegistry.$inferSelect;
+
+// A session is one execution record. Configuration and attendance are copied as snapshots so
+// later edits cannot rewrite historical execution, but current authorization remains Scope-based.
+export const pulseMeetingSessions = mysqlTable("pulse_meeting_sessions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  registryId: int("registryId").notNull().references(() => pulseMeetingRegistry.id, { onDelete: "restrict" }),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  status: mysqlEnum("status", ["in_progress", "completed", "auto_closed"]).default("in_progress").notNull(),
+  classification: mysqlEnum("classification", ["in_progress", "valid", "auto_closed", "too_short", "stuck"]).default("in_progress").notNull(),
+  activeStepKey: varchar("activeStepKey", { length: 64 }),
+  agendaState: json("agendaState").$type<Record<string, unknown>>().notNull(),
+  registrySnapshot: json("registrySnapshot").$type<Record<string, unknown>>().notNull(),
+  attendeeSnapshot: json("attendeeSnapshot").$type<Array<Record<string, unknown>>>().notNull(),
+  idsIssueCountSnapshot: int("idsIssueCountSnapshot"),
+  ratings: json("ratings").$type<Record<string, unknown>>(),
+  completionData: json("completionData").$type<Record<string, unknown>>(),
+  startedByPersonId: int("startedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  completedByPersonId: int("completedByPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  startedAt: timestamp("startedAt").notNull(),
+  endedAt: timestamp("endedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_meeting_sessions_registry_status_idx").on(table.registryId, table.status, table.startedAt),
+  index("pulse_meeting_sessions_scope_started_idx").on(table.scopeId, table.startedAt),
+]);
+export type PulseMeetingSession = typeof pulseMeetingSessions.$inferSelect;
+
+export const pulseSessionStepSnapshots = mysqlTable("pulse_session_step_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: varchar("sessionId", { length: 64 }).notNull().references(() => pulseMeetingSessions.id, { onDelete: "cascade" }),
+  stepKey: varchar("stepKey", { length: 64 }).notNull(),
+  ordinal: int("ordinal").notNull(),
+  isVisible: boolean("isVisible").notNull(),
+  state: mysqlEnum("state", ["pending", "active", "completed", "skipped"]).default("pending").notNull(),
+  startedAt: timestamp("startedAt"),
+  endedAt: timestamp("endedAt"),
+  durationSeconds: int("durationSeconds").default(0).notNull(),
+  snapshot: json("snapshot").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_session_step_snapshots_session_step_unique").on(table.sessionId, table.stepKey),
+  index("pulse_session_step_snapshots_session_ordinal_idx").on(table.sessionId, table.ordinal),
+]);
+export type PulseSessionStepSnapshot = typeof pulseSessionStepSnapshots.$inferSelect;
+
+// Session votes are historical vote snapshots. canVote still uses current work-item Scope policy.
+export const pulseSessionVotes = mysqlTable("pulse_session_votes", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: varchar("sessionId", { length: 64 }).notNull().references(() => pulseMeetingSessions.id, { onDelete: "cascade" }),
+  issueItemId: int("issueItemId").notNull().references(() => pulseIssues.itemId, { onDelete: "cascade" }),
+  voterPersonId: int("voterPersonId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  voteKind: mysqlEnum("voteKind", ["priority", "rocket"]).default("priority").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_session_votes_session_issue_voter_kind_unique").on(table.sessionId, table.issueItemId, table.voterPersonId, table.voteKind),
+]);
+export type PulseSessionVote = typeof pulseSessionVotes.$inferSelect;
+
+// A capture is a session-local confirmation of a canonical item created in the runner. It never
+// changes the item's Scope, assignment, or access; destination Scope is recorded for history only.
+export const pulseSessionItemCaptures = mysqlTable("pulse_session_item_captures", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: varchar("sessionId", { length: 64 }).notNull().references(() => pulseMeetingSessions.id, { onDelete: "cascade" }),
+  itemId: int("itemId").notNull().references(() => pulseWorkItems.id, { onDelete: "restrict" }),
+  destinationScopeId: int("destinationScopeId").notNull().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  captureKind: mysqlEnum("captureKind", ["todo", "issue"]).notNull(),
+  capturedByPersonId: int("capturedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("pulse_session_item_captures_session_time_idx").on(table.sessionId, table.createdAt),
+]);
+export type PulseSessionItemCapture = typeof pulseSessionItemCaptures.$inferSelect;
+
+// One conclusion report per session. The report payload and row are immutable at the database level.
+export const pulseSessionReports = mysqlTable("pulse_session_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: varchar("sessionId", { length: 64 }).notNull().unique().references(() => pulseMeetingSessions.id, { onDelete: "restrict" }),
+  registryId: int("registryId").notNull().references(() => pulseMeetingRegistry.id, { onDelete: "restrict" }),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "restrict" }),
+  classification: mysqlEnum("classification", ["valid", "auto_closed", "too_short", "stuck"]).notNull(),
+  reportPayload: json("reportPayload").$type<Record<string, unknown>>().notNull(),
+  concludedAt: timestamp("concludedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("pulse_session_reports_scope_concluded_idx").on(table.scopeId, table.concludedAt)]);
+export type PulseSessionReport = typeof pulseSessionReports.$inferSelect;
+
 // Calendar is the single owner of fiscal, operating-week, holiday, and due-window rules.
 export const pulseCalendarConfig = mysqlTable("pulse_calendar_config", {
   id: int("id").autoincrement().primaryKey(),
@@ -1881,7 +1994,7 @@ export type PulseHoliday = typeof pulseHolidays.$inferSelect;
 // restrict payload classes by event type; triggers reject UPDATE and DELETE.
 export const pulseDomainEvents = mysqlTable("pulse_domain_events", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
+  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "meeting_created", "meeting_deactivated", "meeting_reactivated", "session_started", "session_step_entered", "session_ids_snapshot", "session_item_captured", "session_vote_cast", "session_completed", "session_auto_closed", "session_report_created", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
   scopeId: int("scopeId").references(() => pulseScopes.id, { onDelete: "set null" }),
   actorPersonId: int("actorPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
   payload: json("payload").$type<Record<string, unknown>>().notNull(),

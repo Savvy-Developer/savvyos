@@ -21,6 +21,7 @@ import { appendPulseEvent } from "../pulse/events";
 import { ensurePulsePersonForAccount } from "../pulse/people";
 import { canAssign, canCreate, canDeliver, canManageMeeting, canView, canViewWorkItem, canVote, getActiveScope, visibleScopes } from "../pulse/policy";
 import { addCanonicalWorkComment, assignCanonicalWorkItem, createCanonicalWorkItem, enrichCanonicalWorkItems, moveCanonicalWorkItem, transitionCanonicalWorkItem, voteCanonicalIssue } from "../pulse/work";
+import { captureRunnerItem, castSessionVote, completeMeetingSession, createMeetingRegistry, enterSessionStep, getMeetingReport, getRunnerSession, listMeetingHistory, listVisibleMeetingRegistry, setMeetingRegistryActive, startMeetingSession, updateMeetingRegistry } from "../pulse/runner";
 
 const scopeTypeSchema = z.enum(["company", "l10", "team", "one_on_one", "private"]);
 const membershipPolicySchema = z.enum(["explicit", "active_accounts", "owner_only"]);
@@ -345,6 +346,94 @@ export const pulseRouter = router({
     const db = await requireDb();
     const actor = await resolveActor(db, ctx.user.id);
     try { await voteCanonicalIssue(db, actor, input.itemId, input.sessionId); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  /** Access-derived meeting registry; registry configuration is durable while session execution is separate. */
+  meetingRegistry: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
+    const actor = await resolveActor(db, ctx.user.id);
+    return listVisibleMeetingRegistry(db, actor);
+  }),
+
+  createMeeting: protectedProcedure.input(z.object({
+    scopeId: z.number().int().positive(), meetingKind: z.enum(["l10", "one_on_one"]), displayName: z.string().trim().min(2).max(255),
+    scheduleDay: daySchema.optional().nullable(), scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().nullable(),
+    timezone: z.string().trim().min(1).max(64).default("America/New_York"), expectedDurationMinutes: z.number().int().min(10).max(480).default(90),
+    minimumValidDurationMinutes: z.number().int().min(1).max(240).default(15), sectionVisibility: z.record(z.string(), z.boolean()).optional(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return { id: await createMeetingRegistry(db, actor, input) }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  updateMeeting: protectedProcedure.input(z.object({
+    registryId: z.number().int().positive(), displayName: z.string().trim().min(2).max(255).optional(), scheduleDay: daySchema.optional().nullable(),
+    scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().nullable(), timezone: z.string().trim().min(1).max(64).optional(),
+    expectedDurationMinutes: z.number().int().min(10).max(480).optional(), minimumValidDurationMinutes: z.number().int().min(1).max(240).optional(),
+    sectionVisibility: z.record(z.string(), z.boolean()).optional(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await updateMeetingRegistry(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  setMeetingActive: protectedProcedure.input(z.object({ registryId: z.number().int().positive(), isActive: z.boolean(), reason: z.string().trim().max(2000).optional().nullable() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await setMeetingRegistryActive(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  startMeetingSession: protectedProcedure.input(z.object({ registryId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return { sessionId: await startMeetingSession(db, actor, input.registryId) }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  getRunnerSession: protectedProcedure.input(z.object({ sessionId: z.string().trim().min(1).max(64) })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getRunnerSession(db, actor, input.sessionId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  enterRunnerStep: protectedProcedure.input(z.object({ sessionId: z.string().trim().min(1).max(64), stepKey: z.string().trim().min(1).max(64) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await enterSessionStep(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "BAD_REQUEST", message: error.message }); }
+  }),
+
+  castRunnerVote: protectedProcedure.input(z.object({ sessionId: z.string().trim().min(1).max(64), issueItemId: z.number().int().positive(), voteKind: z.enum(["priority", "rocket"]).default("priority") })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await castSessionVote(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  captureRunnerItem: protectedProcedure.input(z.object({
+    sessionId: z.string().trim().min(1).max(64), itemType: z.enum(["todo", "issue"]), title: z.string().trim().min(2).max(512), description: z.string().trim().max(10000).optional().nullable(),
+    destinationScopeId: z.number().int().positive(), assigneePersonId: z.number().int().positive().optional().nullable(),
+    todo: z.object({ dueDate: z.coerce.date().optional().nullable(), priority: z.enum(["low", "medium", "high", "urgent"]).optional(), isFlagged: z.boolean().optional(), recurrenceId: z.number().int().positive().optional().nullable() }).optional(),
+    issue: z.object({ priority: z.enum(["low", "medium", "high", "critical"]).optional(), timeframe: z.enum(["this_week", "this_quarter", "this_year", "someday", "unscheduled"]).optional() }).optional(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return captureRunnerItem(db, actor, input); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  completeMeetingSession: protectedProcedure.input(z.object({ sessionId: z.string().trim().min(1).max(64), ratings: z.record(z.string(), z.unknown()).optional(), completionData: z.record(z.string(), z.unknown()).optional() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return completeMeetingSession(db, actor, input); }
+    catch (error: any) { throw new TRPCError({ code: "BAD_REQUEST", message: error.message }); }
+  }),
+
+  meetingHistory: protectedProcedure.input(z.object({ registryId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return listMeetingHistory(db, actor, input.registryId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  meetingReport: protectedProcedure.input(z.object({ reportId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getMeetingReport(db, actor, input.reportId); }
     catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
   }),
 });
