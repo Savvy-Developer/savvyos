@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import {
   getBusinessOverviewKpis,
   getAgentPerformanceReport,
@@ -89,6 +90,8 @@ import {
   getLeadSourcesReport,
 } from "../analytics/reportingSuite";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
+import { getIsmDashboard } from "../analytics/ismDashboard";
+import { canAdminUsePermission } from "./permissions";
 
 const dateRangeInput = z.object({
   dateFrom: z.string().optional(),
@@ -117,6 +120,13 @@ const isaDashboardInput = z.object({
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isaId: z.number().int().positive().optional(),
   statuses: z.array(z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"])).optional(),
+});
+
+const ismDashboardInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  isaIds: z.array(z.number().int().positive()).max(25).optional(),
+  leadSourceId: z.number().int().positive().optional(),
 });
 
 const reportingSuiteInput = z.object({
@@ -250,6 +260,22 @@ export const analyticsRouter = router({
         dateTo: parseInclusiveDateTo(input?.dateTo),
         statuses: input?.statuses,
       });
+    }),
+
+  /** Operations-first manager cockpit for active ISA execution and exception queues. */
+  ismDashboard: protectedProcedure
+    .input(ismDashboardInput.optional())
+    .query(async ({ ctx, input }) => {
+      const allowed =
+        ctx.user.role === "admin" &&
+        (await canAdminUsePermission(ctx.user, "canViewIsmDashboard"));
+      if (!allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ISM Dashboard access is required.",
+        });
+      }
+      return getIsmDashboard(input ?? {});
     }),
 
   /** ISA pipeline status funnel: contacts per stage, optionally filtered by ISA */

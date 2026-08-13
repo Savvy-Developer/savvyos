@@ -186,6 +186,7 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
 // Permission key → path mapping (used to filter nav items)
 const PERM_PATH_MAP: Record<string, string> = {
   canViewDashboard: "/",
+  canViewIsmDashboard: "/ism-dashboard",
   canViewReporting: "/analytics",
   canViewContacts: "/contacts",
   canViewPipeline: "/pipeline",
@@ -249,6 +250,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "Overview",
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
+        { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
       ],
     },

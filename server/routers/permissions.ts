@@ -19,6 +19,7 @@ const PROTECTED_EMAIL = "tyler@savvy.realty";
 export const ADMIN_NAV_PERMISSIONS = [
   // Overview
   { key: "canViewDashboard",          label: "Admin Dashboard",          group: "Overview" },
+  { key: "canViewIsmDashboard",       label: "ISM Dashboard",            group: "Overview" },
   { key: "canViewReporting",          label: "Reporting",                group: "Overview" },
   // CRM
   { key: "canViewContacts",           label: "All Contacts",             group: "CRM" },

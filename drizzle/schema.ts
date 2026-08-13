@@ -2399,6 +2399,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
   // Overview
   canViewDashboard: boolean("canViewDashboard").default(true).notNull(),
+  canViewIsmDashboard: boolean("canViewIsmDashboard").default(false).notNull(),
   canViewReporting: boolean("canViewReporting").default(true).notNull(),
   // CRM
   canViewContacts: boolean("canViewContacts").default(true).notNull(),

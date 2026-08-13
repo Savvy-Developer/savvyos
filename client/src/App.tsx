@@ -26,6 +26,7 @@ import ProformaPage from "./pages/ProformaPage";
 import ProformaDefaultsPage from "./pages/ProformaDefaultsPage";
 import TasksPage from "./pages/TasksPage";
 import ReportingSuitePage from "./pages/ReportingSuitePage";
+import IsmDashboardPage from "./pages/IsmDashboardPage";
 import PipelinePage from "./pages/PipelinePage";
 import CommissionPage from "./pages/CommissionPage";
 import GroupLeaderCommissionsPage from "./pages/GroupLeaderCommissionsPage";
@@ -162,6 +163,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function IsmDashboardRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewIsmDashboard) return <NotFound />;
+  return <>{children}</>;
+}
+
 function PulseConfigRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
@@ -202,6 +213,7 @@ function Router() {
       <AppLayout>
         <Switch>
           <Route path="/" component={Dashboard} />
+          <Route path="/ism-dashboard">{() => <IsmDashboardRoute><IsmDashboardPage /></IsmDashboardRoute>}</Route>
           <Route path="/isa-stats">{() => <AdminOrIsaRoute><IsaStatsPage /></AdminOrIsaRoute>}</Route>
           <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
           <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
