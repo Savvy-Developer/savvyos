@@ -573,41 +573,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: !!user, staleTime: 60000 }
   );
 
-  // Derived values needed to conditionally enable PM inbox queries
-  const isTyler = (user as any)?.email === "tyler@savvy.realty";
-  const isPmUser = isTyler || role === "admin";
-
-  // PM Inbox unread count — must be above early returns
-  const { data: inboxCount, refetch: refetchInbox } = trpc.pm.inbox.unreadCount.useQuery(
-    undefined,
-    { enabled: isPmUser, refetchInterval: 30000 }
-  );
-
-  // PM Inbox panel state — must be above early returns
-  const [inboxOpen, setInboxOpen] = useState(false);
-  const inboxRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (inboxRef.current && !inboxRef.current.contains(e.target as Node)) {
-        setInboxOpen(false);
-      }
-    }
-    if (inboxOpen) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [inboxOpen]);
-
-  const { data: inboxItems = [] } = trpc.pm.inbox.list.useQuery(
-    undefined,
-    { enabled: isPmUser && inboxOpen }
-  );
-  const markNoteRead = trpc.pm.notes.markRead.useMutation({ onSuccess: () => { refetchInbox(); } });
-  const markNoteUnread = trpc.pm.notes.markUnread.useMutation({ onSuccess: () => { refetchInbox(); } });
-
-  // Fetch admin permissions for nav filtering
+  // Fetch admin permissions before selecting any Work-only controls.
   const { data: adminPerms } = trpc.permissions.getMyPermissions.useQuery(
     undefined,
     { enabled: role === "admin", staleTime: 30000 }
   );
+  const canUseWorkInbox = role === "admin" && adminPerms?.canViewProjects === true;
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const inboxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (inboxRef.current && !inboxRef.current.contains(e.target as Node)) setInboxOpen(false);
+    }
+    if (inboxOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [inboxOpen]);
+  const { data: workInboxData, refetch: refetchWorkInbox } = trpc.work.inbox.list.useQuery(
+    { limit: 100 },
+    { enabled: canUseWorkInbox, refetchInterval: 30000 }
+  );
+  const markWorkInboxRead = trpc.work.inbox.markRead.useMutation({ onSuccess: () => { refetchWorkInbox(); } });
 
 
   // ── Early returns (all hooks must be above this line) ──────────────────────
@@ -628,7 +613,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
-  const unreadPmCount = (inboxCount as any)?.count ?? 0;
+  const unreadPmCount = ((workInboxData as any)?.items ?? []).filter((item: any) => !item.readAt).length;
 
   const baseNavGroups =
     role === "admin"
@@ -753,13 +738,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="hidden md:flex flex-1" />
 
           {/* PM Inbox Bell — visible to Tyler and all admins */}
-          {isPmUser && (
+          {canUseWorkInbox && (
             <div className="relative" ref={inboxRef}>
               <button
                 type="button"
                 onClick={() => setInboxOpen(v => !v)}
                 className="relative p-2 rounded-md hover:bg-muted transition-colors"
-                title="Project Inbox"
+                title="Work Inbox"
               >
                 <Bell className="h-5 w-5 text-muted-foreground" />
                 {unreadPmCount > 0 && (
@@ -771,50 +756,46 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {inboxOpen && (
                 <div className="absolute right-0 top-full mt-1 w-80 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <span className="font-semibold text-sm">Project Inbox</span>
+                    <span className="font-semibold text-sm">Work Inbox</span>
                     {unreadPmCount > 0 && (
                       <span className="text-xs text-muted-foreground">{unreadPmCount} unread</span>
                     )}
                   </div>
                   <div className="max-h-96 overflow-y-auto">
-                    {(inboxItems as any[]).length === 0 ? (
+                    {((workInboxData as any)?.items ?? []).length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <Bell className="h-7 w-7 mx-auto mb-2 opacity-30" />
                         <p className="text-sm">All caught up!</p>
-                        <p className="text-xs mt-0.5">No unread notes or comments</p>
+                        <p className="text-xs mt-0.5">No unread Work notifications</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-border">
-                        {(inboxItems as any[]).map((item: any) => (
+                        {((workInboxData as any)?.items ?? []).map((item: any) => (
                           <div
-                            key={`${item.type}-${item.id}`}
+                            key={item.id}
                             className={`px-4 py-3 hover:bg-accent/50 cursor-pointer transition-colors ${
-                              item.isUnread ? "bg-primary/3" : ""
+                              !item.readAt ? "bg-primary/3" : ""
                             }`}
                             onClick={() => {
-                              if (item.type === "note" && item.isUnread) {
-                                markNoteRead.mutate({ noteId: item.id });
-                              }
-                              navigate(`/projects/${item.projectId}`);
+                              if (!item.readAt) markWorkInboxRead.mutate({ ids: [item.id], read: true });
+                              if (item.taskId) navigate(`/work/tasks/${item.taskId}`);
+                              else if (item.projectId) navigate(`/work/projects/${item.projectId}/overview`);
+                              else navigate("/work/inbox");
                               setInboxOpen(false);
                             }}
                           >
                             <div className="flex items-start gap-2.5">
                               <div className="shrink-0 mt-0.5">
-                                {item.type === "note" ? (
-                                  <StickyNote className="h-4 w-4 text-primary" />
-                                ) : (
-                                  <MessageSquare className="h-4 w-4 text-blue-500" />
-                                )}
+                                <Bell className="h-4 w-4 text-primary" />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 mb-0.5">
-                                  <span className="text-xs font-medium truncate">{item.authorName ?? "Someone"}</span>
-                                  {item.isUnread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                                  <span className="text-xs font-medium truncate">{item.title ?? "Work notification"}</span>
+                                  {!item.readAt && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
                                 </div>
-                                <p className="text-xs text-muted-foreground line-clamp-2">{item.content}</p>
+                                <p className="text-xs text-muted-foreground line-clamp-2">{item.body ?? "Work activity"}</p>
                                 <div className="flex items-center gap-1.5 mt-1">
-                                  <span className="text-[10px] text-muted-foreground truncate">{item.projectTitle}</span>
+                                  <span className="text-[10px] text-muted-foreground truncate">{item.projectId ? "Project activity" : "Work activity"}</span>
                                   <span className="text-[10px] text-muted-foreground">·</span>
                                   <span className="text-[10px] text-muted-foreground">
                                     {item.createdAt ? new Date(item.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
@@ -824,16 +805,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                               <button
                                 type="button"
                                 className="shrink-0 p-1 rounded hover:bg-muted text-muted-foreground"
-                                title={item.isUnread ? "Mark read" : "Mark unread"}
+                                title={item.readAt ? "Mark unread" : "Mark read"}
                                 onClick={e => {
                                   e.stopPropagation();
-                                  if (item.type === "note") {
-                                    if (item.isUnread) markNoteRead.mutate({ noteId: item.id });
-                                    else markNoteUnread.mutate({ noteId: item.id });
-                                  }
+                                  markWorkInboxRead.mutate({ ids: [item.id], read: !!item.readAt });
                                 }}
                               >
-                                {item.isUnread
+                                {!item.readAt
                                   ? <span className="text-[10px] text-primary font-medium">Read</span>
                                   : <span className="text-[10px] text-muted-foreground">Unread</span>}
                               </button>
@@ -847,9 +825,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       className="text-xs text-primary hover:underline"
-                      onClick={() => { navigate("/projects"); setInboxOpen(false); }}
+                      onClick={() => { navigate("/work/inbox"); setInboxOpen(false); }}
                     >
-                      View all projects →
+                      View Work Inbox →
                     </button>
                   </div>
                 </div>
