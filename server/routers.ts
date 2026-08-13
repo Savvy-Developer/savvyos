@@ -53,6 +53,7 @@ import { coachingRouter } from "./routers/coaching";
 import { hotLeadsRouter } from "./routers/hotLeads";
 import { passwordsRouter } from "./routers/passwords";
 import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
+import { pulseRouter } from "./routers/pulse";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -155,6 +156,9 @@ export const appRouter = router({
         if (!user.isActive) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Your account has been deactivated. Please contact an admin." });
         }
+        if (user.personType === "teammate") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "This directory record is not enabled for sign-in." });
+        }
         const token = await sdk.createSessionToken(user.openId, { name: user.name ?? user.email ?? "" });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
@@ -248,7 +252,8 @@ export const appRouter = router({
   coaching: coachingRouter,
   hotLeads: hotLeadsRouter,
   passwords: passwordsRouter,
-  rolesResponsibilities: rolesResponsibilitiesRouter,
+    rolesResponsibilities: rolesResponsibilitiesRouter,
+  pulse: pulseRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

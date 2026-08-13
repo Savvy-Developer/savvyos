@@ -29,8 +29,8 @@ export async function createContext(
     user = null;
   }
 
-  // Block deactivated users from accessing the app
-  if (user && user.isActive === false) {
+  // Deactivated accounts and directory-only Teammates can never receive an authenticated session.
+  if (user && (user.isActive === false || user.personType === "teammate")) {
     user = null;
   }
 
@@ -46,6 +46,11 @@ export async function createContext(
         user = targetUser;
       }
     }
+  }
+
+  // A simulated target must also be a Full User; directory-only records never become navigable.
+  if (user && user.personType === "teammate") {
+    user = null;
   }
 
   // Agent Support: work-as-agent — scoped to assigned agents only

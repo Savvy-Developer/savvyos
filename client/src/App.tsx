@@ -98,6 +98,9 @@ import HotLeadsPage from "./pages/HotLeadsPage";
 import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
+import PulseRegistryPage from "./pages/PulseRegistryPage";
+import PulseMeetingPage from "./pages/PulseMeetingPage";
+import PulseScopedResourcePage from "./pages/PulseScopedResourcePage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -159,6 +162,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+function PulseConfigRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewPulse) return <NotFound />;
+  return <>{children}</>;
+}
+
+function PulseConfigPage() {
+  return <PulseConfigRoute><PulseRegistryPage /></PulseConfigRoute>;
 }
 
 function WorkRoute({ children }: { children: React.ReactNode }) {
@@ -234,6 +251,10 @@ function Router() {
           <Route path="/org-chart" component={OrgChartPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
+          <Route path="/pulse" component={PulseConfigPage} />
+          <Route path="/pulse/meetings/:id">{(params: any) => <PulseMeetingPage meetingId={Number(params.id)} />}</Route>
+          <Route path="/pulse/teams/:id">{(params: any) => <PulseScopedResourcePage resourceType="team" resourceId={Number(params.id)} />}</Route>
+          <Route path="/pulse/1on1/:id">{(params: any) => <PulseScopedResourcePage resourceType="one_on_one" resourceId={Number(params.id)} />}</Route>
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />

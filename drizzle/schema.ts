@@ -36,6 +36,8 @@ export const users = mysqlTable("users", {
   reportsToId: int("reportsToId"),
   marketProfileId: int("marketProfileId").references(() => marketProfiles.id),
   loginMethod: varchar("loginMethod", { length: 64 }),
+  // Full Users may authenticate and participate in operations; Teammates are directory-only.
+  personType: mysqlEnum("personType", ["full_user", "teammate"]).default("full_user").notNull(),
   role: mysqlEnum("role", ["admin", "agent", "isa", "agent_support"]).default("agent").notNull(),
   // Agent commission split with Savvy (50, 60, 70, 80)
   commissionSplit: int("commissionSplit"),
@@ -1758,6 +1760,124 @@ export const duplicateScanJobs = mysqlTable("duplicate_scan_jobs", {
 });
 export type DuplicateScanJob = typeof duplicateScanJobs.$inferSelect;
 
+// ─── Pulse ─────────────────────────────────────────────────────────────────────
+// The registry is durable configuration; operational meeting sessions are introduced later.
+export const pulseMeetings = mysqlTable("pulse_meetings", {
+  id: int("id").autoincrement().primaryKey(),
+  meetingKey: varchar("meetingKey", { length: 120 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  scheduleDay: mysqlEnum("scheduleDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]).notNull(),
+  scheduleTime: varchar("scheduleTime", { length: 5 }).notNull(),
+  timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
+  facilitatorUserId: int("facilitatorUserId").references(() => users.id, { onDelete: "set null" }),
+  durationMinutes: int("durationMinutes").default(90).notNull(),
+  sectionVisibility: json("sectionVisibility").$type<Record<string, boolean>>().notNull(),
+  // Archive is the primary availability gate. Inactive meetings are absent before any role/access check.
+  isActive: boolean("isActive").default(true).notNull(),
+  archivedAt: timestamp("archivedAt"),
+  archivedById: int("archivedById").references(() => users.id, { onDelete: "set null" }),
+  archiveNote: text("archiveNote"),
+  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_meetings_active_schedule_idx").on(table.isActive, table.scheduleDay, table.scheduleTime),
+  index("pulse_meetings_facilitator_idx").on(table.facilitatorUserId, table.isActive),
+]);
+export type PulseMeeting = typeof pulseMeetings.$inferSelect;
+export type InsertPulseMeeting = typeof pulseMeetings.$inferInsert;
+
+// Exactly one entitlement relationship exists for a person and meeting. Revocation updates this row;
+// legacy per-user access booleans are intentionally not modeled in Pulse.
+export const pulseMeetingAccess = mysqlTable("pulse_meeting_access", {
+  id: int("id").autoincrement().primaryKey(),
+  meetingId: int("meetingId").notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  accessLevel: mysqlEnum("accessLevel", ["member", "facilitator"]).default("member").notNull(),
+  grantedById: int("grantedById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  grantedAt: timestamp("grantedAt").defaultNow().notNull(),
+  revokedAt: timestamp("revokedAt"),
+  revokedById: int("revokedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_meeting_access_meeting_user_unique").on(table.meetingId, table.userId),
+  index("pulse_meeting_access_user_active_idx").on(table.userId, table.revokedAt, table.meetingId),
+  index("pulse_meeting_access_meeting_active_idx").on(table.meetingId, table.revokedAt),
+]);
+export type PulseMeetingAccess = typeof pulseMeetingAccess.$inferSelect;
+export type InsertPulseMeetingAccess = typeof pulseMeetingAccess.$inferInsert;
+
+// Pulse operational teams are distinct from SavvyOS Work-project teams. Membership is the
+// authorization source of truth for a team; linked meetings do not confer team membership.
+export const pulseTeams = mysqlTable("pulse_teams", {
+  id: int("id").autoincrement().primaryKey(),
+  teamKey: varchar("teamKey", { length: 120 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  purpose: text("purpose"),
+  color: varchar("color", { length: 32 }),
+  linkedMeetingId: int("linkedMeetingId").references(() => pulseMeetings.id, { onDelete: "set null" }),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_teams_active_name_idx").on(table.isActive, table.name),
+  index("pulse_teams_linked_meeting_idx").on(table.linkedMeetingId, table.isActive),
+]);
+export type PulseTeam = typeof pulseTeams.$inferSelect;
+
+export const pulseTeamMembers = mysqlTable("pulse_team_members", {
+  id: int("id").autoincrement().primaryKey(),
+  teamId: int("teamId").notNull().references(() => pulseTeams.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: mysqlEnum("role", ["member", "lead"]).default("member").notNull(),
+  joinedAt: timestamp("joinedAt").defaultNow().notNull(),
+  removedAt: timestamp("removedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_team_members_team_user_unique").on(table.teamId, table.userId),
+  index("pulse_team_members_user_active_idx").on(table.userId, table.removedAt, table.teamId),
+  index("pulse_team_members_team_active_idx").on(table.teamId, table.removedAt),
+]);
+export type PulseTeamMember = typeof pulseTeamMembers.$inferSelect;
+
+// A 1:1 is normally visible to its two named participants. Additional viewers must receive
+// an explicit normalized grant; administrator role alone never provides 1:1 visibility.
+export const pulseOneOnOnes = mysqlTable("pulse_one_on_ones", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  primaryUserId: int("primaryUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
+  secondaryUserId: int("secondaryUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
+  sectionVisibility: json("sectionVisibility").$type<Record<string, boolean>>().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_one_on_ones_primary_active_idx").on(table.primaryUserId, table.isActive),
+  index("pulse_one_on_ones_secondary_active_idx").on(table.secondaryUserId, table.isActive),
+]);
+export type PulseOneOnOne = typeof pulseOneOnOnes.$inferSelect;
+
+export const pulseOneOnOneAccess = mysqlTable("pulse_one_on_one_access", {
+  id: int("id").autoincrement().primaryKey(),
+  oneOnOneId: int("oneOnOneId").notNull().references(() => pulseOneOnOnes.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  accessLevel: mysqlEnum("accessLevel", ["viewer"]).default("viewer").notNull(),
+  grantedById: int("grantedById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  grantedAt: timestamp("grantedAt").defaultNow().notNull(),
+  revokedAt: timestamp("revokedAt"),
+  revokedById: int("revokedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_one_on_one_access_user_unique").on(table.oneOnOneId, table.userId),
+  index("pulse_one_on_one_access_user_active_idx").on(table.userId, table.revokedAt, table.oneOnOneId),
+]);
+export type PulseOneOnOneAccess = typeof pulseOneOnOneAccess.$inferSelect;
+
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.
 // Each boolean column corresponds to a nav link in the admin sidebar.
@@ -1808,6 +1928,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
   // Passwords
   canViewPasswords: boolean("canViewPasswords").default(true).notNull(),
+  // Pulse configuration — default OFF; meeting-level access remains separately normalized.
+  canViewPulse: boolean("canViewPulse").default(false).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)
   canViewSuperPermissions: boolean("canViewSuperPermissions").default(false).notNull(),
   // JSON map of { permissionKey: ISO-timestamp } for temporarily-granted permissions

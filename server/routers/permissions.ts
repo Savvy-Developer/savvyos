@@ -59,11 +59,34 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Automation" },
   // Admin — Passwords
   { key: "canViewPasswords",           label: "Passwords",                group: "Admin" },
+  { key: "canViewPulse",               label: "Pulse",                    group: "Admin" },
   // Super admin tools (default OFF — only Tyler/Elana/Dyl can use this page anyway)
   { key: "canViewSuperPermissions",   label: "Super Permissions",        group: "Admin" },
 ] as const;
 
 export type PermissionKey = typeof ADMIN_NAV_PERMISSIONS[number]["key"];
+
+/**
+ * Resolves a centralized admin capability for a current user. Feature modules use this
+ * helper instead of carrying their own protected-user exceptions or permission storage.
+ */
+export async function canAdminUsePermission(
+  user: { id: number; role: string; email?: string | null },
+  permission: PermissionKey,
+): Promise<boolean> {
+  if (user.role !== "admin") return false;
+  if (user.email === PROTECTED_EMAIL) return true;
+
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, user.id)).limit(1);
+  if (rows.length === 0) {
+    await db.insert(adminPermissions).values({ userId: user.id });
+    const created = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, user.id)).limit(1);
+    return (created[0] as any)?.[permission] ?? false;
+  }
+  return (rows[0] as any)?.[permission] ?? false;
+}
 
 const permissionUpdateSchema = z.object({
   userId: z.number(),
