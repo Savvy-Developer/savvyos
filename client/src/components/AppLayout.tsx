@@ -282,6 +282,12 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       ],
     },
     {
+      label: "Pulse",
+      items: [
+        { icon: Activity, label: "Pulse", path: "/pulse" },
+      ],
+    },
+    {
       label: "Operations",
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
@@ -299,7 +305,6 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: ClipboardList, label: "Roles & Responsibilities", path: "/roles-responsibilities" },
-        { icon: Activity, label: "Pulse", path: "/pulse" },
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
         { icon: Target, label: "Goals", path: "/goals" },

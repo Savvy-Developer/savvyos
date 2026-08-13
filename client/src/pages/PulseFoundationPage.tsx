@@ -75,7 +75,7 @@ export default function PulseFoundationPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <section className="flex flex-col gap-4 border-b pb-5 md:flex-row md:items-end md:justify-between">
-        <div><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary"><Activity className="h-3.5 w-3.5" />Admin · Pulse</div><h1 className="mt-1 text-2xl font-semibold tracking-tight">Scope foundation</h1><p className="mt-1 max-w-3xl text-sm text-muted-foreground">One person/account model, one Scope model, one policy service, one calendar authority, and one append-only event stream. Scope access is active-state first and is never bypassed by an administrative role.</p></div>
+        <div><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary"><Activity className="h-3.5 w-3.5" />Pulse</div><h1 className="mt-1 text-2xl font-semibold tracking-tight">Operating workspace</h1><p className="mt-1 max-w-3xl text-sm text-muted-foreground">Pulse is a standalone workspace: one person/account model, one Scope model, one policy service, one calendar authority, and one append-only event stream. Scope access is active-state first and is never bypassed by an administrative role.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setPersonDialogOpen(true)}><CircleUserRound className="mr-2 h-4 w-4" />Add person</Button><Button onClick={() => setScopeDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Create scope</Button></div>
       </section>
 

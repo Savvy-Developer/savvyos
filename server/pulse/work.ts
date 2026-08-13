@@ -198,6 +198,12 @@ async function sourceLabel(db: PulsePolicyDb, scopeId: number | null, viewerPers
 /** Shared projection for personal, Scope, and notification surfaces. */
 export async function enrichCanonicalWorkItems(db: PulsePolicyDb, actor: PulseActor, filters: { scopeId?: number; assigneePersonId?: number; notificationRecipientPersonId?: number } = {}) {
   const actorPersonId = await actorPersonForWrite(db, actor);
+  // A Scope-specific surface is governed by the requested Scope itself. Item-level visibility
+  // cannot leak a placement into a Scope the caller cannot open.
+  if (filters.scopeId) {
+    const requestedScope = await canView(db, filters.scopeId, actor);
+    if (!requestedScope.allowed) return [];
+  }
   let candidates: any[];
   if (filters.notificationRecipientPersonId) {
     candidates = await db.select({ item: pulseWorkItems }).from(pulseWorkItemNotificationIntents).innerJoin(pulseWorkItems, eq(pulseWorkItemNotificationIntents.itemId, pulseWorkItems.id)).where(and(eq(pulseWorkItemNotificationIntents.recipientPersonId, filters.notificationRecipientPersonId), eq(pulseWorkItemNotificationIntents.status, "pending"))).orderBy(desc(pulseWorkItemNotificationIntents.createdAt));
