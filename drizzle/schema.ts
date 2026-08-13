@@ -2370,6 +2370,25 @@ export const pulseCommunicationAcknowledgments = mysqlTable("pulse_communication
 ]);
 export type PulseCommunicationAcknowledgment = typeof pulseCommunicationAcknowledgments.$inferSelect;
 
+// ─── Pulse Team-to-L10 Relationships ─────────────────────────────────────────
+// A Team is already a Scope. These explicit directional links define only their named behavior;
+// they never grant membership, content access, or a cascade audience by themselves.
+export const pulseTeamScopeLinks = mysqlTable("pulse_team_scope_links", {
+  id: int("id").autoincrement().primaryKey(),
+  teamScopeId: int("teamScopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  l10ScopeId: int("l10ScopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  relationshipType: mysqlEnum("relationshipType", ["reports_to", "receives_cascades_from", "work_rollup_from"]).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_team_scope_links_team_l10_relation_uq").on(table.teamScopeId, table.l10ScopeId, table.relationshipType),
+  index("pulse_team_scope_links_team_relation_idx").on(table.teamScopeId, table.relationshipType, table.isActive),
+  index("pulse_team_scope_links_l10_relation_idx").on(table.l10ScopeId, table.relationshipType, table.isActive),
+]);
+export type PulseTeamScopeLink = typeof pulseTeamScopeLinks.$inferSelect;
+
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.
 // Each boolean column corresponds to a nav link in the admin sidebar.

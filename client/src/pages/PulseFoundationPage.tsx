@@ -4,6 +4,7 @@ import { PulseWorkItemsPanel } from "@/components/PulseWorkItemsPanel";
 import { PulseMeetingsPanel } from "@/components/PulseMeetingsPanel";
 import { PulseScorecardsStrategyPanel } from "@/components/PulseScorecardsStrategyPanel";
 import { PulseCommunicationsPanel } from "@/components/PulseCommunicationsPanel";
+import { PulseTeamsDashboardPanel } from "@/components/PulseTeamsDashboardPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,7 +84,7 @@ export default function PulseFoundationPage() {
       </section>
 
       <Tabs defaultValue="scopes" className="space-y-5">
-        <TabsList className="h-auto max-w-full justify-start gap-1 overflow-x-auto bg-muted/50 p-1"><TabsTrigger value="scopes" className="gap-2"><Database className="h-3.5 w-3.5" />Scopes <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">{scopes.length}</Badge></TabsTrigger><TabsTrigger value="meetings" className="gap-2"><Activity className="h-3.5 w-3.5" />Meetings</TabsTrigger><TabsTrigger value="scorecards" className="gap-2"><BarChart3 className="h-3.5 w-3.5" />Scorecards & strategy</TabsTrigger><TabsTrigger value="communications" className="gap-2"><Bell className="h-3.5 w-3.5" />Communications</TabsTrigger><TabsTrigger value="work" className="gap-2"><CheckSquare2 className="h-3.5 w-3.5" />Work items</TabsTrigger><TabsTrigger value="people" className="gap-2"><UsersRound className="h-3.5 w-3.5" />People & accounts</TabsTrigger><TabsTrigger value="calendar" className="gap-2"><CalendarDays className="h-3.5 w-3.5" />Calendar service</TabsTrigger><TabsTrigger value="events" className="gap-2"><Activity className="h-3.5 w-3.5" />Event stream</TabsTrigger></TabsList>
+        <TabsList className="h-auto max-w-full justify-start gap-1 overflow-x-auto bg-muted/50 p-1"><TabsTrigger value="scopes" className="gap-2"><Database className="h-3.5 w-3.5" />Scopes <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">{scopes.length}</Badge></TabsTrigger><TabsTrigger value="meetings" className="gap-2"><Activity className="h-3.5 w-3.5" />Meetings</TabsTrigger><TabsTrigger value="scorecards" className="gap-2"><BarChart3 className="h-3.5 w-3.5" />Scorecards & strategy</TabsTrigger><TabsTrigger value="teams" className="gap-2"><UsersRound className="h-3.5 w-3.5" />Teams</TabsTrigger><TabsTrigger value="communications" className="gap-2"><Bell className="h-3.5 w-3.5" />Communications</TabsTrigger><TabsTrigger value="work" className="gap-2"><CheckSquare2 className="h-3.5 w-3.5" />Work items</TabsTrigger><TabsTrigger value="people" className="gap-2"><UsersRound className="h-3.5 w-3.5" />People & accounts</TabsTrigger><TabsTrigger value="calendar" className="gap-2"><CalendarDays className="h-3.5 w-3.5" />Calendar service</TabsTrigger><TabsTrigger value="events" className="gap-2"><Activity className="h-3.5 w-3.5" />Event stream</TabsTrigger></TabsList>
 
         <TabsContent value="scopes" className="mt-0 space-y-4">
           <div className="grid gap-4 md:grid-cols-4"><Card><CardHeader className="pb-2"><CardDescription>Visible active scopes</CardDescription><CardTitle className="text-3xl">{scopes.length}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">The same policy query serves every scope type.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>L10 scopes</CardDescription><CardTitle className="text-3xl">{scopes.filter((scope: any) => scope.scopeType === "l10").length}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">Meeting cadence attaches to the L10 scope.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>Private scopes</CardDescription><CardTitle className="text-3xl">{scopes.filter((scope: any) => scope.scopeType === "private").length}</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">Owner-only access is a policy, not empty routing.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>Archive gate</CardDescription><CardTitle className="text-3xl">Active first</CardTitle></CardHeader><CardContent className="text-xs text-muted-foreground">Archived scopes never enter the visible query.</CardContent></Card></div>
@@ -93,6 +94,8 @@ export default function PulseFoundationPage() {
         <TabsContent value="meetings" className="mt-0"><PulseMeetingsPanel /></TabsContent>
 
         <TabsContent value="scorecards" className="mt-0"><PulseScorecardsStrategyPanel /></TabsContent>
+
+        <TabsContent value="teams" className="mt-0"><PulseTeamsDashboardPanel /></TabsContent>
 
         <TabsContent value="communications" className="mt-0"><PulseCommunicationsPanel /></TabsContent>
 

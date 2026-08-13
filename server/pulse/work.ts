@@ -196,7 +196,7 @@ async function sourceLabel(db: PulsePolicyDb, scopeId: number | null, viewerPers
 }
 
 /** Shared projection for personal, Scope, and notification surfaces. */
-export async function enrichCanonicalWorkItems(db: PulsePolicyDb, actor: PulseActor, filters: { scopeId?: number; assigneePersonId?: number; notificationRecipientPersonId?: number } = {}) {
+export async function enrichCanonicalWorkItems(db: PulsePolicyDb, actor: PulseActor, filters: { scopeId?: number; assigneePersonId?: number; notificationRecipientPersonId?: number; itemIds?: number[] } = {}) {
   const actorPersonId = await actorPersonForWrite(db, actor);
   // A Scope-specific surface is governed by the requested Scope itself. Item-level visibility
   // cannot leak a placement into a Scope the caller cannot open.
@@ -205,7 +205,10 @@ export async function enrichCanonicalWorkItems(db: PulsePolicyDb, actor: PulseAc
     if (!requestedScope.allowed) return [];
   }
   let candidates: any[];
-  if (filters.notificationRecipientPersonId) {
+  if (filters.itemIds) {
+    const itemIds = Array.from(new Set(filters.itemIds));
+    candidates = itemIds.length ? await db.select().from(pulseWorkItems).where(inArray(pulseWorkItems.id, itemIds)) : [];
+  } else if (filters.notificationRecipientPersonId) {
     candidates = await db.select({ item: pulseWorkItems }).from(pulseWorkItemNotificationIntents).innerJoin(pulseWorkItems, eq(pulseWorkItemNotificationIntents.itemId, pulseWorkItems.id)).where(and(eq(pulseWorkItemNotificationIntents.recipientPersonId, filters.notificationRecipientPersonId), eq(pulseWorkItemNotificationIntents.status, "pending"))).orderBy(desc(pulseWorkItemNotificationIntents.createdAt));
     candidates = candidates.map((row: any) => row.item);
   } else if (filters.assigneePersonId) {

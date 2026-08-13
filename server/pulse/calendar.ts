@@ -100,3 +100,24 @@ export async function resolvePulseCalendar(db: PulsePolicyDb, now = new Date()):
     })),
   };
 }
+
+/**
+ * Canonical operating-week windows for workload, dashboard, analytics, and report projections.
+ * Consumers receive precomputed dates and never perform their own week-boundary arithmetic.
+ */
+export async function resolvePulseOperatingWeekWindows(db: PulsePolicyDb, count = 6, now = new Date()) {
+  const snapshot = await resolvePulseCalendar(db, now);
+  if (!snapshot) return null;
+  const total = Math.max(1, Math.min(52, Math.floor(count)));
+  const currentStart = new Date(`${snapshot.operatingWeekStart}T00:00:00.000Z`);
+  const weeks: Array<{ key: string; startsOn: string; endsOn: string }> = [];
+  for (let offset = total - 1; offset >= 0; offset -= 1) {
+    const starts = new Date(currentStart);
+    starts.setUTCDate(starts.getUTCDate() - (offset * 7));
+    const ends = new Date(starts);
+    ends.setUTCDate(ends.getUTCDate() + 6);
+    const startsOn = isoDate(starts);
+    weeks.push({ key: `operating_week:${startsOn}`, startsOn, endsOn: isoDate(ends) });
+  }
+  return { snapshot, weeks };
+}

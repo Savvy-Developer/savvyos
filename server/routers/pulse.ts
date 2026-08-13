@@ -24,6 +24,7 @@ import { addCanonicalWorkComment, assignCanonicalWorkItem, createCanonicalWorkIt
 import { captureRunnerItem, castSessionVote, completeMeetingSession, createMeetingRegistry, enterSessionStep, getMeetingReport, getRunnerSession, listMeetingHistory, listVisibleMeetingRegistry, setMeetingRegistryActive, startMeetingSession, updateMeetingRegistry } from "../pulse/runner";
 import { createMeasurable, createStrategyNode, getAnalyticsScorecard, getDashboardScorecard, getReportScorecard, getScopeScorecard, getScopeStrategy, getVto, placeMeasurable, recordMeasurableEntry, setStrategyNodeStatus, setStrategyRaci, setStrategyScopePresentation, updateMeasurable } from "../pulse/measurables";
 import { acknowledgeCommunication, createCommunication, getCommunicationAudience, listMyCommunications, processPulseCommunicationDeliveryBatch, publishCommunication } from "../pulse/communications";
+import { createTeamScopeLink, getTeamDashboard } from "../pulse/teams";
 
 const scopeTypeSchema = z.enum(["company", "l10", "team", "one_on_one", "private"]);
 const membershipPolicySchema = z.enum(["explicit", "active_accounts", "owner_only"]);
@@ -530,6 +531,17 @@ export const pulseRouter = router({
   vto: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
     const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
     try { return getVto(db, actor, input.scopeId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  teamDashboard: protectedProcedure.input(z.object({ teamScopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getTeamDashboard(db, actor, input.teamScopeId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  createTeamScopeLink: protectedProcedure.input(z.object({ teamScopeId: z.number().int().positive(), l10ScopeId: z.number().int().positive(), relationshipType: z.enum(["reports_to", "receives_cascades_from", "work_rollup_from"]) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await createTeamScopeLink(db, actor, input); return { ok: true }; }
     catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
   }),
 
