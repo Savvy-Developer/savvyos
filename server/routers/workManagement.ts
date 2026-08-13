@@ -23,6 +23,7 @@ import {
   workProjectSections,
   workProjects,
   workRuleActions,
+  workRuleRuns,
   workRules,
   workSavedViews,
   workStatusUpdates,
@@ -311,30 +312,41 @@ async function evaluateProjectRules(projectId: number, taskId: number, trigger: 
       return true;
     });
     if (!matches) continue;
-    await writeStory({ taskId, projectId, actorId, storyType: "updated", contentPlainText: `Rule triggered: ${rule.name}`, metadata: { ruleId: rule.id, trigger, automation: true } });
-    const actions = await db.select().from(workRuleActions)
-      .where(and(eq(workRuleActions.ruleId, rule.id), isNull(workRuleActions.deletedAt)))
-      .orderBy(asc(workRuleActions.position));
-    for (const action of actions) {
-      const config = (action.config ?? {}) as Record<string, unknown>;
-      if (action.actionType === "move_to_section" && typeof config.sectionId === "number") {
-        await db.update(workTaskProjectMemberships).set({ sectionId: config.sectionId, position: nextRank() })
-          .where(and(eq(workTaskProjectMemberships.taskId, taskId), eq(workTaskProjectMemberships.projectId, projectId), isNull(workTaskProjectMemberships.deletedAt)));
-        await writeStory({ taskId, projectId, actorId, storyType: "section_changed", contentPlainText: "Rule moved task to a section.", metadata: { ruleId: rule.id, sectionId: config.sectionId } });
+    const actionResults: Array<Record<string, unknown>> = [];
+    try {
+      await writeStory({ taskId, projectId, actorId, storyType: "updated", contentPlainText: `Rule triggered: ${rule.name}`, metadata: { ruleId: rule.id, trigger, automation: true } });
+      const actions = await db.select().from(workRuleActions)
+        .where(and(eq(workRuleActions.ruleId, rule.id), isNull(workRuleActions.deletedAt)))
+        .orderBy(asc(workRuleActions.position));
+      for (const action of actions) {
+        const config = (action.config ?? {}) as Record<string, unknown>;
+        let outcome = "skipped";
+        if (action.actionType === "move_to_section" && typeof config.sectionId === "number") {
+          await db.update(workTaskProjectMemberships).set({ sectionId: config.sectionId, position: nextRank() })
+            .where(and(eq(workTaskProjectMemberships.taskId, taskId), eq(workTaskProjectMemberships.projectId, projectId), isNull(workTaskProjectMemberships.deletedAt)));
+          await writeStory({ taskId, projectId, actorId, storyType: "section_changed", contentPlainText: "Rule moved task to a section.", metadata: { ruleId: rule.id, sectionId: config.sectionId } });
+          outcome = "applied";
+        } else if (action.actionType === "assign_user" && typeof config.userId === "number") {
+          const [existing] = await db.select().from(workTaskAssignees).where(and(eq(workTaskAssignees.taskId, taskId), eq(workTaskAssignees.userId, config.userId))).limit(1);
+          if (existing) await db.update(workTaskAssignees).set({ deletedAt: null }).where(eq(workTaskAssignees.id, existing.id));
+          else await db.insert(workTaskAssignees).values({ taskId, userId: config.userId });
+          await notifyUsers({ userIds: [config.userId], actorId, type: "assignment", title: "A rule assigned you a task", taskId, projectId });
+          outcome = "applied";
+        } else if (action.actionType === "mark_complete") {
+          await db.update(workTasks).set({ completionStatus: "complete", completedAt: new Date(), completedById: actorId }).where(eq(workTasks.id, taskId));
+          outcome = "applied";
+        } else if (action.actionType === "set_custom_field" && typeof config.customFieldId === "number") {
+          await db.delete(workTaskCustomFieldValues).where(and(eq(workTaskCustomFieldValues.taskId, taskId), eq(workTaskCustomFieldValues.customFieldId, config.customFieldId)));
+          await db.insert(workTaskCustomFieldValues).values({ taskId, customFieldId: config.customFieldId, value: config.value ?? null, plainTextValue: typeof config.value === "string" ? config.value : JSON.stringify(config.value ?? null) });
+          outcome = "applied";
+        }
+        actionResults.push({ actionId: action.id, actionType: action.actionType, outcome });
       }
-      if (action.actionType === "assign_user" && typeof config.userId === "number") {
-        const [existing] = await db.select().from(workTaskAssignees).where(and(eq(workTaskAssignees.taskId, taskId), eq(workTaskAssignees.userId, config.userId))).limit(1);
-        if (existing) await db.update(workTaskAssignees).set({ deletedAt: null }).where(eq(workTaskAssignees.id, existing.id));
-        else await db.insert(workTaskAssignees).values({ taskId, userId: config.userId });
-        await notifyUsers({ userIds: [config.userId], actorId, type: "assignment", title: "A rule assigned you a task", taskId, projectId });
-      }
-      if (action.actionType === "mark_complete") {
-        await db.update(workTasks).set({ completionStatus: "complete", completedAt: new Date(), completedById: actorId }).where(eq(workTasks.id, taskId));
-      }
-      if (action.actionType === "set_custom_field" && typeof config.customFieldId === "number") {
-        await db.delete(workTaskCustomFieldValues).where(and(eq(workTaskCustomFieldValues.taskId, taskId), eq(workTaskCustomFieldValues.customFieldId, config.customFieldId)));
-        await db.insert(workTaskCustomFieldValues).values({ taskId, customFieldId: config.customFieldId, value: config.value ?? null, plainTextValue: typeof config.value === "string" ? config.value : JSON.stringify(config.value ?? null) });
-      }
+      await db.insert(workRuleRuns).values({ ruleId: rule.id, projectId, taskId, triggeredById: actorId, trigger, status: "succeeded", event, actionResults, completedAt: new Date() });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown automation error";
+      await db.insert(workRuleRuns).values({ ruleId: rule.id, projectId, taskId, triggeredById: actorId, trigger, status: "failed", event, actionResults, errorMessage, completedAt: new Date() });
+      throw error;
     }
   }
 }
@@ -1046,6 +1058,13 @@ export const workManagementRouter = router({
       const ids = rules.map(rule => rule.id);
       const actions = ids.length ? await db.select().from(workRuleActions).where(and(inArray(workRuleActions.ruleId, ids), isNull(workRuleActions.deletedAt))).orderBy(asc(workRuleActions.position)) : [];
       return rules.map(rule => ({ ...rule, actions: actions.filter(action => action.ruleId === rule.id) }));
+    }),
+    listRuns: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), limit: z.number().int().min(1).max(100).optional() })).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "viewer");
+      const db = await getRequiredDb();
+      return db.select({ id: workRuleRuns.id, ruleId: workRuleRuns.ruleId, ruleName: workRules.name, taskId: workRuleRuns.taskId, trigger: workRuleRuns.trigger, status: workRuleRuns.status, actionResults: workRuleRuns.actionResults, errorMessage: workRuleRuns.errorMessage, startedAt: workRuleRuns.startedAt, completedAt: workRuleRuns.completedAt })
+        .from(workRuleRuns).innerJoin(workRules, eq(workRuleRuns.ruleId, workRules.id))
+        .where(eq(workRuleRuns.projectId, input.projectId)).orderBy(desc(workRuleRuns.startedAt), desc(workRuleRuns.id)).limit(input.limit ?? 25);
     }),
     create: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), name: z.string().min(1).max(255), trigger: z.enum(["task_added", "task_completed", "task_moved", "due_date_changed", "custom_field_changed", "form_submitted"]), conditions: z.array(jsonObject).default([]), actions: z.array(z.object({ actionType: z.enum(["move_to_section", "assign_user", "set_due_date", "set_custom_field", "add_follower", "create_task", "mark_complete"]), config: jsonObject })).min(1) })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.projectId, "editor");

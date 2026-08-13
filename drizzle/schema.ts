@@ -3598,6 +3598,25 @@ export const workRuleActions = mysqlTable("work_rule_actions", {
   index("work_rule_actions_order_idx").on(table.ruleId, table.position, table.deletedAt),
 ]);
 
+export const workRuleRuns = mysqlTable("work_rule_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  ruleId: int("ruleId").notNull().references(() => workRules.id, { onDelete: "cascade" }),
+  projectId: int("projectId").notNull().references(() => workProjects.id, { onDelete: "cascade" }),
+  taskId: int("taskId").references(() => workTasks.id, { onDelete: "set null" }),
+  triggeredById: int("triggeredById").references(() => users.id, { onDelete: "set null" }),
+  trigger: mysqlEnum("trigger", ["task_added", "task_completed", "task_moved", "due_date_changed", "custom_field_changed", "form_submitted"]).notNull(),
+  status: mysqlEnum("status", ["succeeded", "failed"]).notNull(),
+  event: json("event").$type<Record<string, unknown>>(),
+  actionResults: json("actionResults").$type<Array<Record<string, unknown>>>(),
+  errorMessage: text("errorMessage"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+}, (table) => [
+  index("work_rule_runs_project_started_idx").on(table.projectId, table.startedAt),
+  index("work_rule_runs_rule_started_idx").on(table.ruleId, table.startedAt),
+  index("work_rule_runs_task_started_idx").on(table.taskId, table.startedAt),
+]);
+
 export const workTaskRecurrences = mysqlTable("work_task_recurrences", {
   id: int("id").autoincrement().primaryKey(),
   taskId: int("taskId").notNull().references(() => workTasks.id, { onDelete: "cascade" }),
