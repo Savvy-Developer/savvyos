@@ -22,6 +22,7 @@ import { ensurePulsePersonForAccount } from "../pulse/people";
 import { canAssign, canCreate, canDeliver, canManageMeeting, canView, canViewWorkItem, canVote, getActiveScope, visibleScopes } from "../pulse/policy";
 import { addCanonicalWorkComment, assignCanonicalWorkItem, createCanonicalWorkItem, enrichCanonicalWorkItems, moveCanonicalWorkItem, transitionCanonicalWorkItem, voteCanonicalIssue } from "../pulse/work";
 import { captureRunnerItem, castSessionVote, completeMeetingSession, createMeetingRegistry, enterSessionStep, getMeetingReport, getRunnerSession, listMeetingHistory, listVisibleMeetingRegistry, setMeetingRegistryActive, startMeetingSession, updateMeetingRegistry } from "../pulse/runner";
+import { createMeasurable, createStrategyNode, getAnalyticsScorecard, getDashboardScorecard, getReportScorecard, getScopeScorecard, getScopeStrategy, getVto, placeMeasurable, recordMeasurableEntry, setStrategyNodeStatus, setStrategyRaci, setStrategyScopePresentation, updateMeasurable } from "../pulse/measurables";
 
 const scopeTypeSchema = z.enum(["company", "l10", "team", "one_on_one", "private"]);
 const membershipPolicySchema = z.enum(["explicit", "active_accounts", "owner_only"]);
@@ -434,6 +435,100 @@ export const pulseRouter = router({
   meetingReport: protectedProcedure.input(z.object({ reportId: z.number().int().positive() })).query(async ({ input, ctx }) => {
     const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
     try { return getMeetingReport(db, actor, input.reportId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  createMeasurable: protectedProcedure.input(z.object({
+    name: z.string().trim().min(2).max(255), definition: z.string().trim().max(10000).optional().nullable(), unit: z.string().trim().min(1).max(64).optional(),
+    cadence: z.enum(["weekly", "monthly", "quarterly"]).default("weekly"), aggregation: z.enum(["last", "sum", "average"]).default("last"),
+    direction: z.enum(["higher_is_better", "lower_is_better"]).default("higher_is_better"), targetValue: z.number().finite().optional().nullable(), warningValue: z.number().finite().optional().nullable(), criticalValue: z.number().finite().optional().nullable(),
+    ownerPersonId: z.number().int().positive().optional().nullable(), alertEnabled: z.boolean().default(true), placementScopeIds: z.array(z.number().int().positive()).min(1).max(50),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return { id: await createMeasurable(db, actor, input) }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  updateMeasurable: protectedProcedure.input(z.object({
+    measurableId: z.number().int().positive(), name: z.string().trim().min(2).max(255).optional(), definition: z.string().trim().max(10000).optional().nullable(), unit: z.string().trim().min(1).max(64).optional(),
+    cadence: z.enum(["weekly", "monthly", "quarterly"]).optional(), aggregation: z.enum(["last", "sum", "average"]).optional(), direction: z.enum(["higher_is_better", "lower_is_better"]).optional(),
+    targetValue: z.number().finite().optional().nullable(), warningValue: z.number().finite().optional().nullable(), criticalValue: z.number().finite().optional().nullable(), ownerPersonId: z.number().int().positive().optional().nullable(), alertEnabled: z.boolean().optional(), isActive: z.boolean().optional(),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await updateMeasurable(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  placeMeasurable: protectedProcedure.input(z.object({ measurableId: z.number().int().positive(), scopeId: z.number().int().positive(), displayOrder: z.number().int().min(0).max(10000).optional() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await placeMeasurable(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  recordMeasurableEntry: protectedProcedure.input(z.object({ measurableId: z.number().int().positive(), scopeId: z.number().int().positive(), value: z.number().finite(), note: z.string().trim().max(10000).optional().nullable() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return recordMeasurableEntry(db, actor, input); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  scorecard: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getScopeScorecard(db, actor, input.scopeId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  scorecardDashboard: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getDashboardScorecard(db, actor, input.scopeId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  scorecardAnalytics: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getAnalyticsScorecard(db, actor, input.scopeId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  scorecardReport: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getReportScorecard(db, actor, input.scopeId); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  createStrategyNode: protectedProcedure.input(z.object({
+    nodeType: z.enum(["vision", "annual_goal", "quarterly_rock", "milestone"]), parentId: z.number().int().positive().optional().nullable(), title: z.string().trim().min(2).max(512),
+    description: z.string().trim().max(10000).optional().nullable(), status: z.enum(["not_started", "on_track", "at_risk", "complete", "skipped"]).default("not_started"),
+    startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(), dueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(), sortOrder: z.number().int().min(0).max(100000).optional(),
+    accountablePersonId: z.number().int().positive(), responsiblePersonId: z.number().int().positive().optional().nullable(), consultedPersonIds: z.array(z.number().int().positive()).max(100).default([]), informedPersonIds: z.array(z.number().int().positive()).max(100).default([]), placementScopeIds: z.array(z.number().int().positive()).min(1).max(50),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return { id: await createStrategyNode(db, actor, input) }; }
+    catch (error: any) { throw new TRPCError({ code: "BAD_REQUEST", message: error.message }); }
+  }),
+
+  setStrategyStatus: protectedProcedure.input(z.object({ nodeId: z.number().int().positive(), status: z.enum(["not_started", "on_track", "at_risk", "complete", "skipped"]) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await setStrategyNodeStatus(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  setStrategyScopePresentation: protectedProcedure.input(z.object({ nodeId: z.number().int().positive(), scopeId: z.number().int().positive(), isVisible: z.boolean().optional(), presentationStatus: z.enum(["not_started", "on_track", "at_risk", "complete", "skipped"]).optional().nullable() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await setStrategyScopePresentation(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+
+  setStrategyRaci: protectedProcedure.input(z.object({ nodeId: z.number().int().positive(), accountablePersonId: z.number().int().positive(), responsiblePersonId: z.number().int().positive().optional().nullable(), consultedPersonIds: z.array(z.number().int().positive()).max(100).default([]), informedPersonIds: z.array(z.number().int().positive()).max(100).default([]) })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { await setStrategyRaci(db, actor, input); return { success: true }; }
+    catch (error: any) { throw new TRPCError({ code: "BAD_REQUEST", message: error.message }); }
+  }),
+
+  strategy: protectedProcedure.input(z.object({ scopeId: z.number().int().positive(), nodeType: z.enum(["vision", "annual_goal", "quarterly_rock", "milestone"]).optional(), status: z.enum(["not_started", "on_track", "at_risk", "complete", "skipped"]).optional() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getScopeStrategy(db, actor, input.scopeId, { nodeType: input.nodeType, status: input.status }); }
+    catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
+  }),
+  vto: protectedProcedure.input(z.object({ scopeId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const db = await requireDb(); const actor = await resolveActor(db, ctx.user.id);
+    try { return getVto(db, actor, input.scopeId); }
     catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error.message }); }
   }),
 });

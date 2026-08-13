@@ -1994,7 +1994,7 @@ export type PulseHoliday = typeof pulseHolidays.$inferSelect;
 // restrict payload classes by event type; triggers reject UPDATE and DELETE.
 export const pulseDomainEvents = mysqlTable("pulse_domain_events", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "meeting_created", "meeting_deactivated", "meeting_reactivated", "session_started", "session_step_entered", "session_ids_snapshot", "session_item_captured", "session_vote_cast", "session_completed", "session_auto_closed", "session_report_created", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
+  eventType: mysqlEnum("eventType", ["scope_created", "scope_archived", "scope_reactivated", "membership_granted", "membership_revoked", "calendar_configured", "reporting_period_created", "holiday_created", "meeting_created", "meeting_deactivated", "meeting_reactivated", "session_started", "session_step_entered", "session_ids_snapshot", "session_item_captured", "session_vote_cast", "session_completed", "session_auto_closed", "session_report_created", "measurable_created", "measurable_placed", "measurable_entry_recorded", "measurable_alert_raised", "strategy_node_created", "strategy_node_status_changed", "strategy_scope_placed", "strategy_raci_updated", "work_item_created", "work_item_moved", "work_item_status_changed", "work_item_assigned", "work_item_comment_added", "work_item_mention_added"]).notNull(),
   scopeId: int("scopeId").references(() => pulseScopes.id, { onDelete: "set null" }),
   actorPersonId: int("actorPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
   payload: json("payload").$type<Record<string, unknown>>().notNull(),
@@ -2150,6 +2150,137 @@ export const pulseWorkItemNotificationIntents = mysqlTable("pulse_work_item_noti
   deliveredAt: timestamp("deliveredAt"),
 }, (table) => [index("pulse_work_item_notification_intents_recipient_status_idx").on(table.recipientPersonId, table.status, table.createdAt)]);
 export type PulseWorkItemNotificationIntent = typeof pulseWorkItemNotificationIntents.$inferSelect;
+
+// ─── Pulse Measurables, Scorecards, Alerts, and Strategy ──────────────────────
+// A measurable is one durable definition. Multiple Scope placements are normalized; current
+// visibility always comes from the placement Scope and never from a routing string.
+export const pulseMeasurables = mysqlTable("pulse_measurables", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  definition: text("definition"),
+  unit: varchar("unit", { length: 64 }).notNull().default("count"),
+  cadence: mysqlEnum("cadence", ["weekly", "monthly", "quarterly"]).default("weekly").notNull(),
+  aggregation: mysqlEnum("aggregation", ["last", "sum", "average"]).default("last").notNull(),
+  direction: mysqlEnum("direction", ["higher_is_better", "lower_is_better"]).default("higher_is_better").notNull(),
+  targetValue: decimal("targetValue", { precision: 18, scale: 4 }),
+  warningValue: decimal("warningValue", { precision: 18, scale: 4 }),
+  criticalValue: decimal("criticalValue", { precision: 18, scale: 4 }),
+  ownerPersonId: int("ownerPersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  alertEnabled: boolean("alertEnabled").default(true).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_measurables_active_owner_idx").on(table.isActive, table.ownerPersonId, table.name),
+]);
+export type PulseMeasurable = typeof pulseMeasurables.$inferSelect;
+
+export const pulseMeasurablePlacements = mysqlTable("pulse_measurable_placements", {
+  id: int("id").autoincrement().primaryKey(),
+  measurableId: int("measurableId").notNull().references(() => pulseMeasurables.id, { onDelete: "cascade" }),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  displayOrder: int("displayOrder").default(0).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  addedByPersonId: int("addedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_measurable_placements_measurable_scope_unique").on(table.measurableId, table.scopeId),
+  index("pulse_measurable_placements_scope_active_order_idx").on(table.scopeId, table.isActive, table.displayOrder),
+]);
+export type PulseMeasurablePlacement = typeof pulseMeasurablePlacements.$inferSelect;
+
+// One value cell per measurable/calendar period. Upsert is intentional last-write-wins and keeps
+// the latest submitter separate from the durable measurable owner.
+export const pulseMeasurableEntries = mysqlTable("pulse_measurable_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  measurableId: int("measurableId").notNull().references(() => pulseMeasurables.id, { onDelete: "cascade" }),
+  periodKey: varchar("periodKey", { length: 96 }).notNull(),
+  periodStart: date("periodStart").notNull(),
+  periodEnd: date("periodEnd").notNull(),
+  value: decimal("value", { precision: 18, scale: 4 }).notNull(),
+  note: text("note"),
+  submittedByPersonId: int("submittedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_measurable_entries_measurable_period_unique").on(table.measurableId, table.periodKey),
+  index("pulse_measurable_entries_period_idx").on(table.periodStart, table.periodEnd),
+]);
+export type PulseMeasurableEntry = typeof pulseMeasurableEntries.$inferSelect;
+
+// Alerts are a centrally-derived record of threshold evaluation, not another editable KPI state.
+export const pulseMeasurableAlerts = mysqlTable("pulse_measurable_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  measurableId: int("measurableId").notNull().references(() => pulseMeasurables.id, { onDelete: "cascade" }),
+  entryId: int("entryId").notNull().references(() => pulseMeasurableEntries.id, { onDelete: "cascade" }),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  alertState: mysqlEnum("alertState", ["warning", "critical"]).notNull(),
+  observedValue: decimal("observedValue", { precision: 18, scale: 4 }).notNull(),
+  periodKey: varchar("periodKey", { length: 96 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_measurable_alerts_entry_scope_unique").on(table.entryId, table.scopeId),
+  index("pulse_measurable_alerts_scope_state_time_idx").on(table.scopeId, table.alertState, table.createdAt),
+]);
+export type PulseMeasurableAlert = typeof pulseMeasurableAlerts.$inferSelect;
+
+// One strategy hierarchy powers Vision, Annual Goals, Quarterly Rocks, Milestones, and VTO.
+export const pulseStrategyNodes = mysqlTable("pulse_strategy_nodes", {
+  id: int("id").autoincrement().primaryKey(),
+  nodeType: mysqlEnum("nodeType", ["vision", "annual_goal", "quarterly_rock", "milestone"]).notNull(),
+  parentId: int("parentId"),
+  title: varchar("title", { length: 512 }).notNull(),
+  description: text("description"),
+  status: mysqlEnum("status", ["not_started", "on_track", "at_risk", "complete", "skipped"]).default("not_started").notNull(),
+  startsOn: date("startsOn"),
+  dueOn: date("dueOn"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  // Exactly one Accountable is mandatory. Responsible is intentionally optional and is the displayed owner when present.
+  accountablePersonId: int("accountablePersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  responsiblePersonId: int("responsiblePersonId").references(() => pulsePeople.id, { onDelete: "set null" }),
+  createdByPersonId: int("createdByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  foreignKey({ columns: [table.parentId], foreignColumns: [table.id], name: "pulse_strategy_nodes_parent_fk" }).onDelete("cascade"),
+  index("pulse_strategy_nodes_parent_order_idx").on(table.parentId, table.sortOrder),
+  index("pulse_strategy_nodes_type_status_idx").on(table.nodeType, table.status, table.dueOn),
+]);
+export type PulseStrategyNode = typeof pulseStrategyNodes.$inferSelect;
+
+export const pulseStrategyRaci = mysqlTable("pulse_strategy_raci", {
+  id: int("id").autoincrement().primaryKey(),
+  nodeId: int("nodeId").notNull().references(() => pulseStrategyNodes.id, { onDelete: "cascade" }),
+  personId: int("personId").notNull().references(() => pulsePeople.id, { onDelete: "cascade" }),
+  role: mysqlEnum("role", ["responsible", "accountable", "consulted", "informed"]).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  assignedByPersonId: int("assignedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_strategy_raci_node_person_role_unique").on(table.nodeId, table.personId, table.role),
+  index("pulse_strategy_raci_node_role_active_idx").on(table.nodeId, table.role, table.isActive),
+]);
+export type PulseStrategyRaci = typeof pulseStrategyRaci.$inferSelect;
+
+// Scope-specific visibility and presentation status never overwrite the canonical node status.
+export const pulseStrategyScopePlacements = mysqlTable("pulse_strategy_scope_placements", {
+  id: int("id").autoincrement().primaryKey(),
+  nodeId: int("nodeId").notNull().references(() => pulseStrategyNodes.id, { onDelete: "cascade" }),
+  scopeId: int("scopeId").notNull().references(() => pulseScopes.id, { onDelete: "cascade" }),
+  isVisible: boolean("isVisible").default(true).notNull(),
+  presentationStatus: mysqlEnum("presentationStatus", ["not_started", "on_track", "at_risk", "complete", "skipped"]),
+  addedByPersonId: int("addedByPersonId").notNull().references(() => pulsePeople.id, { onDelete: "restrict" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_strategy_scope_placements_node_scope_unique").on(table.nodeId, table.scopeId),
+  index("pulse_strategy_scope_placements_scope_visible_idx").on(table.scopeId, table.isVisible, table.nodeId),
+]);
+export type PulseStrategyScopePlacement = typeof pulseStrategyScopePlacements.$inferSelect;
 
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.
