@@ -27,6 +27,7 @@ import {
   workSavedViews,
   workStatusUpdates,
   workStories,
+  workStoryReactions,
   workTags,
   workTaskAssignees,
   workTaskCustomFieldValues,
@@ -729,6 +730,28 @@ export const workManagementRouter = router({
       const storyId = await writeStory({ taskId: input.taskId, projectId: projectIds[0] ?? null, actorId: ctx.user.id, storyType: "comment", contentJson: input.contentJson, contentPlainText: input.contentPlainText });
       await notifyUsers({ userIds: input.mentionedUserIds ?? [], actorId: ctx.user.id, type: "mention", title: "You were mentioned in a task comment", body: input.contentPlainText.slice(0, 500), taskId: input.taskId, projectId: projectIds[0] ?? null, storyId });
       return { id: storyId };
+    }),
+    listStoryReactions: protectedProcedure.input(z.object({ storyIds: z.array(z.number().int().positive()).min(1).max(100) })).query(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const stories = await db.select({ id: workStories.id, taskId: workStories.taskId, projectId: workStories.projectId }).from(workStories).where(inArray(workStories.id, input.storyIds));
+      for (const story of stories) {
+        if (story.taskId) await requireTaskAccess(ctx.user, story.taskId, "viewer");
+        else if (story.projectId) await requireProjectAccess(ctx.user, story.projectId, "viewer");
+        else throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return db.select().from(workStoryReactions).where(inArray(workStoryReactions.storyId, input.storyIds));
+    }),
+    toggleStoryReaction: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), emoji: z.string().min(1).max(32) })).mutation(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const [story] = await db.select({ taskId: workStories.taskId, projectId: workStories.projectId }).from(workStories).where(eq(workStories.id, input.storyId)).limit(1);
+      if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "Activity item not found." });
+      if (story.taskId) await requireTaskAccess(ctx.user, story.taskId, "commenter");
+      else if (story.projectId) await requireProjectAccess(ctx.user, story.projectId, "commenter");
+      else throw new TRPCError({ code: "FORBIDDEN" });
+      const [existing] = await db.select().from(workStoryReactions).where(and(eq(workStoryReactions.storyId, input.storyId), eq(workStoryReactions.userId, ctx.user.id), eq(workStoryReactions.emoji, input.emoji))).limit(1);
+      if (existing) await db.delete(workStoryReactions).where(eq(workStoryReactions.id, existing.id));
+      else await db.insert(workStoryReactions).values({ storyId: input.storyId, userId: ctx.user.id, emoji: input.emoji });
+      return { reacted: !existing };
     }),
     addDependency: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), dependsOnTaskId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       if (input.taskId === input.dependsOnTaskId) throw new TRPCError({ code: "BAD_REQUEST", message: "A task cannot depend on itself." });

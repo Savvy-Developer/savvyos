@@ -3428,6 +3428,17 @@ export const workStories = mysqlTable("work_stories", {
   index("work_stories_project_created_idx").on(table.projectId, table.createdAt),
 ]);
 
+export const workStoryReactions = mysqlTable("work_story_reactions", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull().references(() => workStories.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  emoji: varchar("emoji", { length: 32 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("work_story_reactions_story_user_emoji_unique").on(table.storyId, table.userId, table.emoji),
+  index("work_story_reactions_story_idx").on(table.storyId, table.createdAt),
+]);
+
 export const workAttachments = mysqlTable("work_attachments", {
   id: int("id").autoincrement().primaryKey(),
   taskId: int("taskId").references(() => workTasks.id, { onDelete: "cascade" }),
