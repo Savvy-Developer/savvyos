@@ -693,6 +693,14 @@ export const workManagementRouter = router({
       await writeStory({ taskId: input.taskId, projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Added task to project." });
       return { success: true };
     }),
+    removeFromProject: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), projectId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireTaskAccess(ctx.user, input.taskId, "editor");
+      await requireProjectAccess(ctx.user, input.projectId, "editor");
+      const db = await getRequiredDb();
+      await db.update(workTaskProjectMemberships).set({ deletedAt: new Date() }).where(and(eq(workTaskProjectMemberships.taskId, input.taskId), eq(workTaskProjectMemberships.projectId, input.projectId), isNull(workTaskProjectMemberships.deletedAt)));
+      await writeStory({ taskId: input.taskId, projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Removed task from project." });
+      return { success: true };
+    }),
     addComment: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), contentJson: richText, contentPlainText: z.string().min(1).max(100000), mentionedUserIds: z.array(z.number().int().positive()).optional() })).mutation(async ({ ctx, input }) => {
       await requireTaskAccess(ctx.user, input.taskId, "commenter");
       const projectIds = await projectTaskContext(input.taskId);
