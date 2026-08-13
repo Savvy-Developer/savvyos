@@ -599,7 +599,7 @@ export const workManagementRouter = router({
       const db = await getRequiredDb();
       const [task] = await db.select().from(workTasks).where(and(eq(workTasks.id, input.id), isNull(workTasks.deletedAt))).limit(1);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found." });
-      const [memberships, assignees, followers, dependencies, customValues, stories, subtasks] = await Promise.all([
+      const [memberships, assignees, followers, dependencies, customValues, stories, subtasks, tags] = await Promise.all([
         db.select({ projectId: workTaskProjectMemberships.projectId, projectName: workProjects.name, sectionId: workTaskProjectMemberships.sectionId, sectionName: workProjectSections.name, position: workTaskProjectMemberships.position }).from(workTaskProjectMemberships).leftJoin(workProjects, eq(workTaskProjectMemberships.projectId, workProjects.id)).leftJoin(workProjectSections, eq(workTaskProjectMemberships.sectionId, workProjectSections.id)).where(and(eq(workTaskProjectMemberships.taskId, input.id), isNull(workTaskProjectMemberships.deletedAt))),
         db.select({ userId: workTaskAssignees.userId, name: users.name, email: users.email }).from(workTaskAssignees).leftJoin(users, eq(workTaskAssignees.userId, users.id)).where(and(eq(workTaskAssignees.taskId, input.id), isNull(workTaskAssignees.deletedAt))),
         db.select({ userId: workTaskFollowers.userId, name: users.name }).from(workTaskFollowers).leftJoin(users, eq(workTaskFollowers.userId, users.id)).where(and(eq(workTaskFollowers.taskId, input.id), isNull(workTaskFollowers.deletedAt))),
@@ -607,8 +607,9 @@ export const workManagementRouter = router({
         db.select({ customFieldId: workTaskCustomFieldValues.customFieldId, name: workCustomFields.name, fieldType: workCustomFields.fieldType, value: workTaskCustomFieldValues.value, plainTextValue: workTaskCustomFieldValues.plainTextValue }).from(workTaskCustomFieldValues).leftJoin(workCustomFields, eq(workTaskCustomFieldValues.customFieldId, workCustomFields.id)).where(and(eq(workTaskCustomFieldValues.taskId, input.id), isNull(workTaskCustomFieldValues.deletedAt))),
         db.select({ id: workStories.id, storyType: workStories.storyType, contentJson: workStories.contentJson, contentPlainText: workStories.contentPlainText, metadata: workStories.metadata, actorId: workStories.actorId, actorName: users.name, createdAt: workStories.createdAt }).from(workStories).leftJoin(users, eq(workStories.actorId, users.id)).where(eq(workStories.taskId, input.id)).orderBy(desc(workStories.createdAt)).limit(100),
         db.select({ id: workTasks.id, name: workTasks.name, completionStatus: workTasks.completionStatus, dueOn: workTasks.dueOn, position: workTasks.position }).from(workTasks).where(and(eq(workTasks.parentTaskId, input.id), isNull(workTasks.deletedAt))).orderBy(asc(workTasks.position)),
+        db.select({ id: workTags.id, name: workTags.name, color: workTags.color }).from(workTaskTags).innerJoin(workTags, eq(workTaskTags.tagId, workTags.id)).where(and(eq(workTaskTags.taskId, input.id), isNull(workTaskTags.deletedAt), isNull(workTags.deletedAt))),
       ]);
-      return { ...task, memberships, assignees, followers, dependencies, customValues, stories, subtasks };
+      return { ...task, memberships, assignees, followers, dependencies, customValues, stories, subtasks, tags };
     }),
     create: protectedProcedure.input(z.object({ name: z.string().min(1).max(512), projectId: z.number().int().positive().optional(), sectionId: z.number().int().positive().nullable().optional(), parentTaskId: z.number().int().positive().nullable().optional(), descriptionJson: richText, descriptionPlainText: z.string().max(100000).optional(), taskType: z.enum(["default_task", "milestone", "approval"]).default("default_task"), startOn: dateInput, startAt: dateTimeInput, dueOn: dateInput, dueAt: dateTimeInput, actualTimeMinutes: z.number().int().min(0).nullable().optional(), assigneeIds: z.array(z.number().int().positive()).optional(), followerIds: z.array(z.number().int().positive()).optional(), tagIds: z.array(z.number().int().positive()).optional(), position: rankInput })).mutation(async ({ ctx, input }) => {
       if (input.projectId) await requireProjectAccess(ctx.user, input.projectId, "editor");
@@ -691,6 +692,15 @@ export const workManagementRouter = router({
       if (existing) await db.update(workTaskProjectMemberships).set({ sectionId, position, deletedAt: null }).where(eq(workTaskProjectMemberships.id, existing.id));
       else await db.insert(workTaskProjectMemberships).values({ taskId: input.taskId, projectId: input.projectId, sectionId, position, addedById: ctx.user.id });
       await writeStory({ taskId: input.taskId, projectId: input.projectId, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Added task to project." });
+      return { success: true };
+    }),
+    setTags: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), tagIds: z.array(z.number().int().positive()).max(25) })).mutation(async ({ ctx, input }) => {
+      await requireTaskAccess(ctx.user, input.taskId, "editor");
+      const db = await getRequiredDb();
+      await db.update(workTaskTags).set({ deletedAt: new Date() }).where(and(eq(workTaskTags.taskId, input.taskId), isNull(workTaskTags.deletedAt)));
+      if (input.tagIds.length) await db.insert(workTaskTags).values(input.tagIds.map(tagId => ({ taskId: input.taskId, tagId, addedById: ctx.user.id })));
+      const projectIds = await projectTaskContext(input.taskId);
+      await writeStory({ taskId: input.taskId, projectId: projectIds[0] ?? null, actorId: ctx.user.id, storyType: "updated", contentPlainText: "Updated task tags." });
       return { success: true };
     }),
     removeFromProject: protectedProcedure.input(z.object({ taskId: z.number().int().positive(), projectId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
