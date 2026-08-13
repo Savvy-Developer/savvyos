@@ -837,6 +837,14 @@ export const workManagementRouter = router({
       await db.insert(workPortfolioItems).values({ portfolioId: input.portfolioId, projectId: input.projectId, position: input.position ?? nextRank(), createdById: ctx.user.id });
       return { success: true };
     }),
+    removeItem: protectedProcedure.input(z.object({ portfolioId: z.number().int().positive(), itemId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requirePortfolioAccess(ctx.user, input.portfolioId, "editor");
+      const db = await getRequiredDb();
+      const [item] = await db.select().from(workPortfolioItems).where(and(eq(workPortfolioItems.id, input.itemId), eq(workPortfolioItems.portfolioId, input.portfolioId), isNull(workPortfolioItems.deletedAt))).limit(1);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Portfolio item not found." });
+      await db.update(workPortfolioItems).set({ deletedAt: new Date() }).where(eq(workPortfolioItems.id, item.id));
+      return { success: true };
+    }),
   }),
 
   statusUpdates: router({
