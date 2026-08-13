@@ -362,6 +362,13 @@ function SidebarNav({
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
   const avatarUrl = (user as any).profilePhotoUrl ?? null;
+  const hasWorkNavigation = navGroups.some(group => group.label === "Work");
+  const { data: workProjectsData } = trpc.work.projects.list.useQuery(
+    { limit: 8 },
+    { enabled: hasWorkNavigation && !collapsed, staleTime: 60_000 }
+  );
+  const workProjects = ((workProjectsData as any)?.items ?? []) as Array<{ id: number; name: string; color?: string | null; defaultView?: string | null }>;
+
 
   return (
     <div className="flex flex-col h-full select-none">
@@ -426,6 +433,15 @@ function SidebarNav({
                 );
               })}
             </ul>
+            {!collapsed && group.label === "Work" && workProjects.length > 0 && (
+              <div className="mt-1 space-y-0.5 border-l border-sidebar-border/70 pl-3">
+                {workProjects.map((project) => {
+                  const path = `/work/projects/${project.id}/${project.defaultView || "list"}`;
+                  const isActive = currentPath.startsWith(`/work/projects/${project.id}/`);
+                  return <a key={project.id} href={path} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) { event.preventDefault(); onNavigate(path); } }} className={`flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors ${isActive ? "bg-[oklch(0.74_0.14_200)]/15 text-[oklch(0.60_0.14_200)] font-medium" : "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground"}`}><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: project.color || "#14b8a6" }} /><span className="truncate">{project.name}</span></a>;
+                })}
+              </div>
+            )}
           </div>
         ))}
       </nav>
