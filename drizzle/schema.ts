@@ -2734,7 +2734,7 @@ export const workCustomFields = mysqlTable("work_custom_fields", {
   slug: varchar("slug", { length: 120 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  fieldType: mysqlEnum("fieldType", ["text", "number", "date", "enum", "multi_enum", "person", "boolean", "url", "formula"]).notNull(),
+  fieldType: mysqlEnum("fieldType", ["text", "number", "date", "enum", "multi_enum", "person", "people", "boolean", "url", "formula", "custom_id", "reference"]).notNull(),
   enumOptions: json("enumOptions").$type<Array<{ id: string; label: string; color?: string }>>(),
   config: json("config").$type<Record<string, unknown>>(),
   createdById: int("createdById").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -2745,12 +2745,28 @@ export const workCustomFields = mysqlTable("work_custom_fields", {
   index("work_custom_fields_name_idx").on(table.name, table.deletedAt),
 ]);
 
+export const workCustomFieldEnumOptions = mysqlTable("work_custom_field_enum_options", {
+  id: int("id").autoincrement().primaryKey(),
+  customFieldId: int("customFieldId").notNull().references(() => workCustomFields.id, { onDelete: "cascade" }),
+  optionKey: varchar("optionKey", { length: 120 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  color: varchar("color", { length: 32 }),
+  enabled: boolean("enabled").notNull().default(true),
+  position: varchar("position", { length: 64 }).notNull().default("a0"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("work_custom_field_enum_option_unique").on(table.customFieldId, table.optionKey),
+  index("work_custom_field_enum_option_order_idx").on(table.customFieldId, table.position),
+]);
+
 export const workProjectCustomFields = mysqlTable("work_project_custom_fields", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId").notNull().references(() => workProjects.id, { onDelete: "cascade" }),
   customFieldId: int("customFieldId").notNull().references(() => workCustomFields.id, { onDelete: "cascade" }),
   position: varchar("position", { length: 64 }).notNull().default("a0"),
   isRequired: boolean("isRequired").notNull().default(false),
+  isImportant: boolean("isImportant").notNull().default(false),
   deletedAt: timestamp("deletedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2842,8 +2858,18 @@ export const workTaskCustomFieldValues = mysqlTable("work_task_custom_field_valu
   id: int("id").autoincrement().primaryKey(),
   taskId: int("taskId").notNull().references(() => workTasks.id, { onDelete: "cascade" }),
   customFieldId: int("customFieldId").notNull().references(() => workCustomFields.id, { onDelete: "cascade" }),
+  // Legacy generic payload retained during the non-destructive typed-field migration.
   value: json("value").$type<unknown>(),
   plainTextValue: text("plainTextValue"),
+  valueText: text("valueText"),
+  valueNumber: decimal("valueNumber", { precision: 20, scale: 6 }),
+  valueDate: date("valueDate"),
+  valueDateTime: timestamp("valueDateTime"),
+  valueEnumOptionId: varchar("valueEnumOptionId", { length: 120 }),
+  valueEnumOptionIds: json("valueEnumOptionIds").$type<string[]>(),
+  valuePeople: json("valuePeople").$type<number[]>(),
+  valueRefType: varchar("valueRefType", { length: 32 }),
+  valueRefId: int("valueRefId"),
   deletedAt: timestamp("deletedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

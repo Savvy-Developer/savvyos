@@ -9,6 +9,7 @@ import {
   users,
   workAttachments,
   workCustomFields,
+  workCustomFieldEnumOptions,
   workFormFields,
   workForms,
   workMyTaskMemberships,
@@ -528,17 +529,37 @@ export const workManagementRouter = router({
       const db = await getRequiredDb();
       return db.select().from(workCustomFields).where(isNull(workCustomFields.deletedAt)).orderBy(asc(workCustomFields.name));
     }),
-    create: protectedProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().max(2000).optional(), fieldType: z.enum(["text", "number", "date", "enum", "multi_enum", "person", "boolean", "url", "formula"]), enumOptions: z.array(z.object({ id: z.string(), label: z.string(), color: z.string().optional() })).optional(), config: jsonObject.optional() })).mutation(async ({ ctx, input }) => {
+    create: protectedProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().max(2000).optional(), fieldType: z.enum(["text", "number", "date", "enum", "multi_enum", "person", "people", "boolean", "url", "formula", "custom_id", "reference"]), enumOptions: z.array(z.object({ id: z.string(), label: z.string(), color: z.string().optional(), enabled: z.boolean().optional(), position: z.string().optional() })).optional(), config: jsonObject.optional() })).mutation(async ({ ctx, input }) => {
       const db = await getRequiredDb();
       const [result] = await db.insert(workCustomFields).values({ slug: slugify(input.name), name: input.name.trim(), description: input.description ?? null, fieldType: input.fieldType, enumOptions: input.enumOptions ?? null, config: input.config ?? null, createdById: ctx.user.id });
-      return { id: Number(result.insertId) };
+      const id = Number(result.insertId);
+      if (input.enumOptions?.length) await db.insert(workCustomFieldEnumOptions).values(input.enumOptions.map((option, index) => ({ customFieldId: id, optionKey: option.id, name: option.label, color: option.color ?? null, enabled: option.enabled ?? true, position: option.position ?? `${index}0` })));
+      return { id };
     }),
-    addToProject: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), customFieldId: z.number().int().positive(), position: rankInput, isRequired: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+    listForProject: protectedProcedure.input(z.object({ projectId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx.user, input.projectId, "viewer");
+      const db = await getRequiredDb();
+      return db.select({
+        attachmentId: workProjectCustomFields.id,
+        customFieldId: workCustomFields.id,
+        name: workCustomFields.name,
+        description: workCustomFields.description,
+        fieldType: workCustomFields.fieldType,
+        enumOptions: workCustomFields.enumOptions,
+        config: workCustomFields.config,
+        position: workProjectCustomFields.position,
+        isRequired: workProjectCustomFields.isRequired,
+        isImportant: workProjectCustomFields.isImportant,
+      }).from(workProjectCustomFields).innerJoin(workCustomFields, eq(workProjectCustomFields.customFieldId, workCustomFields.id))
+        .where(and(eq(workProjectCustomFields.projectId, input.projectId), isNull(workProjectCustomFields.deletedAt), isNull(workCustomFields.deletedAt)))
+        .orderBy(asc(workProjectCustomFields.position));
+    }),
+    addToProject: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), customFieldId: z.number().int().positive(), position: rankInput, isRequired: z.boolean().optional(), isImportant: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.projectId, "editor");
       const db = await getRequiredDb();
       const [existing] = await db.select().from(workProjectCustomFields).where(and(eq(workProjectCustomFields.projectId, input.projectId), eq(workProjectCustomFields.customFieldId, input.customFieldId))).limit(1);
-      if (existing) await db.update(workProjectCustomFields).set({ deletedAt: null, position: input.position ?? existing.position, isRequired: input.isRequired ?? existing.isRequired }).where(eq(workProjectCustomFields.id, existing.id));
-      else await db.insert(workProjectCustomFields).values({ projectId: input.projectId, customFieldId: input.customFieldId, position: input.position ?? nextRank(), isRequired: input.isRequired ?? false });
+      if (existing) await db.update(workProjectCustomFields).set({ deletedAt: null, position: input.position ?? existing.position, isRequired: input.isRequired ?? existing.isRequired, isImportant: input.isImportant ?? existing.isImportant }).where(eq(workProjectCustomFields.id, existing.id));
+      else await db.insert(workProjectCustomFields).values({ projectId: input.projectId, customFieldId: input.customFieldId, position: input.position ?? nextRank(), isRequired: input.isRequired ?? false, isImportant: input.isImportant ?? false });
       return { success: true };
     }),
   }),
