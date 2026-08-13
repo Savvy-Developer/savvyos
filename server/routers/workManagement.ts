@@ -455,10 +455,30 @@ export const workManagementRouter = router({
       await notifyUsers({ userIds: input.mentionedUserIds ?? [], actorId: ctx.user.id, type: "mention", title: input.subject?.trim() || "You were mentioned in a project message", body: input.contentPlainText.slice(0, 500), projectId: input.projectId, storyId });
       return { id: storyId };
     }),
+    updateMessage: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), contentJson: richText, contentPlainText: z.string().min(1).max(100000) })).mutation(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const [story] = await db.select({ projectId: workStories.projectId, actorId: workStories.actorId, storyType: workStories.storyType, deletedAt: workStories.deletedAt }).from(workStories).where(eq(workStories.id, input.storyId)).limit(1);
+      if (!story || story.storyType !== "comment" || !story.projectId) throw new TRPCError({ code: "NOT_FOUND", message: "Project message not found." });
+      await requireProjectAccess(ctx.user, story.projectId, "commenter");
+      if (ctx.user.role !== "admin" && story.actorId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Only the message author can edit this message." });
+      if (story.deletedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Deleted messages cannot be edited." });
+      await db.update(workStories).set({ contentJson: input.contentJson, contentPlainText: input.contentPlainText, editedAt: new Date() }).where(eq(workStories.id, input.storyId));
+      return { success: true };
+    }),
+    deleteMessage: protectedProcedure.input(z.object({ storyId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const [story] = await db.select({ projectId: workStories.projectId, actorId: workStories.actorId, storyType: workStories.storyType, deletedAt: workStories.deletedAt }).from(workStories).where(eq(workStories.id, input.storyId)).limit(1);
+      if (!story || story.storyType !== "comment" || !story.projectId) throw new TRPCError({ code: "NOT_FOUND", message: "Project message not found." });
+      await requireProjectAccess(ctx.user, story.projectId, "commenter");
+      if (ctx.user.role !== "admin" && story.actorId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Only the message author can delete this message." });
+      if (story.deletedAt) return { success: true };
+      await db.update(workStories).set({ deletedAt: new Date() }).where(eq(workStories.id, input.storyId));
+      return { success: true };
+    }),
     listMessages: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), limit: z.number().int().min(1).max(100).optional() })).query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.projectId, "viewer");
       const db = await getRequiredDb();
-      return db.select({ id: workStories.id, contentPlainText: workStories.contentPlainText, metadata: workStories.metadata, actorId: workStories.actorId, actorName: users.name, createdAt: workStories.createdAt })
+      return db.select({ id: workStories.id, contentPlainText: workStories.contentPlainText, metadata: workStories.metadata, actorId: workStories.actorId, actorName: users.name, editedAt: workStories.editedAt, deletedAt: workStories.deletedAt, createdAt: workStories.createdAt })
         .from(workStories).leftJoin(users, eq(workStories.actorId, users.id))
         .where(and(eq(workStories.projectId, input.projectId), eq(workStories.storyType, "comment")))
         .orderBy(desc(workStories.createdAt)).limit(input.limit ?? 100);
@@ -618,7 +638,7 @@ export const workManagementRouter = router({
         db.select({ userId: workTaskFollowers.userId, name: users.name }).from(workTaskFollowers).leftJoin(users, eq(workTaskFollowers.userId, users.id)).where(and(eq(workTaskFollowers.taskId, input.id), isNull(workTaskFollowers.deletedAt))),
         db.select({ id: workTaskDependencies.id, dependsOnTaskId: workTaskDependencies.dependsOnTaskId, taskName: workTasks.name }).from(workTaskDependencies).leftJoin(workTasks, eq(workTaskDependencies.dependsOnTaskId, workTasks.id)).where(and(eq(workTaskDependencies.taskId, input.id), isNull(workTaskDependencies.deletedAt))),
         db.select({ customFieldId: workTaskCustomFieldValues.customFieldId, name: workCustomFields.name, fieldType: workCustomFields.fieldType, value: workTaskCustomFieldValues.value, plainTextValue: workTaskCustomFieldValues.plainTextValue }).from(workTaskCustomFieldValues).leftJoin(workCustomFields, eq(workTaskCustomFieldValues.customFieldId, workCustomFields.id)).where(and(eq(workTaskCustomFieldValues.taskId, input.id), isNull(workTaskCustomFieldValues.deletedAt))),
-        db.select({ id: workStories.id, storyType: workStories.storyType, contentJson: workStories.contentJson, contentPlainText: workStories.contentPlainText, metadata: workStories.metadata, actorId: workStories.actorId, actorName: users.name, createdAt: workStories.createdAt }).from(workStories).leftJoin(users, eq(workStories.actorId, users.id)).where(eq(workStories.taskId, input.id)).orderBy(desc(workStories.createdAt)).limit(100),
+        db.select({ id: workStories.id, storyType: workStories.storyType, contentJson: workStories.contentJson, contentPlainText: workStories.contentPlainText, metadata: workStories.metadata, actorId: workStories.actorId, actorName: users.name, editedAt: workStories.editedAt, deletedAt: workStories.deletedAt, createdAt: workStories.createdAt }).from(workStories).leftJoin(users, eq(workStories.actorId, users.id)).where(eq(workStories.taskId, input.id)).orderBy(desc(workStories.createdAt)).limit(100),
         db.select({ id: workTasks.id, name: workTasks.name, completionStatus: workTasks.completionStatus, dueOn: workTasks.dueOn, position: workTasks.position }).from(workTasks).where(and(eq(workTasks.parentTaskId, input.id), isNull(workTasks.deletedAt))).orderBy(asc(workTasks.position)),
         db.select({ id: workTags.id, name: workTags.name, color: workTags.color }).from(workTaskTags).innerJoin(workTags, eq(workTaskTags.tagId, workTags.id)).where(and(eq(workTaskTags.taskId, input.id), isNull(workTaskTags.deletedAt), isNull(workTags.deletedAt))),
       ]);
@@ -730,6 +750,26 @@ export const workManagementRouter = router({
       const storyId = await writeStory({ taskId: input.taskId, projectId: projectIds[0] ?? null, actorId: ctx.user.id, storyType: "comment", contentJson: input.contentJson, contentPlainText: input.contentPlainText });
       await notifyUsers({ userIds: input.mentionedUserIds ?? [], actorId: ctx.user.id, type: "mention", title: "You were mentioned in a task comment", body: input.contentPlainText.slice(0, 500), taskId: input.taskId, projectId: projectIds[0] ?? null, storyId });
       return { id: storyId };
+    }),
+    updateComment: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), contentJson: richText, contentPlainText: z.string().min(1).max(100000) })).mutation(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const [story] = await db.select({ taskId: workStories.taskId, actorId: workStories.actorId, storyType: workStories.storyType, deletedAt: workStories.deletedAt }).from(workStories).where(eq(workStories.id, input.storyId)).limit(1);
+      if (!story || story.storyType !== "comment" || !story.taskId) throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found." });
+      await requireTaskAccess(ctx.user, story.taskId, "commenter");
+      if (ctx.user.role !== "admin" && story.actorId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Only the comment author can edit this comment." });
+      if (story.deletedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Deleted comments cannot be edited." });
+      await db.update(workStories).set({ contentJson: input.contentJson, contentPlainText: input.contentPlainText, editedAt: new Date() }).where(eq(workStories.id, input.storyId));
+      return { success: true };
+    }),
+    deleteComment: protectedProcedure.input(z.object({ storyId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const [story] = await db.select({ taskId: workStories.taskId, actorId: workStories.actorId, storyType: workStories.storyType, deletedAt: workStories.deletedAt }).from(workStories).where(eq(workStories.id, input.storyId)).limit(1);
+      if (!story || story.storyType !== "comment" || !story.taskId) throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found." });
+      await requireTaskAccess(ctx.user, story.taskId, "commenter");
+      if (ctx.user.role !== "admin" && story.actorId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Only the comment author can delete this comment." });
+      if (story.deletedAt) return { success: true };
+      await db.update(workStories).set({ deletedAt: new Date() }).where(eq(workStories.id, input.storyId));
+      return { success: true };
     }),
     listStoryReactions: protectedProcedure.input(z.object({ storyIds: z.array(z.number().int().positive()).min(1).max(100) })).query(async ({ ctx, input }) => {
       const db = await getRequiredDb();

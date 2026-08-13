@@ -3422,6 +3422,8 @@ export const workStories = mysqlTable("work_stories", {
   contentJson: json("contentJson").$type<Record<string, unknown>>(),
   contentPlainText: text("contentPlainText"),
   metadata: json("metadata").$type<Record<string, unknown>>(),
+  editedAt: timestamp("editedAt"),
+  deletedAt: timestamp("deletedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
   index("work_stories_task_created_idx").on(table.taskId, table.createdAt),
