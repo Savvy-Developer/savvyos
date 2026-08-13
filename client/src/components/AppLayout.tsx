@@ -385,8 +385,8 @@ function SidebarNav({
             <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const isActive =
-                  item.path === "/"
-                    ? currentPath === "/"
+                  item.path === "/" || item.path === "/work"
+                    ? currentPath === item.path
                     : currentPath.startsWith(item.path);
                 return (
                   <li key={item.path}>
