@@ -60,6 +60,7 @@ import {
   Flame,
   Lock,
   TrendingUp,
+  Trash2,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -279,6 +280,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Bell, label: "Inbox", path: "/work/inbox" },
         { icon: Layers, label: "Projects", path: "/work/projects" },
         { icon: Briefcase, label: "Portfolios", path: "/work/portfolios" },
+        { icon: Trash2, label: "Trash", path: "/work/trash" },
       ],
     },
     {

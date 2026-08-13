@@ -495,6 +495,14 @@ export const workManagementRouter = router({
         .where(and(eq(workStories.projectId, input.projectId), eq(workStories.storyType, "comment")))
         .orderBy(desc(workStories.createdAt)).limit(input.limit ?? 100);
     }),
+    listArchived: protectedProcedure.input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional()).query(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const candidates = await db.select({ id: workProjects.id, name: workProjects.name, teamName: workTeams.name, archivedAt: workProjects.archivedAt }).from(workProjects).leftJoin(workTeams, eq(workProjects.teamId, workTeams.id))
+        .where(and(isNull(workProjects.deletedAt), isNotNull(workProjects.archivedAt))).orderBy(desc(workProjects.archivedAt)).limit(input?.limit ?? 100);
+      const visible: typeof candidates = [];
+      for (const project of candidates) if (atLeast(await getProjectAccess(ctx.user, project.id), "editor")) visible.push(project);
+      return visible;
+    }),
     archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.id, "editor");
       await (await getRequiredDb()).update(workProjects).set({ archivedAt: new Date() }).where(eq(workProjects.id, input.id));
@@ -824,6 +832,19 @@ export const workManagementRouter = router({
       if (existing) await db.update(workTaskFollowers).set({ deletedAt: input.following ? null : new Date() }).where(eq(workTaskFollowers.id, existing.id));
       else if (input.following) await db.insert(workTaskFollowers).values({ taskId: input.taskId, userId: ctx.user.id });
       return { success: true };
+    }),
+    listArchived: protectedProcedure.input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional()).query(async ({ ctx, input }) => {
+      const db = await getRequiredDb();
+      const candidates = await db.select({ id: workTasks.id, name: workTasks.name, dueOn: workTasks.dueOn, deletedAt: workTasks.deletedAt, createdById: workTasks.createdById }).from(workTasks)
+        .where(isNotNull(workTasks.deletedAt)).orderBy(desc(workTasks.deletedAt)).limit(input?.limit ?? 100);
+      const visible: Array<{ id: number; name: string; dueOn: Date | null; deletedAt: Date | null; projectNames: string[] }> = [];
+      for (const task of candidates) {
+        const memberships = await db.select({ projectId: workTaskProjectMemberships.projectId, projectName: workProjects.name }).from(workTaskProjectMemberships).leftJoin(workProjects, eq(workTaskProjectMemberships.projectId, workProjects.id))
+          .where(and(eq(workTaskProjectMemberships.taskId, task.id), isNull(workTaskProjectMemberships.deletedAt)));
+        const canRecover = ctx.user.role === "admin" || task.createdById === ctx.user.id || (await Promise.all(memberships.map(membership => getProjectAccess(ctx.user, membership.projectId)))).some(access => atLeast(access, "editor"));
+        if (canRecover) visible.push({ id: task.id, name: task.name, dueOn: task.dueOn, deletedAt: task.deletedAt, projectNames: memberships.map(membership => membership.projectName).filter((name): name is string => Boolean(name)) });
+      }
+      return visible;
     }),
     listArchivedForProject: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), limit: z.number().int().min(1).max(100).optional() })).query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx.user, input.projectId, "editor");
