@@ -143,6 +143,7 @@ export default function CoachingAgentPortfolio() {
         case "commitRate": aVal = a.commitRate ?? -1; bVal = b.commitRate ?? -1; break;
         case "sessions30d": aVal = a.sessions30d ?? 0; bVal = b.sessions30d ?? 0; break;
         case "daysSinceLastSession": aVal = a.daysSinceLastSession ?? 999; bVal = b.daysSinceLastSession ?? 999; break;
+        case "activityScore": aVal = a.activityScore ?? 0; bVal = b.activityScore ?? 0; break;
         default: aVal = a.agent?.name ?? ""; bVal = b.agent?.name ?? "";
       }
       if (typeof aVal === "string") {
@@ -197,6 +198,18 @@ export default function CoachingAgentPortfolio() {
     if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
     if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`;
     return `$${val.toLocaleString()}`;
+  };
+
+  const activityScoreClass = (score: number) => {
+    if (score >= 70) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  };
+
+  const activityScoreTitle = (row: any) => {
+    const score = row.activityScoreBreakdown;
+    if (!score) return "SavvyOS Activity Score: 0–100 indicator of login recency, CRM activity, task completion, pipeline coverage, and lead freshness.";
+    return `SavvyOS Activity Score — Login: ${score.loginRecency}/30 · Contact activity: ${score.contactActivity}/25 · Completed tasks: ${score.completedTasks}/15 · Active pipeline: ${score.pipelineCoverage}/15 · Lead freshness: ${score.leadFreshness}/15`;
   };
 
   return (
@@ -335,6 +348,7 @@ export default function CoachingAgentPortfolio() {
                         <span className="inline-flex items-center">Agent <SortIcon col="name" /></span>
                       </TableHead>
                       {/* Core columns */}
+                      {showCol("core") && <TableHead className="text-[10px] min-w-[85px] font-semibold text-right cursor-pointer select-none" onClick={() => handleSort("activityScore")} title="Current SavvyOS Activity Score (0–100)"><span className="inline-flex items-center justify-end">Activity <SortIcon col="activityScore" /></span></TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[70px] font-semibold cursor-pointer select-none" onClick={() => handleSort("status")}><span className="inline-flex items-center">Status <SortIcon col="status" /></span></TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[100px] font-semibold cursor-pointer select-none" onClick={() => handleSort("coach")}><span className="inline-flex items-center">Coach <SortIcon col="coach" /></span></TableHead>}
                       {showCol("core") && <TableHead className="text-[10px] min-w-[80px] font-semibold cursor-pointer select-none" onClick={() => handleSort("diagnosis")}><span className="inline-flex items-center">Diagnosis <SortIcon col="diagnosis" /></span></TableHead>}
@@ -403,6 +417,18 @@ export default function CoachingAgentPortfolio() {
                             </div>
                           </TableCell>
                           {/* Core */}
+                          {showCol("core") && (
+                            <TableCell className="text-right">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className={`min-w-10 justify-center text-[10px] tabular-nums ${activityScoreClass(Number(row.activityScore ?? 0))}`}>
+                                    {Number(row.activityScore ?? 0)}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-[10px] leading-4">{activityScoreTitle(row)}</TooltipContent>
+                              </Tooltip>
+                            </TableCell>
+                          )}
                           {showCol("core") && (
                             <TableCell>
                               {profile?.performanceStatus ? (

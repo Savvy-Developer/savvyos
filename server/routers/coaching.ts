@@ -31,6 +31,7 @@ import { eq, desc, asc, and, sql, or, inArray, isNull, isNotNull, ne, gte, lte, 
 import { aliasedTable } from "drizzle-orm";
 import { logActivity } from "../db";
 import { invokeLLM } from "../_core/llm";
+import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 
 
 // ─── Helper: admin or coach guard ────────────────────────────────────────────
@@ -687,6 +688,10 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
 
       if (agentRows.length === 0) return { rows: [], total: 0 };
       const agentIds = agentRows.map((a: any) => a.id);
+      // Reuse the canonical Adoption report so coaching and reporting always
+      // display the same current score and score components.
+      const adoptionReport = await getSavvyOsAdoptionReport();
+      const adoptionMap = new Map(adoptionReport.agents.map((agent) => [agent.agentId, agent]));
 
       // Batch: profiles + coach
       const profileRows = await db.select({
@@ -859,6 +864,7 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         const commit = commitMap.get(agent.id);
         const sess = sessionMap.get(agent.id);
         const assess = assessMap.get(agent.id);
+        const adoption = adoptionMap.get(agent.id) ?? null;
 
         const ytdUnits = Number(prod?.ytdUnits ?? 0);
         const ytdGCI = Number(prod?.ytdGCI ?? 0);
@@ -894,6 +900,11 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
           staleLeads: Number(leads?.staleLeads ?? 0),
           avgLeadAge: Number(leads?.avgLeadAge ?? 0),
           overdueTasks: Number(tsk?.overdueTasks ?? 0),
+          activityScore: adoption?.activityScore ?? 0,
+          activityScoreBreakdown: adoption?.scoreBreakdown ?? null,
+          lastLoginAt: adoption?.lastLoginAt ?? null,
+          daysSinceLogin: adoption?.daysSinceLogin ?? null,
+          contactActivitiesWeek: adoption?.contactActivitiesWeek ?? 0,
           goalsSet: goalTarget > 0 || gciTarget > 0 || volumeTarget > 0,
           goalTarget,
           gciTarget,
@@ -1086,9 +1097,13 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         .orderBy(desc(transactions.closingDate))
         .limit(20);
 
+      const adoptionReport = await getSavvyOsAdoptionReport();
+      const adoption = adoptionReport.agents.find((candidate) => candidate.agentId === input.agentId) ?? null;
+
       return {
         profile: typedRow.profile,
         agent: typedRow.agent,
+        adoption,
         coach: typedRow.coach,
         nextCoach: typedRow.nextCoach,
         prodStats,

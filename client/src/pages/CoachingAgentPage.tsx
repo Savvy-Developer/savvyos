@@ -147,7 +147,7 @@ export default function CoachingAgentPage() {
     );
   }
 
-  const { profile, agent, coach, nextCoach, prodStats, goalsData, pipelineData, recentSessions, openCommitments, commitmentStats, activeReset, marketAssignments, assessments, sessionStats, terminatedTransactions } = data as any;
+  const { profile, agent, adoption, coach, nextCoach, prodStats, goalsData, pipelineData, recentSessions, openCommitments, commitmentStats, activeReset, marketAssignments, assessments, sessionStats, terminatedTransactions } = data as any;
 
   const closedUnits = prodStats?.closedUnits ?? 0;
   const closedVolume = prodStats?.closedVolume ?? 0;
@@ -157,6 +157,8 @@ export default function CoachingAgentPage() {
   const avgLeadAge = prodStats?.avgLeadAge ?? 0;
   const overdueTasks = prodStats?.overdueTasks ?? 0;
   const terminationRate = prodStats?.terminationRate ?? 0;
+  const activityScore = Number(adoption?.activityScore ?? 0);
+  const activityScoreAccent = activityScore >= 70 ? "text-emerald-700" : activityScore >= 40 ? "text-amber-700" : "text-rose-700";
 
   // Termination reasons display
   const terminations = terminatedTransactions ?? [];
@@ -218,7 +220,8 @@ export default function CoachingAgentPage() {
           </div>
 
           {/* Quick stats row */}
-          <div className="mt-4 grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-2">
+          <div className="mt-4 grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
+            <StatBox label="SavvyOS Activity" value={`${activityScore}/100`} sub={`${adoption?.contactActivitiesWeek ?? 0} contact activities this week`} accent={activityScoreAccent} />
             <StatBox label="Closed Units (90d)" value={closedUnits} accent="text-emerald-700" />
             <StatBox label="Closed Volume" value={closedVolume > 0 ? fmtMoney(closedVolume) : "$0"} />
             <StatBox label="UC Units" value={ucUnits} accent="text-blue-700" />
