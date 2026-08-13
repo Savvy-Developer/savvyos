@@ -262,6 +262,7 @@ function Router() {
           <Route path="/work" component={WorkPage} />
           <Route path="/work/my-tasks" component={WorkPage} />
           <Route path="/work/inbox" component={WorkPage} />
+          <Route path="/work/trash" component={WorkPage} />
           <Route path="/work/search" component={WorkPage} />
           <Route path="/work/projects" component={WorkPage} />
           <Route path="/work/projects/:projectId/tasks/:taskId" component={WorkPage} />
