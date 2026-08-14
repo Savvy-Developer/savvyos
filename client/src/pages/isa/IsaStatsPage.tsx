@@ -32,6 +32,7 @@ import {
   PhoneCall,
   Target,
   TrendingUp,
+  Trophy,
   Users,
   UserRoundCheck,
 } from "lucide-react";
@@ -150,6 +151,7 @@ export default function IsaStatsPage() {
   const [dateTo, setDateTo] = useState(initialRange.dateTo);
   const [selectedStatuses, setSelectedStatuses] = useState<Status[]>([]);
   const [selectedIsaId, setSelectedIsaId] = useState<string>("");
+  const [benchmarkPeriod, setBenchmarkPeriod] = useState<"week" | "month">("month");
 
   const { data: teamMembers } = trpc.users.list.useQuery({}, { enabled: isAdmin });
   const isas = (teamMembers ?? []).filter((member: any) => member.role === "isa");
@@ -164,6 +166,13 @@ export default function IsaStatsPage() {
     },
     { enabled: !isAdmin || Boolean(effectiveIsaId) },
   );
+
+  const benchmarkQuery = trpc.analytics.isaTeamBenchmark.useQuery({
+    period: benchmarkPeriod,
+    ...(isAdmin && effectiveIsaId ? { viewerIsaId: effectiveIsaId } : {}),
+  });
+  const benchmark = benchmarkQuery.data;
+  const benchmarkViewer = benchmark?.leaderboard.find((row) => row.isViewer);
 
   const summary = statsQuery.data?.summary;
   const trend = useMemo(
@@ -325,6 +334,78 @@ export default function IsaStatsPage() {
           </p>
         </CardContent>
       </Card>
+
+      <section>
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-amber-500" />
+            <h2 className="text-base font-semibold">Team Benchmark</h2>
+            <Badge variant="secondary">Current {benchmarkPeriod}</Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant={benchmarkPeriod === "week" ? "default" : "outline"} onClick={() => setBenchmarkPeriod("week")}>This week</Button>
+            <Button size="sm" variant={benchmarkPeriod === "month" ? "default" : "outline"} onClick={() => setBenchmarkPeriod("month")}>This month</Button>
+          </div>
+        </div>
+        <Card className="overflow-hidden">
+          <CardHeader className="border-b bg-muted/20 pb-4">
+            <CardTitle className="flex items-center gap-2 text-base"><Trophy className="h-4 w-4 text-amber-500" />Where you stand</CardTitle>
+            <CardDescription>Compare the same period across active ISAs. The ranking prioritizes appointments set, then downstream outcomes and lead engagement.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {benchmarkQuery.isLoading ? (
+              <div className="flex h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading team benchmark…</div>
+            ) : !benchmark?.leaderboard.length ? (
+              <div className="flex h-48 flex-col items-center justify-center px-6 text-center text-muted-foreground"><Users className="mb-3 h-7 w-7 opacity-35" /><p className="text-sm font-medium">No active ISA benchmark data yet</p><p className="mt-1 text-xs">The leaderboard will populate as active ISA profiles and activity records are available.</p></div>
+            ) : (
+              <>
+                <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
+                  <div className="rounded-lg bg-amber-50 p-3">
+                    <p className="text-xs font-medium text-amber-700">{isAdmin ? "Selected ISA rank" : "Your appointment rank"}</p>
+                    <p className="mt-1 text-2xl font-semibold text-amber-800">{benchmarkViewer ? `#${benchmarkViewer.rank}` : "—"}<span className="ml-1 text-sm font-medium text-amber-700">of {benchmark.teamSize}</span></p>
+                  </div>
+                  <div className="rounded-lg bg-blue-50 p-3">
+                    <p className="text-xs font-medium text-blue-700">Team average appointments</p>
+                    <p className="mt-1 text-2xl font-semibold text-blue-800">{Math.round(benchmark.averages.appointmentsSet * 10) / 10}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50 p-3">
+                    <p className="text-xs font-medium text-emerald-700">Team average follow-ups</p>
+                    <p className="mt-1 text-2xl font-semibold text-emerald-800">{Math.round(benchmark.averages.completedFollowUps * 10) / 10}</p>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px] text-sm">
+                    <thead className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium">Rank</th>
+                        <th className="px-4 py-3 text-left font-medium">ISA</th>
+                        <th className="px-4 py-3 text-right font-medium">Appointments</th>
+                        <th className="px-4 py-3 text-right font-medium">Engaged leads</th>
+                        <th className="px-4 py-3 text-right font-medium">Under contract</th>
+                        <th className="px-4 py-3 text-right font-medium">Closed</th>
+                        <th className="px-4 py-3 text-right font-medium">Follow-ups</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {benchmark.leaderboard.map((row) => (
+                        <tr key={row.isaId} className={row.isViewer ? "bg-primary/[0.06]" : "hover:bg-muted/30"}>
+                          <td className="px-4 py-3 font-semibold">{row.rank === 1 ? <span className="inline-flex items-center gap-1 text-amber-600"><Trophy className="h-3.5 w-3.5" />1</span> : `#${row.rank}`}</td>
+                          <td className="px-4 py-3 font-medium">{row.isaName}{row.isViewer && <Badge variant="secondary" className="ml-2 text-[10px]">{isAdmin ? "Selected" : "You"}</Badge>}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-primary">{row.appointmentsSet}</td>
+                          <td className="px-4 py-3 text-right">{row.engagedLeads}</td>
+                          <td className="px-4 py-3 text-right">{row.underContract}</td>
+                          <td className="px-4 py-3 text-right">{row.closed}</td>
+                          <td className="px-4 py-3 text-right">{row.completedFollowUps}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       <section>
         <div className="mb-3 flex items-center gap-2">

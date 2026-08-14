@@ -3,7 +3,7 @@
  * All new BI report query helpers for the Analytics & Reporting rebuild (v55).
  */
 
-import { and, eq, gte, lte, sql, isNull, isNotNull, ne, inArray } from "drizzle-orm";
+import { and, eq, gte, lte, sql, isNull, isNotNull, ne, inArray, or } from "drizzle-orm";
 import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import {
@@ -25,6 +25,7 @@ import {
   duplicateContactPairs,
   agentGoals,
   properties,
+  isaProfiles,
 } from "../drizzle/schema";
 
 let _pool: mysql.Pool | null = null;
@@ -1392,5 +1393,161 @@ export async function getIsaDashboardStats(opts: {
       appointmentsSet: Number(row.appointmentsSet ?? 0),
       uniqueContacts: Number(row.uniqueContacts ?? 0),
     })),
+  };
+}
+
+
+// ─── ISA Team Benchmarks ──────────────────────────────────────────────────────
+
+export type IsaBenchmarkPeriod = "week" | "month";
+
+function getIsaBenchmarkRange(period: IsaBenchmarkPeriod, now = new Date()) {
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (period === "week") {
+    const weekday = start.getDay() || 7;
+    start.setDate(start.getDate() - weekday + 1);
+  } else {
+    start.setDate(1);
+  }
+
+  return { start, end };
+}
+
+/**
+ * Returns a transparent, team-wide leaderboard for the current calendar week or
+ * month. Each row uses the same activity window, so ISAs can compare outreach,
+ * appointments, and downstream outcomes on equal footing. Only active ISA users
+ * are included, and an ISA's own row is clearly identified by the caller.
+ */
+export async function getIsaTeamBenchmark(opts: {
+  period: IsaBenchmarkPeriod;
+  viewerIsaId?: number;
+}) {
+  const db = await getDb();
+  const { start, end } = getIsaBenchmarkRange(opts.period);
+
+  const activeIsas = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .leftJoin(isaProfiles, eq(isaProfiles.userId, users.id))
+    .where(and(
+      eq(users.role, "isa"),
+      eq(users.isActive, true),
+      or(isNull(isaProfiles.isaStatus), eq(isaProfiles.isaStatus, "active")),
+    ));
+
+  if (!activeIsas.length) {
+    return {
+      period: opts.period,
+      range: { dateFrom: start, dateTo: end },
+      teamSize: 0,
+      averages: { engagedLeads: 0, appointmentsSet: 0, underContract: 0, closed: 0, completedFollowUps: 0 },
+      leaderboard: [],
+    };
+  }
+
+  const isaIds = activeIsas.map((isa) => isa.id);
+  const [leadRows, appointmentRows, taskRows] = await Promise.all([
+    db
+      .select({
+        isaId: contacts.assignedIsaId,
+        engagedLeads: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} <> 'new_lead' THEN 1 ELSE 0 END)`,
+      })
+      .from(contacts)
+      .where(and(
+        inArray(contacts.assignedIsaId, isaIds),
+        gte(contacts.createdAt, start),
+        lte(contacts.createdAt, end),
+        isNull(contacts.archivedAt),
+      ))
+      .groupBy(contacts.assignedIsaId),
+    db
+      .select({
+        isaId: contacts.assignedIsaId,
+        appointmentsSet: sql<number>`COUNT(*)`,
+        underContract: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'under_contract' THEN 1 ELSE 0 END)`,
+        closed: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'closed' THEN 1 ELSE 0 END)`,
+      })
+      .from(agentConnections)
+      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(and(
+        eq(agentConnections.appointmentSet, true),
+        inArray(contacts.assignedIsaId, isaIds),
+        sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${start}`,
+        sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${end}`,
+        isNull(contacts.archivedAt),
+      ))
+      .groupBy(contacts.assignedIsaId),
+    db
+      .select({
+        isaId: tasks.assignedToId,
+        completedFollowUps: sql<number>`COUNT(*)`,
+      })
+      .from(tasks)
+      .where(and(
+        inArray(tasks.assignedToId, isaIds),
+        eq(tasks.status, "completed"),
+        gte(tasks.completedAt, start),
+        lte(tasks.completedAt, end),
+      ))
+      .groupBy(tasks.assignedToId),
+  ]);
+
+  const leadMap = new Map(leadRows.map((row) => [row.isaId, Number(row.engagedLeads ?? 0)]));
+  const appointmentMap = new Map(appointmentRows.map((row) => [row.isaId, {
+    appointmentsSet: Number(row.appointmentsSet ?? 0),
+    underContract: Number(row.underContract ?? 0),
+    closed: Number(row.closed ?? 0),
+  }]));
+  const taskMap = new Map(taskRows.map((row) => [row.isaId, Number(row.completedFollowUps ?? 0)]));
+
+  const leaderboard = activeIsas
+    .map((isa) => {
+      const appointment = appointmentMap.get(isa.id);
+      return {
+        isaId: isa.id,
+        isaName: isa.name ?? `ISA #${isa.id}`,
+        engagedLeads: leadMap.get(isa.id) ?? 0,
+        appointmentsSet: appointment?.appointmentsSet ?? 0,
+        underContract: appointment?.underContract ?? 0,
+        closed: appointment?.closed ?? 0,
+        completedFollowUps: taskMap.get(isa.id) ?? 0,
+        isViewer: isa.id === opts.viewerIsaId,
+      };
+    })
+    .sort((a, b) => (
+      b.appointmentsSet - a.appointmentsSet
+      || b.underContract - a.underContract
+      || b.closed - a.closed
+      || b.engagedLeads - a.engagedLeads
+      || a.isaName.localeCompare(b.isaName)
+    ))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  const sum = leaderboard.reduce((total, row) => ({
+    engagedLeads: total.engagedLeads + row.engagedLeads,
+    appointmentsSet: total.appointmentsSet + row.appointmentsSet,
+    underContract: total.underContract + row.underContract,
+    closed: total.closed + row.closed,
+    completedFollowUps: total.completedFollowUps + row.completedFollowUps,
+  }), { engagedLeads: 0, appointmentsSet: 0, underContract: 0, closed: 0, completedFollowUps: 0 });
+
+  const teamSize = leaderboard.length;
+  return {
+    period: opts.period,
+    range: { dateFrom: start, dateTo: end },
+    teamSize,
+    averages: {
+      engagedLeads: sum.engagedLeads / teamSize,
+      appointmentsSet: sum.appointmentsSet / teamSize,
+      underContract: sum.underContract / teamSize,
+      closed: sum.closed / teamSize,
+      completedFollowUps: sum.completedFollowUps / teamSize,
+    },
+    leaderboard,
   };
 }

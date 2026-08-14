@@ -16,6 +16,7 @@ import {
   getFinancialPerformanceSummary,
   getMasterMetrics,
   getIsaDashboardStats,
+  getIsaTeamBenchmark,
 } from "../db-analytics";
 import {
   getAgentPerformance,
@@ -113,6 +114,11 @@ const leadCohortConversionInput = z.object({
   agentId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
   lifecycleStage: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"]).optional(),
+});
+
+const isaTeamBenchmarkInput = z.object({
+  period: z.enum(["week", "month"]),
+  viewerIsaId: z.number().int().positive().optional(),
 });
 
 const isaDashboardInput = z.object({
@@ -276,6 +282,19 @@ export const analyticsRouter = router({
         });
       }
       return getIsmDashboard(input ?? {});
+    }),
+
+  /** Shared weekly and monthly peer benchmarks for healthy ISA team gamification. */
+  isaTeamBenchmark: protectedProcedure
+    .input(isaTeamBenchmarkInput)
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin" && ctx.user.role !== "isa") {
+        throw new Error("ISA team benchmarks are available to ISAs and administrators only.");
+      }
+      return getIsaTeamBenchmark({
+        period: input.period,
+        viewerIsaId: ctx.user.role === "isa" ? ctx.user.id : input.viewerIsaId,
+      });
     }),
 
   /** ISA pipeline status funnel: contacts per stage, optionally filtered by ISA */
