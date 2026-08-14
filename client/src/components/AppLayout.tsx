@@ -61,6 +61,7 @@ import {
   Lock,
   TrendingUp,
   Trash2,
+  Trophy,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -98,6 +99,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       items: [
         { icon: Home, label: "My Dashboard", path: "/" },
         { icon: BarChart3, label: "My Stats", path: "/stats" },
+        { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
     },
     {
@@ -252,6 +254,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Home, label: "Admin Dashboard", path: "/" },
         { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
+        { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
     },
     {

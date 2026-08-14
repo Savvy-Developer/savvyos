@@ -26,6 +26,7 @@ import {
   agentGoals,
   properties,
   isaProfiles,
+  userProfiles,
 } from "../drizzle/schema";
 
 let _pool: mysql.Pool | null = null;
@@ -47,6 +48,81 @@ async function getDb() {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+export type AgentLeaderboardPeriod = "this_week" | "this_month" | "this_quarter" | "ytd" | "all_time";
+export type AgentLeaderboardDealType = "under_contract" | "closed";
+
+type LeaderboardMilestone = {
+  agentId: number;
+  agentName: string;
+  profilePhotoUrl: string | null;
+  units: number;
+  volume: number;
+  periodStart?: string;
+};
+
+function utcDate(year: number, month: number, day: number, endOfDay = false) {
+  return new Date(Date.UTC(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
+}
+
+export function getAgentLeaderboardPeriodRange(period: AgentLeaderboardPeriod, now = new Date()) {
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const day = now.getUTCDate();
+  const endOfToday = utcDate(year, month, day, true);
+
+  if (period === "all_time") {
+    return { dateFrom: undefined, dateTo: undefined, label: "All Time" };
+  }
+  if (period === "ytd") {
+    return { dateFrom: utcDate(year, 0, 1), dateTo: endOfToday, label: "Year to Date" };
+  }
+  if (period === "this_quarter") {
+    const quarterStartMonth = Math.floor(month / 3) * 3;
+    const quarter = Math.floor(month / 3) + 1;
+    return { dateFrom: utcDate(year, quarterStartMonth, 1), dateTo: endOfToday, label: `Q${quarter} ${year}` };
+  }
+  if (period === "this_month") {
+    return {
+      dateFrom: utcDate(year, month, 1),
+      dateTo: endOfToday,
+      label: now.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }),
+    };
+  }
+
+  const startOfWeek = utcDate(year, month, day);
+  const mondayOffset = (startOfWeek.getUTCDay() + 6) % 7;
+  startOfWeek.setUTCDate(startOfWeek.getUTCDate() - mondayOffset);
+  return { dateFrom: startOfWeek, dateTo: endOfToday, label: "This Week" };
+}
+
+function toDayKey(value: Date | string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function weekKeyFromDate(value: Date | string | null) {
+  const dayKey = toDayKey(value);
+  if (!dayKey) return null;
+  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - mondayOffset);
+  return date.toISOString().slice(0, 10);
+}
+
+function monthKeyFromDate(value: Date | string | null) {
+  const dayKey = toDayKey(value);
+  return dayKey ? dayKey.slice(0, 7) : null;
+}
+
+function pickMilestone(groups: Map<string, LeaderboardMilestone>) {
+  return Array.from(groups.values()).sort((a, b) =>
+    b.units - a.units || b.volume - a.volume || a.agentName.localeCompare(b.agentName)
+  )[0] ?? null;
+}
+
 
 async function resolveAgentIds(opts: {
   agentId?: number;
@@ -210,7 +286,145 @@ export async function getAgentPerformanceReport(opts?: {
   });
 }
 
-// ─── 3. Agent Pipeline Funnel ─────────────────────────────────────────────────
+// ─── 3. Agent Leaderboard ──────────────────────────────────────────────────────
+
+export async function getAgentLeaderboard(opts: {
+  period: AgentLeaderboardPeriod;
+  dealType: AgentLeaderboardDealType;
+  viewerAgentId: number;
+}) {
+  const db = await getDb();
+  const { dateFrom, dateTo, label } = getAgentLeaderboardPeriodRange(opts.period);
+  const dateField = opts.dealType === "closed" ? transactions.closingDate : transactions.contractDate;
+  const transactionWhere = and(
+    eq(transactions.status, opts.dealType),
+    dateFrom ? gte(dateField, dateFrom) : undefined,
+    dateTo ? lte(dateField, dateTo) : undefined,
+  );
+
+  const activeAgents = await db
+    .select({
+      agentId: users.id,
+      agentName: users.name,
+      profilePhotoUrl: userProfiles.profilePhotoUrl,
+    })
+    .from(users)
+    .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+    .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
+    .orderBy(users.name);
+
+  const production = await db
+    .select({
+      agentId: transactions.agentId,
+      units: sql<number>`COUNT(*)`,
+      volume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
+      gci: sql<string>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
+      averageDealSize: sql<string>`COALESCE(AVG(${transactions.purchasePrice}), 0)`,
+    })
+    .from(transactions)
+    .innerJoin(users, eq(users.id, transactions.agentId))
+    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)))
+    .groupBy(transactions.agentId);
+
+  const productionByAgent = new Map(production.map((row) => [row.agentId, row]));
+  const leaderboard = activeAgents
+    .map((agent) => {
+      const row = productionByAgent.get(agent.agentId);
+      return {
+        agentId: agent.agentId,
+        agentName: agent.agentName ?? "Unknown",
+        profilePhotoUrl: agent.profilePhotoUrl ?? null,
+        units: Number(row?.units ?? 0),
+        volume: Number(row?.volume ?? 0),
+        gci: Number(row?.gci ?? 0),
+        averageDealSize: Number(row?.averageDealSize ?? 0),
+      };
+    })
+    .sort((a, b) => b.units - a.units || b.volume - a.volume || a.agentName.localeCompare(b.agentName))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+  const milestoneRows = await db
+    .select({
+      agentId: transactions.agentId,
+      agentName: users.name,
+      profilePhotoUrl: userProfiles.profilePhotoUrl,
+      purchasePrice: transactions.purchasePrice,
+      performanceDate: dateField,
+    })
+    .from(transactions)
+    .innerJoin(users, eq(users.id, transactions.agentId))
+    .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)));
+
+  const normalizedMilestones = milestoneRows
+    .filter((row) => row.performanceDate)
+    .map((row) => ({
+      agentId: row.agentId,
+      agentName: row.agentName ?? "Unknown",
+      profilePhotoUrl: row.profilePhotoUrl ?? null,
+      volume: Number(row.purchasePrice ?? 0),
+      performanceDate: row.performanceDate!,
+    }));
+
+  const largestTransaction = normalizedMilestones
+    .slice()
+    .sort((a, b) => b.volume - a.volume || a.agentName.localeCompare(b.agentName))[0];
+
+  const weeklyGroups = new Map<string, LeaderboardMilestone>();
+  const monthlyGroups = new Map<string, LeaderboardMilestone>();
+  for (const transaction of normalizedMilestones) {
+    const weekStart = weekKeyFromDate(transaction.performanceDate);
+    const monthStart = monthKeyFromDate(transaction.performanceDate);
+    if (weekStart) {
+      const key = `${transaction.agentId}:${weekStart}`;
+      const existing = weeklyGroups.get(key) ?? {
+        agentId: transaction.agentId,
+        agentName: transaction.agentName,
+        profilePhotoUrl: transaction.profilePhotoUrl,
+        units: 0,
+        volume: 0,
+        periodStart: weekStart,
+      };
+      existing.units += 1;
+      existing.volume += transaction.volume;
+      weeklyGroups.set(key, existing);
+    }
+    if (monthStart) {
+      const key = `${transaction.agentId}:${monthStart}`;
+      const existing = monthlyGroups.get(key) ?? {
+        agentId: transaction.agentId,
+        agentName: transaction.agentName,
+        profilePhotoUrl: transaction.profilePhotoUrl,
+        units: 0,
+        volume: 0,
+        periodStart: monthStart,
+      };
+      existing.units += 1;
+      existing.volume += transaction.volume;
+      monthlyGroups.set(key, existing);
+    }
+  }
+
+  return {
+    periodLabel: label,
+    activeAgentCount: activeAgents.length,
+    leaderboard,
+    myEntry: leaderboard.find((entry) => entry.agentId === opts.viewerAgentId) ?? null,
+    milestones: {
+      largestTransaction: largestTransaction ? {
+        agentId: largestTransaction.agentId,
+        agentName: largestTransaction.agentName,
+        profilePhotoUrl: largestTransaction.profilePhotoUrl,
+        units: 1,
+        volume: largestTransaction.volume,
+      } : null,
+      bestWeek: pickMilestone(weeklyGroups),
+      bestMonth: pickMilestone(monthlyGroups),
+    },
+  };
+}
+
+// ─── 4. Agent Pipeline Funnel ─────────────────────────────────────────────────
 
 export async function getAgentPipelineFunnel(opts?: {
   agentId?: number;

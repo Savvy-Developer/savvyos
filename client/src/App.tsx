@@ -77,6 +77,7 @@ import PartnerLeadForm from "./pages/PartnerLeadForm";
 import PartnerLinksPage from "./pages/PartnerLinksPage";
 import GoalsPage from "./pages/GoalsPage";
 import StatsPage from "./pages/StatsPage";
+import AgentLeaderboardPage from "./pages/AgentLeaderboardPage";
 import ActivityTimelinePage from "./pages/admin/ActivityTimelinePage";
 import OnboardingPage from "./pages/OnboardingPage";
 import SuperPermissionsPage from "./pages/SuperPermissionsPage";
@@ -300,6 +301,7 @@ function Router() {
           <Route path="/job-board">{() => <AdminRoute><JobBoardAdminPage /></AdminRoute>}</Route>
           <Route path="/talent-profile-admin">{() => <AdminRoute><TalentProfileAdminPage /></AdminRoute>}</Route>
           <Route path="/stats" component={StatsPage} />
+          <Route path="/leaderboard" component={AgentLeaderboardPage} />
           <Route path="/admin/activity">{() => <AdminRoute><ActivityTimelinePage /></AdminRoute>}</Route>
           <Route path="/admin/super-permissions">{() => <AdminRoute><SuperPermissionsPage /></AdminRoute>}</Route>
           <Route path="/coaching">{() => <AdminRoute><CoachingHubPage /></AdminRoute>}</Route>

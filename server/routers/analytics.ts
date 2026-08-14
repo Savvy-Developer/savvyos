@@ -14,6 +14,7 @@ import {
   getDatabaseHealthReport,
   getMonthlyGciTrendExtended,
   getFinancialPerformanceSummary,
+  getAgentLeaderboard,
   getMasterMetrics,
   getIsaDashboardStats,
   getIsaTeamBenchmark,
@@ -328,6 +329,18 @@ export const analyticsRouter = router({
     .input(z.object({ marketId: z.number() }))
     .query(async ({ input }) => getMarketAgentLeaderboard(input.marketId)),
 
+  /** Team production leaderboard for active agents. */
+  agentLeaderboard: protectedProcedure
+    .input(z.object({
+      period: z.enum(["this_week", "this_month", "this_quarter", "ytd", "all_time"]).default("this_month"),
+      dealType: z.enum(["under_contract", "closed"]).default("closed"),
+    }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "agent" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This leaderboard is available to agents only." });
+      }
+      return getAgentLeaderboard({ ...input, viewerAgentId: ctx.user.id });
+    }),
   // ─── NEW: Executive Dashboard ─────────────────────────────────────────────
   /** Executive dashboard: MTD/YTD metrics, pipeline coverage, revenue per lead/agent */
   executiveDashboard: protectedProcedure
