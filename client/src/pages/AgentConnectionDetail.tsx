@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, User, Phone, Mail, MapPin, DollarSign, Home, Edit2, Save, X,
   MessageSquare, CheckSquare, FileText, Plus, Calendar, Tag, Mic,
-  PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink, Inbox, Upload
+  PhoneCall, AtSign, Users, Building2, Star, Zap, ExternalLink, Inbox, Upload, AlertTriangle
 } from "lucide-react";
 import SmartPlanContactTab from "@/components/SmartPlanContactTab";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
@@ -57,6 +57,8 @@ export default function AgentConnectionDetail() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadForm, setUploadForm] = useState({ documentType: "other", title: "" });
   const [uploading, setUploading] = useState(false);
+  const [doNotContactOpen, setDoNotContactOpen] = useState(false);
+  const [doNotContactReason, setDoNotContactReason] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [buyBoxForm, setBuyBoxForm] = useState<Record<string, any>>({});
@@ -81,6 +83,17 @@ export default function AgentConnectionDetail() {
       toast.success("Updated successfully");
       setEditingBuyBox(false);
       setEditingStage(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const markDoNotContact = trpc.agentConnections.markDoNotContact.useMutation({
+    onSuccess: () => {
+      toast.success("Contact marked Do Not Contact");
+      setDoNotContactOpen(false);
+      setDoNotContactReason("");
+      utils.agentConnections.get.invalidate({ id });
+      utils.agentConnections.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -187,7 +200,8 @@ export default function AgentConnectionDetail() {
   const emailEligible = Boolean(
     contact?.email?.trim()
     && connection.pipelineStatus !== "new_lead"
-    && connection.pipelineStatus !== "dead",
+    && connection.pipelineStatus !== "dead"
+    && !contact?.doNotContact,
   );
 
   const handleSaveBuyBox = () => {
@@ -280,14 +294,30 @@ export default function AgentConnectionDetail() {
           size="sm"
           onClick={() => setSendEmailOpen(true)}
           disabled={!emailEligible}
-          title={emailEligible ? "Send an email to this contact" : "Email is available only for contacts with an email address in a status other than New or Dead"}
+          title={emailEligible ? "Send an email to this contact" : contact?.doNotContact ? "This contact is marked Do Not Contact" : "Email is available only for contacts with an email address in a status other than New or Dead"}
         >
           <Mail className="h-4 w-4 mr-1" /> Send Email
         </Button>
         <Button variant="outline" size="sm" onClick={startEditStage}>
           <Edit2 className="h-4 w-4 mr-1" /> Update Stage
         </Button>
+        {!contact?.doNotContact && (
+          <Button variant="outline" size="sm" className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => { setDoNotContactReason(""); setDoNotContactOpen(true); }}>
+            <AlertTriangle className="h-4 w-4 mr-1" /> Do Not Contact
+          </Button>
+        )}
       </div>
+
+      {contact?.doNotContact && (
+        <div role="alert" className="flex items-start gap-3 rounded-lg border-2 border-red-400 bg-red-50 px-4 py-3 text-red-900 shadow-sm">
+          <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-red-600" />
+          <div>
+            <p className="font-bold uppercase tracking-wide">Do Not Contact</p>
+            <p className="mt-0.5 text-sm text-red-800">This warning applies to every agent connection. The current pipeline stage has not been changed.</p>
+            {contact?.doNotContactReason && <p className="mt-2 text-sm"><span className="font-semibold">Reason:</span> {contact.doNotContactReason}</p>}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Contact Info */}
@@ -684,6 +714,27 @@ export default function AgentConnectionDetail() {
           </Tabs>
         </div>
       </div>
+
+      <Dialog open={doNotContactOpen} onOpenChange={(open) => { setDoNotContactOpen(open); if (!open) setDoNotContactReason(""); }}>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" /> Mark Do Not Contact</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">This will flag the shared contact and every agent connection. The current pipeline stage will remain unchanged.</p>
+            <div>
+              <Label htmlFor="connection-do-not-contact-reason">Reason <span className="text-destructive">*</span></Label>
+              <Textarea id="connection-do-not-contact-reason" className="mt-1" rows={4} placeholder="Explain why this contact must not be contacted..." value={doNotContactReason} onChange={e => setDoNotContactReason(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDoNotContactOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={!doNotContactReason.trim() || markDoNotContact.isPending} onClick={() => markDoNotContact.mutate({ id, reason: doNotContactReason.trim() })}>
+              {markDoNotContact.isPending ? "Saving..." : "Mark Do Not Contact"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <PipelineEmailComposer
         open={sendEmailOpen}

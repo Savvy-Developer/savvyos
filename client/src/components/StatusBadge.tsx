@@ -8,6 +8,7 @@ const PIPELINE_LABELS: Record<string, { label: string; className: string }> = {
   under_contract: { label: "Under Contract", className: "bg-orange-100 text-orange-800 border-orange-200" },
   closed: { label: "Closed", className: "bg-emerald-100 text-emerald-800 border-emerald-200" },
   dead: { label: "Dead", className: "bg-gray-100 text-gray-500 border-gray-200" },
+  do_not_contact: { label: "Do Not Contact", className: "bg-red-100 text-red-800 border-red-300" },
 };
 
 const TX_LABELS: Record<string, { label: string; className: string }> = {
@@ -32,6 +33,7 @@ export const PIPELINE_STAGE_OPTIONS = [
   { value: "under_contract", label: "Under Contract" },
   { value: "closed", label: "Closed" },
   { value: "dead", label: "Dead" },
+  { value: "do_not_contact", label: "Do Not Contact" },
 ];
 
 export function PipelineStatusBadge({ status }: { status: string }) {

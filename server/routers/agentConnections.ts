@@ -7,6 +7,7 @@ import {
   getAgentConnectionById,
   getAgentConnections,
   getDb,
+  updateContact,
   logActivity,
   updateAgentConnection,
 } from "../db";
@@ -338,6 +339,49 @@ export const agentConnectionsRouter = router({
           contactName: updateContactName,
           oldStatus,
           newStatus: input.data.pipelineStatus,
+        },
+      });
+      return { success: true };
+    }),
+
+  markDoNotContact: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      reason: z.string().trim().min(1, "A reason is required to mark a contact as Do Not Contact."),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await getAgentConnectionById(input.id);
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Agent connection not found" });
+      const connection = (result as any).connection ?? result;
+      const contact = (result as any).contact;
+      if (ctx.user.role === "agent" && connection.agentId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only mark contacts connected to your own pipeline." });
+      }
+
+      const markedAt = new Date();
+      // The compliance flag belongs to the shared contact. Every agent connection
+      // inherits it, while each connection's existing pipelineStatus is retained.
+      await updateContact(connection.contactId, {
+        isaStatus: "do_not_contact",
+        doNotContact: true,
+        doNotContactReason: input.reason,
+        doNotContactAt: markedAt,
+        doNotContactByUserId: ctx.user.id,
+      } as any);
+
+      await logActivity({
+        userId: ctx.user.id,
+        action: "agent_connection_marked_do_not_contact",
+        entityType: "agent_connection",
+        entityId: input.id,
+        relatedContactId: connection.contactId,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          contactName: `${contact?.firstName ?? ""} ${contact?.lastName ?? ""}`.trim() || "Unknown Contact",
+          reason: input.reason,
+          retainedPipelineStatus: connection.pipelineStatus,
+          markedAt: markedAt.toISOString(),
         },
       });
       return { success: true };

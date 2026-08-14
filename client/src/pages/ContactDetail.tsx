@@ -224,10 +224,11 @@ const PROPERTY_TYPES = [
 
 // ─── AgentConnectionCard ─────────────────────────────────────────────────────
 function AgentConnectionCard({
-  connection, agent, contactId, canDelete, isPendingDelete, onView, onDelete,
+  connection, agent, contactId, canDelete, isPendingDelete, doNotContact, doNotContactReason, onView, onDelete,
 }: {
   connection: any; agent: any; contactId: number;
   canDelete: boolean; isPendingDelete: boolean;
+  doNotContact: boolean; doNotContactReason?: string | null;
   onView: () => void; onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -262,6 +263,15 @@ function AgentConnectionCard({
           )}
         </div>
       </div>
+      {doNotContact && (
+        <div className="flex items-start gap-1.5 border-t border-red-200 bg-red-50 px-2.5 py-2 text-red-800">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide">Do Not Contact</p>
+            {doNotContactReason && <p className="mt-0.5 text-xs leading-snug text-red-700">{doNotContactReason}</p>}
+          </div>
+        </div>
+      )}
       {expanded && (
         <div className="border-t bg-muted/30 px-3 py-2">
           <div className="flex items-center justify-between mb-1.5">
@@ -398,6 +408,8 @@ export default function ContactDetail() {
   const [deleteBlockReasons, setDeleteBlockReasons] = useState<string[]>([]);
   const [archiveContactOpen, setArchiveContactOpen] = useState(false);
   const [deleteContactOpen, setDeleteContactOpen] = useState(false);
+  const [doNotContactOpen, setDoNotContactOpen] = useState(false);
+  const [doNotContactReason, setDoNotContactReason] = useState("");
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [linkPropertyOpen, setLinkPropertyOpen] = useState(false);
   const [propertyLabel, setPropertyLabel] = useState("Primary home");
@@ -482,6 +494,17 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     onError: (e) => toast.error(e.message),
   });
   const checkDupMut = trpc.contacts.checkDuplicate.useMutation();
+  const markDoNotContact = trpc.contacts.markDoNotContact.useMutation({
+    onSuccess: () => {
+      toast.success("Contact marked Do Not Contact");
+      setDoNotContactOpen(false);
+      setDoNotContactReason("");
+      refetch();
+      utils.contacts.list.invalidate();
+      utils.agentConnections.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   async function handleSaveContactEdit() {
     if (editForm.email && !isValidEmail(editForm.email)) { toast.error("Please enter a valid email address (e.g. name@example.com)"); return; }
@@ -769,25 +792,47 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             <Button variant="outline" size="sm" onClick={openEdit}>
               <Edit2 className="h-4 w-4 mr-1" /> Edit
             </Button>
-            {isAdmin && (
+            {canAssign && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm"><MoreVertical className="h-4 w-4" /></Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setArchiveContactOpen(true)}>
-                    <Archive className="h-4 w-4 mr-2" /> Archive Contact
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    disabled={(contact as any).doNotContact}
+                    onClick={() => { setDoNotContactReason(""); setDoNotContactOpen(true); }}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-2" /> {(contact as any).doNotContact ? "Already Do Not Contact" : "Do Not Contact"}
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-destructive" onClick={() => setDeleteContactOpen(true)}>
-                    <Trash2 className="h-4 w-4 mr-2" /> Delete Contact
-                  </DropdownMenuItem>
+                  {isAdmin && <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setArchiveContactOpen(true)}>
+                      <Archive className="h-4 w-4 mr-2" /> Archive Contact
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-destructive" onClick={() => setDeleteContactOpen(true)}>
+                      <Trash2 className="h-4 w-4 mr-2" /> Delete Contact
+                    </DropdownMenuItem>
+                  </>}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
           </div>
         }
       />
+
+      {(contact as any).doNotContact && (
+        <div role="alert" className="mb-5 flex items-start gap-3 rounded-lg border-2 border-red-400 bg-red-50 px-4 py-3 text-red-900 shadow-sm">
+          <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-red-600" />
+          <div>
+            <p className="font-bold uppercase tracking-wide">Do Not Contact</p>
+            <p className="mt-0.5 text-sm text-red-800">This contact is restricted from outreach across all agent connections.</p>
+            {(contact as any).doNotContactReason && <p className="mt-2 text-sm"><span className="font-semibold">Reason:</span> {(contact as any).doNotContactReason}</p>}
+            {(contact as any).doNotContactAt && <p className="mt-1 text-xs text-red-700">Logged {safeFormat((contact as any).doNotContactAt, "MMM d, yyyy")}</p>}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column */}
@@ -809,7 +854,14 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   {canAssign && (contact as any).assignedIsaId && (
                     <Select
                       value={(contact as any).isaStatus ?? "none"}
-                      onValueChange={(v) => updateContact.mutate({ id: contactId, data: { isaStatus: v === "none" ? null : v as any } })}
+                      onValueChange={(v) => {
+                        if (v === "do_not_contact") {
+                          setDoNotContactReason("");
+                          setDoNotContactOpen(true);
+                          return;
+                        }
+                        updateContact.mutate({ id: contactId, data: { isaStatus: v === "none" ? null : v as any } });
+                      }}
                     >
                       <SelectTrigger className="h-7 text-xs w-32">
                         <SelectValue placeholder="Set status..." />
@@ -946,6 +998,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                       contactId={contactId}
                       canDelete={isIsa || isAdmin}
                       isPendingDelete={pendingTargetIds.has(connection.id)}
+                      doNotContact={Boolean((contact as any).doNotContact)}
+                      doNotContactReason={(contact as any).doNotContactReason}
                       onView={() => navigate(`/pipeline/${connection.id}`)}
                       onDelete={() => handleRequestDelete(connection.id)}
                     />
@@ -1390,7 +1444,14 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                     <Label>ISA Pipeline Status</Label>
                     <Select
                       value={editIsaStatus}
-                      onValueChange={v => setEditIsaStatus(v)}
+                      onValueChange={v => {
+                        if (v === "do_not_contact") {
+                          setDoNotContactReason("");
+                          setDoNotContactOpen(true);
+                          return;
+                        }
+                        setEditIsaStatus(v);
+                      }}
                       disabled={!editIsaId}
                     >
                       <SelectTrigger className="mt-1">
@@ -1549,6 +1610,43 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             <Button variant="outline" onClick={() => setAssignOpen(false)}>Cancel</Button>
             <Button onClick={handleAssign} disabled={!assignForm.agentId || createConnection.isPending}>
               {createConnection.isPending ? "Assigning..." : "Assign to Agent"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Do Not Contact Dialog ── */}
+      <Dialog open={doNotContactOpen} onOpenChange={(open) => { setDoNotContactOpen(open); if (!open) setDoNotContactReason(""); }}>
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Mark Do Not Contact
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              This will set the contact’s ISA stage to <strong>Do Not Contact</strong>, display a red warning on every agent connection, and prevent pipeline email selection. Existing agent pipeline stages will not change.
+            </p>
+            <div>
+              <Label htmlFor="do-not-contact-reason">Reason <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="do-not-contact-reason"
+                className="mt-1"
+                rows={4}
+                placeholder="Explain why this contact must not be contacted..."
+                value={doNotContactReason}
+                onChange={e => setDoNotContactReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDoNotContactOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!doNotContactReason.trim() || markDoNotContact.isPending}
+              onClick={() => markDoNotContact.mutate({ id: contactId, reason: doNotContactReason.trim() })}
+            >
+              {markDoNotContact.isPending ? "Saving..." : "Mark Do Not Contact"}
             </Button>
           </DialogFooter>
         </DialogContent>

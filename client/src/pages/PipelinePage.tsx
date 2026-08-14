@@ -262,7 +262,7 @@ export default function PipelinePage() {
   function isEmailEligible(row: any) {
     const status = row?.connection?.pipelineStatus;
     const email = row?.contact?.email?.trim();
-    return Boolean(email && status !== "new_lead" && status !== "dead");
+    return Boolean(email && !row?.contact?.doNotContact && status !== "new_lead" && status !== "dead");
   }
 
   const eligibleConnectionIds = connections.filter(isEmailEligible).map((row: any) => row.connection.id);
@@ -573,7 +573,7 @@ export default function PipelinePage() {
                           aria-label={`Select ${contact?.firstName ?? ""} ${contact?.lastName ?? ""} for email`}
                           checked={selectedEmailConnectionIds.has(connection.id)}
                           disabled={!emailEligible}
-                          title={emailEligible ? "Select for mass email" : "Email selection requires an email address and a status other than New or Dead"}
+                          title={emailEligible ? "Select for mass email" : contact?.doNotContact ? "This contact is marked Do Not Contact" : "Email selection requires an email address and a status other than New or Dead"}
                           onClick={(event) => event.stopPropagation()}
                           onChange={() => toggleEmailSelection(connection.id)}
                           className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
@@ -586,6 +586,11 @@ export default function PipelinePage() {
                         >
                           {contact?.firstName} {contact?.lastName}
                         </button>
+                        {contact?.doNotContact && (
+                          <span className="mt-1 inline-flex items-center gap-1 rounded border border-red-300 bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800" title={contact?.doNotContactReason ?? "Do Not Contact"}>
+                            <AlertTriangle className="h-3 w-3" /> Do Not Contact
+                          </span>
+                        )}
                         {contact?.email && (
                           <p className="text-xs text-muted-foreground">{formatEmail(contact.email)}</p>
                         )}

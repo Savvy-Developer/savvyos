@@ -41,7 +41,7 @@ const contactInput = z.object({
   assignedIsaId: z.number().optional().nullable(),
   notes: z.string().optional().nullable(),
   tags: z.array(z.string()).optional().nullable(),
-  isaStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).optional().nullable(),
+  isaStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead","do_not_contact"]).optional().nullable(),
   timezone: z.enum(["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Anchorage","Pacific/Honolulu"]).optional().nullable(),
 });
 
@@ -53,7 +53,7 @@ export const contactsRouter = router({
       agentId: z.number().optional(), // admin can filter by specific agent
       marketId: z.number().optional(), // filter by agent's market
       leadSourceId: z.number().optional(), // filter by lead source; -1 = no source (NULL)
-      isaStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).optional(),
+      isaStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead","do_not_contact"]).optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -130,6 +130,12 @@ export const contactsRouter = router({
     .input(z.object({ id: z.number(), data: contactInput.partial() }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents cannot edit contact details directly" });
+      if (input.data.isaStatus === "do_not_contact") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Use the Do Not Contact action and provide a reason before applying this stage.",
+        });
+      }
       // Fetch old values before updating so we can log a proper diff
       const oldContact = await getContactById(input.id);
       const oldData = (oldContact as any)?.contact ?? oldContact ?? {};
@@ -246,6 +252,43 @@ export const contactsRouter = router({
           actorRole: ctx.user.role,
           contactName: contactDisplayName,
           ...(changes.length > 0 ? { changes } : { note: "No fields changed" }),
+        },
+      });
+      return { success: true };
+    }),
+
+  markDoNotContact: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      reason: z.string().trim().min(1, "A reason is required to mark a contact as Do Not Contact."),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents must mark a connection from its pipeline record." });
+      const existing = await getContactById(input.id);
+      const contact = (existing as any)?.contact ?? existing;
+      if (!contact) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+
+      const markedAt = new Date();
+      await updateContact(input.id, {
+        isaStatus: "do_not_contact",
+        doNotContact: true,
+        doNotContactReason: input.reason,
+        doNotContactAt: markedAt,
+        doNotContactByUserId: ctx.user.id,
+      } as any);
+
+      await logActivity({
+        userId: ctx.user.id,
+        action: "contact_marked_do_not_contact",
+        entityType: "contact",
+        entityId: input.id,
+        relatedContactId: input.id,
+        details: {
+          actorName: ctx.user.name ?? "Unknown",
+          actorRole: ctx.user.role,
+          contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown Contact",
+          reason: input.reason,
+          markedAt: markedAt.toISOString(),
         },
       });
       return { success: true };

@@ -146,7 +146,13 @@ export const contacts = mysqlTable("contacts", {
     "under_contract",
     "closed",
     "dead",
+    "do_not_contact",
   ]),
+  // A contact-level compliance flag inherited by every agent connection.
+  doNotContact: boolean("doNotContact").default(false).notNull(),
+  doNotContactReason: text("doNotContactReason"),
+  doNotContactAt: timestamp("doNotContactAt"),
+  doNotContactByUserId: int("doNotContactByUserId").references(() => users.id),
   // Email deliverability tracking
   emailStatus: mysqlEnum("emailStatus", ["valid", "bounced", "unsubscribed"]).default("valid").notNull(),
   emailBouncedAt: timestamp("emailBouncedAt"),

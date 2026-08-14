@@ -59,7 +59,7 @@ type AssignForm = {
 
 const PIPELINE_STATUS_LABELS: Record<string, string> = {
   new_lead: "New Lead", attempted_contact: "Attempted Contact", nurture: "Nurture",
-  active_client: "Active Client", under_contract: "Under Contract", closed: "Closed", dead: "Dead",
+  active_client: "Active Client", under_contract: "Under Contract", closed: "Closed", dead: "Dead", do_not_contact: "Do Not Contact",
 };
 
 // ─── URL Search Params helpers ────────────────────────────────────────────────
@@ -810,6 +810,11 @@ export default function ContactsPage() {
                         )}
                         <td className="py-3 px-4">
                           <p className="font-medium text-foreground">{contact.firstName} {contact.lastName}</p>
+                          {(contact as any).doNotContact && (
+                            <span className="mt-1 inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800">
+                              Do Not Contact
+                            </span>
+                          )}
                           {contact.spouseFirstName && (
                             <p className="text-xs text-muted-foreground">+ {contact.spouseFirstName} {contact.spouseLastName}</p>
                           )}

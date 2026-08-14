@@ -290,7 +290,8 @@ async function getAuthorizedRecipients(
 
   const ineligible = rows.filter((row) => {
     const email = row.contact.email?.trim();
-    return !ELIGIBLE_PIPELINE_STATUSES.has(row.connection.pipelineStatus)
+    return Boolean(row.contact.doNotContact)
+      || !ELIGIBLE_PIPELINE_STATUSES.has(row.connection.pipelineStatus)
       || !email;
   });
   if (ineligible.length > 0) {
@@ -301,7 +302,7 @@ async function getAuthorizedRecipients(
       .join(", ");
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `${ineligible.length} selected contact${ineligible.length === 1 ? " is" : "s are"} not eligible for email. Contacts must have an email address and be in a status other than New or Dead${examples ? ` (${examples})` : ""}.`,
+      message: `${ineligible.length} selected contact${ineligible.length === 1 ? " is" : "s are"} not eligible for email. Contacts must not be marked Do Not Contact, must have an email address, and must be in a status other than New or Dead${examples ? ` (${examples})` : ""}.`,
     });
   }
 
