@@ -59,6 +59,7 @@ type LeaderboardMilestone = {
   units: number;
   volume: number;
   periodStart?: string;
+  date?: string;
 };
 
 function utcDate(year: number, month: number, day: number, endOfDay = false) {
@@ -294,13 +295,18 @@ export async function getAgentLeaderboard(opts: {
   viewerAgentId: number;
 }) {
   const db = await getDb();
+  const isClosed = opts.dealType === "closed";
   const { dateFrom, dateTo, label } = getAgentLeaderboardPeriodRange(opts.period);
-  const dateField = opts.dealType === "closed" ? transactions.closingDate : transactions.contractDate;
-  const transactionWhere = and(
-    eq(transactions.status, opts.dealType),
-    dateFrom ? gte(dateField, dateFrom) : undefined,
-    dateTo ? lte(dateField, dateTo) : undefined,
-  );
+  const dateField = isClosed ? transactions.closingDate : transactions.contractDate;
+  // Closed production follows the agent-selected period. Under Contract is intentionally
+  // a live pipeline view, so date controls never hide active deals.
+  const transactionWhere = isClosed
+    ? and(
+        eq(transactions.status, "closed"),
+        dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
+        dateTo ? lte(transactions.closingDate, dateTo) : undefined,
+      )
+    : eq(transactions.status, "under_contract");
 
   const activeAgents = await db
     .select({
@@ -320,6 +326,10 @@ export async function getAgentLeaderboard(opts: {
       volume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
       gci: sql<string>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
       averageDealSize: sql<string>`COALESCE(AVG(${transactions.purchasePrice}), 0)`,
+      buyerSides: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'buyer' THEN 1 ELSE 0 END), 0)`,
+      sellerSides: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'seller' THEN 1 ELSE 0 END), 0)`,
+      buyerCommissionCharged: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'buyer' THEN ${transactions.grossCommissionIncome} ELSE 0 END), 0)`,
+      sellerCommissionCharged: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'seller' THEN ${transactions.grossCommissionIncome} ELSE 0 END), 0)`,
     })
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
@@ -338,9 +348,13 @@ export async function getAgentLeaderboard(opts: {
         volume: Number(row?.volume ?? 0),
         gci: Number(row?.gci ?? 0),
         averageDealSize: Number(row?.averageDealSize ?? 0),
+        buyerSides: Number(row?.buyerSides ?? 0),
+        sellerSides: Number(row?.sellerSides ?? 0),
+        buyerCommissionCharged: Number(row?.buyerCommissionCharged ?? 0),
+        sellerCommissionCharged: Number(row?.sellerCommissionCharged ?? 0),
       };
     })
-    .sort((a, b) => b.units - a.units || b.volume - a.volume || a.agentName.localeCompare(b.agentName))
+    .sort((a, b) => b.volume - a.volume || b.units - a.units || a.agentName.localeCompare(b.agentName))
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
   const milestoneRows = await db
@@ -350,6 +364,7 @@ export async function getAgentLeaderboard(opts: {
       profilePhotoUrl: userProfiles.profilePhotoUrl,
       purchasePrice: transactions.purchasePrice,
       performanceDate: dateField,
+      closingDate: transactions.closingDate,
     })
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
@@ -357,13 +372,14 @@ export async function getAgentLeaderboard(opts: {
     .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)));
 
   const normalizedMilestones = milestoneRows
-    .filter((row) => row.performanceDate)
+    .filter((row) => !isClosed || Boolean(row.performanceDate))
     .map((row) => ({
       agentId: row.agentId,
       agentName: row.agentName ?? "Unknown",
       profilePhotoUrl: row.profilePhotoUrl ?? null,
       volume: Number(row.purchasePrice ?? 0),
-      performanceDate: row.performanceDate!,
+      performanceDate: row.performanceDate ?? null,
+      closingDate: row.closingDate,
     }));
 
   const largestTransaction = normalizedMilestones
@@ -371,11 +387,10 @@ export async function getAgentLeaderboard(opts: {
     .sort((a, b) => b.volume - a.volume || a.agentName.localeCompare(b.agentName))[0];
 
   const weeklyGroups = new Map<string, LeaderboardMilestone>();
-  const monthlyGroups = new Map<string, LeaderboardMilestone>();
-  for (const transaction of normalizedMilestones) {
-    const weekStart = weekKeyFromDate(transaction.performanceDate);
-    const monthStart = monthKeyFromDate(transaction.performanceDate);
-    if (weekStart) {
+  if (isClosed) {
+    for (const transaction of normalizedMilestones) {
+      const weekStart = weekKeyFromDate(transaction.performanceDate);
+      if (!weekStart) continue;
       const key = `${transaction.agentId}:${weekStart}`;
       const existing = weeklyGroups.get(key) ?? {
         agentId: transaction.agentId,
@@ -389,24 +404,58 @@ export async function getAgentLeaderboard(opts: {
       existing.volume += transaction.volume;
       weeklyGroups.set(key, existing);
     }
-    if (monthStart) {
-      const key = `${transaction.agentId}:${monthStart}`;
-      const existing = monthlyGroups.get(key) ?? {
-        agentId: transaction.agentId,
-        agentName: transaction.agentName,
-        profilePhotoUrl: transaction.profilePhotoUrl,
-        units: 0,
-        volume: 0,
-        periodStart: monthStart,
-      };
-      existing.units += 1;
-      existing.volume += transaction.volume;
-      monthlyGroups.set(key, existing);
-    }
   }
 
+  const powerMonthYear = new Date().getUTCFullYear();
+  const powerMonthRows = isClosed
+    ? await db
+      .select({
+        agentId: transactions.agentId,
+        agentName: users.name,
+        profilePhotoUrl: userProfiles.profilePhotoUrl,
+        purchasePrice: transactions.purchasePrice,
+        closingDate: transactions.closingDate,
+      })
+      .from(transactions)
+      .innerJoin(users, eq(users.id, transactions.agentId))
+      .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+      .where(and(
+        eq(transactions.status, "closed"),
+        gte(transactions.closingDate, utcDate(powerMonthYear, 0, 1)),
+        lte(transactions.closingDate, utcDate(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), true)),
+        eq(users.role, "agent"),
+        eq(users.isActive, true),
+      ))
+    : [];
+
+  const powerMonthGroups = new Map<string, LeaderboardMilestone>();
+  for (const transaction of powerMonthRows) {
+    const monthStart = monthKeyFromDate(transaction.closingDate);
+    if (!monthStart) continue;
+    const key = `${transaction.agentId}:${monthStart}`;
+    const existing = powerMonthGroups.get(key) ?? {
+      agentId: transaction.agentId,
+      agentName: transaction.agentName ?? "Unknown",
+      profilePhotoUrl: transaction.profilePhotoUrl ?? null,
+      units: 0,
+      volume: 0,
+      periodStart: monthStart,
+    };
+    existing.units += 1;
+    existing.volume += Number(transaction.purchasePrice ?? 0);
+    powerMonthGroups.set(key, existing);
+  }
+
+  const now = new Date();
+  const nextClosing = !isClosed
+    ? normalizedMilestones
+      .filter((transaction) => transaction.closingDate && new Date(transaction.closingDate).getTime() >= now.getTime())
+      .sort((a, b) => new Date(a.closingDate!).getTime() - new Date(b.closingDate!).getTime() || b.volume - a.volume)[0]
+    : null;
+
   return {
-    periodLabel: label,
+    periodLabel: isClosed ? label : "Live Pipeline",
+    hasDateFilters: isClosed,
     activeAgentCount: activeAgents.length,
     leaderboard,
     myEntry: leaderboard.find((entry) => entry.agentId === opts.viewerAgentId) ?? null,
@@ -418,9 +467,18 @@ export async function getAgentLeaderboard(opts: {
         units: 1,
         volume: largestTransaction.volume,
       } : null,
-      bestWeek: pickMilestone(weeklyGroups),
-      bestMonth: pickMilestone(monthlyGroups),
+      bestWeek: isClosed ? pickMilestone(weeklyGroups) : null,
+      powerMonth: isClosed ? pickMilestone(powerMonthGroups) : null,
+      nextClosing: nextClosing ? {
+        agentId: nextClosing.agentId,
+        agentName: nextClosing.agentName,
+        profilePhotoUrl: nextClosing.profilePhotoUrl,
+        units: 1,
+        volume: nextClosing.volume,
+        date: toDayKey(nextClosing.closingDate) ?? undefined,
+      } : null,
     },
+    powerMonthYear,
   };
 }
 
