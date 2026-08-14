@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -20,7 +21,9 @@ import {
   Crown,
   Flame,
   Gem,
+  Mail,
   Medal,
+  Phone,
   Target,
   TrendingUp,
   Trophy,
@@ -36,12 +39,15 @@ type AgentEntry = {
   rank: number;
   units: number;
   volume: number;
-  gci: number;
   averageDealSize: number;
   buyerSides: number;
   sellerSides: number;
-  buyerCommissionCharged: number;
-  sellerCommissionCharged: number;
+  averageBuyerCommissionRate: number | null;
+  averageSellerCommissionRate: number | null;
+  marketName: string | null;
+  marketState: string | null;
+  email: string | null;
+  phone: string | null;
 };
 
 type Milestone = {
@@ -77,6 +83,15 @@ function currency(value: number) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value || 0);
+}
+
+function formatPercent(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 2,
+  }).format(value / 100);
 }
 
 function initials(name: string) {
@@ -386,7 +401,7 @@ export default function AgentLeaderboardPage() {
               </div>
               <Badge variant="secondary" className="w-fit">{leaderboard.length} agents</Badge>
             </div>
-            <Table className="min-w-[1160px]">
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-[68px] px-4 sm:px-5">Rank</TableHead>
@@ -395,9 +410,8 @@ export default function AgentLeaderboardPage() {
                   <TableHead className="text-right">Units</TableHead>
                   <TableHead className="text-right">Buyers</TableHead>
                   <TableHead className="text-right">Sellers</TableHead>
-                  <TableHead className="text-right">Buyer Comm.</TableHead>
-                  <TableHead className="text-right">Seller Comm.</TableHead>
-                  <TableHead className="text-right">Total GCI</TableHead>
+                  <TableHead className="text-right">Avg. Buyer Comm.</TableHead>
+                  <TableHead className="text-right">Avg. Seller Comm.</TableHead>
                   <TableHead className="px-4 text-right">Avg. Deal</TableHead>
                 </TableRow>
               </TableHeader>
@@ -414,16 +428,40 @@ export default function AgentLeaderboardPage() {
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <AgentAvatar entry={entry} />
-                          <p className="min-w-0 text-sm font-semibold leading-snug break-words">{entry.agentName} {isMe ? <span className="font-medium text-primary">(You)</span> : null}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold leading-snug break-words">{entry.agentName} {isMe ? <span className="font-medium text-primary">(You)</span> : null}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{entry.marketName ? `${entry.marketName}${entry.marketState ? `, ${entry.marketState}` : ""}` : "Market not assigned"}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {entry.email ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a href={`mailto:${entry.email}`} className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" aria-label={`Email ${entry.agentName}`}>
+                                    <Mail className="h-3.5 w-3.5" />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={6}>{entry.email}</TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                            {entry.phone ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a href={`tel:${entry.phone}`} className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" aria-label={`Call ${entry.agentName}`}>
+                                    <Phone className="h-3.5 w-3.5" />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={6}>{entry.phone}</TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold tabular-nums">{compactCurrency(entry.volume)}</TableCell>
                       <TableCell className="text-right tabular-nums">{entry.units}</TableCell>
                       <TableCell className="text-right tabular-nums">{entry.buyerSides}</TableCell>
                       <TableCell className="text-right tabular-nums">{entry.sellerSides}</TableCell>
-                      <TableCell className="text-right tabular-nums">{compactCurrency(entry.buyerCommissionCharged)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{compactCurrency(entry.sellerCommissionCharged)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{compactCurrency(entry.gci)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatPercent(entry.averageBuyerCommissionRate)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatPercent(entry.averageSellerCommissionRate)}</TableCell>
                       <TableCell className="px-4 text-right tabular-nums">{compactCurrency(entry.averageDealSize)}</TableCell>
                     </TableRow>
                   );

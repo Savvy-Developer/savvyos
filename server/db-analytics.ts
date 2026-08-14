@@ -313,9 +313,14 @@ export async function getAgentLeaderboard(opts: {
       agentId: users.id,
       agentName: users.name,
       profilePhotoUrl: userProfiles.profilePhotoUrl,
+      marketName: marketProfiles.name,
+      marketState: marketProfiles.state,
+      email: users.email,
+      phone: sql<string | null>`COALESCE(NULLIF(${users.phone}, ''), NULLIF(${userProfiles.primaryPhone}, ''))`,
     })
     .from(users)
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+    .leftJoin(marketProfiles, eq(users.marketProfileId, marketProfiles.id))
     .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
     .orderBy(users.name);
 
@@ -324,12 +329,11 @@ export async function getAgentLeaderboard(opts: {
       agentId: transactions.agentId,
       units: sql<number>`COUNT(*)`,
       volume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
-      gci: sql<string>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
       averageDealSize: sql<string>`COALESCE(AVG(${transactions.purchasePrice}), 0)`,
       buyerSides: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'buyer' THEN 1 ELSE 0 END), 0)`,
       sellerSides: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'seller' THEN 1 ELSE 0 END), 0)`,
-      buyerCommissionCharged: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'buyer' THEN ${transactions.grossCommissionIncome} ELSE 0 END), 0)`,
-      sellerCommissionCharged: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'seller' THEN ${transactions.grossCommissionIncome} ELSE 0 END), 0)`,
+      averageBuyerCommissionRate: sql<string | null>`AVG(CASE WHEN ${transactions.transactionType} = 'buyer' AND ${transactions.commissionType} = 'percentage' THEN ${transactions.commissionRate} * 100 ELSE NULL END)`,
+      averageSellerCommissionRate: sql<string | null>`AVG(CASE WHEN ${transactions.transactionType} = 'seller' AND ${transactions.commissionType} = 'percentage' THEN ${transactions.commissionRate} * 100 ELSE NULL END)`,
     })
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
@@ -344,14 +348,17 @@ export async function getAgentLeaderboard(opts: {
         agentId: agent.agentId,
         agentName: agent.agentName ?? "Unknown",
         profilePhotoUrl: agent.profilePhotoUrl ?? null,
+        marketName: agent.marketName ?? null,
+        marketState: agent.marketState ?? null,
+        email: agent.email ?? null,
+        phone: agent.phone ?? null,
         units: Number(row?.units ?? 0),
         volume: Number(row?.volume ?? 0),
-        gci: Number(row?.gci ?? 0),
         averageDealSize: Number(row?.averageDealSize ?? 0),
         buyerSides: Number(row?.buyerSides ?? 0),
         sellerSides: Number(row?.sellerSides ?? 0),
-        buyerCommissionCharged: Number(row?.buyerCommissionCharged ?? 0),
-        sellerCommissionCharged: Number(row?.sellerCommissionCharged ?? 0),
+        averageBuyerCommissionRate: row?.averageBuyerCommissionRate == null ? null : Number(row.averageBuyerCommissionRate),
+        averageSellerCommissionRate: row?.averageSellerCommissionRate == null ? null : Number(row.averageSellerCommissionRate),
       };
     })
     .sort((a, b) => b.volume - a.volume || b.units - a.units || a.agentName.localeCompare(b.agentName))
