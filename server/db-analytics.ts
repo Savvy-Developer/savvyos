@@ -321,7 +321,11 @@ export async function getAgentLeaderboard(opts: {
     .from(users)
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
     .leftJoin(marketProfiles, eq(users.marketProfileId, marketProfiles.id))
-    .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
+    .where(and(
+      eq(users.role, "agent"),
+      eq(users.isActive, true),
+      sql`LOWER(TRIM(COALESCE(${users.name}, ''))) <> 'savvy agent'`,
+    ))
     .orderBy(users.name);
 
   const production = await db

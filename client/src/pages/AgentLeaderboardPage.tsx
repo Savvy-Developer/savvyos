@@ -401,11 +401,11 @@ export default function AgentLeaderboardPage() {
               </div>
               <Badge variant="secondary" className="w-fit">{leaderboard.length} agents</Badge>
             </div>
-            <Table className="min-w-[1100px]">
+            <Table className="min-w-[1100px] table-fixed">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-[68px] px-4 sm:px-5">Rank</TableHead>
-                  <TableHead className="min-w-[220px]">Agent</TableHead>
+                  <TableHead className="w-[280px]">Agent</TableHead>
                   <TableHead className="text-right">Volume</TableHead>
                   <TableHead className="text-right">Units</TableHead>
                   <TableHead className="text-right">Buyers</TableHead>
@@ -425,12 +425,12 @@ export default function AgentLeaderboardPage() {
                           <RankIcon rank={entry.rank} />
                         </span>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2.5">
-                          <AgentAvatar entry={entry} />
+                      <TableCell className="w-[280px]">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <AgentAvatar entry={entry} className="shrink-0" />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-semibold leading-snug break-words">{entry.agentName} {isMe ? <span className="font-medium text-primary">(You)</span> : null}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">{entry.marketName ? `${entry.marketName}${entry.marketState ? `, ${entry.marketState}` : ""}` : "Market not assigned"}</p>
+                            <p className="mt-0.5 max-w-[172px] whitespace-normal break-words text-xs leading-snug text-muted-foreground">{entry.marketName ? `${entry.marketName}${entry.marketState ? `, ${entry.marketState}` : ""}` : "Market not assigned"}</p>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             {entry.email ? (
