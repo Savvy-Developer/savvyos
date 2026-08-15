@@ -18,7 +18,7 @@ import {
   aircallCalls,
   aircallUnmatchedCalls,
 } from "../drizzle/schema";
-import { eq, or, and, like, inArray } from "drizzle-orm";
+import { eq, or, and, like, inArray, desc, lt, gte } from "drizzle-orm";
 import { transcribeAndSummarize } from "./aircallTranscribe";
 
 // ─── Phone Normalisation ──────────────────────────────────────────────────────
@@ -301,7 +301,7 @@ export function scheduleAircallTranscription(
  */
 export async function processAircallCall(
   call: AircallCallData,
-  options?: { contactOverride?: AircallContactMatch }
+  options?: { contactOverride?: AircallContactMatch; skipMediaDownload?: boolean }
 ): Promise<ProcessCallResult> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
@@ -345,10 +345,12 @@ export async function processAircallCall(
   const answeredAt = call.answered_at ? new Date(call.answered_at * 1000) : null;
   const endedAt = call.ended_at ? new Date(call.ended_at * 1000) : null;
 
-  const [recordingResult, voicemailResult] = await Promise.all([
-    downloadAndStoreRecording(callId, call.recording, "recording"),
-    downloadAndStoreRecording(callId, call.voicemail, "voicemail"),
-  ]);
+  const [recordingResult, voicemailResult] = options?.skipMediaDownload
+    ? [null, null]
+    : await Promise.all([
+        downloadAndStoreRecording(callId, call.recording, "recording"),
+        downloadAndStoreRecording(callId, call.voicemail, "voicemail"),
+      ]);
 
   // ── 5. Unmatched path ──────────────────────────────────────────────────────
   if (!contact) {
@@ -532,4 +534,101 @@ export function scheduleAircallUnmatchedRematch(
     .catch(error => {
       console.error(`[Aircall] Contact ${contactId} re-match error:`, error);
     });
+}
+
+export type AircallReconciliationOptions = {
+  limit?: number;
+  beforeId?: number;
+  since?: Date;
+  skipMediaDownload?: boolean;
+};
+
+/**
+ * Scan an ordered batch of historical unmatched calls and link every record
+ * whose attempted phone now resolves to a SavvyOS contact. Historical media is
+ * skipped by default because Aircall recording links are short-lived; the CRM
+ * call activity and contact relationship remain durable.
+ */
+export async function reconcileUnmatchedAircallCalls(
+  options: AircallReconciliationOptions = {}
+): Promise<{
+  scanned: number;
+  matched: number;
+  noContact: number;
+  skipped: number;
+  nextCursor: number | null;
+}> {
+  const db = await getDb();
+  if (!db) return { scanned: 0, matched: 0, noContact: 0, skipped: 0, nextCursor: null };
+
+  const limit = Math.max(1, Math.min(options.limit ?? 100, 250));
+  const skipMediaDownload = options.skipMediaDownload ?? true;
+  const whereClause = options.beforeId && options.since
+    ? and(
+        lt(aircallUnmatchedCalls.id, options.beforeId),
+        gte(aircallUnmatchedCalls.startedAt, options.since)
+      )
+    : options.beforeId
+      ? lt(aircallUnmatchedCalls.id, options.beforeId)
+      : options.since
+        ? gte(aircallUnmatchedCalls.startedAt, options.since)
+        : undefined;
+  const rows = await db
+    .select({
+      id: aircallUnmatchedCalls.id,
+      aircallCallId: aircallUnmatchedCalls.aircallCallId,
+      attemptedPhone: aircallUnmatchedCalls.attemptedPhone,
+      rawPayload: aircallUnmatchedCalls.rawPayload,
+    })
+    .from(aircallUnmatchedCalls)
+    .where(whereClause)
+    .orderBy(desc(aircallUnmatchedCalls.id))
+    .limit(limit);
+
+  let matched = 0;
+  let noContact = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const call = parseAircallPayload(row.rawPayload);
+    const contact = row.attemptedPhone
+      ? await findContactByPhoneDB(row.attemptedPhone)
+      : null;
+    if (!call || !contact) {
+      if (!contact) noContact += 1;
+      else skipped += 1;
+      continue;
+    }
+
+    try {
+      const result = await processAircallCall(call, {
+        contactOverride: contact,
+        skipMediaDownload,
+      });
+      if (result.action === "created") {
+        await db
+          .delete(aircallUnmatchedCalls)
+          .where(eq(aircallUnmatchedCalls.id, row.id));
+        if (result.communicationId && !skipMediaDownload) {
+          scheduleAircallTranscription(result.communicationId, call);
+        }
+        matched += 1;
+      } else if (result.action === "skipped") {
+        await db
+          .delete(aircallUnmatchedCalls)
+          .where(eq(aircallUnmatchedCalls.id, row.id));
+        skipped += 1;
+      }
+    } catch (error) {
+      skipped += 1;
+      console.error(`[Aircall] Historical reconciliation failed for ${row.aircallCallId}:`, error);
+    }
+  }
+
+  return {
+    scanned: rows.length,
+    matched,
+    noContact,
+    skipped,
+    nextCursor: rows.length ? rows[rows.length - 1].id : null,
+  };
 }
