@@ -55,6 +55,8 @@ import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import IsmCallsTab from "./ism/IsmCallsTab";
 
 type QueueKey =
   | "recentUnassigned"
@@ -477,6 +479,7 @@ export default function IsmDashboardPage() {
   const [selectedIsaIds, setSelectedIsaIds] = useState<string[]>([]);
   const [leadSourceId, setLeadSourceId] = useState("all");
   const [selectedQueue, setSelectedQueue] = useState<QueueKey | null>(null);
+  const [activeTab, setActiveTab] = useState<"operations" | "calls">("operations");
   const [sort, setSort] = useState<SortState>({
     key: "staleSevenDays",
     direction: "desc",
@@ -686,6 +689,17 @@ export default function IsmDashboardPage() {
         }
       />
 
+      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as "operations" | "calls")}>
+        <TabsList>
+          <TabsTrigger value="operations">Operations</TabsTrigger>
+          <TabsTrigger value="calls"><PhoneCall className="h-4 w-4" />Calls</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {activeTab === "calls" ? (
+        <IsmCallsTab />
+      ) : (
+        <>
       <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.09] via-background to-cyan-50/60 p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
@@ -1408,6 +1422,8 @@ export default function IsmDashboardPage() {
         selectedIsaIds={selectedIsaIds}
         leadSourceId={leadSourceId}
       />
+        </>
+      )}
     </div>
   );
 }
