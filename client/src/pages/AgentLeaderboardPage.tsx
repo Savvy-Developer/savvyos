@@ -410,8 +410,8 @@ export default function AgentLeaderboardPage() {
                   <TableHead className="text-right">Units</TableHead>
                   <TableHead className="text-right">Buyers</TableHead>
                   <TableHead className="text-right">Sellers</TableHead>
-                  <TableHead className="text-right">Avg. Buyer Comm.</TableHead>
-                  <TableHead className="text-right">Avg. Seller Comm.</TableHead>
+                  <TableHead className="w-[105px] whitespace-normal text-right leading-tight">Buyer<br />Avg. %</TableHead>
+                  <TableHead className="w-[105px] whitespace-normal text-right leading-tight">Seller<br />Avg. %</TableHead>
                   <TableHead className="px-4 text-right">Avg. Deal</TableHead>
                 </TableRow>
               </TableHeader>
