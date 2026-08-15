@@ -18,7 +18,8 @@ import {
   aircallCalls,
   aircallUnmatchedCalls,
 } from "../drizzle/schema";
-import { eq, or, and } from "drizzle-orm";
+import { eq, or, and, like, inArray } from "drizzle-orm";
+import { transcribeAndSummarize } from "./aircallTranscribe";
 
 // ─── Phone Normalisation ──────────────────────────────────────────────────────
 
@@ -102,41 +103,36 @@ export async function findContactByPhoneDB(
   const norm = normalizePhone(rawPhone);
   if (!norm) return null;
 
-  // Build search patterns that cover both "+1XXXXXXXXXX" and "XXXXXXXXXX" storage
-  const patterns = [
-    `%${norm}`,          // ends with 10-digit form
-    `%${norm.slice(-10)}`, // last 10 digits
-  ];
-
-  for (const pattern of patterns) {
-    const rows = await db
-      .select({
-        id: contacts.id,
-        firstName: contacts.firstName,
-        lastName: contacts.lastName,
-        phone: contacts.phone,
-        secondaryPhone: contacts.secondaryPhone,
-        spousePhone: contacts.spousePhone,
-      })
-      .from(contacts)
-      .where(
-        or(
-          eq(contacts.phone, `+1${norm}`),
-          eq(contacts.phone, norm),
-          eq(contacts.secondaryPhone, `+1${norm}`),
-          eq(contacts.secondaryPhone, norm),
-          eq(contacts.spousePhone, `+1${norm}`),
-          eq(contacts.spousePhone, norm),
-        )
+  // Fetch a small candidate set by the final four digits, then compare fully
+  // normalized values in application code. This covers contacts saved with
+  // punctuation, spaces, country codes, or mixed formatting without scanning
+  // the entire contacts table.
+  const finalFour = norm.slice(-4);
+  if (finalFour.length < 4) return null;
+  const rows = await db
+    .select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      phone: contacts.phone,
+      secondaryPhone: contacts.secondaryPhone,
+      spousePhone: contacts.spousePhone,
+    })
+    .from(contacts)
+    .where(
+      or(
+        like(contacts.phone, `%${finalFour}`),
+        like(contacts.secondaryPhone, `%${finalFour}`),
+        like(contacts.spousePhone, `%${finalFour}`),
       )
-      .limit(1);
+    )
+    .limit(100);
 
-    if (rows.length > 0) {
-      return {
-        id: rows[0].id,
-        firstName: rows[0].firstName,
-        lastName: rows[0].lastName,
-      };
+  for (const row of rows) {
+    for (const phone of [row.phone, row.secondaryPhone, row.spousePhone]) {
+      if (normalizePhone(phone) === norm) {
+        return { id: row.id, firstName: row.firstName, lastName: row.lastName };
+      }
     }
   }
 
@@ -252,6 +248,46 @@ export interface ProcessCallResult {
   message?: string;
 }
 
+type AircallContactMatch = { id: number; firstName: string; lastName: string };
+
+/**
+ * Start transcription after a call has been linked to a CRM activity. This is
+ * intentionally non-blocking, so webhook ingestion and contact edits never
+ * wait on audio downloads or AI processing.
+ */
+export function scheduleAircallTranscription(
+  communicationId: number,
+  call: AircallCallData
+): void {
+  if (!call.recording && !call.voicemail) return;
+
+  void (async () => {
+    const db = await getDb();
+    if (!db) return;
+    const rows = await db
+      .select({ audioFileUrl: communications.audioFileUrl })
+      .from(communications)
+      .where(eq(communications.id, communicationId))
+      .limit(1);
+    const audioUrl = rows[0]?.audioFileUrl;
+    if (!audioUrl) return;
+
+    await transcribeAndSummarize({
+      communicationId,
+      aircallCallId: call.id,
+      audioUrl,
+      direction: call.direction,
+      duration: call.duration ?? null,
+      agentName: call.user?.name,
+    });
+  })().catch((error: unknown) => {
+    console.error(
+      `[Aircall] Transcription error for communication ${communicationId}:`,
+      error instanceof Error ? error.message : error
+    );
+  });
+}
+
 /**
  * Idempotent call processor. Given an Aircall call payload:
  *
@@ -264,7 +300,8 @@ export interface ProcessCallResult {
  * 7. If no contact found, insert into `aircall_unmatched_calls`.
  */
 export async function processAircallCall(
-  call: AircallCallData
+  call: AircallCallData,
+  options?: { contactOverride?: AircallContactMatch }
 ): Promise<ProcessCallResult> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
@@ -301,7 +338,7 @@ export async function processAircallCall(
       : call.raw_digits ?? "";
 
   // ── 3. Contact lookup ──────────────────────────────────────────────────────
-  const contact = await findContactByPhoneDB(matchPhone);
+  const contact = options?.contactOverride ?? (await findContactByPhoneDB(matchPhone));
 
   // ── 4. Download recordings ─────────────────────────────────────────────────
   const startedAt = call.started_at ? new Date(call.started_at * 1000) : null;
@@ -395,4 +432,104 @@ export async function processAircallCall(
     contactId: contact.id,
     communicationId,
   };
+}
+
+function parseAircallPayload(rawPayload: unknown): AircallCallData | null {
+  try {
+    const parsed = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
+    if (!parsed || typeof parsed !== "object") return null;
+    const call = parsed as Partial<AircallCallData>;
+    if (!Number.isInteger(call.id) || !call.direction || !call.status) return null;
+    return call as AircallCallData;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reprocess unmatched records for the exact phone numbers now present on a
+ * contact. The work is deliberately targeted and capped per trigger so a
+ * single edit cannot monopolize the webhook or request process.
+ */
+export async function rematchUnmatchedAircallCallsForContact(
+  contactId: number,
+  phoneValues: Array<string | null | undefined>,
+  options?: { limit?: number }
+): Promise<{ scanned: number; matched: number; skipped: number }> {
+  const normalizedPhones = Array.from(
+    new Set(phoneValues.map(normalizePhone).filter(phone => phone.length >= 10))
+  );
+  if (!normalizedPhones.length) return { scanned: 0, matched: 0, skipped: 0 };
+
+  const db = await getDb();
+  if (!db) return { scanned: 0, matched: 0, skipped: 0 };
+  const contactRows = await db
+    .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .limit(1);
+  const contact = contactRows[0];
+  if (!contact) return { scanned: 0, matched: 0, skipped: 0 };
+
+  const limit = Math.max(1, Math.min(options?.limit ?? 50, 50));
+  const rows = await db
+    .select({
+      id: aircallUnmatchedCalls.id,
+      aircallCallId: aircallUnmatchedCalls.aircallCallId,
+      rawPayload: aircallUnmatchedCalls.rawPayload,
+    })
+    .from(aircallUnmatchedCalls)
+    .where(inArray(aircallUnmatchedCalls.attemptedPhone, normalizedPhones))
+    .limit(limit);
+
+  let matched = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const call = parseAircallPayload(row.rawPayload);
+    if (!call) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      const result = await processAircallCall(call, { contactOverride: contact });
+      if (result.action === "created") {
+        await db
+          .delete(aircallUnmatchedCalls)
+          .where(eq(aircallUnmatchedCalls.id, row.id));
+        if (result.communicationId) scheduleAircallTranscription(result.communicationId, call);
+        matched += 1;
+      } else if (result.action === "skipped") {
+        // Heal a rare stale record if a matched row already exists for this call.
+        await db
+          .delete(aircallUnmatchedCalls)
+          .where(eq(aircallUnmatchedCalls.id, row.id));
+        skipped += 1;
+      }
+    } catch (error) {
+      skipped += 1;
+      console.error(`[Aircall] Re-match failed for call ${row.aircallCallId}:`, error);
+    }
+  }
+
+  return { scanned: rows.length, matched, skipped };
+}
+
+/** Schedule a non-blocking re-match after a contact gains a phone number. */
+export function scheduleAircallUnmatchedRematch(
+  contactId: number,
+  phoneValues: Array<string | null | undefined>
+): void {
+  const hasPhone = phoneValues.some(phone => normalizePhone(phone).length >= 10);
+  if (!hasPhone) return;
+  void rematchUnmatchedAircallCallsForContact(contactId, phoneValues)
+    .then(result => {
+      if (result.scanned) {
+        console.log(
+          `[Aircall] Contact ${contactId} re-match: ${result.matched} matched, ${result.skipped} skipped from ${result.scanned} candidates`
+        );
+      }
+    })
+    .catch(error => {
+      console.error(`[Aircall] Contact ${contactId} re-match error:`, error);
+    });
 }

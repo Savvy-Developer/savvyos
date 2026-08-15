@@ -10,7 +10,7 @@
  *  3. Admins can then select the new handler type when creating an endpoint
  */
 
-import { getDb as _getDb, logActivity } from "./db";
+import { getDb as _getDb, logActivity, scheduleAircallPhoneRematch } from "./db";
 import { triggerGhlContactSync } from "./_core/ghlSync";
 
 async function getDb() {
@@ -252,6 +252,12 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     triggerGhlContactSync(contactId);
   }
 
+  scheduleAircallPhoneRematch(contactId, {
+    phone,
+    secondaryPhone: (p.secondaryPhone as string) || null,
+    spousePhone: (p.spousePhone as string) || null,
+  });
+
   // Record how/where this lead entered the system so the contact history isn't
   // blank for webhook-ingested leads (this is what powers the relationship history).
   await logActivity({
@@ -460,8 +466,8 @@ async function createContactFromEvent(
     phone,
     leadSourceId,
   });
-  const contactId = (result as any).insertId as number;
-
+    const contactId = (result as any).insertId as number;
+  scheduleAircallPhoneRematch(contactId, { phone });
   await logActivity({
     userId: null,
     action: "contact_created",

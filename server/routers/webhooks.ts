@@ -11,7 +11,7 @@ import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { notifyOwner } from "../_core/notification";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { triggerGhlContactSync } from "../_core/ghlSync";
-import { getDb } from "../db";
+import { getDb, scheduleAircallPhoneRematch } from "../db";
 import { webhookEndpoints, webhookLogs, users, leadSources, contacts } from "../../drizzle/schema";
 import { eq, desc, and, like, isNull, or, count, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -370,6 +370,8 @@ export const webhooksRouter = router({
         // an existing contact don't rewrite tags.
         triggerGhlContactSync(contactId);
       }
+
+      scheduleAircallPhoneRematch(contactId, { phone: input.phone ?? null });
 
       // Notify admins
       const partnerLabel = input.partnerSourceName || (input.partnerSourceId ? `Source #${input.partnerSourceId}` : "Unknown Partner");

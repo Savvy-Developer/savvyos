@@ -18,7 +18,7 @@ import {
   communications,
 } from "../../drizzle/schema";
 import { eq, desc, count, isNull, and, gte, lte, sql, type SQL } from "drizzle-orm";
-import { processAircallCall, type AircallCallData } from "../aircall";
+import { processAircallCall, scheduleAircallTranscription, type AircallCallData } from "../aircall";
 
 function adminOnly() {
   return protectedProcedure.use(({ ctx, next }) => {
@@ -337,9 +337,11 @@ export const aircallRouter = router({
         .delete(aircallCalls)
         .where(eq(aircallCalls.aircallCallId, input.aircallCallId));
 
-      const result = await processAircallCall(
-        input.rawPayload as unknown as AircallCallData
-      );
+      const callData = input.rawPayload as unknown as AircallCallData;
+      const result = await processAircallCall(callData);
+      if (result.action === "created" && result.communicationId) {
+        scheduleAircallTranscription(result.communicationId, callData);
+      }
 
       return result;
     }),

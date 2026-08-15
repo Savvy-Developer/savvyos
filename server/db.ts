@@ -368,6 +368,22 @@ export async function getContactById(id: number) {
   return result[0];
 }
 
+export function scheduleAircallPhoneRematch(
+  contactId: number,
+  data: Pick<typeof contacts.$inferInsert, "phone" | "secondaryPhone" | "spousePhone"> | Partial<typeof contacts.$inferInsert>
+): void {
+  const phoneValues = [data.phone, data.secondaryPhone, data.spousePhone];
+  if (!phoneValues.some(phone => typeof phone === "string" && phone.trim())) return;
+
+  void import("./aircall")
+    .then(({ scheduleAircallUnmatchedRematch }) =>
+      scheduleAircallUnmatchedRematch(contactId, phoneValues)
+    )
+    .catch(error => {
+      console.error(`[Aircall] Unable to schedule contact ${contactId} re-match:`, error);
+    });
+}
+
 export async function createContact(data: typeof contacts.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -384,6 +400,7 @@ export async function createContact(data: typeof contacts.$inferInsert) {
       ),
     );
   }
+  scheduleAircallPhoneRematch(insertId, data);
   return insertId;
 }
 
@@ -391,6 +408,7 @@ export async function updateContact(id: number, data: Partial<typeof contacts.$i
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(contacts).set(data).where(eq(contacts.id, id));
+  scheduleAircallPhoneRematch(id, data);
 }
 export async function archiveContact(id: number) {
   const db = await getDb();
