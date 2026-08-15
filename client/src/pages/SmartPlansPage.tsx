@@ -17,6 +17,7 @@ import {
   AlertCircle, FileText, ChevronLeft, ChevronRight, Search
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useLocation } from "wouter";
 import RichEmailEditor from "@/components/RichEmailEditor";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1022,9 +1023,8 @@ export default function SmartPlansPage() {
   }
 
   const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
   const { data: plans = [], isLoading } = trpc.smartPlans.list.useQuery();
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [editPlanId, setEditPlanId] = useState<number | undefined>();
   const [viewEnrollments, setViewEnrollments] = useState<PlanRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PlanRow | null>(null);
 
@@ -1042,15 +1042,8 @@ export default function SmartPlansPage() {
   const draftPlans = plansList.filter((p) => p.plan.status === "draft");
   const activePlans = plansList.filter((p) => p.plan.status !== "draft");
 
-  const openWizard = (planId?: number) => {
-    setEditPlanId(planId);
-    setWizardOpen(true);
-  };
-
-  const closeWizard = () => {
-    setWizardOpen(false);
-    setEditPlanId(undefined);
-    utils.smartPlans.list.invalidate();
+  const openWorkspace = (planId?: number) => {
+    navigate(planId ? `/smart-plans/${planId}` : "/smart-plans/new");
   };
 
   return (
@@ -1065,23 +1058,10 @@ export default function SmartPlansPage() {
             Automated email & SMS drip campaigns triggered by lead source
           </p>
         </div>
-        <Button onClick={() => openWizard()}>
+        <Button onClick={() => openWorkspace()}>
           <Plus className="h-4 w-4 mr-1.5" /> New Plan
         </Button>
       </div>
-
-      {/* Wizard Dialog */}
-      <Dialog open={wizardOpen} onOpenChange={(open) => { if (!open) closeWizard(); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-primary" />
-              {editPlanId ? "Edit Smart Plan" : "Create Smart Plan"}
-            </DialogTitle>
-          </DialogHeader>
-          <PlanWizard onClose={closeWizard} editPlanId={editPlanId} />
-        </DialogContent>
-      </Dialog>
 
       {/* Enrollments Dialog */}
       {viewEnrollments && (
@@ -1124,7 +1104,7 @@ export default function SmartPlansPage() {
               <PlanCard
                 key={row.plan.id}
                 row={row}
-                onEdit={() => openWizard(row.plan.id)}
+                onEdit={() => openWorkspace(row.plan.id)}
                 onToggle={() => toggleStatusMutation.mutate({ id: row.plan.id, data: { status: row.plan.status === "active" ? "paused" : "active" } })}
                 onViewEnrollments={() => setViewEnrollments(row)}
                 onDelete={() => setDeleteTarget(row)}
@@ -1145,7 +1125,7 @@ export default function SmartPlansPage() {
               <PlanCard
                 key={row.plan.id}
                 row={row}
-                onEdit={() => openWizard(row.plan.id)}
+                onEdit={() => openWorkspace(row.plan.id)}
                 onToggle={() => toggleStatusMutation.mutate({ id: row.plan.id, data: { status: row.plan.status === "active" ? "paused" : "active" } })}
                 onViewEnrollments={() => setViewEnrollments(row)}
                 onDelete={() => setDeleteTarget(row)}
@@ -1163,7 +1143,7 @@ export default function SmartPlansPage() {
             <p className="text-sm text-muted-foreground mb-4">
               Create your first plan to start automating lead follow-up.
             </p>
-            <Button onClick={() => openWizard()}>
+            <Button onClick={() => openWorkspace()}>
               <Plus className="h-4 w-4 mr-1.5" /> Create First Plan
             </Button>
           </CardContent>

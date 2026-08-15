@@ -79,7 +79,7 @@ async function startServer() {
       console.log("[Resend Webhook] Signature verification PASSED (or no secret configured)");
 
       const event = JSON.parse(rawBody);
-      const result = await handleResendWebhook(event);
+      const result = await handleResendWebhook(event, svixId);
       return res.json({ ok: true, ...result });
     } catch (err: any) {
       console.error("[Resend Webhook] Error:", err.message);

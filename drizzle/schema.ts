@@ -611,12 +611,46 @@ export const smartPlanExecutions = mysqlTable("smart_plan_executions", {
   enrollmentId: int("enrollmentId").notNull().references(() => smartPlanEnrollments.id),
   stepId: int("stepId").notNull().references(() => smartPlanSteps.id),
   channel: mysqlEnum("channel", ["email", "sms"]).notNull(),
+  // Provider fields make each send traceable to Resend today and to an SMS provider later.
+  provider: varchar("provider", { length: 64 }),
+  providerMessageId: varchar("providerMessageId", { length: 255 }),
+  // Used as the local part of an optional Resend inbound reply address.
+  replyToken: varchar("replyToken", { length: 64 }),
   sentAt: timestamp("sentAt").defaultNow().notNull(),
-  status: mysqlEnum("status", ["sent", "failed", "skipped"]).default("sent").notNull(),
+  status: mysqlEnum("status", ["queued", "sent", "failed", "skipped"]).default("queued").notNull(),
   errorMessage: text("errorMessage"),
-});
+  deliveredAt: timestamp("deliveredAt"),
+  openedAt: timestamp("openedAt"),
+  clickedAt: timestamp("clickedAt"),
+  bouncedAt: timestamp("bouncedAt"),
+  complainedAt: timestamp("complainedAt"),
+  suppressedAt: timestamp("suppressedAt"),
+  repliedAt: timestamp("repliedAt"),
+}, (table) => [
+  index("smart_plan_executions_step_sent_idx").on(table.stepId, table.sentAt),
+  index("smart_plan_executions_provider_message_idx").on(table.providerMessageId),
+  uniqueIndex("smart_plan_executions_reply_token_unique").on(table.replyToken),
+]);
 export type SmartPlanExecution = typeof smartPlanExecutions.$inferSelect;
 export type InsertSmartPlanExecution = typeof smartPlanExecutions.$inferInsert;
+
+// Immutable provider event ledger. Resend webhooks are at-least-once and can arrive out
+// of order, so providerEventId is unique whenever a webhook supplies an Svix event id.
+export const smartPlanMessageEvents = mysqlTable("smart_plan_message_events", {
+  id: int("id").autoincrement().primaryKey(),
+  executionId: int("executionId").notNull().references(() => smartPlanExecutions.id, { onDelete: "cascade" }),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  providerEventId: varchar("providerEventId", { length: 255 }),
+  eventType: varchar("eventType", { length: 64 }).notNull(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("smart_plan_message_events_provider_event_unique").on(table.providerEventId),
+  index("smart_plan_message_events_execution_type_idx").on(table.executionId, table.eventType),
+]);
+export type SmartPlanMessageEvent = typeof smartPlanMessageEvents.$inferSelect;
+export type InsertSmartPlanMessageEvent = typeof smartPlanMessageEvents.$inferInsert;
 
 // ─── Listing Notes ─────────────────────────────────────────────────────────────
 export const listingNotes = mysqlTable("listing_notes", {

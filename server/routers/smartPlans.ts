@@ -10,7 +10,7 @@ import {
   leadSources,
   contacts,
 } from "../../drizzle/schema";
-import { and, eq, desc, asc } from "drizzle-orm";
+import { and, eq, desc, asc, sql } from "drizzle-orm";
 import { enrollContactInPlan, countContactsMatchingPlan, bulkEnrollExistingContacts } from "../smartPlanScheduler";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
@@ -341,6 +341,71 @@ export const smartPlansRouter = router({
         await db.update(smartPlanSteps).set({ stepOrder: bOrder }).where(eq(smartPlanSteps.id, steps[idx].id));
         await db.update(smartPlanSteps).set({ stepOrder: aOrder }).where(eq(smartPlanSteps.id, steps[swapIdx].id));
         return { success: true };
+      }),
+  }),
+
+  // ── Analytics ──────────────────────────────────────────────────────────────
+  analytics: router({
+    get: protectedProcedure
+      .input(z.object({ planId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        // This is intentionally aggregated in MySQL rather than loading every
+        // execution into application memory. It remains fast for plans with many
+        // steps and large enrollment cohorts.
+        const rows = await db
+          .select({
+            step: smartPlanSteps,
+            executions: sql<number>`count(${smartPlanExecutions.id})`,
+            sent: sql<number>`coalesce(sum(case when ${smartPlanExecutions.status} = 'sent' then 1 else 0 end), 0)`,
+            skipped: sql<number>`coalesce(sum(case when ${smartPlanExecutions.status} = 'skipped' then 1 else 0 end), 0)`,
+            failed: sql<number>`coalesce(sum(case when ${smartPlanExecutions.status} = 'failed' then 1 else 0 end), 0)`,
+            delivered: sql<number>`coalesce(sum(case when ${smartPlanExecutions.deliveredAt} is not null then 1 else 0 end), 0)`,
+            opened: sql<number>`coalesce(sum(case when ${smartPlanExecutions.openedAt} is not null then 1 else 0 end), 0)`,
+            clicked: sql<number>`coalesce(sum(case when ${smartPlanExecutions.clickedAt} is not null then 1 else 0 end), 0)`,
+            bounced: sql<number>`coalesce(sum(case when ${smartPlanExecutions.bouncedAt} is not null then 1 else 0 end), 0)`,
+            complained: sql<number>`coalesce(sum(case when ${smartPlanExecutions.complainedAt} is not null then 1 else 0 end), 0)`,
+            suppressed: sql<number>`coalesce(sum(case when ${smartPlanExecutions.suppressedAt} is not null then 1 else 0 end), 0)`,
+            replied: sql<number>`coalesce(sum(case when ${smartPlanExecutions.repliedAt} is not null then 1 else 0 end), 0)`,
+          })
+          .from(smartPlanSteps)
+          .leftJoin(smartPlanExecutions, eq(smartPlanExecutions.stepId, smartPlanSteps.id))
+          .where(eq(smartPlanSteps.planId, input.planId))
+          .groupBy(smartPlanSteps.id)
+          .orderBy(asc(smartPlanSteps.stepOrder));
+
+        const toNumber = (value: unknown) => Number(value ?? 0);
+        const steps = rows.map((row) => ({
+          ...row.step,
+          metrics: {
+            executions: toNumber(row.executions),
+            sent: toNumber(row.sent),
+            skipped: toNumber(row.skipped),
+            failed: toNumber(row.failed),
+            delivered: toNumber(row.delivered),
+            opened: toNumber(row.opened),
+            clicked: toNumber(row.clicked),
+            bounced: toNumber(row.bounced),
+            complained: toNumber(row.complained),
+            suppressed: toNumber(row.suppressed),
+            replied: toNumber(row.replied),
+          },
+        }));
+
+        const totals = steps.reduce((acc, step) => {
+          for (const [key, value] of Object.entries(step.metrics)) {
+            acc[key as keyof typeof acc] += value;
+          }
+          return acc;
+        }, {
+          executions: 0, sent: 0, skipped: 0, failed: 0, delivered: 0,
+          opened: 0, clicked: 0, bounced: 0, complained: 0, suppressed: 0, replied: 0,
+        });
+
+        return { steps, totals };
       }),
   }),
 

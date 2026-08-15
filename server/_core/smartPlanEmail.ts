@@ -41,6 +41,8 @@ export async function sendSmartPlanEmail(params: {
   body: string;
   /** If true, body is already HTML. If false/undefined, plain text is converted to HTML. */
   isHtml?: boolean;
+  /** Optional Resend receiving address used to attribute a contact's reply. */
+  replyTo?: string;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
 
@@ -86,6 +88,7 @@ ${GLOBAL_FOOTER_HTML}
         from: FROM_ADDRESS,
         to: [params.to],
         subject: params.subject,
+        ...(params.replyTo ? { reply_to: params.replyTo } : {}),
         html: htmlContent,
         text: textContent,
         // Tell Resend this is a marketing email — enables unsubscribe link handling

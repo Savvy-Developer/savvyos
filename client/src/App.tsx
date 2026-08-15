@@ -41,6 +41,7 @@ import AdminApprovalsPage from "./pages/AdminApprovalsPage";
 import ListingsPage from "./pages/ListingsPage";
 import ListingDetail from "./pages/ListingDetail";
 import SmartPlansPage from "./pages/SmartPlansPage";
+import SmartPlanEditorPage from "./pages/SmartPlanEditorPage";
 import EmailTestPage from "./pages/EmailTestPage";
 import MarketsPage from "./pages/MarketsPage";
 import OrgChartPage from "./pages/OrgChartPage";
@@ -242,6 +243,8 @@ function Router() {
           <Route path="/groups">{() => <AdminRoute><GroupsPage /></AdminRoute>}</Route>
           <Route path="/payout-report">{() => <AdminRoute><PayoutReportPage /></AdminRoute>}</Route>
           <Route path="/documents">{() => <AdminRoute><DocumentsPage /></AdminRoute>}</Route>
+          <Route path="/smart-plans/new">{() => <AdminRoute><SmartPlanEditorPage isNew /></AdminRoute>}</Route>
+          <Route path="/smart-plans/:id">{() => <AdminRoute><SmartPlanEditorPage /></AdminRoute>}</Route>
           <Route path="/smart-plans">{() => <AdminRoute><SmartPlansPage /></AdminRoute>}</Route>
           <Route path="/approvals">{() => <AdminRoute><AdminApprovalsPage /></AdminRoute>}</Route>
           <Route path="/listings" component={ListingsPage} />

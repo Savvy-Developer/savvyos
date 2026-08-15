@@ -15,7 +15,7 @@ import {
   leadSources,
 } from "../drizzle/schema";
 import { and, eq, lte, isNotNull, sql } from "drizzle-orm";
-import { sendAircallSMS } from "./_core/aircall";
+import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
 
@@ -156,6 +156,9 @@ async function processEnrollmentStep(
 
   let status: "sent" | "failed" | "skipped" = "sent";
   let errorMessage: string | undefined;
+  let provider: string | undefined;
+  let providerMessageId: string | undefined;
+  let replyToken: string | undefined;
 
   if (step.channel === "email") {
     if (!contact.email) {
@@ -170,32 +173,40 @@ async function processEnrollmentStep(
       errorMessage = "Contact has unsubscribed from marketing emails";
       console.log(`[SmartPlanScheduler] Skipping ${contact.email} — unsubscribed`);
     } else {
+      provider = "resend";
+      // Reply routing is opt-in: configure SMART_PLAN_REPLY_DOMAIN as a Resend
+      // receiving domain to attribute inbound replies back to this exact execution.
+      const replyDomain = process.env.SMART_PLAN_REPLY_DOMAIN?.trim();
+      replyToken = replyDomain ? `sp-${nanoid(20)}` : undefined;
       const result = await sendSmartPlanEmail({
         to: contact.email,
         subject: renderedSubject || plan.name,
         body: renderedBody,
         isHtml: true,
+        replyTo: replyToken && replyDomain ? `${replyToken}@${replyDomain}` : undefined,
       });
       status = result.success ? "sent" : "failed";
+      providerMessageId = result.messageId;
       errorMessage = result.error;
     }
   } else if (step.channel === "sms") {
-    const phone = contact.phone;
-    if (!phone) {
-      status = "skipped";
-      errorMessage = "Contact has no phone number";
-    } else {
-      const result = await sendAircallSMS(phone, renderedBody);
-      status = result.success ? "sent" : "failed";
-      errorMessage = result.error;
-    }
+    // The workflow is intentionally SMS-ready but does not dispatch messages until
+    // SavvyOS is configured with a texting provider and consent policy.
+    status = "skipped";
+    errorMessage = !contact.phone
+      ? "Contact has no phone number"
+      : "SMS provider not configured — this step is ready to activate when a texting provider is connected";
   }
 
-  // Log the execution
+  // Persist the provider response immediately; Resend webhooks later enrich this
+  // execution with delivered, opened, click, bounce, complaint, and reply signals.
   await db.insert(smartPlanExecutions).values({
     enrollmentId: enrollment.id,
     stepId: step.id,
     channel: step.channel,
+    provider: provider ?? null,
+    providerMessageId: providerMessageId ?? null,
+    replyToken: replyToken ?? null,
     sentAt: new Date(),
     status,
     errorMessage: errorMessage ?? null,
