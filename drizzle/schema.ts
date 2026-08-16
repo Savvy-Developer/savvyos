@@ -186,6 +186,8 @@ export const agentConnections = mysqlTable("agent_connections", {
     "under_contract",
     "closed",
     "dead",
+    // Agent-specific terminal stage. This does not modify the shared contact compliance flag.
+    "do_not_contact",
   ]).default("new_lead").notNull(),
   followUpDate: timestamp("followUpDate"),
   agentNotes: text("agentNotes"),

@@ -616,10 +616,10 @@ export default function AgentDashboard() {
         <StatCard
           title="My Pipeline"
           value={(myPipeline ?? []).filter(({ connection }) =>
-            connection.pipelineStatus !== "closed" && connection.pipelineStatus !== "dead"
+            connection.pipelineStatus !== "closed" && connection.pipelineStatus !== "dead" && connection.pipelineStatus !== "do_not_contact"
           ).length}
           icon={GitBranch}
-          subtitle={nextFollowUpLabel ? `Next follow-up: ${nextFollowUpLabel}` : "Active pipeline contacts"}
+          subtitle={nextFollowUpLabel ? `Next follow-up: ${nextFollowUpLabel}` : "Active pipeline connections"}
           color="primary"
           onClick={() => navigate("/pipeline")}
         />

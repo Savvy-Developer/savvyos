@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { FilePlus2, Loader2, Mail, Save, Send, Users } from "lucide-react";
+import { Eye, FilePlus2, Loader2, Mail, Save, Send, Users } from "lucide-react";
 
 const DAILY_LIMIT = 250;
 const CUSTOM_TEMPLATE_VALUE = "__custom__";
@@ -56,6 +56,7 @@ export default function PipelineEmailComposer({
   const [templateMode, setTemplateMode] = useState<"create" | "update">("create");
   const [templateName, setTemplateName] = useState("");
   const [templateAudience, setTemplateAudience] = useState<AudienceRole[]>([]);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: templates = [], isLoading: templatesLoading } = trpc.pipelineEmail.templates.list.useQuery(undefined, {
     enabled: open,
@@ -88,6 +89,7 @@ export default function PipelineEmailComposer({
   useEffect(() => {
     if (open) return;
     setTemplateDialogOpen(false);
+    setPreviewOpen(false);
   }, [open]);
 
   const sendEmail = trpc.pipelineEmail.send.useMutation({
@@ -190,7 +192,7 @@ export default function PipelineEmailComposer({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] max-h-[94vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-6xl max-h-[96vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {mode === "mass" ? <Users className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
@@ -201,7 +203,7 @@ export default function PipelineEmailComposer({
           <div className="space-y-4 py-1">
             <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm flex flex-wrap items-center justify-between gap-2">
               <span>
-                <strong>{recipientCount}</strong> selected recipient{recipientCount === 1 ? "" : "s"}. Pipeline email is available for contacts with an email address in any status other than <strong>New</strong> or <strong>Dead</strong>.
+                <strong>{recipientCount}</strong> selected recipient{recipientCount === 1 ? "" : "s"}. Pipeline email is available for contacts with an email address in any status other than <strong>New</strong>, <strong>Dead</strong>, or <strong>Do Not Contact</strong>.
               </span>
               <Badge variant="outline" className="whitespace-nowrap">
                 {quotaLoading ? "Checking daily limit…" : `${remaining} of ${DAILY_LIMIT} sends remaining today`}
@@ -281,12 +283,41 @@ export default function PipelineEmailComposer({
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sendEmail.isPending}>Cancel</Button>
-            <Button onClick={submit} disabled={!canSubmit || sendEmail.isPending}>
-              {sendEmail.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
-              {sendEmail.isPending ? "Sending…" : mode === "mass" ? `Send to ${recipientCount}` : "Send Email"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => setPreviewOpen(true)} disabled={!subject.trim() || !plainTextFromHtml(htmlBody)}>
+                <Eye className="mr-1.5 h-4 w-4" /> Preview
+              </Button>
+              <Button onClick={submit} disabled={!canSubmit || sendEmail.isPending}>
+                {sendEmail.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
+                {sendEmail.isPending ? "Sending…" : mode === "mass" ? `Send to ${recipientCount}` : "Send Email"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-5xl max-h-[96vh] overflow-x-hidden overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Email Preview</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <p><span className="font-medium">To:</span> {mode === "mass" ? `${recipientCount} selected connections` : "Selected connection"}</p>
+              <p className="mt-1 break-words"><span className="font-medium">Subject:</span> {subject || "(No subject)"}</p>
+            </div>
+            <article className="min-h-64 overflow-x-auto rounded-lg border bg-background p-4 sm:p-6">
+              <div className="prose prose-sm max-w-none break-words dark:prose-invert" dangerouslySetInnerHTML={{ __html: htmlBody }} />
+              {myProfile?.emailSignatureHtml && (
+                <div className="prose prose-sm mt-6 max-w-none border-t pt-4 break-words dark:prose-invert" dangerouslySetInnerHTML={{ __html: myProfile.emailSignatureHtml }} />
+              )}
+            </article>
+            <p className="text-xs text-muted-foreground">Personalization tags remain visible in preview and will be resolved for each recipient when the email is sent.</p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setPreviewOpen(false)}>Back to Editing</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

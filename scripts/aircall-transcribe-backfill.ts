@@ -11,6 +11,8 @@
  *   AIRCALL_TRANSCRIBE_LIMIT=100   — max calls to process (default: all)
  *   AIRCALL_TRANSCRIBE_DRY_RUN=true — preview without writing
  *   AIRCALL_TRANSCRIBE_FORCE=true  — re-transcribe even if transcript exists
+ *   AIRCALL_TRANSCRIBE_CONTACT_ID=123 — process only one contact’s calls
+ *   AIRCALL_SUMMARY_ONLY=true — generate summaries for existing transcripts only
  *
  * Rate limiting:
  *   Whisper API: no hard limit, but we add a 600ms delay between calls
@@ -28,6 +30,10 @@ const FORCE = process.env.AIRCALL_TRANSCRIBE_FORCE === "true";
 const LIMIT = process.env.AIRCALL_TRANSCRIBE_LIMIT
   ? parseInt(process.env.AIRCALL_TRANSCRIBE_LIMIT, 10)
   : Infinity;
+const CONTACT_ID = process.env.AIRCALL_TRANSCRIBE_CONTACT_ID
+  ? parseInt(process.env.AIRCALL_TRANSCRIBE_CONTACT_ID, 10)
+  : null;
+const SUMMARY_ONLY = process.env.AIRCALL_SUMMARY_ONLY === "true";
 const DELAY_MS = 600; // ms between calls to avoid rate limits
 
 function sleep(ms: number) {
@@ -39,6 +45,8 @@ async function main() {
   console.log(`Mode: ${DRY_RUN ? "DRY RUN (no writes)" : "LIVE"}`);
   console.log(`Force re-transcribe: ${FORCE}`);
   console.log(`Limit: ${LIMIT === Infinity ? "all" : LIMIT}`);
+  console.log(`Contact scope: ${CONTACT_ID ?? "all"}`);
+  console.log(`Summary only: ${SUMMARY_ONLY}`);
   console.log("");
 
   const db = await getDb();
@@ -51,7 +59,10 @@ async function main() {
   const conditions = [
     eq(communications.type, "call"),
     isNotNull(communications.audioFileUrl),
-    ...(FORCE ? [] : [isNull(communications.transcription)]),
+    ...(SUMMARY_ONLY
+      ? [isNotNull(communications.transcription)]
+      : FORCE ? [] : [isNull(communications.transcription)]),
+    ...(CONTACT_ID ? [eq(communications.relatedContactId, CONTACT_ID)] : []),
   ];
 
   const rows = await db
@@ -126,7 +137,7 @@ async function main() {
         duration: row.duration,
         contactName,
         agentName: row.agentName ?? undefined,
-        forceRetranscribe: FORCE,
+        forceRetranscribe: FORCE && !SUMMARY_ONLY,
       });
 
       if (result.skipped) {

@@ -61,6 +61,7 @@ vi.mock("./db", () => ({
   logActivity: vi.fn(async (entry: Record<string, unknown>) => {
     ((globalThis as any).__mock as MockState).activities.push(entry);
   }),
+  scheduleAircallPhoneRematch: vi.fn(),
 }));
 
 vi.mock("./_core/ghlSync", () => ({

@@ -15,6 +15,7 @@ import { storagePut } from "./storage";
 import {
   contacts,
   communications,
+  users,
   aircallCalls,
   aircallUnmatchedCalls,
 } from "../drizzle/schema";
@@ -205,7 +206,7 @@ export interface AircallCallData {
 
 // ─── Format Activity Body ─────────────────────────────────────────────────────
 
-function formatCallBody(call: AircallCallData, contactName: string): string {
+function formatCallBody(call: AircallCallData, contactName: string, actorLabel = "Agent"): string {
   const dir = call.direction === "inbound" ? "Inbound" : "Outbound";
   const status = formatStatus(call.status, call.missed_call_reason);
   const dur = call.duration ? formatDuration(call.duration) : "—";
@@ -215,7 +216,7 @@ function formatCallBody(call: AircallCallData, contactName: string): string {
   return [
     `${dir} call — ${status}`,
     `Duration: ${dur}`,
-    `Agent: ${agent}`,
+    `${actorLabel}: ${agent}`,
     `Line: ${line}`,
     call.missed_call_reason ? `Missed reason: ${call.missed_call_reason}` : null,
   ]
@@ -286,6 +287,57 @@ export function scheduleAircallTranscription(
       error instanceof Error ? error.message : error
     );
   });
+}
+
+/**
+ * Aircall can emit call.ended before the recording URL is downloadable. Retry a
+ * bounded number of times, then update the existing activity and continue the
+ * normal transcription flow instead of leaving an unplayable call permanently.
+ */
+function scheduleAircallMediaRetry(
+  communicationId: number,
+  call: AircallCallData,
+  attempt = 1,
+): void {
+  if (!call.recording && !call.voicemail) return;
+  const maxAttempts = 3;
+  const delayMs = attempt * 30_000;
+  setTimeout(() => {
+    void (async () => {
+      const db = await getDb();
+      if (!db) return;
+      const [communication] = await db
+        .select({ audioFileUrl: communications.audioFileUrl })
+        .from(communications)
+        .where(eq(communications.id, communicationId))
+        .limit(1);
+      if (communication?.audioFileUrl) return;
+
+      const [recording, voicemail] = await Promise.all([
+        downloadAndStoreRecording(call.id, call.recording, "recording"),
+        downloadAndStoreRecording(call.id, call.voicemail, "voicemail"),
+      ]);
+      const media = recording ?? voicemail;
+      if (!media) {
+        if (attempt < maxAttempts) scheduleAircallMediaRetry(communicationId, call, attempt + 1);
+        else console.error(`[Aircall] Recording unavailable after ${maxAttempts} attempts for call ${call.id}`);
+        return;
+      }
+
+      await db.update(communications)
+        .set({ audioFileUrl: media.url })
+        .where(eq(communications.id, communicationId));
+      await db.update(aircallCalls)
+        .set(recording
+          ? { recordingUrl: recording.url, recordingKey: recording.key }
+          : { voicemailUrl: voicemail!.url, voicemailKey: voicemail!.key })
+        .where(eq(aircallCalls.communicationId, communicationId));
+      scheduleAircallTranscription(communicationId, call);
+    })().catch((error: unknown) => {
+      console.error(`[Aircall] Recording retry ${attempt} failed for communication ${communicationId}:`, error);
+      if (attempt < maxAttempts) scheduleAircallMediaRetry(communicationId, call, attempt + 1);
+    });
+  }, delayMs);
 }
 
 /**
@@ -383,8 +435,28 @@ export async function processAircallCall(
     };
   }
 
-  // ── 6. Create communications (Activity) entry ──────────────────────────────
-  const body = formatCallBody(call, `${contact.firstName} ${contact.lastName}`);
+  // ── 6. Resolve the SavvyOS caller and create the Activity entry ─────────────
+  // Aircall itself does not expose SavvyOS roles, so match on the caller email
+  // first (then exact name) before writing the activity author and body label.
+  let callAuthor: { id: number; role: string } | null = null;
+  if (call.user?.email) {
+    const [matchedByEmail] = await db
+      .select({ id: users.id, role: users.role })
+      .from(users)
+      .where(eq(users.email, call.user.email))
+      .limit(1);
+    callAuthor = matchedByEmail ?? null;
+  }
+  if (!callAuthor && call.user?.name) {
+    const [matchedByName] = await db
+      .select({ id: users.id, role: users.role })
+      .from(users)
+      .where(eq(users.name, call.user.name))
+      .limit(1);
+    callAuthor = matchedByName ?? null;
+  }
+  const actorLabel = callAuthor?.role === "isa" ? "ISA" : callAuthor?.role === "agent" ? "Agent" : "Caller";
+  const body = formatCallBody(call, `${contact.firstName} ${contact.lastName}`, actorLabel);
   const subject =
     call.direction === "inbound"
       ? `Inbound call from ${contact.firstName} ${contact.lastName}`
@@ -395,7 +467,7 @@ export async function processAircallCall(
     subject,
     body,
     direction: call.direction === "inbound" ? "inbound" : "outbound",
-    authorId: null, // system-generated
+    authorId: callAuthor?.id ?? null, // Aircall caller when it matches a SavvyOS user
     relatedContactId: contact.id,
     audioFileUrl: recordingResult?.url ?? voicemailResult?.url ?? null,
     communicatedAt: startedAt ?? new Date(),
@@ -423,6 +495,10 @@ export async function processAircallCall(
     aircallNumberName: call.number?.name ?? null,
     rawPayload: call as any,
   });
+
+  if (!recordingResult && !voicemailResult && (call.recording || call.voicemail)) {
+    scheduleAircallMediaRetry(communicationId, call);
+  }
 
   console.log(
     `[Aircall] Processed call ${callId} → contact ${contact.id} (${contact.firstName} ${contact.lastName}), comm ${communicationId}`

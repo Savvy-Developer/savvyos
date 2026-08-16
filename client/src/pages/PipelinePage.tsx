@@ -32,6 +32,7 @@ const PIPELINE_STAGES = [
   { value: "under_contract", label: "Under Contract" },
   { value: "closed", label: "Closed" },
   { value: "dead", label: "Dead" },
+  { value: "do_not_contact", label: "Do Not Contact" },
 ];
 
 const STAGE_COLORS: Record<string, string> = {
@@ -42,6 +43,7 @@ const STAGE_COLORS: Record<string, string> = {
   under_contract: "bg-indigo-50 border-indigo-200 text-indigo-700",
   closed: "bg-emerald-50 border-emerald-200 text-emerald-700",
   dead: "bg-red-50 border-red-200 text-red-700",
+  do_not_contact: "bg-red-100 border-red-300 text-red-800",
 };
 
 type BuyBoxForm = {
@@ -71,6 +73,7 @@ export default function PipelinePage() {
   const [followUpTo, setFollowUpTo] = usePersistentState("pipeline.followUpTo", "");
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("pipeline.sortOrder", "desc");
   const [statsOpen, setStatsOpen] = usePersistentState("pipeline.statsOpen", false);
+  const [filterOwnerId, setFilterOwnerId] = usePersistentState("pipeline.filterOwnerId", "");
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 50;
   const [editOpen, setEditOpen] = useState(false);
@@ -89,6 +92,36 @@ export default function PipelinePage() {
   const [newStage, setNewStage] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [agentNotes, setAgentNotes] = useState("");
+  useEffect(() => {
+    const activeUserId = String((user as any)?.id ?? "");
+    if (!activeUserId || filterOwnerId === activeUserId) return;
+
+    // Filters are retained while navigating records, but must never carry from
+    // one simulated agent to another and silently hide most of their pipeline.
+    setSelectedStage("all");
+    setSelectedAgentId("all");
+    setSelectedIsaId((user as any)?.role === "isa" ? activeUserId : "all");
+    setSelectedLeadSourceId("all");
+    setPipelineSearch("");
+    setFollowUpFrom("");
+    setFollowUpTo("");
+    setSortOrder("desc");
+    setCurrentPage(1);
+    setFilterOwnerId(activeUserId);
+  }, [
+    user,
+    filterOwnerId,
+    setFilterOwnerId,
+    setFollowUpFrom,
+    setFollowUpTo,
+    setPipelineSearch,
+    setSelectedAgentId,
+    setSelectedIsaId,
+    setSelectedLeadSourceId,
+    setSelectedStage,
+    setSortOrder,
+  ]);
+
   const [buyBoxForm, setBuyBoxForm] = useState<BuyBoxForm>({
     propertyType: "", minPrice: "", maxPrice: "",
     minBeds: "", maxBeds: "", minBaths: "",
@@ -262,7 +295,7 @@ export default function PipelinePage() {
   function isEmailEligible(row: any) {
     const status = row?.connection?.pipelineStatus;
     const email = row?.contact?.email?.trim();
-    return Boolean(email && !row?.contact?.doNotContact && status !== "new_lead" && status !== "dead");
+    return Boolean(email && !row?.contact?.doNotContact && status !== "new_lead" && status !== "dead" && status !== "do_not_contact");
   }
 
   const eligibleConnectionIds = connections.filter(isEmailEligible).map((row: any) => row.connection.id);
@@ -556,7 +589,7 @@ export default function PipelinePage() {
                   const agingTs = (connection as any).agingUpdatedAt ?? connection.updatedAt ?? connection.createdAt;
                   const lastTouched = new Date(agingTs).getTime();
                   const daysSinceTouch = Math.floor((now - lastTouched) / (1000 * 60 * 60 * 24));
-                  const isTerminal = ['closed', 'dead'].includes(connection.pipelineStatus ?? '');
+                  const isTerminal = ['closed', 'dead', 'do_not_contact'].includes(connection.pipelineStatus ?? '');
                   const isUnassigned = !connection.agentId;
                   const isUntouched = !isTerminal && !isUnassigned && daysSinceTouch >= 3;
                   const isStale = !isTerminal && !isUnassigned && daysSinceTouch >= 7;
@@ -573,7 +606,7 @@ export default function PipelinePage() {
                           aria-label={`Select ${contact?.firstName ?? ""} ${contact?.lastName ?? ""} for email`}
                           checked={selectedEmailConnectionIds.has(connection.id)}
                           disabled={!emailEligible}
-                          title={emailEligible ? "Select for mass email" : contact?.doNotContact ? "This contact is marked Do Not Contact" : "Email selection requires an email address and a status other than New or Dead"}
+                          title={emailEligible ? "Select for mass email" : contact?.doNotContact ? "This contact is marked Do Not Contact" : "Email selection requires an email address and a status other than New, Dead, or Do Not Contact"}
                           onClick={(event) => event.stopPropagation()}
                           onChange={() => toggleEmailSelection(connection.id)}
                           className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"

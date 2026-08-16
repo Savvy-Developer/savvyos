@@ -316,34 +316,35 @@ function ActivityTabAiSummary({ contactId }: { contactId: number }) {
   const updatedAt = data?.updatedAt ? new Date(data.updatedAt) : null;
   return (
     <Card className="mb-3 border-violet-200/60 bg-violet-50/30 dark:bg-violet-950/10">
-      <CardContent className="p-0 overflow-x-auto">
-        {/* Header row — always visible */}
-        <button
-          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-violet-50/50 dark:hover:bg-violet-950/20 transition-colors rounded-t-lg"
-          onClick={() => setCollapsed(v => !v)}
-          aria-expanded={!collapsed}
-        >
-          <span className="text-sm font-semibold flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-violet-500" />
-            AI Summary
+      <CardContent className="overflow-hidden p-0">
+        {/* Header controls are siblings, not nested buttons, so collapse works reliably. */}
+        <div className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-violet-50/50 dark:hover:bg-violet-950/20">
+          <button
+            type="button"
+            className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold"
+            onClick={() => setCollapsed(v => !v)}
+            aria-expanded={!collapsed}
+          >
+            <Sparkles className="h-4 w-4 shrink-0 text-violet-500" />
+            <span>AI Summary</span>
             {data?.cached && (
-              <span className="text-[10px] font-normal text-muted-foreground flex items-center gap-0.5">
+              <span className="flex items-center gap-0.5 text-[10px] font-normal text-muted-foreground">
                 <Clock className="h-2.5 w-2.5" /> Cached
               </span>
             )}
-          </span>
-          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+            <span className="ml-auto text-xs text-muted-foreground">{collapsed ? "▼" : "▲"}</span>
+          </button>
+          <div className="flex shrink-0 items-center gap-2">
             {updatedAt && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="hidden text-[10px] text-muted-foreground sm:inline">
                 Updated {updatedAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </span>
             )}
             <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleRefresh} disabled={isFetching || isLoading} title="Regenerate summary">
               <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
             </Button>
-            <span className="text-muted-foreground text-xs">{collapsed ? "▼" : "▲"}</span>
           </div>
-        </button>
+        </div>
         {/* Collapsible body */}
         {!collapsed && (
           <div className="px-4 pb-4 pt-1 border-t border-violet-100/60">
@@ -396,6 +397,7 @@ export default function ContactDetail() {
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteType, setNoteType] = useState<"note" | "call" | "email" | "meeting">("note");
+  const [activityTypeFilter, setActivityTypeFilter] = useState("all");
   // Note editing state
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
@@ -475,7 +477,25 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
   // Format system activity-log entries (e.g. property views logged via webhook)
   // so they can be shown in the Activity tab alongside communications.
-  const activityEntries = (activityLog ?? []).map((entry) => formatActivityEntry(entry as any));
+  const activityEntries = (activityLog ?? []).map((entry) => ({
+    ...formatActivityEntry(entry as any),
+    action: (entry as any)?.log?.action ?? (entry as any)?.action ?? "",
+  }));
+  const websiteActivityActions = new Set([
+    "property_viewed",
+    "property_favorited",
+    "property_contact_requested",
+    "analysis_requested",
+    "showing_requested",
+  ]);
+  const filteredActivityEntries = activityTypeFilter === "all"
+    ? activityEntries
+    : activityTypeFilter === "website"
+      ? activityEntries.filter((entry) => websiteActivityActions.has(entry.action))
+      : [];
+  const filteredCommunications = (comms ?? []).filter(({ communication }: any) =>
+    activityTypeFilter === "all" || activityTypeFilter === communication.type,
+  );
 
   const contactTransactions = transactions;
 
@@ -1044,17 +1064,32 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             <TabsContent value="activity">
               {/* AI Summary — always pinned at top, collapsible */}
               <ActivityTabAiSummary contactId={contactId} />
-              {(!comms || comms.length === 0) && activityEntries.length === 0 ? (
+              <div className="mb-3 flex items-center justify-end gap-2">
+                <Label htmlFor="contact-activity-type" className="text-xs text-muted-foreground">Activity type</Label>
+                <Select value={activityTypeFilter} onValueChange={setActivityTypeFilter}>
+                  <SelectTrigger id="contact-activity-type" className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All activity</SelectItem>
+                    <SelectItem value="note">Notes</SelectItem>
+                    <SelectItem value="call">Calls</SelectItem>
+                    <SelectItem value="email">Emails</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="meeting">Meetings</SelectItem>
+                    <SelectItem value="website">Website behavior</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {filteredCommunications.length === 0 && filteredActivityEntries.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center text-muted-foreground">
                     <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No activity yet. Add a note to get started.</p>
+                    <p className="text-sm">{activityTypeFilter === "all" ? "No activity yet. Add a note to get started." : "No activity matches this filter."}</p>
                   </CardContent>
                 </Card>
               ) : (
                 <div className="space-y-3">
                   {/* System activity-log entries (e.g. property views) */}
-                  {activityEntries.map((entry) => (
+                  {filteredActivityEntries.map((entry) => (
                     <Card key={`activity-${entry.id}`}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-1">
@@ -1074,7 +1109,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                       </CardContent>
                     </Card>
                   ))}
-                  {(comms ?? []).map(({ communication, author }) => (
+                  {filteredCommunications.map(({ communication, author }: any) => (
                     <Card key={communication.id}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-1">

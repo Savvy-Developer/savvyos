@@ -494,12 +494,22 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
   const email = pickField(data, rawPayload, ["leadEmail", "email"]);
   if (!email) throw new Error("leadEmail is required");
 
-  // savvy-web calls this `propertyAddress` on view/activity events and
-  // `propertyTitle` on lead events — same concept, so accept either rather than
-  // making the sender normalise a field other consumers already depend on.
-  const propertyAddress = pickField(data, rawPayload, ["propertyAddress", "propertyTitle"]) ?? null;
+  // Preserve the complete property location instead of collapsing it to a street
+  // address. Different website events use different key names, so normalize the
+  // common variants while retaining every delivered field below for the timeline.
+  const streetAddress = pickField(data, rawPayload, ["propertyAddress", "propertyTitle", "address", "streetAddress", "street"]);
+  const city = pickField(data, rawPayload, ["city", "propertyCity"]);
+  const state = pickField(data, rawPayload, ["state", "stateCode", "propertyState"]);
+  const zip = pickField(data, rawPayload, ["zip", "zipCode", "postalCode", "propertyZip"]);
+  const locality = [city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const propertyAddress = [streetAddress, locality].filter(Boolean).join(", ") || null;
   const propertyId = data.propertyId ?? rawPayload.propertyId ?? null;
   const leadId = data.leadId ?? rawPayload.leadId ?? null;
+  const webhookData = Object.fromEntries(
+    Object.entries({ ...rawPayload, ...data }).filter(([key]) => ![
+      "data", "event", "token", "signature", "authorization", "leadEmail", "email",
+    ].includes(key)),
+  );
   const occurredAt =
     pickField(data, rawPayload, ["viewedAt", "occurredAt", "requestedAt"]) ??
     pickField({}, rawPayload, ["timestamp"]) ??
@@ -521,7 +531,18 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
     action: spec.action,
     entityType: "contact",
     entityId: contactId,
-    details: { propertyId, propertyAddress, leadId, occurredAt, event, via: "savvy-web" },
+    details: {
+      propertyId,
+      propertyAddress,
+      propertyCity: city ?? null,
+      propertyState: state ?? null,
+      propertyZip: zip ?? null,
+      leadId,
+      occurredAt,
+      event,
+      via: "savvy-web",
+      webhookData,
+    },
   });
 
   return {

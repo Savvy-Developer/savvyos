@@ -302,7 +302,7 @@ async function getAuthorizedRecipients(
       .join(", ");
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `${ineligible.length} selected contact${ineligible.length === 1 ? " is" : "s are"} not eligible for email. Contacts must not be marked Do Not Contact, must have an email address, and must be in a status other than New or Dead${examples ? ` (${examples})` : ""}.`,
+      message: `${ineligible.length} selected contact${ineligible.length === 1 ? " is" : "s are"} not eligible for email. Contacts must not be marked Do Not Contact, must have an email address, and must be in a status other than New, Dead, or Do Not Contact${examples ? ` (${examples})` : ""}.`,
     });
   }
 

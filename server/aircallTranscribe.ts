@@ -2,7 +2,7 @@
  * Aircall Transcription & AI Summary Module
  *
  * Provides two functions:
- *  - transcribeRecording()  — downloads the S3 recording and sends to OpenAI Whisper
+ *  - transcribeRecording()  — downloads the S3 recording and sends it to the configured transcription service
  *  - generateCallSummary()  — sends the transcript to GPT for a concise summary
  *  - transcribeAndSummarize() — orchestrates both and updates the communications row
  */
@@ -22,8 +22,9 @@ export async function transcribeRecording(
   audioUrl: string,
   callId: number | string
 ): Promise<string | null> {
-  if (!ENV.openaiApiKey) {
-    console.warn("[Aircall Transcribe] OPENAI_API_KEY not set — skipping transcription");
+  const useForge = Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
+  if (!useForge && !ENV.openaiApiKey) {
+    console.warn("[Aircall Transcribe] No transcription credentials are configured — skipping transcription");
     return null;
   }
 
@@ -50,12 +51,18 @@ export async function transcribeRecording(
     formData.append("file", audioBlob, `call-${callId}.mp3`);
     formData.append("model", "whisper-1");
     formData.append("language", "en");
-    formData.append("response_format", "text");
+    formData.append("response_format", "verbose_json");
 
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const forgeBaseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
+    const directOpenAiBase = (process.env.OPENAI_API_BASE ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    const transcriptionUrl = useForge
+      ? new URL("v1/audio/transcriptions", forgeBaseUrl).toString()
+      : `${directOpenAiBase}/audio/transcriptions`;
+    const response = await fetch(transcriptionUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${ENV.openaiApiKey}`,
+        Authorization: `Bearer ${useForge ? ENV.forgeApiKey : ENV.openaiApiKey}`,
+        "Accept-Encoding": "identity",
       },
       body: formData,
     });
@@ -66,7 +73,8 @@ export async function transcribeRecording(
       return null;
     }
 
-    const transcript = (await response.text()).trim();
+    const payload = await response.json() as { text?: string };
+    const transcript = payload.text?.trim() ?? "";
     console.log(`[Aircall Transcribe] Transcribed call ${callId} — ${transcript.length} chars`);
     return transcript || null;
   } catch (err: any) {
@@ -91,8 +99,10 @@ export async function generateCallSummary(
     agentName?: string;
   }
 ): Promise<string | null> {
-  if (!ENV.forgeApiKey || !ENV.forgeApiUrl) {
-    console.warn("[Aircall Transcribe] Forge API not configured — skipping summary");
+  const useForge = Boolean(ENV.forgeApiKey && ENV.forgeApiUrl);
+  const useDirectOpenAi = Boolean(ENV.openaiApiKey);
+  if (!useForge && !useDirectOpenAi) {
+    console.warn("[Aircall Transcribe] No summary credentials are configured — skipping summary");
     return null;
   }
 
@@ -116,19 +126,24 @@ ${transcript.slice(0, 4000)}
 Write 2–4 sentences. Include: main topic, key points discussed, any next steps or commitments made, and overall outcome.`;
 
   try {
-    const response = await fetch(`${ENV.forgeApiUrl}/v1/chat/completions`, {
+    const forgeBaseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
+    const directOpenAiBase = (process.env.OPENAI_API_BASE ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    const summaryUrl = useForge
+      ? new URL("v1/chat/completions", forgeBaseUrl).toString()
+      : `${directOpenAiBase}/chat/completions`;
+    const response = await fetch(summaryUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${ENV.forgeApiKey}`,
+        Authorization: `Bearer ${useForge ? ENV.forgeApiKey : ENV.openaiApiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 300,
+        max_completion_tokens: 300,
         temperature: 0.3,
       }),
     });
@@ -181,19 +196,41 @@ export async function transcribeAndSummarize(opts: {
   // Check if already transcribed
   if (!opts.forceRetranscribe) {
     const existing = await db
-      .select({ transcription: communications.transcription })
+      .select({ transcription: communications.transcription, body: communications.body })
       .from(communications)
       .where(eq(communications.id, opts.communicationId))
       .limit(1);
 
     if (existing.length > 0 && existing[0].transcription) {
+      const transcript = existing[0].transcription;
+      if ((existing[0].body ?? "").includes("\n\nAI Summary:")) {
+        return {
+          communicationId: opts.communicationId,
+          aircallCallId: opts.aircallCallId,
+          transcript,
+          summary: null,
+          skipped: true,
+          reason: "Already transcribed and summarized",
+        };
+      }
+      const summary = await generateCallSummary(transcript, {
+        direction: opts.direction,
+        duration: opts.duration,
+        contactName: opts.contactName,
+        agentName: opts.agentName,
+      });
+      if (summary) {
+        await db.update(communications)
+          .set({ body: `${existing[0].body ?? ""}\n\nAI Summary:\n${summary}` })
+          .where(eq(communications.id, opts.communicationId));
+      }
       return {
         communicationId: opts.communicationId,
         aircallCallId: opts.aircallCallId,
-        transcript: existing[0].transcription,
-        summary: null,
-        skipped: true,
-        reason: "Already transcribed",
+        transcript,
+        summary,
+        skipped: !summary,
+        reason: summary ? undefined : "Already transcribed; summary unavailable",
       };
     }
   }

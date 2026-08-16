@@ -53,6 +53,7 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
   under_contract: "Under Contract",
   closed: "Closed",
   dead: "Dead",
+  do_not_contact: "Do Not Contact",
 };
 
 const TRANSACTION_STATUS_LABELS: Record<string, string> = {
@@ -161,6 +162,28 @@ function agentContactSuffix(details: Record<string, unknown>): string {
   return parts.join(" · ");
 }
 
+function formatWebhookDetailLines(details: Record<string, unknown>): string[] {
+  const payload = details.webhookData;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const suppressed = new Set([
+    "leadEmail", "email", "firstName", "first_name", "lastName", "last_name",
+    "name", "fullName", "full_name", "phone", "mobile", "cell",
+    "propertyAddress", "propertyTitle", "propertyId", "leadId",
+  ]);
+  return Object.entries(payload as Record<string, unknown>)
+    .filter(([key, value]) => !suppressed.has(key) && value !== null && value !== undefined && value !== "")
+    .slice(0, 20)
+    .map(([key, value]) => {
+      const label = key.replace(/([A-Z])/g, " $1").replace(/[_-]+/g, " ").replace(/^./, (c) => c.toUpperCase());
+      const display = Array.isArray(value)
+        ? value.join(", ")
+        : typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value);
+      return `${label}: ${display}`;
+    });
+}
+
 export interface ActivityEntry {
   log: {
     id: number;
@@ -245,7 +268,16 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       } else {
         title = "Assigned to agent";
       }
-      lines = [];
+      const connectionLines: string[] = [];
+      if (details.pipelineStatus) {
+        connectionLines.push(`Pipeline stage: ${PIPELINE_STATUS_LABELS[String(details.pipelineStatus)] ?? String(details.pipelineStatus)}`);
+      }
+      if (details.agentNotes) connectionLines.push(`Notes: ${String(details.agentNotes)}`);
+      if (details.appointmentSet) connectionLines.push("Appointment set");
+      if (details.followUpDate) connectionLines.push(`Agent follow-up: ${formatValue("dueDate", details.followUpDate)}`);
+      if (details.isaFollowUpDate) connectionLines.push(`ISA follow-up: ${formatValue("dueDate", details.isaFollowUpDate)}`);
+      if (details.introduceClient) connectionLines.push("Client introduction requested");
+      lines = connectionLines;
       icon = "link";
       break;
     }
@@ -550,31 +582,46 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
     // degrades to a bare title rather than an empty bullet.
     case "property_viewed":
       title = "Viewed Property";
-      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
       icon = "info";
       break;
 
     case "property_favorited":
       title = "Favorited Property";
-      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
       icon = "check";
       break;
 
     case "property_contact_requested":
       title = "Requested Contact";
-      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
       icon = "alert";
       break;
 
     case "analysis_requested":
       title = "Requested Analysis";
-      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
       icon = "alert";
       break;
 
     case "showing_requested":
       title = "Requested Showing";
-      lines = details.propertyAddress ? [details.propertyAddress as string] : [];
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
       icon = "alert";
       break;
 

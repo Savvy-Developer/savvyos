@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { desc, eq, and, inArray } from "drizzle-orm";
 import {
   createAgentConnection,
   createTask,
@@ -11,7 +11,7 @@ import {
   logActivity,
   updateAgentConnection,
 } from "../db";
-import { agentConnections, agentSupportAssignments, users, contacts } from "../../drizzle/schema";
+import { activityLog, agentConnections, agentSupportAssignments, users, contacts } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { sendTransactionalEmail } from "../_core/resendEmail";
@@ -123,11 +123,50 @@ export const agentConnectionsRouter = router({
       return conn;
     }),
 
+  websiteBehaviors: protectedProcedure
+    .input(z.object({ connectionId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const result = await getAgentConnectionById(input.connectionId);
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Agent connection not found" });
+      const connection = (result as any).connection ?? result;
+
+      if (ctx.user.role === "agent" && connection.agentId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view website behavior for your own connections." });
+      }
+      if (ctx.user.role === "agent_support") {
+        const db = await getDb();
+        const assignments = db ? await db
+          .select({ agentId: agentSupportAssignments.agentId })
+          .from(agentSupportAssignments)
+          .where(eq(agentSupportAssignments.agentSupportUserId, ctx.user.id)) : [];
+        if (!assignments.some((assignment) => assignment.agentId === connection.agentId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only view website behavior for your assigned agents." });
+        }
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const websiteActions = [
+        "property_viewed",
+        "property_favorited",
+        "property_contact_requested",
+        "analysis_requested",
+        "showing_requested",
+      ];
+      return db.select()
+        .from(activityLog)
+        .where(and(
+          eq(activityLog.relatedContactId, connection.contactId),
+          inArray(activityLog.action, websiteActions),
+        ))
+        .orderBy(desc(activityLog.createdAt));
+    }),
+
   create: protectedProcedure
     .input(z.object({
       agentId: z.number(),
       contactId: z.number(),
-      pipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).optional(),
+      pipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead","do_not_contact"]).optional(),
       followUpDate: z.string().optional().nullable(),
       agentNotes: z.string().optional().nullable(),
       buyBox: buyBoxInput.optional(),
@@ -224,6 +263,12 @@ export const agentConnectionsRouter = router({
           agentName: activityAgentName,
           contactName: activityContactName,
           pipelineStatus: input.pipelineStatus ?? "new_lead",
+          agentNotes: input.agentNotes?.trim() || null,
+          appointmentSet: input.appointmentSet ?? false,
+          appointmentSetAt: input.appointmentSet ? new Date().toISOString() : null,
+          followUpDate: input.followUpDate ?? null,
+          isaFollowUpDate: input.isaFollowUpDate ?? null,
+          introduceClient: input.introduceClient ?? false,
         },
       });
 
@@ -280,7 +325,7 @@ export const agentConnectionsRouter = router({
     .input(z.object({
       id: z.number(),
       data: z.object({
-        pipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead"]).optional(),
+        pipelineStatus: z.enum(["new_lead","attempted_contact","nurture","active_client","under_contract","closed","dead","do_not_contact"]).optional(),
         followUpDate: z.string().optional().nullable(),
         agentNotes: z.string().optional().nullable(),
         buyBox: buyBoxInput.optional(),
@@ -292,6 +337,9 @@ export const agentConnectionsRouter = router({
       if (!conn) throw new TRPCError({ code: "NOT_FOUND" });
 
       const currentConnection = (conn as any).connection ?? conn;
+      if (ctx.user.role === "agent" && currentConnection.agentId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only update connections in your own pipeline." });
+      }
       const updateData: Record<string, unknown> = {
         ...rest,
         ...(followUpDate !== undefined
@@ -342,48 +390,5 @@ export const agentConnectionsRouter = router({
         },
       });
       return { success: true };
-    }),
-
-  markDoNotContact: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      reason: z.string().trim().min(1, "A reason is required to mark a contact as Do Not Contact."),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const result = await getAgentConnectionById(input.id);
-      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Agent connection not found" });
-      const connection = (result as any).connection ?? result;
-      const contact = (result as any).contact;
-      if (ctx.user.role === "agent" && connection.agentId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You can only mark contacts connected to your own pipeline." });
-      }
-
-      const markedAt = new Date();
-      // The compliance flag belongs to the shared contact. Every agent connection
-      // inherits it, while each connection's existing pipelineStatus is retained.
-      await updateContact(connection.contactId, {
-        isaStatus: "do_not_contact",
-        doNotContact: true,
-        doNotContactReason: input.reason,
-        doNotContactAt: markedAt,
-        doNotContactByUserId: ctx.user.id,
-      } as any);
-
-      await logActivity({
-        userId: ctx.user.id,
-        action: "agent_connection_marked_do_not_contact",
-        entityType: "agent_connection",
-        entityId: input.id,
-        relatedContactId: connection.contactId,
-        details: {
-          actorName: ctx.user.name ?? "Unknown",
-          actorRole: ctx.user.role,
-          contactName: `${contact?.firstName ?? ""} ${contact?.lastName ?? ""}`.trim() || "Unknown Contact",
-          reason: input.reason,
-          retainedPipelineStatus: connection.pipelineStatus,
-          markedAt: markedAt.toISOString(),
-        },
-      });
-      return { success: true };
-    }),
+    })
 });
