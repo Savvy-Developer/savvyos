@@ -2629,6 +2629,11 @@ export const aircallCalls = mysqlTable(
     aircallNumberName: varchar("aircallNumberName", { length: 255 }),
     // Full Aircall payload for future use
     rawPayload: json("rawPayload"),
+    // Late-recording reconciliation state. Bounded attempts keep a nightly
+    // recovery sweep from permanently retrying expired or unavailable media.
+    recordingRecoveryAttempts: int("recordingRecoveryAttempts").notNull().default(0),
+    recordingRecoveryLastAttemptAt: timestamp("recordingRecoveryLastAttemptAt"),
+    recordingRecoveryLastError: varchar("recordingRecoveryLastError", { length: 512 }),
     // Timestamps
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2637,6 +2642,7 @@ export const aircallCalls = mysqlTable(
     uniqueIndex("aircall_calls_aircall_id_unique").on(table.aircallCallId),
     index("aircall_calls_contact_idx").on(table.contactId, table.startedAt),
     index("aircall_calls_started_at_idx").on(table.startedAt),
+    index("aircall_calls_recording_recovery_idx").on(table.recordingRecoveryAttempts, table.recordingRecoveryLastAttemptAt),
   ],
 );
 export type AircallCall = typeof aircallCalls.$inferSelect;

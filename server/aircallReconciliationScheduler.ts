@@ -1,7 +1,10 @@
-import { reconcileUnmatchedAircallCalls } from "./aircall";
+import { reconcileRecentAircallRecordings, reconcileUnmatchedAircallCalls } from "./aircall";
 
-const DAILY_RECONCILIATION_HOUR = 3;
+const DAILY_RECONCILIATION_HOUR = 2;
 const DAILY_RECONCILIATION_MINUTE = 30;
+const RECENT_RECORDING_LOOKBACK_DAYS = 7;
+const RECENT_RECORDING_LIMIT = 100;
+const RECENT_RECORDING_MAX_ATTEMPTS = 5;
 const TIME_ZONE = "America/New_York";
 const INTERNAL_BATCH_SIZE = 250;
 
@@ -60,10 +63,9 @@ function msUntilNextRun(): number {
 }
 
 /**
- * Reconcile the complete unmatched-call queue once per night. Batches are kept
- * internal for predictable DB usage, but the scheduler continues until the
- * queue has been fully reviewed. Immediate phone-update retries remain the
- * first line of defense during the business day.
+ * Reconcile the unmatched-call queue and a bounded set of recent calls missing
+ * permanently stored media once per night. Immediate webhook retries remain the
+ * first line of defense during the business day; this is the late-arrival safety net.
  */
 export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
   if (isRunning) {
@@ -97,21 +99,34 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
     }
 
     console.log(
-      `[AircallReconciliation] Full nightly sweep complete: ${totalMatched} matched, ${totalNoContact} still unmatched, ${totalSkipped} skipped from ${totalScanned} calls in ${batches} batch(es).`
+      `[AircallReconciliation] Full nightly unmatched-call sweep complete: ${totalMatched} matched, ${totalNoContact} still unmatched, ${totalSkipped} skipped from ${totalScanned} calls in ${batches} batch(es).`
     );
   } catch (error) {
-    console.error("[AircallReconciliation] Full nightly sweep failed:", error);
+    console.error("[AircallReconciliation] Full nightly unmatched-call sweep failed:", error);
+  }
+
+  try {
+    const recordingResult = await reconcileRecentAircallRecordings({
+      lookbackDays: RECENT_RECORDING_LOOKBACK_DAYS,
+      limit: RECENT_RECORDING_LIMIT,
+      maxAttempts: RECENT_RECORDING_MAX_ATTEMPTS,
+    });
+    console.log(
+      `[AircallReconciliation] Recent recording recovery complete: ${recordingResult.recovered} recovered, ${recordingResult.noRecordingAvailable} not yet available, ${recordingResult.errors} errors from ${recordingResult.candidates} candidates.`
+    );
+  } catch (error) {
+    console.error("[AircallReconciliation] Recent recording recovery failed:", error);
   } finally {
     isRunning = false;
   }
 }
 
-/** Register the full-queue once-daily reconciliation timer after server startup. */
+/** Register the once-daily Aircall reconciliation timer after server startup. */
 export function scheduleAircallReconciliation(): void {
   const delay = msUntilNextRun();
   const nextRun = new Date(Date.now() + delay);
   console.log(
-    `[AircallReconciliation] Next full unmatched-call sweep scheduled for ${nextRun.toLocaleString("en-US", { timeZone: TIME_ZONE, timeZoneName: "short" })}.`
+      `[AircallReconciliation] Next nightly Aircall reconciliation scheduled for ${nextRun.toLocaleString("en-US", { timeZone: TIME_ZONE, timeZoneName: "short" })}.`
   );
 
   setTimeout(() => {
