@@ -3,7 +3,7 @@ import { reconcileRecentAircallRecordings, reconcileUnmatchedAircallCalls } from
 const DAILY_RECONCILIATION_HOUR = 2;
 const DAILY_RECONCILIATION_MINUTE = 30;
 const RECENT_RECORDING_LOOKBACK_DAYS = 7;
-const RECENT_RECORDING_LIMIT = 100;
+const RECENT_RECORDING_PAGE_SIZE = 100;
 const RECENT_RECORDING_MAX_ATTEMPTS = 5;
 const TIME_ZONE = "America/New_York";
 const INTERNAL_BATCH_SIZE = 250;
@@ -63,7 +63,7 @@ function msUntilNextRun(): number {
 }
 
 /**
- * Reconcile the unmatched-call queue and a bounded set of recent calls missing
+ * Reconcile the unmatched-call queue and every eligible recent call missing
  * permanently stored media once per night. Immediate webhook retries remain the
  * first line of defense during the business day; this is the late-arrival safety net.
  */
@@ -108,7 +108,7 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
   try {
     const recordingResult = await reconcileRecentAircallRecordings({
       lookbackDays: RECENT_RECORDING_LOOKBACK_DAYS,
-      limit: RECENT_RECORDING_LIMIT,
+      batchSize: RECENT_RECORDING_PAGE_SIZE,
       maxAttempts: RECENT_RECORDING_MAX_ATTEMPTS,
     });
     console.log(

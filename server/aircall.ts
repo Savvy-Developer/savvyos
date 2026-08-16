@@ -343,8 +343,8 @@ function scheduleAircallMediaRetry(
 export type AircallRecordingRecoveryOptions = {
   /** Only revisit calls completed within this window. Defaults to 7 days. */
   lookbackDays?: number;
-  /** Maximum incomplete calls to attempt in one run. Defaults to 100. */
-  limit?: number;
+  /** Query page size while processing all eligible calls. Defaults to 100. */
+  batchSize?: number;
   /** Maximum recovery attempts per call before the nightly job stops retrying it. */
   maxAttempts?: number;
 };
@@ -391,88 +391,102 @@ export async function reconcileRecentAircallRecordings(
   if (!db) throw new Error("Database unavailable");
 
   const lookbackDays = Math.max(1, Math.min(options.lookbackDays ?? 7, 30));
-  const limit = Math.max(1, Math.min(options.limit ?? 100, 150));
+  const batchSize = Math.max(1, Math.min(options.batchSize ?? 100, 150));
   const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? 5, 10));
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-  const rows = await db
-    .select({
-      id: aircallCalls.id,
-      aircallCallId: aircallCalls.aircallCallId,
-      communicationId: aircallCalls.communicationId,
-      recoveryAttempts: aircallCalls.recordingRecoveryAttempts,
-    })
-    .from(aircallCalls)
-    .innerJoin(communications, eq(communications.id, aircallCalls.communicationId))
-    .where(and(
-      gte(aircallCalls.startedAt, since),
-      isNull(communications.audioFileUrl),
-      lt(aircallCalls.recordingRecoveryAttempts, maxAttempts),
-    ))
-    .orderBy(asc(aircallCalls.recordingRecoveryLastAttemptAt), asc(aircallCalls.startedAt))
-    .limit(limit);
-
+  // Fix the run start so calls updated by this job are not selected again until
+  // tomorrow. Pagination therefore drains the entire eligible set exactly once.
+  const runStartedAt = new Date();
+  // MySQL timestamps are stored at second precision in this schema. Align the
+  // run marker so a just-updated row cannot satisfy the next page's predicate.
+  runStartedAt.setMilliseconds(0);
   const result: AircallRecordingRecoveryResult = {
-    candidates: rows.length, attempted: 0, recovered: 0, noRecordingAvailable: 0, errors: 0, skipped: 0,
+    candidates: 0, attempted: 0, recovered: 0, noRecordingAvailable: 0, errors: 0, skipped: 0,
   };
 
-  for (const row of rows) {
-    if (!row.communicationId) {
-      result.skipped += 1;
-      continue;
-    }
-    result.attempted += 1;
-    const attemptedAt = new Date();
-    try {
-      const freshCall = await fetchFreshAircallCall(row.aircallCallId);
-      if (!freshCall?.recording && !freshCall?.voicemail) {
-        result.noRecordingAvailable += 1;
-        await db.update(aircallCalls).set({
-          rawPayload: freshCall as any ?? undefined,
-          recordingRecoveryLastAttemptAt: attemptedAt,
-          recordingRecoveryLastError: "Aircall has not made a recording or voicemail available",
-          recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
-        }).where(eq(aircallCalls.id, row.id));
+  while (true) {
+    const rows = await db
+      .select({
+        id: aircallCalls.id,
+        aircallCallId: aircallCalls.aircallCallId,
+        communicationId: aircallCalls.communicationId,
+      })
+      .from(aircallCalls)
+      .innerJoin(communications, eq(communications.id, aircallCalls.communicationId))
+      .where(and(
+        gte(aircallCalls.startedAt, since),
+        isNull(communications.audioFileUrl),
+        lt(aircallCalls.recordingRecoveryAttempts, maxAttempts),
+        or(
+          isNull(aircallCalls.recordingRecoveryLastAttemptAt),
+          lt(aircallCalls.recordingRecoveryLastAttemptAt, runStartedAt),
+        ),
+      ))
+      .orderBy(asc(aircallCalls.recordingRecoveryLastAttemptAt), asc(aircallCalls.startedAt))
+      .limit(batchSize);
+
+    if (rows.length === 0) break;
+    result.candidates += rows.length;
+
+    for (const row of rows) {
+      if (!row.communicationId) {
+        result.skipped += 1;
         continue;
       }
+      result.attempted += 1;
+      const attemptedAt = new Date();
+      try {
+        const freshCall = await fetchFreshAircallCall(row.aircallCallId);
+        if (!freshCall?.recording && !freshCall?.voicemail) {
+          result.noRecordingAvailable += 1;
+          await db.update(aircallCalls).set({
+            rawPayload: freshCall as any ?? undefined,
+            recordingRecoveryLastAttemptAt: attemptedAt,
+            recordingRecoveryLastError: "Aircall has not made a recording or voicemail available",
+            recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
+          }).where(eq(aircallCalls.id, row.id));
+          continue;
+        }
 
-      const [recording, voicemail] = await Promise.all([
-        downloadAndStoreRecording(freshCall.id, freshCall.recording, "recording"),
-        downloadAndStoreRecording(freshCall.id, freshCall.voicemail, "voicemail"),
-      ]);
-      const media = recording ?? voicemail;
-      if (!media) {
-        result.errors += 1;
+        const [recording, voicemail] = await Promise.all([
+          downloadAndStoreRecording(freshCall.id, freshCall.recording, "recording"),
+          downloadAndStoreRecording(freshCall.id, freshCall.voicemail, "voicemail"),
+        ]);
+        const media = recording ?? voicemail;
+        if (!media) {
+          result.errors += 1;
+          await db.update(aircallCalls).set({
+            rawPayload: freshCall as any,
+            recordingRecoveryLastAttemptAt: attemptedAt,
+            recordingRecoveryLastError: "Current Aircall media URL could not be downloaded",
+            recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
+          }).where(eq(aircallCalls.id, row.id));
+          continue;
+        }
+
+        await db.update(communications).set({ audioFileUrl: media.url })
+          .where(eq(communications.id, row.communicationId));
         await db.update(aircallCalls).set({
           rawPayload: freshCall as any,
+          ...(recording
+            ? { recordingUrl: recording.url, recordingKey: recording.key }
+            : { voicemailUrl: voicemail!.url, voicemailKey: voicemail!.key }),
           recordingRecoveryLastAttemptAt: attemptedAt,
-          recordingRecoveryLastError: "Current Aircall media URL could not be downloaded",
+          recordingRecoveryLastError: null,
           recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
         }).where(eq(aircallCalls.id, row.id));
-        continue;
+        scheduleAircallTranscription(row.communicationId, freshCall);
+        result.recovered += 1;
+      } catch (error) {
+        result.errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        await db.update(aircallCalls).set({
+          recordingRecoveryLastAttemptAt: attemptedAt,
+          recordingRecoveryLastError: message.slice(0, 512),
+          recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
+        }).where(eq(aircallCalls.id, row.id));
+        console.error(`[Aircall] Recent recording recovery failed for call ${row.aircallCallId}:`, message);
       }
-
-      await db.update(communications).set({ audioFileUrl: media.url })
-        .where(eq(communications.id, row.communicationId));
-      await db.update(aircallCalls).set({
-        rawPayload: freshCall as any,
-        ...(recording
-          ? { recordingUrl: recording.url, recordingKey: recording.key }
-          : { voicemailUrl: voicemail!.url, voicemailKey: voicemail!.key }),
-        recordingRecoveryLastAttemptAt: attemptedAt,
-        recordingRecoveryLastError: null,
-        recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
-      }).where(eq(aircallCalls.id, row.id));
-      scheduleAircallTranscription(row.communicationId, freshCall);
-      result.recovered += 1;
-    } catch (error) {
-      result.errors += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      await db.update(aircallCalls).set({
-        recordingRecoveryLastAttemptAt: attemptedAt,
-        recordingRecoveryLastError: message.slice(0, 512),
-        recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
-      }).where(eq(aircallCalls.id, row.id));
-      console.error(`[Aircall] Recent recording recovery failed for call ${row.aircallCallId}:`, message);
     }
   }
 

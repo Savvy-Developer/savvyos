@@ -4,7 +4,7 @@
  *
  * Optional environment variables:
  *   AIRCALL_RECORDING_RECOVERY_LOOKBACK_DAYS=7
- *   AIRCALL_RECORDING_RECOVERY_LIMIT=100
+ *   AIRCALL_RECORDING_RECOVERY_PAGE_SIZE=100
  *   AIRCALL_RECORDING_RECOVERY_MAX_ATTEMPTS=5
  */
 import "dotenv/config";
@@ -18,7 +18,7 @@ const positiveInt = (value: string | undefined, fallback: number) => {
 async function main() {
   const result = await reconcileRecentAircallRecordings({
     lookbackDays: positiveInt(process.env.AIRCALL_RECORDING_RECOVERY_LOOKBACK_DAYS, 7),
-    limit: positiveInt(process.env.AIRCALL_RECORDING_RECOVERY_LIMIT, 100),
+    batchSize: positiveInt(process.env.AIRCALL_RECORDING_RECOVERY_PAGE_SIZE, 100),
     maxAttempts: positiveInt(process.env.AIRCALL_RECORDING_RECOVERY_MAX_ATTEMPTS, 5),
   });
   console.log("[AircallRecordingRecovery]", JSON.stringify(result));
