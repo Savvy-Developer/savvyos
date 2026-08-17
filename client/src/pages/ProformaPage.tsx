@@ -536,6 +536,7 @@ export default function ProformaPage() {
     const bonusEligibleImprovements = costSegEnabled ? parseNum(form.bonusEligibleImprovements) : 0;
     const renovationDeduction = 0;
     const remainingBuildingBasis = Math.max(0, buildingBasis - acceleratedAmt);
+    // Full-year annualized residual depreciation. Exact first and final years require the IRS mid-month convention.
     const straightLineDepreciation = remainingBuildingBasis / 27.5;
     const year1MortgageInterest = loanYearSchedule(1).interest;
     const year2MortgageInterest = loanYearSchedule(2).interest;
@@ -1823,7 +1824,7 @@ export default function ProformaPage() {
                   {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Cost-Seg Shorter-Life Property</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
                   <div className="flex justify-between text-sm"><span>Furnishing Deduction (Modeled Eligible)</span><span className="font-medium">{fmtDollar(calc.furnishingDeduction)}</span></div>
                   {calc.bonusEligibleImprovements > 0 && <div className="flex justify-between text-sm"><span>Bonus-Eligible Improvements</span><span className="font-medium">{fmtDollar(calc.bonusEligibleImprovements)}</span></div>}
-                  <div className="flex justify-between text-sm"><span>Residual Building Depreciation (27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}</span></div>
+                  <div className="flex justify-between text-sm"><span>Full-Year Residual Building Depreciation (27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}</span></div>
                   <div className="flex justify-between text-sm"><span>Scheduled Year 1 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year1MortgageInterest)}</span></div>
                   {calc.renovation > 0 && <div className="flex justify-between text-xs text-slate-500"><span>Renovation Budget (capitalized unless study identifies qualifying components)</span><span>{fmtDollar(calc.renovation)}</span></div>}
                   <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Total Year 1 Deduction</span><span>{fmtDollar(calc.totalFirstYearDeduction)}</span></div>
@@ -1843,12 +1844,12 @@ export default function ProformaPage() {
             <CardContent>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm"><span>Residual Building Basis</span><span className="font-medium">{fmtDollar(calc.remainingBuildingBasis)}</span></div>
-                <div className="flex justify-between text-sm"><span>Straight-Line Depreciation (residual basis / 27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
+                <div className="flex justify-between text-sm"><span>Full-Year Residual Depreciation (residual basis / 27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
                 {calc.year2MortgageInterest > 0 && <div className="flex justify-between text-sm"><span>Scheduled Year 2 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year2MortgageInterest)}/yr</span></div>}
                 <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Estimated Year 2 Deduction</span><span>{fmtDollar(calc.ongoingAnnualDeduction)}/yr</span></div>
                 <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Estimated Year 2 Tax Savings @ {form.marginalTaxRate}%</span><span>{fmtDollar(calc.ongoingAnnualTaxBenefit)}/yr</span></div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. This illustration uses the amortization schedule’s Year 2 interest and should not be treated as a fixed perpetual annual benefit.</p>
+              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. The residual-depreciation figure is a full-year 27.5-year planning estimate after cost-segregated basis is removed; exact first and final years use the IRS mid-month convention.</p>
             </CardContent>
           </Card>
         </TabsContent>
