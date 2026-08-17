@@ -6,7 +6,6 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
 import { registerUploadRoutes } from "../uploadRoutes";
-import { registerProformaPdfRoute } from "../proformaPdf";
 import { registerInvestorReportRoute } from "../proformaInvestorReport";
 import { registerExternalApiRoutes } from "../externalApis";
 import { appRouter } from "../routers";
@@ -104,8 +103,6 @@ async function startServer() {
   registerMagicLinkRoutes(app);
   // File upload routes
   registerUploadRoutes(app);
-  // Pro-forma PDF generation
-  registerProformaPdfRoute(app);
   // Pro-forma Investor Report (HTML-to-PDF with Puppeteer)
   registerInvestorReportRoute(app);
   // External API proxies (Zillow, Airbnb)

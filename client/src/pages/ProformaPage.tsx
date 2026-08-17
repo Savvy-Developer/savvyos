@@ -43,12 +43,21 @@ const pmt = (rate: number, nper: number, pv: number): number => {
   return -(rate * pv * pvif) / (pvif - 1);
 };
 
-const CO_BRANDED_REPORTS = [
+type ReportOption = {
+  name: string;
+  coBrand?: { name: string; logoUrl: string };
+};
+
+const REPORT_OPTIONS: ReportOption[] = [
+  { name: "No Co-branding" },
   {
     name: "Bill Faeth",
-    logoUrl: "/api/proforma/branding/bill-faeth-logo",
+    coBrand: {
+      name: "Bill Faeth",
+      logoUrl: "/api/proforma/branding/bill-faeth-logo",
+    },
   },
-] as const;
+];
 
 // ─── Form State Type ─────────────────────────────────────────────────────────
 interface CustomExpense { label: string; amount: string; }
@@ -236,7 +245,6 @@ export default function ProformaPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [title, setTitle] = useState("STR Investment Analysis");
   const [saving, setSaving] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [importingZillow, setImportingZillow] = useState(false);
   const [importingAirbnb, setImportingAirbnb] = useState(false);
   const [airbnbImportUrl, setAirbnbImportUrl] = useState("");
@@ -721,56 +729,8 @@ export default function ProformaPage() {
     if (editingId === id) { setEditing(false); setEditingId(null); setForm(defaultForm); }
   };
 
-  const handleDownloadPdf = async () => {
-    setDownloading(true);
-    try {
-      const response = await fetch("/api/proforma/pdf", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          form,
-          calc: {
-            pp: calc.pp, downPayment: calc.downPayment, closingCosts: calc.closingCosts,
-            loanAmount: calc.loanAmount, totalCashNeeded: calc.totalCashNeeded,
-            monthlyMortgage: calc.monthlyMortgage, annualDebtService: calc.annualDebtService,
-            fixedMonthly: calc.fixedMonthly, fixedAnnual: calc.fixedAnnual,
-            blendedFeeRate: calc.blendedFeeRate,
-            furnishing: calc.furnishing, renovation: calc.renovation,
-            startup: calc.startup, inspection: calc.inspection, sellerCredit: calc.sellerCredit,
-            s1: calc.s1, s2: calc.s2, s3: calc.s3, fiveYear: calc.fiveYear,
-            irr: calc.irr, sellingCostsPct: calc.sellingCostsPct,
-            costSegEnabled: calc.costSegEnabled, costSegCost: calc.costSegCost,
-            totalFirstYearDeduction: calc.totalFirstYearDeduction,
-            taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
-            buildingBasis: calc.buildingBasis, straightLineDepreciation: calc.straightLineDepreciation,
-            year1MortgageInterest: calc.year1MortgageInterest, ongoingAnnualTaxBenefit: calc.ongoingAnnualTaxBenefit,
-            taxReturns: calc.taxReturns,
-            isValueAdd: calc.isValueAdd, arv: calc.arv, forcedEquity: calc.forcedEquity,
-            equityCreatedByReno: calc.equityCreatedByReno, isCashoutRefi: calc.isCashoutRefi, refi: calc.refi,
-          },
-          property: property ? { address: property.address, city: property.city, state: property.state, zip: property.zip, beds: property.beds, baths: property.baths, sqft: property.sqft, propertyType: property.propertyType } : null,
-          branding: userRecord ? { name: userRecord.name, email: userRecord.email, phone: userRecord.phone, market: (coreProfile as any)?.market || "", profilePhotoUrl: (coreProfile as any)?.profilePhotoUrl || "", callBookingLink: (coreProfile as any)?.callBookingLink || "" } : null,
-          title,
-        }),
-      });
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`PDF generation failed (${response.status}): ${errText}`);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `SavvyProforma_${property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property"}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: any) { console.error(e); alert(`PDF download failed: ${e.message || "Unknown error"}. Please try again.`); }
-    setDownloading(false);
-  };
-
   const [downloadingReport, setDownloadingReport] = useState(false);
-  const handleDownloadInvestorReport = async (coBrand?: typeof CO_BRANDED_REPORTS[number]) => {
+  const handleDownloadInvestorReport = async (coBrand?: ReportOption["coBrand"]) => {
     setDownloadingReport(true);
     try {
       const { generateInvestorReport } = await import("../lib/investorReport");
@@ -890,20 +850,17 @@ export default function ProformaPage() {
           <Button variant="outline" size="sm" onClick={() => navigate("/proforma-defaults")}>
             <Settings className="h-4 w-4 mr-1" /> Defaults
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={downloading}>
-            <Download className="h-4 w-4 mr-1" /> {downloading ? "Generating..." : "Download PDF"}
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" disabled={downloadingReport} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
-                <Download className="h-4 w-4 mr-1" /> {downloadingReport ? "Generating Report..." : "Co-branded Report"} <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                <Download className="h-4 w-4 mr-1" /> {downloadingReport ? "Generating Report..." : "Download Report"} <ChevronDown className="h-3.5 w-3.5 ml-1" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Choose a co-brand</DropdownMenuLabel>
-              {CO_BRANDED_REPORTS.map((coBrand) => (
-                <DropdownMenuItem key={coBrand.name} onSelect={() => handleDownloadInvestorReport(coBrand)}>
-                  {coBrand.name}
+              <DropdownMenuLabel>Choose a report</DropdownMenuLabel>
+              {REPORT_OPTIONS.map((reportOption) => (
+                <DropdownMenuItem key={reportOption.name} onSelect={() => handleDownloadInvestorReport(reportOption.coBrand)}>
+                  {reportOption.name}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
