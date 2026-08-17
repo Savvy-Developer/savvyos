@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import PageHeader from "@/components/PageHeader";
-import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil } from "lucide-react";
+import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -41,6 +42,13 @@ const pmt = (rate: number, nper: number, pv: number): number => {
   const pvif = Math.pow(1 + rate, nper);
   return -(rate * pv * pvif) / (pvif - 1);
 };
+
+const CO_BRANDED_REPORTS = [
+  {
+    name: "Bill Faeth",
+    logoUrl: "/api/proforma/branding/bill-faeth-logo",
+  },
+] as const;
 
 // ─── Form State Type ─────────────────────────────────────────────────────────
 interface CustomExpense { label: string; amount: string; }
@@ -762,7 +770,7 @@ export default function ProformaPage() {
   };
 
   const [downloadingReport, setDownloadingReport] = useState(false);
-  const handleDownloadInvestorReport = async () => {
+  const handleDownloadInvestorReport = async (coBrand?: typeof CO_BRANDED_REPORTS[number]) => {
     setDownloadingReport(true);
     try {
       const { generateInvestorReport } = await import("../lib/investorReport");
@@ -790,6 +798,7 @@ export default function ProformaPage() {
         property: property ? { address: property.address, city: property.city, state: property.state, zip: property.zip, beds: property.beds, baths: property.baths, sqft: property.sqft, propertyType: property.propertyType } : null,
         branding: userRecord ? { name: userRecord.name, email: userRecord.email, phone: userRecord.phone, headshot: (coreProfile as any)?.profilePhotoUrl || "", market: (coreProfile as any)?.market || "", callBookingLink: (coreProfile as any)?.callBookingLink || "" } : null,
         title,
+        coBrand,
       });
     } catch (e: any) { console.error(e); alert(`Investor Report download failed: ${e.message || "Unknown error"}. Please try again.`); }
     setDownloadingReport(false);
@@ -884,9 +893,21 @@ export default function ProformaPage() {
           <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={downloading}>
             <Download className="h-4 w-4 mr-1" /> {downloading ? "Generating..." : "Download PDF"}
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadInvestorReport} disabled={downloadingReport} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
-            <Download className="h-4 w-4 mr-1" /> {downloadingReport ? "Generating Report..." : "Investor Report"}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={downloadingReport} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
+                <Download className="h-4 w-4 mr-1" /> {downloadingReport ? "Generating Report..." : "Co-branded Report"} <ChevronDown className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Choose a co-brand</DropdownMenuLabel>
+              {CO_BRANDED_REPORTS.map((coBrand) => (
+                <DropdownMenuItem key={coBrand.name} onSelect={() => handleDownloadInvestorReport(coBrand)}>
+                  {coBrand.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="h-4 w-4 mr-1" /> {saving ? "Saving..." : hasDirtyChanges.current ? "Save" : "Saved"}
           </Button>

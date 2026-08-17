@@ -1,7 +1,12 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
-interface ReportData { form: any; calc: any; property: any; branding: any; title: string; aiSummary?: string; }
+interface CoBrand {
+  name: string;
+  logoUrl: string;
+}
+
+interface ReportData { form: any; calc: any; property: any; branding: any; title: string; aiSummary?: string; coBrand?: CoBrand; }
 
 const fmt = (n: any) => { const v = parseFloat(n); if (isNaN(v)) return "$0"; return "$" + Math.round(v).toLocaleString("en-US"); };
 const pct = (n: any) => { const v = parseFloat(n); if (isNaN(v)) return "0%"; return (v * 100).toFixed(1) + "%"; };
@@ -24,12 +29,13 @@ export async function generateInvestorReport(data: ReportData): Promise<void> {
   const { property, branding } = data;
 
   // Pre-fetch images as base64 to avoid CORS issues in iframe
-  const [headshotB64, photoB64] = await Promise.all([
+  const [headshotB64, photoB64, coBrandLogoB64] = await Promise.all([
     toDataUrl(branding?.headshot || ""),
     toDataUrl(data.form?.propertyPhotoUrl || ""),
+    toDataUrl(data.coBrand?.logoUrl || ""),
   ]);
 
-  const htmlContent = buildReportHTML(data, headshotB64, photoB64);
+  const htmlContent = buildReportHTML(data, headshotB64, photoB64, coBrandLogoB64);
   const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a2e;background:white;}</style></head><body>${htmlContent}</body></html>`;
 
   const iframe = document.createElement("iframe");
@@ -59,8 +65,8 @@ export async function generateInvestorReport(data: ReportData): Promise<void> {
   pdf.save(`SavvyProforma_InvestorReport_${property?.address?.replace(/[^a-zA-Z0-9]/g, "_") || "property"}.pdf`);
 }
 
-function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string): string {
-  const { form, calc, property, branding, title } = data;
+function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string, coBrandLogoB64: string): string {
+  const { form, calc, property, branding, title, coBrand } = data;
   const s1 = calc.s1 || {}, s2 = calc.s2 || {}, s3 = calc.s3 || {};
   const fiveYear: any[] = calc.fiveYear || [];
   const taxReturns = calc.taxReturns || {};
@@ -72,6 +78,7 @@ function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string
   const vrboPct = form?.channelVrbo || "20";
   const directPct = form?.channelDirect || "10";
   const pp = calc.pp || 0;
+  const brandLockup = `<div class="brand-lockup"><img src="${logoUrl}" class="logo" crossorigin="anonymous"/>${coBrandLogoB64 ? `<span class="brand-divider"></span><img src="${coBrandLogoB64}" class="co-brand-logo" alt="${coBrand?.name || "Co-brand"}"/>` : ""}</div>`;
 
   // Charts
   const maxRev = Math.max(s1.grossRevenue || 1, s2.grossRevenue || 1, s3.grossRevenue || 1);
@@ -97,7 +104,7 @@ function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string
   // Value-Add/Refi page
   let valueAddPage = "";
   if (calc.isValueAdd || calc.isCashoutRefi) {
-    valueAddPage = `<div class="pdf-page"><div class="hdr"><img src="${logoUrl}" class="logo" crossorigin="anonymous"/><span class="hdr-sub">Value-Add & Refinance Analysis</span></div>
+    valueAddPage = `<div class="pdf-page"><div class="hdr">${brandLockup}<span class="hdr-sub">Value-Add & Refinance Analysis</span></div>
     ${calc.isValueAdd ? `<div class="stitle">Equity Creation Through Value-Add</div><div class="cols"><div class="card"><h4>Investment Basis</h4><div class="row"><span class="lbl">Purchase Price</span><span class="val">${fmt(pp)}</span></div><div class="row"><span class="lbl">Renovation Budget</span><span class="val">${fmt(calc.renovation)}</span></div><div class="row brd"><span class="lbl bold">All-In Cost</span><span class="val">${fmt(pp + (calc.renovation||0))}</span></div></div><div class="card hl"><h4>After Repair Value</h4><div class="row"><span class="lbl">ARV</span><span class="val big teal">${fmt(calc.arv)}</span></div><div class="row"><span class="lbl">Forced Equity (ARV - Purchase)</span><span class="val">${fmt(calc.forcedEquity)}</span></div><div class="row"><span class="lbl">Net Equity Created (ARV - All-In)</span><span class="val grn">${fmt(calc.equityCreatedByReno)}</span></div></div></div>` : ""}
     ${calc.isCashoutRefi ? `<div class="stitle">Cash-Out Refinance</div><div class="cols"><div class="card"><h4>Refi Terms</h4><div class="row"><span class="lbl">Appraised Value</span><span class="val">${fmt(refi.refiAppraised)}</span></div><div class="row"><span class="lbl">LTV</span><span class="val">${form?.refiLTV || 75}%</span></div><div class="row"><span class="lbl">New Loan Amount</span><span class="val">${fmt(refi.refiNewLoanAmount)}</span></div><div class="row"><span class="lbl">Original Loan Payoff</span><span class="val">${fmt(calc.loanAmount)}</span></div><div class="row brd"><span class="lbl bold grn">Cash Out</span><span class="val big grn">${fmt(refi.refiCashOut)}</span></div></div><div class="card"><h4>Post-Refi Returns (Base Case)</h4><div class="row"><span class="lbl">New Monthly Payment</span><span class="val">${fmt(refi.refiMonthlyMortgage)}</span></div><div class="row"><span class="lbl">Cash Left in Deal</span><span class="val">${fmt(refi.cashInDeal)}</span></div><div class="row"><span class="lbl">Post-Refi Annual Cash Flow</span><span class="val">${fmt(refi.s2?.cashFlow)}</span></div><div class="row brd"><span class="lbl bold">Post-Refi CoC Return</span><span class="val big teal">${refi.cashInDeal > 0 ? pct(refi.s2?.cashOnCash) : "Infinite"}</span></div></div></div>
     <div style="margin-top:12px;padding:10px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;"><div style="font-size:10px;font-weight:700;color:#0e7490;margin-bottom:6px;">Holding Period Timeline</div><div style="display:flex;gap:8px;align-items:center;"><div style="flex:1;background:#e0f2fe;border-radius:6px;padding:8px;text-align:center;font-size:9px;"><b>Months 1–${form?.seasoningPeriod || 6}</b><br/>Original: ${fmt(calc.monthlyMortgage)}/mo</div><div style="font-size:14px;color:#0891b2;">→</div><div style="flex:1;background:#ecfeff;border-radius:6px;padding:8px;text-align:center;font-size:9px;"><b>Month ${parseInt(form?.seasoningPeriod||"6")+1}+</b><br/>Refi: ${fmt(refi.refiMonthlyMortgage)}/mo</div></div></div>` : ""}
@@ -107,7 +114,7 @@ function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string
   return `<style>
 .pdf-page{width:816px;min-height:1056px;padding:34px 38px;background:white;page-break-after:always;}
 .hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:3px solid #0891b2;padding-bottom:10px;}
-.logo{height:30px;} .hdr-sub{font-size:9px;color:#666;}
+.brand-lockup{display:flex;align-items:center;gap:9px;min-width:0;}.logo{height:30px;max-width:130px;object-fit:contain;}.brand-divider{width:1px;height:24px;background:#cbd5e1;flex:0 0 auto;}.co-brand-logo{height:24px;max-width:145px;object-fit:contain;}.hdr-sub{font-size:9px;color:#666;}
 .agent{display:flex;align-items:center;gap:10px;text-align:right;}
 .agent img{width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid #0891b2;}
 .agent-name{font-size:12px;font-weight:700;} .agent-sub{font-size:9px;color:#666;}
@@ -142,7 +149,7 @@ a{color:#0891b2;}
 <!-- PAGE 1 -->
 <div class="pdf-page">
   <div class="hdr">
-    <img src="${logoUrl}" class="logo" crossorigin="anonymous"/>
+    ${brandLockup}
     <div class="agent">
       <div><div class="agent-name">${branding?.name||""}</div><div class="agent-sub">${branding?.email||""} | ${branding?.phone||""}</div>${branding?.market?`<div class="agent-sub">${branding.market}</div>`:""}</div>
       ${headshotB64 ? `<img src="${headshotB64}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid #0891b2;"/>` : ""}
@@ -167,7 +174,7 @@ a{color:#0891b2;}
 
 <!-- PAGE 2 -->
 <div class="pdf-page">
-  <div class="hdr"><img src="${logoUrl}" class="logo" crossorigin="anonymous"/><span class="hdr-sub">Revenue Scenarios & Financial Details</span></div>
+  <div class="hdr">${brandLockup}<span class="hdr-sub">Revenue Scenarios & Financial Details</span></div>
   <div class="cbox"><div class="cbox-title">Gross Revenue by Scenario</div>${barChart}</div>
   <div class="stitle">Scenario Comparison</div>
   <table>
@@ -212,7 +219,7 @@ a{color:#0891b2;}
 
 <!-- PAGE 3 -->
 <div class="pdf-page">
-  <div class="hdr"><img src="${logoUrl}" class="logo" crossorigin="anonymous"/><span class="hdr-sub">Projections, Returns & Tax Benefits</span></div>
+  <div class="hdr">${brandLockup}<span class="hdr-sub">Projections, Returns & Tax Benefits</span></div>
   <div class="cols" style="margin-bottom:10px;">
     <div class="cbox"><div class="cbox-title">5-Year Growth</div>${lineChart||'<div style="font-size:8px;color:#999;">No projection data</div>'}</div>
     <div class="cbox"><div class="cbox-title">Expense Breakdown (Base Case)</div>${donut}</div>

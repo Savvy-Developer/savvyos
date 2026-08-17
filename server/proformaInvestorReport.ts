@@ -1,6 +1,8 @@
 import express from "express";
 import { sdk } from "./_core/sdk";
 
+const BILL_FAETH_LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310519663374872019/IZKTHmlsUJRsTBnC.png";
+
 const fmtD = (val: number): string => {
   if (!isFinite(val) || isNaN(val)) return "$0";
   return `$${Math.round(val).toLocaleString()}`;
@@ -11,6 +13,27 @@ const fmtP = (val: number): string => {
 };
 
 export function registerInvestorReportRoute(app: express.Application) {
+  app.get("/api/proforma/branding/bill-faeth-logo", async (req: any, res: any) => {
+    try {
+      await sdk.authenticateRequest(req);
+    } catch {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    try {
+      const logoResponse = await fetch(BILL_FAETH_LOGO_URL);
+      if (!logoResponse.ok) throw new Error(`Unable to retrieve logo (${logoResponse.status})`);
+
+      const logo = Buffer.from(await logoResponse.arrayBuffer());
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.send(logo);
+    } catch (err: any) {
+      console.error("[InvestorReport] Bill Faeth logo proxy error:", err);
+      res.status(502).json({ error: "Unable to retrieve co-brand logo" });
+    }
+  });
+
   app.post("/api/proforma/investor-report", express.json({ limit: "2mb" }), async (req: any, res: any) => {
     try {
       let user: any;
