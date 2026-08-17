@@ -143,10 +143,11 @@ interface ProformaForm {
   costSegEnabled: string;
   landAllocationPct: string;
   acceleratedDepreciationPct: string;
+  bonusEligibleImprovements: string;
   marginalTaxRate: string;
   costSegStudyCost: string;
   // Comps
-  comps: Array<{ name: string; annualRevenue: string; occupancy: string; adr: string; beds: string; link: string; notes: string; photoUrl?: string; rating?: string; reviewCount?: string; city?: string; }>;
+  comps: Array<{ name: string; annualRevenue: string; occupancy: string; adr: string; beds: string; link: string; notes: string; photoUrl?: string; rating?: string; reviewCount?: string; city?: string; saved?: boolean | "true"; }>;
   // Notes
   notes: string;
   revenueMethodology: string;
@@ -226,6 +227,7 @@ const defaultForm: ProformaForm = {
   costSegEnabled: "yes",
   landAllocationPct: "15",
   acceleratedDepreciationPct: "30",
+  bonusEligibleImprovements: "0",
   marginalTaxRate: "35",
   costSegStudyCost: "3500",
   comps: [],
@@ -402,6 +404,28 @@ export default function ProformaPage() {
     const monthlyMortgage = monthlyPI + monthlyPMI;
     const annualDebtService = monthlyMortgage * 12;
 
+    // Compute actual scheduled P&I interest and principal rather than applying the original rate to the original balance every year.
+    const loanYearSchedule = (yearN: number) => {
+      if (loanAmount <= 0 || monthlyPI <= 0 || yearN < 1) return { interest: 0, principalPaid: 0, cumulativePrincipalPaid: 0, endingBalance: 0 };
+      let balance = loanAmount;
+      let interest = 0;
+      let principalPaid = 0;
+      let cumulativePrincipalPaid = 0;
+      const startingMonth = (yearN - 1) * 12;
+      const endingMonth = Math.min(yearN * 12, totalPayments);
+      for (let month = 0; month < endingMonth && balance > 0.01; month += 1) {
+        const monthlyInterest = monthlyRate > 0 ? balance * monthlyRate : 0;
+        const monthlyPrincipal = Math.max(0, Math.min(balance, monthlyPI - monthlyInterest));
+        if (month >= startingMonth) {
+          interest += monthlyInterest;
+          principalPaid += monthlyPrincipal;
+        }
+        cumulativePrincipalPaid += monthlyPrincipal;
+        balance -= monthlyPrincipal;
+      }
+      return { interest, principalPaid, cumulativePrincipalPaid, endingBalance: Math.max(0, balance) };
+    };
+
     const airbnbPct = parsePct(form.channelAirbnbPct);
     const vrboPct = parsePct(form.channelVrboPct);
     const directPct = parsePct(form.channelDirectPct);
@@ -497,28 +521,29 @@ export default function ProformaPage() {
       const yearExp = (s2.fixedAnnual + s2.totalVariableAnnual) * expGrowth;
       const yearNoi = yearRev - yearExp;
       const yearCF = yearNoi - annualDebtService;
-      const principalPaid = monthlyPI > 0 ? (() => {
-        let balance = loanAmount;
-        for (let m = 0; m < year * 12; m++) {
-          const interest = balance * monthlyRate;
-          const principal = monthlyPI - interest;
-          balance -= principal;
-        }
-        return loanAmount - balance;
-      })() : 0;
+      const loanSchedule = loanYearSchedule(year);
+      const principalPaid = loanSchedule.cumulativePrincipalPaid;
       const equity = downPayment + principalPaid + (propValue - pp);
       return { year, revenue: yearRev, expenses: yearExp, noi: yearNoi, cashFlow: yearCF, propertyValue: propValue, equity, principalPaid };
     });
 
     const costSegEnabled = form.costSegEnabled === "yes";
     const buildingBasis = pp * (1 - parsePct(form.landAllocationPct));
-    const acceleratedAmt = buildingBasis * parsePct(form.acceleratedDepreciationPct);
+    // The accelerated amount is only the user-modeled shorter-life property identified by a cost-segregation study.
+    const acceleratedAmt = costSegEnabled ? buildingBasis * parsePct(form.acceleratedDepreciationPct) : 0;
     const furnishingDeduction = furnishing;
-    const renovationDeduction = renovation; // Renovation also 100% bonus-eligible
-    const totalFirstYearDeduction = costSegEnabled ? acceleratedAmt + furnishingDeduction + renovationDeduction : furnishingDeduction + renovationDeduction;
+    // A renovation budget is not automatically bonus-depreciable. Only the separately identified qualifying component is modeled here.
+    const bonusEligibleImprovements = costSegEnabled ? parseNum(form.bonusEligibleImprovements) : 0;
+    const renovationDeduction = 0;
+    const remainingBuildingBasis = Math.max(0, buildingBasis - acceleratedAmt);
+    const straightLineDepreciation = remainingBuildingBasis / 27.5;
+    const year1MortgageInterest = loanYearSchedule(1).interest;
+    const year2MortgageInterest = loanYearSchedule(2).interest;
+    // This annualized model includes the modeled first-year accelerated deductions plus regular residual depreciation and scheduled Year 1 interest.
+    const totalFirstYearDeduction = acceleratedAmt + furnishingDeduction + bonusEligibleImprovements + straightLineDepreciation + year1MortgageInterest;
     const taxSavings = totalFirstYearDeduction * parsePct(form.marginalTaxRate);
-    const costSegCost = parseNum(form.costSegStudyCost);
-    const netTaxBenefit = taxSavings - (costSegEnabled ? costSegCost : 0);
+    const costSegCost = costSegEnabled ? parseNum(form.costSegStudyCost) : 0;
+    const netTaxBenefit = taxSavings - costSegCost;
 
     // ─── IRR Calculation ──────────────────────────────────────────────────────
     const sellingCostsPct = parsePct(form.sellingCostsPct);
@@ -545,16 +570,7 @@ export default function ProformaPage() {
     };
 
     // Calculate remaining loan balance at year N
-    const loanBalanceAtYear = (yearN: number): number => {
-      if (form.loanType === "cash" || loanAmount <= 0) return 0;
-      let balance = loanAmount;
-      for (let m = 0; m < yearN * 12; m++) {
-        const interest = balance * monthlyRate;
-        const principal = monthlyPI - interest;
-        balance -= principal;
-      }
-      return Math.max(0, balance);
-    };
+    const loanBalanceAtYear = (yearN: number): number => loanYearSchedule(yearN).endingBalance;
 
     // Build IRR for a given scenario and hold period
     const calcScenarioIRR = (scenario: typeof s1, holdYears: number, includeTax: boolean) => {
@@ -572,15 +588,15 @@ export default function ProformaPage() {
         const yearNoi = yearNetRev - yearExp;
         let yearCF = yearNoi - annualDebtService;
 
-        // Add tax benefit in year 1 if includeTax
+        // Year 1 includes the modeled accelerated deductions plus regular residual depreciation and scheduled Year 1 interest. Years 2+ use annual straight-line depreciation plus actual scheduled interest for that year.
         if (includeTax && y === 1) {
           yearCF += netTaxBenefit;
         }
-        // Straight-line depreciation benefit years 2+ (remaining building basis / 27.5)
         if (includeTax && y > 1) {
-          const remainingBasis = costSegEnabled ? buildingBasis - acceleratedAmt : buildingBasis;
+          const remainingBasis = Math.max(0, buildingBasis - acceleratedAmt);
           const straightLineDeduction = remainingBasis / 27.5;
-          yearCF += straightLineDeduction * marginalTaxRate;
+          const scheduledInterest = loanYearSchedule(y).interest;
+          yearCF += (straightLineDeduction + scheduledInterest) * marginalTaxRate;
         }
 
         // Terminal year: add sale proceeds
@@ -597,17 +613,13 @@ export default function ProformaPage() {
     };
 
     // ─── Ongoing Annual Tax Benefits ─────────────────────────────────────────
-    // Per IRS rules: after cost seg, the remaining building basis (not the accelerated portion)
-    // is what continues to depreciate over 27.5 years
-    const remainingBuildingBasis = costSegEnabled ? buildingBasis - acceleratedAmt : buildingBasis;
-    const straightLineDepreciation = remainingBuildingBasis / 27.5;
-    const year1MortgageInterest = isCash ? 0 : loanAmount * rate; // approx first year interest
-    const ongoingAnnualDeduction = straightLineDepreciation + year1MortgageInterest;
+    // The residual long-life basis is depreciated over 27.5 years. Interest follows the amortization schedule and therefore declines over time.
+    const ongoingAnnualDeduction = straightLineDepreciation + year2MortgageInterest;
     const ongoingAnnualTaxBenefit = ongoingAnnualDeduction * marginalTaxRate;
 
-    // Returns including tax benefits (Year 1 = cost seg + ongoing, Year 2+ = ongoing only)
+    // Returns including tax benefits: Year 1 uses the modeled accelerated benefit; the Year 2+ estimate uses residual depreciation plus scheduled Year 2 interest.
     const calcReturnsWithTax = (scenario: typeof s1) => {
-      const year1TaxBenefit = netTaxBenefit + ongoingAnnualTaxBenefit;
+      const year1TaxBenefit = netTaxBenefit;
       const ongoingTaxBenefit = ongoingAnnualTaxBenefit;
       const year1CashFlowWithTax = scenario.cashFlow + year1TaxBenefit;
       const ongoingCashFlowWithTax = scenario.cashFlow + ongoingTaxBenefit;
@@ -681,9 +693,9 @@ export default function ProformaPage() {
       monthlyMortgage, annualDebtService, monthlyPI, monthlyPMI,
       fixedMonthly, fixedAnnual, blendedFeeRate,
       s1, s2, s3, fiveYear, irr, sellingCostsPct,
-      costSegEnabled, buildingBasis, acceleratedAmt, furnishingDeduction, renovationDeduction,
+      costSegEnabled, buildingBasis, remainingBuildingBasis, acceleratedAmt, furnishingDeduction, bonusEligibleImprovements, renovationDeduction,
       totalFirstYearDeduction, taxSavings, costSegCost, netTaxBenefit,
-      straightLineDepreciation, year1MortgageInterest, ongoingAnnualDeduction, ongoingAnnualTaxBenefit, taxReturns,
+      straightLineDepreciation, year1MortgageInterest, year2MortgageInterest, ongoingAnnualDeduction, ongoingAnnualTaxBenefit, taxReturns,
       isValueAdd, arv, forcedEquity, equityCreatedByReno,
       isCashoutRefi, refi,
     };
@@ -739,7 +751,7 @@ export default function ProformaPage() {
         calc: {
           pp: calc.pp, downPayment: calc.downPayment, closingCosts: calc.closingCosts,
           loanAmount: calc.loanAmount, totalCashNeeded: calc.totalCashNeeded,
-          monthlyMortgage: calc.monthlyMortgage, annualDebtService: calc.annualDebtService,
+          monthlyMortgage: calc.monthlyMortgage, monthlyPI: calc.monthlyPI, monthlyPMI: calc.monthlyPMI, annualDebtService: calc.annualDebtService,
           fixedExpensesAnnual: calc.fixedAnnual, variableExpensesAnnual: (calc.s2?.totalExpensesAnnual ?? 0) - (calc.fixedAnnual ?? 0),
           blendedFeeRate: calc.blendedFeeRate,
           furnishing: calc.furnishing, renovation: calc.renovation,
@@ -749,8 +761,10 @@ export default function ProformaPage() {
           costSegEnabled: calc.costSegEnabled, costSegCost: calc.costSegCost,
           totalFirstYearDeduction: calc.totalFirstYearDeduction,
           taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
-          buildingBasis: calc.buildingBasis, straightLineDepreciation: calc.straightLineDepreciation,
-          year1MortgageInterest: calc.year1MortgageInterest, ongoingAnnualTaxBenefit: calc.ongoingAnnualTaxBenefit,
+          buildingBasis: calc.buildingBasis, remainingBuildingBasis: calc.remainingBuildingBasis,
+          acceleratedAmt: calc.acceleratedAmt, furnishingDeduction: calc.furnishingDeduction, bonusEligibleImprovements: calc.bonusEligibleImprovements,
+          straightLineDepreciation: calc.straightLineDepreciation, year1MortgageInterest: calc.year1MortgageInterest,
+          year2MortgageInterest: calc.year2MortgageInterest, ongoingAnnualDeduction: calc.ongoingAnnualDeduction, ongoingAnnualTaxBenefit: calc.ongoingAnnualTaxBenefit,
           taxReturns: calc.taxReturns,
           isValueAdd: calc.isValueAdd, arv: calc.arv, forcedEquity: calc.forcedEquity,
           equityCreatedByReno: calc.equityCreatedByReno, isCashoutRefi: calc.isCashoutRefi, refi: calc.refi,
@@ -1743,7 +1757,7 @@ export default function ProformaPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-xs text-slate-400 mt-2">Year 1 includes cost seg + bonus depreciation + ongoing benefits. Year 2+ includes straight-line depreciation ({fmtDollar(calc.straightLineDepreciation)}/yr) + mortgage interest ({fmtDollar(calc.year1MortgageInterest)}/yr) deductions.</p>
+                <p className="text-xs text-slate-400 mt-2">Year 1 includes the modeled first-year deductions, residual building depreciation ({fmtDollar(calc.straightLineDepreciation)}/yr), and scheduled Year 1 mortgage interest ({fmtDollar(calc.year1MortgageInterest)}). The Year 2 estimate uses scheduled Year 2 interest ({fmtDollar(calc.year2MortgageInterest)}) and is not stacked into Year 1.</p>
               </CardContent>
             </Card>
           </div>
@@ -1781,6 +1795,11 @@ export default function ProformaPage() {
                       {calc.acceleratedAmt > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.acceleratedAmt)}</p>}
                     </div>
                     <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Bonus-Eligible Improvements Identified by Study</Label>
+                      <CurrencyInput value={form.bonusEligibleImprovements} onChange={v => setField("bonusEligibleImprovements", v)} placeholder="0" />
+                      <p className="text-xs text-slate-500">Enter only the qualifying shorter-life components identified by the cost-seg study. The full renovation budget is not assumed bonus-eligible.</p>
+                    </div>
+                    <div className="space-y-1">
                       <Label className="text-xs font-medium text-slate-600">Cost Seg Study Cost</Label>
                       <CurrencyInput value={form.costSegStudyCost} onChange={v => setField("costSegStudyCost", v)} placeholder="3,500" />
                     </div>
@@ -1793,7 +1812,7 @@ export default function ProformaPage() {
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">100% bonus depreciation is permanent for property acquired after Jan 19, 2025 (One Big Beautiful Bill Act). Furnishings are also 100% bonus-eligible.</p>
+                <p className="text-xs text-slate-500 mt-2">The model assumes qualifying property placed in service after Jan 19, 2025 may receive 100% special depreciation. Actual eligibility, placed-in-service date, passive-loss treatment, and property classification require CPA confirmation.</p>
               </CardContent>
             </Card>
             <Card className="bg-slate-50">
@@ -1801,9 +1820,12 @@ export default function ProformaPage() {
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm"><span>Building Basis (after land)</span><span className="font-medium">{fmtDollar(calc.buildingBasis)}</span></div>
-                  {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Accelerated Depreciation</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
-                  <div className="flex justify-between text-sm"><span>Furnishing Depreciation (100%)</span><span className="font-medium">{fmtDollar(calc.furnishing)}</span></div>
-                  {calc.renovation > 0 && <div className="flex justify-between text-sm"><span>Renovation Depreciation (100%)</span><span className="font-medium">{fmtDollar(calc.renovation)}</span></div>}
+                  {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Cost-Seg Shorter-Life Property</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
+                  <div className="flex justify-between text-sm"><span>Furnishing Deduction (Modeled Eligible)</span><span className="font-medium">{fmtDollar(calc.furnishingDeduction)}</span></div>
+                  {calc.bonusEligibleImprovements > 0 && <div className="flex justify-between text-sm"><span>Bonus-Eligible Improvements</span><span className="font-medium">{fmtDollar(calc.bonusEligibleImprovements)}</span></div>}
+                  <div className="flex justify-between text-sm"><span>Residual Building Depreciation (27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}</span></div>
+                  <div className="flex justify-between text-sm"><span>Scheduled Year 1 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year1MortgageInterest)}</span></div>
+                  {calc.renovation > 0 && <div className="flex justify-between text-xs text-slate-500"><span>Renovation Budget (capitalized unless study identifies qualifying components)</span><span>{fmtDollar(calc.renovation)}</span></div>}
                   <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Total Year 1 Deduction</span><span>{fmtDollar(calc.totalFirstYearDeduction)}</span></div>
                   <div className="flex justify-between text-sm"><span>Tax Savings @ {form.marginalTaxRate}%</span><span className="font-medium text-emerald-700">{fmtDollar(calc.taxSavings)}</span></div>
                   {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Less: Study Cost</span><span className="text-red-500">-{fmtDollar(calc.costSegCost)}</span></div>}
@@ -1817,15 +1839,16 @@ export default function ProformaPage() {
           </div>
           {/* Ongoing Annual Tax Benefits */}
           <Card className="mt-4">
-            <CardHeader className="pb-3"><CardTitle className="text-sm">Ongoing Annual Tax Benefits (Year 2+)</CardTitle></CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-sm">Estimated Year 2 Tax Benefit</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <div className="flex justify-between text-sm"><span>Straight-Line Depreciation (building / 27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
-                {calc.year1MortgageInterest > 0 && <div className="flex justify-between text-sm"><span>Mortgage Interest Deduction (approx Year 1)</span><span className="font-medium">{fmtDollar(calc.year1MortgageInterest)}/yr</span></div>}
-                <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Total Annual Deduction</span><span>{fmtDollar(calc.ongoingAnnualDeduction)}/yr</span></div>
-                <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Annual Tax Savings @ {form.marginalTaxRate}%</span><span>{fmtDollar(calc.ongoingAnnualTaxBenefit)}/yr</span></div>
+                <div className="flex justify-between text-sm"><span>Residual Building Basis</span><span className="font-medium">{fmtDollar(calc.remainingBuildingBasis)}</span></div>
+                <div className="flex justify-between text-sm"><span>Straight-Line Depreciation (residual basis / 27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
+                {calc.year2MortgageInterest > 0 && <div className="flex justify-between text-sm"><span>Scheduled Year 2 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year2MortgageInterest)}/yr</span></div>}
+                <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Estimated Year 2 Deduction</span><span>{fmtDollar(calc.ongoingAnnualDeduction)}/yr</span></div>
+                <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Estimated Year 2 Tax Savings @ {form.marginalTaxRate}%</span><span>{fmtDollar(calc.ongoingAnnualTaxBenefit)}/yr</span></div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">Mortgage interest deduction decreases annually as principal is paid down. This estimate uses Year 1 interest.</p>
+              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. This illustration uses the amortization schedule’s Year 2 interest and should not be treated as a fixed perpetual annual benefit.</p>
             </CardContent>
           </Card>
         </TabsContent>
