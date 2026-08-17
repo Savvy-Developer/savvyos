@@ -3,6 +3,38 @@ import { sdk } from "./_core/sdk";
 
 const BILL_FAETH_LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310519663374872019/IZKTHmlsUJRsTBnC.png";
 
+const IMAGE_HOST_SUFFIXES = [
+  "zillowstatic.com",
+  "muscache.com",
+  "airbnb.com",
+  "vrbo.com",
+  "googleusercontent.com",
+  "cloudinary.com",
+  "imgix.net",
+  "amazonaws.com",
+];
+
+const isAllowedImageUrl = (url: URL): boolean => {
+  const hostname = url.hostname.toLowerCase();
+  return url.protocol === "https:" && IMAGE_HOST_SUFFIXES.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`));
+};
+
+async function fetchAllowedImage(sourceUrl: string): Promise<Response> {
+  let currentUrl = new URL(sourceUrl);
+  for (let redirectCount = 0; redirectCount < 4; redirectCount += 1) {
+    if (!isAllowedImageUrl(currentUrl)) throw new Error("Unsupported image host");
+    const response = await fetch(currentUrl, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Image redirect is missing a destination");
+      currentUrl = new URL(location, currentUrl);
+      continue;
+    }
+    return response;
+  }
+  throw new Error("Too many image redirects");
+}
+
 const fmtD = (val: number): string => {
   if (!isFinite(val) || isNaN(val)) return "$0";
   return `$${Math.round(val).toLocaleString()}`;
@@ -13,6 +45,35 @@ const fmtP = (val: number): string => {
 };
 
 export function registerInvestorReportRoute(app: express.Application) {
+  app.get("/api/proforma/report-image", async (req: any, res: any) => {
+    try {
+      await sdk.authenticateRequest(req);
+    } catch {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const sourceUrl = typeof req.query.url === "string" ? req.query.url : "";
+    if (!sourceUrl) return res.status(400).json({ error: "An image URL is required" });
+
+    try {
+      const imageResponse = await fetchAllowedImage(sourceUrl);
+      if (!imageResponse.ok) throw new Error(`Unable to retrieve image (${imageResponse.status})`);
+      const contentType = imageResponse.headers.get("content-type") || "";
+      if (!contentType.startsWith("image/")) throw new Error("Remote content is not an image");
+      const contentLength = Number(imageResponse.headers.get("content-length") || "0");
+      if (contentLength > 8 * 1024 * 1024) throw new Error("Remote image is too large");
+
+      const image = Buffer.from(await imageResponse.arrayBuffer());
+      if (image.length > 8 * 1024 * 1024) throw new Error("Remote image is too large");
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.send(image);
+    } catch (error: any) {
+      console.warn("[InvestorReport] Report image proxy error:", error?.message || error);
+      res.status(422).json({ error: "Unable to retrieve report image" });
+    }
+  });
+
   app.get("/api/proforma/branding/bill-faeth-logo", async (req: any, res: any) => {
     try {
       await sdk.authenticateRequest(req);
@@ -414,7 +475,7 @@ if (ctx2) {
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--font-render-hinting=none"],
       });
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0", timeout: 15000 });
+      await page.setContent(html, { waitUntil: "load", timeout: 15000 });
       // Wait for charts to render
       await page.waitForFunction(() => (window as any).Chart !== undefined, { timeout: 5000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1000)); // Extra time for chart animations

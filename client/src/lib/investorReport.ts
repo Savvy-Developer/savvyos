@@ -74,15 +74,33 @@ async function toDataUrl(url: string): Promise<string> {
   }
 }
 
+async function toReportImageDataUrl(url: string): Promise<string> {
+  const directImage = await toDataUrl(url);
+  if (directImage) return directImage;
+
+  const sourceUrl = safeUrl(url);
+  if (!sourceUrl) return "";
+  return toDataUrl(`/api/proforma/report-image?url=${encodeURIComponent(sourceUrl)}`);
+}
+
 export async function generateInvestorReport(data: ReportData): Promise<void> {
   const { property, branding } = data;
-  const [headshotB64, photoB64, coBrandLogoB64] = await Promise.all([
+  const reportComps = Array.isArray(data.form?.comps) ? data.form.comps : [];
+  const [headshotB64, photoB64, coBrandLogoB64, ...compPhotoB64] = await Promise.all([
     toDataUrl(branding?.headshot || ""),
-    toDataUrl(data.form?.propertyPhotoUrl || ""),
+    toReportImageDataUrl(data.form?.propertyPhotoUrl || ""),
     toDataUrl(data.coBrand?.logoUrl || ""),
+    ...reportComps.map((comp: any) => toReportImageDataUrl(comp?.photoUrl || "")),
   ]);
+  const reportData: ReportData = {
+    ...data,
+    form: {
+      ...(data.form || {}),
+      comps: reportComps.map((comp: any, index: number) => ({ ...comp, reportPhotoDataUrl: compPhotoB64[index] || "" })),
+    },
+  };
 
-  const htmlContent = buildReportHTML(data, headshotB64, photoB64, coBrandLogoB64);
+  const htmlContent = buildReportHTML(reportData, headshotB64, photoB64, coBrandLogoB64);
   const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#172033;background:#fff;}</style></head><body>${htmlContent}</body></html>`;
   const iframe = document.createElement("iframe");
   iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:816px;height:8000px;border:none;";
@@ -254,7 +272,8 @@ function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string
     const estimatedRevenue = numeric(comp.annualRevenue) || (numeric(comp.adr) * occupancy * 365);
     const compLink = safeUrl(comp.link);
     const guestSignal = comp.rating ? `${escapeHtml(comp.rating)}${comp.reviewCount ? ` (${escapeHtml(comp.reviewCount)})` : ""}` : "—";
-    return `<tr><td><strong>${escapeHtml(comp.name || "Comparable property")}</strong>${comp.notes ? `<small>${escapeHtml(comp.notes)}</small>` : ""}</td><td>${escapeHtml(comp.city || "—")}</td><td>${escapeHtml(comp.beds || "—")}</td><td>${numeric(comp.adr) ? fmt(comp.adr) : "—"}</td><td>${occupancy ? pct(occupancy) : "—"}</td><td><strong>${estimatedRevenue ? fmt(estimatedRevenue) : "—"}</strong></td><td>${guestSignal}</td><td>${compLink ? `<a href="${compLink}" data-pdf-link>View listing</a>` : "—"}</td></tr>`;
+    const compPhoto = String(comp.reportPhotoDataUrl || "");
+    return `<tr><td><div class="comp-identity">${compPhoto ? `<img class="comp-photo" src="${compPhoto}" alt="${escapeHtml(comp.name || "Comparable property")}"/>` : ""}<div><strong>${escapeHtml(comp.name || "Comparable property")}</strong>${comp.notes ? `<small>${escapeHtml(comp.notes)}</small>` : ""}</div></div></td><td>${escapeHtml(comp.city || "—")}</td><td>${escapeHtml(comp.beds || "—")}</td><td>${numeric(comp.adr) ? fmt(comp.adr) : "—"}</td><td>${occupancy ? pct(occupancy) : "—"}</td><td><strong>${estimatedRevenue ? fmt(estimatedRevenue) : "—"}</strong></td><td>${guestSignal}</td><td>${compLink ? `<a href="${compLink}" data-pdf-link>View listing</a>` : "—"}</td></tr>`;
   }).join("")}</tbody></table><div class="note-panel"><h3>How to use comps</h3><p>Compare bed count, amenities, seasonality, ratings, and current pricing strategy alongside the modeled revenue. These estimates are inputs, not guarantees of future performance.</p></div></div>` : "";
 
   const valueAddPage = calc.isValueAdd || calc.isCashoutRefi ? `<div class="pdf-page"><div class="hdr">${brandLockup}<span class="hdr-sub">Value-Add & Refinance Analysis</span></div>${calc.isValueAdd ? `<div class="stitle">Equity Creation Through Value-Add</div><div class="cols"><div class="card"><h4>Investment Basis</h4><div class="row"><span class="lbl">Purchase price</span><span class="val">${fmt(purchasePrice)}</span></div><div class="row"><span class="lbl">Renovation budget</span><span class="val">${fmt(calc.renovation)}</span></div><div class="row brd"><span class="lbl bold">All-in cost</span><span class="val big">${fmt(purchasePrice + numeric(calc.renovation))}</span></div></div><div class="card emphasis-card"><h4>After Repair Value</h4><div class="row"><span class="lbl">ARV</span><span class="val big teal">${fmt(calc.arv)}</span></div><div class="row"><span class="lbl">Forced equity</span><span class="val">${fmt(calc.forcedEquity)}</span></div><div class="row brd"><span class="lbl bold">Net equity created</span><span class="val big green">${fmt(calc.equityCreatedByReno)}</span></div></div></div>` : ""}${calc.isCashoutRefi ? `<div class="stitle">Cash-Out Refinance</div><div class="cols"><div class="card"><h4>Refinance Terms</h4><div class="row"><span class="lbl">Appraised value</span><span class="val">${fmt(refi.refiAppraised)}</span></div><div class="row"><span class="lbl">LTV</span><span class="val">${escapeHtml(form.refiLTV || 75)}%</span></div><div class="row"><span class="lbl">New loan amount</span><span class="val">${fmt(refi.refiNewLoanAmount)}</span></div><div class="row brd"><span class="lbl bold">Cash out</span><span class="val big green">${fmt(refi.refiCashOut)}</span></div></div><div class="card"><h4>Post-Refi Returns</h4><div class="row"><span class="lbl">New monthly payment</span><span class="val">${fmt(refi.refiMonthlyMortgage)}</span></div><div class="row"><span class="lbl">Cash left in deal</span><span class="val">${fmt(refi.cashInDeal)}</span></div><div class="row"><span class="lbl">Annual cash flow</span><span class="val">${fmt(refi.s2?.cashFlow)}</span></div><div class="row brd"><span class="lbl bold">Cash-on-cash return</span><span class="val big teal">${numeric(refi.cashInDeal) > 0 ? pct(refi.s2?.cashOnCash) : "Infinite"}</span></div></div></div>` : ""}</div>` : "";
@@ -273,7 +292,7 @@ function buildReportHTML(data: ReportData, headshotB64: string, photoB64: string
     .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px;}.card{border:1px solid #dbe4ec;border-radius:9px;padding:13px;background:#fff;}.emphasis-card{background:#f0fdfa;}.card h4{text-align:center;font-size:14px;font-weight:850;color:#0e7490;margin:0 0 8px;}.row{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;line-height:1.3;padding:4px 0;border-bottom:1px solid #eef2f6;}.row:last-child{border-bottom:none;}.lbl{color:#526174;}.val{font-weight:750;color:#172033;text-align:right;}.brd{border-top:2px solid #0891b2;margin-top:4px;padding-top:7px;}.bold{font-weight:850;}.big{font-size:14px;}.teal{color:#087d99;}.green{color:#047857;}
     .year-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:4px 0 16px;}.year-card{border:1px solid #dbe4ec;border-radius:8px;padding:9px;background:#fff;}.year-label{text-align:center;color:#0e7490;font-size:12px;font-weight:850;margin-bottom:6px;}.year-card>div:not(.year-label){display:flex;flex-direction:column;margin:4px 0;}.year-card span{font-size:9.5px;color:#64748b;}.year-card strong{font-size:11px;color:#172033;}
     .expense-layout{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:13px;}.expense-card{border:1px solid #dbe4ec;border-radius:9px;padding:12px;background:#fff;}.expense-card h3{text-align:center;color:#0e7490;font-size:14px;margin:0 0 8px;}.expense-row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #eef2f6;padding:4px 0;font-size:11px;line-height:1.25;}.expense-row span{color:#526174;}.expense-row strong{font-size:11px;color:#172033;text-align:right;}.expense-total{display:flex;justify-content:space-between;margin-top:7px;padding-top:7px;border-top:2px solid #0891b2;font-size:12px;font-weight:850;color:#0e7490;}.assumption-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:10px;}.assumption{border:1px solid #dbe4ec;border-radius:8px;padding:9px;text-align:center;background:#f8fafc;}.assumption span{display:block;color:#64748b;font-size:10px;margin-bottom:3px;}.assumption strong{color:#172033;font-size:13px;}.note-panel{margin-top:12px;border:1px solid #bcecf0;border-radius:9px;padding:12px;background:#f0fdfa;}.note-panel h3{font-size:13px;color:#0e7490;margin:0 0 4px;}.note-panel p{font-size:11px;line-height:1.45;color:#334155;}.empty-state{font-size:12px;color:#64748b;padding:14px;text-align:center;}
-    .comp-table{font-size:11px;}.comp-table th{font-size:10.5px;padding:8px 6px;}.comp-table td{padding:9px 6px;vertical-align:top;}.comp-table td:first-child{width:25%;}.comp-table small{display:block;color:#64748b;font-size:9.5px;line-height:1.3;margin-top:3px;}.comp-table a{color:#087d99;font-weight:800;text-decoration:underline;text-underline-offset:2px;}.disc{font-size:8.5px;color:#64748b;line-height:1.45;margin-top:14px;padding-top:8px;border-top:1px solid #dbe4ec;}
+    .comp-table{font-size:11px;}.comp-table th{font-size:10.5px;padding:8px 6px;}.comp-table td{padding:9px 6px;vertical-align:top;}.comp-table td:first-child{width:30%;}.comp-table small{display:block;color:#64748b;font-size:9.5px;line-height:1.3;margin-top:3px;}.comp-table a{color:#087d99;font-weight:800;text-decoration:underline;text-underline-offset:2px;}.comp-identity{display:flex;align-items:flex-start;gap:8px;text-align:left;}.comp-photo{display:block;flex:0 0 64px;width:64px;height:48px;border-radius:5px;object-fit:cover;object-position:center;background:#e2e8f0;}.disc{font-size:8.5px;color:#64748b;line-height:1.45;margin-top:14px;padding-top:8px;border-top:1px solid #dbe4ec;}
   </style>
 
   <div class="pdf-page">
