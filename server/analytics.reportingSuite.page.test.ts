@@ -18,8 +18,10 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Past expected close");
     expect(content).toContain("No expected close");
     expect(content).toContain("Overdue task queue");
-    expect(content).toContain("Each percentage is the agent’s share of the metric column total.");
     expect(content).toContain("function ColumnShare");
+    expect(content).toContain('({share === null ? "—" : percentage(share)})');
+    expect(content).toContain("function SortableMetricHeader");
+    expect(content).toContain("Show agents with all 0's");
     expect(content).toContain("<AgentMetric value={agent.grossCommission} total={totals.grossCommission}>");
   });
 
@@ -41,6 +43,10 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Transaction evidence");
     expect(content).toContain("summary.closedUnits");
     expect(content).toContain("summary.change?.grossCommission");
+    expect(content).toContain("visibleOutcomeAgents");
+    expect(content).toContain('<SortableMetricHeader label="GCI" column="grossCommission"');
+    expect(content).toContain("Show agents with all 0's");
+    expect(content.indexOf('title="Focused transaction views"')).toBeLessThan(content.indexOf('title={isTerminationView ? "Terminations by agent" : "Outcomes by agent"}'));
     expect(content).toContain("const [search, setSearch] = useState(() => window.location.search)");
     expect(content).toContain("setSearch(serialized ? `?${serialized}` : \"\")");
     expect(service).toContain("terminationRate");
