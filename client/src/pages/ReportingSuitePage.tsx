@@ -545,8 +545,8 @@ function AgentReport({ data }: { data: any }) {
                 <td className="px-3 py-3 text-right font-medium tabular-nums"><AgentMetric value={agent.grossCommission} total={totals.grossCommission}>{money(agent.grossCommission, true)}</AgentMetric></td>
                 <td className="px-3 py-3 text-right tabular-nums"><AgentMetric value={agent.savvyNet} total={totals.savvyNet}>{money(agent.savvyNet, true)}</AgentMetric></td>
                 <td className="px-3 py-3 text-right tabular-nums"><AgentMetric value={agent.underContract} total={totals.underContract}>{number(agent.underContract)}</AgentMetric></td>
-                <td className="px-3 py-3 text-right tabular-nums"><AgentMetric value={agent.overdueTasks} total={totals.overdueTasks}>{agent.overdueTasks ? <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">{number(agent.overdueTasks)}</Badge> : number(0)}</AgentMetric></td>
-                <td className="px-3 py-3 text-right tabular-nums"><AgentMetric value={flagCount} total={totals.flags}>{flagCount ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">{number(flagCount)}</Badge> : <span className="text-muted-foreground">0</span>}</AgentMetric></td>
+                <td className="px-3 py-3 text-right tabular-nums">{agent.overdueTasks ? <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">{number(agent.overdueTasks)}</Badge> : number(0)}</td>
+                <td className="px-3 py-3 text-right tabular-nums">{flagCount ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">{number(flagCount)}</Badge> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="px-4 py-3 text-right"><a href={buildTransactionUrl(filters, { agentId: String(agent.agentId), status: "closed" })} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Records <ExternalLink className="h-3.5 w-3.5" /></a></td>
               </tr>)}</tbody>
             </table>

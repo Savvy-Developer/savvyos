@@ -23,6 +23,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("function SortableMetricHeader");
     expect(content).toContain("Show agents with all 0's");
     expect(content).toContain("<AgentMetric value={agent.grossCommission} total={totals.grossCommission}>");
+    expect(content).not.toContain("<AgentMetric value={agent.overdueTasks} total={totals.overdueTasks}>");
+    expect(content).not.toContain("<AgentMetric value={flagCount} total={totals.flags}>");
   });
 
   it("keeps Group Leader Review in a selectable, coaching-ready team context", () => {
