@@ -529,7 +529,7 @@ export default function ProformaPage() {
 
     const costSegEnabled = form.costSegEnabled === "yes";
     const buildingBasis = pp * (1 - parsePct(form.landAllocationPct));
-    // The accelerated amount is only the user-modeled shorter-life property identified by a cost-segregation study.
+    // The identified shorter-life property is assumed 100% bonus-depreciable in Year 1 and is excluded from the residual 27.5-year basis.
     const acceleratedAmt = costSegEnabled ? buildingBasis * parsePct(form.acceleratedDepreciationPct) : 0;
     const furnishingDeduction = furnishing;
     // A renovation budget is not automatically bonus-depreciable. Only the separately identified qualifying component is modeled here.
@@ -540,7 +540,7 @@ export default function ProformaPage() {
     const straightLineDepreciation = remainingBuildingBasis / 27.5;
     const year1MortgageInterest = loanYearSchedule(1).interest;
     const year2MortgageInterest = loanYearSchedule(2).interest;
-    // This annualized model includes the modeled first-year accelerated deductions plus regular residual depreciation and scheduled Year 1 interest.
+    // Year 1 includes the 100% bonus deduction for modeled qualifying shorter-life property, plus residual depreciation and scheduled Year 1 interest.
     const totalFirstYearDeduction = acceleratedAmt + furnishingDeduction + bonusEligibleImprovements + straightLineDepreciation + year1MortgageInterest;
     const taxSavings = totalFirstYearDeduction * parsePct(form.marginalTaxRate);
     const costSegCost = costSegEnabled ? parseNum(form.costSegStudyCost) : 0;
@@ -589,7 +589,7 @@ export default function ProformaPage() {
         const yearNoi = yearNetRev - yearExp;
         let yearCF = yearNoi - annualDebtService;
 
-        // Year 1 includes the modeled accelerated deductions plus regular residual depreciation and scheduled Year 1 interest. Years 2+ use annual straight-line depreciation plus actual scheduled interest for that year.
+        // Year 1 includes 100% bonus depreciation for modeled qualifying shorter-life property. Years 2+ use only residual 27.5-year depreciation plus scheduled interest; the bonus-depreciated basis is not deducted again.
         if (includeTax && y === 1) {
           yearCF += netTaxBenefit;
         }
@@ -1788,7 +1788,7 @@ export default function ProformaPage() {
                 {form.costSegEnabled === "yes" && (
                   <>
                     <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Accelerated Depreciation % (5/7/15-yr property)</Label>
+                      <Label className="text-xs font-medium text-slate-600">Shorter-Life Property Allocation (100% Bonus in Year 1)</Label>
                       <div className="relative">
                         <Input className="pr-6 h-8 text-sm" value={form.acceleratedDepreciationPct} onChange={e => setField("acceleratedDepreciationPct", e.target.value)} placeholder="25" />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
@@ -1796,9 +1796,9 @@ export default function ProformaPage() {
                       {calc.acceleratedAmt > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.acceleratedAmt)}</p>}
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Bonus-Eligible Improvements Identified by Study</Label>
+                      <Label className="text-xs font-medium text-slate-600">Bonus-Eligible Improvements Identified by Study (100% Bonus)</Label>
                       <CurrencyInput value={form.bonusEligibleImprovements} onChange={v => setField("bonusEligibleImprovements", v)} placeholder="0" />
-                      <p className="text-xs text-slate-500">Enter only the qualifying shorter-life components identified by the cost-seg study. The full renovation budget is not assumed bonus-eligible.</p>
+                      <p className="text-xs text-slate-500">Enter only the qualifying shorter-life components identified by the cost-seg study. This amount is modeled as a 100% Year 1 bonus deduction; the full renovation budget is not assumed bonus-eligible.</p>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs font-medium text-slate-600">Cost Seg Study Cost</Label>
@@ -1821,9 +1821,9 @@ export default function ProformaPage() {
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm"><span>Building Basis (after land)</span><span className="font-medium">{fmtDollar(calc.buildingBasis)}</span></div>
-                  {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Cost-Seg Shorter-Life Property</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
+                  {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Cost-Seg Shorter-Life Property (100% Bonus, Year 1)</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
                   <div className="flex justify-between text-sm"><span>Furnishing Deduction (Modeled Eligible)</span><span className="font-medium">{fmtDollar(calc.furnishingDeduction)}</span></div>
-                  {calc.bonusEligibleImprovements > 0 && <div className="flex justify-between text-sm"><span>Bonus-Eligible Improvements</span><span className="font-medium">{fmtDollar(calc.bonusEligibleImprovements)}</span></div>}
+                  {calc.bonusEligibleImprovements > 0 && <div className="flex justify-between text-sm"><span>Bonus-Eligible Improvements (100% Bonus, Year 1)</span><span className="font-medium">{fmtDollar(calc.bonusEligibleImprovements)}</span></div>}
                   <div className="flex justify-between text-sm"><span>Full-Year Residual Building Depreciation (27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}</span></div>
                   <div className="flex justify-between text-sm"><span>Scheduled Year 1 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year1MortgageInterest)}</span></div>
                   {calc.renovation > 0 && <div className="flex justify-between text-xs text-slate-500"><span>Renovation Budget (capitalized unless study identifies qualifying components)</span><span>{fmtDollar(calc.renovation)}</span></div>}
@@ -1849,7 +1849,7 @@ export default function ProformaPage() {
                 <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Estimated Year 2 Deduction</span><span>{fmtDollar(calc.ongoingAnnualDeduction)}/yr</span></div>
                 <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Estimated Year 2 Tax Savings @ {form.marginalTaxRate}%</span><span>{fmtDollar(calc.ongoingAnnualTaxBenefit)}/yr</span></div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. The residual-depreciation figure is a full-year 27.5-year planning estimate after cost-segregated basis is removed; exact first and final years use the IRS mid-month convention.</p>
+              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. The residual-depreciation figure is a full-year 27.5-year planning estimate after 100% bonus-depreciated shorter-life basis is removed; that bonus basis is not deducted again in Year 2+; exact first and final years use the IRS mid-month convention.</p>
             </CardContent>
           </Card>
         </TabsContent>
