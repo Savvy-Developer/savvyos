@@ -1,4 +1,5 @@
 import { useMemo, useState, type ElementType } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,6 +24,7 @@ import {
   Gem,
   Mail,
   Medal,
+  MonitorUp,
   Phone,
   Target,
   TrendingUp,
@@ -199,6 +201,7 @@ function LeaderboardLoading() {
 
 export default function AgentLeaderboardPage() {
   const { user } = useAuth() as any;
+  const [, navigate] = useLocation();
   const [period, setPeriod] = useState<LeaderboardPeriod>("this_month");
   const [dealType, setDealType] = useState<DealType>("closed");
   const queryInput = useMemo(() => ({ period, dealType }), [period, dealType]);
@@ -252,28 +255,37 @@ export default function AgentLeaderboardPage() {
               Benchmark your momentum against <span className="font-semibold text-foreground">{activeAgentCount} active Savvy agents</span>. Rankings prioritize total production volume, with units as the tie-breaker.
             </p>
           </div>
-          {hasDateFilters ? (
-            <div className="flex flex-wrap gap-1.5 rounded-xl border bg-background/75 p-1.5 shadow-sm">
-              {PERIOD_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setPeriod(option.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.97] ${
-                    period === option.value
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Badge variant="outline" className="w-fit border-primary/25 bg-background/75 px-3 py-2 text-primary">
-              <Target className="mr-1.5 h-3.5 w-3.5" /> Live pipeline · all active contracts
-            </Badge>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {hasDateFilters ? (
+              <div className="flex flex-wrap gap-1.5 rounded-xl border bg-background/75 p-1.5 shadow-sm">
+                {PERIOD_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setPeriod(option.value)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.97] ${
+                      period === option.value
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Badge variant="outline" className="w-fit border-primary/25 bg-background/75 px-3 py-2 text-primary">
+                <Target className="mr-1.5 h-3.5 w-3.5" /> Live pipeline · all active contracts
+              </Badge>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate("/leaderboard/present")}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-primary/25 bg-background/80 px-3 py-2 text-xs font-bold text-primary shadow-sm transition-all duration-150 hover:bg-primary hover:text-primary-foreground active:scale-[0.97]"
+            >
+              <MonitorUp className="h-3.5 w-3.5" /> Presentation mode
+            </button>
+          </div>
         </div>
       </section>
 

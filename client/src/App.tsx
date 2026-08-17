@@ -79,6 +79,7 @@ import PartnerLinksPage from "./pages/PartnerLinksPage";
 import GoalsPage from "./pages/GoalsPage";
 import StatsPage from "./pages/StatsPage";
 import AgentLeaderboardPage from "./pages/AgentLeaderboardPage";
+import AgentLeaderboardPresentationPage from "./pages/AgentLeaderboardPresentationPage";
 import ActivityTimelinePage from "./pages/admin/ActivityTimelinePage";
 import OnboardingPage from "./pages/OnboardingPage";
 import SuperPermissionsPage from "./pages/SuperPermissionsPage";
@@ -212,8 +213,12 @@ function WorkRedirect() {
 function Router() {
   return (
     <AuthGuard>
-      <AppLayout>
-        <Switch>
+      <Switch>
+        <Route path="/leaderboard/present" component={AgentLeaderboardPresentationPage} />
+        <Route>
+          {() => (
+            <AppLayout>
+              <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/ism-dashboard">{() => <IsmDashboardRoute><IsmDashboardPage /></IsmDashboardRoute>}</Route>
           <Route path="/isa-stats">{() => <AdminOrIsaRoute><IsaStatsPage /></AdminOrIsaRoute>}</Route>
@@ -313,10 +318,13 @@ function Router() {
           <Route path="/coaching/session/:id">{() => <AdminRoute><CoachingSessionPage /></AdminRoute>}</Route>
           <Route path="/hot-leads" component={HotLeadsPage} />
           <Route path="/passwords">{() => <AdminRoute><PasswordsPage /></AdminRoute>}</Route>
-          <Route path="/404" component={NotFound} />
-          <Route component={NotFound} />
-        </Switch>
-      </AppLayout>
+                <Route path="/404" component={NotFound} />
+                <Route component={NotFound} />
+              </Switch>
+            </AppLayout>
+          )}
+        </Route>
+      </Switch>
     </AuthGuard>
   );
 }
