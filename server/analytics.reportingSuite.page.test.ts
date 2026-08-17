@@ -18,6 +18,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Past expected close");
     expect(content).toContain("No expected close");
     expect(content).toContain("Overdue task queue");
+    expect(content).toContain("Each percentage is the agent’s share of the metric column total.");
+    expect(content).toContain("function ColumnShare");
+    expect(content).toContain("<AgentMetric value={agent.grossCommission} total={totals.grossCommission}>");
   });
 
   it("keeps Group Leader Review in a selectable, coaching-ready team context", () => {
