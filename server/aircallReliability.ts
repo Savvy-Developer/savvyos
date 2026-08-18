@@ -235,7 +235,11 @@ async function processWebhookEvent(eventId: number): Promise<void> {
 
   const communicationId = await obtainCommunicationId(envelope.data);
   if (!communicationId) {
-    throw new Error(`Call ${envelope.data.id} remains unmatched and is queued for automatic re-match`);
+    // This is a valid business state, not a delivery failure. The independent
+    // cursor-based rematch loop keeps trying it against newly created or fixed
+    // contact phone numbers without clogging the media-recovery queue.
+    console.log(`[AircallReliability] Call ${envelope.data.id} is currently unmatched; rematch loop retained ownership.`);
+    return;
   }
   await persistCallMedia(communicationId, envelope.data);
 }
