@@ -90,6 +90,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(views).toContain("export function LeadSourcesReport");
     expect(views).toContain("Overdue");
     expect(views).toContain("Follow-up");
+    expect(views).toContain("Appointments set by agent");
+    expect(views).toContain("agentAppointments");
+    expect(views).toContain("appointment-set date");
     expect(views).toContain("Under Contract volume");
     expect(views).toContain("marketTrendTooltip");
     expect(views).toContain("filterNull");
@@ -99,6 +102,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("getTasksReportingData");
     expect(service).toContain("getIsaActivitiesReportingData");
     expect(service).toContain("getLeadSourcesReportingData");
+    expect(service).toContain("appointmentScope");
+    expect(service).toContain("agentAppointments");
+    expect(service).toContain("COALESCE(ac.\\`appointmentSetAt\\`, ac.\\`createdAt\\`)");
     expect(service).toContain("isa_status");
     expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
 

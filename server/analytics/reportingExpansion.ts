@@ -185,6 +185,28 @@ function sessionScope(filters: ExpansionFilters): SQL {
   ]);
 }
 
+function appointmentScope(filters: ExpansionFilters): SQL {
+  return where([
+    sql`ac.\`appointmentSet\` = 1`,
+    sql`c.\`archived_at\` IS NULL`,
+    (filters.isaIds?.length ? sql`c.\`assignedIsaId\` IN (${sql.join(filters.isaIds.map((id) => sql`${id}`), sql`, `)})` : filters.isaId ? sql`c.\`assignedIsaId\` = ${filters.isaId}` : undefined),
+    (filters.leadSourceIds?.length ? sql`c.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined),
+    (filters.agentIds?.length ? sql`ac.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`ac.\`agentId\` = ${filters.agentId}` : undefined),
+    filters.groupLeaderId ? sql`EXISTS (
+      SELECT 1
+      FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = ac.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )` : undefined,
+    filters.marketProfileId ? sql`EXISTS (
+      SELECT 1 FROM \`users\` market_agent
+      WHERE market_agent.id = ac.\`agentId\` AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
+    )` : undefined,
+    filters.dateFrom ? sql`DATE(COALESCE(ac.\`appointmentSetAt\`, ac.\`createdAt\`)) >= ${filters.dateFrom}` : undefined,
+    filters.dateTo ? sql`DATE(COALESCE(ac.\`appointmentSetAt\`, ac.\`createdAt\`)) <= ${filters.dateTo}` : undefined,
+  ]);
+}
+
 function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean; applyDate?: boolean } = {}): SQL {
   const status = opts.closedOnly ? "closed" : filters.status;
   return where([
@@ -621,9 +643,10 @@ export async function getTasksReportingData(filters: ExpansionFilters = {}) {
 export async function getIsaActivitiesReportingData(filters: ExpansionFilters = {}) {
   const contactsWhere = contactScope(filters);
   const sessionsWhere = sessionScope(filters);
+  const appointmentWhere = appointmentScope(filters);
   const followUpSessionsWhere = withCondition(sessionsWhere, sql`ms.\`status\` IN ('active', 'abandoned')`);
   const { page, limit, offset } = pagination(filters);
-  const [summaryRows, funnelRows, isaRows, sessionRows, queueRows, monthlyRows, queueCountRows] = await Promise.all([
+  const [summaryRows, funnelRows, isaRows, agentAppointmentRows, sessionRows, queueRows, monthlyRows, queueCountRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT
         COUNT(*) AS contacts,
@@ -659,6 +682,19 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
       GROUP BY c.\`assignedIsaId\`, u.\`name\`
       ORDER BY closed DESC, activeClients DESC, contacts DESC
       LIMIT 25
+    `),
+    runRows<Row>(sql`
+      SELECT
+        ac.\`agentId\` AS agentId,
+        COALESCE(u.\`name\`, CONCAT('Agent ID ', ac.\`agentId\`)) AS agentName,
+        COUNT(*) AS appointmentsSet
+      FROM \`agent_connections\` ac
+      INNER JOIN \`contacts\` c ON c.id = ac.\`contactId\`
+      LEFT JOIN \`users\` u ON u.id = ac.\`agentId\`
+      ${appointmentWhere}
+      GROUP BY ac.\`agentId\`, u.\`name\`
+      ORDER BY appointmentsSet DESC, agentName ASC
+      LIMIT 100
     `),
     runRows<Row>(sql`
       SELECT
@@ -734,6 +770,11 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
       const isaClosed = asNumber(row.closed);
       return { isaId: asNullableNumber(row.isaId), isaName: String(row.isaName ?? "Unassigned"), contacts: total, activeClients: asNumber(row.activeClients), underContract: asNumber(row.underContract), closed: isaClosed, dead: asNumber(row.dead), closeRate: total ? (isaClosed / total) * 100 : null };
     }),
+    agentAppointments: agentAppointmentRows.map((row) => ({
+      agentId: asNumber(row.agentId),
+      agentName: String(row.agentName ?? "Unknown agent"),
+      appointmentsSet: asNumber(row.appointmentsSet),
+    })),
     sessions: {
       total: asNumber(session.total), completed: asNumber(session.completed), active: asNumber(session.active), abandoned: asNumber(session.abandoned), averageDurationMinutes: asNullableNumber(session.averageDurationSeconds) === null ? null : asNumber(session.averageDurationSeconds) / 60,
     },
