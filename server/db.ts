@@ -1448,7 +1448,15 @@ export async function getActivityLog(entityType?: string, entityId?: number, lim
     ];
 
     return db
-      .select({ log: activityLog, user: users })
+      .select({
+        log: activityLog,
+        user: {
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+        },
+      })
       .from(activityLog)
       .leftJoin(users, eq(activityLog.userId, users.id))
       .where(or(...orConditions))
@@ -1461,7 +1469,15 @@ export async function getActivityLog(entityType?: string, entityId?: number, lim
   if (entityId) conditions.push(eq(activityLog.entityId, entityId));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   return db
-    .select({ log: activityLog, user: users })
+    .select({
+      log: activityLog,
+      user: {
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+      },
+    })
     .from(activityLog)
     .leftJoin(users, eq(activityLog.userId, users.id))
     .where(where)
@@ -3044,7 +3060,15 @@ export async function getGlobalActivityLog(opts: {
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [rows, countResult] = await Promise.all([
     db
-      .select({ log: activityLog, user: users })
+      .select({
+        log: activityLog,
+        user: {
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+        },
+      })
       .from(activityLog)
       .leftJoin(users, eq(activityLog.userId, users.id))
       .where(where)
