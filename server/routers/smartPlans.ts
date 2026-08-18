@@ -52,11 +52,28 @@ const oneTimeSendInput = z.object({
 const CONTACT_QUERY_BATCH_SIZE = 1_000;
 
 type OneTimeRecipientTarget = { contactId: number; recipientAddress: string };
+type OneTimeExclusionReasons = {
+  doNotContact: number;
+  bounced: number;
+  unsubscribed: number;
+  emailNotVerified: number;
+  noEmailAddress: number;
+  noPhoneAddress: number;
+};
+
+function oneTimeExclusionReason(contact: typeof contacts.$inferSelect, channel: "email" | "sms"): keyof OneTimeExclusionReasons | null {
+  if (contact.doNotContact || contact.isaStatus === "do_not_contact") return "doNotContact";
+  if (channel === "email") {
+    if (contact.emailStatus === "bounced") return "bounced";
+    if (contact.emailStatus === "unsubscribed") return "unsubscribed";
+    if (contact.emailStatus !== "valid") return "emailNotVerified";
+    return contactChannelAddresses(contact, channel).length ? null : "noEmailAddress";
+  }
+  return contactChannelAddresses(contact, channel).length ? null : "noPhoneAddress";
+}
 
 function recipientTargetsForContact(contact: typeof contacts.$inferSelect, channel: "email" | "sms"): string[] {
-  if (contact.doNotContact || contact.isaStatus === "do_not_contact") return [];
-  if (channel === "email" && contact.emailStatus !== "valid") return [];
-  return contactChannelAddresses(contact, channel);
+  return oneTimeExclusionReason(contact, channel) ? [] : contactChannelAddresses(contact, channel);
 }
 
 async function contactsForIds(db: any, contactIds: number[]): Promise<Array<typeof contacts.$inferSelect>> {
@@ -71,13 +88,26 @@ async function contactsForIds(db: any, contactIds: number[]): Promise<Array<type
 async function oneTimeAudience(db: any, contactIds: number[], channel: "email" | "sms") {
   const matchingContacts = await contactsForIds(db, contactIds);
   const recipientTargets: OneTimeRecipientTarget[] = [];
+  const exclusionReasons: OneTimeExclusionReasons = {
+    doNotContact: 0,
+    bounced: 0,
+    unsubscribed: 0,
+    emailNotVerified: 0,
+    noEmailAddress: 0,
+    noPhoneAddress: 0,
+  };
   let eligibleContactCount = 0;
   for (const contact of matchingContacts) {
+    const exclusionReason = oneTimeExclusionReason(contact, channel);
+    if (exclusionReason) {
+      exclusionReasons[exclusionReason]++;
+      continue;
+    }
     const addresses = recipientTargetsForContact(contact, channel);
-    if (addresses.length) eligibleContactCount++;
+    eligibleContactCount++;
     recipientTargets.push(...addresses.map((recipientAddress) => ({ contactId: contact.id, recipientAddress })));
   }
-  return { recipientTargets, eligibleContactCount };
+  return { recipientTargets, eligibleContactCount, exclusionReasons };
 }
 
 const testSendInput = z.object({
@@ -297,13 +327,20 @@ export const smartPlansRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one lead source." });
         }
         const contactIds = await getCurrentContactIdsMatchingTrigger(input);
-        if (!contactIds.length) return { matchingCount: 0, eligibleContactCount: 0, recipientCount: 0, excludedCount: 0 };
+        if (!contactIds.length) return {
+          matchingCount: 0,
+          eligibleContactCount: 0,
+          recipientCount: 0,
+          excludedCount: 0,
+          exclusionReasons: { doNotContact: 0, bounced: 0, unsubscribed: 0, emailNotVerified: 0, noEmailAddress: 0, noPhoneAddress: 0 },
+        };
         const audience = await oneTimeAudience(db, contactIds, input.channel);
         return {
           matchingCount: contactIds.length,
           eligibleContactCount: audience.eligibleContactCount,
           recipientCount: audience.recipientTargets.length,
           excludedCount: contactIds.length - audience.eligibleContactCount,
+          exclusionReasons: audience.exclusionReasons,
         };
       }),
 
