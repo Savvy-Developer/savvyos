@@ -2754,6 +2754,12 @@ export const aircallCalls = mysqlTable(
     recordingRecoveryAttempts: int("recordingRecoveryAttempts").notNull().default(0),
     recordingRecoveryLastAttemptAt: timestamp("recordingRecoveryLastAttemptAt"),
     recordingRecoveryLastError: varchar("recordingRecoveryLastError", { length: 512 }),
+    // Durable transcription and summary recovery state. This keeps AI work out
+    // of ephemeral webhook handlers and permits rate-governed retry after 429s.
+    transcriptionRecoveryAttempts: int("transcriptionRecoveryAttempts").notNull().default(0),
+    transcriptionRecoveryLastAttemptAt: timestamp("transcriptionRecoveryLastAttemptAt"),
+    transcriptionRecoveryNextAttemptAt: timestamp("transcriptionRecoveryNextAttemptAt"),
+    transcriptionRecoveryLastError: varchar("transcriptionRecoveryLastError", { length: 512 }),
     // Timestamps
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2763,6 +2769,7 @@ export const aircallCalls = mysqlTable(
     index("aircall_calls_contact_idx").on(table.contactId, table.startedAt),
     index("aircall_calls_started_at_idx").on(table.startedAt),
     index("aircall_calls_recording_recovery_idx").on(table.recordingRecoveryAttempts, table.recordingRecoveryLastAttemptAt),
+    index("aircall_calls_transcription_recovery_idx").on(table.transcriptionRecoveryNextAttemptAt, table.startedAt),
   ],
 );
 export type AircallCall = typeof aircallCalls.$inferSelect;

@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import { and, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { getDb } from "./db";
 import {
@@ -13,9 +13,9 @@ import {
   downloadAndStoreRecording,
   processAircallCall,
   reconcileUnmatchedAircallCalls,
-  scheduleAircallTranscription,
   type AircallCallData,
 } from "./aircall";
+import { transcribeAndSummarize } from "./aircallTranscribe";
 
 const AIRCALL_WEBHOOK_URL = `${(process.env.APP_URL || "https://os.savvy-agents.com").replace(/\/$/, "")}/api/webhooks/aircall`;
 const REQUIRED_EVENTS = ["call.ended", "call.comm_assets_generated"];
@@ -35,12 +35,15 @@ const HISTORICAL_INTERVAL_MS = 60_000;
 const UNMATCHED_REMATCH_INTERVAL_MS = 15_000;
 const UNMATCHED_REMATCH_BATCH_SIZE = 25;
 const API_MIN_SPACING_MS = 1_000;
+const TRANSCRIPTION_WORKER_INTERVAL_MS = 15_000;
+const TRANSCRIPTION_RETRY_MIN_MS = 2 * 60_000;
 
 let workerRunning = false;
 let inventoryRunning = false;
 let historicalRunning = false;
 let unmatchedRematchRunning = false;
 let configurationRunning = false;
+let transcriptionRecoveryRunning = false;
 let lastApiRequestAt = 0;
 
 interface AircallWebhookEnvelope {
@@ -66,6 +69,13 @@ function wait(ms: number): Promise<void> {
 
 function retryDelayMs(attempts: number): number {
   return Math.min(6 * 60 * 60_000, Math.max(30_000, 30_000 * 2 ** Math.min(attempts - 1, 8)));
+}
+
+function transcriptionRetryDelayMs(attempts: number): number {
+  return Math.min(6 * 60 * 60_000, Math.max(
+    TRANSCRIPTION_RETRY_MIN_MS,
+    TRANSCRIPTION_RETRY_MIN_MS * 2 ** Math.min(attempts - 1, 5),
+  ));
 }
 
 function basicAuth(): string | null {
@@ -221,7 +231,8 @@ async function persistCallMedia(communicationId: number, call: AircallCallData):
       ? { recordingUrl: recording.url, recordingKey: recording.key }
       : { voicemailUrl: voicemail!.url, voicemailKey: voicemail!.key },
   ).where(eq(aircallCalls.communicationId, communicationId));
-  scheduleAircallTranscription(communicationId, call);
+  // Durable transcription recovery owns the AI step. It picks this stored audio
+  // up from the database and persists retry state instead of using a process-local task.
 }
 
 async function processWebhookEvent(eventId: number): Promise<void> {
@@ -303,6 +314,92 @@ export async function processDueAircallWebhookEvents(): Promise<void> {
     }
   } finally {
     workerRunning = false;
+  }
+}
+
+export async function processDueAircallTranscriptions(): Promise<void> {
+  if (transcriptionRecoveryRunning) return;
+  transcriptionRecoveryRunning = true;
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const now = new Date();
+    const [candidate] = await db.select({
+      callId: aircallCalls.id,
+      aircallCallId: aircallCalls.aircallCallId,
+      communicationId: aircallCalls.communicationId,
+      direction: aircallCalls.direction,
+      duration: aircallCalls.duration,
+      audioFileUrl: communications.audioFileUrl,
+      transcription: communications.transcription,
+      body: communications.body,
+      attempts: aircallCalls.transcriptionRecoveryAttempts,
+    }).from(aircallCalls)
+      .innerJoin(communications, eq(communications.id, aircallCalls.communicationId))
+      .where(and(
+        isNotNull(communications.audioFileUrl),
+        sql`COALESCE(${aircallCalls.duration}, 0) >= 10`,
+        or(
+          isNull(communications.transcription),
+          sql`COALESCE(${communications.body}, '') NOT LIKE '%AI Summary:%'`,
+        ),
+        or(
+          isNull(aircallCalls.transcriptionRecoveryNextAttemptAt),
+          lte(aircallCalls.transcriptionRecoveryNextAttemptAt, now),
+        ),
+      ))
+      .orderBy(desc(aircallCalls.startedAt))
+      .limit(1);
+    if (!candidate?.communicationId || !candidate.audioFileUrl) return;
+
+    const attempts = candidate.attempts + 1;
+    const nextAttemptAt = new Date(Date.now() + transcriptionRetryDelayMs(attempts));
+    await db.update(aircallCalls).set({
+      transcriptionRecoveryAttempts: attempts,
+      transcriptionRecoveryLastAttemptAt: now,
+      transcriptionRecoveryNextAttemptAt: nextAttemptAt,
+      transcriptionRecoveryLastError: null,
+    }).where(eq(aircallCalls.id, candidate.callId));
+
+    try {
+      await transcribeAndSummarize({
+        communicationId: candidate.communicationId,
+        aircallCallId: candidate.aircallCallId,
+        audioUrl: candidate.audioFileUrl,
+        direction: candidate.direction,
+        duration: candidate.duration,
+      });
+      const [updated] = await db.select({
+        transcription: communications.transcription,
+        body: communications.body,
+      }).from(communications).where(eq(communications.id, candidate.communicationId)).limit(1);
+      const hasTranscript = Boolean(updated?.transcription?.trim());
+      const needsSummary = (updated?.transcription?.trim().length ?? 0) >= 20
+        && !((updated?.body ?? "").includes("\n\nAI Summary:"));
+      if (!hasTranscript || needsSummary) {
+        throw new Error(!hasTranscript ? "Transcription provider returned no transcript" : "Summary provider returned no summary");
+      }
+      await db.update(aircallCalls).set({
+        transcriptionRecoveryNextAttemptAt: null,
+        transcriptionRecoveryLastError: null,
+      }).where(eq(aircallCalls.id, candidate.callId));
+      console.log(`[AircallReliability] Completed transcript and summary for call ${candidate.aircallCallId}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await db.update(aircallCalls).set({
+        transcriptionRecoveryNextAttemptAt: nextAttemptAt,
+        transcriptionRecoveryLastError: message.slice(0, 512),
+      }).where(eq(aircallCalls.id, candidate.callId));
+      console.error(`[AircallReliability] Transcription retry ${attempts} for call ${candidate.aircallCallId}: ${message}`);
+      if (attempts >= ALERT_AFTER_ATTEMPTS) {
+        await alertAircallFailure(
+          "SavvyOS Aircall transcription recovery needs attention",
+          `Call ${candidate.aircallCallId} remains queued after ${attempts} controlled transcription attempts. ${message}`,
+        );
+      }
+    }
+  } finally {
+    transcriptionRecoveryRunning = false;
   }
 }
 
@@ -507,8 +604,10 @@ export function scheduleAircallReliability(): void {
   void reconcileAllHistoricalAircallCalls();
   void rematchAllUnmatchedAircallCalls();
   void processDueAircallWebhookEvents();
+  void processDueAircallTranscriptions();
 
   setInterval(() => { void processDueAircallWebhookEvents(); }, WORKER_INTERVAL_MS);
+  setInterval(() => { void processDueAircallTranscriptions(); }, TRANSCRIPTION_WORKER_INTERVAL_MS);
   setInterval(() => { void reconcileAircallInventory(); }, INVENTORY_INTERVAL_MS);
   setInterval(() => { void reconcileAllHistoricalAircallCalls(); }, HISTORICAL_INTERVAL_MS);
   setInterval(() => { void rematchAllUnmatchedAircallCalls(); }, UNMATCHED_REMATCH_INTERVAL_MS);

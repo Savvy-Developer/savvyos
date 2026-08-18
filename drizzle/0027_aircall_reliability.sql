@@ -42,3 +42,10 @@ ALTER TABLE `aircall_integration_state`
 
 ALTER TABLE `aircall_integration_state`
   ADD COLUMN `unmatchedRematchCursorId` int NULL;
+
+ALTER TABLE `aircall_calls`
+  ADD COLUMN `transcriptionRecoveryAttempts` int NOT NULL DEFAULT 0,
+  ADD COLUMN `transcriptionRecoveryLastAttemptAt` timestamp NULL,
+  ADD COLUMN `transcriptionRecoveryNextAttemptAt` timestamp NULL,
+  ADD COLUMN `transcriptionRecoveryLastError` varchar(512) NULL,
+  ADD INDEX `aircall_calls_transcription_recovery_idx` (`transcriptionRecoveryNextAttemptAt`, `startedAt`);
