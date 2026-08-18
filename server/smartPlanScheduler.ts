@@ -18,7 +18,7 @@ import {
   oneTimeSends,
   oneTimeSendRecipients,
 } from "../drizzle/schema";
-import { and, eq, inArray, lte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, isNotNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { sendAircallSMS } from "./_core/aircall";
@@ -31,6 +31,9 @@ const SMS_SEND_INTERVAL_MS = 10_000; // 6/min, keeping under Aircall's 10,000/da
 const SMART_PLAN_DUE_BATCH_SIZE = 2; // Up to six distinct contact channels per five-minute scheduler pass.
 let nextEmailSendAt = 0;
 let nextSmsSendAt = 0;
+const SMS_DAILY_SEND_LIMIT = Math.max(1, Number(process.env.SAVVY_SMS_DAILY_LIMIT ?? 1_000));
+let smsReservationDate = "";
+let smsReservedToday = 0;
 
 function pause(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -43,6 +46,28 @@ async function paceProvider(channel: "email" | "sms"): Promise<void> {
   const interval = channel === "email" ? EMAIL_SEND_INTERVAL_MS : SMS_SEND_INTERVAL_MS;
   if (channel === "email") nextEmailSendAt = Date.now() + interval;
   else nextSmsSendAt = Date.now() + interval;
+}
+
+/** Reserve an SMS slot against a conservative per-day cap before calling Aircall. */
+async function reserveSmsCapacity(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<boolean> {
+  const now = new Date();
+  const dayKey = now.toISOString().slice(0, 10);
+  if (smsReservationDate !== dayKey) {
+    const dayStart = new Date(`${dayKey}T00:00:00.000Z`);
+    const [oneTime] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(oneTimeSendRecipients)
+      .where(and(eq(oneTimeSendRecipients.status, "sent"), gte(oneTimeSendRecipients.sentAt, dayStart)));
+    const [smartPlan] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(smartPlanExecutions)
+      .where(and(eq(smartPlanExecutions.channel, "sms"), eq(smartPlanExecutions.status, "sent"), gte(smartPlanExecutions.sentAt, dayStart)));
+    smsReservationDate = dayKey;
+    smsReservedToday = Number(oneTime?.count ?? 0) + Number(smartPlan?.count ?? 0);
+  }
+  if (smsReservedToday >= SMS_DAILY_SEND_LIMIT) return false;
+  smsReservedToday++;
+  return true;
 }
 
 /** Return distinct deliverable addresses stored on a contact for the selected campaign channel. */
@@ -250,6 +275,10 @@ async function processEnrollmentStep(
       let sent = 0;
       const failures: string[] = [];
       for (const address of addresses) {
+        if (!(await reserveSmsCapacity(db))) {
+          failures.push(`${address}: daily SMS campaign limit reached`);
+          continue;
+        }
         await paceProvider("sms");
         const result = await sendAircallSMS(address, renderedBody);
         if (result.success) {
@@ -536,7 +565,7 @@ async function deliverOneTimeRecipient(
   send: typeof oneTimeSends.$inferSelect,
   recipient: typeof oneTimeSendRecipients.$inferSelect,
   contact: typeof contacts.$inferSelect,
-): Promise<void> {
+): Promise<"sent" | "skipped" | "failed" | "deferred"> {
   let outcome: "sent" | "skipped" | "failed" = "sent";
   let provider: string | null = null;
   let providerMessageId: string | null = null;
@@ -572,6 +601,9 @@ async function deliverOneTimeRecipient(
         providerMessageId = result.messageId ?? null;
         errorMessage = result.error ?? null;
       }
+    } else if (!(await reserveSmsCapacity(db))) {
+      // Preserve this recipient as queued. The worker will resume it after the UTC daily reset.
+      return "deferred";
     } else {
       provider = "aircall";
       await paceProvider("sms");
@@ -593,6 +625,7 @@ async function deliverOneTimeRecipient(
     })
     .where(eq(oneTimeSendRecipients.id, recipient.id));
   await incrementOneTimeSendCounts(db, send.id, outcome);
+  return outcome;
 }
 
 /**
@@ -630,7 +663,8 @@ export async function processOneTimeSmartPlanSends(): Promise<void> {
 
     for (const row of pendingRecipients) {
       try {
-        await deliverOneTimeRecipient(db, send, row.recipient, row.contact);
+        const delivery = await deliverOneTimeRecipient(db, send, row.recipient, row.contact);
+        if (delivery === "deferred") break;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         await db.update(oneTimeSendRecipients).set({ status: "failed", errorMessage, sentAt: new Date() }).where(eq(oneTimeSendRecipients.id, row.recipient.id));
