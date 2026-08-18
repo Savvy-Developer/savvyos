@@ -19,6 +19,7 @@ import {
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
+import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
 import { properties as propertiesTable, users, listings as listingsTable, contacts as contactsTable, transactions as transactionsTable, contactProperties } from "../../drizzle/schema";
 import { eq, or, and } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
@@ -179,6 +180,11 @@ export const listingsRouter = router({
           }
         } catch (_) {}
       }
+      // A newly-added listing can start any active New Listing Smart Plan for its seller contact.
+      await triggerSmartPlansForEvent(input.contactId, "new_listing").catch((error) => {
+        console.error("[SmartPlans] New-listing enrollment failed:", error);
+      });
+
       // Notify agent of new listing
       if (agentId) {
         await sendEmailAlert("listing_created", agentId, {

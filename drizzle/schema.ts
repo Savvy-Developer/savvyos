@@ -568,9 +568,18 @@ export const smartPlans = mysqlTable("smart_plans", {
   description: text("description"),
   // Legacy single source (kept for backward compat)
   triggerLeadSourceId: int("triggerLeadSourceId").references(() => leadSources.id),
-  // Multi-source: JSON array of lead source IDs
+    // Multi-source: JSON array of lead source IDs
   triggerLeadSourceIds: json("triggerLeadSourceIds").$type<number[]>(),
-  // Scope: new_only = only contacts created after publish; existing_and_new = also backfill existing; manual = no auto-trigger
+  // Event that starts this plan. Lead source plans use triggerLeadSourceIds; the remaining values are record-status events.
+  triggerType: mysqlEnum("triggerType", [
+    "lead_source",
+    "buyer_under_contract",
+    "seller_under_contract",
+    "new_listing",
+    "buyer_closed",
+    "seller_closed",
+  ]).default("lead_source").notNull(),
+  // Scope: new_only = only future matching contacts; existing_and_new = immediately enroll matching current contacts as well; manual = no auto-trigger
   triggerScope: mysqlEnum("triggerScope", ["new_only", "existing_and_new", "manual"]).default("new_only").notNull(),
   status: mysqlEnum("status", ["active", "paused", "draft"]).default("draft").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

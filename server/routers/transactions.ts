@@ -26,6 +26,7 @@ import {
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { generateAutoPayouts } from "../autoPayouts";
+import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
 import { getDb } from "../db";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
@@ -41,6 +42,29 @@ const wholePercentageSchema = z.coerce
 function normalizeReferralPayoutPercentage(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   return value > 0 && value < 1 ? Number((value * 100).toFixed(2)) : value;
+}
+
+async function triggerSmartPlansForTransactionStatus(
+  transaction: { transactionType: "buyer" | "seller" | "dual"; primaryContactId: number; sellerContactId?: number | null; buyerContactId?: number | null },
+  status: "under_contract" | "closed",
+): Promise<void> {
+  const buyerTrigger = status === "under_contract" ? "buyer_under_contract" : "buyer_closed";
+  const sellerTrigger = status === "under_contract" ? "seller_under_contract" : "seller_closed";
+
+  try {
+    if (transaction.transactionType === "buyer") {
+      await triggerSmartPlansForEvent(transaction.primaryContactId, buyerTrigger);
+    } else if (transaction.transactionType === "seller") {
+      await triggerSmartPlansForEvent(transaction.primaryContactId, sellerTrigger);
+    } else {
+      const buyerContactId = transaction.buyerContactId;
+      const sellerContactId = transaction.sellerContactId ?? transaction.primaryContactId;
+      if (buyerContactId) await triggerSmartPlansForEvent(buyerContactId, buyerTrigger);
+      if (sellerContactId) await triggerSmartPlansForEvent(sellerContactId, sellerTrigger);
+    }
+  } catch (error) {
+    console.error("[SmartPlans] Transaction-trigger enrollment failed:", error);
+  }
 }
 
 const transactionExportFiltersSchema = z.object({
@@ -319,6 +343,13 @@ export const transactionsRouter = router({
         } catch (_) {}
       }
 
+      // New transactions are created under contract, so they immediately qualify for a matching Smart Plan.
+      await triggerSmartPlansForTransactionStatus({
+        transactionType: input.transactionType,
+        primaryContactId: input.primaryContactId,
+        sellerContactId: input.sellerContactId,
+      }, "under_contract");
+
       // Notify agent of new transaction
       await sendEmailAlert("transaction_created", agentId, {
         transactionNumber: txNumber,
@@ -378,6 +409,11 @@ export const transactionsRouter = router({
         amount: txForEmail.transaction.purchasePrice ? `$${Number(txForEmail.transaction.purchasePrice).toLocaleString()}` : undefined,
         transactionId: input.id,
       } : {};
+
+      const statusChanged = !!input.data.status && input.data.status !== before?.status;
+      if (statusChanged && txForEmail && (input.data.status === "under_contract" || input.data.status === "closed")) {
+        await triggerSmartPlansForTransactionStatus(txForEmail.transaction, input.data.status);
+      }
 
       // Automation: transaction closed → check payout integrity
       if (input.data.status === "closed" && txForEmail) {

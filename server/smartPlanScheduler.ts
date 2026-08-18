@@ -13,8 +13,10 @@ import {
   contacts,
   users,
   leadSources,
+  transactions,
+  listings,
 } from "../drizzle/schema";
-import { and, eq, lte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, isNotNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
@@ -234,29 +236,105 @@ async function processEnrollmentStep(
   }
 }
 
-/**
- * Enroll a contact in a Smart Plan.
- * Called when a new contact is created with a matching lead source.
- */
-export async function enrollContactInPlan(contactId: number, planId: number): Promise<void> {
+export const SMART_PLAN_TRIGGER_TYPES = [
+  "lead_source",
+  "buyer_under_contract",
+  "seller_under_contract",
+  "new_listing",
+  "buyer_closed",
+  "seller_closed",
+] as const;
+
+export type SmartPlanTriggerType = (typeof SMART_PLAN_TRIGGER_TYPES)[number];
+
+type TriggerConfiguration = {
+  triggerType: SmartPlanTriggerType;
+  triggerLeadSourceIds?: number[] | null;
+  triggerLeadSourceId?: number | null;
+};
+
+function normalizedLeadSourceIds(config: TriggerConfiguration): number[] {
+  const ids = [...(config.triggerLeadSourceIds ?? [])];
+  if (config.triggerLeadSourceId) ids.push(config.triggerLeadSourceId);
+  return Array.from(new Set(ids));
+}
+
+function contactIdsForTransaction(
+  transaction: Pick<typeof transactions.$inferSelect, "transactionType" | "primaryContactId" | "sellerContactId" | "buyerContactId">,
+  triggerType: SmartPlanTriggerType,
+): number[] {
+  const isBuyerTrigger = triggerType === "buyer_under_contract" || triggerType === "buyer_closed";
+  const isSellerTrigger = triggerType === "seller_under_contract" || triggerType === "seller_closed";
+
+  if (isBuyerTrigger) {
+    if (transaction.transactionType === "buyer") return [transaction.primaryContactId];
+    if (transaction.transactionType === "dual" && transaction.buyerContactId) return [transaction.buyerContactId];
+  }
+  if (isSellerTrigger) {
+    if (transaction.transactionType === "seller") return [transaction.primaryContactId];
+    if (transaction.transactionType === "dual") return [transaction.sellerContactId ?? transaction.primaryContactId];
+  }
+  return [];
+}
+
+async function matchingCurrentContactIds(config: TriggerConfiguration): Promise<number[]> {
   const db = await getDb();
-  if (!db) return;
+  if (!db) return [];
 
-  // Check not already enrolled in this plan
-  const existing = await db
-    .select()
+  const triggerType = config.triggerType ?? "lead_source";
+  if (triggerType === "lead_source") {
+    const sourceIds = normalizedLeadSourceIds(config);
+    if (!sourceIds.length) return [];
+    const rows = await db.select({ id: contacts.id }).from(contacts).where(inArray(contacts.leadSourceId, sourceIds));
+    return rows.map((row) => row.id);
+  }
+
+  if (triggerType === "new_listing") {
+    const rows = await db.select({ contactId: listings.contactId }).from(listings);
+    return rows.flatMap((row) => row.contactId ? [row.contactId] : []);
+  }
+
+  const status = triggerType.endsWith("_closed") ? "closed" : "under_contract";
+  const rows = await db
+    .select({
+      transactionType: transactions.transactionType,
+      primaryContactId: transactions.primaryContactId,
+      sellerContactId: transactions.sellerContactId,
+      buyerContactId: transactions.buyerContactId,
+    })
+    .from(transactions)
+    .where(eq(transactions.status, status));
+  return rows.flatMap((transaction) => contactIdsForTransaction(transaction, triggerType));
+}
+
+async function matchingUnenrolledContactIds(planId: number, config: TriggerConfiguration): Promise<number[]> {
+  const matchingIds = Array.from(new Set(await matchingCurrentContactIds(config)));
+  if (!matchingIds.length) return [];
+
+  const db = await getDb();
+  if (!db) return [];
+  const existingEnrollments = await db
+    .select({ contactId: smartPlanEnrollments.contactId })
     .from(smartPlanEnrollments)
-    .where(
-      and(
-        eq(smartPlanEnrollments.contactId, contactId),
-        eq(smartPlanEnrollments.planId, planId)
-      )
-    )
+    .where(eq(smartPlanEnrollments.planId, planId));
+  const enrolledIds = new Set(existingEnrollments.map((row) => row.contactId));
+  return matchingIds.filter((contactId) => !enrolledIds.has(contactId));
+}
+
+/**
+ * Enroll a contact in a Smart Plan exactly once. Returns whether an enrollment was created.
+ */
+export async function enrollContactInPlan(contactId: number, planId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  const existing = await db
+    .select({ id: smartPlanEnrollments.id })
+    .from(smartPlanEnrollments)
+    .where(and(eq(smartPlanEnrollments.contactId, contactId), eq(smartPlanEnrollments.planId, planId)))
     .limit(1);
+  if (existing.length > 0) return false;
 
-  if (existing.length > 0) return; // Already enrolled
-
-  // Get first step to compute nextStepAt
   const firstSteps = await db
     .select()
     .from(smartPlanSteps)
@@ -266,10 +344,9 @@ export async function enrollContactInPlan(contactId: number, planId: number): Pr
 
   let nextStepAt: Date | null = null;
   if (firstSteps.length > 0) {
-    const firstStep = firstSteps[0];
     nextStepAt = new Date();
-    nextStepAt.setDate(nextStepAt.getDate() + firstStep.delayDays);
-    nextStepAt.setHours(nextStepAt.getHours() + firstStep.delayHours);
+    nextStepAt.setDate(nextStepAt.getDate() + firstSteps[0].delayDays);
+    nextStepAt.setHours(nextStepAt.getHours() + firstSteps[0].delayHours);
   }
 
   await db.insert(smartPlanEnrollments).values({
@@ -280,118 +357,70 @@ export async function enrollContactInPlan(contactId: number, planId: number): Pr
     nextStepAt,
     status: "active",
   });
+  return true;
 }
 
 /**
- * Find all active plans triggered by a given lead source and enroll the contact.
- * Supports both legacy single-source and new multi-source plans.
- * Only enrolls if triggerScope is 'new_only' or 'existing_and_new' (not 'manual').
+ * Enroll a newly-created contact in active lead-source Smart Plans that match it.
  */
 export async function triggerSmartPlansForContact(contactId: number, leadSourceId: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
-  // Get all active plans that are not manual-only
-  const allActivePlans = await db
-    .select()
-    .from(smartPlans)
-    .where(
-      and(
-        eq(smartPlans.status, "active")
-      )
-    );
-
-  // Filter to plans that match this lead source (legacy single OR new multi-source)
-  const matchingPlans = allActivePlans.filter((plan) => {
-    if (plan.triggerScope === "manual") return false;
-    // Multi-source check (new)
-    const ids = plan.triggerLeadSourceIds as number[] | null;
-    if (ids && ids.length > 0) {
-      return ids.includes(leadSourceId);
-    }
-    // Legacy single-source check
-    return plan.triggerLeadSourceId === leadSourceId;
-  });
-
-  for (const plan of matchingPlans) {
-    await enrollContactInPlan(contactId, plan.id);
+  const plans = await db.select().from(smartPlans).where(and(eq(smartPlans.status, "active"), eq(smartPlans.triggerType, "lead_source")));
+  for (const plan of plans) {
+    if (plan.triggerScope === "manual") continue;
+    if (normalizedLeadSourceIds(plan).includes(leadSourceId)) await enrollContactInPlan(contactId, plan.id);
   }
 }
 
 /**
- * Count how many existing contacts match a plan's lead source trigger.
- * Used to show the confirmation count before bulk-enrolling existing contacts.
+ * Enroll a contact when a matching transaction or listing event occurs.
+ */
+export async function triggerSmartPlansForEvent(contactId: number, triggerType: Exclude<SmartPlanTriggerType, "lead_source">): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const plans = await db
+    .select()
+    .from(smartPlans)
+    .where(and(eq(smartPlans.status, "active"), eq(smartPlans.triggerType, triggerType)));
+  for (const plan of plans) {
+    if (plan.triggerScope !== "manual") await enrollContactInPlan(contactId, plan.id);
+  }
+}
+
+/**
+ * Count current matching contacts not already enrolled in the plan. Used by the Settings checkbox.
  */
 export async function countContactsMatchingPlan(planId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-
-  const plan = await db.select().from(smartPlans).where(eq(smartPlans.id, planId)).limit(1);
-  if (!plan[0]) return 0;
-
-  const p = plan[0];
-  const ids = p.triggerLeadSourceIds as number[] | null;
-  const sourceIds: number[] = [];
-  if (ids && ids.length > 0) sourceIds.push(...ids);
-  if (p.triggerLeadSourceId) sourceIds.push(p.triggerLeadSourceId);
-
-  if (sourceIds.length === 0) return 0;
-
-  // Count contacts with matching leadSourceId not already enrolled
-  const { inArray } = await import("drizzle-orm");
-  const matchingContacts = await db
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(inArray(contacts.leadSourceId, sourceIds));
-
-  // Subtract already-enrolled contacts
-  const alreadyEnrolled = await db
-    .select({ contactId: smartPlanEnrollments.contactId })
-    .from(smartPlanEnrollments)
-    .where(
-      and(
-        eq(smartPlanEnrollments.planId, planId),
-        eq(smartPlanEnrollments.status, "active")
-      )
-    );
-
-  const enrolledIds = new Set(alreadyEnrolled.map((e) => e.contactId));
-  return matchingContacts.filter((c) => !enrolledIds.has(c.id)).length;
+  const [plan] = await db.select().from(smartPlans).where(eq(smartPlans.id, planId)).limit(1);
+  if (!plan) return 0;
+  return (await matchingUnenrolledContactIds(planId, plan)).length;
 }
 
 /**
- * Bulk-enroll all existing contacts matching a plan's lead source trigger.
- * Called explicitly after admin confirmation.
+ * Preview the current-contact count for an unsaved trigger configuration.
+ */
+export async function countContactsMatchingTrigger(config: TriggerConfiguration): Promise<number> {
+  return Array.from(new Set(await matchingCurrentContactIds(config))).length;
+}
+
+/**
+ * Enroll all current contacts that match a plan trigger. Duplicate enrollments are ignored.
  */
 export async function bulkEnrollExistingContacts(planId: number): Promise<{ enrolled: number }> {
   const db = await getDb();
   if (!db) return { enrolled: 0 };
+  const [plan] = await db.select().from(smartPlans).where(eq(smartPlans.id, planId)).limit(1);
+  if (!plan) return { enrolled: 0 };
 
-  const plan = await db.select().from(smartPlans).where(eq(smartPlans.id, planId)).limit(1);
-  if (!plan[0]) return { enrolled: 0 };
-
-  const p = plan[0];
-  const ids = p.triggerLeadSourceIds as number[] | null;
-  const sourceIds: number[] = [];
-  if (ids && ids.length > 0) sourceIds.push(...ids);
-  if (p.triggerLeadSourceId) sourceIds.push(p.triggerLeadSourceId);
-
-  if (sourceIds.length === 0) return { enrolled: 0 };
-
-  const { inArray } = await import("drizzle-orm");
-  const matchingContacts = await db
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(inArray(contacts.leadSourceId, sourceIds));
-
+  const contactIds = await matchingUnenrolledContactIds(planId, plan);
   let enrolled = 0;
-  for (const c of matchingContacts) {
-    try {
-      await enrollContactInPlan(c.id, planId);
-      enrolled++;
-    } catch {
-      // Skip duplicates / errors silently
-    }
+  for (const contactId of contactIds) {
+    if (await enrollContactInPlan(contactId, planId)) enrolled++;
   }
   return { enrolled };
 }

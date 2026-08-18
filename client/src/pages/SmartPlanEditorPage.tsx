@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import RichEmailEditor from "@/components/RichEmailEditor";
@@ -349,30 +350,87 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
   );
 }
 
+type TriggerType = "lead_source" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed";
+
+const SMART_PLAN_TRIGGERS: Array<{ value: TriggerType; label: string; futureLabel: string }> = [
+  { value: "lead_source", label: "Lead Source", futureLabel: "contacts from the selected lead source" },
+  { value: "buyer_under_contract", label: "Buyer Goes Under Contract", futureLabel: "buyer contacts that go under contract" },
+  { value: "seller_under_contract", label: "Seller Goes Under Contract", futureLabel: "seller contacts that go under contract" },
+  { value: "new_listing", label: "New Listing", futureLabel: "new listing contacts" },
+  { value: "buyer_closed", label: "Buyer Transaction Closed", futureLabel: "buyer contacts whose transactions close" },
+  { value: "seller_closed", label: "Seller Transaction Closed", futureLabel: "seller contacts whose transactions close" },
+];
+
 function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources: LeadSource[]; onSaved: () => void }) {
-  const [form, setForm] = useState({ name: "", description: "", triggerLeadSourceIds: [] as number[], triggerScope: "new_only" });
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    triggerType: "lead_source" as TriggerType,
+    triggerLeadSourceIds: [] as number[],
+    includeExistingContacts: false,
+  });
   useEffect(() => {
     if (!plan) return;
     setForm({
       name: plan.name || "",
       description: plan.description || "",
+      triggerType: (plan.triggerType || "lead_source") as TriggerType,
       triggerLeadSourceIds: plan.triggerLeadSourceIds || (plan.triggerLeadSourceId ? [plan.triggerLeadSourceId] : []),
-      triggerScope: plan.triggerScope || "new_only",
+      includeExistingContacts: plan.triggerScope === "existing_and_new",
     });
   }, [plan?.id, plan?.updatedAt]);
-  const update = trpc.smartPlans.update.useMutation({ onSuccess: () => { toast.success("Plan settings saved"); onSaved(); }, onError: (error) => toast.error(error.message) });
+
+  const selectedTrigger = SMART_PLAN_TRIGGERS.find((trigger) => trigger.value === form.triggerType) ?? SMART_PLAN_TRIGGERS[0];
+  const isLeadSourceTrigger = form.triggerType === "lead_source";
+  const { data: matchingData, isLoading: isLoadingMatchCount } = trpc.smartPlans.countMatchingContactsForTrigger.useQuery({
+    triggerType: form.triggerType,
+    triggerLeadSourceIds: isLeadSourceTrigger ? form.triggerLeadSourceIds : null,
+  });
+  const update = trpc.smartPlans.update.useMutation({
+    onSuccess: (result) => {
+      toast.success(result.enrolled > 0 ? `Plan settings saved and ${result.enrolled.toLocaleString()} current contacts enrolled` : "Plan settings saved");
+      onSaved();
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const selectedSources = form.triggerLeadSourceIds.map((id) => leadSources.find((source) => source.id === id)).filter(Boolean) as LeadSource[];
+  const currentMatchCount = isLoadingMatchCount ? "…" : (matchingData?.count ?? 0).toLocaleString();
+
+  const save = () => {
+    if (!form.name.trim()) return toast.error("A plan name is required");
+    if (isLeadSourceTrigger && form.triggerLeadSourceIds.length === 0) return toast.error("Choose at least one lead source for this trigger");
+    update.mutate({
+      id: plan.id,
+      data: {
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        triggerType: form.triggerType,
+        triggerLeadSourceIds: isLeadSourceTrigger && form.triggerLeadSourceIds.length ? form.triggerLeadSourceIds : null,
+        triggerScope: form.includeExistingContacts ? "existing_and_new" : "new_only",
+        includeExistingContacts: form.includeExistingContacts,
+      },
+    });
+  };
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div><h2 className="text-lg font-semibold">Plan settings</h2><p className="mt-1 text-sm text-muted-foreground">Set the plan identity and control who is automatically enrolled.</p></div>
+      <div><h2 className="text-lg font-semibold">Plan settings</h2><p className="mt-1 text-sm text-muted-foreground">Set the plan identity, choose the event that starts it, and decide whether matching current contacts should enter now.</p></div>
       <Card>
         <CardContent className="space-y-5 pt-6">
           <div className="space-y-2"><Label>Plan name <span className="text-destructive">*</span></Label><Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></div>
           <div className="space-y-2"><Label>Description</Label><Textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={3} /></div>
           <Separator />
+
           <div className="space-y-2">
-            <div><Label>Trigger lead sources</Label><p className="mt-1 text-xs text-muted-foreground">Matching new contacts automatically enter this workflow when the plan is active.</p></div>
+            <div><Label>Trigger</Label><p className="mt-1 text-xs text-muted-foreground">Choose the event that automatically starts this Smart Plan when it is active.</p></div>
+            <Select value={form.triggerType} onValueChange={(value) => setForm((current) => ({ ...current, triggerType: value as TriggerType }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{SMART_PLAN_TRIGGERS.map((trigger) => <SelectItem key={trigger.value} value={trigger.value}>{trigger.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+
+          {isLeadSourceTrigger && <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
+            <div><Label>Lead sources</Label><p className="mt-1 text-xs text-muted-foreground">Add every lead source that should start this plan.</p></div>
             <Select value="" onValueChange={(value) => {
               const id = Number(value);
               if (id && !form.triggerLeadSourceIds.includes(id)) setForm((current) => ({ ...current, triggerLeadSourceIds: [...current.triggerLeadSourceIds, id] }));
@@ -380,10 +438,22 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
               <SelectTrigger><SelectValue placeholder="Add a lead source..." /></SelectTrigger>
               <SelectContent>{leadSources.filter((source) => !form.triggerLeadSourceIds.includes(source.id)).map((source) => <SelectItem key={source.id} value={String(source.id)}>{source.parentId ? `    ${source.name}` : source.name}</SelectItem>)}</SelectContent>
             </Select>
-            <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{source.name}<button className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
+            <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{source.name}<button type="button" aria-label={`Remove ${source.name}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
+          </div>}
+
+          <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
+            <div className="flex items-start gap-3">
+              <Checkbox id="include-current-contacts" checked={form.includeExistingContacts} onCheckedChange={(checked) => setForm((current) => ({ ...current, includeExistingContacts: checked === true }))} />
+              <div className="space-y-1.5">
+                <Label htmlFor="include-current-contacts" className="cursor-pointer text-sm font-medium">Include all ({currentMatchCount}) current {selectedTrigger.label} contacts</Label>
+                {form.includeExistingContacts
+                  ? <p className="text-xs text-muted-foreground">Matching current contacts will be enrolled when you save these settings. Future matching contacts will continue to enter automatically.</p>
+                  : <p className="text-xs text-muted-foreground">This Smart Plan will only be applied to new {selectedTrigger.futureLabel}.</p>}
+              </div>
+            </div>
           </div>
-          {form.triggerLeadSourceIds.length > 0 && <div className="space-y-2"><Label>Enrollment scope</Label><Select value={form.triggerScope} onValueChange={(triggerScope) => setForm((current) => ({ ...current, triggerScope }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new_only">New contacts only</SelectItem><SelectItem value="existing_and_new">New and existing matching contacts</SelectItem><SelectItem value="manual">Manual enrollment only</SelectItem></SelectContent></Select></div>}
-          <div className="flex justify-end border-t pt-4"><Button disabled={update.isPending} onClick={() => { if (!form.name.trim()) return toast.error("A plan name is required"); update.mutate({ id: plan.id, data: { name: form.name.trim(), description: form.description.trim() || null, triggerLeadSourceIds: form.triggerLeadSourceIds.length ? form.triggerLeadSourceIds : null, triggerScope: form.triggerScope as "new_only" | "existing_and_new" | "manual" } }); }}><Save className="mr-1.5 h-4 w-4" />{update.isPending ? "Saving..." : "Save settings"}</Button></div>
+
+          <div className="flex justify-end border-t pt-4"><Button disabled={update.isPending} onClick={save}><Save className="mr-1.5 h-4 w-4" />{update.isPending ? "Saving..." : "Save settings"}</Button></div>
         </CardContent>
       </Card>
     </div>

@@ -11,14 +11,23 @@ import {
   contacts,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, sql } from "drizzle-orm";
-import { enrollContactInPlan, countContactsMatchingPlan, bulkEnrollExistingContacts } from "../smartPlanScheduler";
+import {
+  SMART_PLAN_TRIGGER_TYPES,
+  enrollContactInPlan,
+  countContactsMatchingPlan,
+  countContactsMatchingTrigger,
+  bulkEnrollExistingContacts,
+} from "../smartPlanScheduler";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
+const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
+
 const planInput = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
   triggerLeadSourceId: z.number().optional().nullable(),
   triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+  triggerType: smartPlanTriggerSchema.optional(),
   triggerScope: z.enum(["new_only", "existing_and_new", "manual"]).optional(),
   status: z.enum(["active", "paused", "draft"]).optional(),
 });
@@ -99,6 +108,7 @@ export const smartPlansRouter = router({
         description: input.description ?? null,
         triggerLeadSourceId: null,
         triggerLeadSourceIds: input.triggerLeadSourceIds ?? null,
+        triggerType: input.triggerType ?? "lead_source",
         triggerScope: input.triggerScope ?? "new_only",
         status: input.status ?? "draft",
       });
@@ -113,6 +123,7 @@ export const smartPlansRouter = router({
       name: z.string().min(1),
       description: z.string().optional().nullable(),
       triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+      triggerType: smartPlanTriggerSchema.optional(),
       triggerScope: z.enum(["new_only", "existing_and_new", "manual"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -124,6 +135,7 @@ export const smartPlansRouter = router({
         description: input.description ?? null,
         triggerLeadSourceId: null,
         triggerLeadSourceIds: input.triggerLeadSourceIds ?? null,
+        triggerType: input.triggerType ?? "lead_source",
         triggerScope: input.triggerScope ?? "new_only",
         status: "draft",
       });
@@ -132,12 +144,24 @@ export const smartPlansRouter = router({
       return { id: draftId };
     }),
 
-  // Count existing contacts that would be enrolled (for confirmation dialog)
+  // Count existing contacts that would be enrolled by the persisted plan.
   countMatchingContacts: protectedProcedure
     .input(z.object({ planId: z.number() }))
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const count = await countContactsMatchingPlan(input.planId);
+      return { count };
+    }),
+
+  // Preview the current-contact count for the trigger configuration being edited.
+  countMatchingContactsForTrigger: protectedProcedure
+    .input(z.object({
+      triggerType: smartPlanTriggerSchema,
+      triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+    }))
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const count = await countContactsMatchingTrigger(input);
       return { count };
     }),
 
@@ -169,14 +193,22 @@ export const smartPlansRouter = router({
     }),
 
   update: protectedProcedure
-    .input(z.object({ id: z.number(), data: planInput.partial() }))
+    .input(z.object({ id: z.number(), data: planInput.partial().extend({ includeExistingContacts: z.boolean().optional() }) }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.update(smartPlans).set(input.data).where(eq(smartPlans.id, input.id));
-      await logActivity({ userId: ctx.user.id, action: "smart_plan_updated", entityType: "smart_plan", entityId: input.id });
-      return { success: true };
+      const { includeExistingContacts, ...data } = input.data;
+      await db.update(smartPlans).set(data).where(eq(smartPlans.id, input.id));
+      const enrollment = includeExistingContacts ? await bulkEnrollExistingContacts(input.id) : { enrolled: 0 };
+      await logActivity({
+        userId: ctx.user.id,
+        action: "smart_plan_updated",
+        entityType: "smart_plan",
+        entityId: input.id,
+        details: { includeExistingContacts: !!includeExistingContacts, enrolledCurrentContacts: enrollment.enrolled },
+      });
+      return { success: true, enrolled: enrollment.enrolled };
     }),
 
   delete: protectedProcedure
