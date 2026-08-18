@@ -43,6 +43,10 @@ const pmt = (rate: number, nper: number, pv: number): number => {
   return -(rate * pv * pvif) / (pvif - 1);
 };
 
+// SavvyOS models these properties as transient STRs, which use a 39-year
+// nonresidential recovery period for the residual building component.
+const TRANSIENT_STR_RESIDUAL_BUILDING_RECOVERY_YEARS = 39;
+
 type ReportOption = {
   name: string;
   coBrand?: { name: string; logoUrl: string };
@@ -529,7 +533,7 @@ export default function ProformaPage() {
 
     const costSegEnabled = form.costSegEnabled === "yes";
     const buildingBasis = pp * (1 - parsePct(form.landAllocationPct));
-    // The identified shorter-life property is assumed 100% bonus-depreciable in Year 1 and is excluded from the residual 27.5-year basis.
+    // The identified shorter-life property is assumed 100% bonus-depreciable in Year 1 and is excluded from the residual 39-year building basis.
     const acceleratedAmt = costSegEnabled ? buildingBasis * parsePct(form.acceleratedDepreciationPct) : 0;
     const furnishingDeduction = furnishing;
     // A renovation budget is not automatically bonus-depreciable. Only the separately identified qualifying component is modeled here.
@@ -537,7 +541,7 @@ export default function ProformaPage() {
     const renovationDeduction = 0;
     const remainingBuildingBasis = Math.max(0, buildingBasis - acceleratedAmt);
     // Full-year annualized residual depreciation. Exact first and final years require the IRS mid-month convention.
-    const straightLineDepreciation = remainingBuildingBasis / 27.5;
+    const straightLineDepreciation = remainingBuildingBasis / TRANSIENT_STR_RESIDUAL_BUILDING_RECOVERY_YEARS;
     const year1MortgageInterest = loanYearSchedule(1).interest;
     const year2MortgageInterest = loanYearSchedule(2).interest;
     // Year 1 includes the 100% bonus deduction for modeled qualifying shorter-life property, plus residual depreciation and scheduled Year 1 interest.
@@ -589,13 +593,13 @@ export default function ProformaPage() {
         const yearNoi = yearNetRev - yearExp;
         let yearCF = yearNoi - annualDebtService;
 
-        // Year 1 includes 100% bonus depreciation for modeled qualifying shorter-life property. Years 2+ use only residual 27.5-year depreciation plus scheduled interest; the bonus-depreciated basis is not deducted again.
+        // Year 1 includes 100% bonus depreciation for modeled qualifying shorter-life property. Years 2+ use only residual 39-year depreciation plus scheduled interest; the bonus-depreciated basis is not deducted again.
         if (includeTax && y === 1) {
           yearCF += netTaxBenefit;
         }
         if (includeTax && y > 1) {
           const remainingBasis = Math.max(0, buildingBasis - acceleratedAmt);
-          const straightLineDeduction = remainingBasis / 27.5;
+          const straightLineDeduction = remainingBasis / TRANSIENT_STR_RESIDUAL_BUILDING_RECOVERY_YEARS;
           const scheduledInterest = loanYearSchedule(y).interest;
           yearCF += (straightLineDeduction + scheduledInterest) * marginalTaxRate;
         }
@@ -614,7 +618,7 @@ export default function ProformaPage() {
     };
 
     // ─── Ongoing Annual Tax Benefits ─────────────────────────────────────────
-    // The residual long-life basis is depreciated over 27.5 years. Interest follows the amortization schedule and therefore declines over time.
+    // The residual long-life building basis is depreciated over 39 years for the transient-STR assumption. Interest follows the amortization schedule and therefore declines over time.
     const ongoingAnnualDeduction = straightLineDepreciation + year2MortgageInterest;
     const ongoingAnnualTaxBenefit = ongoingAnnualDeduction * marginalTaxRate;
 
@@ -695,6 +699,7 @@ export default function ProformaPage() {
       fixedMonthly, fixedAnnual, blendedFeeRate,
       s1, s2, s3, fiveYear, irr, sellingCostsPct,
       costSegEnabled, buildingBasis, remainingBuildingBasis, acceleratedAmt, furnishingDeduction, bonusEligibleImprovements, renovationDeduction,
+      residualBuildingRecoveryYears: TRANSIENT_STR_RESIDUAL_BUILDING_RECOVERY_YEARS,
       totalFirstYearDeduction, taxSavings, costSegCost, netTaxBenefit,
       straightLineDepreciation, year1MortgageInterest, year2MortgageInterest, ongoingAnnualDeduction, ongoingAnnualTaxBenefit, taxReturns,
       isValueAdd, arv, forcedEquity, equityCreatedByReno,
@@ -763,6 +768,7 @@ export default function ProformaPage() {
           totalFirstYearDeduction: calc.totalFirstYearDeduction,
           taxSavings: calc.taxSavings, netTaxBenefit: calc.netTaxBenefit,
           buildingBasis: calc.buildingBasis, remainingBuildingBasis: calc.remainingBuildingBasis,
+          residualBuildingRecoveryYears: calc.residualBuildingRecoveryYears,
           acceleratedAmt: calc.acceleratedAmt, furnishingDeduction: calc.furnishingDeduction, bonusEligibleImprovements: calc.bonusEligibleImprovements,
           straightLineDepreciation: calc.straightLineDepreciation, year1MortgageInterest: calc.year1MortgageInterest,
           year2MortgageInterest: calc.year2MortgageInterest, ongoingAnnualDeduction: calc.ongoingAnnualDeduction, ongoingAnnualTaxBenefit: calc.ongoingAnnualTaxBenefit,
@@ -1824,7 +1830,7 @@ export default function ProformaPage() {
                   {calc.costSegEnabled && <div className="flex justify-between text-sm"><span>Cost-Seg Shorter-Life Property (100% Bonus, Year 1)</span><span className="font-medium">{fmtDollar(calc.acceleratedAmt)}</span></div>}
                   <div className="flex justify-between text-sm"><span>Furnishing Deduction (Modeled Eligible)</span><span className="font-medium">{fmtDollar(calc.furnishingDeduction)}</span></div>
                   {calc.bonusEligibleImprovements > 0 && <div className="flex justify-between text-sm"><span>Bonus-Eligible Improvements (100% Bonus, Year 1)</span><span className="font-medium">{fmtDollar(calc.bonusEligibleImprovements)}</span></div>}
-                  <div className="flex justify-between text-sm"><span>Full-Year Residual Building Depreciation (27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}</span></div>
+                  <div className="flex justify-between text-sm"><span>Full-Year Residual Building Depreciation ({calc.residualBuildingRecoveryYears} yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}</span></div>
                   <div className="flex justify-between text-sm"><span>Scheduled Year 1 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year1MortgageInterest)}</span></div>
                   {calc.renovation > 0 && <div className="flex justify-between text-xs text-slate-500"><span>Renovation Budget (capitalized unless study identifies qualifying components)</span><span>{fmtDollar(calc.renovation)}</span></div>}
                   <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Total Year 1 Deduction</span><span>{fmtDollar(calc.totalFirstYearDeduction)}</span></div>
@@ -1844,12 +1850,12 @@ export default function ProformaPage() {
             <CardContent>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm"><span>Residual Building Basis</span><span className="font-medium">{fmtDollar(calc.remainingBuildingBasis)}</span></div>
-                <div className="flex justify-between text-sm"><span>Full-Year Residual Depreciation (residual basis / 27.5 yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
+                <div className="flex justify-between text-sm"><span>Full-Year Residual Depreciation (residual basis / {calc.residualBuildingRecoveryYears} yrs)</span><span className="font-medium">{fmtDollar(calc.straightLineDepreciation)}/yr</span></div>
                 {calc.year2MortgageInterest > 0 && <div className="flex justify-between text-sm"><span>Scheduled Year 2 Mortgage Interest</span><span className="font-medium">{fmtDollar(calc.year2MortgageInterest)}/yr</span></div>}
                 <div className="border-t pt-2 flex justify-between text-sm font-medium"><span>Estimated Year 2 Deduction</span><span>{fmtDollar(calc.ongoingAnnualDeduction)}/yr</span></div>
                 <div className="flex justify-between text-sm font-bold text-emerald-700"><span>Estimated Year 2 Tax Savings @ {form.marginalTaxRate}%</span><span>{fmtDollar(calc.ongoingAnnualTaxBenefit)}/yr</span></div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. The residual-depreciation figure is a full-year 27.5-year planning estimate after 100% bonus-depreciated shorter-life basis is removed; that bonus basis is not deducted again in Year 2+; exact first and final years use the IRS mid-month convention.</p>
+              <p className="text-xs text-slate-400 mt-2">Mortgage interest declines as principal is paid down. The residual-depreciation figure is a full-year {calc.residualBuildingRecoveryYears}-year transient-STR planning estimate after 100% bonus-depreciated shorter-life basis is removed; that bonus basis is not deducted again in Year 2+; exact first and final years use the IRS mid-month convention.</p>
             </CardContent>
           </Card>
         </TabsContent>
