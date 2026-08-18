@@ -471,6 +471,7 @@ export const activityLog = mysqlTable("activity_log", {
 }, (table) => [
   index("idx_activity_log_entity").on(table.entityType, table.entityId),
   index("idx_activity_log_contact").on(table.relatedContactId, table.createdAt),
+  index("idx_activity_log_user_created").on(table.userId, table.createdAt),
 ]);
 export type ActivityLog = typeof activityLog.$inferSelect;
 

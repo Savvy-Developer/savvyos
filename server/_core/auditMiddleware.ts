@@ -4,8 +4,8 @@
  * Automatically logs EVERY tRPC mutation to the activity_log table.
  * This provides a complete audit trail of all user actions in SavvyOS.
  *
- * The middleware runs AFTER the mutation succeeds (fire-and-forget),
- * so it never blocks or slows down the user's request.
+ * Audit writes occur after successful mutations. Any audit persistence failure
+ * is contained so it can never fail the user action.
  */
 import { getDb } from "../db";
 import { activityLog } from "../../drizzle/schema";
@@ -175,12 +175,17 @@ function sanitizeInput(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== "object") return null;
   const obj = input as Record<string, unknown>;
   const sanitized: Record<string, unknown> = {};
-  const SKIP_FIELDS = new Set(["password", "passwordHash", "body", "content", "formData", "rows", "html", "bodyText", "transcription", "audioFileUrl"]);
+  const SKIP_FIELDS = new Set([
+    "password", "passwordHash", "newPassword", "confirmPassword", "currentPassword",
+    "token", "accessToken", "refreshToken", "apiKey", "secret", "authorization",
+    "body", "content", "formData", "rows", "html", "bodyText", "fileBase64",
+    "transcription", "audioFileUrl",
+  ]);
   const MAX_FIELDS = 15;
   let count = 0;
   for (const [key, value] of Object.entries(obj)) {
     if (count >= MAX_FIELDS) break;
-    if (SKIP_FIELDS.has(key)) continue;
+    if (SKIP_FIELDS.has(key) || /password|token|secret|api[_-]?key|authorization/i.test(key)) continue;
     if (typeof value === "string" && value.length > 200) {
       sanitized[key] = value.slice(0, 200) + "…";
     } else if (Array.isArray(value) && value.length > 10) {

@@ -3025,6 +3025,8 @@ export async function getGlobalActivityLog(opts: {
   limit?: number;
   userId?: number;
   entityTypes?: string[];
+  dateFrom?: Date;
+  dateTo?: Date;
 }) {
   const db = await getDb();
   if (!db) return { rows: [], total: 0 };
@@ -3032,10 +3034,12 @@ export async function getGlobalActivityLog(opts: {
   const limit = Math.min(opts.limit ?? 50, 100);
   const offset = (page - 1) * limit;
   const conditions: any[] = [];
-  if (opts.userId) conditions.push(eq(activityLog.userId, opts.userId));
+  if (opts.userId !== undefined) conditions.push(eq(activityLog.userId, opts.userId));
   if (opts.entityTypes && opts.entityTypes.length > 0) {
     conditions.push(inArray(activityLog.entityType as any, opts.entityTypes));
   }
+  if (opts.dateFrom) conditions.push(gte(activityLog.createdAt, opts.dateFrom));
+  if (opts.dateTo) conditions.push(lte(activityLog.createdAt, opts.dateTo));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [rows, countResult] = await Promise.all([
     db

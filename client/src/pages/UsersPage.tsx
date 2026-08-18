@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,11 +32,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
-import { Plus, Pencil, Trash2, Users, Eye, Search, Filter, UserCheck, Link2, Link2Off, KeyRound, Upload, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Eye, Search, Filter, UserCheck, Link2, Link2Off, KeyRound, Upload, X, Loader2, CheckCircle2, AlertCircle, Activity } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
 import RichEmailEditor from "@/components/RichEmailEditor";
+import UserActivityTab from "@/components/UserActivityTab";
 
 type UserRow = {
   id: number;
@@ -112,6 +113,8 @@ export default function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
   const [signatureTarget, setSignatureTarget] = useState<UserRow | null>(null);
   const [signatureHtml, setSignatureHtml] = useState("");
+  const [usersTab, setUsersTab] = useState("members");
+  const [activityUserId, setActivityUserId] = useState("");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [creatingMarket, setCreatingMarket] = useState(false);
 
@@ -641,12 +644,36 @@ export default function UsersPage() {
           </p>
         </div>
       </div>
-      <Tabs defaultValue="members" className="space-y-6">
+      <Tabs value={usersTab} onValueChange={setUsersTab} className="space-y-6">
         <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="members" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Team Members</TabsTrigger>
           <TabsTrigger value="groups" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Groups</TabsTrigger>
+          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
         </TabsList>
         <TabsContent value="groups"><GroupsPage /></TabsContent>
+        <TabsContent value="activity" className="space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2"><Activity className="h-5 w-5 text-primary" /> User Activity</h2>
+            <p className="text-sm text-muted-foreground mt-1">Review the full SavvyOS audit trail for any team member, filtered by date and activity type.</p>
+          </div>
+          <div className="max-w-xl space-y-1.5">
+            <Label>Select team member</Label>
+            <SearchableSelect
+              className="w-full"
+              options={(users as UserRow[]).map((u) => ({ value: String(u.id), label: `${u.name ?? u.email ?? `User #${u.id}`} — ${ROLE_LABELS[u.role] ?? u.role}` }))}
+              value={activityUserId}
+              onValueChange={setActivityUserId}
+              placeholder="Search for a team member…"
+              searchPlaceholder="Search team members…"
+            />
+          </div>
+          {activityUserId ? (() => {
+            const selectedUser = (users as UserRow[]).find((u) => u.id === Number(activityUserId));
+            return selectedUser ? <UserActivityTab user={selectedUser} /> : null;
+          })() : (
+            <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">Select a team member to review their activity.</div>
+          )}
+        </TabsContent>
         <TabsContent value="members">
       <div className="flex justify-end">
         <Button onClick={openAdd}>
@@ -800,7 +827,15 @@ export default function UsersPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          title="Edit Email Signature"
+                          title="View User Activity"
+                          onClick={() => { setActivityUserId(String(u.id)); setUsersTab("activity"); }}
+                        >
+                          <Activity className="h-4 w-4 text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Add or Edit Email Signature"
                           onClick={() => { void openSignatureEditor(u); }}
                         >
                           <Pencil className="h-4 w-4 text-indigo-600" />

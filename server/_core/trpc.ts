@@ -11,15 +11,15 @@ const t = initTRPC.context<TrpcContext>().create({
 export const router = t.router;
 
 // ─── Global Audit Middleware ──────────────────────────────────────────────────
-// Logs every mutation to the activity_log table for a complete audit trail.
-// Runs AFTER the mutation succeeds (fire-and-forget, non-blocking).
+// Logs every successful mutation to the activity_log table for a complete audit trail.
+// Audit persistence errors are contained, so this never changes mutation outcomes.
 const auditMiddleware = t.middleware(async (opts) => {
   const result = await opts.next();
 
   // Only log successful mutations
   if (result.ok && shouldAuditLog(opts.type, opts.path)) {
     const user = opts.ctx.user;
-    void auditLogMutation({
+    await auditLogMutation({
       userId: user?.id ?? null,
       userName: user?.name ?? null,
       userRole: user?.role ?? null,

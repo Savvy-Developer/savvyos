@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerMagicLinkRoutes } from "./magicLink";
 import { registerUploadRoutes } from "../uploadRoutes";
+import { registerAuditRoutes } from "../auditRoutes";
 import { registerInvestorReportRoute } from "../proformaInvestorReport";
 import { registerExternalApiRoutes } from "../externalApis";
 import { appRouter } from "../routers";
@@ -103,6 +104,8 @@ async function startServer() {
   registerMagicLinkRoutes(app);
   // File upload routes
   registerUploadRoutes(app);
+  // Browser file opens/downloads, which bypass standard tRPC mutations.
+  registerAuditRoutes(app);
   // Pro-forma Investor Report (HTML-to-PDF with Puppeteer)
   registerInvestorReportRoute(app);
   // External API proxies (Zillow, Airbnb)

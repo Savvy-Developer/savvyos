@@ -8,6 +8,7 @@ import {
   updateUser,
   deleteUser,
   getDb,
+  getGlobalActivityLog,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut } from "../storage";
@@ -255,6 +256,41 @@ export const usersRouter = router({
         documentCount: countMap.get(u.id) ?? 0,
         profilePhotoUrl: photoMap.get(u.id) ?? null,
       }));
+    }),
+
+  /**
+   * Complete audit trail for a specific user, including successful mutations,
+   * explicit entity events, login records, and browser-side file downloads.
+   */
+  activityForUser: protectedProcedure
+    .input(z.object({
+      userId: z.number().int().positive(),
+      page: z.number().int().min(1).default(1),
+      limit: z.number().int().min(1).max(100).default(50),
+      entityTypes: z.array(z.string().min(1).max(64)).optional(),
+      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+
+      const targetExists = (await getAllUsers()).some((user: any) => user.id === input.userId);
+      if (!targetExists) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+
+      const dateFrom = input.dateFrom ? new Date(`${input.dateFrom}T00:00:00.000Z`) : undefined;
+      const dateTo = input.dateTo ? new Date(`${input.dateTo}T23:59:59.999Z`) : undefined;
+      if (dateFrom && dateTo && dateFrom > dateTo) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The start date must be on or before the end date." });
+      }
+
+      return getGlobalActivityLog({
+        userId: input.userId,
+        page: input.page,
+        limit: input.limit,
+        entityTypes: input.entityTypes,
+        dateFrom,
+        dateTo,
+      });
     }),
 
   // Admin: upload headshot on behalf of any user
