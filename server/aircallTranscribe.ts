@@ -143,8 +143,9 @@ Write 2–4 sentences. Include: main topic, key points discussed, any next steps
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        // GPT-5 models only accept the default temperature. Keep the output cap
+        // but omit temperature so summaries are accepted by the Forge proxy.
         max_completion_tokens: 300,
-        temperature: 0.3,
       }),
     });
 

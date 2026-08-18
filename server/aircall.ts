@@ -19,7 +19,7 @@ import {
   aircallCalls,
   aircallUnmatchedCalls,
 } from "../drizzle/schema";
-import { asc, eq, or, and, like, inArray, desc, isNull, lt, gte, sql } from "drizzle-orm";
+import { asc, eq, or, and, like, inArray, desc, isNull, isNotNull, lt, gte, sql } from "drizzle-orm";
 import { transcribeAndSummarize } from "./aircallTranscribe";
 
 // ─── Phone Normalisation ──────────────────────────────────────────────────────
@@ -364,19 +364,54 @@ function aircallBasicAuth(): string | null {
   return apiId && apiToken ? Buffer.from(`${apiId}:${apiToken}`).toString("base64") : null;
 }
 
+const AIRCALL_RECOVERY_REQUEST_SPACING_MS = 1_500;
+let lastAircallRecoveryRequestAt = 0;
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Keep recovery lookups below Aircall's API rate limit and leave capacity for
+ * live webhook traffic. The reconciliation job is single-flight, so a small
+ * in-process limiter is sufficient here.
+ */
+async function paceAircallRecoveryRequest(): Promise<void> {
+  const waitMs = lastAircallRecoveryRequestAt + AIRCALL_RECOVERY_REQUEST_SPACING_MS - Date.now();
+  if (waitMs > 0) await wait(waitMs);
+  lastAircallRecoveryRequestAt = Date.now();
+}
+
 /** Fetch current call data so an expired webhook recording URL is never retried. */
 async function fetchFreshAircallCall(aircallCallId: number): Promise<AircallCallData | null> {
   const auth = aircallBasicAuth();
   if (!auth) throw new Error("Aircall API credentials are not configured");
-  const response = await fetch(`https://api.aircall.io/v1/calls/${aircallCallId}`, {
-    headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Aircall call lookup returned HTTP ${response.status}`);
-  const payload = await response.json() as AircallCallData | { call?: AircallCallData };
-  const wrapped = payload as { call?: AircallCallData };
-  const call = wrapped.call ?? (payload as AircallCallData);
-  return typeof call.id === "number" ? call : null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await paceAircallRecoveryRequest();
+    const response = await fetch(`https://api.aircall.io/v1/calls/${aircallCallId}`, {
+      headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
+    });
+    if (response.status === 404) return null;
+    if (response.status === 429 && attempt < 3) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      const retryDelayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.ceil(retryAfterSeconds * 1_000)
+        : 30_000 * attempt;
+      console.warn(
+        `[Aircall] Rate limited while fetching call ${aircallCallId}; retrying in ${Math.ceil(retryDelayMs / 1_000)} seconds.`
+      );
+      await wait(retryDelayMs);
+      continue;
+    }
+    if (!response.ok) throw new Error(`Aircall call lookup returned HTTP ${response.status}`);
+    const payload = await response.json() as AircallCallData | { call?: AircallCallData };
+    const wrapped = payload as { call?: AircallCallData };
+    const call = wrapped.call ?? (payload as AircallCallData);
+    return typeof call.id === "number" ? call : null;
+  }
+
+  throw new Error("Aircall call lookup exhausted all retry attempts");
 }
 
 /**
@@ -487,6 +522,84 @@ export async function reconcileRecentAircallRecordings(
         }).where(eq(aircallCalls.id, row.id));
         console.error(`[Aircall] Recent recording recovery failed for call ${row.aircallCallId}:`, message);
       }
+    }
+  }
+
+  return result;
+}
+
+export type AircallSummaryRecoveryOptions = {
+  /** Only revisit calls completed within this window. Defaults to 7 days. */
+  lookbackDays?: number;
+  /** Maximum number of summaries to recover in one run. Defaults to 100. */
+  batchSize?: number;
+};
+
+export type AircallSummaryRecoveryResult = {
+  candidates: number;
+  recovered: number;
+  skipped: number;
+  errors: number;
+};
+
+/**
+ * Recover summaries for recent calls that were successfully transcribed while
+ * the summary request was unavailable. The existing orchestrator sees the
+ * stored transcript and generates only the missing summary, so no media is
+ * downloaded and no transcription work is duplicated.
+ */
+export async function reconcileRecentAircallSummaries(
+  options: AircallSummaryRecoveryOptions = {},
+): Promise<AircallSummaryRecoveryResult> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+
+  const lookbackDays = Math.max(1, Math.min(options.lookbackDays ?? 7, 30));
+  const batchSize = Math.max(1, Math.min(options.batchSize ?? 100, 150));
+  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      communicationId: communications.id,
+      aircallCallId: aircallCalls.aircallCallId,
+      direction: aircallCalls.direction,
+      duration: aircallCalls.duration,
+      audioFileUrl: communications.audioFileUrl,
+    })
+    .from(aircallCalls)
+    .innerJoin(communications, eq(communications.id, aircallCalls.communicationId))
+    .where(and(
+      gte(aircallCalls.startedAt, since),
+      isNotNull(communications.transcription),
+      sql`CHAR_LENGTH(TRIM(${communications.transcription})) >= 20`,
+      sql`COALESCE(${communications.body}, '') NOT LIKE '%AI Summary:%'`,
+    ))
+    .orderBy(asc(aircallCalls.startedAt))
+    .limit(batchSize);
+
+  const result: AircallSummaryRecoveryResult = {
+    candidates: rows.length,
+    recovered: 0,
+    skipped: 0,
+    errors: 0,
+  };
+
+  for (const row of rows) {
+    try {
+      const recovery = await transcribeAndSummarize({
+        communicationId: row.communicationId,
+        aircallCallId: row.aircallCallId,
+        // A transcript is already present, so the orchestrator never downloads
+        // this placeholder URL; it generates only the missing summary.
+        audioUrl: row.audioFileUrl ?? "",
+        direction: row.direction,
+        duration: row.duration,
+      });
+      if (recovery.summary) result.recovered += 1;
+      else result.skipped += 1;
+    } catch (error) {
+      result.errors += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[Aircall] Summary recovery failed for call ${row.aircallCallId}:`, message);
     }
   }
 

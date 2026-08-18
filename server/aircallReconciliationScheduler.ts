@@ -1,10 +1,17 @@
-import { reconcileRecentAircallRecordings, reconcileUnmatchedAircallCalls } from "./aircall";
+import {
+  reconcileRecentAircallRecordings,
+  reconcileRecentAircallSummaries,
+  reconcileUnmatchedAircallCalls,
+} from "./aircall";
 
 const DAILY_RECONCILIATION_HOUR = 2;
 const DAILY_RECONCILIATION_MINUTE = 30;
 const RECENT_RECORDING_LOOKBACK_DAYS = 7;
 const RECENT_RECORDING_PAGE_SIZE = 100;
 const RECENT_RECORDING_MAX_ATTEMPTS = 5;
+const RECENT_SUMMARY_LOOKBACK_DAYS = 7;
+const RECENT_SUMMARY_BATCH_SIZE = 100;
+const INITIAL_RECONCILIATION_DELAY_MS = 15_000;
 const TIME_ZONE = "America/New_York";
 const INTERNAL_BATCH_SIZE = 250;
 
@@ -116,6 +123,18 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
     );
   } catch (error) {
     console.error("[AircallReconciliation] Recent recording recovery failed:", error);
+  }
+
+  try {
+    const summaryResult = await reconcileRecentAircallSummaries({
+      lookbackDays: RECENT_SUMMARY_LOOKBACK_DAYS,
+      batchSize: RECENT_SUMMARY_BATCH_SIZE,
+    });
+    console.log(
+      `[AircallReconciliation] Recent summary recovery complete: ${summaryResult.recovered} recovered, ${summaryResult.skipped} skipped, ${summaryResult.errors} errors from ${summaryResult.candidates} candidates.`
+    );
+  } catch (error) {
+    console.error("[AircallReconciliation] Recent summary recovery failed:", error);
   } finally {
     isRunning = false;
   }
@@ -123,6 +142,15 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
 
 /** Register the once-daily Aircall reconciliation timer after server startup. */
 export function scheduleAircallReconciliation(): void {
+  // A deploy may contain a pipeline repair. Run a bounded catch-up shortly after
+  // startup instead of leaving recent failed calls until the next nightly window.
+  setTimeout(() => {
+    console.log("[AircallReconciliation] Starting bounded startup recovery.");
+    reconcileAllUnmatchedAircallCalls().catch(error =>
+      console.error("[AircallReconciliation] Startup recovery failed:", error)
+    );
+  }, INITIAL_RECONCILIATION_DELAY_MS);
+
   const delay = msUntilNextRun();
   const nextRun = new Date(Date.now() + delay);
   console.log(
