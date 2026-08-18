@@ -92,6 +92,10 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(views).toContain("Follow-up");
     expect(views).toContain("Appointments set by agent");
     expect(views).toContain("agentAppointments");
+    expect(views).toContain("w-full xl:w-1/2");
+    expect(views).toContain("agents with no appointments");
+    expect(views).toContain("agent.marketName");
+    expect(views).toContain("/agents/${agent.agentId}");
     expect(views).toContain("appointment-set date");
     expect(views).toContain("Under Contract volume");
     expect(views).toContain("marketTrendTooltip");
@@ -103,6 +107,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("getIsaActivitiesReportingData");
     expect(service).toContain("getLeadSourcesReportingData");
     expect(service).toContain("appointmentScope");
+    expect(service).toContain("agentRosterScope");
+    expect(service).toContain("appointmentCounts");
+    expect(service).toContain("No market assigned");
     expect(service).toContain("agentAppointments");
     expect(service).toContain("COALESCE(ac.\\`appointmentSetAt\\`, ac.\\`createdAt\\`)");
     expect(service).toContain("isa_status");

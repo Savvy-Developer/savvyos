@@ -207,6 +207,21 @@ function appointmentScope(filters: ExpansionFilters): SQL {
   ]);
 }
 
+function agentRosterScope(filters: ExpansionFilters): SQL {
+  return where([
+    sql`u.\`role\` = 'agent'`,
+    sql`u.\`isActive\` = 1`,
+    (filters.agentIds?.length ? sql`u.\`id\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`u.\`id\` = ${filters.agentId}` : undefined),
+    filters.groupLeaderId ? sql`EXISTS (
+      SELECT 1
+      FROM \`group_members\` gm
+      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
+      WHERE gm.\`userId\` = u.\`id\` AND g.\`leaderId\` = ${filters.groupLeaderId}
+    )` : undefined,
+    filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
+  ]);
+}
+
 function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean; applyDate?: boolean } = {}): SQL {
   const status = opts.closedOnly ? "closed" : filters.status;
   return where([
@@ -644,6 +659,7 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
   const contactsWhere = contactScope(filters);
   const sessionsWhere = sessionScope(filters);
   const appointmentWhere = appointmentScope(filters);
+  const agentRosterWhere = agentRosterScope(filters);
   const followUpSessionsWhere = withCondition(sessionsWhere, sql`ms.\`status\` IN ('active', 'abandoned')`);
   const { page, limit, offset } = pagination(filters);
   const [summaryRows, funnelRows, isaRows, agentAppointmentRows, sessionRows, queueRows, monthlyRows, queueCountRows] = await Promise.all([
@@ -685,16 +701,21 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
     `),
     runRows<Row>(sql`
       SELECT
-        ac.\`agentId\` AS agentId,
-        COALESCE(u.\`name\`, CONCAT('Agent ID ', ac.\`agentId\`)) AS agentName,
-        COUNT(*) AS appointmentsSet
-      FROM \`agent_connections\` ac
-      INNER JOIN \`contacts\` c ON c.id = ac.\`contactId\`
-      LEFT JOIN \`users\` u ON u.id = ac.\`agentId\`
-      ${appointmentWhere}
-      GROUP BY ac.\`agentId\`, u.\`name\`
+        u.\`id\` AS agentId,
+        COALESCE(u.\`name\`, CONCAT('Agent ID ', u.\`id\`)) AS agentName,
+        COALESCE(mp.\`name\`, 'No market assigned') AS marketName,
+        COALESCE(appointmentCounts.appointmentsSet, 0) AS appointmentsSet
+      FROM \`users\` u
+      LEFT JOIN \`market_profiles\` mp ON mp.id = u.\`marketProfileId\`
+      LEFT JOIN (
+        SELECT ac.\`agentId\` AS agentId, COUNT(*) AS appointmentsSet
+        FROM \`agent_connections\` ac
+        INNER JOIN \`contacts\` c ON c.id = ac.\`contactId\`
+        ${appointmentWhere}
+        GROUP BY ac.\`agentId\`
+      ) appointmentCounts ON appointmentCounts.agentId = u.\`id\`
+      ${agentRosterWhere}
       ORDER BY appointmentsSet DESC, agentName ASC
-      LIMIT 100
     `),
     runRows<Row>(sql`
       SELECT
@@ -773,6 +794,7 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
     agentAppointments: agentAppointmentRows.map((row) => ({
       agentId: asNumber(row.agentId),
       agentName: String(row.agentName ?? "Unknown agent"),
+      marketName: String(row.marketName ?? "No market assigned"),
       appointmentsSet: asNumber(row.appointmentsSet),
     })),
     sessions: {
