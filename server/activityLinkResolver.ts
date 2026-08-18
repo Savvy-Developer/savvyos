@@ -291,11 +291,12 @@ export async function resolveActivityRecordLinks(db: any, rows: ActivityRow[]): 
     if (path.startsWith("pm.tasks.")) {
       const pmTaskId = asId(details.taskId) ?? entityId;
       const task = pmTaskId ? pmTaskById.get(pmTaskId) : null;
+      const projectId = task?.projectId ?? asId(details.projectId);
       if (pmTaskId) addLink(links, seen, {
         entityType: "project_task",
         entityId: pmTaskId,
-        label: task?.title ? `Work task: ${task.title}` : `Work task #${pmTaskId}`,
-        href: `/work/tasks/${pmTaskId}`,
+        label: task?.title ? `Project task: ${task.title}` : `Project task #${pmTaskId}`,
+        href: projectId ? `/projects/${projectId}` : "/projects",
       });
     } else if (entityType === "project" || path.startsWith("pm.projects.")) {
       const projectId = asId(details.projectId) ?? entityId;
@@ -304,7 +305,7 @@ export async function resolveActivityRecordLinks(db: any, rows: ActivityRow[]): 
         entityType: "project",
         entityId: projectId,
         label: project?.title ? `Project: ${project.title}` : `Project #${projectId}`,
-        href: `/work/projects/${projectId}`,
+        href: `/projects/${projectId}`,
       });
     }
 

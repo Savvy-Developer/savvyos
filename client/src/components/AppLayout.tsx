@@ -60,7 +60,6 @@ import {
   Flame,
   Lock,
   TrendingUp,
-  Trash2,
   Trophy,
   Sparkles,
 } from "lucide-react";
@@ -220,7 +219,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewWebhooks: "/webhooks",
   canViewDuplicates: "/duplicates",
   canViewKnowledgeBase: "/kb",
-  canViewProjects: "/work/projects",
+  canViewProjects: "/projects",
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
   canViewPasswords: "/passwords",
@@ -239,8 +238,7 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        // Work is one governed capability: every Work route inherits the existing Projects permission.
-        if (item.path === "/work" || item.path.startsWith("/work/")) return permissions.canViewProjects === true;
+        // If this path has a permission key, enforce it; otherwise always show
         const hasPermKey = Object.values(PERM_PATH_MAP).includes(item.path);
         return !hasPermKey || allowedPaths.has(item.path);
       }),
@@ -277,17 +275,6 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Building2, label: "Listings", path: "/listings" },
         { icon: Building2, label: "Properties", path: "/properties" },
         { icon: DollarSign, label: "Commission & Payouts", path: "/commission", badge: (unpaidPayouts > 0 || flaggedTx > 0 || pendingExceptions > 0) ? (unpaidPayouts + flaggedTx + pendingExceptions) : undefined },
-      ],
-    },
-    {
-      label: "Work",
-      items: [
-        { icon: Home, label: "Home", path: "/work" },
-        { icon: CheckSquare, label: "My Tasks", path: "/work/my-tasks" },
-        { icon: Bell, label: "Inbox", path: "/work/inbox" },
-        { icon: Layers, label: "Projects", path: "/work/projects" },
-        { icon: Briefcase, label: "Portfolios", path: "/work/portfolios" },
-        { icon: Trash2, label: "Trash", path: "/work/trash" },
       ],
     },
     {
@@ -337,8 +324,9 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       ],
     },
     {
-      label: "Automation",
+      label: "Projects & Plans",
       items: [
+        { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Zap, label: "Smart Plans", path: "/smart-plans" },
         { icon: Sparkles, label: "Feature Updates", path: "/daily-report-updates" },
         { icon: Mail, label: "Email Notifications", path: "/email-notifications" },
@@ -372,13 +360,6 @@ function SidebarNav({
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
   const avatarUrl = (user as any).profilePhotoUrl ?? null;
-  const hasWorkNavigation = navGroups.some(group => group.label === "Work");
-  const { data: workProjectsData } = trpc.work.projects.list.useQuery(
-    { limit: 8 },
-    { enabled: hasWorkNavigation && !collapsed, staleTime: 60_000 }
-  );
-  const workProjects = ((workProjectsData as any)?.items ?? []) as Array<{ id: number; name: string; color?: string | null; defaultView?: string | null }>;
-
 
   return (
     <div className="flex flex-col h-full select-none">
@@ -409,14 +390,14 @@ function SidebarNav({
             <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const isActive =
-                  item.path === "/" || item.path === "/work"
-                    ? currentPath === item.path
+                  item.path === "/"
+                    ? currentPath === "/"
                     : currentPath.startsWith(item.path);
                 return (
                   <li key={item.path}>
-                    <a
-                      href={item.path}
-                      onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) { event.preventDefault(); onNavigate(item.path); } }}
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(item.path)}
                       title={collapsed ? item.label : undefined}
                       className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
                         isActive
@@ -438,20 +419,11 @@ function SidebarNav({
                           {item.badge}
                         </span>
                       )}
-                    </a>
+                    </button>
                   </li>
                 );
               })}
             </ul>
-            {!collapsed && group.label === "Work" && workProjects.length > 0 && (
-              <div className="mt-1 space-y-0.5 border-l border-sidebar-border/70 pl-3">
-                {workProjects.map((project) => {
-                  const path = `/work/projects/${project.id}/${project.defaultView || "list"}`;
-                  const isActive = currentPath.startsWith(`/work/projects/${project.id}/`);
-                  return <a key={project.id} href={path} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) { event.preventDefault(); onNavigate(path); } }} className={`flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors ${isActive ? "bg-[oklch(0.74_0.14_200)]/15 text-[oklch(0.60_0.14_200)] font-medium" : "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground"}`}><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: project.color || "#14b8a6" }} /><span className="truncate">{project.name}</span></a>;
-                })}
-              </div>
-            )}
           </div>
         ))}
       </nav>
@@ -583,27 +555,41 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: !!user, staleTime: 60000 }
   );
 
-  // Fetch admin permissions before selecting any Work-only controls.
-  const { data: adminPerms } = trpc.permissions.getMyPermissions.useQuery(
+  // Derived values needed to conditionally enable PM inbox queries
+  const isTyler = (user as any)?.email === "tyler@savvy.realty";
+  const isPmUser = isTyler || role === "admin";
+
+  // PM Inbox unread count — must be above early returns
+  const { data: inboxCount, refetch: refetchInbox } = trpc.pm.inbox.unreadCount.useQuery(
     undefined,
-    { enabled: role === "admin", staleTime: 30000 }
+    { enabled: isPmUser, refetchInterval: 30000 }
   );
-  const canUseWorkInbox = role === "admin" && adminPerms?.canViewProjects === true;
+
+  // PM Inbox panel state — must be above early returns
   const [inboxOpen, setInboxOpen] = useState(false);
   const inboxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (inboxRef.current && !inboxRef.current.contains(e.target as Node)) setInboxOpen(false);
+      if (inboxRef.current && !inboxRef.current.contains(e.target as Node)) {
+        setInboxOpen(false);
+      }
     }
     if (inboxOpen) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [inboxOpen]);
-  const { data: workInboxData, refetch: refetchWorkInbox } = trpc.work.inbox.list.useQuery(
-    { limit: 100 },
-    { enabled: canUseWorkInbox, refetchInterval: 30000 }
-  );
-  const markWorkInboxRead = trpc.work.inbox.markRead.useMutation({ onSuccess: () => { refetchWorkInbox(); } });
 
+  const { data: inboxItems = [] } = trpc.pm.inbox.list.useQuery(
+    undefined,
+    { enabled: isPmUser && inboxOpen }
+  );
+  const markNoteRead = trpc.pm.notes.markRead.useMutation({ onSuccess: () => { refetchInbox(); } });
+  const markNoteUnread = trpc.pm.notes.markUnread.useMutation({ onSuccess: () => { refetchInbox(); } });
+
+  // Fetch admin permissions for nav filtering
+  const { data: adminPerms } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: role === "admin", staleTime: 30000 }
+  );
 
   // ── Early returns (all hooks must be above this line) ──────────────────────
   if (loading) return <DashboardLayoutSkeleton />;
@@ -623,7 +609,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
-  const unreadPmCount = ((workInboxData as any)?.items ?? []).filter((item: any) => !item.readAt).length;
+  const unreadPmCount = (inboxCount as any)?.count ?? 0;
 
   const baseNavGroups =
     role === "admin"
@@ -634,10 +620,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
   // For admin users, filter nav by their permissions
-  const basePermittedNavGroups: NavGroup[] = role === "admin"
+  const navGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
     : baseNavGroups;
-  const navGroups: NavGroup[] = basePermittedNavGroups;
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"
@@ -748,13 +733,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="hidden md:flex flex-1" />
 
           {/* PM Inbox Bell — visible to Tyler and all admins */}
-          {canUseWorkInbox && (
+          {isPmUser && (
             <div className="relative" ref={inboxRef}>
               <button
                 type="button"
                 onClick={() => setInboxOpen(v => !v)}
                 className="relative p-2 rounded-md hover:bg-muted transition-colors"
-                title="Work Inbox"
+                title="Project Inbox"
               >
                 <Bell className="h-5 w-5 text-muted-foreground" />
                 {unreadPmCount > 0 && (
@@ -766,46 +751,50 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {inboxOpen && (
                 <div className="absolute right-0 top-full mt-1 w-80 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <span className="font-semibold text-sm">Work Inbox</span>
+                    <span className="font-semibold text-sm">Project Inbox</span>
                     {unreadPmCount > 0 && (
                       <span className="text-xs text-muted-foreground">{unreadPmCount} unread</span>
                     )}
                   </div>
                   <div className="max-h-96 overflow-y-auto">
-                    {((workInboxData as any)?.items ?? []).length === 0 ? (
+                    {(inboxItems as any[]).length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <Bell className="h-7 w-7 mx-auto mb-2 opacity-30" />
                         <p className="text-sm">All caught up!</p>
-                        <p className="text-xs mt-0.5">No unread Work notifications</p>
+                        <p className="text-xs mt-0.5">No unread notes or comments</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-border">
-                        {((workInboxData as any)?.items ?? []).map((item: any) => (
+                        {(inboxItems as any[]).map((item: any) => (
                           <div
-                            key={item.id}
+                            key={`${item.type}-${item.id}`}
                             className={`px-4 py-3 hover:bg-accent/50 cursor-pointer transition-colors ${
-                              !item.readAt ? "bg-primary/3" : ""
+                              item.isUnread ? "bg-primary/3" : ""
                             }`}
                             onClick={() => {
-                              if (!item.readAt) markWorkInboxRead.mutate({ ids: [item.id], read: true });
-                              if (item.taskId) navigate(`/work/tasks/${item.taskId}`);
-                              else if (item.projectId) navigate(`/work/projects/${item.projectId}/overview`);
-                              else navigate("/work/inbox");
+                              if (item.type === "note" && item.isUnread) {
+                                markNoteRead.mutate({ noteId: item.id });
+                              }
+                              navigate(`/projects/${item.projectId}`);
                               setInboxOpen(false);
                             }}
                           >
                             <div className="flex items-start gap-2.5">
                               <div className="shrink-0 mt-0.5">
-                                <Bell className="h-4 w-4 text-primary" />
+                                {item.type === "note" ? (
+                                  <StickyNote className="h-4 w-4 text-primary" />
+                                ) : (
+                                  <MessageSquare className="h-4 w-4 text-blue-500" />
+                                )}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 mb-0.5">
-                                  <span className="text-xs font-medium truncate">{item.title ?? "Work notification"}</span>
-                                  {!item.readAt && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                                  <span className="text-xs font-medium truncate">{item.authorName ?? "Someone"}</span>
+                                  {item.isUnread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
                                 </div>
-                                <p className="text-xs text-muted-foreground line-clamp-2">{item.body ?? "Work activity"}</p>
+                                <p className="text-xs text-muted-foreground line-clamp-2">{item.content}</p>
                                 <div className="flex items-center gap-1.5 mt-1">
-                                  <span className="text-[10px] text-muted-foreground truncate">{item.projectId ? "Project activity" : "Work activity"}</span>
+                                  <span className="text-[10px] text-muted-foreground truncate">{item.projectTitle}</span>
                                   <span className="text-[10px] text-muted-foreground">·</span>
                                   <span className="text-[10px] text-muted-foreground">
                                     {item.createdAt ? new Date(item.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
@@ -815,13 +804,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                               <button
                                 type="button"
                                 className="shrink-0 p-1 rounded hover:bg-muted text-muted-foreground"
-                                title={item.readAt ? "Mark unread" : "Mark read"}
+                                title={item.isUnread ? "Mark read" : "Mark unread"}
                                 onClick={e => {
                                   e.stopPropagation();
-                                  markWorkInboxRead.mutate({ ids: [item.id], read: !!item.readAt });
+                                  if (item.type === "note") {
+                                    if (item.isUnread) markNoteRead.mutate({ noteId: item.id });
+                                    else markNoteUnread.mutate({ noteId: item.id });
+                                  }
                                 }}
                               >
-                                {!item.readAt
+                                {item.isUnread
                                   ? <span className="text-[10px] text-primary font-medium">Read</span>
                                   : <span className="text-[10px] text-muted-foreground">Unread</span>}
                               </button>
@@ -835,9 +827,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       className="text-xs text-primary hover:underline"
-                      onClick={() => { navigate("/work/inbox"); setInboxOpen(false); }}
+                      onClick={() => { navigate("/projects"); setInboxOpen(false); }}
                     >
-                      View Work Inbox →
+                      View all projects →
                     </button>
                   </div>
                 </div>
