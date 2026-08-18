@@ -26,6 +26,43 @@ import { renderMergeTags } from "./_core/smartPlanMergeTags";
 
 let isRunning = false;
 
+const EMAIL_SEND_INTERVAL_MS = 125; // 8/s, below Resend's default 10/s team limit.
+const SMS_SEND_INTERVAL_MS = 10_000; // 6/min, keeping under Aircall's 10,000/day US/Canada number limit.
+const SMART_PLAN_DUE_BATCH_SIZE = 2; // Up to six distinct contact channels per five-minute scheduler pass.
+let nextEmailSendAt = 0;
+let nextSmsSendAt = 0;
+
+function pause(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function paceProvider(channel: "email" | "sms"): Promise<void> {
+  const now = Date.now();
+  const nextAt = channel === "email" ? nextEmailSendAt : nextSmsSendAt;
+  if (nextAt > now) await pause(nextAt - now);
+  const interval = channel === "email" ? EMAIL_SEND_INTERVAL_MS : SMS_SEND_INTERVAL_MS;
+  if (channel === "email") nextEmailSendAt = Date.now() + interval;
+  else nextSmsSendAt = Date.now() + interval;
+}
+
+/** Return distinct deliverable addresses stored on a contact for the selected campaign channel. */
+export function contactChannelAddresses(contact: Pick<typeof contacts.$inferSelect, "email" | "secondaryEmail" | "spouseEmail" | "phone" | "secondaryPhone" | "spousePhone">, channel: "email" | "sms"): string[] {
+  const candidates = channel === "email"
+    ? [contact.email, contact.secondaryEmail, contact.spouseEmail]
+    : [contact.phone, contact.secondaryPhone, contact.spousePhone];
+  const seen = new Set<string>();
+  const addresses: string[] = [];
+  for (const candidate of candidates) {
+    const address = candidate?.trim();
+    if (!address) continue;
+    const key = channel === "email" ? address.toLowerCase() : address.replace(/\D/g, "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    addresses.push(address);
+  }
+  return addresses;
+}
+
 // ─── Business Hours Helpers ───────────────────────────────────────────────────
 
 /**
@@ -92,7 +129,8 @@ export async function processSmartPlanSteps(): Promise<void> {
           isNotNull(smartPlanEnrollments.nextStepAt),
           lte(smartPlanEnrollments.nextStepAt, now)
         )
-      );
+      )
+      .limit(SMART_PLAN_DUE_BATCH_SIZE);
 
     for (const row of dueEnrollments) {
       await processEnrollmentStep(db, row.enrollment, row.plan, row.contact);
@@ -165,42 +203,63 @@ async function processEnrollmentStep(
   let providerMessageId: string | undefined;
   let replyToken: string | undefined;
 
-  if (step.channel === "email") {
-    if (!contact.email) {
+  if (contact.doNotContact || contact.isaStatus === "do_not_contact") {
+    status = "skipped";
+    errorMessage = "Contact is marked Do Not Contact";
+  } else if (step.channel === "email") {
+    const addresses = contactChannelAddresses(contact, "email");
+    if (!addresses.length) {
       status = "skipped";
       errorMessage = "Contact has no email address";
-    } else if ((contact as any).emailStatus === "bounced") {
+    } else if (contact.emailStatus === "bounced") {
       status = "skipped";
       errorMessage = "Contact email has hard bounced — suppressed";
-      console.log(`[SmartPlanScheduler] Skipping ${contact.email} — hard bounce suppression`);
-    } else if ((contact as any).emailStatus === "unsubscribed") {
+    } else if (contact.emailStatus === "unsubscribed") {
       status = "skipped";
       errorMessage = "Contact has unsubscribed from marketing emails";
-      console.log(`[SmartPlanScheduler] Skipping ${contact.email} — unsubscribed`);
     } else {
       provider = "resend";
-      // Reply routing is opt-in: configure SMART_PLAN_REPLY_DOMAIN as a Resend
-      // receiving domain to attribute inbound replies back to this exact execution.
       const replyDomain = process.env.SMART_PLAN_REPLY_DOMAIN?.trim();
       replyToken = replyDomain ? `sp-${nanoid(20)}` : undefined;
-      const result = await sendSmartPlanEmail({
-        to: contact.email,
-        subject: renderedSubject || plan.name,
-        body: renderedBody,
-        isHtml: true,
-        replyTo: replyToken && replyDomain ? `${replyToken}@${replyDomain}` : undefined,
-      });
-      status = result.success ? "sent" : "failed";
-      providerMessageId = result.messageId;
-      errorMessage = result.error;
+      let sent = 0;
+      const failures: string[] = [];
+      for (const address of addresses) {
+        await paceProvider("email");
+        const result = await sendSmartPlanEmail({
+          to: address,
+          subject: renderedSubject || plan.name,
+          body: renderedBody,
+          isHtml: true,
+          replyTo: replyToken && replyDomain ? `${replyToken}@${replyDomain}` : undefined,
+        });
+        if (result.success) {
+          sent++;
+          providerMessageId = result.messageId ?? providerMessageId;
+        } else failures.push(`${address}: ${result.error ?? "send failed"}`);
+      }
+      status = sent > 0 ? "sent" : "failed";
+      errorMessage = failures.length ? failures.join("; ") : undefined;
     }
   } else if (step.channel === "sms") {
-    // The workflow is intentionally SMS-ready but does not dispatch messages until
-    // SavvyOS is configured with a texting provider and consent policy.
-    status = "skipped";
-    errorMessage = !contact.phone
-      ? "Contact has no phone number"
-      : "SMS provider not configured — this step is ready to activate when a texting provider is connected";
+    const addresses = contactChannelAddresses(contact, "sms");
+    if (!addresses.length) {
+      status = "skipped";
+      errorMessage = "Contact has no phone number";
+    } else {
+      provider = "aircall";
+      let sent = 0;
+      const failures: string[] = [];
+      for (const address of addresses) {
+        await paceProvider("sms");
+        const result = await sendAircallSMS(address, renderedBody);
+        if (result.success) {
+          sent++;
+          providerMessageId = result.messageId ?? providerMessageId;
+        } else failures.push(`${address}: ${result.error ?? "send failed"}`);
+      }
+      status = sent > 0 ? "sent" : "failed";
+      errorMessage = failures.length ? failures.join("; ") : undefined;
+    }
   }
 
   // Persist the provider response immediately; Resend webhooks later enrich this
@@ -241,6 +300,7 @@ async function processEnrollmentStep(
 
 export const SMART_PLAN_TRIGGER_TYPES = [
   "lead_source",
+  "all_lead_sources",
   "buyer_under_contract",
   "seller_under_contract",
   "new_listing",
@@ -285,6 +345,12 @@ async function matchingCurrentContactIds(config: TriggerConfiguration): Promise<
   if (!db) return [];
 
   const triggerType = config.triggerType ?? "lead_source";
+  if (triggerType === "all_lead_sources") {
+    // Explicit all-source selection for one-time broadcasts and Smart Plan enrollment.
+    const rows = await db.select({ id: contacts.id }).from(contacts);
+    return rows.map((row) => row.id);
+  }
+
   if (triggerType === "lead_source") {
     const sourceIds = normalizedLeadSourceIds(config);
     if (!sourceIds.length) return [];
@@ -366,21 +432,23 @@ export async function enrollContactInPlan(contactId: number, planId: number): Pr
 /**
  * Enroll a newly-created contact in active lead-source Smart Plans that match it.
  */
-export async function triggerSmartPlansForContact(contactId: number, leadSourceId: number): Promise<void> {
+export async function triggerSmartPlansForContact(contactId: number, leadSourceId: number | null): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
-  const plans = await db.select().from(smartPlans).where(and(eq(smartPlans.status, "active"), eq(smartPlans.triggerType, "lead_source")));
+  const plans = await db.select().from(smartPlans).where(and(eq(smartPlans.status, "active"), inArray(smartPlans.triggerType, ["lead_source", "all_lead_sources"])));
   for (const plan of plans) {
     if (plan.triggerScope === "manual") continue;
-    if (normalizedLeadSourceIds(plan).includes(leadSourceId)) await enrollContactInPlan(contactId, plan.id);
+    if (plan.triggerType === "all_lead_sources" || (leadSourceId !== null && normalizedLeadSourceIds(plan).includes(leadSourceId))) {
+      await enrollContactInPlan(contactId, plan.id);
+    }
   }
 }
 
 /**
  * Enroll a contact when a matching transaction or listing event occurs.
  */
-export async function triggerSmartPlansForEvent(contactId: number, triggerType: Exclude<SmartPlanTriggerType, "lead_source">): Promise<void> {
+export async function triggerSmartPlansForEvent(contactId: number, triggerType: Exclude<SmartPlanTriggerType, "lead_source" | "all_lead_sources">): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
@@ -439,7 +507,7 @@ export async function bulkEnrollExistingContacts(planId: number): Promise<{ enro
 
 // ─── One-Time Send Worker ─────────────────────────────────────────────────────
 
-const ONE_TIME_SEND_BATCH_SIZE = 100;
+const ONE_TIME_SEND_BATCH_SIZE = 20; // SMS pacing keeps a mixed-channel batch well below provider API limits.
 let isOneTimeSendRunning = false;
 
 function oneTimeMergeContext(contact: typeof contacts.$inferSelect, leadSourceName: string | null) {
@@ -485,10 +553,7 @@ async function deliverOneTimeRecipient(
     const body = renderMergeTags(send.body, mergeContext);
 
     if (send.channel === "email") {
-      if (!contact.email) {
-        outcome = "skipped";
-        errorMessage = "Contact has no email address";
-      } else if (contact.emailStatus === "bounced") {
+      if (contact.emailStatus === "bounced") {
         outcome = "skipped";
         errorMessage = "Contact email has hard bounced";
       } else if (contact.emailStatus === "unsubscribed") {
@@ -496,8 +561,9 @@ async function deliverOneTimeRecipient(
         errorMessage = "Contact has unsubscribed from marketing emails";
       } else {
         provider = "resend";
+        await paceProvider("email");
         const result = await sendSmartPlanEmail({
-          to: contact.email,
+          to: recipient.recipientAddress,
           subject: renderMergeTags(send.subject ?? send.name, mergeContext),
           body,
           isHtml: true,
@@ -506,12 +572,10 @@ async function deliverOneTimeRecipient(
         providerMessageId = result.messageId ?? null;
         errorMessage = result.error ?? null;
       }
-    } else if (!contact.phone) {
-      outcome = "skipped";
-      errorMessage = "Contact has no phone number";
     } else {
       provider = "aircall";
-      const result = await sendAircallSMS(contact.phone, body);
+      await paceProvider("sms");
+      const result = await sendAircallSMS(recipient.recipientAddress, body);
       outcome = result.success ? "sent" : "failed";
       providerMessageId = result.messageId ?? null;
       errorMessage = result.error ?? null;

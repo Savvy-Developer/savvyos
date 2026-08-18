@@ -368,10 +368,11 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
   );
 }
 
-type TriggerType = "lead_source" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed";
+type TriggerType = "lead_source" | "all_lead_sources" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed";
 
 const SMART_PLAN_TRIGGERS: Array<{ value: TriggerType; label: string; futureLabel: string }> = [
   { value: "lead_source", label: "Lead Source", futureLabel: "contacts from the selected lead source" },
+  { value: "all_lead_sources", label: "All Lead Sources", futureLabel: "every newly added contact and all current contacts when included" },
   { value: "buyer_under_contract", label: "Buyer Goes Under Contract", futureLabel: "buyer contacts that go under contract" },
   { value: "seller_under_contract", label: "Seller Goes Under Contract", futureLabel: "seller contacts that go under contract" },
   { value: "new_listing", label: "New Listing", futureLabel: "new listing contacts" },

@@ -117,12 +117,10 @@ export const contactsRouter = router({
         relatedContactId: id,
         details: { name: `${input.firstName} ${input.lastName}` },
       });
-      // Trigger Smart Plans for this contact's lead source (fire-and-forget)
-      if (input.leadSourceId) {
-        triggerSmartPlansForContact(id, input.leadSourceId).catch((err) =>
-          console.error("[SmartPlan] Trigger error for contact", id, err)
-        );
-      }
+      // Trigger source-specific and All Lead Sources Smart Plans (fire-and-forget).
+      triggerSmartPlansForContact(id, input.leadSourceId ?? null).catch((err) =>
+        console.error("[SmartPlan] Trigger error for contact", id, err)
+      );
       return { id };
     }),
 

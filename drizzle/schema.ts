@@ -577,6 +577,7 @@ export const smartPlans = mysqlTable("smart_plans", {
   // Event that starts this plan. Lead source plans use triggerLeadSourceIds; the remaining values are record-status events.
   triggerType: mysqlEnum("triggerType", [
     "lead_source",
+    "all_lead_sources",
     "buyer_under_contract",
     "seller_under_contract",
     "new_listing",
@@ -603,6 +604,7 @@ export const oneTimeSends = mysqlTable("one_time_sends", {
   body: text("body").notNull(),
   triggerType: mysqlEnum("triggerType", [
     "lead_source",
+    "all_lead_sources",
     "buyer_under_contract",
     "seller_under_contract",
     "new_listing",
@@ -632,6 +634,8 @@ export const oneTimeSendRecipients = mysqlTable("one_time_send_recipients", {
   id: int("id").autoincrement().primaryKey(),
   sendId: int("sendId").notNull().references(() => oneTimeSends.id),
   contactId: int("contactId").notNull().references(() => contacts.id),
+  // The concrete email address or phone number chosen from the contact record.
+  recipientAddress: varchar("recipientAddress", { length: 320 }).notNull(),
   status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"]).default("queued").notNull(),
   provider: varchar("provider", { length: 64 }),
   providerMessageId: varchar("providerMessageId", { length: 255 }),
@@ -640,7 +644,7 @@ export const oneTimeSendRecipients = mysqlTable("one_time_send_recipients", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
-  uniqueIndex("one_time_send_recipient_unique").on(table.sendId, table.contactId),
+  uniqueIndex("one_time_send_recipient_unique").on(table.sendId, table.contactId, table.recipientAddress),
   index("one_time_send_recipients_send_status_idx").on(table.sendId, table.status),
 ]);
 export type OneTimeSendRecipient = typeof oneTimeSendRecipients.$inferSelect;

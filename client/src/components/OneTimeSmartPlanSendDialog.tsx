@@ -13,12 +13,13 @@ import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
 import { toast } from "sonner";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Mail, MessageSquare, Send, Users, X } from "lucide-react";
 
-type TriggerType = "lead_source" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed";
+type TriggerType = "lead_source" | "all_lead_sources" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed";
 type Channel = "email" | "sms";
 type LeadSource = { id: number; name: string; parentId: number | null };
 
 const TRIGGERS: Array<{ value: TriggerType; label: string; audienceLabel: string }> = [
   { value: "lead_source", label: "Lead Source", audienceLabel: "contacts from the selected lead source" },
+  { value: "all_lead_sources", label: "All Lead Sources", audienceLabel: "all current contacts in the database" },
   { value: "buyer_under_contract", label: "Buyer Goes Under Contract", audienceLabel: "current buyer contacts with an under-contract transaction" },
   { value: "seller_under_contract", label: "Seller Goes Under Contract", audienceLabel: "current seller contacts with an under-contract transaction" },
   { value: "new_listing", label: "New Listing", audienceLabel: "current listing contacts" },
@@ -87,7 +88,7 @@ export default function OneTimeSmartPlanSendDialog({ onClose }: { onClose: () =>
   };
 
   const confirmSend = () => {
-    if (!preview.data?.eligibleCount) return;
+    if (!preview.data?.recipientCount) return;
     queueSend.mutate({ ...previewInput, confirmed: true });
   };
 
@@ -118,13 +119,13 @@ export default function OneTimeSmartPlanSendDialog({ onClose }: { onClose: () =>
           {channel === "sms" && <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><p>Text sends use the configured calling and messaging provider. Contacts without a phone number or marked Do Not Contact are excluded before delivery.</p></div>}
         </div> : <div className="space-y-5 py-2">
           <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4"><p className="text-sm font-medium">{name}</p><p className="mt-1 text-xs text-muted-foreground">{channel === "email" ? `Email: ${subject}` : "Text message"} · {selectedTrigger.label}</p></div>
-          {preview.isLoading ? <div className="py-10 text-center text-sm text-muted-foreground">Checking the current audience...</div> : preview.error ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{preview.error.message}</div> : preview.data ? <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Matching contacts</p><p className="mt-1 text-2xl font-semibold">{preview.data.matchingCount.toLocaleString()}</p></div><div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><p className="text-xs text-emerald-700">Eligible recipients</p><p className="mt-1 text-2xl font-semibold text-emerald-800">{preview.data.eligibleCount.toLocaleString()}</p></div><div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Excluded</p><p className="mt-1 text-2xl font-semibold">{preview.data.excludedCount.toLocaleString()}</p></div></div> : null}
-          {preview.data?.eligibleCount ? <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><p><strong>Final confirmation:</strong> queue this one-time {sendLabel(channel)} send to <strong>{preview.data.eligibleCount.toLocaleString()}</strong> eligible recipient{preview.data.eligibleCount === 1 ? "" : "s"}. Delivery begins immediately and continues safely in the background.</p></div> : null}
+          {preview.isLoading ? <div className="py-10 text-center text-sm text-muted-foreground">Checking the current audience...</div> : preview.error ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{preview.error.message}</div> : preview.data ? <div className="grid gap-3 sm:grid-cols-4"><div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Matching contacts</p><p className="mt-1 text-2xl font-semibold">{preview.data.matchingCount.toLocaleString()}</p></div><div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Eligible contacts</p><p className="mt-1 text-2xl font-semibold">{preview.data.eligibleContactCount.toLocaleString()}</p></div><div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><p className="text-xs text-emerald-700">Messages to send</p><p className="mt-1 text-2xl font-semibold text-emerald-800">{preview.data.recipientCount.toLocaleString()}</p></div><div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Excluded contacts</p><p className="mt-1 text-2xl font-semibold">{preview.data.excludedCount.toLocaleString()}</p></div></div> : null}
+          {preview.data?.recipientCount ? <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><p><strong>Final confirmation:</strong> queue this one-time {sendLabel(channel)} send to <strong>{preview.data.recipientCount.toLocaleString()}</strong> email or phone recipient{preview.data.recipientCount === 1 ? "" : "s"} across {preview.data.eligibleContactCount.toLocaleString()} eligible contact{preview.data.eligibleContactCount === 1 ? "" : "s"}. Delivery is paced safely in the background.</p></div> : null}
         </div>}
 
         {emailPreviewOpen && <EmailMessagePreviewDialog subject={subject} body={body} onClose={() => setEmailPreviewOpen(false)} />}
         {testSendOpen && <SmartPlanTestSendDialog channel={channel} subject={subject} body={body} onClose={() => setTestSendOpen(false)} />}
-        <DialogFooter>{!isReviewing ? <><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={reviewAudience}><Users className="mr-1.5 h-4 w-4" /> Review audience</Button></> : <><Button variant="outline" onClick={() => { setIsReviewing(false); setReviewRequested(false); }}><ArrowLeft className="mr-1.5 h-4 w-4" /> Back to edit</Button><Button disabled={!preview.data?.eligibleCount || queueSend.isPending} onClick={confirmSend} className="bg-emerald-600 hover:bg-emerald-700"><CheckCircle2 className="mr-1.5 h-4 w-4" />{queueSend.isPending ? "Queueing..." : `Queue ${preview.data?.eligibleCount?.toLocaleString() ?? 0} recipients`}</Button></>}</DialogFooter>
+        <DialogFooter>{!isReviewing ? <><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={reviewAudience}><Users className="mr-1.5 h-4 w-4" /> Review audience</Button></> : <><Button variant="outline" onClick={() => { setIsReviewing(false); setReviewRequested(false); }}><ArrowLeft className="mr-1.5 h-4 w-4" /> Back to edit</Button><Button disabled={!preview.data?.recipientCount || queueSend.isPending} onClick={confirmSend} className="bg-emerald-600 hover:bg-emerald-700"><CheckCircle2 className="mr-1.5 h-4 w-4" />{queueSend.isPending ? "Queueing..." : `Queue ${preview.data?.recipientCount?.toLocaleString() ?? 0} recipients`}</Button></>}</DialogFooter>
       </DialogContent>
     </Dialog>
   );

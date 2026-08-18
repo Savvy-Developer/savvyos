@@ -23,6 +23,7 @@ import {
   countContactsMatchingTrigger,
   getCurrentContactIdsMatchingTrigger,
   processOneTimeSmartPlanSends,
+  contactChannelAddresses,
   bulkEnrollExistingContacts,
 } from "../smartPlanScheduler";
 
@@ -48,10 +49,35 @@ const oneTimeSendInput = z.object({
   triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
 });
 
-function isOneTimeSendEligible(contact: Pick<typeof contacts.$inferSelect, "email" | "phone" | "emailStatus" | "doNotContact" | "isaStatus">, channel: "email" | "sms"): boolean {
-  if (contact.doNotContact || contact.isaStatus === "do_not_contact") return false;
-  if (channel === "email") return !!contact.email && contact.emailStatus === "valid";
-  return !!contact.phone;
+const CONTACT_QUERY_BATCH_SIZE = 1_000;
+
+type OneTimeRecipientTarget = { contactId: number; recipientAddress: string };
+
+function recipientTargetsForContact(contact: typeof contacts.$inferSelect, channel: "email" | "sms"): string[] {
+  if (contact.doNotContact || contact.isaStatus === "do_not_contact") return [];
+  if (channel === "email" && contact.emailStatus !== "valid") return [];
+  return contactChannelAddresses(contact, channel);
+}
+
+async function contactsForIds(db: any, contactIds: number[]): Promise<Array<typeof contacts.$inferSelect>> {
+  const rows: Array<typeof contacts.$inferSelect> = [];
+  for (let start = 0; start < contactIds.length; start += CONTACT_QUERY_BATCH_SIZE) {
+    const ids = contactIds.slice(start, start + CONTACT_QUERY_BATCH_SIZE);
+    rows.push(...await db.select().from(contacts).where(sql`${contacts.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`));
+  }
+  return rows;
+}
+
+async function oneTimeAudience(db: any, contactIds: number[], channel: "email" | "sms") {
+  const matchingContacts = await contactsForIds(db, contactIds);
+  const recipientTargets: OneTimeRecipientTarget[] = [];
+  let eligibleContactCount = 0;
+  for (const contact of matchingContacts) {
+    const addresses = recipientTargetsForContact(contact, channel);
+    if (addresses.length) eligibleContactCount++;
+    recipientTargets.push(...addresses.map((recipientAddress) => ({ contactId: contact.id, recipientAddress })));
+  }
+  return { recipientTargets, eligibleContactCount };
 }
 
 const testSendInput = z.object({
@@ -271,16 +297,14 @@ export const smartPlansRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one lead source." });
         }
         const contactIds = await getCurrentContactIdsMatchingTrigger(input);
-        if (!contactIds.length) return { matchingCount: 0, eligibleCount: 0, excludedCount: 0 };
-        const rows = await db.select({
-          email: contacts.email,
-          phone: contacts.phone,
-          emailStatus: contacts.emailStatus,
-          doNotContact: contacts.doNotContact,
-          isaStatus: contacts.isaStatus,
-        }).from(contacts).where(sql`${contacts.id} IN (${sql.join(contactIds.map((id) => sql`${id}`), sql`, `)})`);
-        const eligibleCount = rows.filter((contact) => isOneTimeSendEligible(contact, input.channel)).length;
-        return { matchingCount: contactIds.length, eligibleCount, excludedCount: contactIds.length - eligibleCount };
+        if (!contactIds.length) return { matchingCount: 0, eligibleContactCount: 0, recipientCount: 0, excludedCount: 0 };
+        const audience = await oneTimeAudience(db, contactIds, input.channel);
+        return {
+          matchingCount: contactIds.length,
+          eligibleContactCount: audience.eligibleContactCount,
+          recipientCount: audience.recipientTargets.length,
+          excludedCount: contactIds.length - audience.eligibleContactCount,
+        };
       }),
 
     queue: protectedProcedure
@@ -300,14 +324,9 @@ export const smartPlansRouter = router({
         }
 
         const contactIds = await getCurrentContactIdsMatchingTrigger(input);
-        const matchingContacts = contactIds.length
-          ? await db.select().from(contacts).where(sql`${contacts.id} IN (${sql.join(contactIds.map((id) => sql`${id}`), sql`, `)})`)
-          : [];
-        const eligibleContactIds = matchingContacts
-          .filter((contact) => isOneTimeSendEligible(contact, input.channel))
-          .map((contact) => contact.id);
-        if (!eligibleContactIds.length) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "No eligible contacts match this audience and channel." });
+        const audience = await oneTimeAudience(db, contactIds, input.channel);
+        if (!audience.recipientTargets.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "No eligible recipients match this audience and channel." });
         }
 
         const [result] = await db.insert(oneTimeSends).values({
@@ -318,14 +337,19 @@ export const smartPlansRouter = router({
           triggerType: input.triggerType,
           triggerLeadSourceIds: input.triggerType === "lead_source" ? input.triggerLeadSourceIds ?? null : null,
           status: "queued",
-          totalRecipients: eligibleContactIds.length,
+          totalRecipients: audience.recipientTargets.length,
           createdById: ctx.user.id,
           confirmedAt: new Date(),
         });
         const sendId = Number((result as any).insertId);
-        for (let start = 0; start < eligibleContactIds.length; start += 500) {
+        for (let start = 0; start < audience.recipientTargets.length; start += 500) {
           await db.insert(oneTimeSendRecipients).values(
-            eligibleContactIds.slice(start, start + 500).map((contactId) => ({ sendId, contactId, status: "queued" as const })),
+            audience.recipientTargets.slice(start, start + 500).map((target) => ({
+              sendId,
+              contactId: target.contactId,
+              recipientAddress: target.recipientAddress,
+              status: "queued" as const,
+            })),
           );
         }
         await logActivity({
@@ -333,10 +357,10 @@ export const smartPlansRouter = router({
           action: "one_time_send_queued",
           entityType: "one_time_send",
           entityId: sendId,
-          details: { channel: input.channel, triggerType: input.triggerType, totalRecipients: eligibleContactIds.length },
+          details: { channel: input.channel, triggerType: input.triggerType, matchingContacts: contactIds.length, eligibleContacts: audience.eligibleContactCount, totalRecipients: audience.recipientTargets.length },
         });
         void processOneTimeSmartPlanSends();
-        return { id: sendId, totalRecipients: eligibleContactIds.length, excludedCount: contactIds.length - eligibleContactIds.length };
+        return { id: sendId, totalRecipients: audience.recipientTargets.length, eligibleContacts: audience.eligibleContactCount, excludedCount: contactIds.length - audience.eligibleContactCount };
       }),
 
     list: protectedProcedure.query(async ({ ctx }) => {
