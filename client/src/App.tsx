@@ -23,6 +23,7 @@ import TransactionDetail from "./pages/TransactionDetail";
 import PropertiesPage from "./pages/PropertiesPage";
 import PropertyDetail from "./pages/PropertyDetail";
 import ProformaPage from "./pages/ProformaPage";
+import MyProformasPage from "./pages/MyProformasPage";
 import ProformaDefaultsPage from "./pages/ProformaDefaultsPage";
 import TasksPage from "./pages/TasksPage";
 import ReportingSuitePage from "./pages/ReportingSuitePage";
@@ -229,6 +230,7 @@ function Router() {
           <Route path="/properties" component={PropertiesPage} />
           <Route path="/properties/:id" component={PropertyDetail} />
           <Route path="/properties/:id/proforma" component={ProformaPage} />
+          <Route path="/proformas" component={MyProformasPage} />
           <Route path="/proforma-defaults" component={ProformaDefaultsPage} />
           <Route path="/pipeline" component={PipelinePage} />
           <Route path="/pipeline/:id" component={AgentConnectionDetail} />

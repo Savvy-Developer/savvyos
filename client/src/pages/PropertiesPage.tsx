@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
-import { Plus, Building2, Search, ArrowRightLeft, List, Users, Upload, ArrowUpAZ, ArrowDownAZ, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Building2, Search, ArrowRightLeft, List, Users, Upload, ArrowUpAZ, ArrowDownAZ, Loader2, AlertTriangle, FileText } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLocation } from "wouter";
@@ -100,6 +100,9 @@ export default function PropertiesPage() {
         subtitle="Track properties associated with contacts and transactions"
         actions={
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate("/proformas")}>
+              <FileText className="h-4 w-4 mr-1" /> My Pro-formas
+            </Button>
             {user?.role === "admin" && (
               <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
                 <Upload className="h-4 w-4 mr-1" /> Bulk Upload

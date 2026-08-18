@@ -667,6 +667,45 @@ export const propertiesRouter = router({
       return rows;
     }),
 
+  listAllProformas: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional() }).optional())
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      // Admins may see all pro-formas or narrow the list to one agent. Agents are
+      // always limited on the server to analyses they created, regardless of input.
+      const creatorId = ctx.user.role === "agent"
+        ? ctx.user.id
+        : ctx.user.role === "admin"
+          ? input?.agentId
+          : undefined;
+      const conditions = creatorId ? [eq(proformas.createdByUserId, creatorId)] : [];
+
+      return db.select({
+        id: proformas.id,
+        propertyId: proformas.propertyId,
+        createdByUserId: proformas.createdByUserId,
+        title: proformas.title,
+        purchasePrice: proformas.purchasePrice,
+        grossRevenue: proformas.grossRevenue,
+        noiAnnual: proformas.noiAnnual,
+        cashFlowAnnual: proformas.cashFlowAnnual,
+        cashOnCash: proformas.cashOnCash,
+        capRate: proformas.capRate,
+        createdAt: proformas.createdAt,
+        updatedAt: proformas.updatedAt,
+        creatorName: users.name,
+        propertyAddress: properties.address,
+        propertyCity: properties.city,
+        propertyState: properties.state,
+      }).from(proformas)
+        .leftJoin(users, eq(proformas.createdByUserId, users.id))
+        .leftJoin(properties, eq(proformas.propertyId, properties.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(proformas.updatedAt));
+    }),
+
   getProforma: protectedProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
