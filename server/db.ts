@@ -1380,7 +1380,7 @@ export async function getCommunications(filters: { contactId?: number; transacti
     .from(communications)
     .leftJoin(users, eq(communications.authorId, users.id))
     .where(where)
-    .orderBy(desc(communications.communicatedAt));
+    .orderBy(desc(communications.isPinned), desc(communications.communicatedAt));
 }
 
 export async function createCommunication(data: typeof communications.$inferInsert) {

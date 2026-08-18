@@ -4,7 +4,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { communications } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export const communicationsRouter = router({
   list: protectedProcedure
@@ -78,5 +78,52 @@ export const communicationsRouter = router({
         })
         .where(eq(communications.id, input.id));
       return { success: true };
+    }),
+
+  // ── Pin a contact note (one pinned note per contact) ─────────────────────────
+  setPinned: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      isPinned: z.boolean(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [existing] = await db
+        .select()
+        .from(communications)
+        .where(eq(communications.id, input.id))
+        .limit(1);
+
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+      if (existing.type !== "note" || !existing.relatedContactId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only contact notes can be pinned" });
+      }
+
+      const contactId = existing.relatedContactId;
+      if (input.isPinned) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(communications)
+            .set({ isPinned: false })
+            .where(and(
+              eq(communications.relatedContactId, contactId),
+              eq(communications.type, "note"),
+              eq(communications.isPinned, true),
+            ));
+          await tx
+            .update(communications)
+            .set({ isPinned: true })
+            .where(eq(communications.id, input.id));
+        });
+      } else {
+        await db
+          .update(communications)
+          .set({ isPinned: false })
+          .where(eq(communications.id, input.id));
+      }
+
+      return { success: true, isPinned: input.isPinned };
     }),
 });

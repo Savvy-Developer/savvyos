@@ -459,7 +459,11 @@ export const communications = mysqlTable("communications", {
   editedAt: timestamp("editedAt"),
   editedById: int("editedById").references(() => users.id),
   originalBody: text("originalBody"),
-});
+  // A contact can surface one shared note at the top of its activity timeline.
+  isPinned: boolean("isPinned").default(false).notNull(),
+}, (table) => [
+  index("communications_contact_pinned_idx").on(table.relatedContactId, table.isPinned),
+]);
 
 export type Communication = typeof communications.$inferSelect;
 export type InsertCommunication = typeof communications.$inferInsert;

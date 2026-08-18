@@ -15,7 +15,7 @@ import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
@@ -501,6 +501,14 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
 
   const updateNote = trpc.communications.update.useMutation({
     onSuccess: () => { toast.success("Note updated"); setEditingNoteId(null); refetchComms(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setPinnedNote = trpc.communications.setPinned.useMutation({
+    onSuccess: ({ isPinned }) => {
+      toast.success(isPinned ? "Note pinned to the top" : "Note unpinned");
+      refetchComms();
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -1110,11 +1118,16 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                     </Card>
                   ))}
                   {filteredCommunications.map(({ communication, author }: any) => (
-                    <Card key={communication.id}>
+                    <Card key={communication.id} className={communication.isPinned ? "border-primary/50 bg-primary/[0.03]" : undefined}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-1">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs capitalize">{communication.type}</Badge>
+                            {communication.isPinned && (
+                              <Badge className="gap-1 bg-primary text-primary-foreground text-xs">
+                                <Pin className="h-3 w-3" /> Pinned
+                              </Badge>
+                            )}
                             <span className="text-xs text-muted-foreground">{author?.name ?? "System"}</span>
                             {communication.editedAt && (
                               <span className="text-xs text-muted-foreground italic">(edited)</span>
@@ -1124,6 +1137,16 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                             <span className="text-xs text-muted-foreground">
                               {safeFormat(communication.communicatedAt, "MMM d, yyyy h:mm a")}
                             </span>
+                            {communication.type === "note" && editingNoteId !== communication.id && (
+                              <button
+                                className="text-xs text-primary hover:underline flex items-center gap-0.5 disabled:opacity-50"
+                                onClick={() => setPinnedNote.mutate({ id: communication.id, isPinned: !communication.isPinned })}
+                                disabled={setPinnedNote.isPending}
+                                aria-label={communication.isPinned ? "Unpin note" : "Pin note to top"}
+                              >
+                                <Pin className="h-3 w-3" /> {communication.isPinned ? "Unpin" : "Pin"}
+                              </button>
+                            )}
                             {/* Edit button — only visible to the note author */}
                             {communication.type === "note" && communication.authorId === user?.id && editingNoteId !== communication.id && (
                               <button
