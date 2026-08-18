@@ -457,7 +457,7 @@ export async function reconcileRecentAircallRecordings(
           lt(aircallCalls.recordingRecoveryLastAttemptAt, runStartedAt),
         ),
       ))
-      .orderBy(asc(aircallCalls.recordingRecoveryLastAttemptAt), asc(aircallCalls.startedAt))
+      .orderBy(asc(aircallCalls.recordingRecoveryLastAttemptAt), desc(aircallCalls.startedAt))
       .limit(batchSize);
 
     if (rows.length === 0) break;
@@ -573,7 +573,7 @@ export async function reconcileRecentAircallSummaries(
       sql`CHAR_LENGTH(TRIM(${communications.transcription})) >= 20`,
       sql`COALESCE(${communications.body}, '') NOT LIKE '%AI Summary:%'`,
     ))
-    .orderBy(asc(aircallCalls.startedAt))
+    .orderBy(desc(aircallCalls.startedAt))
     .limit(batchSize);
 
   const result: AircallSummaryRecoveryResult = {
