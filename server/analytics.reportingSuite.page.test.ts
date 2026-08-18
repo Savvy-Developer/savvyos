@@ -45,6 +45,10 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Transaction evidence");
     expect(content).toContain("summary.closedUnits");
     expect(content).toContain("summary.change?.grossCommission");
+    expect(content).toContain("Under Contract GCI");
+    expect(content).toContain("Under Contract Savvy net");
+    expect(content).toContain("Terminated rate");
+    expect(content).toContain("Number(agent.terminations) / Number(agent.closings)");
     expect(content).toContain("visibleOutcomeAgents");
     expect(content).toContain('<SortableMetricHeader label="GCI" column="grossCommission"');
     expect(content).toContain("Show agents with all 0's");
@@ -52,6 +56,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("const [search, setSearch] = useState(() => window.location.search)");
     expect(content).toContain("setSearch(serialized ? `?${serialized}` : \"\")");
     expect(service).toContain("terminationRate");
+    expect(service).toContain("underContractMonthlyRows");
+    expect(service).toContain("monthlyPerformanceScope");
+    expect(service).toContain("periodOutcomeScope");
     expect(service).toContain("closedUnits: closed");
     expect(service).toContain("priorScope");
     expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
@@ -79,6 +86,7 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(views).toContain("export function LeadSourcesReport");
     expect(views).toContain("Overdue");
     expect(views).toContain("Follow-up");
+    expect(views).toContain("Under Contract volume");
 
     expect(service).toContain("getAgentOnboardingReportingData");
     expect(service).toContain("getMarketAnalyticsReportingData");

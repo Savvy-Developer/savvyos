@@ -185,7 +185,7 @@ function sessionScope(filters: ExpansionFilters): SQL {
   ]);
 }
 
-function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean } = {}): SQL {
+function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean; applyDate?: boolean } = {}): SQL {
   const status = opts.closedOnly ? "closed" : filters.status;
   return where([
     (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
@@ -208,9 +208,9 @@ function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolea
     )` : undefined),
     status && status !== "all" ? sql`t.\`status\` = ${status}` : undefined,
     filters.transactionType && filters.transactionType !== "all" ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
-    sql`t.\`closingDate\` IS NOT NULL`,
-    filters.dateFrom ? sql`DATE(t.\`closingDate\`) >= ${filters.dateFrom}` : undefined,
-    filters.dateTo ? sql`DATE(t.\`closingDate\`) <= ${filters.dateTo}` : undefined,
+    opts.applyDate === false ? undefined : sql`t.\`closingDate\` IS NOT NULL`,
+    opts.applyDate === false || !filters.dateFrom ? undefined : sql`DATE(t.\`closingDate\`) >= ${filters.dateFrom}`,
+    opts.applyDate === false || !filters.dateTo ? undefined : sql`DATE(t.\`closingDate\`) <= ${filters.dateTo}`,
   ]);
 }
 
@@ -331,6 +331,7 @@ export async function getAgentOnboardingReportingData(filters: ExpansionFilters 
 export async function getMarketAnalyticsReportingData(filters: ExpansionFilters = {}) {
   const transactionWhere = transactionScope(filters, { closedOnly: true });
   const pipelineWhere = where([sql`t.\`status\` = 'under_contract'`]);
+  const futureTrendWhere = transactionScope({ ...filters, status: "under_contract" }, { applyDate: false });
   const marketScope = where([
     filters.marketProfileId ? sql`mp.id = ${filters.marketProfileId}` : undefined,
     (filters.agentIds?.length ? sql`u.id IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`u.id = ${filters.agentId}` : undefined),
@@ -341,7 +342,7 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
       WHERE gm.\`userId\` = u.id AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
   ]);
-  const [marketRows, monthlyRows] = await Promise.all([
+  const [marketRows, monthlyRows, underContractMonthlyRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT
         mp.id AS marketId,
@@ -423,6 +424,17 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
       GROUP BY DATE_FORMAT(t.\`closingDate\`, '%Y-%m')
       ORDER BY month ASC
     `),
+    runRows<Row>(sql`
+      SELECT
+        DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m') AS month,
+        COUNT(*) AS underContract,
+        COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS futureVolume,
+        COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS futureGci
+      FROM \`transactions\` t
+      ${futureTrendWhere}
+      GROUP BY DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m')
+      ORDER BY month ASC
+    `),
   ]);
 
   const markets = marketRows.map((row) => ({
@@ -477,7 +489,19 @@ export async function getMarketAnalyticsReportingData(filters: ExpansionFilters 
       averageSellerGci: summary.sellerClosings ? summary.sellerGci / summary.sellerClosings : null,
       savvyNetPerDeal: summary.closings ? summary.savvyNet / summary.closings : null,
     },
-    monthly: monthlyRows.map((row) => ({ month: String(row.month ?? ""), units: asNumber(row.units), closings: asNumber(row.closings), volume: asNumber(row.volume), grossCommission: asNumber(row.grossCommission) })),
+    monthly: (() => {
+      const monthly = new Map<string, { month: string; units: number; closings: number; volume: number; grossCommission: number; underContract: number; futureVolume: number; futureGci: number }>();
+      monthlyRows.forEach((row) => {
+        const month = String(row.month ?? "");
+        monthly.set(month, { month, units: asNumber(row.units), closings: asNumber(row.closings), volume: asNumber(row.volume), grossCommission: asNumber(row.grossCommission), underContract: 0, futureVolume: 0, futureGci: 0 });
+      });
+      underContractMonthlyRows.forEach((row) => {
+        const month = String(row.month ?? "");
+        const current = monthly.get(month) ?? { month, units: 0, closings: 0, volume: 0, grossCommission: 0, underContract: 0, futureVolume: 0, futureGci: 0 };
+        monthly.set(month, { ...current, underContract: asNumber(row.underContract), futureVolume: asNumber(row.futureVolume), futureGci: asNumber(row.futureGci) });
+      });
+      return Array.from(monthly.values()).sort((left, right) => left.month.localeCompare(right.month));
+    })(),
     markets,
   };
 }

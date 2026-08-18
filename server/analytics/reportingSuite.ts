@@ -358,8 +358,9 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
   const priorFilters = previousPeriod(closedFilters);
   const priorWhere = priorFilters ? transactionScope(priorFilters, { forceStatus: "closed" }) : null;
   const periodDate = dateColumn(closedFilters);
+  const underContractScope = transactionScope({ ...filters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
 
-  const [productionRows, priorRows, flagSummary, monthlyRows, agentRows, flaggedTransactions, overdueTasks] = await Promise.all([
+  const [productionRows, priorRows, flagSummary, monthlyRows, underContractMonthlyRows, agentRows, flaggedTransactions, overdueTasks] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${closedWhere}`),
     priorWhere ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorWhere}`) : Promise.resolve([]),
     getOperationalFlags(filters),
@@ -374,6 +375,19 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       ${PAYOUT_JOIN}
       ${closedWhere}
       GROUP BY DATE_FORMAT(${periodDate}, '%Y-%m')
+      ORDER BY month ASC
+    `),
+    runRows<Row>(sql`
+      SELECT
+        DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m') AS month,
+        COUNT(*) AS underContract,
+        COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS futureVolume,
+        COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS futureGci,
+        COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS futureSavvyNet
+      FROM \`transactions\` t
+      ${PAYOUT_JOIN}
+      ${underContractScope}
+      GROUP BY DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m')
       ORDER BY month ASC
     `),
     runRows<Row>(sql`
@@ -497,13 +511,19 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       savvyNet: change(production.savvyNet, prior.savvyNet),
     },
     flags: flagSummary,
-    monthly: monthlyRows.map((row) => ({
-      month: String(row.month ?? ""),
-      closings: asNumber(row.closings),
-      volume: asNumber(row.volume),
-      grossCommission: asNumber(row.grossCommission),
-      savvyNet: asNumber(row.savvyNet),
-    })),
+    monthly: (() => {
+      const monthly = new Map<string, { month: string; closings: number; volume: number; grossCommission: number; savvyNet: number; underContract: number; futureVolume: number; futureGci: number; futureSavvyNet: number }>();
+      monthlyRows.forEach((row) => {
+        const month = String(row.month ?? "");
+        monthly.set(month, { month, closings: asNumber(row.closings), volume: asNumber(row.volume), grossCommission: asNumber(row.grossCommission), savvyNet: asNumber(row.savvyNet), underContract: 0, futureVolume: 0, futureGci: 0, futureSavvyNet: 0 });
+      });
+      underContractMonthlyRows.forEach((row) => {
+        const month = String(row.month ?? "");
+        const current = monthly.get(month) ?? { month, closings: 0, volume: 0, grossCommission: 0, savvyNet: 0, underContract: 0, futureVolume: 0, futureGci: 0, futureSavvyNet: 0 };
+        monthly.set(month, { ...current, underContract: asNumber(row.underContract), futureVolume: asNumber(row.futureVolume), futureGci: asNumber(row.futureGci), futureSavvyNet: asNumber(row.futureSavvyNet) });
+      });
+      return Array.from(monthly.values()).sort((left, right) => left.month.localeCompare(right.month));
+    })(),
     agents: agentRows.map((row) => ({
       agentId: asNumber(row.agentId),
       agentName: String(row.agentName ?? "Unknown"),
@@ -610,6 +630,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   // by the report's historical closing/contract date range.
   const periodOutcomeScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
   const pipelineScope = transactionScope({ ...resolvedFilters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
+  const monthlyPerformanceScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
   const priorFilters = previousPeriod(resolvedFilters);
   const priorScope = priorFilters ? transactionScope(priorFilters) : null;
   const date = dateColumn(resolvedFilters);
@@ -617,7 +638,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   const limit = Math.min(100, Math.max(10, filters.limit ?? 25));
   const offset = (page - 1) * limit;
 
-  const [summaryRows, priorRows, statusRows, pipelineRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
+  const [summaryRows, priorRows, statusRows, pipelineRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, underContractMonthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${scope}`),
     priorScope ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorScope}`) : Promise.resolve([]),
     runRows<Row>(sql`
@@ -673,8 +694,21 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
         COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
       FROM \`transactions\` t
       ${PAYOUT_JOIN}
-      ${scope}
+      ${monthlyPerformanceScope}
       GROUP BY DATE_FORMAT(${date}, '%Y-%m')
+      ORDER BY month ASC
+    `),
+    runRows<Row>(sql`
+      SELECT
+        DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m') AS month,
+        COUNT(*) AS underContract,
+        COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS futureVolume,
+        COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS futureGci,
+        COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS futureSavvyNet
+      FROM \`transactions\` t
+      ${PAYOUT_JOIN}
+      ${pipelineScope}
+      GROUP BY DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m')
       ORDER BY month ASC
     `),
     runRows<Row>(sql`
@@ -690,7 +724,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       FROM \`transactions\` t
       LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
       ${PAYOUT_JOIN}
-      ${scope}
+      ${periodOutcomeScope}
       GROUP BY t.\`agentId\`, u.\`name\`
       ORDER BY terminations DESC, units DESC, grossCommission DESC, agentName ASC
       LIMIT 100
@@ -786,14 +820,19 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       grossCommission: asNumber(row.grossCommission),
       savvyNet: asNumber(row.savvyNet),
     })),
-    monthly: monthlyRows.map((row) => ({
-      month: String(row.month ?? ""),
-      units: asNumber(row.units),
-      closings: asNumber(row.closings),
-      volume: asNumber(row.volume),
-      grossCommission: asNumber(row.grossCommission),
-      savvyNet: asNumber(row.savvyNet),
-    })),
+    monthly: (() => {
+      const monthly = new Map<string, { month: string; units: number; closings: number; volume: number; grossCommission: number; savvyNet: number; underContract: number; futureVolume: number; futureGci: number; futureSavvyNet: number }>();
+      monthlyRows.forEach((row) => {
+        const month = String(row.month ?? "");
+        monthly.set(month, { month, units: asNumber(row.units), closings: asNumber(row.closings), volume: asNumber(row.volume), grossCommission: asNumber(row.grossCommission), savvyNet: asNumber(row.savvyNet), underContract: 0, futureVolume: 0, futureGci: 0, futureSavvyNet: 0 });
+      });
+      underContractMonthlyRows.forEach((row) => {
+        const month = String(row.month ?? "");
+        const current = monthly.get(month) ?? { month, units: 0, closings: 0, volume: 0, grossCommission: 0, savvyNet: 0, underContract: 0, futureVolume: 0, futureGci: 0, futureSavvyNet: 0 };
+        monthly.set(month, { ...current, underContract: asNumber(row.underContract), futureVolume: asNumber(row.futureVolume), futureGci: asNumber(row.futureGci), futureSavvyNet: asNumber(row.futureSavvyNet) });
+      });
+      return Array.from(monthly.values()).sort((left, right) => left.month.localeCompare(right.month));
+    })(),
     agentOutcomes: agentOutcomeRows.map((row) => ({
       agentId: asNullableNumber(row.agentId),
       agentName: String(row.agentName ?? "Unassigned"),
