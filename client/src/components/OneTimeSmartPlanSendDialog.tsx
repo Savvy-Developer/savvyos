@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import EmailMessagePreviewDialog from "@/components/EmailMessagePreviewDialog";
+import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
 import { toast } from "sonner";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Mail, MessageSquare, Send, Users, X } from "lucide-react";
 
@@ -40,6 +41,7 @@ export default function OneTimeSmartPlanSendDialog({ onClose }: { onClose: () =>
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewRequested, setReviewRequested] = useState(false);
   const [emailPreviewOpen, setEmailPreviewOpen] = useState(false);
+  const [testSendOpen, setTestSendOpen] = useState(false);
   const isLeadSourceTrigger = triggerType === "lead_source";
   const selectedTrigger = TRIGGERS.find((trigger) => trigger.value === triggerType) ?? TRIGGERS[0];
   const leadSources = (sourceRows as any[]).map((row) => ({ id: row.ls?.id ?? row.id, name: row.ls?.name ?? row.name, parentId: row.ls?.parentId ?? row.parentId ?? null })) as LeadSource[];
@@ -111,6 +113,7 @@ export default function OneTimeSmartPlanSendDialog({ onClose }: { onClose: () =>
           </div>
 
           {channel === "email" ? <><div className="space-y-2"><Label>Email subject <span className="text-destructive">*</span></Label><Input value={subject} onChange={(event) => { setSubject(event.target.value); resetReview(); }} placeholder="A concise, recipient-friendly subject" /></div><div className="space-y-2"><Label>Email content <span className="text-destructive">*</span></Label><RichEmailEditor value={body} onChange={(value) => { setBody(value); resetReview(); }} placeholder="Write the email recipients will receive..." /><div className="flex justify-end pt-1"><Button type="button" variant="outline" size="sm" onClick={() => setEmailPreviewOpen(true)} disabled={!subject.trim() || !body.replace(/<[^>]+>/g, " ").trim()}><Eye className="mr-1.5 h-4 w-4" /> Preview email</Button></div></div></> : <div className="space-y-2"><div className="flex items-center justify-between"><Label>Text message <span className="text-destructive">*</span></Label><span className="text-xs text-muted-foreground">{body.length}/160</span></div><Textarea value={body} maxLength={160} rows={5} onChange={(event) => { setBody(event.target.value); resetReview(); }} placeholder="Write the text message recipients will receive..." /></div>}
+          <div className="flex justify-end pt-1"><Button type="button" variant="outline" size="sm" onClick={() => setTestSendOpen(true)} disabled={!body.trim() || (channel === "email" && !subject.trim())}><Send className="mr-1.5 h-4 w-4" /> Test send</Button></div>
           <div className="flex flex-wrap items-center gap-1.5"><span className="mr-1 text-xs text-muted-foreground">Insert:</span>{["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{lead_source}}"].map((tag) => <button key={tag} type="button" className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary hover:bg-primary/20" onClick={() => { setBody((current) => `${current}${tag}`); resetReview(); }}>{tag}</button>)}</div>
           {channel === "sms" && <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><p>Text sends use the configured calling and messaging provider. Contacts without a phone number or marked Do Not Contact are excluded before delivery.</p></div>}
         </div> : <div className="space-y-5 py-2">
@@ -120,6 +123,7 @@ export default function OneTimeSmartPlanSendDialog({ onClose }: { onClose: () =>
         </div>}
 
         {emailPreviewOpen && <EmailMessagePreviewDialog subject={subject} body={body} onClose={() => setEmailPreviewOpen(false)} />}
+        {testSendOpen && <SmartPlanTestSendDialog channel={channel} subject={subject} body={body} onClose={() => setTestSendOpen(false)} />}
         <DialogFooter>{!isReviewing ? <><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={reviewAudience}><Users className="mr-1.5 h-4 w-4" /> Review audience</Button></> : <><Button variant="outline" onClick={() => { setIsReviewing(false); setReviewRequested(false); }}><ArrowLeft className="mr-1.5 h-4 w-4" /> Back to edit</Button><Button disabled={!preview.data?.eligibleCount || queueSend.isPending} onClick={confirmSend} className="bg-emerald-600 hover:bg-emerald-700"><CheckCircle2 className="mr-1.5 h-4 w-4" />{queueSend.isPending ? "Queueing..." : `Queue ${preview.data?.eligibleCount?.toLocaleString() ?? 0} recipients`}</Button></>}</DialogFooter>
       </DialogContent>
     </Dialog>

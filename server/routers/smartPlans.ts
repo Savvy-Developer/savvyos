@@ -13,6 +13,9 @@ import {
   oneTimeSendRecipients,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, sql } from "drizzle-orm";
+import { sendAircallSMS } from "../_core/aircall";
+import { sendSmartPlanEmail } from "../_core/smartPlanEmail";
+import { renderMergeTags } from "../_core/smartPlanMergeTags";
 import {
   SMART_PLAN_TRIGGER_TYPES,
   enrollContactInPlan,
@@ -49,6 +52,23 @@ function isOneTimeSendEligible(contact: Pick<typeof contacts.$inferSelect, "emai
   if (contact.doNotContact || contact.isaStatus === "do_not_contact") return false;
   if (channel === "email") return !!contact.email && contact.emailStatus === "valid";
   return !!contact.phone;
+}
+
+const testSendInput = z.object({
+  channel: z.enum(["email", "sms"]),
+  subject: z.string().trim().max(255).optional().nullable(),
+  body: z.string().trim().min(1).max(100_000),
+  recipientEmail: z.string().trim().email().optional().nullable(),
+  recipientPhone: z.string().trim().min(7).max(32).optional().nullable(),
+});
+
+function testMergeContext(agentName: string | null | undefined) {
+  return {
+    firstName: "Test",
+    lastName: "Recipient",
+    agentName: agentName ?? "Your Agent",
+    leadSource: "Test Lead",
+  };
 }
 
 export const smartPlansRouter = router({
@@ -191,6 +211,46 @@ export const smartPlansRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const result = await bulkEnrollExistingContacts(input.planId);
       return result;
+    }),
+
+  // Send exactly one labeled test message without enrolling, queuing, or changing campaign metrics.
+  testSend: protectedProcedure
+    .input(testSendInput)
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      if (input.channel === "email" && !input.recipientEmail) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Enter an email address for the test send." });
+      }
+      if (input.channel === "sms" && !input.recipientPhone) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a phone number for the test send." });
+      }
+      if (input.channel === "email" && !input.subject?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "An email subject is required." });
+      }
+      if (input.channel === "sms" && input.body.length > 160) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Text messages are limited to 160 characters." });
+      }
+
+      const mergeContext = testMergeContext(ctx.user.name);
+      const body = renderMergeTags(input.body, mergeContext);
+      const result = input.channel === "email"
+        ? await sendSmartPlanEmail({
+          to: input.recipientEmail!,
+          subject: `[TEST] ${renderMergeTags(input.subject!, mergeContext)}`,
+          body,
+          isHtml: true,
+        })
+        : await sendAircallSMS(input.recipientPhone!, `[TEST] ${body}`);
+      if (!result.success) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: result.error || "Unable to send the test message." });
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "smart_plan_test_sent",
+        entityType: "smart_plan_test",
+        details: { channel: input.channel, recipient: input.channel === "email" ? input.recipientEmail : input.recipientPhone, providerMessageId: result.messageId ?? null },
+      });
+      return { success: true, messageId: result.messageId ?? null };
     }),
 
   // ── One Time Sends ─────────────────────────────────────────────────────────

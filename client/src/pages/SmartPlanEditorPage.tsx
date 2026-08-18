@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import EmailMessagePreviewDialog from "@/components/EmailMessagePreviewDialog";
+import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
 import { toast } from "sonner";
 import {
   ArrowLeft, BarChart3, Check, ChevronDown, ChevronUp, Clock, Eye, FileText,
@@ -211,6 +212,7 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
 }) {
   const [form, setForm] = useState<StepForm>(EMPTY_STEP);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [testSendOpen, setTestSendOpen] = useState(false);
   const isExisting = !!step;
 
   useEffect(() => {
@@ -323,6 +325,11 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
             </Button>
           </div>
         )}
+        <div className="flex justify-end pt-1">
+          <Button type="button" variant="outline" size="sm" onClick={() => setTestSendOpen(true)} disabled={!form.body.trim() || (form.channel === "email" && !form.subject.trim())}>
+            <Send className="mr-1.5 h-4 w-4" /> Test send
+          </Button>
+        </div>
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
           <span className="mr-1 text-xs text-muted-foreground">Insert:</span>
           {["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{lead_source}}", "{{agent_name}}"].map((tag) => (
@@ -356,6 +363,7 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
         <Button onClick={save} disabled={saving}><Save className="mr-1.5 h-4 w-4" /> {saving ? "Saving..." : isExisting ? "Save step" : "Add step"}</Button>
       </div>
       {previewOpen && <EmailMessagePreviewDialog subject={form.subject} body={form.body} onClose={() => setPreviewOpen(false)} />}
+      {testSendOpen && <SmartPlanTestSendDialog channel={form.channel} subject={form.subject} body={form.body} onClose={() => setTestSendOpen(false)} />}
     </div>
   );
 }
