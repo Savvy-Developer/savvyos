@@ -630,7 +630,8 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   // by the report's historical closing/contract date range.
   const periodOutcomeScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
   const pipelineScope = transactionScope({ ...resolvedFilters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
-  const monthlyPerformanceScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
+  const monthlyPerformanceStatus = resolvedFilters.status === "terminated" ? "terminated" : "closed";
+  const monthlyPerformanceScope = transactionScope({ ...resolvedFilters, status: monthlyPerformanceStatus }, { forceStatus: monthlyPerformanceStatus });
   const priorFilters = previousPeriod(resolvedFilters);
   const priorScope = priorFilters ? transactionScope(priorFilters) : null;
   const date = dateColumn(resolvedFilters);

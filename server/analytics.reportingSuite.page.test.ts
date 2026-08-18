@@ -47,6 +47,9 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("summary.change?.grossCommission");
     expect(content).toContain("Under Contract GCI");
     expect(content).toContain("Under Contract Savvy net");
+    expect(content).toContain("Under Contract volume");
+    expect(content).toContain("productionTrendTooltip");
+    expect(content).toContain("filterNull");
     expect(content).toContain("Terminated rate");
     expect(content).toContain("Number(agent.terminations) / Number(agent.closings)");
     expect(content).toContain("visibleOutcomeAgents");
@@ -58,6 +61,7 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("terminationRate");
     expect(service).toContain("underContractMonthlyRows");
     expect(service).toContain("monthlyPerformanceScope");
+    expect(service).toContain("monthlyPerformanceStatus");
     expect(service).toContain("periodOutcomeScope");
     expect(service).toContain("closedUnits: closed");
     expect(service).toContain("priorScope");
@@ -87,6 +91,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(views).toContain("Overdue");
     expect(views).toContain("Follow-up");
     expect(views).toContain("Under Contract volume");
+    expect(views).toContain("marketTrendTooltip");
+    expect(views).toContain("filterNull");
 
     expect(service).toContain("getAgentOnboardingReportingData");
     expect(service).toContain("getMarketAnalyticsReportingData");
