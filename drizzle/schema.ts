@@ -2723,6 +2723,51 @@ export const aircallUnmatchedCalls = mysqlTable(
 export type AircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferSelect;
 export type InsertAircallUnmatchedCall = typeof aircallUnmatchedCalls.$inferInsert;
 
+// ─── Aircall Reliability ───────────────────────────────────────────────────────
+// Every relevant webhook is durably written before a 2xx response is returned to
+// Aircall. This outbox-style ledger survives deploys and process restarts.
+export const aircallWebhookEvents = mysqlTable(
+  "aircall_webhook_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventKey: varchar("eventKey", { length: 160 }).notNull(),
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    eventType: varchar("eventType", { length: 96 }).notNull(),
+    payload: json("payload").notNull(),
+    status: mysqlEnum("status", ["pending", "processing", "retrying", "completed"]).notNull().default("pending"),
+    attempts: int("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("nextAttemptAt"),
+    leaseExpiresAt: timestamp("leaseExpiresAt"),
+    lastAttemptAt: timestamp("lastAttemptAt"),
+    processedAt: timestamp("processedAt"),
+    lastError: varchar("lastError", { length: 512 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_webhook_events_event_key_unique").on(table.eventKey),
+    index("aircall_webhook_events_status_next_attempt_idx").on(table.status, table.nextAttemptAt),
+    index("aircall_webhook_events_call_event_idx").on(table.aircallCallId, table.eventType),
+  ],
+);
+export type AircallWebhookEvent = typeof aircallWebhookEvents.$inferSelect;
+export type InsertAircallWebhookEvent = typeof aircallWebhookEvents.$inferInsert;
+
+// Singleton state retained for webhook self-healing, verification and alerting.
+export const aircallIntegrationState = mysqlTable("aircall_integration_state", {
+  id: int("id").primaryKey(),
+  webhookId: varchar("webhookId", { length: 128 }),
+  webhookToken: varchar("webhookToken", { length: 255 }),
+  lastVerifiedAt: timestamp("lastVerifiedAt"),
+  lastWebhookRepairAt: timestamp("lastWebhookRepairAt"),
+  lastAlertAt: timestamp("lastAlertAt"),
+  lastError: varchar("lastError", { length: 512 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AircallIntegrationState = typeof aircallIntegrationState.$inferSelect;
+export type InsertAircallIntegrationState = typeof aircallIntegrationState.$inferInsert;
+
 // ─── Job Board ─────────────────────────────────────────────────────────────────
 // Admin-managed job postings visible on the public /careers page.
 export const jobPostings = mysqlTable("job_postings", {

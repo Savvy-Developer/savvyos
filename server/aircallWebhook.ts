@@ -1,115 +1,82 @@
 /**
  * Aircall Live Webhook Handler
  * =============================
- * Registered as POST /api/webhooks/aircall in the Express server.
- *
- * Aircall sends a POST request for every call event. We:
- *  1. Respond 200 immediately (Aircall will disable webhook after 10 failures)
- *  2. Process the call asynchronously to avoid the 5-second timeout
- *  3. Only act on `call.ended` events (all call data is available at that point)
- *  4. Delegate to processAircallCall() which is fully idempotent
- *  5. After creating the activity, trigger Whisper transcription + GPT summary async
- *
- * Webhook token verification:
- *  - Aircall sends a `token` field in the payload body
- *  - We compare it to AIRCALL_WEBHOOK_TOKEN env var
- *  - If the env var is not set, verification is skipped (dev mode)
+ * Every call event is durably committed before Aircall receives a 2xx response.
+ * This prevents a deployment, crash, or transient downstream failure from losing
+ * a recording-ready event after it has been acknowledged.
  */
 
 import type { Express, Request, Response } from "express";
-import { processAircallCall, scheduleAircallTranscription, type AircallCallData } from "./aircall";
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
+import type { AircallCallData } from "./aircall";
+import {
+  persistAircallWebhook,
+  processDueAircallWebhookEvents,
+  verifyAircallWebhookToken,
+} from "./aircallReliability";
 
 interface AircallWebhookPayload {
   event: string;
   resource: string;
   timestamp: number;
-  token?: string; // Webhook token for verification
+  token?: string;
   data: AircallCallData;
 }
 
-// ─── Token Verification ────────────────────────────────────────────────────────
+const DURABLE_CALL_EVENTS = new Set([
+  "call.ended",
+  "call.comm_assets_generated",
+]);
 
-function verifyWebhookToken(token: string | undefined): boolean {
-  const expected = process.env.AIRCALL_WEBHOOK_TOKEN;
-  if (!expected) {
-    // Token not configured — skip verification (log a warning in production)
-    if (process.env.NODE_ENV === "production") {
-      console.warn("[Aircall Webhook] WARNING: AIRCALL_WEBHOOK_TOKEN not set. Skipping token verification.");
-    }
-    return true;
-  }
-  return token === expected;
+function isValidPayload(payload: unknown): payload is AircallWebhookPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as Partial<AircallWebhookPayload>;
+  return Boolean(
+    candidate.event
+    && candidate.resource
+    && candidate.data
+    && typeof candidate.data.id === "number",
+  );
 }
-
-// ─── Async Processor ──────────────────────────────────────────────────────────
-
-async function handleCallEnded(callData: AircallCallData): Promise<void> {
-  try {
-    const result = await processAircallCall(callData);
-    switch (result.action) {
-      case "created":
-        console.log(
-          `[Aircall Webhook] call.ended ${callData.id} → contact ${result.contactId}, comm ${result.communicationId}`
-        );
-        // Kick off transcription + summary asynchronously (non-blocking).
-        if (result.communicationId) {
-          scheduleAircallTranscription(result.communicationId, callData);
-        }
-        break;
-      case "skipped":
-        console.log(`[Aircall Webhook] call.ended ${callData.id} — already processed`);
-        break;
-      case "unmatched":
-        console.log(
-          `[Aircall Webhook] call.ended ${callData.id} — unmatched phone: ${callData.raw_digits ?? "(none)"}`
-        );
-        break;
-    }
-  } catch (err: any) {
-    console.error(`[Aircall Webhook] Error processing call ${callData.id}: ${err.message}`);
-  }
-}
-
-// ─── Route Registration ────────────────────────────────────────────────────────
 
 export function registerAircallWebhook(app: Express): void {
-  app.post("/api/webhooks/aircall", (req: Request, res: Response) => {
-    // ── 1. Respond 200 immediately ────────────────────────────────────────────
-    // Aircall requires a 2xx response within 5 seconds or it counts as a failure.
-    // After 10 failures, Aircall auto-disables the webhook.
-    res.sendStatus(200);
-
-    // ── 2. Parse and validate payload ─────────────────────────────────────────
-    const payload = req.body as AircallWebhookPayload;
-
-    if (!payload || !payload.event || !payload.data) {
-      console.warn("[Aircall Webhook] Received malformed payload");
+  app.post("/api/webhooks/aircall", async (req: Request, res: Response) => {
+    const payload = req.body as unknown;
+    if (!isValidPayload(payload)) {
+      console.warn("[Aircall Webhook] Rejected malformed payload");
+      res.sendStatus(400);
       return;
     }
 
-    // ── 3. Token verification ─────────────────────────────────────────────────
-    if (!verifyWebhookToken(payload.token)) {
-      console.warn(
-        `[Aircall Webhook] Token mismatch for event ${payload.event} — ignoring`
-      );
-      return;
-    }
+    try {
+      const tokenValid = await verifyAircallWebhookToken(payload.token);
+      if (!tokenValid) {
+        console.error(`[Aircall Webhook] Rejected token for ${payload.event} / call ${payload.data.id}`);
+        res.sendStatus(401);
+        return;
+      }
 
-    // ── 4. Only process call.ended (all data including recording is available) ─
-    // call.hungup fires immediately but recording URL is not yet available.
-    // call.ended fires ~30 seconds later with the full call object.
-    if (payload.event !== "call.ended") {
-      // Silently acknowledge other events — we don't need them for Phase 1
-      return;
-    }
+      // Acknowledge unrelated Aircall events after validation. The integration
+      // self-check intentionally subscribes only to the two durable call events.
+      if (!DURABLE_CALL_EVENTS.has(payload.event)) {
+        res.sendStatus(204);
+        return;
+      }
 
-    // ── 5. Process asynchronously ─────────────────────────────────────────────
-    handleCallEnded(payload.data).catch((err) => {
-      console.error(`[Aircall Webhook] Unhandled error: ${err.message}`);
-    });
+      // The DB insert is the acknowledgement boundary. Once it succeeds, a
+      // restart or a transient S3/AI/Aircall issue cannot lose the event.
+      await persistAircallWebhook(payload);
+      res.sendStatus(204);
+
+      // Opportunistic low-latency processing; the persistent worker will pick
+      // it up again after any failure or process interruption.
+      void processDueAircallWebhookEvents();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[Aircall Webhook] Durable persistence failed for ${payload.event}:`, message);
+      // Non-2xx asks Aircall to retry rather than silently accepting a lost call.
+      res.sendStatus(503);
+    }
   });
 
-  console.log("[Aircall Webhook] Registered POST /api/webhooks/aircall");
+  console.log("[Aircall Webhook] Registered durable POST /api/webhooks/aircall");
 }

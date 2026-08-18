@@ -766,7 +766,7 @@ export async function processAircallCall(
     rawPayload: call as any,
   });
 
-  if (!recordingResult && !voicemailResult && (call.recording || call.voicemail)) {
+  if (!options?.skipMediaDownload && !recordingResult && !voicemailResult && (call.recording || call.voicemail)) {
     scheduleAircallMediaRetry(communicationId, call);
   }
 

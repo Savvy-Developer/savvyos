@@ -26,7 +26,7 @@ import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
 import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
 import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
-import { scheduleAircallReconciliation } from "../aircallReconciliationScheduler";
+import { scheduleAircallReliability } from "../aircallReliability";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -243,8 +243,9 @@ async function startServer() {
   // R&R scorecard metrics: bounded automatic refresh every six hours.
   scheduleRrMetricRefresh();
 
-  // Aircall reconciliation: daily recent-call safety net alongside immediate phone-update retries.
-  scheduleAircallReconciliation();
+  // Aircall: durable webhook ledger, media-ready event handling, self-healing
+  // webhook configuration, and periodic inventory reconciliation.
+  scheduleAircallReliability();
 }
 
 startServer().catch(console.error);
