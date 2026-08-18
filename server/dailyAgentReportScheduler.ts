@@ -431,6 +431,87 @@ async function generateAiSuggestions(
   }
 }
 
+function normalizeAiSuggestions(items: Array<Record<string, unknown>>): DailyReportSuggestion[] {
+  return items.slice(0, 3).map((item) => ({
+    priority: normalisePriority(item.priority),
+    title: typeof item.title === "string" ? item.title.slice(0, 120) : "Review your daily priorities",
+    rationale: typeof item.rationale === "string" ? item.rationale.slice(0, 280) : "Review the related SavvyOS record and take the next appropriate action.",
+    actionLabel: typeof item.actionLabel === "string" ? item.actionLabel.slice(0, 48) : "Open SavvyOS",
+    actionPath: safeActionPath(item.actionPath),
+  }));
+}
+
+function batchAiFacts(report: DailyAgentReportSnapshot) {
+  return {
+    agentId: report.agent.id,
+    activeLeads: report.metrics.activeLeads,
+    hotLeads: report.metrics.hotLeads,
+    staleLeads: report.metrics.staleLeads,
+    overdueFollowUps: report.metrics.overdueFollowUps,
+    openTasks: report.metrics.openTasks,
+    overdueTasks: report.metrics.overdueTasks,
+    dueSoonTasks: report.metrics.dueSoonTasks,
+    currentUnderContract: report.metrics.currentUnderContract,
+    upcomingClosings: report.metrics.upcomingClosings,
+    pipeline: report.pipeline.filter((stage) => stage.count > 0).map((stage) => ({ label: stage.label, count: stage.count })),
+    hotLeadSignals: report.hotLeads.slice(0, 3).map((lead) => ({
+      stage: lead.stageLabel,
+      score: lead.score,
+      reasons: lead.reasons,
+    })),
+    actionOptions: report.suggestions.map((suggestion) => ({
+      actionPath: suggestion.actionPath,
+      actionLabel: suggestion.actionLabel,
+    })),
+  };
+}
+
+/**
+ * Generate suggestions in small batches rather than one model request per agent.
+ * This protects the delivery window and retains each report's deterministic plan
+ * whenever the model or response cannot be used safely.
+ */
+async function generateBatchedAiSuggestions(
+  reports: DailyAgentReportSnapshot[],
+): Promise<Map<number, DailyReportSuggestion[]>> {
+  const suggestionsByAgent = new Map<number, DailyReportSuggestion[]>();
+  const chunkSize = 10;
+
+  for (let offset = 0; offset < reports.length; offset += chunkSize) {
+    const chunk = reports.slice(offset, offset + chunkSize);
+    try {
+      const result = await invokeLLM({
+        model: AI_MODEL,
+        maxTokens: 5000,
+        responseFormat: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: "Create concise end-of-day operating plans for multiple real-estate agents. Use only the supplied facts. Do not invent activity, lead behavior, due dates, or business outcomes. For every agent, return one to three action-oriented recommendations, prioritizing overdue work and explicit engagement signals. Each actionPath must be selected exactly from that agent's actionOptions. Recommendations are advisory only and must never imply a task was completed or a contact was made. Return JSON only with a recommendations array; each item must contain agentId and suggestions. Each suggestion must contain priority (critical, high, or medium), title, rationale, actionLabel, and actionPath.",
+          },
+          { role: "user", content: JSON.stringify({ agents: chunk.map(batchAiFacts) }) },
+        ],
+      });
+      const content = result.choices[0]?.message?.content;
+      const parsed = JSON.parse(typeof content === "string" ? content : "") as {
+        recommendations?: Array<{ agentId?: unknown; suggestions?: Array<Record<string, unknown>> }>;
+      };
+      if (!Array.isArray(parsed.recommendations)) throw new Error("Missing recommendations array in AI response.");
+
+      for (const recommendation of parsed.recommendations) {
+        const agentId = typeof recommendation.agentId === "number" ? recommendation.agentId : null;
+        if (!agentId || !chunk.some((report) => report.agent.id === agentId) || !Array.isArray(recommendation.suggestions)) continue;
+        const normalized = normalizeAiSuggestions(recommendation.suggestions);
+        if (normalized.length > 0) suggestionsByAgent.set(agentId, normalized);
+      }
+    } catch (error) {
+      console.warn("[DailyAgentReport] Batched AI suggestions unavailable; affected reports will use deterministic priorities.", error);
+    }
+  }
+
+  return suggestionsByAgent;
+}
+
 export async function buildDailyAgentReport(
   agent: AgentRecipient,
   asOf = new Date(),
@@ -858,9 +939,28 @@ export async function sendDailyAgentReports(asOf = new Date()): Promise<void> {
 
     let successfulRecipientCount = 0;
     const failures: string[] = [];
+    const preparedReports: Array<{ agent: AgentRecipient; report: DailyAgentReportSnapshot }> = [];
+
     for (const agent of agents) {
       try {
-        const report = await buildDailyAgentReport(agent, asOf, true);
+        preparedReports.push({
+          agent,
+          report: await buildDailyAgentReport(agent, asOf, false),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${agent.email ?? agent.id}: ${message}`);
+        console.error(`[DailyAgentReport] Could not prepare report for agent ${agent.id}.`, error);
+      }
+    }
+
+    const aiSuggestionsByAgent = await generateBatchedAiSuggestions(preparedReports.map((item) => item.report));
+    for (const { agent, report: preparedReport } of preparedReports) {
+      try {
+        const aiSuggestions = aiSuggestionsByAgent.get(agent.id);
+        const report: DailyAgentReportSnapshot = aiSuggestions
+          ? { ...preparedReport, suggestions: aiSuggestions, aiGenerated: true }
+          : preparedReport;
         await saveDailyAgentReport(report);
         const delivery = await sendTransactionalEmail(
           "daily_agent_report",
