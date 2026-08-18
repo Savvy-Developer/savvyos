@@ -143,9 +143,10 @@ Write 2–4 sentences. Include: main topic, key points discussed, any next steps
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        // GPT-5 models only accept the default temperature. Keep the output cap
-        // and omit unsupported optional controls for proxy compatibility.
-        max_completion_tokens: 300,
+        // GPT-5 models only accept the default temperature. Keep optional
+        // controls off for proxy compatibility and reserve enough output budget
+        // for the model's internal processing plus the concise final summary.
+        max_completion_tokens: 1_500,
       }),
     });
 
