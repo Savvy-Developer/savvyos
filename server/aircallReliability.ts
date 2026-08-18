@@ -341,7 +341,10 @@ export async function processDueAircallTranscriptions(): Promise<void> {
         sql`COALESCE(${aircallCalls.duration}, 0) >= 10`,
         or(
           isNull(communications.transcription),
-          sql`COALESCE(${communications.body}, '') NOT LIKE '%AI Summary:%'`,
+          and(
+            sql`CHAR_LENGTH(TRIM(${communications.transcription})) >= 20`,
+            sql`COALESCE(${communications.body}, '') NOT LIKE '%AI Summary:%'`,
+          ),
         ),
         or(
           isNull(aircallCalls.transcriptionRecoveryNextAttemptAt),
