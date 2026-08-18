@@ -5,6 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -35,6 +38,7 @@ import {
   ArrowUp,
   ArrowDown,
   CircleOff,
+  X,
 } from "lucide-react";
 
 type DaysFilter = "7" | "14" | "30" | "90";
@@ -55,6 +59,19 @@ const PIPELINE_STATUSES = [
   { value: "closed", label: "Closed" },
   { value: "dead", label: "Dead" },
 ];
+
+const TEMPORARY_REMOVAL_OPTIONS = [
+  { value: "1_day", label: "1 day" },
+  { value: "7_days", label: "7 days" },
+  { value: "14_days", label: "14 days" },
+  { value: "30_days", label: "30 days" },
+  { value: "90_days", label: "90 days" },
+  { value: "6_months", label: "6 months" },
+  { value: "1_year", label: "1 year" },
+] as const;
+
+type TemporaryRemovalOption = typeof TEMPORARY_REMOVAL_OPTIONS[number]["value"];
+type DeadConnectionsRemovalMode = "permanent" | "temporary";
 
 export default function HotLeadsPage() {
   const { user } = useAuth();
@@ -82,6 +99,11 @@ export default function HotLeadsPage() {
   const [eeSortDir, setEeSortDir] = useState<SortDir>("desc");
   const [dcSortKey, setDcSortKey] = useState<DCSortKey>("lastUpdatedAt");
   const [dcSortDir, setDcSortDir] = useState<SortDir>("desc");
+  const [deadConnectionToRemove, setDeadConnectionToRemove] = useState<any | null>(null);
+  const [deadConnectionsRemovalMode, setDeadConnectionsRemovalMode] = useState<DeadConnectionsRemovalMode>("permanent");
+  const [temporaryRemovalDuration, setTemporaryRemovalDuration] = useState<TemporaryRemovalOption>("7_days");
+  const [deadConnectionsRemovalNote, setDeadConnectionsRemovalNote] = useState("");
+  const [deadConnectionsRemovalError, setDeadConnectionsRemovalError] = useState<string | null>(null);
 
   // Fetch ISA and agent lists for filter dropdowns (admin/ISA only)
   const { data: usersList = [] } = trpc.users.list.useQuery(undefined, { enabled: isAdminOrIsa });
@@ -119,6 +141,16 @@ export default function HotLeadsPage() {
     },
     { enabled: isAdminOrIsa && activeTab === "dead-connections" }
   );
+  const trpcUtils = trpc.useUtils();
+  const removeDeadConnection = trpc.hotLeads.removeDeadConnection.useMutation({
+    onSuccess: async () => {
+      await trpcUtils.hotLeads.deadConnections.invalidate();
+      closeDeadConnectionsRemovalDialog();
+    },
+    onError: (error) => {
+      setDeadConnectionsRemovalError(error.message || "We couldn't take this contact off the list. Please try again.");
+    },
+  });
 
   // Client-side sorting for Property Views
   const sortedPvItems = useMemo(() => {
@@ -250,6 +282,36 @@ export default function HotLeadsPage() {
       setDcSortKey(key);
       setDcSortDir("desc");
     }
+  };
+
+  const openDeadConnectionsRemovalDialog = (lead: any) => {
+    setDeadConnectionToRemove(lead);
+    setDeadConnectionsRemovalMode("permanent");
+    setTemporaryRemovalDuration("7_days");
+    setDeadConnectionsRemovalNote("");
+    setDeadConnectionsRemovalError(null);
+  };
+
+  const closeDeadConnectionsRemovalDialog = () => {
+    if (removeDeadConnection.isPending) return;
+    setDeadConnectionToRemove(null);
+    setDeadConnectionsRemovalNote("");
+    setDeadConnectionsRemovalError(null);
+  };
+
+  const submitDeadConnectionsRemoval = () => {
+    if (!deadConnectionToRemove) return;
+    if (!deadConnectionsRemovalNote.trim()) {
+      setDeadConnectionsRemovalError("Add a note before taking this contact off the list.");
+      return;
+    }
+    setDeadConnectionsRemovalError(null);
+    removeDeadConnection.mutate({
+      contactId: deadConnectionToRemove.contactId,
+      note: deadConnectionsRemovalNote.trim(),
+      mode: deadConnectionsRemovalMode,
+      ...(deadConnectionsRemovalMode === "temporary" ? { temporaryDuration: temporaryRemovalDuration } : {}),
+    });
   };
 
   const handleDaysChange = (newDays: DaysFilter) => {
@@ -627,6 +689,9 @@ export default function HotLeadsPage() {
                         <span className="inline-flex items-center">Assigned ISA <SortIcon col="assignedIsa" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
                       </TableHead>
                       <TableHead>Agents</TableHead>
+                      <TableHead className="w-[52px] text-center">
+                        <span className="sr-only">Take off list</span>
+                      </TableHead>
                     </>
                   }
                   rows={sortedDcItems.map((lead, idx) => (
@@ -652,6 +717,19 @@ export default function HotLeadsPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => openDeadConnectionsRemovalDialog(lead)}
+                          title="Take off Dead Connections list"
+                          aria-label={`Take ${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() + " off Dead Connections list"}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 />
@@ -660,6 +738,93 @@ export default function HotLeadsPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      <Dialog
+        open={Boolean(deadConnectionToRemove)}
+        onOpenChange={(open) => {
+          if (!open) closeDeadConnectionsRemovalDialog();
+        }}
+      >
+        <DialogContent className="max-w-lg w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Take {deadConnectionToRemove?.firstName} {deadConnectionToRemove?.lastName} off the list</DialogTitle>
+            <DialogDescription>
+              Choose a permanent or temporary removal, then add a required note. The choice and note will be saved in this contact's Notes history.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant={deadConnectionsRemovalMode === "permanent" ? "default" : "outline"}
+                className="h-auto min-h-16 whitespace-normal text-left justify-start"
+                onClick={() => setDeadConnectionsRemovalMode("permanent")}
+              >
+                <span>
+                  <span className="block font-semibold">Permanently take off the list</span>
+                  <span className="block mt-1 text-xs opacity-80">This contact will not return automatically.</span>
+                </span>
+              </Button>
+              <Button
+                type="button"
+                variant={deadConnectionsRemovalMode === "temporary" ? "default" : "outline"}
+                className="h-auto min-h-16 whitespace-normal text-left justify-start"
+                onClick={() => setDeadConnectionsRemovalMode("temporary")}
+              >
+                <span>
+                  <span className="block font-semibold">Temporarily take off the list</span>
+                  <span className="block mt-1 text-xs opacity-80">The contact returns automatically after the selected time.</span>
+                </span>
+              </Button>
+            </div>
+
+            {deadConnectionsRemovalMode === "temporary" && (
+              <div className="space-y-2">
+                <Label>Bring this contact back after</Label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {TEMPORARY_REMOVAL_OPTIONS.map((option) => (
+                    <Button
+                      key={option.value}
+                      type="button"
+                      variant={temporaryRemovalDuration === option.value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTemporaryRemovalDuration(option.value)}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="dead-connections-removal-note">Required note</Label>
+              <Textarea
+                id="dead-connections-removal-note"
+                value={deadConnectionsRemovalNote}
+                onChange={(event) => setDeadConnectionsRemovalNote(event.target.value)}
+                placeholder="Explain why this contact should be removed from the Dead Connections list."
+                className="min-h-28"
+                maxLength={2000}
+              />
+              <p className="text-xs text-muted-foreground">
+                The contact note will record: {deadConnectionsRemovalMode === "permanent" ? "permanent removal" : `temporary removal for ${TEMPORARY_REMOVAL_OPTIONS.find((option) => option.value === temporaryRemovalDuration)?.label}`}.
+              </p>
+              {deadConnectionsRemovalError && <p className="text-sm text-destructive">{deadConnectionsRemovalError}</p>}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeDeadConnectionsRemovalDialog} disabled={removeDeadConnection.isPending}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={submitDeadConnectionsRemoval} disabled={!deadConnectionsRemovalNote.trim() || removeDeadConnection.isPending}>
+              {removeDeadConnection.isPending ? "Saving..." : "Take off list"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

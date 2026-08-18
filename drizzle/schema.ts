@@ -153,6 +153,11 @@ export const contacts = mysqlTable("contacts", {
   doNotContactReason: text("doNotContactReason"),
   doNotContactAt: timestamp("doNotContactAt"),
   doNotContactByUserId: int("doNotContactByUserId").references(() => users.id),
+  // Dead Connections list exclusions. A null expiry means the removal is permanent.
+  deadConnectionsExclusionMode: mysqlEnum("deadConnectionsExclusionMode", ["permanent", "temporary"]),
+  deadConnectionsExcludedAt: timestamp("deadConnectionsExcludedAt"),
+  deadConnectionsExcludedUntil: timestamp("deadConnectionsExcludedUntil"),
+  deadConnectionsExcludedByUserId: int("deadConnectionsExcludedByUserId").references(() => users.id),
   // Email deliverability tracking
   emailStatus: mysqlEnum("emailStatus", ["valid", "bounced", "unsubscribed"]).default("valid").notNull(),
   emailBouncedAt: timestamp("emailBouncedAt"),
@@ -169,6 +174,7 @@ export const contacts = mysqlTable("contacts", {
   // Supports the analytics cohort’s archived-contact exclusion plus lead-created
   // date range without scanning the full contacts table.
   cohortActiveCreatedAtIdx: index("contacts_archived_createdAt_idx").on(table.archivedAt, table.createdAt),
+  deadConnectionsExclusionIdx: index("contacts_dead_connections_exclusion_idx").on(table.deadConnectionsExcludedAt, table.deadConnectionsExcludedUntil),
 }));
 export type Contact = typeof contacts.$inferSelect;
 export type InsertContact = typeof contacts.$inferInsert;

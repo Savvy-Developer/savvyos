@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getDb } from "../db";
-import { activityLog, contacts, users, agentConnections, leadSources, emailBehaviors } from "../../drizzle/schema";
+import { activityLog, communications, contacts, users, agentConnections, leadSources, emailBehaviors } from "../../drizzle/schema";
 import { eq, sql, and, gte, desc } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
@@ -25,6 +25,28 @@ const deadConnectionsInput = z.object({
   agentId: z.number().int().optional(),
 }).optional();
 
+const temporaryDeadConnectionsExclusionOptions = {
+  "1_day": { days: 1, label: "1 day" },
+  "7_days": { days: 7, label: "7 days" },
+  "14_days": { days: 14, label: "14 days" },
+  "30_days": { days: 30, label: "30 days" },
+  "90_days": { days: 90, label: "90 days" },
+  "6_months": { months: 6, label: "6 months" },
+  "1_year": { years: 1, label: "1 year" },
+} as const;
+
+type TemporaryDeadConnectionsExclusion = keyof typeof temporaryDeadConnectionsExclusionOptions;
+
+const deadConnectionsRemovalInput = z.object({
+  contactId: z.number().int().positive(),
+  note: z.string().trim().min(1, "A note is required.").max(2000),
+  mode: z.enum(["permanent", "temporary"]),
+  temporaryDuration: z.enum(["1_day", "7_days", "14_days", "30_days", "90_days", "6_months", "1_year"]).optional(),
+}).refine(
+  (input) => input.mode === "permanent" || Boolean(input.temporaryDuration),
+  { message: "Choose how long this contact should stay off the list.", path: ["temporaryDuration"] },
+);
+
 function assertHotLeadsAccess(role: string) {
   if (role !== "admin" && role !== "isa" && role !== "agent") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
@@ -35,6 +57,15 @@ function assertDeadConnectionsAccess(role: string) {
   if (role !== "admin" && role !== "isa") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Dead Connections is available to admins and ISAs only" });
   }
+}
+
+function getTemporaryDeadConnectionsExclusionExpiry(option: TemporaryDeadConnectionsExclusion, from: Date): Date {
+  const expiry = new Date(from);
+  const config = temporaryDeadConnectionsExclusionOptions[option];
+  if ("days" in config) expiry.setDate(expiry.getDate() + config.days);
+  if ("months" in config) expiry.setMonth(expiry.getMonth() + config.months);
+  if ("years" in config) expiry.setFullYear(expiry.getFullYear() + config.years);
+  return expiry;
 }
 
 /** Batch lookup ISA names */
@@ -101,6 +132,84 @@ function ensureUtc(ts: string | null | undefined): string | null {
 
 export const hotLeadsRouter = router({
   /**
+   * removeDeadConnection — hides an eligible contact from Dead Connections and
+   * writes the required operator note into the contact's Notes history.
+   */
+  removeDeadConnection: protectedProcedure
+    .input(deadConnectionsRemovalInput)
+    .mutation(async ({ ctx, input }) => {
+      assertDeadConnectionsAccess(ctx.user.role);
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const [contact] = await db
+        .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName })
+        .from(contacts)
+        .where(and(
+          eq(contacts.id, input.contactId),
+          eq(contacts.doNotContact, false),
+          sql`EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id})`,
+          sql`NOT EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id} AND ac.pipelineStatus <> 'dead')`,
+        ))
+        .limit(1);
+
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This contact is no longer eligible for the Dead Connections list." });
+      }
+
+      const excludedAt = new Date();
+      const temporaryOption = input.temporaryDuration
+        ? temporaryDeadConnectionsExclusionOptions[input.temporaryDuration]
+        : null;
+      const excludedUntil = input.mode === "temporary" && input.temporaryDuration
+        ? getTemporaryDeadConnectionsExclusionExpiry(input.temporaryDuration, excludedAt)
+        : null;
+      const choiceLabel = input.mode === "permanent"
+        ? "Permanently taken off the Dead Connections list"
+        : `Temporarily taken off the Dead Connections list for ${temporaryOption?.label} (returns ${excludedUntil!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})`;
+      const noteBody = `${choiceLabel}.\n\nOperator note: ${input.note.trim()}`;
+
+      await (db as any).transaction(async (tx: any) => {
+        await tx.update(contacts).set({
+          deadConnectionsExclusionMode: input.mode,
+          deadConnectionsExcludedAt: excludedAt,
+          deadConnectionsExcludedUntil: excludedUntil,
+          deadConnectionsExcludedByUserId: ctx.user.id,
+        }).where(eq(contacts.id, contact.id));
+
+        const [noteResult] = await tx.insert(communications).values({
+          type: "note",
+          subject: "Dead Connections list removal",
+          body: noteBody,
+          direction: "internal",
+          authorId: ctx.user.id,
+          relatedContactId: contact.id,
+        });
+
+        await tx.insert(activityLog).values({
+          userId: ctx.user.id,
+          action: "dead_connections_list_removal",
+          entityType: "contact",
+          entityId: contact.id,
+          relatedContactId: contact.id,
+          details: {
+            actorName: ctx.user.name ?? "Unknown",
+            actorRole: ctx.user.role,
+            contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown Contact",
+            mode: input.mode,
+            temporaryDuration: input.temporaryDuration ?? null,
+            excludedAt: excludedAt.toISOString(),
+            excludedUntil: excludedUntil?.toISOString() ?? null,
+            noteId: Number(noteResult.insertId),
+          },
+        });
+      });
+
+      return { success: true, excludedUntil };
+    }),
+
+  /**
    * deadConnections — contacts with one or more agent connections where every
    * current connection is marked dead. This excludes any contact with an active,
    * closed, do-not-contact, or otherwise non-dead connection.
@@ -120,6 +229,7 @@ export const hotLeadsRouter = router({
       const baseConditions = [
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
         eq(contacts.doNotContact, false),
+        sql`(${contacts.deadConnectionsExcludedAt} IS NULL OR (${contacts.deadConnectionsExcludedUntil} IS NOT NULL AND ${contacts.deadConnectionsExcludedUntil} <= NOW()))`,
         sql`EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id})`,
         sql`NOT EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id} AND ac.pipelineStatus <> 'dead')`,
       ];
