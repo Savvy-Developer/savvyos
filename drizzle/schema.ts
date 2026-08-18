@@ -588,6 +588,60 @@ export const smartPlans = mysqlTable("smart_plans", {
 export type SmartPlan = typeof smartPlans.$inferSelect;
 export type InsertSmartPlan = typeof smartPlans.$inferInsert;
 
+// ─── One Time Smart Plan Sends ───────────────────────────────────────────────
+// A queued, auditable broadcast that reuses Smart Plan audience triggers without
+// creating an ongoing drip workflow. Recipient rows make delivery restart-safe.
+export const oneTimeSends = mysqlTable("one_time_sends", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  channel: mysqlEnum("channel", ["email", "sms"]).notNull(),
+  subject: varchar("subject", { length: 255 }),
+  body: text("body").notNull(),
+  triggerType: mysqlEnum("triggerType", [
+    "lead_source",
+    "buyer_under_contract",
+    "seller_under_contract",
+    "new_listing",
+    "buyer_closed",
+    "seller_closed",
+  ]).notNull(),
+  triggerLeadSourceIds: json("triggerLeadSourceIds").$type<number[]>(),
+  status: mysqlEnum("status", ["queued", "processing", "completed", "failed", "cancelled"]).default("queued").notNull(),
+  totalRecipients: int("totalRecipients").default(0).notNull(),
+  sentCount: int("sentCount").default(0).notNull(),
+  skippedCount: int("skippedCount").default(0).notNull(),
+  failedCount: int("failedCount").default(0).notNull(),
+  createdById: int("createdById").references(() => users.id),
+  confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("one_time_sends_status_created_idx").on(table.status, table.createdAt),
+  index("one_time_sends_createdBy_idx").on(table.createdById),
+]);
+export type OneTimeSend = typeof oneTimeSends.$inferSelect;
+export type InsertOneTimeSend = typeof oneTimeSends.$inferInsert;
+
+export const oneTimeSendRecipients = mysqlTable("one_time_send_recipients", {
+  id: int("id").autoincrement().primaryKey(),
+  sendId: int("sendId").notNull().references(() => oneTimeSends.id),
+  contactId: int("contactId").notNull().references(() => contacts.id),
+  status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"]).default("queued").notNull(),
+  provider: varchar("provider", { length: 64 }),
+  providerMessageId: varchar("providerMessageId", { length: 255 }),
+  errorMessage: text("errorMessage"),
+  sentAt: timestamp("sentAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("one_time_send_recipient_unique").on(table.sendId, table.contactId),
+  index("one_time_send_recipients_send_status_idx").on(table.sendId, table.status),
+]);
+export type OneTimeSendRecipient = typeof oneTimeSendRecipients.$inferSelect;
+export type InsertOneTimeSendRecipient = typeof oneTimeSendRecipients.$inferInsert;
+
 export const smartPlanSteps = mysqlTable("smart_plan_steps", {
   id: int("id").autoincrement().primaryKey(),
   planId: int("planId").notNull().references(() => smartPlans.id),

@@ -9,6 +9,8 @@ import {
   smartPlanExecutions,
   leadSources,
   contacts,
+  oneTimeSends,
+  oneTimeSendRecipients,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, sql } from "drizzle-orm";
 import {
@@ -16,6 +18,8 @@ import {
   enrollContactInPlan,
   countContactsMatchingPlan,
   countContactsMatchingTrigger,
+  getCurrentContactIdsMatchingTrigger,
+  processOneTimeSmartPlanSends,
   bulkEnrollExistingContacts,
 } from "../smartPlanScheduler";
 
@@ -31,6 +35,21 @@ const planInput = z.object({
   triggerScope: z.enum(["new_only", "existing_and_new", "manual"]).optional(),
   status: z.enum(["active", "paused", "draft"]).optional(),
 });
+
+const oneTimeSendInput = z.object({
+  name: z.string().trim().min(1).max(255),
+  channel: z.enum(["email", "sms"]),
+  subject: z.string().trim().max(255).optional().nullable(),
+  body: z.string().trim().min(1).max(100_000),
+  triggerType: smartPlanTriggerSchema,
+  triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+});
+
+function isOneTimeSendEligible(contact: Pick<typeof contacts.$inferSelect, "email" | "phone" | "emailStatus" | "doNotContact" | "isaStatus">, channel: "email" | "sms"): boolean {
+  if (contact.doNotContact || contact.isaStatus === "do_not_contact") return false;
+  if (channel === "email") return !!contact.email && contact.emailStatus === "valid";
+  return !!contact.phone;
+}
 
 export const smartPlansRouter = router({
   // ── Plan CRUD ──────────────────────────────────────────────────────────────
@@ -173,6 +192,100 @@ export const smartPlansRouter = router({
       const result = await bulkEnrollExistingContacts(input.planId);
       return result;
     }),
+
+  // ── One Time Sends ─────────────────────────────────────────────────────────
+  oneTimeSends: router({
+    preview: protectedProcedure
+      .input(oneTimeSendInput)
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.channel === "email" && !input.subject?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "An email subject is required." });
+        }
+        if (input.channel === "sms" && input.body.length > 160) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Text messages are limited to 160 characters." });
+        }
+        if (input.triggerType === "lead_source" && !input.triggerLeadSourceIds?.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one lead source." });
+        }
+        const contactIds = await getCurrentContactIdsMatchingTrigger(input);
+        if (!contactIds.length) return { matchingCount: 0, eligibleCount: 0, excludedCount: 0 };
+        const rows = await db.select({
+          email: contacts.email,
+          phone: contacts.phone,
+          emailStatus: contacts.emailStatus,
+          doNotContact: contacts.doNotContact,
+          isaStatus: contacts.isaStatus,
+        }).from(contacts).where(sql`${contacts.id} IN (${sql.join(contactIds.map((id) => sql`${id}`), sql`, `)})`);
+        const eligibleCount = rows.filter((contact) => isOneTimeSendEligible(contact, input.channel)).length;
+        return { matchingCount: contactIds.length, eligibleCount, excludedCount: contactIds.length - eligibleCount };
+      }),
+
+    queue: protectedProcedure
+      .input(oneTimeSendInput.extend({ confirmed: z.literal(true) }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.channel === "email" && !input.subject?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "An email subject is required." });
+        }
+        if (input.channel === "sms" && input.body.length > 160) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Text messages are limited to 160 characters." });
+        }
+        if (input.triggerType === "lead_source" && !input.triggerLeadSourceIds?.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one lead source." });
+        }
+
+        const contactIds = await getCurrentContactIdsMatchingTrigger(input);
+        const matchingContacts = contactIds.length
+          ? await db.select().from(contacts).where(sql`${contacts.id} IN (${sql.join(contactIds.map((id) => sql`${id}`), sql`, `)})`)
+          : [];
+        const eligibleContactIds = matchingContacts
+          .filter((contact) => isOneTimeSendEligible(contact, input.channel))
+          .map((contact) => contact.id);
+        if (!eligibleContactIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "No eligible contacts match this audience and channel." });
+        }
+
+        const [result] = await db.insert(oneTimeSends).values({
+          name: input.name,
+          channel: input.channel,
+          subject: input.channel === "email" ? input.subject?.trim() ?? null : null,
+          body: input.body,
+          triggerType: input.triggerType,
+          triggerLeadSourceIds: input.triggerType === "lead_source" ? input.triggerLeadSourceIds ?? null : null,
+          status: "queued",
+          totalRecipients: eligibleContactIds.length,
+          createdById: ctx.user.id,
+          confirmedAt: new Date(),
+        });
+        const sendId = Number((result as any).insertId);
+        for (let start = 0; start < eligibleContactIds.length; start += 500) {
+          await db.insert(oneTimeSendRecipients).values(
+            eligibleContactIds.slice(start, start + 500).map((contactId) => ({ sendId, contactId, status: "queued" as const })),
+          );
+        }
+        await logActivity({
+          userId: ctx.user.id,
+          action: "one_time_send_queued",
+          entityType: "one_time_send",
+          entityId: sendId,
+          details: { channel: input.channel, triggerType: input.triggerType, totalRecipients: eligibleContactIds.length },
+        });
+        void processOneTimeSmartPlanSends();
+        return { id: sendId, totalRecipients: eligibleContactIds.length, excludedCount: contactIds.length - eligibleContactIds.length };
+      }),
+
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(oneTimeSends).orderBy(desc(oneTimeSends.createdAt)).limit(10);
+    }),
+  }),
 
   // Publish a draft plan
   publish: protectedProcedure

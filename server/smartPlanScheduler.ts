@@ -15,10 +15,13 @@ import {
   leadSources,
   transactions,
   listings,
+  oneTimeSends,
+  oneTimeSendRecipients,
 } from "../drizzle/schema";
 import { and, eq, inArray, lte, isNotNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
+import { sendAircallSMS } from "./_core/aircall";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
 
 let isRunning = false;
@@ -247,7 +250,7 @@ export const SMART_PLAN_TRIGGER_TYPES = [
 
 export type SmartPlanTriggerType = (typeof SMART_PLAN_TRIGGER_TYPES)[number];
 
-type TriggerConfiguration = {
+export type TriggerConfiguration = {
   triggerType: SmartPlanTriggerType;
   triggerLeadSourceIds?: number[] | null;
   triggerLeadSourceId?: number | null;
@@ -402,10 +405,18 @@ export async function countContactsMatchingPlan(planId: number): Promise<number>
 }
 
 /**
+ * Return unique contact IDs matching an unsaved trigger configuration.
+ * Used by the one-time send audience preview and queue builder.
+ */
+export async function getCurrentContactIdsMatchingTrigger(config: TriggerConfiguration): Promise<number[]> {
+  return Array.from(new Set(await matchingCurrentContactIds(config)));
+}
+
+/**
  * Preview the current-contact count for an unsaved trigger configuration.
  */
 export async function countContactsMatchingTrigger(config: TriggerConfiguration): Promise<number> {
-  return Array.from(new Set(await matchingCurrentContactIds(config))).length;
+  return (await getCurrentContactIdsMatchingTrigger(config)).length;
 }
 
 /**
@@ -423,4 +434,157 @@ export async function bulkEnrollExistingContacts(planId: number): Promise<{ enro
     if (await enrollContactInPlan(contactId, planId)) enrolled++;
   }
   return { enrolled };
+}
+
+
+// ─── One-Time Send Worker ─────────────────────────────────────────────────────
+
+const ONE_TIME_SEND_BATCH_SIZE = 100;
+let isOneTimeSendRunning = false;
+
+function oneTimeMergeContext(contact: typeof contacts.$inferSelect, leadSourceName: string | null) {
+  return {
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    agentName: null,
+    leadSource: leadSourceName,
+  };
+}
+
+async function incrementOneTimeSendCounts(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  sendId: number,
+  outcome: "sent" | "skipped" | "failed",
+): Promise<void> {
+  const field = outcome === "sent" ? oneTimeSends.sentCount : outcome === "skipped" ? oneTimeSends.skippedCount : oneTimeSends.failedCount;
+  await db
+    .update(oneTimeSends)
+    .set({ [outcome === "sent" ? "sentCount" : outcome === "skipped" ? "skippedCount" : "failedCount"]: sql`${field} + 1` })
+    .where(eq(oneTimeSends.id, sendId));
+}
+
+async function deliverOneTimeRecipient(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  send: typeof oneTimeSends.$inferSelect,
+  recipient: typeof oneTimeSendRecipients.$inferSelect,
+  contact: typeof contacts.$inferSelect,
+): Promise<void> {
+  let outcome: "sent" | "skipped" | "failed" = "sent";
+  let provider: string | null = null;
+  let providerMessageId: string | null = null;
+  let errorMessage: string | null = null;
+
+  if (contact.doNotContact || contact.isaStatus === "do_not_contact") {
+    outcome = "skipped";
+    errorMessage = "Contact is marked do not contact";
+  } else {
+    const leadSourceRows = contact.leadSourceId
+      ? await db.select({ name: leadSources.name }).from(leadSources).where(eq(leadSources.id, contact.leadSourceId)).limit(1)
+      : [];
+    const mergeContext = oneTimeMergeContext(contact, leadSourceRows[0]?.name ?? null);
+    const body = renderMergeTags(send.body, mergeContext);
+
+    if (send.channel === "email") {
+      if (!contact.email) {
+        outcome = "skipped";
+        errorMessage = "Contact has no email address";
+      } else if (contact.emailStatus === "bounced") {
+        outcome = "skipped";
+        errorMessage = "Contact email has hard bounced";
+      } else if (contact.emailStatus === "unsubscribed") {
+        outcome = "skipped";
+        errorMessage = "Contact has unsubscribed from marketing emails";
+      } else {
+        provider = "resend";
+        const result = await sendSmartPlanEmail({
+          to: contact.email,
+          subject: renderMergeTags(send.subject ?? send.name, mergeContext),
+          body,
+          isHtml: true,
+        });
+        outcome = result.success ? "sent" : "failed";
+        providerMessageId = result.messageId ?? null;
+        errorMessage = result.error ?? null;
+      }
+    } else if (!contact.phone) {
+      outcome = "skipped";
+      errorMessage = "Contact has no phone number";
+    } else {
+      provider = "aircall";
+      const result = await sendAircallSMS(contact.phone, body);
+      outcome = result.success ? "sent" : "failed";
+      providerMessageId = result.messageId ?? null;
+      errorMessage = result.error ?? null;
+    }
+  }
+
+  await db
+    .update(oneTimeSendRecipients)
+    .set({
+      status: outcome,
+      provider,
+      providerMessageId,
+      errorMessage,
+      sentAt: new Date(),
+    })
+    .where(eq(oneTimeSendRecipients.id, recipient.id));
+  await incrementOneTimeSendCounts(db, send.id, outcome);
+}
+
+/**
+ * Processes a bounded batch of queued recipients for the oldest pending one-time send.
+ * The recurring Smart Plan worker calls this every five minutes, and the confirmation
+ * mutation invokes it once immediately to minimize the time to the first messages.
+ */
+export async function processOneTimeSmartPlanSends(): Promise<void> {
+  if (isOneTimeSendRunning) return;
+  isOneTimeSendRunning = true;
+
+  try {
+    const db = await getDb();
+    if (!db) return;
+
+    const [send] = await db
+      .select()
+      .from(oneTimeSends)
+      .where(inArray(oneTimeSends.status, ["queued", "processing"]))
+      .orderBy(oneTimeSends.createdAt)
+      .limit(1);
+    if (!send) return;
+
+    if (send.status === "queued") {
+      await db.update(oneTimeSends).set({ status: "processing", startedAt: new Date() }).where(eq(oneTimeSends.id, send.id));
+    }
+
+    const pendingRecipients = await db
+      .select({ recipient: oneTimeSendRecipients, contact: contacts })
+      .from(oneTimeSendRecipients)
+      .innerJoin(contacts, eq(oneTimeSendRecipients.contactId, contacts.id))
+      .where(and(eq(oneTimeSendRecipients.sendId, send.id), eq(oneTimeSendRecipients.status, "queued")))
+      .orderBy(oneTimeSendRecipients.id)
+      .limit(ONE_TIME_SEND_BATCH_SIZE);
+
+    for (const row of pendingRecipients) {
+      try {
+        await deliverOneTimeRecipient(db, send, row.recipient, row.contact);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await db.update(oneTimeSendRecipients).set({ status: "failed", errorMessage, sentAt: new Date() }).where(eq(oneTimeSendRecipients.id, row.recipient.id));
+        await incrementOneTimeSendCounts(db, send.id, "failed");
+      }
+    }
+
+    const remaining = await db
+      .select({ id: oneTimeSendRecipients.id })
+      .from(oneTimeSendRecipients)
+      .where(and(eq(oneTimeSendRecipients.sendId, send.id), eq(oneTimeSendRecipients.status, "queued")))
+      .limit(1);
+    if (remaining.length === 0) {
+      await db.update(oneTimeSends).set({ status: "completed", completedAt: new Date() }).where(eq(oneTimeSends.id, send.id));
+    }
+  } catch (error) {
+    console.error("[OneTimeSend] Worker error:", error);
+  } finally {
+    isOneTimeSendRunning = false;
+  }
 }

@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import RichEmailEditor from "@/components/RichEmailEditor";
+import OneTimeSmartPlanSendDialog from "@/components/OneTimeSmartPlanSendDialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PlanRow = {
@@ -1027,6 +1028,7 @@ export default function SmartPlansPage() {
   const { data: plans = [], isLoading } = trpc.smartPlans.list.useQuery();
   const [viewEnrollments, setViewEnrollments] = useState<PlanRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PlanRow | null>(null);
+  const [oneTimeSendOpen, setOneTimeSendOpen] = useState(false);
 
   const toggleStatusMutation = trpc.smartPlans.update.useMutation({
     onSuccess: () => utils.smartPlans.list.invalidate(),
@@ -1058,10 +1060,17 @@ export default function SmartPlansPage() {
             Automated email & SMS drip campaigns triggered by lead source
           </p>
         </div>
-        <Button onClick={() => openWorkspace()}>
-          <Plus className="h-4 w-4 mr-1.5" /> New Plan
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setOneTimeSendOpen(true)}>
+            <Mail className="mr-1.5 h-4 w-4" /> One Time Send
+          </Button>
+          <Button onClick={() => openWorkspace()}>
+            <Plus className="h-4 w-4 mr-1.5" /> New Plan
+          </Button>
+        </div>
       </div>
+
+      {oneTimeSendOpen && <OneTimeSmartPlanSendDialog onClose={() => setOneTimeSendOpen(false)} />}
 
       {/* Enrollments Dialog */}
       {viewEnrollments && (
