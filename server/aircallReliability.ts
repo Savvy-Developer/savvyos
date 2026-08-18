@@ -30,7 +30,9 @@ const INVENTORY_LOOKBACK_SECONDS = 48 * 60 * 60;
 const HISTORICAL_START_AT = new Date(process.env.AIRCALL_HISTORY_START_AT || "2020-01-01T00:00:00.000Z");
 const HISTORICAL_SLICE_DAYS = 30;
 const HISTORICAL_INTERVAL_MS = 60_000;
-const UNMATCHED_REMATCH_INTERVAL_MS = 30 * 60_000;
+// This rematch is database-only. A short interval clears a newly created or
+// corrected-contact match promptly and cycles the full unmatched backlog often.
+const UNMATCHED_REMATCH_INTERVAL_MS = 15_000;
 const UNMATCHED_REMATCH_BATCH_SIZE = 25;
 const API_MIN_SPACING_MS = 1_000;
 
