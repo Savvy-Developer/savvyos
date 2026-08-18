@@ -87,7 +87,6 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
   const operationsItems: NavItem[] = [
     { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
-    { icon: Handshake, label: "Referral Partners", path: "/referral-partners" },
   ];
   if (hasActiveOnboarding) {
     operationsItems.push({ icon: UserCheck, label: "On/Offboarding", path: "/my-onboarding" });
@@ -201,6 +200,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewListings: "/listings",
   canViewProperties: "/properties",
   canViewCommission: "/commission",
+  canViewReferrals: "/referrals",
   canViewTasks: "/tasks",
   canViewOnboarding: "/onboarding",
   canViewCoachingHub: "/coaching",
@@ -275,6 +275,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Building2, label: "Listings", path: "/listings" },
         { icon: Building2, label: "Properties", path: "/properties" },
         { icon: DollarSign, label: "Commission & Payouts", path: "/commission", badge: (unpaidPayouts > 0 || flaggedTx > 0 || pendingExceptions > 0) ? (unpaidPayouts + flaggedTx + pendingExceptions) : undefined },
+        { icon: Handshake, label: "Referrals", path: "/referrals" },
       ],
     },
     {

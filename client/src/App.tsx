@@ -58,7 +58,6 @@ import MyOnboardingPage from "./pages/MyOnboardingPage";
 import OnboardingReportPage from "./pages/OnboardingReportPage";
 import LeadershipDashboardPage from "./pages/LeadershipDashboardPage";
 import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
-import ReferralPartnersPage from "./pages/ReferralPartnersPage";
 import MarketMatchCallPage from "./pages/MarketMatchCallPage";
 import MarketMatchConfigPage from "./pages/MarketMatchConfigPage";
 import MarketProfileEditorPage from "./pages/MarketProfileEditorPage";
@@ -106,6 +105,9 @@ import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
+import ReferralsPage from "./pages/ReferralsPage";
+import ReferralDetailPage from "./pages/ReferralDetailPage";
+import ReferralAgentDetailPage from "./pages/ReferralAgentDetailPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -260,7 +262,9 @@ function Router() {
           <Route path="/onboarding-report">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
           <Route path="/leadership-dashboard">{() => <AdminRoute><LeadershipDashboardPage /></AdminRoute>}</Route>
           <Route path="/commission-exceptions">{() => <AdminRoute><CommissionExceptionsPage /></AdminRoute>}</Route>
-          <Route path="/referral-partners" component={ReferralPartnersPage} />
+          <Route path="/referrals">{() => <AdminOrIsaRoute><ReferralsPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/referrals/agents/:id">{() => <AdminOrIsaRoute><ReferralAgentDetailPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/referrals/:id">{() => <AdminOrIsaRoute><ReferralDetailPage /></AdminOrIsaRoute>}</Route>
           <Route path="/my-onboarding" component={MyOnboardingPage} />
           <Route path="/org-chart" component={OrgChartPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>

@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
-import { useParams, useLocation } from "wouter";
+import { Link, useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -176,6 +176,10 @@ export default function ListingDetail() {
   const { data: listingDocuments, refetch: refetchListingDocs } = trpc.listings.getDocuments.useQuery(
     { listingId },
     { enabled: !!listingId }
+  );
+  const { data: outboundReferrals = [] } = trpc.referrals.byListing.useQuery(
+    { listingId },
+    { enabled: role === "admin" || role === "isa" }
   );
 
   // ─── Edit form state ──────────────────────────────────────────────────────
@@ -755,6 +759,13 @@ export default function ListingDetail() {
                   <span className="font-mono">{listing.mlsNumber}</span>
                 </div>
               )}
+              {(outboundReferrals as any[]).map((row) => (
+                <div key={row.referral.id} className="rounded-md border border-sky-200 bg-sky-50/60 p-2.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">Outside-agent referral listing</p>
+                  <Link href={`/referrals/${row.referral.id}`} className="mt-1 block text-sm font-medium text-primary hover:underline">{row.referralAgent.name} · {Number(row.referral.savvyReferralPct)}% Savvy referral fee</Link>
+                  <p className="mt-1 text-xs text-muted-foreground">Market: {row.referral.market ?? "Not set"} · Payment: {String(row.paymentStatus).replace(/_/g, " ")}</p>
+                </div>
+              ))}
               {listing.listingStatus === "terminated" && listing.terminationDate && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Terminated</span>

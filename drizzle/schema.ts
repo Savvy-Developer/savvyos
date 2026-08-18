@@ -309,6 +309,12 @@ export const transactions = mysqlTable("transactions", {
   // Referral payout fields (set manually or auto-populated from contact lead source)
   referralSourceName: varchar("referralSourceName", { length: 255 }),
   referralPayoutPct: decimal("referralPayoutPct", { precision: 5, scale: 2 }),
+  // Outbound referral attribution. This remains separate from the legacy inbound referral-payout fields above.
+  referralId: int("referralId").references(() => referrals.id, { onDelete: "set null" }),
+  referralAgentId: int("referralAgentId").references(() => referralAgents.id, { onDelete: "set null" }),
+  isOutsideReferral: boolean("isOutsideReferral").default(false).notNull(),
+  savvyReferralPct: decimal("savvyReferralPct", { precision: 5, scale: 2 }),
+  referralMarket: varchar("referralMarket", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -555,6 +561,12 @@ export const listings = mysqlTable("listings", {
   expirationDate: date("expirationDate", { mode: "string" }),
   terminationDate: date("terminationDate", { mode: "string" }),
   convertedTransactionId: int("convertedTransactionId"),
+  // Outbound referral attribution persists through the seller listing lifecycle.
+  referralId: int("referralId").references(() => referrals.id, { onDelete: "set null" }),
+  referralAgentId: int("referralAgentId").references(() => referralAgents.id, { onDelete: "set null" }),
+  isOutsideReferral: boolean("isOutsideReferral").default(false).notNull(),
+  savvyReferralPct: decimal("savvyReferralPct", { precision: 5, scale: 2 }),
+  referralMarket: varchar("referralMarket", { length: 255 }),
   mlsNumber: varchar("mlsNumber", { length: 64 }),
   notes: text("notes"),
   lastExpirationReminderSent: timestamp("lastExpirationReminderSent"),
@@ -2582,6 +2594,16 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewListings: boolean("canViewListings").default(true).notNull(),
   canViewProperties: boolean("canViewProperties").default(true).notNull(),
   canViewCommission: boolean("canViewCommission").default(true).notNull(),
+  // Outbound Referrals
+  canViewReferrals: boolean("canViewReferrals").default(true).notNull(),
+  canCreateReferrals: boolean("canCreateReferrals").default(true).notNull(),
+  canEditReferrals: boolean("canEditReferrals").default(true).notNull(),
+  canManageReferralAgents: boolean("canManageReferralAgents").default(true).notNull(),
+  canEditReferralSplits: boolean("canEditReferralSplits").default(true).notNull(),
+  canViewReferralFinancials: boolean("canViewReferralFinancials").default(true).notNull(),
+  canUpdateReferralPayments: boolean("canUpdateReferralPayments").default(true).notNull(),
+  canManageReferralAgreements: boolean("canManageReferralAgreements").default(true).notNull(),
+  canEditHistoricalReferrals: boolean("canEditHistoricalReferrals").default(true).notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
@@ -3394,3 +3416,229 @@ export const passwordEntries = mysqlTable("password_entries", {
 }));
 export type PasswordEntry = typeof passwordEntries.$inferSelect;
 export type InsertPasswordEntry = typeof passwordEntries.$inferInsert;
+
+
+// ─── Outbound Referrals ───────────────────────────────────────────────────────
+// This model is intentionally distinct from the legacy inbound referral-payout
+// fields on lead sources and transactions. It tracks Savvy-owned clients sent to
+// outside agents and the fee Savvy is due when those clients close.
+
+export const referralStatusOptions = mysqlTable("referral_status_options", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 96 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  category: mysqlEnum("category", ["active", "closed", "lost", "on_hold"]).default("active").notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  isSystem: boolean("isSystem").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ReferralStatusOption = typeof referralStatusOptions.$inferSelect;
+
+export const referralAgents = mysqlTable("referral_agents", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  brokerage: varchar("brokerage", { length: 255 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 64 }),
+  primaryMarket: varchar("primaryMarket", { length: 255 }),
+  defaultSavvyReferralPct: decimal("defaultSavvyReferralPct", { precision: 5, scale: 2 }).default("25.00"),
+  licenseNumber: varchar("licenseNumber", { length: 128 }),
+  licenseState: varchar("licenseState", { length: 64 }),
+  relationshipOwnerId: int("relationshipOwnerId").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  isActive: boolean("isActive").default(true).notNull(),
+  addedById: int("addedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("referral_agents_active_idx").on(table.isActive, table.name),
+  index("referral_agents_brokerage_idx").on(table.brokerage),
+  index("referral_agents_owner_idx").on(table.relationshipOwnerId),
+]);
+export type ReferralAgent = typeof referralAgents.$inferSelect;
+
+export const referralAgentCoverage = mysqlTable("referral_agent_coverage", {
+  id: int("id").autoincrement().primaryKey(),
+  referralAgentId: int("referralAgentId").notNull().references(() => referralAgents.id, { onDelete: "cascade" }),
+  state: varchar("state", { length: 64 }),
+  market: varchar("market", { length: 255 }),
+  metro: varchar("metro", { length: 255 }),
+  areasServed: text("areasServed"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("referral_agent_coverage_agent_idx").on(table.referralAgentId),
+  index("referral_agent_coverage_market_idx").on(table.state, table.market),
+]);
+export type ReferralAgentCoverage = typeof referralAgentCoverage.$inferSelect;
+
+export const referralAgreements = mysqlTable("referral_agreements", {
+  id: int("id").autoincrement().primaryKey(),
+  referralAgentId: int("referralAgentId").notNull().references(() => referralAgents.id, { onDelete: "cascade" }),
+  // The associated referral is intentionally an application-level link to avoid a circular foreign-key declaration with referrals.agreementId.
+  referralId: int("referralId"),
+  title: varchar("title", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["not_created", "sent", "awaiting_signature", "executed", "expired", "superseded"]).default("not_created").notNull(),
+  savvyReferralPct: decimal("savvyReferralPct", { precision: 5, scale: 2 }),
+  appliesTo: mysqlEnum("appliesTo", ["single_transaction", "multiple_transactions", "all_future"]).default("single_transaction").notNull(),
+  sentAt: timestamp("sentAt"),
+  executedAt: timestamp("executedAt"),
+  effectiveAt: timestamp("effectiveAt"),
+  expiresAt: timestamp("expiresAt"),
+  signedBy: varchar("signedBy", { length: 255 }),
+  notes: text("notes"),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("referral_agreements_agent_idx").on(table.referralAgentId, table.status),
+  index("referral_agreements_referral_idx").on(table.referralId),
+]);
+export type ReferralAgreement = typeof referralAgreements.$inferSelect;
+
+export const referrals = mysqlTable("referrals", {
+  id: int("id").autoincrement().primaryKey(),
+  contactId: int("contactId").notNull().references(() => contacts.id),
+  referralAgentId: int("referralAgentId").notNull().references(() => referralAgents.id),
+  relationshipOwnerId: int("relationshipOwnerId").references(() => users.id, { onDelete: "set null" }),
+  propertyId: int("propertyId").references(() => properties.id, { onDelete: "set null" }),
+  agreementId: int("agreementId").references(() => referralAgreements.id, { onDelete: "set null" }),
+  // Historical chain-of-custody pointer for reassignments; kept application-level for self-reference safety.
+  parentReferralId: int("parentReferralId"),
+  referralType: mysqlEnum("referralType", ["buyer", "seller", "buyer_seller", "other"]).notNull(),
+  statusKey: varchar("statusKey", { length: 96 }).notNull().default("referral_sent"),
+  statusCategory: mysqlEnum("statusCategory", ["active", "closed", "lost", "on_hold"]).default("active").notNull(),
+  market: varchar("market", { length: 255 }),
+  metro: varchar("metro", { length: 255 }),
+  state: varchar("state", { length: 64 }),
+  areasServed: text("areasServed"),
+  savvyReferralPct: decimal("savvyReferralPct", { precision: 5, scale: 2 }).notNull(),
+  referralSentAt: timestamp("referralSentAt").defaultNow().notNull(),
+  agentAcceptedAt: timestamp("agentAcceptedAt"),
+  clientContactedAt: timestamp("clientContactedAt"),
+  consultationAt: timestamp("consultationAt"),
+  underContractAt: timestamp("underContractAt"),
+  closedAt: timestamp("closedAt"),
+  lostAt: timestamp("lostAt"),
+  lostReason: text("lostReason"),
+  reassignmentReason: text("reassignmentReason"),
+  lastUpdateReceivedAt: timestamp("lastUpdateReceivedAt"),
+  lastReferralAgentContactAt: timestamp("lastReferralAgentContactAt"),
+  nextFollowUpAt: timestamp("nextFollowUpAt"),
+  notes: text("notes"),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("referrals_contact_idx").on(table.contactId, table.createdAt),
+  index("referrals_agent_idx").on(table.referralAgentId, table.statusCategory),
+  index("referrals_status_idx").on(table.statusKey, table.statusCategory),
+  index("referrals_payment_followup_idx").on(table.nextFollowUpAt),
+  index("referrals_market_idx").on(table.state, table.market),
+]);
+export type Referral = typeof referrals.$inferSelect;
+
+export const referralEvents = mysqlTable("referral_events", {
+  id: int("id").autoincrement().primaryKey(),
+  referralId: int("referralId").notNull().references(() => referrals.id, { onDelete: "cascade" }),
+  eventType: mysqlEnum("eventType", ["created", "status_change", "note", "referral_agent_update", "call", "email", "follow_up", "important_date", "document", "reassignment", "payment"]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body"),
+  previousStatusKey: varchar("previousStatusKey", { length: 96 }),
+  newStatusKey: varchar("newStatusKey", { length: 96 }),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  enteredById: int("enteredById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("referral_events_referral_date_idx").on(table.referralId, table.occurredAt),
+]);
+export type ReferralEvent = typeof referralEvents.$inferSelect;
+
+export const referralTransactionLinks = mysqlTable("referral_transaction_links", {
+  id: int("id").autoincrement().primaryKey(),
+  referralId: int("referralId").notNull().references(() => referrals.id, { onDelete: "cascade" }),
+  transactionId: int("transactionId").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("referral_transaction_link_unique").on(table.referralId, table.transactionId),
+  index("referral_transaction_tx_idx").on(table.transactionId),
+]);
+export type ReferralTransactionLink = typeof referralTransactionLinks.$inferSelect;
+
+export const referralListingLinks = mysqlTable("referral_listing_links", {
+  id: int("id").autoincrement().primaryKey(),
+  referralId: int("referralId").notNull().references(() => referrals.id, { onDelete: "cascade" }),
+  listingId: int("listingId").notNull().references(() => listings.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("referral_listing_link_unique").on(table.referralId, table.listingId),
+  index("referral_listing_listing_idx").on(table.listingId),
+]);
+export type ReferralListingLink = typeof referralListingLinks.$inferSelect;
+
+export const referralPayments = mysqlTable("referral_payments", {
+  id: int("id").autoincrement().primaryKey(),
+  referralId: int("referralId").notNull().references(() => referrals.id, { onDelete: "cascade" }),
+  transactionId: int("transactionId").references(() => transactions.id, { onDelete: "set null" }),
+  salesPrice: decimal("salesPrice", { precision: 12, scale: 2 }),
+  grossCommissionIncome: decimal("grossCommissionIncome", { precision: 12, scale: 2 }),
+  savvyReferralPct: decimal("savvyReferralPct", { precision: 5, scale: 2 }).notNull(),
+  referralFeeOwed: decimal("referralFeeOwed", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  outsideAgentPortion: decimal("outsideAgentPortion", { precision: 12, scale: 2 }),
+  paymentStatus: mysqlEnum("paymentStatus", ["not_yet_due", "due", "invoiced", "processing", "paid", "disputed", "written_off"]).default("not_yet_due").notNull(),
+  dueAt: timestamp("dueAt"),
+  invoicedAt: timestamp("invoicedAt"),
+  paidAt: timestamp("paidAt"),
+  paymentMethod: varchar("paymentMethod", { length: 128 }),
+  paymentReference: varchar("paymentReference", { length: 255 }),
+  notes: text("notes"),
+  markedPaidById: int("markedPaidById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("referral_payments_referral_idx").on(table.referralId, table.paymentStatus),
+  index("referral_payments_transaction_idx").on(table.transactionId),
+  index("referral_payments_status_due_idx").on(table.paymentStatus, table.dueAt),
+]);
+export type ReferralPayment = typeof referralPayments.$inferSelect;
+
+export const referralDocuments = mysqlTable("referral_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  referralAgentId: int("referralAgentId").references(() => referralAgents.id, { onDelete: "cascade" }),
+  referralId: int("referralId").references(() => referrals.id, { onDelete: "cascade" }),
+  agreementId: int("agreementId").references(() => referralAgreements.id, { onDelete: "cascade" }),
+  transactionId: int("transactionId").references(() => transactions.id, { onDelete: "cascade" }),
+  listingId: int("listingId").references(() => listings.id, { onDelete: "cascade" }),
+  paymentId: int("paymentId").references(() => referralPayments.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 512 }).notNull(),
+  fileKey: varchar("fileKey", { length: 1024 }).notNull(),
+  fileUrl: text("fileUrl").notNull(),
+  mimeType: varchar("mimeType", { length: 128 }),
+  fileSize: bigint("fileSize", { mode: "number" }),
+  documentType: mysqlEnum("documentType", ["agreement", "payment_proof", "closing_statement", "communication", "other"]).default("other").notNull(),
+  notes: text("notes"),
+  uploadedById: int("uploadedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("referral_documents_referral_idx").on(table.referralId),
+  index("referral_documents_agent_idx").on(table.referralAgentId),
+  index("referral_documents_agreement_idx").on(table.agreementId),
+  index("referral_documents_payment_idx").on(table.paymentId),
+]);
+export type ReferralDocument = typeof referralDocuments.$inferSelect;
+
+export const referralReassignments = mysqlTable("referral_reassignments", {
+  id: int("id").autoincrement().primaryKey(),
+  priorReferralId: int("priorReferralId").notNull().references(() => referrals.id, { onDelete: "cascade" }),
+  newReferralId: int("newReferralId").notNull().references(() => referrals.id, { onDelete: "cascade" }),
+  previousReferralAgentId: int("previousReferralAgentId").notNull().references(() => referralAgents.id),
+  newReferralAgentId: int("newReferralAgentId").notNull().references(() => referralAgents.id),
+  reason: text("reason").notNull(),
+  reassignedById: int("reassignedById").references(() => users.id, { onDelete: "set null" }),
+  reassignedAt: timestamp("reassignedAt").defaultNow().notNull(),
+}, (table) => [
+  index("referral_reassignments_prior_idx").on(table.priorReferralId),
+  index("referral_reassignments_new_idx").on(table.newReferralId),
+]);
+export type ReferralReassignment = typeof referralReassignments.$inferSelect;

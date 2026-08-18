@@ -26,6 +26,7 @@ import {
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { generateAutoPayouts } from "../autoPayouts";
+import { syncReferralPaymentForTransaction } from "./referrals";
 import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
 import { getDb } from "../db";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
@@ -448,6 +449,11 @@ export const transactionsRouter = router({
         if (currentTx?.transaction.status === "closed" && currentTx.transaction.payoutIntegrityFlag) {
           await validateAndAutoResolveFlag(input.id);
         }
+      }
+
+      // An outbound referral transaction drives its own fee receivable; keep the snapshot-based payment record current.
+      if ((txForEmail?.transaction as any)?.isOutsideReferral) {
+        await syncReferralPaymentForTransaction(input.id, ctx.user.id).catch((error) => console.error("[Referrals] Payment sync failed:", error));
       }
 
       // Build diff of changed fields for history

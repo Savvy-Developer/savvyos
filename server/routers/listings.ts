@@ -20,6 +20,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
+import { linkReferralTransaction } from "./referrals";
 import { properties as propertiesTable, users, listings as listingsTable, contacts as contactsTable, transactions as transactionsTable, contactProperties } from "../../drizzle/schema";
 import { eq, or, and } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
@@ -454,6 +455,11 @@ export const listingsRouter = router({
           propertyId: listingData.listing.propertyId || null,
           listingId: input.listingId,
           sellerContactId: input.primaryContactId,
+          referralId: (listingData.listing as any).referralId ?? null,
+          referralAgentId: (listingData.listing as any).referralAgentId ?? null,
+          isOutsideReferral: Boolean((listingData.listing as any).isOutsideReferral),
+          savvyReferralPct: (listingData.listing as any).savvyReferralPct ?? null,
+          referralMarket: (listingData.listing as any).referralMarket ?? null,
         } as any);
 
         // 2. Buyer-side transaction (same property, buyer contact, buyer commission)
@@ -467,6 +473,11 @@ export const listingsRouter = router({
           commissionType: input.buyerCommissionType || "percentage",
           propertyId: listingData.listing.propertyId || null,
           notes: input.buyerNotes || null,
+          referralId: (listingData.listing as any).referralId ?? null,
+          referralAgentId: (listingData.listing as any).referralAgentId ?? null,
+          isOutsideReferral: Boolean((listingData.listing as any).isOutsideReferral),
+          savvyReferralPct: (listingData.listing as any).savvyReferralPct ?? null,
+          referralMarket: (listingData.listing as any).referralMarket ?? null,
         } as any);
 
         // Carry over listing documents to the seller-side transaction
@@ -474,6 +485,10 @@ export const listingsRouter = router({
 
         // Mark listing as closed, link to the seller-side transaction
         await updateListing(input.listingId, { listingStatus: "closed", convertedTransactionId: sellerTxId } as any);
+        if ((listingData.listing as any).referralId) {
+          await linkReferralTransaction((listingData.listing as any).referralId, sellerTxId, ctx.user.id);
+          await linkReferralTransaction((listingData.listing as any).referralId, buyerTxId, ctx.user.id);
+        }
         await logActivity({
           userId: ctx.user.id,
           action: "listing_converted_to_transaction",
@@ -502,6 +517,9 @@ export const listingsRouter = router({
       const docCount = await carryOverDocs(txId);
 
       await updateListing(input.listingId, { listingStatus: "closed", convertedTransactionId: txId } as any);
+      if ((listingData.listing as any).referralId) {
+        await linkReferralTransaction((listingData.listing as any).referralId, txId, ctx.user.id);
+      }
       await logActivity({
         userId: ctx.user.id,
         action: "listing_converted_to_transaction",

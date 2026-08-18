@@ -39,6 +39,29 @@ export function registerUploadRoutes(app: express.Application) {
     }
   });
 
+  // POST /api/upload/referral-document — outbound referral agreement and payment-proof upload
+  app.post("/api/upload/referral-document", upload.single("file"), async (req: any, res: any) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+      const allowed = [
+        "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "image/jpeg", "image/png", "image/webp", "text/plain",
+      ];
+      if (!allowed.includes(req.file.mimetype)) return res.status(400).json({ error: "Unsupported document type" });
+      const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const fileKey = `referral-documents/${user.id}/${nanoid(12)}-${safeName}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      return res.json({ fileUrl: url, fileKey, fileName: req.file.originalname, mimeType: req.file.mimetype, fileSize: req.file.size });
+    } catch (err: any) {
+      console.error("[ReferralDocumentUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/transaction-document — transaction document upload
   app.post("/api/upload/transaction-document", upload.single("file"), async (req: any, res: any) => {
     try {

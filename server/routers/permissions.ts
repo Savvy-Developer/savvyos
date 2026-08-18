@@ -33,6 +33,16 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewListings",           label: "Listings",                 group: "Transactions" },
   { key: "canViewProperties",         label: "Properties",               group: "Transactions" },
   { key: "canViewCommission",         label: "Commission & Payouts",     group: "Transactions" },
+  // Outbound Referrals
+  { key: "canViewReferrals",           label: "View Referrals",           group: "Outbound Referrals" },
+  { key: "canCreateReferrals",         label: "Create Referrals",         group: "Outbound Referrals" },
+  { key: "canEditReferrals",           label: "Edit Referrals",           group: "Outbound Referrals" },
+  { key: "canManageReferralAgents",    label: "Manage Referral Agents",   group: "Outbound Referrals" },
+  { key: "canEditReferralSplits",      label: "Edit Referral Splits",     group: "Outbound Referrals" },
+  { key: "canViewReferralFinancials",  label: "View Referral Financials", group: "Outbound Referrals" },
+  { key: "canUpdateReferralPayments",  label: "Update Referral Payments", group: "Outbound Referrals" },
+  { key: "canManageReferralAgreements",label: "Manage Agreements",        group: "Outbound Referrals" },
+  { key: "canEditHistoricalReferrals", label: "Edit Historical Referrals",group: "Outbound Referrals" },
   // Operations
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },

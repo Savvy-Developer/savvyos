@@ -15,7 +15,7 @@ import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
@@ -475,6 +475,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const { data: contactProps, refetch: refetchProps } = trpc.contactProperties.list.useQuery({ contactId });
   const { data: allProperties = [] } = trpc.properties.list.useQuery({});
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
+  const { data: contactReferrals = [] } = trpc.referrals.byContact.useQuery({ contactId }, { enabled: user?.role === "admin" || user?.role === "isa" });
+
   // Format system activity-log entries (e.g. property views logged via webhook)
   // so they can be shown in the Activity tab alongside communications.
   const activityEntries = (activityLog ?? []).map((entry) => ({
@@ -817,6 +819,11 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 <Link2 className="h-4 w-4 mr-1" /> Assign to Agent
               </Button>
             )}
+            {(isAdmin || isIsa) && (
+              <Button size="sm" onClick={() => navigate(`/referrals?createContactId=${contactId}`)}>
+                <Handshake className="h-4 w-4 mr-1" /> Create a Referral
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={openEdit}>
               <Edit2 className="h-4 w-4 mr-1" /> Edit
             </Button>
@@ -1000,6 +1007,37 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               </div>
             </CardContent>
           </Card>
+
+          {/* Outbound Referrals */}
+          {(isAdmin || isIsa) && (
+            <Card>
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Outbound Referrals</span>
+                  <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => navigate(`/referrals?createContactId=${contactId}`)}>
+                    <Plus className="h-3 w-3 mr-1" /> Create
+                  </Button>
+                </div>
+                {(contactReferrals as any[]).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">This Savvy contact has not been referred to an outside agent.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(contactReferrals as any[]).map((row) => (
+                      <button key={row.referral.id} onClick={() => navigate(`/referrals/${row.referral.id}`)} className="w-full rounded-md border p-2 text-left transition-colors hover:bg-muted/40">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0"><p className="truncate text-sm font-medium">{row.referralAgent.name}</p><p className="truncate text-xs text-muted-foreground">{row.referralAgent.brokerage ?? "Independent"} · {row.referral.market ?? "Market not set"}</p></div>
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{Number(row.referral.savvyReferralPct)}%</span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="capitalize text-muted-foreground">{row.status?.name ?? row.referral.statusKey.replace(/_/g, " ")}</span><span className="text-muted-foreground">{row.transactions.length || row.listings.length ? `${row.listings.length} listing · ${row.transactions.length} transaction` : "Not converted"}</span></div>
+                        {row.expectedReferralFee > 0 && <p className="mt-1 text-xs text-emerald-700">Expected Savvy fee: ${Number(row.expectedReferralFee).toLocaleString()}</p>}
+                        <p className="mt-1 text-xs text-muted-foreground">Payment: {String(row.paymentStatus ?? "not_yet_due").replace(/_/g, " ")}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Agent Connections */}
           <Card>

@@ -225,6 +225,7 @@ export default function TransactionDetail() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isAgent = user?.role === "agent";
+  const canViewOutboundReferrals = user?.role === "admin" || user?.role === "isa";
   const goToContact = useAgentContactNav();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -325,6 +326,7 @@ export default function TransactionDetail() {
   const [splitPreviewOpen, setSplitPreviewOpen] = useState(false);
 
   const { data: txData, refetch } = trpc.transactions.get.useQuery({ id: txId });
+  const { data: outboundReferrals = [] } = trpc.referrals.byTransaction.useQuery({ transactionId: txId }, { enabled: canViewOutboundReferrals });
   const { data: payouts, refetch: refetchPayouts } = trpc.transactions.getPayouts.useQuery({ transactionId: txId });
   const { data: tasksData } = trpc.tasks.list.useQuery({ relatedTransactionId: txId });
   const tasks = tasksData?.rows ?? [];
@@ -967,6 +969,13 @@ export default function TransactionDetail() {
                     </span>
                   </div>
                 )}
+                {(outboundReferrals as any[]).map((row) => (
+                  <div key={row.referral.id} className="rounded-md border border-sky-200 bg-sky-50/60 p-2.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">Outside-agent referral transaction</p>
+                    <Link href={`/referrals/${row.referral.id}`} className="mt-1 block text-sm font-medium text-primary hover:underline">{row.referralAgent.name} · {Number(row.referral.savvyReferralPct)}% Savvy referral fee</Link>
+                    <p className="mt-1 text-xs text-muted-foreground">Payment: {String(row.paymentStatus).replace(/_/g, " ")}{row.expectedReferralFee > 0 ? ` · Expected ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(row.expectedReferralFee))}` : ""}</p>
+                  </div>
+                ))}
               </div>
 
               {tx.notes && (
