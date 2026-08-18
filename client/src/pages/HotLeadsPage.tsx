@@ -34,6 +34,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  CircleOff,
 } from "lucide-react";
 
 type DaysFilter = "7" | "14" | "30" | "90";
@@ -43,6 +44,7 @@ type SortDir = "asc" | "desc";
 type PVSortKey = "viewCount" | "lastViewed" | "contact" | "leadSource";
 type RVSortKey = "distinctDays" | "totalViews" | "lastViewed" | "contact" | "leadSource";
 type EESortKey = "clicks" | "opens" | "lastEngaged" | "contact" | "leadSource";
+type DCSortKey = "deadConnectionCount" | "lastUpdatedAt" | "contact" | "leadSource" | "assignedIsa";
 
 const PIPELINE_STATUSES = [
   { value: "new_lead", label: "New Lead" },
@@ -64,6 +66,7 @@ export default function HotLeadsPage() {
   const [pvPage, setPvPage] = useState(1);
   const [rvPage, setRvPage] = useState(1);
   const [eePage, setEePage] = useState(1);
+  const [dcPage, setDcPage] = useState(1);
   const [days, setDays] = useState<DaysFilter>("7");
   const [isaFilter, setIsaFilter] = useState<string>("");
   const [agentFilter, setAgentFilter] = useState<string>("");
@@ -77,6 +80,8 @@ export default function HotLeadsPage() {
   const [rvSortDir, setRvSortDir] = useState<SortDir>("desc");
   const [eeSortKey, setEeSortKey] = useState<EESortKey>("clicks");
   const [eeSortDir, setEeSortDir] = useState<SortDir>("desc");
+  const [dcSortKey, setDcSortKey] = useState<DCSortKey>("lastUpdatedAt");
+  const [dcSortDir, setDcSortDir] = useState<SortDir>("desc");
 
   // Fetch ISA and agent lists for filter dropdowns (admin/ISA only)
   const { data: usersList = [] } = trpc.users.list.useQuery(undefined, { enabled: isAdminOrIsa });
@@ -104,6 +109,15 @@ export default function HotLeadsPage() {
   const emailEngagement = trpc.hotLeads.emailEngagement.useQuery(
     { ...baseParams, page: eePage },
     { enabled: activeTab === "email-engagement" }
+  );
+  const deadConnections = trpc.hotLeads.deadConnections.useQuery(
+    {
+      limit,
+      page: dcPage,
+      ...(isAdminOrIsa && isaFilter ? { isaId: parseInt(isaFilter) } : {}),
+      ...(isAdminOrIsa && agentFilter ? { agentId: parseInt(agentFilter) } : {}),
+    },
+    { enabled: isAdminOrIsa && activeTab === "dead-connections" }
   );
 
   // Client-side sorting for Property Views
@@ -177,6 +191,30 @@ export default function HotLeadsPage() {
     return sorted;
   }, [emailEngagement.data?.items, eeSortKey, eeSortDir]);
 
+  // Client-side sorting for Dead Connections
+  const sortedDcItems = useMemo(() => {
+    const items = deadConnections.data?.items ?? [];
+    if (!items.length) return items;
+    const sorted = [...items];
+    sorted.sort((a: any, b: any) => {
+      let aVal: any, bVal: any;
+      switch (dcSortKey) {
+        case "deadConnectionCount": aVal = a.deadConnectionCount ?? 0; bVal = b.deadConnectionCount ?? 0; break;
+        case "lastUpdatedAt": aVal = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0; bVal = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0; break;
+        case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
+        case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        case "assignedIsa": aVal = (a.assignedIsa ?? "").toLowerCase(); bVal = (b.assignedIsa ?? "").toLowerCase(); break;
+        default: aVal = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0; bVal = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
+      }
+      if (typeof aVal === "string") {
+        const cmp = aVal.localeCompare(bVal);
+        return dcSortDir === "asc" ? cmp : -cmp;
+      }
+      return dcSortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [deadConnections.data?.items, dcSortKey, dcSortDir]);
+
   // Sort handlers
   const handlePvSort = (key: PVSortKey) => {
     if (pvSortKey === key) {
@@ -205,6 +243,15 @@ export default function HotLeadsPage() {
     }
   };
 
+  const handleDcSort = (key: DCSortKey) => {
+    if (dcSortKey === key) {
+      setDcSortDir(dcSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setDcSortKey(key);
+      setDcSortDir("desc");
+    }
+  };
+
   const handleDaysChange = (newDays: DaysFilter) => {
     setDays(newDays);
     resetPages();
@@ -214,6 +261,7 @@ export default function HotLeadsPage() {
     setPvPage(1);
     setRvPage(1);
     setEePage(1);
+    setDcPage(1);
   };
 
   const handleIsaChange = (val: string) => {
@@ -260,6 +308,12 @@ export default function HotLeadsPage() {
             <Mail className="h-4 w-4" />
             Email Engagement
           </TabsTrigger>
+          {isAdminOrIsa && (
+            <TabsTrigger value="dead-connections" className="shrink-0 whitespace-nowrap gap-2">
+              <CircleOff className="h-4 w-4" />
+              Dead Connections
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ─── Property Views Tab ─────────────────────────────────────────── */}
@@ -520,6 +574,91 @@ export default function HotLeadsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ─── Dead Connections Tab (Admin / ISA only) ────────────────────── */}
+        {isAdminOrIsa && (
+          <TabsContent value="dead-connections">
+            <Card>
+              <CardContent className="p-0 overflow-x-auto">
+                <div className="px-4 pt-4 text-sm text-muted-foreground">
+                  Contacts appear here only when they have at least one agent connection and every current connection is marked Dead. Use this list to revisit prospects for a potential connection in another market.
+                </div>
+                <FiltersBar
+                  showTimeRange={false}
+                  days={days}
+                  onDaysChange={handleDaysChange}
+                  isAdminOrIsa={isAdminOrIsa}
+                  isAgent={isAgent}
+                  isas={isas}
+                  agents={agents}
+                  isaFilter={isaFilter}
+                  agentFilter={agentFilter}
+                  statusFilter={statusFilter}
+                  onIsaChange={handleIsaChange}
+                  onAgentChange={handleAgentChange}
+                  onStatusChange={handleStatusChange}
+                />
+                <DataTable
+                  isLoading={deadConnections.isLoading}
+                  emptyIcon={<CircleOff className="h-10 w-10 mb-3 opacity-40" />}
+                  emptyMessage="No contacts currently have all agent connections marked dead"
+                  totalCount={deadConnections.data?.totalCount ?? 0}
+                  summaryText="have all agent connections marked dead"
+                  page={dcPage}
+                  totalPages={deadConnections.data?.totalPages ?? 1}
+                  onPageChange={setDcPage}
+                  limit={limit}
+                  headers={
+                    <>
+                      <TableHead className="w-[50px] text-center">#</TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("contact")}>
+                        <span className="inline-flex items-center">Contact <SortIcon col="contact" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
+                      </TableHead>
+                      <TableHead className="text-center cursor-pointer select-none" onClick={() => handleDcSort("deadConnectionCount")}>
+                        <span className="inline-flex items-center justify-center w-full">Dead Connections <SortIcon col="deadConnectionCount" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
+                      </TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("lastUpdatedAt")}>
+                        <span className="inline-flex items-center">Last Updated <SortIcon col="lastUpdatedAt" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
+                      </TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("leadSource")}>
+                        <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
+                      </TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("assignedIsa")}>
+                        <span className="inline-flex items-center">Assigned ISA <SortIcon col="assignedIsa" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
+                      </TableHead>
+                      <TableHead>Agents</TableHead>
+                    </>
+                  }
+                  rows={sortedDcItems.map((lead, idx) => (
+                    <TableRow key={lead.contactId} className="hover:bg-muted/50">
+                      <TableCell className="text-center text-muted-foreground text-xs">
+                        {(dcPage - 1) * limit + idx + 1}
+                      </TableCell>
+                      <TableCell>
+                        <ContactCell lead={lead} isAgent={false} />
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="destructive">{lead.deadConnectionCount}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {formatRelativeDate(lead.lastUpdatedAt)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {lead.leadSource || "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {lead.assignedIsa || "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        <AgentsList agents={lead.connectedAgents} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
@@ -528,6 +667,7 @@ export default function HotLeadsPage() {
 // ─── Shared Components ────────────────────────────────────────────────────────
 
 function FiltersBar({
+  showTimeRange = true,
   days,
   onDaysChange,
   isAdminOrIsa,
@@ -541,6 +681,7 @@ function FiltersBar({
   onAgentChange,
   onStatusChange,
 }: {
+  showTimeRange?: boolean;
   days: DaysFilter;
   onDaysChange: (d: DaysFilter) => void;
   isAdminOrIsa: boolean;
@@ -557,22 +698,24 @@ function FiltersBar({
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b">
       {/* Time range */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-muted-foreground">Time:</span>
-        <div className="flex items-center gap-1">
-          {(["7", "14", "30", "90"] as DaysFilter[]).map((d) => (
-            <Button
-              key={d}
-              variant={days === d ? "default" : "outline"}
-              size="sm"
-              className="h-7 px-3 text-xs"
-              onClick={() => onDaysChange(d)}
-            >
-              {d}d
-            </Button>
-          ))}
+      {showTimeRange && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">Time:</span>
+          <div className="flex items-center gap-1">
+            {(["7", "14", "30", "90"] as DaysFilter[]).map((d) => (
+              <Button
+                key={d}
+                variant={days === d ? "default" : "outline"}
+                size="sm"
+                className="h-7 px-3 text-xs"
+                onClick={() => onDaysChange(d)}
+              >
+                {d}d
+              </Button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Admin/ISA filters */}
       {isAdminOrIsa && (

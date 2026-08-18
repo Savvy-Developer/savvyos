@@ -18,9 +18,22 @@ const hotLeadsInput = z.object({
   pipelineStatus: z.string().optional(),
 }).optional();
 
+const deadConnectionsInput = z.object({
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(100).default(50),
+  isaId: z.number().int().optional(),
+  agentId: z.number().int().optional(),
+}).optional();
+
 function assertHotLeadsAccess(role: string) {
   if (role !== "admin" && role !== "isa" && role !== "agent") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+  }
+}
+
+function assertDeadConnectionsAccess(role: string) {
+  if (role !== "admin" && role !== "isa") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Dead Connections is available to admins and ISAs only" });
   }
 }
 
@@ -87,6 +100,90 @@ function ensureUtc(ts: string | null | undefined): string | null {
 // ─── Hot Leads Router ─────────────────────────────────────────────────────────
 
 export const hotLeadsRouter = router({
+  /**
+   * deadConnections — contacts with one or more agent connections where every
+   * current connection is marked dead. This excludes any contact with an active,
+   * closed, do-not-contact, or otherwise non-dead connection.
+   */
+  deadConnections: protectedProcedure
+    .input(deadConnectionsInput)
+    .query(async ({ ctx, input }) => {
+      const role = ctx.user.role;
+      assertDeadConnectionsAccess(role);
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const page = input?.page ?? 1;
+      const limit = input?.limit ?? 50;
+      const offset = (page - 1) * limit;
+      const baseConditions = [
+        sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
+        eq(contacts.doNotContact, false),
+        sql`EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id} AND ac.pipelineStatus <> 'dead')`,
+      ];
+
+      if (input?.isaId) {
+        baseConditions.push(eq(contacts.assignedIsaId, input.isaId));
+      }
+      if (input?.agentId) {
+        baseConditions.push(
+          sql`EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id} AND ac.agentId = ${input.agentId})`
+        );
+      }
+
+      const rows = await db
+        .select({
+          contactId: contacts.id,
+          firstName: contacts.firstName,
+          lastName: contacts.lastName,
+          email: contacts.email,
+          phone: contacts.phone,
+          assignedIsaId: contacts.assignedIsaId,
+          leadSourceId: contacts.leadSourceId,
+          deadConnectionCount: sql<number>`COUNT(${agentConnections.id})`.as("deadConnectionCount"),
+          lastUpdatedAt: sql<string>`MAX(${agentConnections.updatedAt})`.as("lastUpdatedAt"),
+        })
+        .from(contacts)
+        .innerJoin(agentConnections, eq(agentConnections.contactId, contacts.id))
+        .where(and(...baseConditions))
+        .groupBy(contacts.id)
+        .orderBy(desc(sql`lastUpdatedAt`))
+        .limit(limit)
+        .offset(offset);
+
+      const [countResult] = await db
+        .select({ total: sql<number>`COUNT(*)` })
+        .from(contacts)
+        .where(and(...baseConditions));
+
+      const contactIds = rows.map(row => row.contactId);
+      const isaIds = Array.from(new Set(rows.map(row => row.assignedIsaId).filter(Boolean))) as number[];
+      const leadSourceIds = Array.from(new Set(rows.map(row => row.leadSourceId).filter(Boolean))) as number[];
+      const [isaMap, leadSourceMap, agentMap] = await Promise.all([
+        batchLookupIsas(db, isaIds),
+        batchLookupLeadSources(db, leadSourceIds),
+        batchLookupAllAgents(db, contactIds, role, ctx.user.id),
+      ]);
+
+      const items = rows.map(row => ({
+        contactId: row.contactId,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        phone: row.phone,
+        deadConnectionCount: Number(row.deadConnectionCount ?? 0),
+        lastUpdatedAt: ensureUtc(row.lastUpdatedAt),
+        assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
+        leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
+        connectedAgents: agentMap[row.contactId] ?? [],
+      }));
+
+      const totalCount = Number(countResult?.total ?? 0);
+      return { items, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
+    }),
+
   /**
    * propertyViews — contacts with property views in the selected time range,
    * sorted by view count descending.
