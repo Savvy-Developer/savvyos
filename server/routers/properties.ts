@@ -706,6 +706,23 @@ export const propertiesRouter = router({
         .orderBy(desc(proformas.updatedAt));
     }),
 
+  listProformaCountsByAgent: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can view pro-forma counts by agent" });
+      }
+      const db = await getDb();
+      if (!db) return [];
+
+      return db.select({
+        agentId: proformas.createdByUserId,
+        count: sql<number>`COUNT(*)`,
+      }).from(proformas)
+        .innerJoin(users, eq(proformas.createdByUserId, users.id))
+        .where(eq(users.role, "agent"))
+        .groupBy(proformas.createdByUserId);
+    }),
+
   getProforma: protectedProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {

@@ -57,6 +57,11 @@ export default function MyProformasPage() {
   );
   const { data, isLoading, isError, error, refetch } = trpc.properties.listAllProformas.useQuery(listInput);
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" }, { enabled: isAdmin });
+  const { data: proformaCounts = [] } = trpc.properties.listProformaCountsByAgent.useQuery(undefined, { enabled: isAdmin });
+  const agentCountById = useMemo(
+    () => new Map(proformaCounts.map((item: any) => [item.agentId, Number(item.count)])),
+    [proformaCounts],
+  );
 
   const proformas = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -85,7 +90,7 @@ export default function MyProformasPage() {
                 <SelectItem value="all">All agents</SelectItem>
                 {agents.map((agent: any) => (
                   <SelectItem key={agent.id} value={String(agent.id)}>
-                    {agent.name || agent.email || `Agent #${agent.id}`}
+                    {agent.name || agent.email || `Agent #${agent.id}`} ({agentCountById.get(agent.id) ?? 0})
                   </SelectItem>
                 ))}
               </SelectContent>
