@@ -22,8 +22,11 @@ export async function transcribeRecording(
   audioUrl: string,
   callId: number | string
 ): Promise<string | null> {
-  const useForge = Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
-  if (!useForge && !ENV.openaiApiKey) {
+  // Prefer the explicitly configured production OpenAI key. The legacy
+  // built-in route is a distinct credential and may belong to another account.
+  const useDirectOpenAi = Boolean(ENV.openaiApiKey);
+  const useForge = !useDirectOpenAi && Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
+  if (!useForge && !useDirectOpenAi) {
     console.warn("[Aircall Transcribe] No transcription credentials are configured — skipping transcription");
     return null;
   }
@@ -61,7 +64,7 @@ export async function transcribeRecording(
     const response = await fetch(transcriptionUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${useForge ? ENV.forgeApiKey : ENV.openaiApiKey}`,
+        Authorization: `Bearer ${useDirectOpenAi ? ENV.openaiApiKey : ENV.forgeApiKey}`,
         "Accept-Encoding": "identity",
       },
       body: formData,
@@ -99,8 +102,8 @@ export async function generateCallSummary(
     agentName?: string;
   }
 ): Promise<string | null> {
-  const useForge = Boolean(ENV.forgeApiKey && ENV.forgeApiUrl);
   const useDirectOpenAi = Boolean(ENV.openaiApiKey);
+  const useForge = !useDirectOpenAi && Boolean(ENV.forgeApiKey && ENV.forgeApiUrl);
   if (!useForge && !useDirectOpenAi) {
     console.warn("[Aircall Transcribe] No summary credentials are configured — skipping summary");
     return null;
@@ -135,7 +138,7 @@ Write 2–4 sentences. Include: main topic, key points discussed, any next steps
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${useForge ? ENV.forgeApiKey : ENV.openaiApiKey}`,
+        Authorization: `Bearer ${useDirectOpenAi ? ENV.openaiApiKey : ENV.forgeApiKey}`,
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
