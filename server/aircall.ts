@@ -365,6 +365,7 @@ function aircallBasicAuth(): string | null {
 }
 
 const AIRCALL_RECOVERY_REQUEST_SPACING_MS = 1_500;
+const AIRCALL_SUMMARY_RECOVERY_CONCURRENCY = 4;
 let lastAircallRecoveryRequestAt = 0;
 
 function wait(ms: number): Promise<void> {
@@ -583,24 +584,27 @@ export async function reconcileRecentAircallSummaries(
     errors: 0,
   };
 
-  for (const row of rows) {
-    try {
-      const recovery = await transcribeAndSummarize({
-        communicationId: row.communicationId,
-        aircallCallId: row.aircallCallId,
-        // A transcript is already present, so the orchestrator never downloads
-        // this placeholder URL; it generates only the missing summary.
-        audioUrl: row.audioFileUrl ?? "",
-        direction: row.direction,
-        duration: row.duration,
-      });
-      if (recovery.summary) result.recovered += 1;
-      else result.skipped += 1;
-    } catch (error) {
-      result.errors += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[Aircall] Summary recovery failed for call ${row.aircallCallId}:`, message);
-    }
+  for (let start = 0; start < rows.length; start += AIRCALL_SUMMARY_RECOVERY_CONCURRENCY) {
+    const batch = rows.slice(start, start + AIRCALL_SUMMARY_RECOVERY_CONCURRENCY);
+    await Promise.all(batch.map(async row => {
+      try {
+        const recovery = await transcribeAndSummarize({
+          communicationId: row.communicationId,
+          aircallCallId: row.aircallCallId,
+          // A transcript is already present, so the orchestrator never downloads
+          // this placeholder URL; it generates only the missing summary.
+          audioUrl: row.audioFileUrl ?? "",
+          direction: row.direction,
+          duration: row.duration,
+        });
+        if (recovery.summary) result.recovered += 1;
+        else result.skipped += 1;
+      } catch (error) {
+        result.errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[Aircall] Summary recovery failed for call ${row.aircallCallId}:`, message);
+      }
+    }));
   }
 
   return result;
