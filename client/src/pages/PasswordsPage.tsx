@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus,
   Search,
@@ -40,8 +41,8 @@ export default function PasswordsPage() {
 
   // ─── List CRUD state ────────────────────────────────────────────────────────
   const [showCreateList, setShowCreateList] = useState(false);
-  const [editingList, setEditingList] = useState<{ id: number; name: string; description: string | null } | null>(null);
-  const [listForm, setListForm] = useState({ name: "", description: "" });
+  const [editingList, setEditingList] = useState<any | null>(null);
+  const [listForm, setListForm] = useState({ name: "", description: "", sharedUserIds: [] as number[] });
 
   // ─── Entry CRUD state ──────────────────────────────────────────────────────
   const [showCreateEntry, setShowCreateEntry] = useState(false);
@@ -53,6 +54,11 @@ export default function PasswordsPage() {
 
   // ─── Queries ───────────────────────────────────────────────────────────────
   const { data: lists = [], refetch: refetchLists } = trpc.passwords.getLists.useQuery();
+  const { data: passwordAccess } = trpc.passwords.hasAccessibleLists.useQuery();
+  const { data: shareableUsers = [] } = trpc.passwords.getShareableUsers.useQuery(
+    undefined,
+    { enabled: showCreateList || !!editingList }
+  );
   const { data: entries = [], refetch: refetchEntries } = trpc.passwords.getEntries.useQuery(
     { listId: selectedListId! },
     { enabled: selectedListId !== null && !isSearching }
@@ -64,7 +70,7 @@ export default function PasswordsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
   const createList = trpc.passwords.createList.useMutation({
-    onSuccess: () => { refetchLists(); setShowCreateList(false); setListForm({ name: "", description: "" }); toast.success("List created"); },
+    onSuccess: () => { refetchLists(); setShowCreateList(false); setListForm({ name: "", description: "", sharedUserIds: [] }); toast.success("List created"); },
     onError: (e) => toast.error(e.message),
   });
   const updateList = trpc.passwords.updateList.useMutation({
@@ -90,6 +96,15 @@ export default function PasswordsPage() {
 
   function resetEntryForm() {
     setEntryForm({ title: "", username: "", password: "", loginUrl: "", notes: "" });
+  }
+
+  function toggleSharedUser(userId: number) {
+    setListForm((current) => ({
+      ...current,
+      sharedUserIds: current.sharedUserIds.includes(userId)
+        ? current.sharedUserIds.filter((id) => id !== userId)
+        : [...current.sharedUserIds, userId],
+    }));
   }
 
   function togglePasswordVisibility(id: number) {
@@ -137,9 +152,11 @@ export default function PasswordsPage() {
               className="pl-9"
             />
           </div>
-          <Button onClick={() => setShowCreateList(true)} variant="outline" size="sm">
-            <Plus className="h-4 w-4 mr-1" /> New List
-          </Button>
+          {passwordAccess?.canCreateLists && (
+            <Button onClick={() => { setListForm({ name: "", description: "", sharedUserIds: [] }); setShowCreateList(true); }} variant="outline" size="sm">
+              <Plus className="h-4 w-4 mr-1" /> New List
+            </Button>
+          )}
         </div>
       </div>
 
@@ -147,7 +164,7 @@ export default function PasswordsPage() {
       {isSearching && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-4 py-2">
           <Search className="h-4 w-4" />
-          <span>Showing results for &quot;{searchQuery}&quot; across all lists</span>
+          <span>Showing results for &quot;{searchQuery}&quot; across your visible lists</span>
           <Button variant="ghost" size="sm" className="ml-auto" onClick={() => handleSearch("")}>
             Clear search
           </Button>
@@ -174,21 +191,28 @@ export default function PasswordsPage() {
                 }`}
               >
                 <FolderOpen className="h-4 w-4 shrink-0" />
-                <span className="truncate flex-1">{list.name}</span>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditingList(list); setListForm({ name: list.name, description: list.description || "" }); }}
-                    className="p-1 hover:bg-muted rounded"
-                  >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${list.name}" and all its entries?`)) deleteList.mutate({ id: list.id }); }}
-                    className="p-1 hover:bg-destructive/10 rounded"
-                  >
-                    <Trash2 className="h-3 w-3 text-destructive" />
-                  </button>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate">{list.name}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">Owner: {list.ownerName}</span>
                 </div>
+                {list.canManage && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingList(list); setListForm({ name: list.name, description: list.description || "", sharedUserIds: list.sharedUserIds || [] }); }}
+                      className="p-1 hover:bg-muted rounded"
+                      title="Edit list and sharing"
+                    >
+                      <Pencil className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${list.name}" and all its entries?`)) deleteList.mutate({ id: list.id }); }}
+                      className="p-1 hover:bg-destructive/10 rounded"
+                      title="Delete list"
+                    >
+                      <Trash2 className="h-3 w-3 text-destructive" />
+                    </button>
+                  </div>
+                )}
               </button>
             ))
           )}
@@ -212,10 +236,15 @@ export default function PasswordsPage() {
                     {selectedList.description && (
                       <p className="text-sm text-muted-foreground">{selectedList.description}</p>
                     )}
+                    <p className="text-xs text-muted-foreground mt-1">Owner: {selectedList.ownerName}</p>
                   </div>
-                  <Button onClick={() => { resetEntryForm(); setShowCreateEntry(true); }} size="sm">
-                    <Plus className="h-4 w-4 mr-1" /> Add Entry
-                  </Button>
+                  {selectedList.canManage ? (
+                    <Button onClick={() => { resetEntryForm(); setShowCreateEntry(true); }} size="sm">
+                      <Plus className="h-4 w-4 mr-1" /> Add Entry
+                    </Button>
+                  ) : (
+                    <Badge variant="secondary">Shared view</Badge>
+                  )}
                 </div>
               )}
 
@@ -287,34 +316,36 @@ export default function PasswordsPage() {
                             </div>
                           </div>
 
-                          {/* Actions */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => {
-                                setEditingEntry(entry);
-                                setEntryForm({
-                                  title: entry.title,
-                                  username: entry.username || "",
-                                  password: entry.password || "",
-                                  loginUrl: entry.loginUrl || "",
-                                  notes: entry.notes || "",
-                                });
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={() => { if (confirm("Delete this entry?")) deleteEntry.mutate({ id: entry.id }); }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          {/* Actions are limited to the owner and designated super users. */}
+                          {entry.canManage && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => {
+                                  setEditingEntry(entry);
+                                  setEntryForm({
+                                    title: entry.title,
+                                    username: entry.username || "",
+                                    password: entry.password || "",
+                                    loginUrl: entry.loginUrl || "",
+                                    notes: entry.notes || "",
+                                  });
+                                }}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => { if (confirm("Delete this entry?")) deleteEntry.mutate({ id: entry.id }); }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -350,11 +381,12 @@ export default function PasswordsPage() {
                 rows={2}
               />
             </div>
+            <PasswordListShareSelector users={shareableUsers as any[]} selectedUserIds={listForm.sharedUserIds} onToggle={toggleSharedUser} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateList(false)}>Cancel</Button>
             <Button
-              onClick={() => createList.mutate({ name: listForm.name, description: listForm.description || undefined })}
+              onClick={() => createList.mutate({ name: listForm.name, description: listForm.description || undefined, sharedUserIds: listForm.sharedUserIds })}
               disabled={!listForm.name.trim() || createList.isPending}
             >
               Create List
@@ -385,11 +417,12 @@ export default function PasswordsPage() {
                 rows={2}
               />
             </div>
+            <PasswordListShareSelector users={shareableUsers as any[]} selectedUserIds={listForm.sharedUserIds} onToggle={toggleSharedUser} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingList(null)}>Cancel</Button>
             <Button
-              onClick={() => editingList && updateList.mutate({ id: editingList.id, name: listForm.name, description: listForm.description || undefined })}
+              onClick={() => editingList && updateList.mutate({ id: editingList.id, name: listForm.name, description: listForm.description || undefined, sharedUserIds: listForm.sharedUserIds })}
               disabled={!listForm.name.trim() || updateList.isPending}
             >
               Save Changes
@@ -516,6 +549,42 @@ export default function PasswordsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+
+function PasswordListShareSelector({
+  users,
+  selectedUserIds,
+  onToggle,
+}: {
+  users: Array<{ id: number; name?: string | null; email?: string | null; role?: string | null }>;
+  selectedUserIds: number[];
+  onToggle: (userId: number) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-sm font-medium">Share with</label>
+        <p className="text-xs text-muted-foreground mt-1">Only the people selected here can see this list. They can view and copy credentials but cannot edit the list, entries, or sharing.</p>
+      </div>
+      <div className="max-h-44 overflow-y-auto rounded-md border divide-y">
+        {users.length === 0 ? (
+          <p className="px-3 py-3 text-sm text-muted-foreground">No active users are available.</p>
+        ) : users.map((user) => (
+          <label key={user.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/50">
+            <Checkbox
+              checked={selectedUserIds.includes(user.id)}
+              onCheckedChange={() => onToggle(user.id)}
+            />
+            <span className="min-w-0 text-sm">
+              <span className="block truncate font-medium">{user.name || user.email || `User #${user.id}`}</span>
+              {user.email && <span className="block truncate text-xs text-muted-foreground">{user.email}</span>}
+            </span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

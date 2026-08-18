@@ -3291,6 +3291,21 @@ export const passwordLists = mysqlTable("password_lists", {
 export type PasswordList = typeof passwordLists.$inferSelect;
 export type InsertPasswordList = typeof passwordLists.$inferInsert;
 
+// Explicit recipients for a password list. The owner always has access and is not duplicated here.
+export const passwordListShares = mysqlTable("password_list_shares", {
+  id: int("id").autoincrement().primaryKey(),
+  listId: int("listId").notNull().references(() => passwordLists.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sharedByUserId: int("sharedByUserId").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  listIdx: index("password_list_shares_list_idx").on(table.listId),
+  userIdx: index("password_list_shares_user_idx").on(table.userId),
+  listUserUnique: uniqueIndex("password_list_shares_list_user_unique").on(table.listId, table.userId),
+}));
+export type PasswordListShare = typeof passwordListShares.$inferSelect;
+export type InsertPasswordListShare = typeof passwordListShares.$inferInsert;
+
 export const passwordEntries = mysqlTable("password_entries", {
   id: int("id").autoincrement().primaryKey(),
   listId: int("listId").notNull().references(() => passwordLists.id, { onDelete: "cascade" }),

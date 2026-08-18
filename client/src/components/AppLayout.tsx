@@ -591,6 +591,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: role === "admin", staleTime: 30000 }
   );
 
+  // Password navigation is available only to list owners, selected recipients, and designated super users.
+  const { data: passwordAccess } = trpc.passwords.hasAccessibleLists.useQuery(
+    undefined,
+    { enabled: !!user, staleTime: 30000 }
+  );
+
   // ── Early returns (all hooks must be above this line) ──────────────────────
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
@@ -619,10 +625,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
-  // For admin users, filter nav by their permissions
-  const navGroups: NavGroup[] = role === "admin"
+  // For admin users, filter nav by their permissions, then apply password-list visibility.
+  const permissionFilteredNavGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
     : baseNavGroups;
+  const navGroupsWithoutPasswords = permissionFilteredNavGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.path !== "/passwords") }))
+    .filter((group) => group.items.length > 0);
+  const passwordNavItem: NavItem = { icon: Lock, label: "Passwords", path: "/passwords" };
+  const passwordNavTargetGroup = role === "admin" ? "Admin" : "Resources";
+  const navGroups: NavGroup[] = passwordAccess?.hasAccessibleLists
+    ? navGroupsWithoutPasswords.some((group) => group.label === passwordNavTargetGroup)
+      ? navGroupsWithoutPasswords.map((group) => group.label === passwordNavTargetGroup
+        ? { ...group, items: [...group.items, passwordNavItem] }
+        : group)
+      : [...navGroupsWithoutPasswords, { label: "Shared", items: [passwordNavItem] }]
+    : navGroupsWithoutPasswords;
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"
