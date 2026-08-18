@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { format, isPast, isToday, addDays } from "date-fns";
@@ -35,7 +36,8 @@ interface Project {
   department: string;
   ownerId: number | null;
   ownerName: string | null;
-  dueDate: Date;
+  dueDate: Date | null;
+  isOngoing: boolean;
   priority: Priority;
   status: Status;
   taskTotal: number;
@@ -73,7 +75,8 @@ const KANBAN_COLUMNS: { status: Status; label: string }[] = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getDueDateLabel(date: Date) {
+function getDueDateLabel(date: Date | null, isOngoing: boolean) {
+  if (isOngoing || !date) return { label: "Ongoing", cls: "text-primary font-medium" };
   if (isPast(date) && !isToday(date)) return { label: "Overdue", cls: "text-red-600 font-medium" };
   if (isToday(date)) return { label: "Due today", cls: "text-amber-600 font-medium" };
   if (date <= addDays(new Date(), 7)) return { label: format(date, "MMM d"), cls: "text-amber-600" };
@@ -188,7 +191,7 @@ function ProjectCard({ project, onArchive }: { project: Project; onArchive: (id:
   const [, navigate] = useLocation();
   const statusCfg = STATUS_CONFIG[project.status];
   const priorityCfg = PRIORITY_CONFIG[project.priority];
-  const dueDateInfo = getDueDateLabel(project.dueDate);
+  const dueDateInfo = getDueDateLabel(project.dueDate, project.isOngoing);
   const progress = project.taskTotal > 0 ? Math.round((project.taskCompleted / project.taskTotal) * 100) : (project.latestUpdate?.progressPct ?? 0);
 
   return (
@@ -301,13 +304,14 @@ function CreateProjectDialog({
     department: "",
     ownerId: String((user as any)?.id ?? ""),
     dueDate: "",
+    isOngoing: false,
     priority: "medium" as Priority,
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title || !form.description || !form.department || !form.dueDate || !form.ownerId) {
-      toast.error("Please fill in all required fields");
+    if (!form.title || !form.description || !form.department || !form.ownerId || (!form.isOngoing && !form.dueDate)) {
+      toast.error("Please fill in all required fields, including a due date unless the project is ongoing");
       return;
     }
     create.mutate({
@@ -315,7 +319,8 @@ function CreateProjectDialog({
       description: form.description,
       department: form.department,
       ownerId: Number(form.ownerId),
-      dueDate: new Date(form.dueDate),
+      dueDate: form.isOngoing ? null : new Date(form.dueDate),
+      isOngoing: form.isOngoing,
       priority: form.priority,
     });
   }
@@ -369,9 +374,21 @@ function CreateProjectDialog({
                 searchPlaceholder="Search users…"
               />
             </div>
-            <div>
-              <Label htmlFor="dueDate">Due Date *</Label>
-              <Input id="dueDate" type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 h-5">
+                <Checkbox
+                  id="ongoing-project"
+                  checked={form.isOngoing}
+                  onCheckedChange={checked => setForm(f => ({ ...f, isOngoing: checked === true, dueDate: checked ? "" : f.dueDate }))}
+                />
+                <Label htmlFor="ongoing-project" className="cursor-pointer">Ongoing</Label>
+              </div>
+              {!form.isOngoing && (
+                <div>
+                  <Label htmlFor="dueDate">Due Date *</Label>
+                  <Input id="dueDate" type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -395,6 +412,7 @@ export default function ProjectsPage() {
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterDept, setFilterDept] = useState<string>("all");
   const [filterOwner, setFilterOwner] = useState<string>("all");
+  const [filterSchedule, setFilterSchedule] = useState<string>("all");
   const [filterCollaborator, setFilterCollaborator] = useState<string>("all");
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -466,9 +484,11 @@ export default function ProjectsPage() {
       if (filterPriority !== "all" && p.priority !== filterPriority) return false;
       if (filterDept !== "all" && p.department !== filterDept) return false;
       if (filterOwner !== "all" && String(p.ownerId) !== filterOwner) return false;
+      if (filterSchedule === "ongoing" && !p.isOngoing) return false;
+      if (filterSchedule === "dated" && p.isOngoing) return false;
       return true;
     });
-  }, [projects, search, filterStatus, filterPriority, filterDept, filterOwner]);
+  }, [projects, search, filterStatus, filterPriority, filterDept, filterOwner, filterSchedule]);
 
   // Stats
   const stats = useMemo(() => {
@@ -478,11 +498,11 @@ export default function ProjectsPage() {
       inProgress: all.filter(p => p.status === "in_progress").length,
       atRisk: all.filter(p => p.status === "at_risk").length,
       completed: all.filter(p => p.status === "completed").length,
-      overdue: all.filter(p => p.status !== "completed" && isPast(p.dueDate) && !isToday(p.dueDate)).length,
+      overdue: all.filter(p => p.status !== "completed" && !p.isOngoing && p.dueDate && isPast(p.dueDate) && !isToday(p.dueDate)).length,
     };
   }, [projects]);
 
-  const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterDept !== "all" || filterOwner !== "all" || filterCollaborator !== "all" || search;
+  const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterDept !== "all" || filterOwner !== "all" || filterSchedule !== "all" || filterCollaborator !== "all" || search;
 
   return (
     <div>
@@ -573,6 +593,15 @@ export default function ProjectsPage() {
             </SelectContent>
           </Select>
 
+          <Select value={filterSchedule} onValueChange={setFilterSchedule}>
+            <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Schedule" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Schedules</SelectItem>
+              <SelectItem value="ongoing">Ongoing</SelectItem>
+              <SelectItem value="dated">Has Due Date</SelectItem>
+            </SelectContent>
+          </Select>
+
           {/* Department filter */}
           <Select value={filterDept} onValueChange={setFilterDept}>
             <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Department" /></SelectTrigger>
@@ -608,6 +637,7 @@ export default function ProjectsPage() {
                 setFilterPriority("all");
                 setFilterDept("all");
                 setFilterOwner("all");
+                setFilterSchedule("all");
                 setFilterCollaborator("all");
               }}
             >
@@ -783,7 +813,7 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
   const [, navigate] = useLocation();
   const statusCfg = STATUS_CONFIG[project.status];
   const priorityCfg = PRIORITY_CONFIG[project.priority];
-  const dueDateInfo = getDueDateLabel(project.dueDate);
+  const dueDateInfo = getDueDateLabel(project.dueDate, project.isOngoing);
   const progress = project.taskTotal > 0
     ? Math.round((project.taskCompleted / project.taskTotal) * 100)
     : (project.latestUpdate?.progressPct ?? 0);

@@ -16,7 +16,7 @@ import {
   pmTaskCommentReads,
   users,
 } from "../../drizzle/schema";
-import { eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
+import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
 
@@ -73,6 +73,7 @@ export const pmRouter = router({
             ownerName: users.name,
             ownerEmail: users.email,
             dueDate: pmProjects.dueDate,
+            isOngoing: pmProjects.isOngoing,
             priority: pmProjects.priority,
             status: pmProjects.status,
             sortOrder: pmProjects.sortOrder,
@@ -144,6 +145,7 @@ export const pmRouter = router({
             ownerName: users.name,
             ownerEmail: users.email,
             dueDate: pmProjects.dueDate,
+            isOngoing: pmProjects.isOngoing,
             priority: pmProjects.priority,
             status: pmProjects.status,
             sortOrder: pmProjects.sortOrder,
@@ -225,9 +227,17 @@ export const pmRouter = router({
         description: z.string().min(1),
         department: z.string().min(1),
         ownerId: z.number(),
-        dueDate: z.date(),
+        dueDate: z.date().nullable().optional(),
+        isOngoing: z.boolean().default(false),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
         collaboratorIds: z.array(z.number()).optional().default([]),
+      }).superRefine((input, refinement) => {
+        if (!input.isOngoing && !input.dueDate) {
+          refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A due date is required unless the project is ongoing." });
+        }
+        if (input.isOngoing && input.dueDate) {
+          refinement.addIssue({ code: "custom", path: ["dueDate"], message: "Ongoing projects cannot also have a due date." });
+        }
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
@@ -239,16 +249,16 @@ export const pmRouter = router({
           description: input.description,
           department: input.department,
           ownerId: input.ownerId,
-          dueDate: input.dueDate,
+          dueDate: input.isOngoing ? null : input.dueDate,
+          isOngoing: input.isOngoing,
           priority: input.priority,
           status: "not_started",
         });
         const projectId = result.insertId;
-        if (input.collaboratorIds.length > 0) {
-          await db.insert(pmProjectCollaborators).values(
-            input.collaboratorIds.map(uid => ({ projectId, userId: uid }))
-          );
-        }
+        const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId]));
+        await db.insert(pmProjectCollaborators).values(
+          collaboratorIds.map(userId => ({ projectId, userId }))
+        );
         await logActivity(projectId, ctx.user.id, "project_created", `Created project "${input.title}"`);
         return { id: projectId };
       }),
@@ -260,7 +270,8 @@ export const pmRouter = router({
         description: z.string().optional(),
         department: z.string().optional(),
         ownerId: z.number().optional(),
-        dueDate: z.date().optional(),
+        dueDate: z.date().nullable().optional(),
+        isOngoing: z.boolean().optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
         status: z.enum(["not_started", "in_progress", "at_risk", "completed"]).optional(),
         collaboratorIds: z.array(z.number()).optional(),
@@ -270,18 +281,48 @@ export const pmRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-        const { id, collaboratorIds, ...fields } = input;
-        if (Object.keys(fields).length > 0) {
-          await db.update(pmProjects).set(fields).where(eq(pmProjects.id, id));
+        const [existingProject] = await db
+          .select({ ownerId: pmProjects.ownerId, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, input.id))
+          .limit(1);
+        if (!existingProject) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const finalIsOngoing = input.isOngoing ?? existingProject.isOngoing;
+        const finalDueDate = input.isOngoing === true
+          ? null
+          : input.dueDate !== undefined
+            ? input.dueDate
+            : existingProject.dueDate;
+        if (!finalIsOngoing && !finalDueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A due date is required unless the project is ongoing." });
         }
+
+        const { id, collaboratorIds, ...fields } = input;
+        const updateFields = { ...fields };
+        if (input.isOngoing === true) updateFields.dueDate = null;
+        if (input.dueDate !== undefined && input.dueDate !== null) updateFields.isOngoing = false;
+        if (Object.keys(updateFields).length > 0) {
+          await db.update(pmProjects).set(updateFields).where(eq(pmProjects.id, id));
+        }
+
+        const finalOwnerId = input.ownerId ?? existingProject.ownerId;
         if (collaboratorIds !== undefined) {
+          const normalizedCollaborators = Array.from(new Set([...collaboratorIds, finalOwnerId]));
           await db.delete(pmProjectCollaborators).where(eq(pmProjectCollaborators.projectId, id));
-          if (collaboratorIds.length > 0) {
-            await db.insert(pmProjectCollaborators).values(
-              collaboratorIds.map(uid => ({ projectId: id, userId: uid }))
-            );
+          await db.insert(pmProjectCollaborators).values(
+            normalizedCollaborators.map(userId => ({ projectId: id, userId }))
+          );
+        } else {
+          const ownerCollaborator = await db.select({ id: pmProjectCollaborators.id })
+            .from(pmProjectCollaborators)
+            .where(and(eq(pmProjectCollaborators.projectId, id), eq(pmProjectCollaborators.userId, finalOwnerId)))
+            .limit(1);
+          if (ownerCollaborator.length === 0) {
+            await db.insert(pmProjectCollaborators).values({ projectId: id, userId: finalOwnerId });
           }
         }
+
         await logActivity(id, ctx.user.id, "project_updated", "Updated project fields");
         return { success: true };
       }),
@@ -316,7 +357,7 @@ export const pmRouter = router({
     create: protectedProcedure
       .input(z.object({
         projectId: z.number(),
-        title: z.string().min(1),
+        title: z.string().min(1).max(5000),
         ownerId: z.number(),
         dueDate: z.date(),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
@@ -341,7 +382,7 @@ export const pmRouter = router({
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
-        title: z.string().optional(),
+        title: z.string().min(1).max(5000).optional(),
         ownerId: z.number().optional(),
         dueDate: z.date().optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
@@ -493,6 +534,7 @@ export const pmRouter = router({
           ownerId: pmProjects.ownerId,
           ownerName: users.name,
           dueDate: pmProjects.dueDate,
+          isOngoing: pmProjects.isOngoing,
           status: pmProjects.status,
           priority: pmProjects.priority,
           updatedAt: pmProjects.updatedAt,
@@ -529,7 +571,7 @@ export const pmRouter = router({
       type ProjectRow = (typeof allProjects)[0];
       type TaskRow = (typeof allTasks)[0];
 
-      const overdueProjects = allProjects.filter((p: ProjectRow) => p.status !== "completed" && p.dueDate < now);
+      const overdueProjects = allProjects.filter((p: ProjectRow) => p.status !== "completed" && !p.isOngoing && !!p.dueDate && p.dueDate < now);
       const atRiskProjects = allProjects.filter((p: ProjectRow) => p.status === "at_risk");
       const staleProjects = allProjects.filter((p: ProjectRow) => {
         const lu = latestUpdateMap.get(p.id);
@@ -569,7 +611,7 @@ export const pmRouter = router({
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       const allProjects = await db
-        .select({ id: pmProjects.id, title: pmProjects.title, department: pmProjects.department, status: pmProjects.status, priority: pmProjects.priority, dueDate: pmProjects.dueDate })
+        .select({ id: pmProjects.id, title: pmProjects.title, department: pmProjects.department, status: pmProjects.status, priority: pmProjects.priority, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing })
         .from(pmProjects)
         .where(isNull(pmProjects.archivedAt));
 
@@ -587,7 +629,7 @@ export const pmRouter = router({
       type PRow = (typeof allProjects)[0];
       type TRow = (typeof allTasks)[0];
 
-      const overdueProjects = allProjects.filter((p: PRow) => p.status !== "completed" && p.dueDate < now);
+      const overdueProjects = allProjects.filter((p: PRow) => p.status !== "completed" && !p.isOngoing && !!p.dueDate && p.dueDate < now);
       const atRisk = allProjects.filter((p: PRow) => p.status === "at_risk");
       const stale = allProjects.filter((p: PRow) => {
         const lu = latestUpdateMap.get(p.id);
@@ -600,7 +642,7 @@ export const pmRouter = router({
 Here is the current project management state:
 
 OVERDUE PROJECTS (${overdueProjects.length}):
-${overdueProjects.map((p: PRow) => `- ${p.title} (${p.department}, due ${p.dueDate.toLocaleDateString()})`).join("\n") || "None"}
+${overdueProjects.map((p: PRow) => `- ${p.title} (${p.department}, due ${p.dueDate?.toLocaleDateString() ?? "unscheduled"})`).join("\n") || "None"}
 
 AT RISK PROJECTS (${atRisk.length}):
 ${atRisk.map((p: PRow) => `- ${p.title} (${p.department})`).join("\n") || "None"}
@@ -637,7 +679,7 @@ Be direct, specific, and use plain language. No fluff.`;
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
         const [project] = await db
-          .select({ id: pmProjects.id, title: pmProjects.title, department: pmProjects.department, status: pmProjects.status, priority: pmProjects.priority, dueDate: pmProjects.dueDate })
+          .select({ id: pmProjects.id, title: pmProjects.title, department: pmProjects.department, status: pmProjects.status, priority: pmProjects.priority, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing })
           .from(pmProjects)
           .where(eq(pmProjects.id, input.projectId))
           .limit(1);
@@ -654,7 +696,7 @@ Be direct, specific, and use plain language. No fluff.`;
 Department: ${project.department}
 Status: ${project.status}
 Priority: ${project.priority}
-Due: ${project.dueDate.toLocaleDateString()}
+Due: ${project.isOngoing || !project.dueDate ? "Ongoing" : project.dueDate.toLocaleDateString()}
 Tasks: ${completedTasks}/${tasks.length} completed
 
 Latest Weekly Update: ${latestUpdate ? `${latestUpdate.updateStatus} — ${latestUpdate.keyUpdates}` : "None submitted"}
@@ -767,14 +809,40 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
       }),
 
     remove: protectedProcedure
-      .input(z.object({ projectId: z.number(), userId: z.number() }))
+      .input(z.object({ projectId: z.number(), userId: z.number(), newOwnerId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const [project] = await db
+          .select({ ownerId: pmProjects.ownerId })
+          .from(pmProjects)
+          .where(eq(pmProjects.id, input.projectId))
+          .limit(1);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (project.ownerId === input.userId) {
+          if (!input.newOwnerId || input.newOwnerId === input.userId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Select a new owner before removing the current owner." });
+          }
+          const [newOwner] = await db.select({ id: users.id }).from(users).where(eq(users.id, input.newOwnerId)).limit(1);
+          if (!newOwner) throw new TRPCError({ code: "BAD_REQUEST", message: "The selected new owner could not be found." });
+
+          const newOwnerCollaborator = await db.select({ id: pmProjectCollaborators.id })
+            .from(pmProjectCollaborators)
+            .where(and(eq(pmProjectCollaborators.projectId, input.projectId), eq(pmProjectCollaborators.userId, input.newOwnerId)))
+            .limit(1);
+          if (newOwnerCollaborator.length === 0) {
+            await db.insert(pmProjectCollaborators).values({ projectId: input.projectId, userId: input.newOwnerId });
+          }
+          await db.update(pmProjects).set({ ownerId: input.newOwnerId }).where(eq(pmProjects.id, input.projectId));
+          await logActivity(input.projectId, ctx.user.id, "project_owner_changed", "Changed project owner while removing former owner");
+        }
+
         await db.delete(pmProjectCollaborators)
-          .where(eq(pmProjectCollaborators.projectId, input.projectId));
-        await logActivity(input.projectId, ctx.user.id, "collaborator_removed", `Removed collaborator`);
+          .where(and(eq(pmProjectCollaborators.projectId, input.projectId), eq(pmProjectCollaborators.userId, input.userId)));
+        await logActivity(input.projectId, ctx.user.id, "collaborator_removed", "Removed collaborator");
         return { success: true };
       }),
   }),

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -420,11 +421,13 @@ export default function ProjectDetailPage() {
     onError: (e) => toast.error(e.message),
   });
   const removeCollaborator = trpc.pm.collaborators.remove.useMutation({
-    onSuccess: () => { toast.success("Collaborator removed"); refetchCollaborators(); },
+    onSuccess: () => { toast.success("Collaborator removed"); refetch(); refetchCollaborators(); setOwnerRemoval(null); setNewOwnerId(""); },
     onError: (e) => toast.error(e.message),
   });
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [collabUserId, setCollabUserId] = useState("");
+  const [ownerRemoval, setOwnerRemoval] = useState<any>(null);
+  const [newOwnerId, setNewOwnerId] = useState("");
 
   // Notes queries and mutations
   const { data: notes = [], refetch: refetchNotes } = trpc.pm.notes.list.useQuery({ projectId });
@@ -470,6 +473,7 @@ export default function ProjectDetailPage() {
       department: project.department,
       ownerId: String(project.ownerId ?? ""),
       dueDate: project.dueDate ? format(new Date(project.dueDate), "yyyy-MM-dd") : "",
+      isOngoing: project.isOngoing || !project.dueDate,
       priority: project.priority,
       status: project.status,
     });
@@ -484,7 +488,8 @@ export default function ProjectDetailPage() {
       description: editForm.description,
       department: editForm.department,
       ownerId: Number(editForm.ownerId),
-      dueDate: editForm.dueDate ? new Date(editForm.dueDate) : undefined,
+      dueDate: editForm.isOngoing ? null : (editForm.dueDate ? new Date(editForm.dueDate) : null),
+      isOngoing: editForm.isOngoing,
       priority: editForm.priority,
       status: editForm.status,
     });
@@ -587,9 +592,21 @@ export default function ProjectDetailPage() {
                   searchPlaceholder="Search users…"
                 />
               </div>
-              <div>
-                <Label>Due Date</Label>
-                <Input type="date" value={editForm.dueDate} onChange={e => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 h-5">
+                  <Checkbox
+                    id="edit-ongoing-project"
+                    checked={editForm.isOngoing}
+                    onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isOngoing: checked === true, dueDate: checked ? "" : f.dueDate }))}
+                  />
+                  <Label htmlFor="edit-ongoing-project" className="cursor-pointer">Ongoing</Label>
+                </div>
+                {!editForm.isOngoing && (
+                  <div>
+                    <Label>Due Date *</Label>
+                    <Input type="date" value={editForm.dueDate} onChange={e => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} />
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -647,7 +664,7 @@ export default function ProjectDetailPage() {
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                Due {project.dueDate ? format(new Date(project.dueDate), "MMM d, yyyy") : "—"}
+                {project.isOngoing || !project.dueDate ? "Ongoing" : `Due ${format(new Date(project.dueDate), "MMM d, yyyy")}`}
               </span>
             </div>
 
@@ -726,11 +743,18 @@ export default function ProjectDetailPage() {
             {(collaborators as any[]).map((c: any) => (
               <div key={c.userId} className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-full px-2.5 py-1 text-xs">
                 <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium text-primary shrink-0">
-                  {c.userName?.[0] ?? "?"}
+                  {(c.name ?? c.userName)?.[0] ?? "?"}
                 </div>
-                <span className="font-medium">{c.userName}</span>
+                <span className="font-medium">{c.name ?? c.userName}</span>
                 <button
-                  onClick={() => removeCollaborator.mutate({ projectId, userId: c.userId })}
+                  onClick={() => {
+                    if (c.userId === project.ownerId) {
+                      setOwnerRemoval(c);
+                      setNewOwnerId("");
+                      return;
+                    }
+                    removeCollaborator.mutate({ projectId, userId: c.userId });
+                  }}
                   className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors"
                   title="Remove collaborator"
                 >
@@ -741,6 +765,36 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={!!ownerRemoval} onOpenChange={open => { if (!open) { setOwnerRemoval(null); setNewOwnerId(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Choose a New Project Owner</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {(ownerRemoval?.name ?? ownerRemoval?.userName ?? "This collaborator")} is the current owner. Choose a new owner before removing them from collaborators.
+          </p>
+          <SearchableSelect
+            className="w-full"
+            options={(adminUsers as any[])
+              .filter((u: any) => u.id !== project.ownerId)
+              .map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
+            value={newOwnerId}
+            onValueChange={setNewOwnerId}
+            placeholder="Select new owner"
+            searchPlaceholder="Search users…"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setOwnerRemoval(null); setNewOwnerId(""); }}>Cancel</Button>
+            <Button
+              disabled={!newOwnerId || removeCollaborator.isPending}
+              onClick={() => ownerRemoval && removeCollaborator.mutate({ projectId, userId: ownerRemoval.userId, newOwnerId: Number(newOwnerId) })}
+            >
+              {removeCollaborator.isPending ? "Updating..." : "Transfer & Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Tabs */}
       <Tabs defaultValue="tasks">

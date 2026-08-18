@@ -1533,7 +1533,8 @@ export const pmProjects = mysqlTable("pm_projects", {
   description: text("description").notNull(),
   department: varchar("department", { length: 128 }).notNull(),
   ownerId: int("ownerId").notNull().references(() => users.id, { onDelete: "restrict" }),
-  dueDate: timestamp("dueDate").notNull(),
+  dueDate: timestamp("dueDate"),
+  isOngoing: boolean("isOngoing").notNull().default(false),
   priority: varchar("priority", { length: 16 }).notNull().default("medium"), // high | medium | low
   status: varchar("status", { length: 32 }).notNull().default("not_started"), // not_started | in_progress | at_risk | completed
   sortOrder: int("sortOrder").notNull().default(0),
@@ -1549,12 +1550,14 @@ export const pmProjectCollaborators = mysqlTable("pm_project_collaborators", {
   projectId: int("projectId").notNull().references(() => pmProjects.id, { onDelete: "cascade" }),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("pm_project_collaborators_project_user_unique").on(table.projectId, table.userId),
+]);
 
 export const pmTasks = mysqlTable("pm_tasks", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId").notNull().references(() => pmProjects.id, { onDelete: "cascade" }),
-  title: varchar("title", { length: 256 }).notNull(),
+  title: text("title").notNull(),
   ownerId: int("ownerId").notNull().references(() => users.id, { onDelete: "restrict" }),
   dueDate: timestamp("dueDate").notNull(),
   priority: varchar("priority", { length: 16 }).notNull().default("medium"), // high | medium | low
