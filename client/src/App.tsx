@@ -105,6 +105,8 @@ import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
+import DailyReportPage from "./pages/DailyReportPage";
+import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -124,6 +126,16 @@ function AdminOrIsaRoute({ children }: { children: React.ReactNode }) {
   const [, navigate] = useLocation();
   const role = (user as any)?.role;
   if (role && role !== "admin" && role !== "isa") {
+    navigate("/");
+    return null;
+  }
+  return <>{children}</>;
+}
+
+function AgentOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  if (user?.role && user.role !== "agent") {
     navigate("/");
     return null;
   }
@@ -234,6 +246,7 @@ function Router() {
           <Route path="/proformas" component={MyProformasPage} />
           <Route path="/proforma-defaults" component={ProformaDefaultsPage} />
           <Route path="/pipeline" component={PipelinePage} />
+          <Route path="/daily-report">{() => <AgentOnlyRoute><DailyReportPage /></AgentOnlyRoute>}</Route>
           <Route path="/pipeline/:id" component={AgentConnectionDetail} />
           <Route path="/connection-requests" component={ConnectionRequestsPage} />
           <Route path="/request-connection" component={RequestConnectionPage} />
@@ -307,6 +320,7 @@ function Router() {
           <Route path="/duplicates">{() => <AdminRoute><DuplicatesPage /></AdminRoute>}</Route>
           <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
+          <Route path="/daily-report-updates">{() => <AdminRoute><DailyReportFeatureUpdatesPage /></AdminRoute>}</Route>
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
           <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
           <Route path="/job-board">{() => <AdminRoute><JobBoardAdminPage /></AdminRoute>}</Route>

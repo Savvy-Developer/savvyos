@@ -16,6 +16,7 @@ import { processSmartPlanSteps } from "../smartPlanScheduler";
 import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
+import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
@@ -221,6 +222,9 @@ async function startServer() {
 
   // Agent production report: Friday at 6:00 PM Eastern
   scheduleAgentProductionReport();
+
+  // Personalized agent operating digest: daily at 6:00 PM Eastern
+  scheduleDailyAgentReports();
 
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.

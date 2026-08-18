@@ -1735,7 +1735,53 @@ export const scheduledReportRuns = mysqlTable(
 export type ScheduledReportRun = typeof scheduledReportRuns.$inferSelect;
 export type InsertScheduledReportRun = typeof scheduledReportRuns.$inferInsert;
 
+// ─── Daily Agent Reports ─────────────────────────────────────────────────────
+// A personalized daily snapshot is retained for the in-app report view after the
+// scheduled email has been delivered. One report per agent per Eastern calendar day.
+export const dailyAgentReports = mysqlTable(
+  "daily_agent_reports",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    reportDate: varchar("reportDate", { length: 10 }).notNull(), // YYYY-MM-DD in America/New_York
+    snapshot: json("snapshot").$type<Record<string, unknown>>().notNull(),
+    aiSuggestions: json("aiSuggestions").$type<Array<Record<string, unknown>>>().notNull(),
+    aiModel: varchar("aiModel", { length: 128 }),
+    generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_agent_reports_agent_date_unique").on(table.agentId, table.reportDate),
+    index("daily_agent_reports_date_idx").on(table.reportDate),
+  ],
+);
+export type DailyAgentReport = typeof dailyAgentReports.$inferSelect;
+export type InsertDailyAgentReport = typeof dailyAgentReports.$inferInsert;
+
+// ─── SavvyOS Feature Updates ─────────────────────────────────────────────────
+// Admin-managed, agent-facing release notes. The daily report only includes
+// published updates, keeping operational emails free from draft work.
+export const savvyosFeatureUpdates = mysqlTable("savvyos_feature_updates", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  summary: text("summary").notNull(),
+  details: text("details"),
+  actionUrl: varchar("actionUrl", { length: 512 }),
+  isAgentFacing: boolean("isAgentFacing").notNull().default(true),
+  isPublished: boolean("isPublished").notNull().default(false),
+  publishedAt: timestamp("publishedAt"),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("savvyos_feature_updates_published_idx").on(table.isPublished, table.isAgentFacing, table.publishedAt),
+]);
+export type SavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferSelect;
+export type InsertSavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferInsert;
+
 // ─── Analytics Insight Cache ─────────────────────────────────────────────────
+
 // Durable cache for evidence-grounded Analytics & Reporting explanations. The
 // cache is scoped to the viewer and filters so agents never receive an admin's
 // company-wide insight payload, and expires after a weekly refresh window.

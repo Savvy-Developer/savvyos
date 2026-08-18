@@ -40,6 +40,7 @@ export type EmailType =
   | "pm_mention"
   | "partner_lead_confirmation"
   | "agent_production_report"
+  | "daily_agent_report"
   | "password_reset";
 
 interface EmailContext {
@@ -89,6 +90,10 @@ interface EmailContext {
   reportDate?: string;
   reportAsOf?: string;
   reportTableHtml?: string;
+  // Daily agent report-specific fields
+  dailyReportDate?: string;
+  dailyReportAsOf?: string;
+  dailyReportHtml?: string;
   // Deep-link entity IDs (numeric DB IDs for direct navigation)
   transactionId?: string;
   taskId?: string;
@@ -491,6 +496,16 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${ctaButton("Open SavvyOS", APP_URL + "/analytics")}`,
       `Agent production report for ${ctx.reportDate ?? "this week"}`,
       1200,
+    ),
+  }),
+
+  daily_agent_report: (ctx) => ({
+    subject: `Your Daily SavvyOS Report — ${ctx.dailyReportDate ?? "Today"}`,
+    html: emailLayout(
+      `${greeting(ctx.recipientName)}
+      ${ctx.dailyReportHtml ?? bodyText("Your daily SavvyOS report could not be generated. Please open SavvyOS to review your current tasks and pipeline.")}`,
+      `Your end-of-day SavvyOS priorities — ${ctx.dailyReportAsOf ?? "today"}`,
+      640,
     ),
   }),
 

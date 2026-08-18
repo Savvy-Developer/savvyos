@@ -54,6 +54,7 @@ import { hotLeadsRouter } from "./routers/hotLeads";
 import { passwordsRouter } from "./routers/passwords";
 import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
 import { pulseRouter } from "./routers/pulse";
+import { dailyReportRouter } from "./routers/dailyReport";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -254,6 +255,7 @@ export const appRouter = router({
   passwords: passwordsRouter,
     rolesResponsibilities: rolesResponsibilitiesRouter,
   pulse: pulseRouter,
+  dailyReport: dailyReportRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
@@ -267,7 +269,7 @@ export const appRouter = router({
         "transaction_closed", "commission_calculated", "task_assigned", "task_due",
         "payout_integrity_fail", "listing_created", "listing_expiration_reminder",
         "onboarding_overdue", "commission_exception_warning", "market_match_intro",
-        "client_intro", "connection_request_approved", "pm_mention",
+        "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report",
       ];
       // Seed any missing rows
       const existing = await db2.select().from(emailNotificationSettings);
