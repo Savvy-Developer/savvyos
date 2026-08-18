@@ -1700,7 +1700,7 @@ export const duplicateContactPairs = mysqlTable("duplicate_contact_pairs", {
   contactAId: int("contactAId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
   contactBId: int("contactBId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
   // How the duplicate was detected
-  matchType: mysqlEnum("matchType", ["email", "phone", "name_address", "fuzzy_name"]).notNull(),
+  matchType: mysqlEnum("matchType", ["email", "phone", "name_address", "fuzzy_name", "manual"]).notNull(),
   // Confidence 0-100
   confidence: int("confidence").notNull().default(100),
   // Admin review status

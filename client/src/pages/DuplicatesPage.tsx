@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -58,7 +59,7 @@ type PairRow = {
   id: number;
   contactAId: number;
   contactBId: number;
-  matchType: "email" | "phone" | "name_address" | "fuzzy_name";
+  matchType: "email" | "phone" | "name_address" | "fuzzy_name" | "manual";
   confidence: number;
   status: "pending" | "merged" | "dismissed";
   contactA: ContactSummary | null;
@@ -70,6 +71,7 @@ const MATCH_LABELS: Record<string, string> = {
   phone: "Same Phone",
   name_address: "Same Name + Address",
   fuzzy_name: "Similar Name",
+  manual: "Manual Selection",
 };
 
 const MATCH_COLORS: Record<string, string> = {
@@ -77,6 +79,7 @@ const MATCH_COLORS: Record<string, string> = {
   phone: "bg-orange-100 text-orange-700 border-orange-200",
   name_address: "bg-yellow-100 text-yellow-700 border-yellow-200",
   fuzzy_name: "bg-blue-100 text-blue-700 border-blue-200",
+  manual: "bg-purple-100 text-purple-700 border-purple-200",
 };
 
 // Fields shown in the side-by-side comparison (excluding email which gets special treatment)
@@ -158,12 +161,94 @@ function ContactCard({
   );
 }
 
+function ContactSearchPicker({
+  label,
+  selectedContact,
+  search,
+  excludeContactId,
+  onSearchChange,
+  onSelect,
+  onClear,
+}: {
+  label: string;
+  selectedContact: ContactSummary | null;
+  search: string;
+  excludeContactId?: number;
+  onSearchChange: (value: string) => void;
+  onSelect: (contact: ContactSummary) => void;
+  onClear: () => void;
+}) {
+  const { data: results = [], isFetching } = trpc.duplicates.searchContacts.useQuery(
+    { query: search.trim(), excludeContactId },
+    { enabled: search.trim().length >= 2 && !selectedContact }
+  );
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">{label}</p>
+      {selectedContact ? (
+        <div className="flex items-center gap-3 rounded-md border border-purple-200 bg-purple-50 p-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-purple-950">
+              {selectedContact.firstName} {selectedContact.lastName}
+            </p>
+            <p className="truncate text-xs text-purple-700">
+              {selectedContact.email ?? selectedContact.phone ?? "No email or phone"} · ID #{selectedContact.id}
+            </p>
+          </div>
+          <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={onClear}>
+            Change
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              className="pl-9"
+              placeholder="Name, email, or phone number"
+              aria-label={label}
+            />
+          </div>
+          {search.trim().length >= 2 && (
+            <div className="max-h-48 divide-y overflow-y-auto rounded-md border bg-background">
+              {isFetching ? (
+                <p className="px-3 py-3 text-center text-sm text-muted-foreground">Searching contacts…</p>
+              ) : results.length === 0 ? (
+                <p className="px-3 py-3 text-center text-sm text-muted-foreground">No active contacts found.</p>
+              ) : (
+                results.map((contact) => (
+                  <button
+                    key={contact.id}
+                    type="button"
+                    className="w-full px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                    onClick={() => onSelect(contact as ContactSummary)}
+                  >
+                    <p className="text-sm font-medium">{contact.firstName} {contact.lastName}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {contact.email ?? contact.phone ?? "No email or phone"} · ID #{contact.id}
+                    </p>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function MergeDialog({
   pair,
+  isManualSelection = false,
   onClose,
   onMerged,
 }: {
   pair: PairRow;
+  isManualSelection?: boolean;
   onClose: () => void;
   onMerged: () => void;
 }) {
@@ -202,13 +287,22 @@ function MergeDialog({
     }
   }, [winner?.email]);
 
+  const handleMergeSuccess = () => {
+    toast.success("Contacts merged — the duplicate has been consolidated.");
+    utils.duplicates.listPairs.invalidate();
+    utils.duplicates.getStats.invalidate();
+    onMerged();
+  };
+
   const mergeMutation = trpc.duplicates.merge.useMutation({
-    onSuccess: () => {
-      toast.success("Contacts merged — the duplicate has been consolidated.");
-      utils.duplicates.listPairs.invalidate();
-      utils.duplicates.getStats.invalidate();
-      onMerged();
+    onSuccess: handleMergeSuccess,
+    onError: (err) => {
+      toast.error(`Merge failed: ${err.message}`);
     },
+  });
+
+  const manualMergeMutation = trpc.duplicates.manualMerge.useMutation({
+    onSuccess: handleMergeSuccess,
     onError: (err) => {
       toast.error(`Merge failed: ${err.message}`);
     },
@@ -248,13 +342,17 @@ function MergeDialog({
       retainEmails.push({ field: "secondaryEmail", value: emailsArr[1] });
     }
 
-    mergeMutation.mutate({
-      pairId: pair.id,
+    const payload = {
       winnerId,
       loserId,
       fieldOverrides: buildOverrides(),
       retainEmails: retainEmails.length > 0 ? retainEmails : undefined,
-    });
+    };
+    if (isManualSelection) {
+      manualMergeMutation.mutate(payload);
+    } else {
+      mergeMutation.mutate({ pairId: pair.id, ...payload });
+    }
   }
 
   function handleLink() {
@@ -300,10 +398,12 @@ function MergeDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitMerge className="h-5 w-5 text-primary" />
-              Review & Merge Duplicate Contacts
+              {isManualSelection ? "Review & Merge Contacts" : "Review & Merge Duplicate Contacts"}
             </DialogTitle>
             <DialogDescription>
-              Click a contact card to select which record to keep, or link them as a relationship instead.
+              {isManualSelection
+                ? "Choose the record to keep, then review any conflicts before consolidating the selected contacts."
+                : "Click a contact card to select which record to keep, or link them as a relationship instead."}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -311,7 +411,7 @@ function MergeDialog({
         {/* Scrollable content area */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 min-h-0">
           {/* Mode toggle: Merge vs Link */}
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border">
+          {!isManualSelection && <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border">
             <Button
               variant={!linkMode ? "default" : "ghost"}
               size="sm"
@@ -330,7 +430,7 @@ function MergeDialog({
               <Link2 className="h-3.5 w-3.5 mr-1.5" />
               Link as Relationship
             </Button>
-          </div>
+          </div>}
 
           {/* Side-by-side cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -474,7 +574,7 @@ function MergeDialog({
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            {linkMode ? (
+            {linkMode && !isManualSelection ? (
               <Button
                 onClick={handleLink}
                 disabled={linkMutation.isPending}
@@ -485,10 +585,10 @@ function MergeDialog({
             ) : (
               <Button
                 onClick={handleMerge}
-                disabled={mergeMutation.isPending}
+                disabled={mergeMutation.isPending || manualMergeMutation.isPending}
                 className="bg-green-600 hover:bg-green-700 text-white"
               >
-                {mergeMutation.isPending ? "Merging…" : "Confirm Merge"}
+                {(mergeMutation.isPending || manualMergeMutation.isPending) ? "Merging…" : "Confirm Merge"}
               </Button>
             )}
           </DialogFooter>
@@ -578,7 +678,11 @@ export default function DuplicatesPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 
-  const [mergeTarget, setMergeTarget] = useState<PairRow | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<{ pair: PairRow; isManualSelection: boolean } | null>(null);
+  const [manualContactA, setManualContactA] = useState<ContactSummary | null>(null);
+  const [manualContactB, setManualContactB] = useState<ContactSummary | null>(null);
+  const [manualSearchA, setManualSearchA] = useState("");
+  const [manualSearchB, setManualSearchB] = useState("");
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
   const statsQuery = trpc.duplicates.getStats.useQuery();
@@ -683,6 +787,66 @@ export default function DuplicatesPage() {
           {isScanning ? "Scanning…" : scanMutation.isPending ? "Starting…" : "Run Scan"}
         </Button>
       </div>
+
+      {/* Manually select contacts to merge */}
+      <Card className="mb-6 border-purple-200 bg-purple-50/30">
+        <CardContent className="space-y-4 pt-5">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <Search className="h-4 w-4 text-purple-700" />
+              Find and merge contacts
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Search for any two active contacts, then review their details and choose which record to keep before merging.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <ContactSearchPicker
+              label="First contact"
+              selectedContact={manualContactA}
+              search={manualSearchA}
+              excludeContactId={manualContactB?.id}
+              onSearchChange={(value) => { setManualSearchA(value); setManualContactA(null); }}
+              onSelect={(contact) => { setManualContactA(contact); setManualSearchA(""); }}
+              onClear={() => { setManualContactA(null); setManualSearchA(""); }}
+            />
+            <ContactSearchPicker
+              label="Second contact"
+              selectedContact={manualContactB}
+              search={manualSearchB}
+              excludeContactId={manualContactA?.id}
+              onSearchChange={(value) => { setManualSearchB(value); setManualContactB(null); }}
+              onSelect={(contact) => { setManualContactB(contact); setManualSearchB(""); }}
+              onClear={() => { setManualContactB(null); setManualSearchB(""); }}
+            />
+          </div>
+          <div className="flex justify-end border-t pt-4">
+            <Button
+              disabled={!manualContactA || !manualContactB}
+              className="bg-purple-700 text-white hover:bg-purple-800"
+              onClick={() => {
+                if (!manualContactA || !manualContactB) return;
+                setMergeTarget({
+                  isManualSelection: true,
+                  pair: {
+                    id: 0,
+                    contactAId: manualContactA.id,
+                    contactBId: manualContactB.id,
+                    matchType: "manual",
+                    confidence: 100,
+                    status: "pending",
+                    contactA: manualContactA,
+                    contactB: manualContactB,
+                  },
+                });
+              }}
+            >
+              <GitMerge className="mr-1.5 h-4 w-4" />
+              Review selected contacts
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Scan Progress */}
       {activeJob && (activeJob.status === "running" || activeJob.status === "completed" || activeJob.status === "failed") && (
@@ -808,7 +972,7 @@ export default function DuplicatesPage() {
                 <PairRowComponent
                   key={pair.id}
                   pair={pair}
-                  onMerge={setMergeTarget}
+                  onMerge={(pair) => setMergeTarget({ pair, isManualSelection: false })}
                   onDismiss={(id) => dismissMutation.mutate({ pairId: id })}
                 />
               ))}
@@ -850,9 +1014,16 @@ export default function DuplicatesPage() {
       {/* Merge dialog */}
       {mergeTarget && (
         <MergeDialog
-          pair={mergeTarget}
+          pair={mergeTarget.pair}
+          isManualSelection={mergeTarget.isManualSelection}
           onClose={() => setMergeTarget(null)}
-          onMerged={() => setMergeTarget(null)}
+          onMerged={() => {
+            setMergeTarget(null);
+            setManualContactA(null);
+            setManualContactB(null);
+            setManualSearchA("");
+            setManualSearchB("");
+          }}
         />
       )}
     </div>

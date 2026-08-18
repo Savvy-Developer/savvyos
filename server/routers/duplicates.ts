@@ -15,7 +15,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { contacts, duplicateContactPairs, users, contactRelationships } from "../../drizzle/schema";
-import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray, isNull, like } from "drizzle-orm";
 import { startBackgroundScan, getScanJob, getLatestScanJob, detectAllDuplicates, persistDuplicatePairs } from "../duplicateDetection";
 import { mergeContacts } from "../contactMerge";
 
@@ -50,6 +50,60 @@ export const duplicatesRouter = router({
   getLatestScanJob: adminProcedure.query(async () => {
     return getLatestScanJob();
   }),
+
+  // ─── Contact Search for Manual Merge ─────────────────────────────────────
+  searchContacts: adminProcedure
+    .input(z.object({
+      query: z.string().trim().min(2).max(160),
+      excludeContactId: z.number().int().positive().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const search = input.query.replace(/\s+/g, " ").trim();
+      const term = `%${search}%`;
+      const digitsOnly = search.replace(/[^\d]/g, "");
+      const phoneTerm = digitsOnly.length >= 3 ? `%${digitsOnly}%` : null;
+      const searchClause = or(
+        like(contacts.firstName, term),
+        like(contacts.lastName, term),
+        like(contacts.email, term),
+        like(contacts.secondaryEmail, term),
+        like(contacts.phone, term),
+        like(contacts.secondaryPhone, term),
+        sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${term}`,
+        ...(phoneTerm ? [
+          sql`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${contacts.phone}, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ${phoneTerm}`,
+          sql`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${contacts.secondaryPhone}, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ${phoneTerm}`,
+        ] : []),
+      );
+      const whereClause = and(
+        isNull(contacts.archivedAt),
+        searchClause,
+        ...(input.excludeContactId ? [sql`${contacts.id} != ${input.excludeContactId}`] : []),
+      );
+
+      return db
+        .select({
+          id: contacts.id,
+          firstName: contacts.firstName,
+          lastName: contacts.lastName,
+          email: contacts.email,
+          secondaryEmail: contacts.secondaryEmail,
+          phone: contacts.phone,
+          secondaryPhone: contacts.secondaryPhone,
+          address: contacts.address,
+          city: contacts.city,
+          state: contacts.state,
+          createdAt: contacts.createdAt,
+          updatedAt: contacts.updatedAt,
+        })
+        .from(contacts)
+        .where(whereClause)
+        .orderBy(desc(contacts.updatedAt))
+        .limit(15);
+    }),
 
   // ─── Stats ────────────────────────────────────────────────────────────────
   getStats: adminProcedure.query(async () => {
@@ -212,6 +266,68 @@ export const duplicatesRouter = router({
         fieldOverrides: Object.keys(mergedFieldOverrides).length > 0 ? mergedFieldOverrides : undefined,
       });
       return result;
+    }),
+
+  // ─── Manual Merge ─────────────────────────────────────────────────────────
+  manualMerge: adminProcedure
+    .input(
+      z.object({
+        winnerId: z.number().int().positive(),
+        loserId: z.number().int().positive(),
+        fieldOverrides: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).optional(),
+        retainEmails: z.array(z.object({
+          field: z.enum(["email", "secondaryEmail"]),
+          value: z.string().trim().min(1),
+        })).max(2).optional(),
+      }).refine((data) => data.winnerId !== data.loserId, {
+        message: "Choose two different contacts to merge.",
+        path: ["loserId"],
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Protect against merging an archived record or a stale search result.
+      const activeContacts = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(
+          inArray(contacts.id, [input.winnerId, input.loserId]),
+          isNull(contacts.archivedAt),
+        ));
+      if (activeContacts.length !== 2) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "One or both selected contacts are no longer available for merging." });
+      }
+
+      // A manual pair makes the administrator's explicit selection visible in the
+      // same review history as detected duplicates and gives the merge engine its audit record.
+      const pairResult = await db.insert(duplicateContactPairs).values({
+        contactAId: input.winnerId,
+        contactBId: input.loserId,
+        matchType: "manual",
+        confidence: 100,
+        status: "pending",
+      });
+      const pairId = Number(pairResult[0].insertId);
+
+      const emailOverrides: Record<string, string | null> = {};
+      if (input.retainEmails && input.retainEmails.length > 0) {
+        emailOverrides.email = input.retainEmails[0]?.value ?? null;
+        emailOverrides.secondaryEmail = input.retainEmails[1]?.value ?? null;
+      }
+      const mergedFieldOverrides = {
+        ...(input.fieldOverrides as Partial<Record<string, string | number | null>> | undefined),
+        ...emailOverrides,
+      };
+
+      return mergeContacts({
+        winnerId: input.winnerId,
+        loserId: input.loserId,
+        pairId,
+        reviewedById: ctx.user.id,
+        fieldOverrides: Object.keys(mergedFieldOverrides).length > 0 ? mergedFieldOverrides : undefined,
+      });
     }),
 
   // ─── Link as Relationship ─────────────────────────────────────────────────
