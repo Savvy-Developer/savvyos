@@ -56,6 +56,8 @@ const MANUALLY_LOGGED_PATHS = new Set([
   "properties.update",
   "properties.bulkUpload",
   "properties.createProforma",
+  "properties.updateProforma",
+  "properties.deleteProforma",
   // smart plans
   "smartPlans.create",
   "smartPlans.createDraft",

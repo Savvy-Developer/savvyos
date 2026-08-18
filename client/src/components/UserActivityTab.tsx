@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { Link } from "wouter";
 import { formatActivityEntry } from "@/lib/activityFormatter";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ import {
   FileText,
   Info,
   Link2,
+  ExternalLink,
   Plus,
   RotateCcw,
   UserRound,
@@ -107,7 +109,11 @@ export default function UserActivityTab({ user }: UserActivityTabProps) {
   }), [activityType, dateFrom, dateTo, page, user.id]);
 
   const { data, isLoading, isFetching, refetch } = trpc.users.activityForUser.useQuery(queryInput);
-  const rows = (data?.rows ?? []) as Array<{ log: any; user: any }>;
+  const rows = (data?.rows ?? []) as Array<{
+    log: any;
+    user: any;
+    recordLinks?: Array<{ entityType: string; entityId: number; label: string; href: string }>;
+  }>;
   const total = Number(data?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const initials = user.name
@@ -204,7 +210,7 @@ export default function UserActivityTab({ user }: UserActivityTabProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {rows.map(({ log, user: actor }) => {
+            {rows.map(({ log, user: actor, recordLinks = [] }) => {
               const formatted = formatActivityEntry({ log, user: actor });
               const Icon = ICONS[formatted.icon] ?? Info;
               const details = (log.details ?? {}) as Record<string, unknown>;
@@ -221,6 +227,22 @@ export default function UserActivityTab({ user }: UserActivityTabProps) {
                       <p className="font-medium text-sm">{isDownload ? (log.action === "opened_file" ? "Opened a file" : "Downloaded a file") : formatted.title}</p>
                       <Badge variant="secondary" className="capitalize text-[10px]">{displayEntityType(log.entityType)}</Badge>
                     </div>
+                    {recordLinks.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {recordLinks.map((recordLink) => (
+                          <Link
+                            key={`${recordLink.href}-${recordLink.entityType}`}
+                            href={recordLink.href}
+                            className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            title={`Open ${recordLink.label}`}
+                          >
+                            <Link2 className="h-3.5 w-3.5 shrink-0" />
+                            <span className="max-w-[30rem] truncate">{recordLink.label}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
                     {fileName ? (
                       <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><FileText className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{fileName}</span></p>
                     ) : formatted.lines.length > 0 ? (

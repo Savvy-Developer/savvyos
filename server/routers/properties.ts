@@ -760,7 +760,22 @@ export const propertiesRouter = router({
         capRate: fd._calcCapRate || null,
         notes: input.notes,
       } as any);
-      await logActivity({ userId: ctx.user.id, action: "proforma_created", entityType: "property", entityId: input.propertyId });
+      const property = await getPropertyById(input.propertyId);
+      const propertyAddress = property
+        ? [property.address, [property.city, property.state].filter(Boolean).join(", "), property.zip].filter(Boolean).join(" ")
+        : undefined;
+      await logActivity({
+        userId: ctx.user.id,
+        action: "proforma_created",
+        entityType: "property",
+        entityId: input.propertyId,
+        details: {
+          propertyId: input.propertyId,
+          proformaId: (result as any).insertId,
+          proformaTitle: input.title || "Untitled Pro-forma",
+          propertyAddress,
+        },
+      });
       return { id: (result as any).insertId };
     }),
 
@@ -791,6 +806,22 @@ export const propertiesRouter = router({
         capRate: fd._calcCapRate || null,
         notes: input.notes ?? existing.notes,
       } as any).where(eq(proformas.id, input.id));
+      const property = await getPropertyById(existing.propertyId);
+      const propertyAddress = property
+        ? [property.address, [property.city, property.state].filter(Boolean).join(", "), property.zip].filter(Boolean).join(" ")
+        : undefined;
+      await logActivity({
+        userId: ctx.user.id,
+        action: "proforma_updated",
+        entityType: "property",
+        entityId: existing.propertyId,
+        details: {
+          propertyId: existing.propertyId,
+          proformaId: existing.id,
+          proformaTitle: input.title ?? existing.title,
+          propertyAddress,
+        },
+      });
       return { success: true };
     }),
 
@@ -805,6 +836,22 @@ export const propertiesRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       await db.delete(proformas).where(eq(proformas.id, input.id));
+      const property = await getPropertyById(existing.propertyId);
+      const propertyAddress = property
+        ? [property.address, [property.city, property.state].filter(Boolean).join(", "), property.zip].filter(Boolean).join(" ")
+        : undefined;
+      await logActivity({
+        userId: ctx.user.id,
+        action: "proforma_deleted",
+        entityType: "property",
+        entityId: existing.propertyId,
+        details: {
+          propertyId: existing.propertyId,
+          proformaId: existing.id,
+          proformaTitle: existing.title,
+          propertyAddress,
+        },
+      });
       return { success: true };
     }),
 

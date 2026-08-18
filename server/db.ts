@@ -33,6 +33,7 @@ import {
   proformas,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { resolveActivityRecordLinks } from "./activityLinkResolver";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -3055,7 +3056,8 @@ export async function getGlobalActivityLog(opts: {
       .from(activityLog)
       .where(where),
   ]);
-  return { rows, total: Number(countResult[0]?.count ?? 0) };
+  const enrichedRows = await resolveActivityRecordLinks(db, rows as any);
+  return { rows: enrichedRows, total: Number(countResult[0]?.count ?? 0) };
 }
 
 /** Aggregate stats for all transactions matching the given filters (ignores pagination). */
