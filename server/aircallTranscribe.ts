@@ -144,9 +144,8 @@ Write 2–4 sentences. Include: main topic, key points discussed, any next steps
           { role: "user", content: userPrompt },
         ],
         // GPT-5 models only accept the default temperature. Keep the output cap
-        // and use minimal reasoning, which is sufficient for concise call summaries.
+        // and omit unsupported optional controls for proxy compatibility.
         max_completion_tokens: 300,
-        reasoning: { effort: "minimal" },
       }),
     });
 
