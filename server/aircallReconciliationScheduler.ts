@@ -112,6 +112,14 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
     console.error("[AircallReconciliation] Full nightly unmatched-call sweep failed:", error);
   }
 
+  // Summary recovery does not call Aircall, so run it concurrently with the
+  // deliberately paced media recovery. This restores existing transcripts
+  // promptly without competing for Aircall API capacity.
+  const summaryRecovery = reconcileRecentAircallSummaries({
+    lookbackDays: RECENT_SUMMARY_LOOKBACK_DAYS,
+    batchSize: RECENT_SUMMARY_BATCH_SIZE,
+  });
+
   try {
     const recordingResult = await reconcileRecentAircallRecordings({
       lookbackDays: RECENT_RECORDING_LOOKBACK_DAYS,
@@ -126,10 +134,7 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
   }
 
   try {
-    const summaryResult = await reconcileRecentAircallSummaries({
-      lookbackDays: RECENT_SUMMARY_LOOKBACK_DAYS,
-      batchSize: RECENT_SUMMARY_BATCH_SIZE,
-    });
+    const summaryResult = await summaryRecovery;
     console.log(
       `[AircallReconciliation] Recent summary recovery complete: ${summaryResult.recovered} recovered, ${summaryResult.skipped} skipped, ${summaryResult.errors} errors from ${summaryResult.candidates} candidates.`
     );
