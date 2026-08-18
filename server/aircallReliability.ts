@@ -5,12 +5,14 @@ import { getDb } from "./db";
 import {
   aircallCalls,
   aircallIntegrationState,
+  aircallUnmatchedCalls,
   aircallWebhookEvents,
   communications,
 } from "../drizzle/schema";
 import {
   downloadAndStoreRecording,
   processAircallCall,
+  reconcileUnmatchedAircallCalls,
   scheduleAircallTranscription,
   type AircallCallData,
 } from "./aircall";
@@ -25,10 +27,17 @@ const MAX_WORKER_BATCH = 25;
 const ALERT_AFTER_ATTEMPTS = 10;
 const ALERT_COOLDOWN_MS = 6 * 60 * 60_000;
 const INVENTORY_LOOKBACK_SECONDS = 48 * 60 * 60;
+const HISTORICAL_START_AT = new Date(process.env.AIRCALL_HISTORY_START_AT || "2020-01-01T00:00:00.000Z");
+const HISTORICAL_SLICE_DAYS = 30;
+const HISTORICAL_INTERVAL_MS = 60_000;
+const UNMATCHED_REMATCH_INTERVAL_MS = 30 * 60_000;
+const UNMATCHED_REMATCH_BATCH_SIZE = 25;
 const API_MIN_SPACING_MS = 1_000;
 
 let workerRunning = false;
 let inventoryRunning = false;
+let historicalRunning = false;
+let unmatchedRematchRunning = false;
 let configurationRunning = false;
 let lastApiRequestAt = 0;
 
@@ -223,7 +232,10 @@ async function processWebhookEvent(eventId: number): Promise<void> {
   if (!envelope) throw new Error("Invalid persisted Aircall webhook payload");
 
   const communicationId = await obtainCommunicationId(envelope.data);
-  if (communicationId) await persistCallMedia(communicationId, envelope.data);
+  if (!communicationId) {
+    throw new Error(`Call ${envelope.data.id} remains unmatched and is queued for automatic re-match`);
+  }
+  await persistCallMedia(communicationId, envelope.data);
 }
 
 export async function processDueAircallWebhookEvents(): Promise<void> {
@@ -351,6 +363,31 @@ export async function ensureAircallWebhookConfiguration(): Promise<void> {
   }
 }
 
+async function queueCallForReliability(call: AircallCallData, source: string): Promise<void> {
+  if (!call.id || !call.direction || !call.status) return;
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const [existing] = await db.select({
+    communicationId: aircallCalls.communicationId,
+    audioFileUrl: communications.audioFileUrl,
+  }).from(aircallCalls)
+    .leftJoin(communications, eq(communications.id, aircallCalls.communicationId))
+    .where(eq(aircallCalls.aircallCallId, call.id))
+    .limit(1);
+  const hasAircallMedia = Boolean(call.recording || call.voicemail);
+  const needsCallImport = !existing;
+  const needsMediaRecovery = Boolean(existing?.communicationId && !existing.audioFileUrl && hasAircallMedia);
+  if (!needsCallImport && !needsMediaRecovery) return;
+
+  const kind = needsMediaRecovery ? `${source}_assets` : source;
+  await persistAircallWebhook({
+    event: kind,
+    resource: "call",
+    timestamp: Math.floor(Date.now() / 1_000),
+    data: call,
+  }, { key: `${source}:${call.id}:${needsMediaRecovery ? "assets" : "call"}` });
+}
+
 export async function reconcileAircallInventory(): Promise<void> {
   if (inventoryRunning || !basicAuth()) return;
   inventoryRunning = true;
@@ -362,28 +399,8 @@ export async function reconcileAircallInventory(): Promise<void> {
       if (!response.ok) throw new Error(`Aircall inventory returned HTTP ${response.status}`);
       const payload = await response.json() as { calls?: AircallCallData[]; meta?: { next_page_link?: string | null } };
       const calls = payload.calls ?? [];
-      const db = await getDb();
-      if (!db) throw new Error("Database unavailable");
       for (const call of calls) {
-        if (!call.id || !call.direction || !call.status) continue;
-        const [existing] = await db.select({
-          communicationId: aircallCalls.communicationId,
-          audioFileUrl: communications.audioFileUrl,
-        }).from(aircallCalls)
-          .leftJoin(communications, eq(communications.id, aircallCalls.communicationId))
-          .where(eq(aircallCalls.aircallCallId, call.id))
-          .limit(1);
-        const hasAircallMedia = Boolean(call.recording || call.voicemail);
-        const needsCallImport = !existing;
-        const needsMediaRecovery = Boolean(existing?.communicationId && !existing.audioFileUrl && hasAircallMedia);
-        if (!needsCallImport && !needsMediaRecovery) continue;
-
-        await persistAircallWebhook({
-          event: needsMediaRecovery ? "call.inventory_assets" : "call.inventory",
-          resource: "call",
-          timestamp: Math.floor(Date.now() / 1_000),
-          data: call,
-        }, { key: `inventory:${call.id}:${needsMediaRecovery ? "assets" : "call"}` });
+        await queueCallForReliability(call, "inventory");
       }
       if (!payload.meta?.next_page_link || calls.length === 0) break;
       page += 1;
@@ -398,12 +415,96 @@ export async function reconcileAircallInventory(): Promise<void> {
   }
 }
 
+export async function reconcileAllHistoricalAircallCalls(): Promise<void> {
+  if (historicalRunning || !basicAuth()) return;
+  historicalRunning = true;
+  try {
+    const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
+    const [state] = await db.select({
+      historicalBackfillCursorAt: aircallIntegrationState.historicalBackfillCursorAt,
+      historicalBackfillCompletedAt: aircallIntegrationState.historicalBackfillCompletedAt,
+    }).from(aircallIntegrationState).where(eq(aircallIntegrationState.id, 1)).limit(1);
+    if (state?.historicalBackfillCompletedAt) return;
+
+    let cursor = state?.historicalBackfillCursorAt ?? HISTORICAL_START_AT;
+    const now = new Date();
+    let slices = 0;
+    while (cursor < now && slices < 6) {
+      const sliceEnd = new Date(Math.min(cursor.getTime() + HISTORICAL_SLICE_DAYS * 24 * 60 * 60_000, now.getTime()));
+      const from = Math.floor(cursor.getTime() / 1_000);
+      const to = Math.floor(sliceEnd.getTime() / 1_000);
+      let page = 1;
+      let callsQueued = 0;
+      while (true) {
+        const response = await aircallApi(`/calls?per_page=50&order=asc&from=${from}&to=${to}&page=${page}`);
+        if (!response.ok) throw new Error(`Aircall historical inventory returned HTTP ${response.status}`);
+        const payload = await response.json() as { calls?: AircallCallData[]; meta?: { next_page_link?: string | null } };
+        const calls = payload.calls ?? [];
+        for (const call of calls) {
+          await queueCallForReliability(call, "historical");
+          callsQueued += 1;
+        }
+        if (!payload.meta?.next_page_link || calls.length === 0) break;
+        page += 1;
+      }
+      cursor = sliceEnd;
+      slices += 1;
+      await upsertIntegrationState({
+        historicalBackfillCursorAt: cursor,
+        historicalBackfillCompletedAt: cursor >= now ? new Date() : null,
+      });
+      console.log(`[AircallReliability] Historical slice ${new Date(from * 1_000).toISOString()}–${sliceEnd.toISOString()}: ${callsQueued} calls scanned.`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[AircallReliability] Historical inventory reconciliation failed:", message);
+    await alertAircallFailure("SavvyOS Aircall historical reconciliation failed", message);
+  } finally {
+    historicalRunning = false;
+  }
+}
+
+export async function rematchAllUnmatchedAircallCalls(): Promise<void> {
+  if (unmatchedRematchRunning) return;
+  unmatchedRematchRunning = true;
+  try {
+    const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
+    const [state] = await db.select({ unmatchedRematchCursorId: aircallIntegrationState.unmatchedRematchCursorId })
+      .from(aircallIntegrationState).where(eq(aircallIntegrationState.id, 1)).limit(1);
+    const result = await reconcileUnmatchedAircallCalls({
+      limit: UNMATCHED_REMATCH_BATCH_SIZE,
+      beforeId: state?.unmatchedRematchCursorId ?? undefined,
+      // Use currently available media when a historical unmatched call becomes
+      // matchable; expired media is harmlessly skipped by the downloader.
+      skipMediaDownload: false,
+    });
+    const completedPass = result.scanned < UNMATCHED_REMATCH_BATCH_SIZE;
+    await upsertIntegrationState({
+      unmatchedRematchCursorId: completedPass ? null : result.nextCursor,
+      lastUnmatchedReconcileAt: new Date(),
+    });
+    console.log(`[AircallReliability] Unmatched re-match: ${result.matched} matched, ${result.noContact} still unmatched, ${result.skipped} skipped from ${result.scanned} calls.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[AircallReliability] Unmatched re-match failed:", message);
+    await alertAircallFailure("SavvyOS Aircall unmatched-call re-match failed", message);
+  } finally {
+    unmatchedRematchRunning = false;
+  }
+}
+
 export function scheduleAircallReliability(): void {
   void ensureAircallWebhookConfiguration();
   void reconcileAircallInventory();
+  void reconcileAllHistoricalAircallCalls();
+  void rematchAllUnmatchedAircallCalls();
   void processDueAircallWebhookEvents();
 
   setInterval(() => { void processDueAircallWebhookEvents(); }, WORKER_INTERVAL_MS);
   setInterval(() => { void reconcileAircallInventory(); }, INVENTORY_INTERVAL_MS);
+  setInterval(() => { void reconcileAllHistoricalAircallCalls(); }, HISTORICAL_INTERVAL_MS);
+  setInterval(() => { void rematchAllUnmatchedAircallCalls(); }, UNMATCHED_REMATCH_INTERVAL_MS);
   setInterval(() => { void ensureAircallWebhookConfiguration(); }, WEBHOOK_VERIFY_INTERVAL_MS);
 }

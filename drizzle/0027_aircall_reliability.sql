@@ -34,3 +34,11 @@ CREATE TABLE `aircall_integration_state` (
   `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT `aircall_integration_state_id` PRIMARY KEY(`id`)
 );
+
+ALTER TABLE `aircall_integration_state`
+  ADD COLUMN `historicalBackfillCursorAt` timestamp NULL,
+  ADD COLUMN `historicalBackfillCompletedAt` timestamp NULL,
+  ADD COLUMN `lastUnmatchedReconcileAt` timestamp NULL;
+
+ALTER TABLE `aircall_integration_state`
+  ADD COLUMN `unmatchedRematchCursorId` int NULL;
