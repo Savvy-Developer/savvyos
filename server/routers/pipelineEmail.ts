@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
+import { appendSignatureToCustomEmail, isCompleteEmailDocument, renderSavvyEmail } from "../_core/savvyEmailTemplate";
 import { getDb, resetLeadAgingByConnectionId } from "../db";
 import {
   activityLog,
@@ -130,26 +131,18 @@ function replaceMergeTags(value: string, recipient: PipelineRecipient, senderNam
   }, value);
 }
 
-function buildOutboundHtml(bodyHtml: string, signatureHtml: string): string {
+function buildOutboundHtml(subject: string, bodyHtml: string, signatureHtml: string): string {
   const safeBody = sanitizeOutboundHtml(bodyHtml);
   const safeSignature = sanitizeOutboundHtml(signatureHtml);
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body style="margin:0;padding:0;background:#ffffff;color:#1f2937;font-family:Arial,Helvetica,sans-serif;">
-    <div style="max-width:680px;margin:0 auto;padding:28px 24px;font-size:15px;line-height:1.6;">
-      ${safeBody}
-      <div style="margin-top:28px;">${safeSignature}</div>
-      <div style="margin-top:36px;padding-top:18px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px;line-height:1.5;">
-        <p style="margin:0 0 6px;">You are receiving this email because you are a contact of Savvy STR Agents.</p>
-        <p style="margin:0;"><a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color:#4b5563;text-decoration:underline;">Unsubscribe</a> &nbsp;|&nbsp; Savvy STR Agents</p>
-      </div>
-    </div>
-  </body>
-</html>`;
+
+  // A complete document entered through Edit HTML is deliberately respected so
+  // agents can remove or replace every part of the default Savvy presentation.
+  if (isCompleteEmailDocument(safeBody)) {
+    return appendSignatureToCustomEmail(safeBody, safeSignature);
+  }
+
+  const contentWithSignature = `${safeBody}${safeSignature ? `<div style="margin-top:28px;">${safeSignature}</div>` : ""}`;
+  return renderSavvyEmail(subject, contentWithSignature, true);
 }
 
 function buildOutboundText(bodyHtml: string, signatureHtml: string): string {
@@ -490,7 +483,7 @@ export const pipelineEmailRouter = router({
           to: recipient.contact.email!.trim(),
           replyTo,
           subject: renderedSubject,
-          html: buildOutboundHtml(renderedBody, emailSignatureHtml),
+          html: buildOutboundHtml(renderedSubject, renderedBody, emailSignatureHtml),
           text: buildOutboundText(renderedBody, emailSignatureHtml),
         });
 

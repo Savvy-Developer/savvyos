@@ -18,6 +18,8 @@ import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBa
 import { toast } from "sonner";
 import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
+import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
+
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -1101,6 +1103,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
                 <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">History</TabsTrigger>
                 <TabsTrigger value="smart-plans" className="shrink-0 whitespace-nowrap"><Zap className="h-3.5 w-3.5 mr-1 inline shrink-0" />Smart Plans</TabsTrigger>
+                <TabsTrigger value="website-behaviors" className="shrink-0 whitespace-nowrap"><Globe className="h-3.5 w-3.5 mr-1 inline shrink-0" />Website Behaviors</TabsTrigger>
                 <TabsTrigger value="email-behaviors" className="shrink-0 whitespace-nowrap"><Inbox className="h-3.5 w-3.5 mr-1 inline shrink-0" />Email Behaviors</TabsTrigger>
               </TabsList>
               <div className="flex justify-end">
@@ -1438,6 +1441,10 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               <SmartPlanContactTab contactId={contactId} />
             </TabsContent>
 
+            {/* Website Behaviors Tab */}
+            <TabsContent value="website-behaviors">
+              <ContactWebsiteBehaviorsTab contactId={contactId} />
+            </TabsContent>
             {/* Email Behaviors Tab */}
             <TabsContent value="email-behaviors">
               <EmailBehaviorsTab contactId={contactId} />

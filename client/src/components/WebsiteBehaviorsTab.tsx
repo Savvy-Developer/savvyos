@@ -1,19 +1,19 @@
-import { Globe2, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { formatActivityEntry } from "@/lib/activityFormatter";
+import { Globe2, Loader2 } from "lucide-react";
 
-export function WebsiteBehaviorsTab({ connectionId }: { connectionId: number }) {
-  const { data: behaviors = [], isLoading } = trpc.agentConnections.websiteBehaviors.useQuery({ connectionId });
+const WEBSITE_ACTIONS = new Set([
+  "property_viewed",
+  "property_favorited",
+  "property_contact_requested",
+  "analysis_requested",
+  "showing_requested",
+]);
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-10 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    );
-  }
+type BehaviorRow = any;
 
+function WebsiteBehaviorsList({ behaviors, sourceLabel }: { behaviors: BehaviorRow[]; sourceLabel: string }) {
   if (behaviors.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center">
@@ -28,11 +28,10 @@ export function WebsiteBehaviorsTab({ connectionId }: { connectionId: number }) 
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Events delivered from the Savvy website webhook for this connection’s contact.
-      </p>
-      {behaviors.map((log: any) => {
-        const entry = formatActivityEntry({ log, user: null });
+      <p className="text-xs text-muted-foreground">{sourceLabel}</p>
+      {behaviors.map((row: BehaviorRow) => {
+        const log = row?.log ?? row;
+        const entry = formatActivityEntry(row?.log ? row : { log, user: null });
         return (
           <Card key={log.id}>
             <CardHeader className="pb-2">
@@ -54,4 +53,33 @@ export function WebsiteBehaviorsTab({ connectionId }: { connectionId: number }) 
       })}
     </div>
   );
+}
+
+export function WebsiteBehaviorsTab({ connectionId }: { connectionId: number }) {
+  const { data: behaviors = [], isLoading } = trpc.agentConnections.websiteBehaviors.useQuery({ connectionId });
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-10 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  return <WebsiteBehaviorsList behaviors={behaviors} sourceLabel="Events delivered from the Savvy website webhook for this connection’s contact." />;
+}
+
+export function ContactWebsiteBehaviorsTab({ contactId }: { contactId: number }) {
+  const { data: activityLog = [], isLoading } = trpc.analytics.activityLog.useQuery({ contactId });
+  const behaviors = activityLog.filter((row: BehaviorRow) => WEBSITE_ACTIONS.has(row?.log?.action ?? row?.action ?? ""));
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-10 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+
+  return <WebsiteBehaviorsList behaviors={behaviors} sourceLabel="Events delivered from the Savvy website webhook for this contact." />;
 }
