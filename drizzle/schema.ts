@@ -13,7 +13,9 @@ import {
   foreignKey,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 /// ─── Markets ──────────────────────────────────────────────────────────────────
 export const markets = mysqlTable("markets", {
@@ -3067,3 +3069,194 @@ export const referralReassignments = mysqlTable("referral_reassignments", {
   index("referral_reassignments_new_idx").on(table.newReferralId),
 ]);
 export type ReferralReassignment = typeof referralReassignments.$inferSelect;
+
+
+// ─── Pulse V2: Meeting operating system foundation ───────────────────────────
+// Pulse deliberately has no team or group entities. Meeting membership is the
+// exclusive visibility boundary for every Pulse meeting-scoped record.
+export const pulseProfiles = mysqlTable("pulse_profiles", {
+  userId: int("userId").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  platformRole: mysqlEnum("platformRole", ["super_admin", "admin", "member"]).default("member").notNull(),
+  timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
+  notificationPrefs: json("notificationPrefs").$type<Record<string, boolean>>(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+});
+export type PulseProfile = typeof pulseProfiles.$inferSelect;
+
+export const pulseMeetings = mysqlTable("pulse_meetings", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  // This is presentation-only. It may only guide list grouping and defaults at creation.
+  label: mysqlEnum("label", ["level_10", "one_on_one", "other"]).notNull(),
+  ownerId: int("ownerId").notNull().references(() => users.id),
+  administratorId: int("administratorId").notNull().references(() => users.id),
+  dayOfWeek: mysqlEnum("dayOfWeek", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
+  startTime: varchar("startTime", { length: 8 }),
+  durationMinutes: int("durationMinutes").default(90).notNull(),
+  cadence: mysqlEnum("cadence", ["weekly", "biweekly", "monthly", "daily", "ad_hoc"]).default("weekly").notNull(),
+  timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
+  reminderDay: mysqlEnum("reminderDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
+  reminderTime: varchar("reminderTime", { length: 8 }),
+  sectionsEnabled: json("sectionsEnabled").$type<Record<string, boolean>>().notNull(),
+  sectionOrder: json("sectionOrder").$type<string[]>().notNull(),
+  sectionDurations: json("sectionDurations").$type<Record<string, number>>().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_meetings_active_idx").on(table.isActive, table.deletedAt),
+  index("pulse_meetings_owner_idx").on(table.ownerId, table.deletedAt),
+]);
+export type PulseMeeting = typeof pulseMeetings.$inferSelect;
+
+export const pulseMeetingMembers = mysqlTable("pulse_meeting_members", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  meetingRole: mysqlEnum("meetingRole", ["owner", "administrator", "member"]).default("member").notNull(),
+  addedAt: timestamp("addedAt").defaultNow().notNull(),
+  addedById: int("addedById").notNull().references(() => users.id),
+  removedAt: timestamp("removedAt"),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  uniqueIndex("pulse_meeting_member_unique").on(table.meetingId, table.personId),
+  index("pulse_membership_person_visible_idx").on(table.personId, table.removedAt, table.deletedAt),
+  index("pulse_membership_meeting_visible_idx").on(table.meetingId, table.removedAt, table.deletedAt),
+]);
+export type PulseMeetingMember = typeof pulseMeetingMembers.$inferSelect;
+
+export const pulseWorkItems = mysqlTable("pulse_work_items", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  type: mysqlEnum("type", ["todo", "issue", "rock"]).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  meetingId: varchar("meetingId", { length: 36 }).references(() => pulseMeetings.id),
+  ownerPersonId: int("ownerPersonId").references(() => users.id),
+  isPersonal: boolean("isPersonal").generatedAlwaysAs(sql`case when ${sql.identifier("meetingId")} is null then true else false end`),
+  assigneeId: int("assigneeId").notNull().references(() => users.id),
+  createdById: int("createdById").notNull().references(() => users.id),
+  status: varchar("status", { length: 64 }).notNull(),
+  dueDate: date("dueDate"),
+  completedAt: timestamp("completedAt"),
+  origin: mysqlEnum("origin", ["manual", "cascaded", "ai_proposed", "carried_over"]).default("manual").notNull(),
+  isProposed: boolean("isProposed").default(false).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  // The schema—not application code—enforces one and only one ownership path.
+  check("pulse_work_items_exactly_one_owner", sql`(${table.meetingId} is null) <> (${table.ownerPersonId} is null)`),
+  index("pulse_work_items_meeting_idx").on(table.meetingId, table.deletedAt, table.sortOrder),
+  index("pulse_work_items_owner_idx").on(table.ownerPersonId, table.deletedAt, table.sortOrder),
+  index("pulse_work_items_assignee_idx").on(table.assigneeId, table.status, table.deletedAt),
+]);
+export type PulseWorkItem = typeof pulseWorkItems.$inferSelect;
+
+export const pulseWorkItemMoves = mysqlTable("pulse_work_item_moves", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  fromMeetingId: varchar("fromMeetingId", { length: 36 }).references(() => pulseMeetings.id),
+  toMeetingId: varchar("toMeetingId", { length: 36 }).references(() => pulseMeetings.id),
+  movedById: int("movedById").notNull().references(() => users.id),
+  reason: text("reason"),
+  movedAt: timestamp("movedAt").defaultNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_work_item_moves_item_idx").on(table.workItemId, table.movedAt),
+]);
+export type PulseWorkItemMove = typeof pulseWorkItemMoves.$inferSelect;
+
+export const pulseWorkItemStatusNotes = mysqlTable("pulse_work_item_status_notes", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  fromStatus: varchar("fromStatus", { length: 64 }),
+  toStatus: varchar("toStatus", { length: 64 }).notNull(),
+  note: text("note"),
+  personId: int("personId").notNull().references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_work_item_status_notes_item_idx").on(table.workItemId, table.createdAt),
+]);
+export type PulseWorkItemStatusNote = typeof pulseWorkItemStatusNotes.$inferSelect;
+
+// The pre-existing SavvyOS activity_log is shared by CRM operations. Pulse keeps
+// detailed append-only field history separately so no other module's audit schema changes.
+export const pulseActivityLog = mysqlTable("pulse_activity_log", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  entityType: varchar("entityType", { length: 64 }).notNull(),
+  entityId: varchar("entityId", { length: 36 }).notNull(),
+  personId: int("personId").notNull().references(() => users.id),
+  action: varchar("action", { length: 128 }).notNull(),
+  fieldChanged: varchar("fieldChanged", { length: 128 }),
+  oldValue: json("oldValue"),
+  newValue: json("newValue"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("pulse_activity_entity_idx").on(table.entityType, table.entityId, table.createdAt),
+  index("pulse_activity_person_idx").on(table.personId, table.createdAt),
+]);
+export type PulseActivityLog = typeof pulseActivityLog.$inferSelect;
+
+export const pulseGlossary = mysqlTable("pulse_glossary", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  term: varchar("term", { length: 128 }).notNull(),
+  plainGloss: varchar("plainGloss", { length: 255 }).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  uniqueIndex("pulse_glossary_term_unique").on(table.term),
+]);
+export type PulseGlossary = typeof pulseGlossary.$inferSelect;
+
+export const pulseMeetingsArchive = mysqlTable("pulse_meetings_archive", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id),
+  occurredAt: timestamp("occurredAt").notNull(),
+  durationActualMinutes: int("durationActualMinutes"),
+  attendeeIds: json("attendeeIds").$type<number[]>().notNull(),
+  todosCreated: int("todosCreated").default(0).notNull(),
+  todosCompleted: int("todosCompleted").default(0).notNull(),
+  issuesCreated: int("issuesCreated").default(0).notNull(),
+  issuesResolved: int("issuesResolved").default(0).notNull(),
+  rating: int("rating"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_archive_meeting_idx").on(table.meetingId, table.occurredAt),
+]);
+export type PulseMeetingArchive = typeof pulseMeetingsArchive.$inferSelect;
+
+export const PULSE_SECTION_KEYS = [
+  "segue",
+  "headlines",
+  "scorecard",
+  "goals",
+  "rocks",
+  "todos",
+  "issues",
+  "cascading",
+  "conclude",
+] as const;
+export type PulseSectionKey = typeof PULSE_SECTION_KEYS[number];
+
+export const PULSE_GLOSSARY_SEEDS = [
+  { term: "Rocks", plainGloss: "your big goals this quarter" },
+  { term: "Level 10", plainGloss: "your weekly team meeting" },
+  { term: "Segue", plainGloss: "a personal or professional win to share" },
+] as const;
+
+export const PULSE_MEETING_PRESETS: Record<"level_10" | "one_on_one" | "other", PulseSectionKey[]> = {
+  level_10: ["segue", "headlines", "scorecard", "rocks", "todos", "issues", "cascading", "conclude"],
+  one_on_one: ["segue", "todos", "issues"],
+  other: ["todos", "issues"],
+};

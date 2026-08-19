@@ -56,6 +56,7 @@ import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
 import { dailyReportRouter } from "./routers/dailyReport";
 import { referralsRouter } from "./routers/referrals";
 import { customReportsRouter } from "./routers/customReports";
+import { pulseRouter } from "./routers/pulse";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -258,6 +259,7 @@ export const appRouter = router({
     rolesResponsibilities: rolesResponsibilitiesRouter,
   dailyReport: dailyReportRouter,
   referrals: referralsRouter,
+  pulse: pulseRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

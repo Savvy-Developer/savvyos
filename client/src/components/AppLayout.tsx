@@ -119,6 +119,12 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       items: operationsItems,
     },
     {
+      label: "Pulse",
+      items: [
+        { icon: Activity, label: "Pulse", path: "/pulse" },
+      ],
+    },
+    {
       label: "Marketing",
       items: [
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-requests" },
@@ -133,12 +139,44 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
   ];
 }
 
+type PulseShellNav = {
+  navMode?: "single_meeting" | "standard";
+  canSeeSettings?: boolean;
+  meetings?: Array<{ id: string; name: string }>;
+};
+
+/** The Pulse shell is intentionally capped at five destinations. */
+function buildPulseNav(shell?: PulseShellNav): NavGroup[] {
+  const meetings = shell?.meetings ?? [];
+  const canSeeSettings = shell?.canSeeSettings === true;
+  const isSingleMember = shell?.navMode === "single_meeting" && meetings.length === 1;
+
+  const items: NavItem[] = [{ icon: Home, label: "Home", path: "/pulse" }];
+  if (!isSingleMember && meetings.length > 1) items.push({ icon: CheckSquare, label: "My Work", path: "/pulse/work" });
+  items.push({ icon: StickyNote, label: "My Inputs", path: "/pulse/inputs" });
+
+  if (isSingleMember) {
+    items.push({ icon: Users, label: meetings[0].name, path: `/pulse/meetings/${meetings[0].id}` });
+  } else {
+    items.push({ icon: Users, label: "Meetings", path: "/pulse/meetings" });
+  }
+  if (canSeeSettings) items.push({ icon: Settings, label: "Settings", path: "/pulse/settings" });
+
+  return [{ label: "Pulse", items: items.slice(0, 5) }];
+}
+
 function buildAgentSupportNav(): NavGroup[] {
   return [
     {
       label: "Overview",
       items: [
         { icon: UserCheck, label: "Agent Support Portal", path: "/agent-support" },
+      ],
+    },
+    {
+      label: "Pulse",
+      items: [
+        { icon: Activity, label: "Pulse", path: "/pulse" },
       ],
     },
     {
@@ -175,6 +213,12 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: PhoneCall, label: "Market Match Call", path: "/market-match-call" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
+      ],
+    },
+    {
+      label: "Pulse",
+      items: [
+        { icon: Activity, label: "Pulse", path: "/pulse" },
       ],
     },
     {
@@ -497,6 +541,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const role = (user as any)?.role as "admin" | "agent" | "isa" | "agent_support" | undefined;
+  const isPulsePath = currentPath === "/pulse" || currentPath.startsWith("/pulse/");
+
+  // Pulse navigation is membership-aware and intentionally replaces the broader
+  // SavvyOS nav while someone is working inside Pulse.
+  const { data: pulseShell } = trpc.pulse.shell.useQuery(
+    undefined,
+    { enabled: !!user && isPulsePath, staleTime: 30000 },
+  );
 
   // Fetch pending approvals count for admin badge
   const { data: pendingCount } = trpc.approvalRequests.pendingCount.useQuery(
@@ -619,7 +671,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const unreadPmCount = (inboxCount as any)?.count ?? 0;
 
-  const baseNavGroups =
+  const standardNavGroups =
     role === "admin"
       ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount)
       : role === "isa"
@@ -627,6 +679,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
+  const baseNavGroups = isPulsePath ? buildPulseNav(pulseShell as PulseShellNav | undefined) : standardNavGroups;
   // For admin users, filter nav by their permissions, then apply password-list visibility.
   const permissionFilteredNavGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
@@ -636,13 +689,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .filter((group) => group.items.length > 0);
   const passwordNavItem: NavItem = { icon: Lock, label: "Passwords", path: "/passwords" };
   const passwordNavTargetGroup = role === "admin" ? "Admin" : "Resources";
-  const navGroups: NavGroup[] = passwordAccess?.hasAccessibleLists
-    ? navGroupsWithoutPasswords.some((group) => group.label === passwordNavTargetGroup)
-      ? navGroupsWithoutPasswords.map((group) => group.label === passwordNavTargetGroup
-        ? { ...group, items: [...group.items, passwordNavItem] }
-        : group)
-      : [...navGroupsWithoutPasswords, { label: "Shared", items: [passwordNavItem] }]
-    : navGroupsWithoutPasswords;
+  const navGroups: NavGroup[] = isPulsePath
+    ? baseNavGroups
+    : passwordAccess?.hasAccessibleLists
+      ? navGroupsWithoutPasswords.some((group) => group.label === passwordNavTargetGroup)
+        ? navGroupsWithoutPasswords.map((group) => group.label === passwordNavTargetGroup
+          ? { ...group, items: [...group.items, passwordNavItem] }
+          : group)
+        : [...navGroupsWithoutPasswords, { label: "Shared", items: [passwordNavItem] }]
+      : navGroupsWithoutPasswords;
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"

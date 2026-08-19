@@ -1,0 +1,72 @@
+{
+  "generatedAt": "2026-08-19T20:20:03.148Z",
+  "api": {
+    "singleMeetingNavigation": {
+      "pass": true,
+      "payload": {
+        "navMode": "single_meeting",
+        "visibleMeetingNames": [
+          "Pulse Test — Leadership L10"
+        ]
+      }
+    },
+    "multiMeetingNavigation": {
+      "pass": true,
+      "payload": {
+        "navMode": "standard",
+        "canSeeSettings": true,
+        "navDestinationCount": 5,
+        "visibleMeetingNames": [
+          "Pulse Test — Goals & Issues",
+          "Pulse Test — Leadership L10",
+          "Pulse Test — Marketing L10",
+          "Pulse Test — Team Tyler"
+        ]
+      }
+    },
+    "superAdminDoesNotInheritMeetingVisibility": {
+      "pass": true,
+      "visibleMeetingNames": [
+        "Pulse Test — One-on-One"
+      ],
+      "deniedStatus": 404,
+      "deniedMessage": "This meeting no longer exists. Go to your meetings."
+    },
+    "memberPayloadOmitsManagerOnlyFields": {
+      "pass": true,
+      "payloadKeys": [
+        "id",
+        "name",
+        "label",
+        "cadence",
+        "dayOfWeek",
+        "startTime",
+        "durationMinutes",
+        "timezone",
+        "sectionsEnabled",
+        "sectionOrder"
+      ]
+    },
+    "missingMeetingReturnsClearError": {
+      "pass": true,
+      "status": 404,
+      "message": "This meeting no longer exists. Go to your meetings."
+    }
+  },
+  "database": {
+    "exactOneWorkItemOwnerConstraint": {
+      "pass": true,
+      "bothOwnershipFails": true,
+      "neitherOwnershipFails": true
+    },
+    "workItemMoveHistory": {
+      "pass": true,
+      "mutationStatus": 200,
+      "row": {
+        "workItemId": "79b7c447-dfaf-44b0-bb2b-2d7d76ea5b1b",
+        "fromMeetingId": "660db78a-c2a6-4720-96fb-1c47552a0bd5",
+        "toMeetingId": "efff0beb-ca2d-401f-8f1e-f07a00676d79"
+      }
+    }
+  }
+}

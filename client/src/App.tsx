@@ -268,6 +268,11 @@ function Router() {
           <Route path="/org-chart" component={OrgChartPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
+          <Route path="/pulse/meetings/:id" component={PulseFoundationPage} />
+          <Route path="/pulse/meetings" component={PulseFoundationPage} />
+          <Route path="/pulse/work" component={PulseFoundationPage} />
+          <Route path="/pulse/inputs" component={PulseFoundationPage} />
+          <Route path="/pulse/settings" component={PulseFoundationPage} />
           <Route path="/pulse" component={PulseFoundationPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />

@@ -1,0 +1,223 @@
+{
+  "checkedAt": "2026-08-19T20:19:31.301Z",
+  "checkedStringCount": 40,
+  "stringsAboveGrade8": [
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": " | \"member",
+      "grade": 8.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "label\"][] = [",
+      "grade": 8.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Level 10",
+      "grade": 8.4
+    }
+  ],
+  "allStrings": [
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": " | \"member",
+      "grade": 8.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "label\"][] = [",
+      "grade": 8.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": ", \"one_on_one",
+      "grade": -2.6
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Level 10",
+      "grade": 8.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "ad_hoc\" ? ",
+      "grade": -3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Go to your meetings",
+      "grade": 0.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This meeting is visible because you are a member. Work from other meetings is not shown here.",
+      "grade": 3.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": ", \") : \"None yet",
+      "grade": -3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What is happening in your meetings?",
+      "grade": 4.5
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "You only see meetings you have been added to. Choose one to see its work.",
+      "grade": 1.5
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Search your meetings",
+      "grade": 1.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What is mine, across everything?",
+      "grade": 7.6
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This dashboard will bring together your work across every meeting you are in.",
+      "grade": 7.6
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "View your meetings",
+      "grade": 1.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What do I need to put in this week?",
+      "grade": -0.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Put this week’s numbers, goals, and meeting updates here.",
+      "grade": 4.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What do I need to set up?",
+      "grade": -1.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Meeting setup will be added here for people who own or administer a meeting.",
+      "grade": 7.6
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What needs me right now?",
+      "grade": -1.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Pulse keeps your meetings and meeting work in one clear place. Start with a meeting you belong to.",
+      "grade": 2.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "><Link href=",
+      "grade": -3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "See your meetings",
+      "grade": 1.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "No meetings match that search. Try a meeting name, or return home to see what needs you right now.",
+      "grade": 1.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This meeting no longer exists. Go to your meetings to choose one you can access.",
+      "grade": 3.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This meeting is ready",
+      "grade": 3.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "The foundation is in place. Meeting sections will appear here as the next Pulse workflows are added.",
+      "grade": 4.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Work in this meeting",
+      "grade": 0.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "To-dos, issues, and rocks from this meeting will appear here. Every item will show this meeting as its origin.",
+      "grade": 6.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Nothing is in this meeting yet. Start with your next meeting, where items can be added and assigned.",
+      "grade": 4.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "are explained the first time they appear, so Pulse stays clear for everyone.",
+      "grade": 5.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "You have not been added to a meeting yet. Ask a meeting owner to add you, then your meetings will show here.",
+      "grade": 3.2
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Your work dashboard is ready for the next Pulse workflow. Until then, open a meeting to see the meeting context you can access.",
+      "grade": 5.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "There is nothing to enter yet. When inputs are ready, you will be able to update them here from your phone.",
+      "grade": 3.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Only meeting owners and administrators can change settings. Go home to see what needs you now.",
+      "grade": 5.2
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "No settings need your attention right now. Open a meeting to review the information available to you.",
+      "grade": 7.2
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Your meetings",
+      "grade": 2.9
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Open a meeting to see what is happening there.",
+      "grade": 5
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "View all meetings",
+      "grade": 1.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "You have not been added to a meeting yet. Ask a meeting owner to add you. Once they do, your meeting will appear here.",
+      "grade": 2.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Pulse saves meeting membership as the access rule, so you only see the meetings you are in.",
+      "grade": 7.7
+    }
+  ]
+}
