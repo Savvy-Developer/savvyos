@@ -38,6 +38,8 @@ import {
   ArrowUp,
   ArrowDown,
   CircleOff,
+  Heart,
+  FileSearch,
   X,
 } from "lucide-react";
 
@@ -49,6 +51,7 @@ type PVSortKey = "viewCount" | "lastViewed" | "contact" | "leadSource";
 type RVSortKey = "distinctDays" | "totalViews" | "lastViewed" | "contact" | "leadSource";
 type EESortKey = "clicks" | "opens" | "lastEngaged" | "contact" | "leadSource";
 type DCSortKey = "deadConnectionCount" | "lastUpdatedAt" | "contact" | "leadSource" | "assignedIsa";
+type IntentSortKey = "eventCount" | "lastEventAt" | "contact" | "leadSource" | "assignedIsa";
 
 const PIPELINE_STATUSES = [
   { value: "new_lead", label: "New Lead" },
@@ -84,6 +87,8 @@ export default function HotLeadsPage() {
   const [rvPage, setRvPage] = useState(1);
   const [eePage, setEePage] = useState(1);
   const [dcPage, setDcPage] = useState(1);
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const [analysisPage, setAnalysisPage] = useState(1);
   const [days, setDays] = useState<DaysFilter>("7");
   const [isaFilter, setIsaFilter] = useState<string>("");
   const [agentFilter, setAgentFilter] = useState<string>("");
@@ -99,6 +104,10 @@ export default function HotLeadsPage() {
   const [eeSortDir, setEeSortDir] = useState<SortDir>("desc");
   const [dcSortKey, setDcSortKey] = useState<DCSortKey>("lastUpdatedAt");
   const [dcSortDir, setDcSortDir] = useState<SortDir>("desc");
+  const [favoritesSortKey, setFavoritesSortKey] = useState<IntentSortKey>("eventCount");
+  const [favoritesSortDir, setFavoritesSortDir] = useState<SortDir>("desc");
+  const [analysisSortKey, setAnalysisSortKey] = useState<IntentSortKey>("eventCount");
+  const [analysisSortDir, setAnalysisSortDir] = useState<SortDir>("desc");
   const [deadConnectionToRemove, setDeadConnectionToRemove] = useState<any | null>(null);
   const [deadConnectionsRemovalMode, setDeadConnectionsRemovalMode] = useState<DeadConnectionsRemovalMode>("permanent");
   const [temporaryRemovalDuration, setTemporaryRemovalDuration] = useState<TemporaryRemovalOption>("7_days");
@@ -132,10 +141,20 @@ export default function HotLeadsPage() {
     { ...baseParams, page: eePage },
     { enabled: activeTab === "email-engagement" }
   );
+  const propertyFavorites = trpc.hotLeads.propertyFavorites.useQuery(
+    { ...baseParams, page: favoritesPage, sortBy: favoritesSortKey, sortDirection: favoritesSortDir },
+    { enabled: activeTab === "property-favorites" }
+  );
+  const analysisRequests = trpc.hotLeads.analysisRequests.useQuery(
+    { ...baseParams, page: analysisPage, sortBy: analysisSortKey, sortDirection: analysisSortDir },
+    { enabled: activeTab === "analysis-requests" }
+  );
   const deadConnections = trpc.hotLeads.deadConnections.useQuery(
     {
       limit,
       page: dcPage,
+      sortBy: dcSortKey,
+      sortDirection: dcSortDir,
       ...(isAdminOrIsa && isaFilter ? { isaId: parseInt(isaFilter) } : {}),
       ...(isAdminOrIsa && agentFilter ? { agentId: parseInt(agentFilter) } : {}),
     },
@@ -276,11 +295,32 @@ export default function HotLeadsPage() {
   };
 
   const handleDcSort = (key: DCSortKey) => {
+    setDcPage(1);
     if (dcSortKey === key) {
       setDcSortDir(dcSortDir === "asc" ? "desc" : "asc");
     } else {
       setDcSortKey(key);
       setDcSortDir("desc");
+    }
+  };
+
+  const handleFavoritesSort = (key: IntentSortKey) => {
+    setFavoritesPage(1);
+    if (favoritesSortKey === key) {
+      setFavoritesSortDir(favoritesSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setFavoritesSortKey(key);
+      setFavoritesSortDir("desc");
+    }
+  };
+
+  const handleAnalysisSort = (key: IntentSortKey) => {
+    setAnalysisPage(1);
+    if (analysisSortKey === key) {
+      setAnalysisSortDir(analysisSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setAnalysisSortKey(key);
+      setAnalysisSortDir("desc");
     }
   };
 
@@ -324,6 +364,8 @@ export default function HotLeadsPage() {
     setRvPage(1);
     setEePage(1);
     setDcPage(1);
+    setFavoritesPage(1);
+    setAnalysisPage(1);
   };
 
   const handleIsaChange = (val: string) => {
@@ -369,6 +411,14 @@ export default function HotLeadsPage() {
           <TabsTrigger value="email-engagement" className="shrink-0 whitespace-nowrap gap-2">
             <Mail className="h-4 w-4" />
             Email Engagement
+          </TabsTrigger>
+          <TabsTrigger value="property-favorites" className="shrink-0 whitespace-nowrap gap-2">
+            <Heart className="h-4 w-4" />
+            Properties Favorited
+          </TabsTrigger>
+          <TabsTrigger value="analysis-requests" className="shrink-0 whitespace-nowrap gap-2">
+            <FileSearch className="h-4 w-4" />
+            Analysis Requested
           </TabsTrigger>
           {isAdminOrIsa && (
             <TabsTrigger value="dead-connections" className="shrink-0 whitespace-nowrap gap-2">
@@ -419,6 +469,7 @@ export default function HotLeadsPage() {
                       <span className="inline-flex items-center">Last Viewed <SortIcon col="lastViewed" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
                     </TableHead>
                     <TableHead>Last Property</TableHead>
+                    <TableHead>Interest</TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => handlePvSort("leadSource")}>
                       <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
                     </TableHead>
@@ -443,6 +494,7 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm max-w-[200px] truncate" title={lead.lastPropertyAddress ?? ""}>
                       {lead.lastPropertyAddress || "—"}
                     </TableCell>
+                    <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lead.leadSource || "—"}
                     </TableCell>
@@ -506,6 +558,7 @@ export default function HotLeadsPage() {
                     <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("lastViewed")}>
                       <span className="inline-flex items-center">Last Viewed <SortIcon col="lastViewed" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
                     </TableHead>
+                    <TableHead>Interest</TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("leadSource")}>
                       <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
                     </TableHead>
@@ -530,6 +583,7 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastViewed)}
                     </TableCell>
+                    <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lead.leadSource || "—"}
                     </TableCell>
@@ -593,6 +647,7 @@ export default function HotLeadsPage() {
                     <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("lastEngaged")}>
                       <span className="inline-flex items-center">Last Engaged <SortIcon col="lastEngaged" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
                     </TableHead>
+                    <TableHead>Interest</TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("leadSource")}>
                       <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
                     </TableHead>
@@ -617,6 +672,7 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastEngaged)}
                     </TableCell>
+                    <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lead.leadSource || "—"}
                     </TableCell>
@@ -636,6 +692,58 @@ export default function HotLeadsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <IntentLeadsTab
+          value="property-favorites"
+          eventLabel="Properties Favorited"
+          eventDescription="Contacts in this list sent a deliberate property-favorite signal from the website. Use the Interest Score and recent activity to prioritize timely follow-up."
+          Icon={Heart}
+          query={propertyFavorites}
+          page={favoritesPage}
+          onPageChange={setFavoritesPage}
+          limit={limit}
+          days={days}
+          isAdminOrIsa={isAdminOrIsa}
+          isAgent={isAgent}
+          isas={isas}
+          agents={agents}
+          isaFilter={isaFilter}
+          agentFilter={agentFilter}
+          statusFilter={statusFilter}
+          onDaysChange={handleDaysChange}
+          onIsaChange={handleIsaChange}
+          onAgentChange={handleAgentChange}
+          onStatusChange={handleStatusChange}
+          sortKey={favoritesSortKey}
+          sortDir={favoritesSortDir}
+          onSort={handleFavoritesSort}
+        />
+
+        <IntentLeadsTab
+          value="analysis-requests"
+          eventLabel="Analysis Requests"
+          eventDescription="Contacts in this list asked for a property analysis through the website. These are high-intent prospects and should receive prompt outreach."
+          Icon={FileSearch}
+          query={analysisRequests}
+          page={analysisPage}
+          onPageChange={setAnalysisPage}
+          limit={limit}
+          days={days}
+          isAdminOrIsa={isAdminOrIsa}
+          isAgent={isAgent}
+          isas={isas}
+          agents={agents}
+          isaFilter={isaFilter}
+          agentFilter={agentFilter}
+          statusFilter={statusFilter}
+          onDaysChange={handleDaysChange}
+          onIsaChange={handleIsaChange}
+          onAgentChange={handleAgentChange}
+          onStatusChange={handleStatusChange}
+          sortKey={analysisSortKey}
+          sortDir={analysisSortDir}
+          onSort={handleAnalysisSort}
+        />
 
         {/* ─── Dead Connections Tab (Admin / ISA only) ────────────────────── */}
         {isAdminOrIsa && (
@@ -688,13 +796,14 @@ export default function HotLeadsPage() {
                       <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("assignedIsa")}>
                         <span className="inline-flex items-center">Assigned ISA <SortIcon col="assignedIsa" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
                       </TableHead>
+                      <TableHead>Interest</TableHead>
                       <TableHead>Agents</TableHead>
                       <TableHead className="w-[52px] text-center">
                         <span className="sr-only">Take off list</span>
                       </TableHead>
                     </>
                   }
-                  rows={sortedDcItems.map((lead, idx) => (
+                  rows={(deadConnections.data?.items ?? []).map((lead, idx) => (
                     <TableRow key={lead.contactId} className="hover:bg-muted/50">
                       <TableCell className="text-center text-muted-foreground text-xs">
                         {(dcPage - 1) * limit + idx + 1}
@@ -714,6 +823,7 @@ export default function HotLeadsPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {lead.assignedIsa || "—"}
                       </TableCell>
+                      <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
@@ -945,6 +1055,137 @@ function FiltersBar({
   );
 }
 
+type IntentLeadsTabProps = {
+  value: string;
+  eventLabel: string;
+  eventDescription: string;
+  Icon: any;
+  query: any;
+  page: number;
+  onPageChange: (page: number) => void;
+  limit: number;
+  days: DaysFilter;
+  isAdminOrIsa: boolean;
+  isAgent: boolean;
+  isas: any[];
+  agents: any[];
+  isaFilter: string;
+  agentFilter: string;
+  statusFilter: string;
+  onDaysChange: (days: DaysFilter) => void;
+  onIsaChange: (value: string) => void;
+  onAgentChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
+  sortKey: IntentSortKey;
+  sortDir: SortDir;
+  onSort: (key: IntentSortKey) => void;
+};
+
+function IntentLeadsTab({
+  value,
+  eventLabel,
+  eventDescription,
+  Icon,
+  query,
+  page,
+  onPageChange,
+  limit,
+  days,
+  isAdminOrIsa,
+  isAgent,
+  isas,
+  agents,
+  isaFilter,
+  agentFilter,
+  statusFilter,
+  onDaysChange,
+  onIsaChange,
+  onAgentChange,
+  onStatusChange,
+  sortKey,
+  sortDir,
+  onSort,
+}: IntentLeadsTabProps) {
+  const SortIcon = ({ col }: { col: IntentSortKey }) => {
+    if (sortKey !== col) return <ArrowUpDown className="ml-1 h-3 w-3 opacity-30" />;
+    return sortDir === "asc" ? <ArrowUp className="ml-1 h-3 w-3 text-primary" /> : <ArrowDown className="ml-1 h-3 w-3 text-primary" />;
+  };
+  const items = query.data?.items ?? [];
+
+  return (
+    <TabsContent value={value}>
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <div className="px-4 pt-4 text-sm text-muted-foreground">{eventDescription}</div>
+          <FiltersBar
+            days={days}
+            onDaysChange={onDaysChange}
+            isAdminOrIsa={isAdminOrIsa}
+            isAgent={isAgent}
+            isas={isas}
+            agents={agents}
+            isaFilter={isaFilter}
+            agentFilter={agentFilter}
+            statusFilter={statusFilter}
+            onIsaChange={onIsaChange}
+            onAgentChange={onAgentChange}
+            onStatusChange={onStatusChange}
+          />
+          <DataTable
+            isLoading={query.isLoading}
+            emptyIcon={<Icon className="mb-3 h-10 w-10 opacity-40" />}
+            emptyMessage={`No ${eventLabel.toLowerCase()} in the last ${days} days`}
+            totalCount={query.data?.totalCount ?? 0}
+            summaryText={`${eventLabel.toLowerCase()} in the last ${days} days`}
+            page={page}
+            totalPages={query.data?.totalPages ?? 1}
+            onPageChange={onPageChange}
+            limit={limit}
+            headers={
+              <>
+                <TableHead className="w-[50px] text-center">#</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => onSort("contact")}>
+                  <span className="inline-flex items-center">Contact <SortIcon col="contact" /></span>
+                </TableHead>
+                <TableHead className="cursor-pointer select-none text-center" onClick={() => onSort("eventCount")}>
+                  <span className="inline-flex w-full items-center justify-center">{eventLabel} <SortIcon col="eventCount" /></span>
+                </TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => onSort("lastEventAt")}>
+                  <span className="inline-flex items-center">Most Recent <SortIcon col="lastEventAt" /></span>
+                </TableHead>
+                <TableHead>Last Property</TableHead>
+                <TableHead>Interest</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => onSort("leadSource")}>
+                  <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" /></span>
+                </TableHead>
+                {!isAgent && (
+                  <TableHead className="cursor-pointer select-none" onClick={() => onSort("assignedIsa")}>
+                    <span className="inline-flex items-center">Assigned ISA <SortIcon col="assignedIsa" /></span>
+                  </TableHead>
+                )}
+                {!isAgent && <TableHead>Connected Agents</TableHead>}
+              </>
+            }
+            rows={items.map((lead: any, index: number) => (
+              <TableRow key={lead.contactId} className="hover:bg-muted/50">
+                <TableCell className="text-center text-xs text-muted-foreground">{(page - 1) * limit + index + 1}</TableCell>
+                <TableCell><ContactCell lead={lead} isAgent={isAgent} /></TableCell>
+                <TableCell className="text-center"><Badge variant="secondary">{lead.eventCount}</Badge></TableCell>
+                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatRelativeDate(lead.lastEventAt)}</TableCell>
+                <TableCell className="max-w-[200px] truncate text-sm" title={lead.lastPropertyAddress ?? ""}>{lead.lastPropertyAddress || "—"}</TableCell>
+                <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
+                <TableCell className="text-sm text-muted-foreground">{lead.leadSource || "—"}</TableCell>
+                {!isAgent && <TableCell className="text-sm text-muted-foreground">{lead.assignedIsa || "—"}</TableCell>}
+                {!isAgent && <TableCell className="text-sm text-muted-foreground"><AgentsList agents={lead.connectedAgents} /></TableCell>}
+              </TableRow>
+            ))}
+          />
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+}
+
 function AgentsList({ agents }: { agents: Array<{ name: string; connectionId: number }> }) {
   if (!agents || agents.length === 0) return <span>—</span>;
   if (agents.length === 1) return <span>{agents[0].name}</span>;
@@ -1119,6 +1360,21 @@ function DaysBadge({ count }: { count: number }) {
       {count} days
     </Badge>
   );
+}
+
+function InterestScoreBadge({ score, signals }: { score?: number; signals?: string[] }) {
+  const normalizedScore = Number(score ?? 0);
+  const label = signals?.length ? signals.join(" • ") : "No additional recent engagement signals";
+  if (normalizedScore >= 7) {
+    return <Badge title={label} className="bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"><Flame className="mr-1 h-3 w-3" />{normalizedScore}</Badge>;
+  }
+  if (normalizedScore >= 4) {
+    return <Badge title={label} className="bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800">{normalizedScore}</Badge>;
+  }
+  if (normalizedScore >= 1) {
+    return <Badge title={label} className="bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">{normalizedScore}</Badge>;
+  }
+  return <Badge title={label} variant="secondary">0</Badge>;
 }
 
 function ClicksBadge({ count }: { count: number }) {

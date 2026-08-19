@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import RichEmailEditor from "@/components/RichEmailEditor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -482,27 +481,6 @@ export function buildEmailTemplate(
       ),
     ].join("")
   );
-  const operating = detailCard(
-    "Base Case Operating Detail",
-    [
-      metricRow("Average daily rate", formatCurrency(summary.adr)),
-      metricRow("Occupancy", formatPercent(summary.occupancy)),
-      metricRow("Sold nights", formatNumber(summary.bookedNights)),
-      metricRow("Gross revenue", formatCurrency(summary.grossRevenue)),
-      metricRow("Platform fees", formatCurrency(summary.platformFees)),
-      metricRow("Net revenue", formatCurrency(summary.netRevenue)),
-      metricRow(
-        "Total operating expenses",
-        formatCurrency(summary.totalExpenses)
-      ),
-      metricRow("Projected NOI", formatCurrency(summary.noi), true),
-      metricRow(
-        "Projected annual cash flow",
-        formatCurrency(summary.cashFlow),
-        true
-      ),
-    ].join("")
-  );
   const expenseMix = detailCard(
     "Annual Expense Mix",
     [
@@ -531,7 +509,7 @@ export function buildEmailTemplate(
         )
         .join("")}</table></td></tr></table>`
     : "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#ffffff;"><tr><td align="center" style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" width="680" style="width:100%;max-width:680px;border-collapse:collapse;background:#ffffff;"><tr><td style="padding:24px 20px 8px;">${logoHeader}</td></tr><tr><td style="padding:8px 20px 0;"><div style="color:${EMAIL_TEAL};font-size:25px;line-height:30px;font-weight:800;">${safeTitle}</div><div style="margin-top:4px;color:${EMAIL_INK};font-size:14px;line-height:19px;font-weight:600;">${safePropertyLabel}</div><div style="margin-top:2px;color:${EMAIL_MUTED};font-size:12px;line-height:17px;">${propertyMeta}</div></td></tr>${hero}<tr><td style="padding:18px 20px 0;">${notableNumbers}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid #b6e5e2;border-radius:10px;background:#f5fcfc;"><tr><td style="padding:14px 15px;"><div style="color:${EMAIL_TEAL};font-size:14px;line-height:18px;font-weight:800;">Investment Analysis</div><div style="margin-top:5px;color:${EMAIL_INK};font-size:12px;line-height:18px;">${investmentNarrative}</div></td></tr></table></td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${acquisition}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${financing}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${scenarioComparison}</td></tr><tr><td style="padding:16px 20px 0;">${fiveYear}</td></tr>${irr ? `<tr><td style="padding:16px 20px 0;">${irr}</td></tr>` : ""}<tr><td style="padding:16px 20px 0;">${taxDetail}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${operating}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${expenseMix}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${detailedExpenses}</td></tr>${propertyLink ? `<tr><td style="padding:15px 20px 0;"><a href="${escapeHtml(propertyLink)}" style="color:${EMAIL_TEAL};font-size:12px;font-weight:700;text-decoration:underline;">View property listing →</a></td></tr>` : ""}<tr><td style="padding:19px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">These projections are illustrative and based on the stated assumptions, comparable data, and modeled inputs. They are not financial, tax, or investment advice and should be reviewed as part of your due diligence.</td></tr><tr><td style="padding:18px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">I would be happy to walk through the assumptions and answer any questions.<br/><br/>Best,</td></tr></table></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#ffffff;"><tr><td align="center" style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" width="680" style="width:100%;max-width:680px;border-collapse:collapse;background:#ffffff;"><tr><td style="padding:24px 20px 8px;">${logoHeader}</td></tr><tr><td style="padding:8px 20px 0;"><div style="color:${EMAIL_TEAL};font-size:25px;line-height:30px;font-weight:800;">${safeTitle}</div><div style="margin-top:4px;color:${EMAIL_INK};font-size:14px;line-height:19px;font-weight:600;">${safePropertyLabel}</div><div style="margin-top:2px;color:${EMAIL_MUTED};font-size:12px;line-height:17px;">${propertyMeta}</div></td></tr>${hero}<tr><td style="padding:18px 20px 0;">${notableNumbers}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid #b6e5e2;border-radius:10px;background:#f5fcfc;"><tr><td style="padding:14px 15px;"><div style="color:${EMAIL_TEAL};font-size:14px;line-height:18px;font-weight:800;">Investment Analysis</div><div style="margin-top:5px;color:${EMAIL_INK};font-size:12px;line-height:18px;">${investmentNarrative}</div></td></tr></table></td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${acquisition}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${financing}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${scenarioComparison}</td></tr><tr><td style="padding:16px 20px 0;">${fiveYear}</td></tr>${irr ? `<tr><td style="padding:16px 20px 0;">${irr}</td></tr>` : ""}<tr><td style="padding:16px 20px 0;">${taxDetail}</td></tr><tr><td style="padding:16px 20px 0;">${expenseMix}</td></tr><tr><td style="padding:16px 20px 0;">${detailedExpenses}</td></tr>${propertyLink ? `<tr><td style="padding:15px 20px 0;"><a href="${escapeHtml(propertyLink)}" style="color:${EMAIL_TEAL};font-size:12px;font-weight:700;text-decoration:underline;">View property listing →</a></td></tr>` : ""}<tr><td style="padding:19px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">These projections are illustrative and based on the stated assumptions, comparable data, and modeled inputs. They are not financial, tax, or investment advice and should be reviewed as part of your due diligence.</td></tr><tr><td style="padding:18px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">I would be happy to walk through the assumptions and answer any questions.<br/><br/>Best,</td></tr></table></td></tr></table>`;
 }
 
 export default function ProformaEmailComposer({
@@ -556,7 +534,6 @@ export default function ProformaEmailComposer({
   } | null>(null);
   const [manualEmail, setManualEmail] = useState("");
   const [subject, setSubject] = useState("");
-  const [htmlBody, setHtmlBody] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const { data: myProfile, isLoading: profileLoading } =
     trpc.users.getMyCoreProfile.useQuery(undefined, { enabled: open });
@@ -601,6 +578,7 @@ export default function ProformaEmailComposer({
       myProfile?.profilePhotoUrl,
     ]
   );
+  const htmlBody = defaultBody;
   const { data: contactResult, isLoading: contactsLoading } =
     trpc.contacts.list.useQuery(
       {
@@ -656,7 +634,6 @@ export default function ProformaEmailComposer({
     setSelectedContact(null);
     setManualEmail("");
     setSubject(defaultSubject);
-    setHtmlBody(defaultBody);
   }, [open, defaultSubject, defaultBody]);
 
   const sendEmail = trpc.proformaEmail.send.useMutation({
@@ -714,11 +691,10 @@ export default function ProformaEmailComposer({
 
           <div className="space-y-5 py-1">
             <div className="break-words rounded-lg border bg-muted/30 px-3 py-2.5 text-sm">
-              This editable, unbranded HTML proforma includes the full base-case
-              investment snapshot for{" "}
-              <strong>{propertyLabel || "this property"}</strong>. Recipients
-              can review it directly in the email; your saved Email Signature is
-              appended automatically when it is sent.
+              SavvyOS will send the complete, branded pro forma analysis for{" "}
+              <strong>{propertyLabel || "this property"}</strong>. You can choose
+              the recipient, update the subject, and preview the exact email;
+              your saved Email Signature is appended automatically when it is sent.
             </div>
 
             {!profileLoading && !hasEmailSignature && (
@@ -873,21 +849,6 @@ export default function ProformaEmailComposer({
               />
             </div>
 
-            <div>
-              <Label>Message</Label>
-              <div className="mt-1">
-                <RichEmailEditor
-                  value={htmlBody}
-                  onChange={setHtmlBody}
-                  placeholder="Write your proforma message…"
-                />
-              </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                You can adjust any part of the pre-filled proforma summary
-                before sending.
-              </p>
-            </div>
-
             <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground break-words">
               <p>
                 <strong className="text-foreground">From:</strong>{" "}
@@ -977,7 +938,7 @@ export default function ProformaEmailComposer({
           </div>
           <DialogFooter>
             <Button onClick={() => setPreviewOpen(false)}>
-              Back to Editing
+              Back to Email Details
             </Button>
           </DialogFooter>
         </DialogContent>
