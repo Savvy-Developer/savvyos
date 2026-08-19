@@ -111,6 +111,7 @@ export async function sendSmartPlanEmail(params: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
         from: FROM_ADDRESS,
         to: [params.to],

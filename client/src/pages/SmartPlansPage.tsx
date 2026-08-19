@@ -20,6 +20,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import OneTimeSmartPlanSendDialog from "@/components/OneTimeSmartPlanSendDialog";
+import OneTimeSmartPlanSendHistory from "@/components/OneTimeSmartPlanSendHistory";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PlanRow = {
@@ -1071,6 +1072,8 @@ export default function SmartPlansPage() {
       </div>
 
       {oneTimeSendOpen && <OneTimeSmartPlanSendDialog onClose={() => setOneTimeSendOpen(false)} />}
+
+      <OneTimeSmartPlanSendHistory />
 
       {/* Enrollments Dialog */}
       {viewEnrollments && (

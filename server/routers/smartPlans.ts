@@ -11,11 +11,15 @@ import {
   contacts,
   oneTimeSends,
   oneTimeSendRecipients,
+  oneTimeSendMessageEvents,
+  users,
 } from "../../drizzle/schema";
-import { and, eq, desc, asc, sql } from "drizzle-orm";
+import { and, eq, desc, asc, sql, inArray, isNotNull, or } from "drizzle-orm";
 import { sendAircallSMS } from "../_core/aircall";
 import { sendSmartPlanEmail } from "../_core/smartPlanEmail";
 import { renderMergeTags } from "../_core/smartPlanMergeTags";
+import { getResendEmailStatus } from "../_core/resendEmailStatus";
+import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
 import {
   SMART_PLAN_TRIGGER_TYPES,
   enrollContactInPlan,
@@ -50,6 +54,21 @@ const oneTimeSendInput = z.object({
 });
 
 const CONTACT_QUERY_BATCH_SIZE = 1_000;
+const PROVIDER_STATUS_REFRESH_LIMIT = 100;
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 type OneTimeRecipientTarget = { contactId: number; recipientAddress: string };
 type OneTimeExclusionReasons = {
@@ -404,8 +423,134 @@ export const smartPlansRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) return [];
-      return db.select().from(oneTimeSends).orderBy(desc(oneTimeSends.createdAt)).limit(10);
+      return db
+        .select({ send: oneTimeSends, createdBy: { id: users.id, name: users.name, email: users.email } })
+        .from(oneTimeSends)
+        .leftJoin(users, eq(oneTimeSends.createdById, users.id))
+        .orderBy(desc(oneTimeSends.createdAt))
+        .limit(25);
     }),
+
+    detail: protectedProcedure
+      .input(z.object({
+        sendId: z.number().int().positive(),
+        page: z.number().int().min(1).default(1),
+        limit: z.number().int().min(1).max(100).default(50),
+        status: z.enum(["queued", "sent", "skipped", "failed"]).optional(),
+        activity: z.enum(["delivered", "opened", "clicked", "replied", "bounced", "complained", "suppressed"]).optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const [sendRow] = await db
+          .select({ send: oneTimeSends, createdBy: { id: users.id, name: users.name, email: users.email } })
+          .from(oneTimeSends)
+          .leftJoin(users, eq(oneTimeSends.createdById, users.id))
+          .where(eq(oneTimeSends.id, input.sendId))
+          .limit(1);
+        if (!sendRow) throw new TRPCError({ code: "NOT_FOUND", message: "One-time send not found." });
+
+        const conditions = [eq(oneTimeSendRecipients.sendId, input.sendId)];
+        if (input.status) conditions.push(eq(oneTimeSendRecipients.status, input.status));
+        if (input.activity === "delivered") {
+          conditions.push(or(
+            isNotNull(oneTimeSendRecipients.deliveredAt),
+            isNotNull(oneTimeSendRecipients.openedAt),
+            isNotNull(oneTimeSendRecipients.clickedAt),
+            inArray(oneTimeSendRecipients.providerLastEvent, ["delivered", "opened", "clicked"]),
+          )!);
+        }
+        if (input.activity === "opened") {
+          conditions.push(or(isNotNull(oneTimeSendRecipients.openedAt), inArray(oneTimeSendRecipients.providerLastEvent, ["opened", "clicked"]))!);
+        }
+        if (input.activity === "clicked") conditions.push(or(isNotNull(oneTimeSendRecipients.clickedAt), eq(oneTimeSendRecipients.providerLastEvent, "clicked"))!);
+        if (input.activity === "replied") conditions.push(isNotNull(oneTimeSendRecipients.repliedAt));
+        if (input.activity === "bounced") conditions.push(or(isNotNull(oneTimeSendRecipients.bouncedAt), eq(oneTimeSendRecipients.providerLastEvent, "bounced"))!);
+        if (input.activity === "complained") conditions.push(or(isNotNull(oneTimeSendRecipients.complainedAt), eq(oneTimeSendRecipients.providerLastEvent, "complained"))!);
+        if (input.activity === "suppressed") conditions.push(or(isNotNull(oneTimeSendRecipients.suppressedAt), eq(oneTimeSendRecipients.providerLastEvent, "suppressed"))!);
+        const where = and(...conditions);
+        const offset = (input.page - 1) * input.limit;
+        const [countRows, rows] = await Promise.all([
+          db.select({ count: sql<number>`count(*)` }).from(oneTimeSendRecipients).where(where),
+          db
+            .select({ recipient: oneTimeSendRecipients, contact: contacts })
+            .from(oneTimeSendRecipients)
+            .innerJoin(contacts, eq(oneTimeSendRecipients.contactId, contacts.id))
+            .where(where)
+            .orderBy(desc(oneTimeSendRecipients.sentAt), desc(oneTimeSendRecipients.id))
+            .limit(input.limit)
+            .offset(offset),
+        ]);
+        const recipientIds = rows.map((row) => row.recipient.id);
+        const events = recipientIds.length === 0
+          ? []
+          : await db
+              .select()
+              .from(oneTimeSendMessageEvents)
+              .where(inArray(oneTimeSendMessageEvents.recipientId, recipientIds))
+              .orderBy(desc(oneTimeSendMessageEvents.occurredAt));
+        const eventsByRecipient = new Map<number, typeof events>();
+        for (const event of events) {
+          const current = eventsByRecipient.get(event.recipientId) ?? [];
+          current.push(event);
+          eventsByRecipient.set(event.recipientId, current);
+        }
+
+        return {
+          ...sendRow,
+          recipients: rows.map((row) => ({ ...row, events: eventsByRecipient.get(row.recipient.id) ?? [] })),
+          totalRecipients: Number(countRows[0]?.count ?? 0),
+          page: input.page,
+          limit: input.limit,
+        };
+      }),
+
+    syncProviderStatus: protectedProcedure
+      .input(z.object({ sendId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [send] = await db.select({ id: oneTimeSends.id }).from(oneTimeSends).where(eq(oneTimeSends.id, input.sendId)).limit(1);
+        if (!send) throw new TRPCError({ code: "NOT_FOUND", message: "One-time send not found." });
+
+        const recipients = await db
+          .select({ id: oneTimeSendRecipients.id, providerMessageId: oneTimeSendRecipients.providerMessageId })
+          .from(oneTimeSendRecipients)
+          .where(and(
+            eq(oneTimeSendRecipients.sendId, input.sendId),
+            eq(oneTimeSendRecipients.provider, "resend"),
+            isNotNull(oneTimeSendRecipients.providerMessageId),
+          ))
+          .orderBy(desc(oneTimeSendRecipients.sentAt))
+          .limit(PROVIDER_STATUS_REFRESH_LIMIT);
+        const checkedAt = new Date();
+        const outcomes = await mapWithConcurrency(recipients, 5, async (recipient) => {
+          const result = await getResendEmailStatus(recipient.providerMessageId!);
+          if (!result.success) return { updated: false, error: result.error };
+          const lastEvent = result.data.lastEvent;
+          const update: Record<string, unknown> = { providerLastEvent: lastEvent, providerStatusCheckedAt: checkedAt };
+          if (lastEvent === "failed") {
+            update.status = "failed";
+            update.errorMessage = "Resend reports this email as failed.";
+          }
+          await db.update(oneTimeSendRecipients).set(update as any).where(eq(oneTimeSendRecipients.id, recipient.id));
+          return { updated: true };
+        });
+        await refreshOneTimeSendMetrics(db, input.sendId);
+        const updated = outcomes.filter((outcome) => outcome.updated).length;
+        const failed = outcomes.length - updated;
+        await logActivity({
+          userId: ctx.user.id,
+          action: "one_time_send_provider_status_refreshed",
+          entityType: "one_time_send",
+          entityId: input.sendId,
+          details: { refreshedRecipients: recipients.length, updated, failed },
+        });
+        return { refreshedRecipients: recipients.length, updated, failed, checkedAt };
+      }),
   }),
 
   // Publish a draft plan

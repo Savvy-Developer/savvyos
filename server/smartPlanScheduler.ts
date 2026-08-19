@@ -23,6 +23,7 @@ import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { sendAircallSMS } from "./_core/aircall";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
+import { refreshOneTimeSendMetrics } from "./oneTimeSendTracking";
 
 let isRunning = false;
 
@@ -536,7 +537,7 @@ export async function bulkEnrollExistingContacts(planId: number): Promise<{ enro
 
 // ─── One-Time Send Worker ─────────────────────────────────────────────────────
 
-const ONE_TIME_SEND_BATCH_SIZE = 20; // SMS pacing keeps a mixed-channel batch well below provider API limits.
+const ONE_TIME_SEND_BATCH_SIZE = 50; // Small database pages; the worker drains email pages in one run while provider pacing protects Resend.
 let isOneTimeSendRunning = false;
 
 function oneTimeMergeContext(contact: typeof contacts.$inferSelect, leadSourceName: string | null) {
@@ -569,6 +570,7 @@ async function deliverOneTimeRecipient(
   let outcome: "sent" | "skipped" | "failed" = "sent";
   let provider: string | null = null;
   let providerMessageId: string | null = null;
+  let replyToken: string | null = null;
   let errorMessage: string | null = null;
 
   if (contact.doNotContact || contact.isaStatus === "do_not_contact") {
@@ -590,12 +592,15 @@ async function deliverOneTimeRecipient(
         errorMessage = "Contact has unsubscribed from marketing emails";
       } else {
         provider = "resend";
+        const replyDomain = process.env.SMART_PLAN_REPLY_DOMAIN?.trim();
+        replyToken = replyDomain ? `sp-${nanoid(20)}` : null;
         await paceProvider("email");
         const result = await sendSmartPlanEmail({
           to: recipient.recipientAddress,
           subject: renderMergeTags(send.subject ?? send.name, mergeContext),
           body,
           isHtml: true,
+          replyTo: replyToken && replyDomain ? `${replyToken}@${replyDomain}` : undefined,
         });
         outcome = result.success ? "sent" : "failed";
         providerMessageId = result.messageId ?? null;
@@ -620,6 +625,7 @@ async function deliverOneTimeRecipient(
       status: outcome,
       provider,
       providerMessageId,
+      replyToken,
       errorMessage,
       sentAt: new Date(),
     })
@@ -653,24 +659,37 @@ export async function processOneTimeSmartPlanSends(): Promise<void> {
       await db.update(oneTimeSends).set({ status: "processing", startedAt: new Date() }).where(eq(oneTimeSends.id, send.id));
     }
 
-    const pendingRecipients = await db
-      .select({ recipient: oneTimeSendRecipients, contact: contacts })
-      .from(oneTimeSendRecipients)
-      .innerJoin(contacts, eq(oneTimeSendRecipients.contactId, contacts.id))
-      .where(and(eq(oneTimeSendRecipients.sendId, send.id), eq(oneTimeSendRecipients.status, "queued")))
-      .orderBy(oneTimeSendRecipients.id)
-      .limit(ONE_TIME_SEND_BATCH_SIZE);
+    // Drain all queued email recipients during this worker run. Resend pacing keeps
+    // delivery below the provider limit while avoiding multi-hour campaigns caused
+    // by processing only one small page every five minutes. SMS deferrals remain
+    // queued when the daily capacity is reached.
+    let shouldPause = false;
+    while (!shouldPause) {
+      const pendingRecipients = await db
+        .select({ recipient: oneTimeSendRecipients, contact: contacts })
+        .from(oneTimeSendRecipients)
+        .innerJoin(contacts, eq(oneTimeSendRecipients.contactId, contacts.id))
+        .where(and(eq(oneTimeSendRecipients.sendId, send.id), eq(oneTimeSendRecipients.status, "queued")))
+        .orderBy(oneTimeSendRecipients.id)
+        .limit(ONE_TIME_SEND_BATCH_SIZE);
+      if (pendingRecipients.length === 0) break;
 
-    for (const row of pendingRecipients) {
-      try {
-        const delivery = await deliverOneTimeRecipient(db, send, row.recipient, row.contact);
-        if (delivery === "deferred") break;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        await db.update(oneTimeSendRecipients).set({ status: "failed", errorMessage, sentAt: new Date() }).where(eq(oneTimeSendRecipients.id, row.recipient.id));
-        await incrementOneTimeSendCounts(db, send.id, "failed");
+      for (const row of pendingRecipients) {
+        try {
+          const delivery = await deliverOneTimeRecipient(db, send, row.recipient, row.contact);
+          if (delivery === "deferred") {
+            shouldPause = true;
+            break;
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await db.update(oneTimeSendRecipients).set({ status: "failed", errorMessage, sentAt: new Date() }).where(eq(oneTimeSendRecipients.id, row.recipient.id));
+          await incrementOneTimeSendCounts(db, send.id, "failed");
+        }
       }
     }
+
+    await refreshOneTimeSendMetrics(db, send.id);
 
     const remaining = await db
       .select({ id: oneTimeSendRecipients.id })

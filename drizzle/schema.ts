@@ -629,6 +629,13 @@ export const oneTimeSends = mysqlTable("one_time_sends", {
   sentCount: int("sentCount").default(0).notNull(),
   skippedCount: int("skippedCount").default(0).notNull(),
   failedCount: int("failedCount").default(0).notNull(),
+  deliveredCount: int("deliveredCount").default(0).notNull(),
+  openedCount: int("openedCount").default(0).notNull(),
+  clickedCount: int("clickedCount").default(0).notNull(),
+  bouncedCount: int("bouncedCount").default(0).notNull(),
+  complainedCount: int("complainedCount").default(0).notNull(),
+  suppressedCount: int("suppressedCount").default(0).notNull(),
+  repliedCount: int("repliedCount").default(0).notNull(),
   createdById: int("createdById").references(() => users.id),
   confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
   startedAt: timestamp("startedAt"),
@@ -651,16 +658,47 @@ export const oneTimeSendRecipients = mysqlTable("one_time_send_recipients", {
   status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"]).default("queued").notNull(),
   provider: varchar("provider", { length: 64 }),
   providerMessageId: varchar("providerMessageId", { length: 255 }),
+  // Used as the local part of an optional Resend inbound reply address.
+  replyToken: varchar("replyToken", { length: 64 }),
   errorMessage: text("errorMessage"),
   sentAt: timestamp("sentAt"),
+  deliveredAt: timestamp("deliveredAt"),
+  openedAt: timestamp("openedAt"),
+  clickedAt: timestamp("clickedAt"),
+  bouncedAt: timestamp("bouncedAt"),
+  complainedAt: timestamp("complainedAt"),
+  suppressedAt: timestamp("suppressedAt"),
+  repliedAt: timestamp("repliedAt"),
+  providerStatusCheckedAt: timestamp("providerStatusCheckedAt"),
+  providerLastEvent: varchar("providerLastEvent", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("one_time_send_recipient_unique").on(table.sendId, table.contactId, table.recipientAddress),
+  uniqueIndex("one_time_send_recipients_reply_token_unique").on(table.replyToken),
   index("one_time_send_recipients_send_status_idx").on(table.sendId, table.status),
+  index("one_time_send_recipients_provider_message_idx").on(table.providerMessageId),
 ]);
 export type OneTimeSendRecipient = typeof oneTimeSendRecipients.$inferSelect;
 export type InsertOneTimeSendRecipient = typeof oneTimeSendRecipients.$inferInsert;
+
+// Immutable Resend lifecycle events for one-time Smart Plan sends. Webhooks are
+// at-least-once and may arrive out of order, so provider event IDs are unique.
+export const oneTimeSendMessageEvents = mysqlTable("one_time_send_message_events", {
+  id: int("id").autoincrement().primaryKey(),
+  recipientId: int("recipientId").notNull().references(() => oneTimeSendRecipients.id, { onDelete: "cascade" }),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  providerEventId: varchar("providerEventId", { length: 255 }),
+  eventType: varchar("eventType", { length: 64 }).notNull(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("one_time_send_message_events_provider_event_unique").on(table.providerEventId),
+  index("one_time_send_message_events_recipient_type_idx").on(table.recipientId, table.eventType),
+]);
+export type OneTimeSendMessageEvent = typeof oneTimeSendMessageEvents.$inferSelect;
+export type InsertOneTimeSendMessageEvent = typeof oneTimeSendMessageEvents.$inferInsert;
 
 export const smartPlanSteps = mysqlTable("smart_plan_steps", {
   id: int("id").autoincrement().primaryKey(),
