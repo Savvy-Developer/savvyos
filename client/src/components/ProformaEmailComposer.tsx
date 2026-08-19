@@ -86,6 +86,52 @@ type ProformaEmailComposerProps = {
       propertyValue: number;
       equity: number;
     }>;
+    detailedScenarios: Array<{
+      label: string;
+      adr: number;
+      occupancy: number;
+      soldNights: number;
+      grossRevenue: number;
+      platformFees: number;
+      netRevenue: number;
+      noi: number;
+      cashFlow: number;
+      cashOnCash: number;
+      cashOnCashWithTax: number;
+      capRate: number;
+      dscr: number;
+    }>;
+    irr: Array<{
+      holdPeriod: string;
+      conservativePreTax: number | null;
+      conservativeAfterTax: number | null;
+      basePreTax: number | null;
+      baseAfterTax: number | null;
+      strongPreTax: number | null;
+      strongAfterTax: number | null;
+    }>;
+    taxBenefits: {
+      costSegEnabled: boolean;
+      marginalTaxRate: number;
+      buildingBasis: number;
+      acceleratedDepreciationPct: number;
+      acceleratedAmt: number;
+      furnishingDeduction: number;
+      bonusEligibleImprovements: number;
+      straightLineDepreciation: number;
+      year1MortgageInterest: number;
+      totalFirstYearDeduction: number;
+      taxSavings: number;
+      costSegCost: number;
+      netTaxBenefit: number;
+      year2MortgageInterest: number;
+      ongoingAnnualDeduction: number;
+      ongoingAnnualTaxBenefit: number;
+      remainingBuildingBasis: number;
+      recoveryYears: number;
+    };
+    fixedExpenseItems: Array<{ label: string; amount: number }>;
+    variableExpenseItems: Array<{ label: string; amount: number }>;
   };
   onSent?: () => void;
 };
@@ -175,10 +221,203 @@ function scenarioRow(
   return `<tr style="${background}"><td style="padding:9px 7px;border-bottom:1px solid ${EMAIL_BORDER};font-size:11px;color:${EMAIL_INK};font-weight:${emphasized ? "700" : "600"};">${escapeHtml(scenario.label)}</td><td style="padding:9px 5px;border-bottom:1px solid ${EMAIL_BORDER};text-align:right;font-size:11px;color:${EMAIL_INK};">${escapeHtml(formatCurrency(scenario.grossRevenue))}</td><td style="padding:9px 5px;border-bottom:1px solid ${EMAIL_BORDER};text-align:right;font-size:11px;color:${scenario.cashFlow >= 0 ? EMAIL_TEAL : "#b42318"};font-weight:700;">${escapeHtml(formatCurrency(scenario.cashFlow))}</td><td style="padding:9px 5px;border-bottom:1px solid ${EMAIL_BORDER};text-align:right;font-size:11px;color:${EMAIL_INK};">${escapeHtml(formatPercent(scenario.cashOnCash))}</td><td style="padding:9px 5px;border-bottom:1px solid ${EMAIL_BORDER};text-align:right;font-size:11px;color:${EMAIL_INK};">${escapeHtml(formatDscr(scenario.dscr))}</td></tr>`;
 }
 
+type AgentIdentity = {
+  name: string;
+  email: string;
+  phone?: string | null;
+  photoUrl?: string | null;
+};
+
+function formatRate(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value)
+    ? "N/A"
+    : formatPercent(value);
+}
+
+function reportTable(title: string, header: string, rows: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid ${EMAIL_BORDER};border-radius:10px;overflow:hidden;background:#ffffff;"><tr><td style="padding:13px 14px 8px;color:${EMAIL_TEAL};font-size:15px;line-height:19px;font-weight:800;">${escapeHtml(title)}</td></tr><tr><td style="padding:0 7px 10px;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">${header}${rows}</table></td></tr></table>`;
+}
+
+function fullScenarioComparison(summary: Summary): string {
+  if (!summary.detailedScenarios.length) return "";
+  const cells = (values: string[]) =>
+    values
+      .map(
+        value =>
+          `<td style="padding:7px 4px;border-bottom:1px solid ${EMAIL_BORDER};text-align:right;font-size:9px;color:${EMAIL_INK};white-space:nowrap;">${escapeHtml(value)}</td>`
+      )
+      .join("");
+  const metrics: Array<
+    [
+      string,
+      (scenario: Summary["detailedScenarios"][number]) => string,
+      boolean,
+    ]
+  > = [
+    ["ADR", scenario => formatCurrency(scenario.adr), false],
+    ["Occupancy", scenario => formatPercent(scenario.occupancy), false],
+    ["Sold Nights", scenario => formatNumber(scenario.soldNights), false],
+    ["Gross Revenue", scenario => formatCurrency(scenario.grossRevenue), false],
+    ["Platform Fees", scenario => formatCurrency(scenario.platformFees), false],
+    ["Net Revenue", scenario => formatCurrency(scenario.netRevenue), false],
+    ["NOI", scenario => formatCurrency(scenario.noi), false],
+    ["Annual Cash Flow", scenario => formatCurrency(scenario.cashFlow), true],
+    [
+      "Cash-on-Cash Return",
+      scenario => formatPercent(scenario.cashOnCash),
+      true,
+    ],
+    ["Cap Rate", scenario => formatPercent(scenario.capRate), false],
+    ["DSCR", scenario => formatDscr(scenario.dscr), false],
+    [
+      "CoC w/ Tax Benefits, Yr 1",
+      scenario => formatPercent(scenario.cashOnCashWithTax),
+      true,
+    ],
+  ];
+  const header = `<tr style="background:${EMAIL_TEAL};"><th align="left" style="padding:8px 6px;color:#ffffff;font-size:9px;">Metric</th>${summary.detailedScenarios.map(scenario => `<th align="right" style="padding:8px 4px;color:#ffffff;font-size:9px;">${escapeHtml(scenario.label)}</th>`).join("")}</tr>`;
+  const rows = metrics
+    .map(
+      ([label, formatter, highlight]) =>
+        `<tr style="${highlight ? `background:${EMAIL_AQUA};` : ""}"><td style="padding:7px 6px;border-bottom:1px solid ${EMAIL_BORDER};font-size:9px;color:${highlight ? EMAIL_TEAL : EMAIL_INK};font-weight:${highlight ? "800" : "600"};">${escapeHtml(label)}</td>${cells(summary.detailedScenarios.map(formatter))}</tr>`
+    )
+    .join("");
+  return reportTable("Full Scenario Comparison", header, rows);
+}
+
+function irrMatrix(summary: Summary): string {
+  if (!summary.irr.length) return "";
+  const header = `<tr style="background:${EMAIL_TEAL};"><th align="left" style="padding:8px 3px;color:#ffffff;font-size:8px;">Hold</th><th align="right" style="padding:8px 3px;color:#ffffff;font-size:8px;">Cons.<br/>Pre</th><th align="right" style="padding:8px 3px;color:#ffffff;font-size:8px;">Cons.<br/>After</th><th align="right" style="padding:8px 3px;color:#ffffff;font-size:8px;">Base<br/>Pre</th><th align="right" style="padding:8px 3px;color:#ffffff;font-size:8px;">Base<br/>After</th><th align="right" style="padding:8px 3px;color:#ffffff;font-size:8px;">Strong<br/>Pre</th><th align="right" style="padding:8px 3px;color:#ffffff;font-size:8px;">Strong<br/>After</th></tr>`;
+  const rows = summary.irr
+    .map(
+      (row, index) =>
+        `<tr style="${index % 2 ? "background:#f8fafc;" : ""}"><td style="padding:7px 3px;border-bottom:1px solid ${EMAIL_BORDER};font-size:9px;color:${EMAIL_INK};font-weight:700;">${escapeHtml(row.holdPeriod)}</td>${[row.conservativePreTax, row.conservativeAfterTax, row.basePreTax, row.baseAfterTax, row.strongPreTax, row.strongAfterTax].map(value => `<td style="padding:7px 3px;border-bottom:1px solid ${EMAIL_BORDER};text-align:right;font-size:9px;color:${EMAIL_INK};">${escapeHtml(formatRate(value))}</td>`).join("")}</tr>`
+    )
+    .join("");
+  return reportTable("Internal Rate of Return (IRR)", header, rows);
+}
+
+function detailedExpenseCard(
+  title: string,
+  entries: Summary["fixedExpenseItems"],
+  totalLabel: string,
+  total: number
+): string {
+  const rows =
+    entries
+      .filter(entry => Number.isFinite(entry.amount) && entry.amount > 0)
+      .map(entry =>
+        metricRow(entry.label, `${formatCurrency(entry.amount)}/yr`)
+      )
+      .join("") || metricRow("No modeled line items", "—");
+  return detailCard(
+    title,
+    `${rows}${metricRow(totalLabel, `${formatCurrency(total)}/yr`, true)}`
+  );
+}
+
+function taxBenefitDetail(summary: Summary): string {
+  const tax = summary.taxBenefits;
+  const basis = detailCard(
+    "Basis & Study Inputs",
+    [
+      metricRow("Purchase price", formatCurrency(summary.purchasePrice)),
+      metricRow("Building basis after land", formatCurrency(tax.buildingBasis)),
+      metricRow("Cost segregation study", tax.costSegEnabled ? "Yes" : "No"),
+      metricRow(
+        "Shorter-life allocation",
+        formatPercent(tax.acceleratedDepreciationPct)
+      ),
+      metricRow("Shorter-life basis", formatCurrency(tax.acceleratedAmt)),
+      metricRow(
+        "Residual building basis",
+        formatCurrency(tax.remainingBuildingBasis),
+        true
+      ),
+    ].join("")
+  );
+  const deductions = detailCard(
+    "Year 1 Deduction Components",
+    [
+      metricRow(
+        "Cost-seg shorter-life property",
+        formatCurrency(tax.acceleratedAmt)
+      ),
+      metricRow(
+        "Furnishing deduction",
+        formatCurrency(tax.furnishingDeduction)
+      ),
+      metricRow(
+        "Bonus-eligible improvements",
+        formatCurrency(tax.bonusEligibleImprovements)
+      ),
+      metricRow(
+        `Residual depreciation (${formatNumber(tax.recoveryYears)} yrs)`,
+        formatCurrency(tax.straightLineDepreciation)
+      ),
+      metricRow(
+        "Scheduled mortgage interest",
+        formatCurrency(tax.year1MortgageInterest)
+      ),
+      metricRow(
+        "Total Year 1 deduction",
+        formatCurrency(tax.totalFirstYearDeduction),
+        true
+      ),
+    ].join("")
+  );
+  const yearOne = detailCard(
+    "Year 1 Estimated Tax Benefit",
+    [
+      metricRow("Marginal tax rate", formatPercent(tax.marginalTaxRate)),
+      metricRow("Estimated tax savings", formatCurrency(tax.taxSavings)),
+      metricRow("Cost-seg study cost", `-${formatCurrency(tax.costSegCost)}`),
+      metricRow(
+        "Net tax benefit, Year 1",
+        formatCurrency(tax.netTaxBenefit),
+        true
+      ),
+    ].join("")
+  );
+  const yearTwo = detailCard(
+    "Estimated Year 2 Benefit",
+    [
+      metricRow(
+        "Residual building depreciation",
+        formatCurrency(tax.straightLineDepreciation)
+      ),
+      metricRow(
+        "Scheduled mortgage interest",
+        formatCurrency(tax.year2MortgageInterest)
+      ),
+      metricRow(
+        "Estimated Year 2 deduction",
+        formatCurrency(tax.ongoingAnnualDeduction)
+      ),
+      metricRow(
+        "Estimated Year 2 tax savings",
+        formatCurrency(tax.ongoingAnnualTaxBenefit),
+        true
+      ),
+    ].join("")
+  );
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td colspan="2" style="padding:0 0 8px;color:${EMAIL_TEAL};font-size:15px;line-height:19px;font-weight:800;">Modeled Tax-Benefit Detail<div style="margin-top:3px;color:${EMAIL_MUTED};font-size:11px;line-height:15px;font-weight:500;">Illustrative deductions and tax savings based on the proforma inputs. Confirm eligibility and tax treatment with a CPA.</div></td></tr><tr><td width="50%" valign="top" style="padding:0 6px 10px 0;">${basis}</td><td width="50%" valign="top" style="padding:0 0 10px 6px;">${deductions}</td></tr><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${yearOne}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${yearTwo}</td></tr></table>`;
+}
+
+function agentHeader(agent: AgentIdentity): string {
+  const photoUrl = safeHttpUrl(agent.photoUrl);
+  const details = [agent.email, agent.phone]
+    .filter(Boolean)
+    .map(value => escapeHtml(String(value)))
+    .join("<br/>");
+  return `<td align="right" valign="middle" style="padding:0 0 12px;border-bottom:2px solid #23a6af;"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td align="right" valign="middle" style="padding-right:${photoUrl ? "10px" : "0"};"><div style="color:${EMAIL_INK};font-size:13px;line-height:17px;font-weight:800;">${escapeHtml(agent.name)}</div><div style="margin-top:1px;color:${EMAIL_MUTED};font-size:10px;line-height:14px;">${details}</div></td>${photoUrl ? `<td valign="middle"><img src="${escapeHtml(photoUrl)}" width="44" height="44" alt="${escapeHtml(agent.name)}" style="display:block;width:44px;height:44px;border:2px solid #23a6af;border-radius:50%;object-fit:cover;" /></td>` : ""}</tr></table></td>`;
+}
+
 export function buildEmailTemplate(
   propertyLabel: string,
   proformaTitle: string,
-  summary: Summary
+  summary: Summary,
+  agent: AgentIdentity
 ): string {
   const safePropertyLabel = escapeHtml(propertyLabel || "this property");
   const safeTitle = escapeHtml(proformaTitle || "STR Investment Analysis");
@@ -192,7 +431,7 @@ export function buildEmailTemplate(
     summary.scenarios[1] ??
     summary.scenarios[0];
   const investmentNarrative = `${safePropertyLabel} is modeled as a short-term rental investment with ${formatCurrency(summary.totalCashNeeded)} total cash needed. The base case projects ${formatCurrency(summary.cashFlow)} in annual cash flow, a ${formatPercent(summary.cashOnCash)} cash-on-cash return, and a ${formatDscr(summary.dscr)} debt-service coverage ratio.`;
-  const logoHeader = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td style="padding:0 0 12px;border-bottom:2px solid #23a6af;"><img src="${SAVVY_LOGO_URL}" width="112" alt="Savvy STR Agents" style="display:block;width:112px;height:auto;border:0;outline:none;text-decoration:none;" /></td></tr></table>`;
+  const logoHeader = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td valign="middle" style="padding:0 0 12px;border-bottom:2px solid #23a6af;"><img src="${SAVVY_LOGO_URL}" width="112" alt="Savvy STR Agents" style="display:block;width:112px;height:auto;border:0;outline:none;text-decoration:none;" /></td>${agentHeader(agent)}</tr></table>`;
   const hero = propertyPhoto
     ? `<tr><td style="padding:16px 0 0;"><img src="${escapeHtml(propertyPhoto)}" width="640" alt="${safePropertyLabel}" style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:12px;" /></td></tr>`
     : "";
@@ -273,9 +512,16 @@ export function buildEmailTemplate(
       metricRow("Platform fees", formatCurrency(summary.platformFees)),
     ].join("")
   );
-  const scenarioComparison = summary.scenarios.length
+  const expandedScenarioComparison = fullScenarioComparison(summary);
+  const irr = irrMatrix(summary);
+  const taxDetail = taxBenefitDetail(summary);
+  const detailedExpenses = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${detailedExpenseCard("Detailed Fixed Expenses", summary.fixedExpenseItems, "Total fixed expenses", summary.fixedExpenses)}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${detailedExpenseCard("Detailed Variable Expenses", summary.variableExpenseItems, "Total variable expenses", summary.variableExpenses)}</td></tr></table>`;
+  /* Previous compact scenario table retained below for the fallback layout. */
+  const compactScenarioComparison = summary.scenarios.length
     ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid ${EMAIL_BORDER};border-radius:10px;overflow:hidden;background:#ffffff;"><tr><td style="padding:13px 14px 8px;color:${EMAIL_TEAL};font-size:15px;line-height:19px;font-weight:800;">Scenario Comparison</td></tr><tr><td style="padding:0 7px 10px;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr style="background:${EMAIL_TEAL};"><th align="left" style="padding:8px 7px;color:#ffffff;font-size:10px;">Scenario</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Revenue</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Cash Flow</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">CoC</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">DSCR</th></tr>${summary.scenarios.map(scenario => scenarioRow(scenario, scenario === baseScenario)).join("")}</table></td></tr></table>`
     : "";
+  const scenarioComparison =
+    expandedScenarioComparison || compactScenarioComparison;
   const fiveYear = summary.fiveYear.length
     ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid ${EMAIL_BORDER};border-radius:10px;overflow:hidden;background:#ffffff;"><tr><td style="padding:13px 14px 8px;color:${EMAIL_TEAL};font-size:15px;line-height:19px;font-weight:800;">5-Year Growth Outlook</td></tr><tr><td style="padding:0 7px 10px;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr style="background:${EMAIL_TEAL};"><th align="left" style="padding:8px 7px;color:#ffffff;font-size:10px;">Year</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Revenue</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Cash Flow</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Property Value</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Equity</th></tr>${summary.fiveYear
         .slice(0, 5)
@@ -285,7 +531,7 @@ export function buildEmailTemplate(
         )
         .join("")}</table></td></tr></table>`
     : "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#ffffff;"><tr><td align="center" style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" width="680" style="width:100%;max-width:680px;border-collapse:collapse;background:#ffffff;"><tr><td style="padding:24px 20px 8px;">${logoHeader}</td></tr><tr><td style="padding:8px 20px 0;"><div style="color:${EMAIL_TEAL};font-size:25px;line-height:30px;font-weight:800;">${safeTitle}</div><div style="margin-top:4px;color:${EMAIL_INK};font-size:14px;line-height:19px;font-weight:600;">${safePropertyLabel}</div><div style="margin-top:2px;color:${EMAIL_MUTED};font-size:12px;line-height:17px;">${propertyMeta}</div></td></tr>${hero}<tr><td style="padding:18px 20px 0;">${notableNumbers}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid #b6e5e2;border-radius:10px;background:#f5fcfc;"><tr><td style="padding:14px 15px;"><div style="color:${EMAIL_TEAL};font-size:14px;line-height:18px;font-weight:800;">Investment Analysis</div><div style="margin-top:5px;color:${EMAIL_INK};font-size:12px;line-height:18px;">${investmentNarrative}</div></td></tr></table></td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${acquisition}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${financing}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${scenarioComparison}</td></tr><tr><td style="padding:16px 20px 0;">${fiveYear}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${operating}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${expenseMix}</td></tr></table></td></tr>${propertyLink ? `<tr><td style="padding:15px 20px 0;"><a href="${escapeHtml(propertyLink)}" style="color:${EMAIL_TEAL};font-size:12px;font-weight:700;text-decoration:underline;">View property listing →</a></td></tr>` : ""}<tr><td style="padding:19px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">These projections are illustrative and based on the stated assumptions, comparable data, and modeled inputs. They are not financial, tax, or investment advice and should be reviewed as part of your due diligence.</td></tr><tr><td style="padding:18px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">I would be happy to walk through the assumptions and answer any questions.<br/><br/>Best,</td></tr></table></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#ffffff;"><tr><td align="center" style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" width="680" style="width:100%;max-width:680px;border-collapse:collapse;background:#ffffff;"><tr><td style="padding:24px 20px 8px;">${logoHeader}</td></tr><tr><td style="padding:8px 20px 0;"><div style="color:${EMAIL_TEAL};font-size:25px;line-height:30px;font-weight:800;">${safeTitle}</div><div style="margin-top:4px;color:${EMAIL_INK};font-size:14px;line-height:19px;font-weight:600;">${safePropertyLabel}</div><div style="margin-top:2px;color:${EMAIL_MUTED};font-size:12px;line-height:17px;">${propertyMeta}</div></td></tr>${hero}<tr><td style="padding:18px 20px 0;">${notableNumbers}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid #b6e5e2;border-radius:10px;background:#f5fcfc;"><tr><td style="padding:14px 15px;"><div style="color:${EMAIL_TEAL};font-size:14px;line-height:18px;font-weight:800;">Investment Analysis</div><div style="margin-top:5px;color:${EMAIL_INK};font-size:12px;line-height:18px;">${investmentNarrative}</div></td></tr></table></td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${acquisition}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${financing}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${scenarioComparison}</td></tr><tr><td style="padding:16px 20px 0;">${fiveYear}</td></tr>${irr ? `<tr><td style="padding:16px 20px 0;">${irr}</td></tr>` : ""}<tr><td style="padding:16px 20px 0;">${taxDetail}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${operating}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${expenseMix}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${detailedExpenses}</td></tr>${propertyLink ? `<tr><td style="padding:15px 20px 0;"><a href="${escapeHtml(propertyLink)}" style="color:${EMAIL_TEAL};font-size:12px;font-weight:700;text-decoration:underline;">View property listing →</a></td></tr>` : ""}<tr><td style="padding:19px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">These projections are illustrative and based on the stated assumptions, comparable data, and modeled inputs. They are not financial, tax, or investment advice and should be reviewed as part of your due diligence.</td></tr><tr><td style="padding:18px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">I would be happy to walk through the assumptions and answer any questions.<br/><br/>Best,</td></tr></table></td></tr></table>`;
 }
 
 export default function ProformaEmailComposer({
@@ -312,10 +558,18 @@ export default function ProformaEmailComposer({
   const [subject, setSubject] = useState("");
   const [htmlBody, setHtmlBody] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const { data: myProfile, isLoading: profileLoading } =
+    trpc.users.getMyCoreProfile.useQuery(undefined, { enabled: open });
 
   const defaultSubject = `Proforma: ${propertyLabel || proformaTitle || "STR Investment Analysis"}`;
   const defaultBody = useMemo(
-    () => buildEmailTemplate(propertyLabel, proformaTitle, summary),
+    () =>
+      buildEmailTemplate(propertyLabel, proformaTitle, summary, {
+        name: myProfile?.preferredName || user?.name || "Savvy STR Agent",
+        email: user?.email || "",
+        phone: myProfile?.primaryPhone || null,
+        photoUrl: myProfile?.profilePhotoUrl || null,
+      }),
     [
       propertyLabel,
       proformaTitle,
@@ -334,10 +588,19 @@ export default function ProformaEmailComposer({
       summary.cashFlow,
       summary.cashOnCash,
       summary.capRate,
+      summary.detailedScenarios,
+      summary.irr,
+      summary.taxBenefits,
+      summary.fixedExpenseItems,
+      summary.variableExpenseItems,
+      summary.fiveYear,
+      user?.name,
+      user?.email,
+      myProfile?.preferredName,
+      myProfile?.primaryPhone,
+      myProfile?.profilePhotoUrl,
     ]
   );
-  const { data: myProfile, isLoading: profileLoading } =
-    trpc.users.getMyCoreProfile.useQuery(undefined, { enabled: open });
   const { data: contactResult, isLoading: contactsLoading } =
     trpc.contacts.list.useQuery(
       {
