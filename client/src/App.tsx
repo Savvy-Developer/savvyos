@@ -65,6 +65,7 @@ import MarketProfileEditorPage from "./pages/MarketProfileEditorPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import MarketingRequestsPage from "./pages/MarketingRequestsPage";
 import MarketingAdminPage from "./pages/MarketingAdminPage";
+import TechRequestsPage from "./pages/TechRequestsPage";
 import ConnectionRequestsPage from "./pages/ConnectionRequestsPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
@@ -283,6 +284,7 @@ function Router() {
           <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
+          <Route path="/tech-requests" component={TechRequestsPage} />
           <Route path="/projects" component={ProjectsPage} />
           <Route path="/projects/:id" component={ProjectDetailPage} />
           <Route path="/departments" component={DepartmentManagementPage} />

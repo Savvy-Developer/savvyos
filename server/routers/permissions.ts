@@ -58,6 +58,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewRolesResponsibilities", label: "Roles & Responsibilities", group: "Admin" },
   { key: "canViewFeedback",           label: "Feedback & Requests",     group: "Admin" },
   { key: "canViewMarketingAdmin",     label: "Marketing Requests",       group: "Admin" },
+  { key: "canViewTechRequests",       label: "Tech Requests",            group: "Admin" },
   { key: "canViewGoals",              label: "Goals",                    group: "Admin" },
   { key: "canViewJobBoard",           label: "Job Board",                 group: "Admin" },
   // Dev Tools

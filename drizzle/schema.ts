@@ -1431,6 +1431,36 @@ export type MarketingRequestAttachment =
 export type InsertMarketingRequestAttachment =
   typeof marketingRequestAttachments.$inferInsert;
 
+// ─── Tech Requests ────────────────────────────────────────────────────────────
+// Internal requests submitted by SavvyOS users and tracked by the technology team.
+export const techRequests = mysqlTable(
+  "tech_requests",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    requesterId: int("requesterId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    assigneeId: int("assigneeId").references(() => users.id, { onDelete: "set null" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"])
+      .default("medium")
+      .notNull(),
+    status: mysqlEnum("status", ["new", "in_progress", "completed", "cancelled"])
+      .default("new")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    index("tech_requests_status_idx").on(table.status),
+    index("tech_requests_requester_idx").on(table.requesterId),
+    index("tech_requests_assignee_idx").on(table.assigneeId),
+  ]
+);
+export type TechRequest = typeof techRequests.$inferSelect;
+export type InsertTechRequest = typeof techRequests.$inferInsert;
+
 // ─── Email Templates ──────────────────────────────────────────────────────────
 // Stores admin-editable overrides for transactional email subjects and body text.
 // When a row exists for a given emailType, it overrides the hardcoded template.
@@ -2047,6 +2077,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities").default(true).notNull(),
   canViewFeedback: boolean("canViewFeedback").default(true).notNull(),
   canViewMarketingAdmin: boolean("canViewMarketingAdmin").default(true).notNull(),
+  canViewTechRequests: boolean("canViewTechRequests").default(true).notNull(),
   canViewGoals: boolean("canViewGoals").default(true).notNull(),
   canViewJobBoard: boolean("canViewJobBoard").default(true).notNull(),
   // Dev Tools

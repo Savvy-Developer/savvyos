@@ -62,6 +62,7 @@ import {
   TrendingUp,
   Trophy,
   Sparkles,
+  Wrench,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -125,9 +126,10 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       ],
     },
     {
-      label: "Marketing",
+      label: "Requests",
       items: [
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-requests" },
+        { icon: Wrench, label: "Tech Requests", path: "/tech-requests" },
       ],
     },
     {
@@ -258,6 +260,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewRolesResponsibilities: "/roles-responsibilities",
   canViewFeedback: "/feedback",
   canViewMarketingAdmin: "/marketing-admin",
+  canViewTechRequests: "/tech-requests",
   canViewGoals: "/goals",
   canViewJobBoard: "/job-board",
   canViewTalentProfile: "/talent-profile-admin",
@@ -290,7 +293,7 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .filter((group) => group.items.length > 0);
 }
 
-function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0): NavGroup[] {
+function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
@@ -349,6 +352,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: ClipboardList, label: "Roles & Responsibilities", path: "/roles-responsibilities" },
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
+        { icon: Wrench, label: "Tech Requests", path: "/tech-requests", badge: pendingTechRequests > 0 ? pendingTechRequests : undefined },
         { icon: Target, label: "Goals", path: "/goals" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
@@ -598,6 +602,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin", refetchInterval: 60000 }
   );
+  // Fetch active tech request count for admin sidebar badge
+  const { data: pendingTechRequestsData } = trpc.techRequests.pendingCount.useQuery(
+    undefined,
+    { enabled: role === "admin", refetchInterval: 60000 }
+  );
   // Fetch my overdue task count for Tasks badge
   const { data: myOverdueTaskData } = trpc.tasks.myOverdueCount.useQuery(
     undefined,
@@ -667,13 +676,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pendingConnReqs = (pendingConnReqsData as any)?.count ?? 0;
   const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
   const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
+  const pendingTechRequestsCount = (pendingTechRequestsData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const unreadPmCount = (inboxCount as any)?.count ?? 0;
 
   const standardNavGroups =
     role === "admin"
-      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount)
+      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount)
       : role === "isa"
       ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
       : role === "agent_support"

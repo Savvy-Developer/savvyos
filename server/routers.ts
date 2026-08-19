@@ -36,6 +36,7 @@ import { leadershipRouter } from "./routers/leadership";
 import { commissionExceptionsRouter } from "./routers/commissionExceptions";
 import { marketMatchRouter } from "./routers/marketMatch";
 import { marketingRequestsRouter } from "./routers/marketingRequests";
+import { techRequestsRouter } from "./routers/techRequests";
 import { pmRouter } from "./routers/pm";
 import { knowledgeBaseRouter } from "./routers/knowledgeBase";
 import { agentSupportRouter, WORK_AS_COOKIE as AS_WORK_COOKIE } from "./routers/agentSupport";
@@ -240,6 +241,7 @@ export const appRouter = router({
   commissionExceptions: commissionExceptionsRouter,
   marketMatch: marketMatchRouter,
   marketingRequests: marketingRequestsRouter,
+  techRequests: techRequestsRouter,
   pm: pmRouter,
   kb: knowledgeBaseRouter,
   agentSupport: agentSupportRouter,
