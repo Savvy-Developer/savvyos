@@ -851,6 +851,23 @@ export default function ProformaPage() {
     setImportingAirbnb(false);
   };
 
+  const hasCompleteEmailAnalysis =
+    calc.pp > 0 &&
+    calc.totalCashNeeded > 0 &&
+    calc.s2.grossRevenue > 0 &&
+    calc.loanAmount > 0 &&
+    Number.isFinite(calc.s2.cashFlow);
+
+  const openEmailProforma = () => {
+    if (!hasCompleteEmailAnalysis) {
+      alert(
+        "Email Proforma is available after the purchase price, financing, and Base Case revenue inputs have been calculated. Load the saved pro-forma or complete those inputs before sending."
+      );
+      return;
+    }
+    setShowEmailProforma(true);
+  };
+
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (!editing) {
     // If URL has ?load= or ?new=, wait for the useEffect to set editing=true
@@ -873,7 +890,7 @@ export default function ProformaPage() {
           <Button variant="outline" size="sm" onClick={() => navigate("/proforma-defaults")}>
             <Settings className="h-4 w-4 mr-1" /> Defaults
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowEmailProforma(true)} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
+          <Button variant="outline" size="sm" onClick={openEmailProforma} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
             <Mail className="h-4 w-4 mr-1" /> Email Proforma
           </Button>
           <DropdownMenu>
