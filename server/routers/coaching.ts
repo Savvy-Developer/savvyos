@@ -32,6 +32,12 @@ import { aliasedTable } from "drizzle-orm";
 import { logActivity } from "../db";
 import { invokeLLM } from "../_core/llm";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
+import {
+  buildWeeklyCoachingAccountabilityReport,
+  getWeeklyCoachingAccountabilityEmailSubject,
+  renderWeeklyCoachingAccountabilityEmail,
+  sendWeeklyCoachingAccountabilityTest,
+} from "../coachingWeeklyAccountabilityReport";
 
 
 // ─── Helper: admin or coach guard ────────────────────────────────────────────
@@ -2685,6 +2691,43 @@ Output JSON with this exact structure:
         coachPortfolios,
       };
     }),
+
+  /**
+   * Preview the single shared leadership accountability email. This is a live,
+   * read-only report for the immediately preceding closed Monday–Sunday window.
+   */
+  getWeeklyAccountabilityEmailPreview: protectedProcedure.query(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const report = await buildWeeklyCoachingAccountabilityReport();
+    return {
+      subject: getWeeklyCoachingAccountabilityEmailSubject(report, true),
+      html: renderWeeklyCoachingAccountabilityEmail(report, { isTest: true }),
+      report,
+      recurringDeliveryEnabled: false,
+    };
+  }),
+
+  /**
+   * Intentional safety control: the initial release has no scheduler and this
+   * action can only send one test email to Tyler's fixed SavvyOS address.
+   */
+  sendWeeklyAccountabilityEmailTest: protectedProcedure.mutation(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const result = await sendWeeklyCoachingAccountabilityTest();
+    if (!result.sent) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: result.reason ?? "The weekly coaching accountability test email was not sent.",
+      });
+    }
+    return {
+      sent: true,
+      recipient: "tyler@savvy.realty",
+      subject: getWeeklyCoachingAccountabilityEmailSubject(result.report, true),
+      periodLabel: result.report.periodLabel,
+      recurringDeliveryEnabled: false,
+    };
+  }),
 
   // ═══════════════════════════════════════════════════════════════════════════
   // HISTORY SNAPSHOTS

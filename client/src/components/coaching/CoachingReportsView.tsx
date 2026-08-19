@@ -3,6 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import {
   Table,
   TableBody,
@@ -11,17 +13,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, FileText, BarChart3, TrendingUp, Users, Download, Target, MapPin, Shield, ListChecks } from "lucide-react";
+import { Loader2, FileText, BarChart3, TrendingUp, Users, Download, Target, MapPin, Shield, ListChecks, Eye, Send } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 
 export default function CoachingReportsView() {
   const [activeReport, setActiveReport] = useState<string>("scorecard");
+  const [weeklyPreviewOpen, setWeeklyPreviewOpen] = useState(false);
 
   const { data: scorecardData, isLoading: scorecardLoading } = trpc.coaching.getExecutiveScorecard.useQuery(undefined, {
     enabled: activeReport === "scorecard",
   });
 
   const { data: commandData } = trpc.coaching.getCommandCenter.useQuery(undefined, { staleTime: 60_000 });
+  const { data: weeklyPreview, isFetching: weeklyPreviewLoading } = trpc.coaching.getWeeklyAccountabilityEmailPreview.useQuery(undefined, {
+    enabled: weeklyPreviewOpen,
+  });
+  const sendWeeklyTest = trpc.coaching.sendWeeklyAccountabilityEmailTest.useMutation({
+    onSuccess: (data) => toast.success(`Test email sent to ${data.recipient}. Recurring Monday delivery remains disabled.`),
+    onError: (error) => toast.error(error.message),
+  });
   const metrics = commandData?.metrics;
   const statusCounts = metrics?.statusCounts ?? {};
 
@@ -60,6 +70,29 @@ export default function CoachingReportsView() {
 
   return (
     <div className="space-y-4">
+      <Card className="border-primary/30 bg-primary/[0.025]">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-base">Weekly Coaching Accountability Email</CardTitle>
+              <CardDescription className="mt-1 max-w-3xl">One shared leadership report for Phil, Dyl, Elana, Trish, Ashleigh, and Hunter. It exposes roster ownership, meeting completion, documentation gaps, next-session coverage, commitment follow-through, and named exceptions by coach.</CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setWeeklyPreviewOpen(true)}>
+                <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview
+              </Button>
+              <Button size="sm" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending}>
+                {sendWeeklyTest.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                Send Test to Tyler
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <p className="text-xs text-amber-700 dark:text-amber-400"><strong>Delivery safety:</strong> recurring Monday delivery is intentionally disabled. The current send action can only send a test to Tyler.</p>
+        </CardContent>
+      </Card>
+
       {/* Report Selector */}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {reports.map((report) => (
@@ -80,6 +113,30 @@ export default function CoachingReportsView() {
           </Card>
         ))}
       </div>
+
+      <Dialog open={weeklyPreviewOpen} onOpenChange={setWeeklyPreviewOpen}>
+        <DialogContent className="flex h-[90vh] max-w-6xl flex-col p-0">
+          <DialogHeader className="shrink-0 border-b px-6 py-4">
+            <DialogTitle>Weekly Coaching Accountability Email Preview</DialogTitle>
+            <p className="text-xs text-muted-foreground">{weeklyPreview?.subject ?? "Generating the current closed-week preview…"}</p>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto bg-muted/30 p-4">
+            {weeklyPreviewLoading ? (
+              <div className="flex h-48 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Building report preview…</div>
+            ) : weeklyPreview?.html ? (
+              <iframe title="Weekly Coaching Accountability Email Preview" srcDoc={weeklyPreview.html} className="min-h-full w-full rounded-md border bg-white" sandbox="allow-same-origin" />
+            ) : (
+              <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">Preview data is not available.</div>
+            )}
+          </div>
+          <DialogFooter className="shrink-0 border-t px-6 py-3">
+            <Button variant="outline" onClick={() => setWeeklyPreviewOpen(false)}>Close</Button>
+            <Button onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending}>
+              {sendWeeklyTest.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Send Test to Tyler
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══ EXECUTIVE SCORECARD ═══ */}
       {activeReport === "scorecard" && (

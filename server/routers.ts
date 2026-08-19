@@ -273,7 +273,7 @@ export const appRouter = router({
         "transaction_closed", "commission_calculated", "task_assigned", "task_due",
         "payout_integrity_fail", "listing_created", "listing_expiration_reminder",
         "onboarding_overdue", "commission_exception_warning", "market_match_intro",
-        "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report",
+        "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report", "coaching_weekly_accountability",
       ];
       // Seed any missing rows
       const existing = await db2.select().from(emailNotificationSettings);

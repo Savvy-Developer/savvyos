@@ -41,6 +41,7 @@ export type EmailType =
   | "partner_lead_confirmation"
   | "agent_production_report"
   | "daily_agent_report"
+  | "coaching_weekly_accountability"
   | "password_reset";
 
 interface EmailContext {
@@ -94,6 +95,10 @@ interface EmailContext {
   dailyReportDate?: string;
   dailyReportAsOf?: string;
   dailyReportHtml?: string;
+  // Coaching weekly accountability report-specific fields
+  coachingReportDate?: string;
+  coachingReportHtml?: string;
+  coachingReportSubject?: string;
   // Deep-link entity IDs (numeric DB IDs for direct navigation)
   transactionId?: string;
   taskId?: string;
@@ -506,6 +511,15 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${ctx.dailyReportHtml ?? bodyText("Your daily SavvyOS report could not be generated. Please open SavvyOS to review your current tasks and pipeline.")}`,
       `Your end-of-day SavvyOS priorities — ${ctx.dailyReportAsOf ?? "today"}`,
       640,
+    ),
+  }),
+
+  coaching_weekly_accountability: (ctx) => ({
+    subject: ctx.coachingReportSubject ?? `Coaching Hub Weekly Accountability | ${ctx.coachingReportDate ?? "Current Week"}`,
+    html: emailLayout(
+      `${ctx.coachingReportHtml ?? bodyText("The Coaching Hub accountability report could not be generated. Please open SavvyOS to review the live Coaching Hub.")}`,
+      `Coaching Hub weekly accountability — ${ctx.coachingReportDate ?? "current week"}`,
+      1200,
     ),
   }),
 
