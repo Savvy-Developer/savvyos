@@ -11,11 +11,12 @@ const hotLeadsInput = z.object({
   page: z.number().int().min(1).default(1),
   limit: z.number().int().min(1).max(100).default(50),
   days: z.enum(["7", "14", "30", "90"]).default("7"),
-  // Admin/ISA filters
   isaId: z.number().int().optional(),
   agentId: z.number().int().optional(),
-  // Agent filter
+  leadSourceId: z.number().int().optional(),
   pipelineStatus: z.string().optional(),
+  sortBy: z.enum(["viewCount", "distinctDays", "totalViews", "clicks", "opens", "lastViewed", "lastEngaged", "contact", "leadSource", "leadScore"]).optional(),
+  sortDirection: z.enum(["asc", "desc"]).default("desc"),
 }).optional();
 
 const intentEventsInput = z.object({
@@ -24,8 +25,9 @@ const intentEventsInput = z.object({
   days: z.enum(["7", "14", "30", "90"]).default("7"),
   isaId: z.number().int().optional(),
   agentId: z.number().int().optional(),
+  leadSourceId: z.number().int().optional(),
   pipelineStatus: z.string().optional(),
-  sortBy: z.enum(["eventCount", "lastEventAt", "contact", "leadSource", "assignedIsa"]).default("eventCount"),
+  sortBy: z.enum(["eventCount", "lastEventAt", "contact", "leadSource", "assignedIsa", "leadScore"]).default("eventCount"),
   sortDirection: z.enum(["asc", "desc"]).default("desc"),
 }).optional();
 
@@ -34,7 +36,8 @@ const deadConnectionsInput = z.object({
   limit: z.number().int().min(1).max(100).default(50),
   isaId: z.number().int().optional(),
   agentId: z.number().int().optional(),
-  sortBy: z.enum(["deadConnectionCount", "lastUpdatedAt", "contact", "leadSource", "assignedIsa"]).default("lastUpdatedAt"),
+  leadSourceId: z.number().int().optional(),
+  sortBy: z.enum(["deadConnectionCount", "lastUpdatedAt", "contact", "leadSource", "assignedIsa", "leadScore"]).default("lastUpdatedAt"),
   sortDirection: z.enum(["asc", "desc"]).default("desc"),
 }).optional();
 
@@ -149,21 +152,22 @@ function rowsFromResult(result: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-type InterestSignal = {
+type LeadScoreSignal = {
   score: number;
   signals: string[];
 };
 
 /**
- * Interest Score is a transparent, contact-level signal tally. It rewards
- * deliberate actions more heavily than passive browsing and is intentionally
- * calculated from the same time window shown in Hot Leads.
+ * Lead Score is calculated within the selected Hot Leads time range. It is a
+ * transparent 0–100 score that prioritizes explicit buying intent over passive
+ * browsing: analysis and showing requests (60), favorites (15), return and
+ * volume-based property views (15), and email clicks/opens (10).
  */
-async function batchLookupInterestSignals(
+async function batchLookupLeadScores(
   db: any,
   contactIds: number[],
   sinceDate: Date
-): Promise<Record<number, InterestSignal>> {
+): Promise<Record<number, LeadScoreSignal>> {
   if (!contactIds.length) return {};
   const contactList = sql.raw(contactIds.join(","));
   const activityContactId = sql`COALESCE(${activityLog.relatedContactId}, CASE WHEN ${activityLog.entityType} = 'contact' THEN ${activityLog.entityId} END)`;
@@ -196,69 +200,74 @@ async function batchLookupInterestSignals(
   const normalizedWebsiteRows = rowsFromResult(websiteRows);
   const normalizedEmailRows = rowsFromResult(emailRows);
   const emailByContact = new Map(normalizedEmailRows.map(row => [Number(row.contactId), row]));
-  const result: Record<number, InterestSignal> = {};
+  const result: Record<number, LeadScoreSignal> = {};
+  const allContactIds = new Set<number>([
+    ...normalizedWebsiteRows.map(row => Number(row.contactId)),
+    ...normalizedEmailRows.map(row => Number(row.contactId)),
+  ]);
 
-  for (const row of normalizedWebsiteRows) {
-    const contactId = Number(row.contactId);
+  for (const contactId of Array.from(allContactIds)) {
+    const row = normalizedWebsiteRows.find(candidate => Number(candidate.contactId) === contactId);
     const email = emailByContact.get(contactId);
-    const propertyViews = Number(row.propertyViews ?? 0);
-    const propertyViewDays = Number(row.propertyViewDays ?? 0);
-    const favorites = Number(row.favorites ?? 0);
-    const analysisRequests = Number(row.analysisRequests ?? 0);
-    const showingRequests = Number(row.showingRequests ?? 0);
+    const propertyViews = Number(row?.propertyViews ?? 0);
+    const propertyViewDays = Number(row?.propertyViewDays ?? 0);
+    const favorites = Number(row?.favorites ?? 0);
+    const analysisRequests = Number(row?.analysisRequests ?? 0);
+    const showingRequests = Number(row?.showingRequests ?? 0);
     const opens = Number(email?.opens ?? 0);
     const clicks = Number(email?.clicks ?? 0);
     const signals: string[] = [];
-    let score = 0;
+    const analysisPoints = Math.min(analysisRequests, 1) * 30;
+    const showingPoints = Math.min(showingRequests, 1) * 30;
+    const favoritePoints = Math.min(favorites, 3) * 5;
+    const returnPoints = Math.min(Math.max(propertyViewDays - 1, 0), 2) * 5;
+    const viewPoints = Math.min(Math.ceil(propertyViews / 5), 5);
+    const clickPoints = Math.min(clicks, 5);
+    const openPoints = Math.min(opens, 5);
 
-    if (propertyViews > 0) {
-      score += 1;
-      signals.push("Property views");
-    }
-    if (propertyViewDays >= 2) {
-      score += 1;
-      signals.push("Return visitor");
-    }
-    if (opens > 0 || clicks > 0) {
-      score += 1;
-      signals.push(clicks > 0 ? "Email clicks" : "Email opens");
-    }
-    if (favorites > 0) {
-      score += 3;
-      signals.push("Properties favorited");
-    }
-    if (analysisRequests > 0) {
-      score += 4;
-      signals.push("Analysis requested");
-    }
-    if (showingRequests > 0) {
-      score += 4;
-      signals.push("Showing requested");
-    }
+    if (analysisPoints) signals.push(`Analysis requested (+${analysisPoints})`);
+    if (showingPoints) signals.push(`Showing requested (+${showingPoints})`);
+    if (favoritePoints) signals.push(`Properties favorited (+${favoritePoints})`);
+    if (returnPoints) signals.push(`Return visits (+${returnPoints})`);
+    if (viewPoints) signals.push(`Property views (+${viewPoints})`);
+    if (clickPoints) signals.push(`Email clicks (+${clickPoints})`);
+    if (openPoints) signals.push(`Email opens (+${openPoints})`);
 
-    result[contactId] = { score, signals };
-  }
-
-  for (const [contactId, email] of Array.from(emailByContact.entries())) {
-    if (result[contactId]) continue;
-    const opens = Number(email.opens ?? 0);
-    const clicks = Number(email.clicks ?? 0);
     result[contactId] = {
-      score: 1,
-      signals: [clicks > 0 ? "Email clicks" : opens > 0 ? "Email opens" : "Email engagement"],
+      score: Math.min(100, analysisPoints + showingPoints + favoritePoints + returnPoints + viewPoints + clickPoints + openPoints),
+      signals,
     };
   }
   return result;
 }
 
-function addInterestSignals<T extends { contactId: number }>(
+function addLeadScores<T extends { contactId: number }>(
   items: T[],
-  interestByContact: Record<number, InterestSignal>
+  scoreByContact: Record<number, LeadScoreSignal>
 ) {
   return items.map(item => {
-    const interest = interestByContact[item.contactId] ?? { score: 0, signals: [] };
-    return { ...item, interestScore: interest.score, interestSignals: interest.signals };
+    const leadScore = scoreByContact[item.contactId] ?? { score: 0, signals: [] };
+    return { ...item, leadScore: leadScore.score, leadScoreSignals: leadScore.signals };
   });
+}
+
+const LEAD_SCORE_SORT_FETCH_LIMIT = 10_000;
+
+function applyLeadScoreSort<T extends { contactId: number; leadScore: number }>(
+  items: T[],
+  sortBy: string | undefined,
+  sortDirection: "asc" | "desc",
+  offset: number,
+  limit: number,
+): T[] {
+  if (sortBy !== "leadScore") return items;
+  const multiplier = sortDirection === "asc" ? 1 : -1;
+  return [...items]
+    .sort((left, right) => {
+      const scoreDifference = (left.leadScore - right.leadScore) * multiplier;
+      return scoreDifference || left.contactId - right.contactId;
+    })
+    .slice(offset, offset + limit);
 }
 
 async function getWebsiteIntentEvents(
@@ -280,6 +289,8 @@ async function getWebsiteIntentEvents(
     sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
   ];
 
+  if (input?.leadSourceId) baseConditions.push(eq(contacts.leadSourceId, input.leadSourceId));
+
   if (role === "agent") {
     if (input?.pipelineStatus) {
       baseConditions.push(sql`EXISTS (SELECT 1 FROM agent_connections ac_scope WHERE ac_scope.contactId = ${contacts.id} AND ac_scope.agentId = ${ctx.user.id} AND ac_scope.pipelineStatus = ${input.pipelineStatus})`);
@@ -293,9 +304,10 @@ async function getWebsiteIntentEvents(
 
   const direction = input?.sortDirection === "asc" ? asc : desc;
   const sortBy = input?.sortBy ?? "eventCount";
+  const isLeadScoreSort = sortBy === "leadScore";
   const sortExpression = sortBy === "lastEventAt"
-    ? sql`lastEventAt`
-    : sortBy === "contact"
+      ? sql`lastEventAt`
+      : sortBy === "contact"
       ? contacts.lastName
       : sortBy === "leadSource"
         ? leadSources.name
@@ -323,8 +335,8 @@ async function getWebsiteIntentEvents(
     .where(and(...baseConditions))
     .groupBy(contacts.id, leadSources.name, users.name)
     .orderBy(direction(sortExpression), desc(sql`eventCount`), desc(sql`lastEventAt`))
-    .limit(limit)
-    .offset(offset);
+    .limit(isLeadScoreSort ? LEAD_SCORE_SORT_FETCH_LIMIT : limit)
+    .offset(isLeadScoreSort ? 0 : offset);
 
   const [countResult] = await db
     .select({ total: sql<number>`COUNT(DISTINCT ${activityContactId})` })
@@ -335,11 +347,11 @@ async function getWebsiteIntentEvents(
   const contactIds = rows.map((row: any) => row.contactId);
   const isaIds = Array.from(new Set(rows.map((row: any) => row.assignedIsaId).filter(Boolean))) as number[];
   const leadSourceIds = Array.from(new Set(rows.map((row: any) => row.leadSourceId).filter(Boolean))) as number[];
-  const [isaMap, leadSourceMap, agentMap, interestByContact] = await Promise.all([
+  const [isaMap, leadSourceMap, agentMap, leadScoreByContact] = await Promise.all([
     batchLookupIsas(db, isaIds),
     batchLookupLeadSources(db, leadSourceIds),
     batchLookupAllAgents(db, contactIds, role, ctx.user.id),
-    batchLookupInterestSignals(db, contactIds, sinceDate),
+    batchLookupLeadScores(db, contactIds, sinceDate),
   ]);
 
   const propertyRows = contactIds.length ? await db
@@ -354,7 +366,7 @@ async function getWebsiteIntentEvents(
     if (!lastPropertyMap[contactId] && details?.propertyAddress) lastPropertyMap[contactId] = details.propertyAddress;
   }
 
-  const items = addInterestSignals(rows.map((row: any) => ({
+  const items = addLeadScores(rows.map((row: any) => ({
     contactId: row.contactId,
     firstName: row.firstName,
     lastName: row.lastName,
@@ -366,9 +378,10 @@ async function getWebsiteIntentEvents(
     assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
     leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
     connectedAgents: agentMap[row.contactId] ?? [],
-  })), interestByContact);
+  })), leadScoreByContact);
   const totalCount = Number(countResult?.total ?? 0);
-  return { items, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
+  const paginatedItems = applyLeadScoreSort(items, sortBy, input?.sortDirection ?? "desc", offset, limit);
+  return { items: paginatedItems, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
 }
 
 // ─── Hot Leads Router ─────────────────────────────────────────────────────────
@@ -487,8 +500,10 @@ export const hotLeadsRouter = router({
       const page = input?.page ?? 1;
       const limit = input?.limit ?? 50;
       const offset = (page - 1) * limit;
+      const scoreSinceDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const direction = input?.sortDirection === "asc" ? asc : desc;
       const sortBy = input?.sortBy ?? "lastUpdatedAt";
+      const isLeadScoreSort = sortBy === "leadScore";
       const sortExpression = sortBy === "deadConnectionCount"
         ? sql`deadConnectionCount`
         : sortBy === "contact"
@@ -506,6 +521,7 @@ export const hotLeadsRouter = router({
         sql`NOT EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id} AND ac.pipelineStatus <> 'dead')`,
       ];
 
+      if (input?.leadSourceId) baseConditions.push(eq(contacts.leadSourceId, input.leadSourceId));
       if (input?.isaId) {
         baseConditions.push(eq(contacts.assignedIsaId, input.isaId));
       }
@@ -532,8 +548,8 @@ export const hotLeadsRouter = router({
         .where(and(...baseConditions))
         .groupBy(contacts.id)
         .orderBy(direction(sortExpression), desc(sql`deadConnectionCount`), desc(sql`lastUpdatedAt`))
-        .limit(limit)
-        .offset(offset);
+        .limit(isLeadScoreSort ? LEAD_SCORE_SORT_FETCH_LIMIT : limit)
+        .offset(isLeadScoreSort ? 0 : offset);
 
       const [countResult] = await db
         .select({ total: sql<number>`COUNT(*)` })
@@ -543,14 +559,14 @@ export const hotLeadsRouter = router({
       const contactIds = rows.map((row: any) => row.contactId);
       const isaIds = Array.from(new Set(rows.map((row: any) => row.assignedIsaId).filter(Boolean))) as number[];
       const leadSourceIds = Array.from(new Set(rows.map((row: any) => row.leadSourceId).filter(Boolean))) as number[];
-      const [isaMap, leadSourceMap, agentMap, interestByContact] = await Promise.all([
+      const [isaMap, leadSourceMap, agentMap, leadScoreByContact] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
         batchLookupAllAgents(db, contactIds, role, ctx.user.id),
-        batchLookupInterestSignals(db, contactIds, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+        batchLookupLeadScores(db, contactIds, scoreSinceDate),
       ]);
 
-      const items = addInterestSignals(rows.map((row: any) => ({
+      const items = addLeadScores(rows.map((row: any) => ({
         contactId: row.contactId,
         firstName: row.firstName,
         lastName: row.lastName,
@@ -561,10 +577,11 @@ export const hotLeadsRouter = router({
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId] ?? [],
-      })), interestByContact);
+      })), leadScoreByContact);
 
       const totalCount = Number(countResult?.total ?? 0);
-      return { items, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
+      const paginatedItems = applyLeadScoreSort(items, sortBy, input?.sortDirection ?? "desc", offset, limit);
+      return { items: paginatedItems, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
     }),
 
   /**
@@ -592,6 +609,7 @@ export const hotLeadsRouter = router({
         gte(activityLog.createdAt, sinceDate),
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
       ];
+      if (input?.leadSourceId) baseConditions.push(eq(contacts.leadSourceId, input.leadSourceId));
 
       // Agent scoping
       if (role === "agent") {
@@ -618,6 +636,16 @@ export const hotLeadsRouter = router({
         }
       }
 
+      const direction = input?.sortDirection === "asc" ? asc : desc;
+      const sortBy = input?.sortBy ?? "viewCount";
+      const isLeadScoreSort = sortBy === "leadScore";
+      const sortExpression = sortBy === "lastViewed"
+          ? sql`lastViewed`
+          : sortBy === "contact"
+            ? contacts.lastName
+            : sortBy === "leadSource"
+              ? leadSources.name
+              : sql`viewCount`;
       const rows = await db
         .select({
           contactId: activityLog.entityId,
@@ -632,11 +660,12 @@ export const hotLeadsRouter = router({
         })
         .from(activityLog)
         .innerJoin(contacts, eq(activityLog.entityId, contacts.id))
+        .leftJoin(leadSources, eq(leadSources.id, contacts.leadSourceId))
         .where(and(...baseConditions))
-        .groupBy(activityLog.entityId)
-        .orderBy(desc(sql`viewCount`))
-        .limit(limit)
-        .offset(offset);
+        .groupBy(activityLog.entityId, leadSources.name)
+        .orderBy(direction(sortExpression), desc(sql`viewCount`), desc(sql`lastViewed`))
+        .limit(isLeadScoreSort ? LEAD_SCORE_SORT_FETCH_LIMIT : limit)
+        .offset(isLeadScoreSort ? 0 : offset);
 
       const [countResult] = await db
         .select({ total: sql<number>`COUNT(DISTINCT ${activityLog.entityId})` })
@@ -649,11 +678,11 @@ export const hotLeadsRouter = router({
       const isaIds = Array.from(new Set(rows.map(r => r.assignedIsaId).filter(Boolean))) as number[];
       const leadSourceIds = Array.from(new Set(rows.map(r => r.leadSourceId).filter(Boolean))) as number[];
 
-      const [isaMap, leadSourceMap, agentMap, interestByContact] = await Promise.all([
+      const [isaMap, leadSourceMap, agentMap, leadScoreByContact] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
         batchLookupAllAgents(db, contactIds, role, ctx.user.id),
-        batchLookupInterestSignals(db, contactIds, sinceDate),
+        batchLookupLeadScores(db, contactIds, sinceDate),
       ]);
 
       // Last property address lookup
@@ -678,7 +707,7 @@ export const hotLeadsRouter = router({
         }
       }
 
-      const results = addInterestSignals(rows.map(row => ({
+      const results = addLeadScores(rows.map(row => ({
         contactId: row.contactId!,
         firstName: row.firstName,
         lastName: row.lastName,
@@ -690,9 +719,10 @@ export const hotLeadsRouter = router({
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId!] ?? [],
         lastPropertyAddress: lastPropertyMap[row.contactId!] ?? null,
-      })), interestByContact);
+      })), leadScoreByContact);
 
-      return { items: results, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
+      const paginatedItems = applyLeadScoreSort(results, sortBy, input?.sortDirection ?? "desc", offset, limit);
+      return { items: paginatedItems, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
     }),
 
   /**
@@ -719,6 +749,7 @@ export const hotLeadsRouter = router({
         gte(activityLog.createdAt, sinceDate),
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
       ];
+      if (input?.leadSourceId) baseConditions.push(eq(contacts.leadSourceId, input.leadSourceId));
 
       if (role === "agent") {
         if (input?.pipelineStatus) {
@@ -743,6 +774,18 @@ export const hotLeadsRouter = router({
         }
       }
 
+      const direction = input?.sortDirection === "asc" ? asc : desc;
+      const sortBy = input?.sortBy ?? "distinctDays";
+      const isLeadScoreSort = sortBy === "leadScore";
+      const sortExpression = sortBy === "totalViews"
+          ? sql`totalViews`
+          : sortBy === "lastViewed"
+            ? sql`lastViewed`
+            : sortBy === "contact"
+              ? contacts.lastName
+              : sortBy === "leadSource"
+                ? leadSources.name
+                : sql`distinctDays`;
       const rows = await db
         .select({
           contactId: activityLog.entityId,
@@ -758,12 +801,13 @@ export const hotLeadsRouter = router({
         })
         .from(activityLog)
         .innerJoin(contacts, eq(activityLog.entityId, contacts.id))
+        .leftJoin(leadSources, eq(leadSources.id, contacts.leadSourceId))
         .where(and(...baseConditions))
-        .groupBy(activityLog.entityId)
+        .groupBy(activityLog.entityId, leadSources.name)
         .having(sql`COUNT(DISTINCT DATE(${activityLog.createdAt})) >= 2`)
-        .orderBy(desc(sql`distinctDays`), desc(sql`totalViews`))
-        .limit(limit)
-        .offset(offset);
+        .orderBy(direction(sortExpression), desc(sql`distinctDays`), desc(sql`totalViews`))
+        .limit(isLeadScoreSort ? LEAD_SCORE_SORT_FETCH_LIMIT : limit)
+        .offset(isLeadScoreSort ? 0 : offset);
 
       const countRows = await db
         .select({
@@ -781,14 +825,14 @@ export const hotLeadsRouter = router({
       const isaIds = Array.from(new Set(rows.map(r => r.assignedIsaId).filter(Boolean))) as number[];
       const leadSourceIds = Array.from(new Set(rows.map(r => r.leadSourceId).filter(Boolean))) as number[];
 
-      const [isaMap, leadSourceMap, agentMap, interestByContact] = await Promise.all([
+      const [isaMap, leadSourceMap, agentMap, leadScoreByContact] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
         batchLookupAllAgents(db, contactIds, role, ctx.user.id),
-        batchLookupInterestSignals(db, contactIds, sinceDate),
+        batchLookupLeadScores(db, contactIds, sinceDate),
       ]);
 
-      const results = addInterestSignals(rows.map(row => ({
+      const results = addLeadScores(rows.map(row => ({
         contactId: row.contactId!,
         firstName: row.firstName,
         lastName: row.lastName,
@@ -800,9 +844,10 @@ export const hotLeadsRouter = router({
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId!] ?? [],
-      })), interestByContact);
+      })), leadScoreByContact);
 
-      return { items: results, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
+      const paginatedItems = applyLeadScoreSort(results, sortBy, input?.sortDirection ?? "desc", offset, limit);
+      return { items: paginatedItems, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
     }),
 
   /**
@@ -828,6 +873,7 @@ export const hotLeadsRouter = router({
         sql`(${emailBehaviors.openedAt} >= ${sinceDate} OR ${emailBehaviors.clickedAt} >= ${sinceDate})`,
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
       ];
+      if (input?.leadSourceId) baseConditions.push(eq(contacts.leadSourceId, input.leadSourceId));
 
       if (role === "agent") {
         if (input?.pipelineStatus) {
@@ -852,6 +898,18 @@ export const hotLeadsRouter = router({
         }
       }
 
+      const direction = input?.sortDirection === "asc" ? asc : desc;
+      const sortBy = input?.sortBy ?? "clicks";
+      const isLeadScoreSort = sortBy === "leadScore";
+      const sortExpression = sortBy === "opens"
+          ? sql`opens`
+          : sortBy === "lastEngaged"
+            ? sql`lastEngaged`
+            : sortBy === "contact"
+              ? contacts.lastName
+              : sortBy === "leadSource"
+                ? leadSources.name
+                : sql`clicks`;
       const rows = await db
         .select({
           contactId: emailBehaviors.contactId,
@@ -867,11 +925,12 @@ export const hotLeadsRouter = router({
         })
         .from(emailBehaviors)
         .innerJoin(contacts, eq(emailBehaviors.contactId, contacts.id))
+        .leftJoin(leadSources, eq(leadSources.id, contacts.leadSourceId))
         .where(and(...baseConditions))
-        .groupBy(emailBehaviors.contactId)
-        .orderBy(desc(sql`clicks`), desc(sql`opens`))
-        .limit(limit)
-        .offset(offset);
+        .groupBy(emailBehaviors.contactId, leadSources.name)
+        .orderBy(direction(sortExpression), desc(sql`clicks`), desc(sql`opens`))
+        .limit(isLeadScoreSort ? LEAD_SCORE_SORT_FETCH_LIMIT : limit)
+        .offset(isLeadScoreSort ? 0 : offset);
 
       const countRows = await db
         .select({ contactId: emailBehaviors.contactId })
@@ -885,14 +944,14 @@ export const hotLeadsRouter = router({
       const isaIds = Array.from(new Set(rows.map(r => r.assignedIsaId).filter(Boolean))) as number[];
       const leadSourceIds = Array.from(new Set(rows.map(r => r.leadSourceId).filter(Boolean))) as number[];
 
-      const [isaMap, leadSourceMap, agentMap, interestByContact] = await Promise.all([
+      const [isaMap, leadSourceMap, agentMap, leadScoreByContact] = await Promise.all([
         batchLookupIsas(db, isaIds),
         batchLookupLeadSources(db, leadSourceIds),
         batchLookupAllAgents(db, contactIds, role, ctx.user.id),
-        batchLookupInterestSignals(db, contactIds, sinceDate),
+        batchLookupLeadScores(db, contactIds, sinceDate),
       ]);
 
-      const results = addInterestSignals(rows.map(row => ({
+      const results = addLeadScores(rows.map(row => ({
         contactId: row.contactId!,
         firstName: row.firstName,
         lastName: row.lastName,
@@ -904,8 +963,9 @@ export const hotLeadsRouter = router({
         assignedIsa: row.assignedIsaId ? (isaMap[row.assignedIsaId] ?? null) : null,
         leadSource: row.leadSourceId ? (leadSourceMap[row.leadSourceId] ?? null) : null,
         connectedAgents: agentMap[row.contactId!] ?? [],
-      })), interestByContact);
+      })), leadScoreByContact);
 
-      return { items: results, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
+      const paginatedItems = applyLeadScoreSort(results, sortBy, input?.sortDirection ?? "desc", offset, limit);
+      return { items: paginatedItems, totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) };
     }),
 });

@@ -162,6 +162,14 @@ function agentContactSuffix(details: Record<string, unknown>): string {
   return parts.join(" · ");
 }
 
+function formatPropertyLocation(details: Record<string, unknown>): string | null {
+  const city = typeof details.propertyCity === "string" ? details.propertyCity.trim() : "";
+  const state = typeof details.propertyState === "string" ? details.propertyState.trim() : "";
+  const zip = typeof details.propertyZip === "string" || typeof details.propertyZip === "number" ? String(details.propertyZip).trim() : "";
+  const locality = [city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return locality || null;
+}
+
 function formatWebhookDetailLines(details: Record<string, unknown>): string[] {
   const payload = details.webhookData;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
@@ -580,15 +588,17 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
     // Each renders as: <title> / <property address> / <timestamp>. The address
     // is absent when savvy-web had no property metadata to send, so every case
     // degrades to a bare title rather than an empty bullet.
-    case "property_viewed":
+    case "property_viewed": {
       title = "Viewed Property";
+      const propertyLocation = formatPropertyLocation(details);
       lines = [
         ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...(propertyLocation ? [`Location: ${propertyLocation}`] : []),
         ...formatWebhookDetailLines(details),
       ];
       icon = "info";
       break;
-
+    }
     case "property_favorited":
       title = "Favorited Property";
       lines = [

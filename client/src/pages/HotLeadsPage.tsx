@@ -47,11 +47,11 @@ type DaysFilter = "7" | "14" | "30" | "90";
 type SortDir = "asc" | "desc";
 
 // Sort keys for each tab
-type PVSortKey = "viewCount" | "lastViewed" | "contact" | "leadSource";
-type RVSortKey = "distinctDays" | "totalViews" | "lastViewed" | "contact" | "leadSource";
-type EESortKey = "clicks" | "opens" | "lastEngaged" | "contact" | "leadSource";
-type DCSortKey = "deadConnectionCount" | "lastUpdatedAt" | "contact" | "leadSource" | "assignedIsa";
-type IntentSortKey = "eventCount" | "lastEventAt" | "contact" | "leadSource" | "assignedIsa";
+type PVSortKey = "viewCount" | "lastViewed" | "contact" | "leadSource" | "leadScore";
+type RVSortKey = "distinctDays" | "totalViews" | "lastViewed" | "contact" | "leadSource" | "leadScore";
+type EESortKey = "clicks" | "opens" | "lastEngaged" | "contact" | "leadSource" | "leadScore";
+type DCSortKey = "deadConnectionCount" | "lastUpdatedAt" | "contact" | "leadSource" | "assignedIsa" | "leadScore";
+type IntentSortKey = "eventCount" | "lastEventAt" | "contact" | "leadSource" | "assignedIsa" | "leadScore";
 
 const PIPELINE_STATUSES = [
   { value: "new_lead", label: "New Lead" },
@@ -92,6 +92,7 @@ export default function HotLeadsPage() {
   const [days, setDays] = useState<DaysFilter>("7");
   const [isaFilter, setIsaFilter] = useState<string>("");
   const [agentFilter, setAgentFilter] = useState<string>("");
+  const [leadSourceFilter, setLeadSourceFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const limit = 50;
 
@@ -125,20 +126,21 @@ export default function HotLeadsPage() {
     limit,
     ...(isAdminOrIsa && isaFilter ? { isaId: parseInt(isaFilter) } : {}),
     ...(isAdminOrIsa && agentFilter ? { agentId: parseInt(agentFilter) } : {}),
+    ...(leadSourceFilter ? { leadSourceId: parseInt(leadSourceFilter) } : {}),
     ...(isAgent && statusFilter ? { pipelineStatus: statusFilter } : {}),
   };
 
   // Queries for each tab
   const propertyViews = trpc.hotLeads.propertyViews.useQuery(
-    { ...baseParams, page: pvPage },
+    { ...baseParams, page: pvPage, sortBy: pvSortKey, sortDirection: pvSortDir },
     { enabled: activeTab === "property-views" }
   );
   const returnVisitors = trpc.hotLeads.returnVisitors.useQuery(
-    { ...baseParams, page: rvPage },
+    { ...baseParams, page: rvPage, sortBy: rvSortKey, sortDirection: rvSortDir },
     { enabled: activeTab === "return-visitors" }
   );
   const emailEngagement = trpc.hotLeads.emailEngagement.useQuery(
-    { ...baseParams, page: eePage },
+    { ...baseParams, page: eePage, sortBy: eeSortKey, sortDirection: eeSortDir },
     { enabled: activeTab === "email-engagement" }
   );
   const propertyFavorites = trpc.hotLeads.propertyFavorites.useQuery(
@@ -157,6 +159,7 @@ export default function HotLeadsPage() {
       sortDirection: dcSortDir,
       ...(isAdminOrIsa && isaFilter ? { isaId: parseInt(isaFilter) } : {}),
       ...(isAdminOrIsa && agentFilter ? { agentId: parseInt(agentFilter) } : {}),
+      ...(leadSourceFilter ? { leadSourceId: parseInt(leadSourceFilter) } : {}),
     },
     { enabled: isAdminOrIsa && activeTab === "dead-connections" }
   );
@@ -183,6 +186,7 @@ export default function HotLeadsPage() {
         case "lastViewed": aVal = a.lastViewed ? new Date(a.lastViewed).getTime() : 0; bVal = b.lastViewed ? new Date(b.lastViewed).getTime() : 0; break;
         case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
         case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        case "leadScore": aVal = a.leadScore ?? 0; bVal = b.leadScore ?? 0; break;
         default: aVal = a.viewCount ?? 0; bVal = b.viewCount ?? 0;
       }
       if (typeof aVal === "string") {
@@ -207,6 +211,7 @@ export default function HotLeadsPage() {
         case "lastViewed": aVal = a.lastViewed ? new Date(a.lastViewed).getTime() : 0; bVal = b.lastViewed ? new Date(b.lastViewed).getTime() : 0; break;
         case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
         case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        case "leadScore": aVal = a.leadScore ?? 0; bVal = b.leadScore ?? 0; break;
         default: aVal = a.distinctDays ?? 0; bVal = b.distinctDays ?? 0;
       }
       if (typeof aVal === "string") {
@@ -231,6 +236,7 @@ export default function HotLeadsPage() {
         case "lastEngaged": aVal = a.lastEngaged ? new Date(a.lastEngaged).getTime() : 0; bVal = b.lastEngaged ? new Date(b.lastEngaged).getTime() : 0; break;
         case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
         case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
+        case "leadScore": aVal = a.leadScore ?? 0; bVal = b.leadScore ?? 0; break;
         default: aVal = a.clicks ?? 0; bVal = b.clicks ?? 0;
       }
       if (typeof aVal === "string") {
@@ -255,6 +261,7 @@ export default function HotLeadsPage() {
         case "contact": aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim().toLowerCase(); bVal = `${b.firstName ?? ""} ${b.lastName ?? ""}`.trim().toLowerCase(); break;
         case "leadSource": aVal = (a.leadSource ?? "").toLowerCase(); bVal = (b.leadSource ?? "").toLowerCase(); break;
         case "assignedIsa": aVal = (a.assignedIsa ?? "").toLowerCase(); bVal = (b.assignedIsa ?? "").toLowerCase(); break;
+        case "leadScore": aVal = a.leadScore ?? 0; bVal = b.leadScore ?? 0; break;
         default: aVal = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0; bVal = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
       }
       if (typeof aVal === "string") {
@@ -268,6 +275,7 @@ export default function HotLeadsPage() {
 
   // Sort handlers
   const handlePvSort = (key: PVSortKey) => {
+    setPvPage(1);
     if (pvSortKey === key) {
       setPvSortDir(pvSortDir === "asc" ? "desc" : "asc");
     } else {
@@ -277,6 +285,7 @@ export default function HotLeadsPage() {
   };
 
   const handleRvSort = (key: RVSortKey) => {
+    setRvPage(1);
     if (rvSortKey === key) {
       setRvSortDir(rvSortDir === "asc" ? "desc" : "asc");
     } else {
@@ -286,6 +295,7 @@ export default function HotLeadsPage() {
   };
 
   const handleEeSort = (key: EESortKey) => {
+    setEePage(1);
     if (eeSortKey === key) {
       setEeSortDir(eeSortDir === "asc" ? "desc" : "asc");
     } else {
@@ -378,6 +388,11 @@ export default function HotLeadsPage() {
     resetPages();
   };
 
+  const handleLeadSourceChange = (val: string) => {
+    setLeadSourceFilter(val === "all" ? "" : val);
+    resetPages();
+  };
+
   const handleStatusChange = (val: string) => {
     setStatusFilter(val === "all" ? "" : val);
     resetPages();
@@ -441,9 +456,11 @@ export default function HotLeadsPage() {
                 agents={agents}
                 isaFilter={isaFilter}
                 agentFilter={agentFilter}
+                leadSourceFilter={leadSourceFilter}
                 statusFilter={statusFilter}
                 onIsaChange={handleIsaChange}
                 onAgentChange={handleAgentChange}
+                onLeadSourceChange={handleLeadSourceChange}
                 onStatusChange={handleStatusChange}
               />
               <DataTable
@@ -469,7 +486,9 @@ export default function HotLeadsPage() {
                       <span className="inline-flex items-center">Last Viewed <SortIcon col="lastViewed" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
                     </TableHead>
                     <TableHead>Last Property</TableHead>
-                    <TableHead>Interest</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handlePvSort("leadScore")}>
+                      <span className="inline-flex items-center">Lead Score <SortIcon col="leadScore" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
+                    </TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => handlePvSort("leadSource")}>
                       <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={pvSortKey} activeDir={pvSortDir} /></span>
                     </TableHead>
@@ -494,7 +513,7 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm max-w-[200px] truncate" title={lead.lastPropertyAddress ?? ""}>
                       {lead.lastPropertyAddress || "—"}
                     </TableCell>
-                    <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
+                    <TableCell><LeadScoreBadge score={lead.leadScore} signals={lead.leadScoreSignals} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lead.leadSource || "—"}
                     </TableCell>
@@ -528,9 +547,11 @@ export default function HotLeadsPage() {
                 agents={agents}
                 isaFilter={isaFilter}
                 agentFilter={agentFilter}
+                leadSourceFilter={leadSourceFilter}
                 statusFilter={statusFilter}
                 onIsaChange={handleIsaChange}
                 onAgentChange={handleAgentChange}
+                onLeadSourceChange={handleLeadSourceChange}
                 onStatusChange={handleStatusChange}
               />
               <DataTable
@@ -558,7 +579,9 @@ export default function HotLeadsPage() {
                     <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("lastViewed")}>
                       <span className="inline-flex items-center">Last Viewed <SortIcon col="lastViewed" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
                     </TableHead>
-                    <TableHead>Interest</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("leadScore")}>
+                      <span className="inline-flex items-center">Lead Score <SortIcon col="leadScore" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
+                    </TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => handleRvSort("leadSource")}>
                       <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={rvSortKey} activeDir={rvSortDir} /></span>
                     </TableHead>
@@ -583,7 +606,7 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastViewed)}
                     </TableCell>
-                    <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
+                    <TableCell><LeadScoreBadge score={lead.leadScore} signals={lead.leadScoreSignals} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lead.leadSource || "—"}
                     </TableCell>
@@ -617,9 +640,11 @@ export default function HotLeadsPage() {
                 agents={agents}
                 isaFilter={isaFilter}
                 agentFilter={agentFilter}
+                leadSourceFilter={leadSourceFilter}
                 statusFilter={statusFilter}
                 onIsaChange={handleIsaChange}
                 onAgentChange={handleAgentChange}
+                onLeadSourceChange={handleLeadSourceChange}
                 onStatusChange={handleStatusChange}
               />
               <DataTable
@@ -647,7 +672,9 @@ export default function HotLeadsPage() {
                     <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("lastEngaged")}>
                       <span className="inline-flex items-center">Last Engaged <SortIcon col="lastEngaged" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
                     </TableHead>
-                    <TableHead>Interest</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("leadScore")}>
+                      <span className="inline-flex items-center">Lead Score <SortIcon col="leadScore" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
+                    </TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => handleEeSort("leadSource")}>
                       <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" activeKey={eeSortKey} activeDir={eeSortDir} /></span>
                     </TableHead>
@@ -672,7 +699,7 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastEngaged)}
                     </TableCell>
-                    <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
+                    <TableCell><LeadScoreBadge score={lead.leadScore} signals={lead.leadScoreSignals} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lead.leadSource || "—"}
                     </TableCell>
@@ -696,7 +723,7 @@ export default function HotLeadsPage() {
         <IntentLeadsTab
           value="property-favorites"
           eventLabel="Properties Favorited"
-          eventDescription="Contacts in this list sent a deliberate property-favorite signal from the website. Use the Interest Score and recent activity to prioritize timely follow-up."
+          eventDescription="Contacts in this list sent a deliberate property-favorite signal from the website. Use the Lead Score and recent activity to prioritize timely follow-up."
           Icon={Heart}
           query={propertyFavorites}
           page={favoritesPage}
@@ -709,10 +736,12 @@ export default function HotLeadsPage() {
           agents={agents}
           isaFilter={isaFilter}
           agentFilter={agentFilter}
+          leadSourceFilter={leadSourceFilter}
           statusFilter={statusFilter}
           onDaysChange={handleDaysChange}
           onIsaChange={handleIsaChange}
           onAgentChange={handleAgentChange}
+          onLeadSourceChange={handleLeadSourceChange}
           onStatusChange={handleStatusChange}
           sortKey={favoritesSortKey}
           sortDir={favoritesSortDir}
@@ -735,10 +764,12 @@ export default function HotLeadsPage() {
           agents={agents}
           isaFilter={isaFilter}
           agentFilter={agentFilter}
+          leadSourceFilter={leadSourceFilter}
           statusFilter={statusFilter}
           onDaysChange={handleDaysChange}
           onIsaChange={handleIsaChange}
           onAgentChange={handleAgentChange}
+          onLeadSourceChange={handleLeadSourceChange}
           onStatusChange={handleStatusChange}
           sortKey={analysisSortKey}
           sortDir={analysisSortDir}
@@ -763,9 +794,11 @@ export default function HotLeadsPage() {
                   agents={agents}
                   isaFilter={isaFilter}
                   agentFilter={agentFilter}
+                  leadSourceFilter={leadSourceFilter}
                   statusFilter={statusFilter}
                   onIsaChange={handleIsaChange}
                   onAgentChange={handleAgentChange}
+                  onLeadSourceChange={handleLeadSourceChange}
                   onStatusChange={handleStatusChange}
                 />
                 <DataTable
@@ -796,7 +829,9 @@ export default function HotLeadsPage() {
                       <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("assignedIsa")}>
                         <span className="inline-flex items-center">Assigned ISA <SortIcon col="assignedIsa" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
                       </TableHead>
-                      <TableHead>Interest</TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleDcSort("leadScore")}>
+                        <span className="inline-flex items-center">Lead Score <SortIcon col="leadScore" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
+                      </TableHead>
                       <TableHead>Agents</TableHead>
                       <TableHead className="w-[52px] text-center">
                         <span className="sr-only">Take off list</span>
@@ -823,7 +858,7 @@ export default function HotLeadsPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {lead.assignedIsa || "—"}
                       </TableCell>
-                      <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
+                      <TableCell><LeadScoreBadge score={lead.leadScore} signals={lead.leadScoreSignals} /></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
@@ -951,9 +986,11 @@ function FiltersBar({
   agents,
   isaFilter,
   agentFilter,
+  leadSourceFilter,
   statusFilter,
   onIsaChange,
   onAgentChange,
+  onLeadSourceChange,
   onStatusChange,
 }: {
   showTimeRange?: boolean;
@@ -965,11 +1002,15 @@ function FiltersBar({
   agents: any[];
   isaFilter: string;
   agentFilter: string;
+  leadSourceFilter: string;
   statusFilter: string;
   onIsaChange: (v: string) => void;
   onAgentChange: (v: string) => void;
+  onLeadSourceChange: (v: string) => void;
   onStatusChange: (v: string) => void;
 }) {
+  const { data: rawLeadSources = [] } = trpc.leadSources.listFlat.useQuery();
+  const leadSources = rawLeadSources.map((row: any) => row.ls ?? row).sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? ""));
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b">
       {/* Time range */}
@@ -1032,6 +1073,21 @@ function FiltersBar({
         </>
       )}
 
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-muted-foreground">Lead Source:</span>
+        <Select value={leadSourceFilter || "all"} onValueChange={onLeadSourceChange}>
+          <SelectTrigger className="h-7 w-[180px] text-xs">
+            <SelectValue placeholder="All Lead Sources" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Lead Sources</SelectItem>
+            {leadSources.map((source: any) => (
+              <SelectItem key={source.id} value={String(source.id)}>{source.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Agent filter: pipeline status */}
       {isAgent && (
         <div className="flex items-center gap-2">
@@ -1071,10 +1127,12 @@ type IntentLeadsTabProps = {
   agents: any[];
   isaFilter: string;
   agentFilter: string;
+  leadSourceFilter: string;
   statusFilter: string;
   onDaysChange: (days: DaysFilter) => void;
   onIsaChange: (value: string) => void;
   onAgentChange: (value: string) => void;
+  onLeadSourceChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   sortKey: IntentSortKey;
   sortDir: SortDir;
@@ -1097,10 +1155,12 @@ function IntentLeadsTab({
   agents,
   isaFilter,
   agentFilter,
+  leadSourceFilter,
   statusFilter,
   onDaysChange,
   onIsaChange,
   onAgentChange,
+  onLeadSourceChange,
   onStatusChange,
   sortKey,
   sortDir,
@@ -1126,9 +1186,11 @@ function IntentLeadsTab({
             agents={agents}
             isaFilter={isaFilter}
             agentFilter={agentFilter}
+            leadSourceFilter={leadSourceFilter}
             statusFilter={statusFilter}
             onIsaChange={onIsaChange}
             onAgentChange={onAgentChange}
+            onLeadSourceChange={onLeadSourceChange}
             onStatusChange={onStatusChange}
           />
           <DataTable
@@ -1154,7 +1216,9 @@ function IntentLeadsTab({
                   <span className="inline-flex items-center">Most Recent <SortIcon col="lastEventAt" /></span>
                 </TableHead>
                 <TableHead>Last Property</TableHead>
-                <TableHead>Interest</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => onSort("leadScore")}>
+                  <span className="inline-flex items-center">Lead Score <SortIcon col="leadScore" /></span>
+                </TableHead>
                 <TableHead className="cursor-pointer select-none" onClick={() => onSort("leadSource")}>
                   <span className="inline-flex items-center">Lead Source <SortIcon col="leadSource" /></span>
                 </TableHead>
@@ -1173,7 +1237,7 @@ function IntentLeadsTab({
                 <TableCell className="text-center"><Badge variant="secondary">{lead.eventCount}</Badge></TableCell>
                 <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatRelativeDate(lead.lastEventAt)}</TableCell>
                 <TableCell className="max-w-[200px] truncate text-sm" title={lead.lastPropertyAddress ?? ""}>{lead.lastPropertyAddress || "—"}</TableCell>
-                <TableCell><InterestScoreBadge score={lead.interestScore} signals={lead.interestSignals} /></TableCell>
+                <TableCell><LeadScoreBadge score={lead.leadScore} signals={lead.leadScoreSignals} /></TableCell>
                 <TableCell className="text-sm text-muted-foreground">{lead.leadSource || "—"}</TableCell>
                 {!isAgent && <TableCell className="text-sm text-muted-foreground">{lead.assignedIsa || "—"}</TableCell>}
                 {!isAgent && <TableCell className="text-sm text-muted-foreground"><AgentsList agents={lead.connectedAgents} /></TableCell>}
@@ -1362,19 +1426,19 @@ function DaysBadge({ count }: { count: number }) {
   );
 }
 
-function InterestScoreBadge({ score, signals }: { score?: number; signals?: string[] }) {
-  const normalizedScore = Number(score ?? 0);
-  const label = signals?.length ? signals.join(" • ") : "No additional recent engagement signals";
-  if (normalizedScore >= 7) {
-    return <Badge title={label} className="bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"><Flame className="mr-1 h-3 w-3" />{normalizedScore}</Badge>;
+function LeadScoreBadge({ score, signals }: { score?: number; signals?: string[] }) {
+  const normalizedScore = Math.max(0, Math.min(100, Number(score ?? 0)));
+  const label = `Lead Score ${normalizedScore}/100${signals?.length ? ` — ${signals.join(" • ")}` : " — No additional recent engagement signals"}`;
+  if (normalizedScore >= 70) {
+    return <Badge title={label} className="bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"><Flame className="mr-1 h-3 w-3" />{normalizedScore}/100</Badge>;
   }
-  if (normalizedScore >= 4) {
-    return <Badge title={label} className="bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800">{normalizedScore}</Badge>;
+  if (normalizedScore >= 40) {
+    return <Badge title={label} className="bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800">{normalizedScore}/100</Badge>;
   }
   if (normalizedScore >= 1) {
-    return <Badge title={label} className="bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">{normalizedScore}</Badge>;
+    return <Badge title={label} className="bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">{normalizedScore}/100</Badge>;
   }
-  return <Badge title={label} variant="secondary">0</Badge>;
+  return <Badge title={label} variant="secondary">0/100</Badge>;
 }
 
 function ClicksBadge({ count }: { count: number }) {
