@@ -629,6 +629,15 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "check";
       break;
 
+    case "user_registered":
+      title = "Registered on Savvy-Agents";
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
+      icon = "check";
+      break;
+
     case "property_favorited":
       title = "Favorited Property";
       lines = [

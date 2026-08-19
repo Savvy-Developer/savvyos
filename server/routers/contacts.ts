@@ -880,6 +880,7 @@ Please write the comprehensive AI summary now.`;
         property_contact_requested: "Requested contact about a property",
         market_searched: "Searched market",
         property_shared: "Shared a property",
+        user_registered: "Registered on Savvy-Agents",
         analysis_requested: "Requested an analysis",
         showing_requested: "Requested a showing",
         // Task actions

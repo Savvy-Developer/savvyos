@@ -377,6 +377,9 @@ export const SAVVY_WEB_EVENTS: Record<string, SavvyWebEventSpec> = {
   "activity.share": {
     action: "property_shared", createsContact: true, label: "Property share",
   },
+  "user.registered": {
+    action: "user_registered", createsContact: true, label: "User registration",
+  },
   "lead.analysis_requested": {
     action: "analysis_requested", createsContact: true, label: "Analysis request",
   },
@@ -530,6 +533,29 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
     }
     contactId = await createContactFromEvent(email, data, rawPayload, endpoint);
     createdContact = true;
+  }
+
+  const investmentGoal = pickField(data, rawPayload, ["investmentGoal", "investment_goal"]);
+  const budgetRange = pickField(data, rawPayload, ["budgetRange", "budget_range"]);
+  const preferredMarket = pickField(data, rawPayload, ["preferredMarket", "preferred_market"]);
+  const investmentTimeline = pickField(data, rawPayload, ["investmentTimeline", "investment_timeline"]);
+
+  if (investmentGoal || budgetRange || preferredMarket || investmentTimeline) {
+    const prefs = [
+      investmentGoal ? `Goal: ${investmentGoal}` : null,
+      budgetRange ? `Budget: ${budgetRange}` : null,
+      preferredMarket ? `Market: ${preferredMarket}` : null,
+      investmentTimeline ? `Timeline: ${investmentTimeline}` : null,
+    ].filter(Boolean).join(" | ");
+
+    const noteLine = `Investor Preferences: ${prefs}`;
+    const db = await getDb();
+    const [existingContact] = await db.select({ notes: contacts.notes }).from(contacts).where(eq(contacts.id, contactId));
+    const currentNotes = existingContact?.notes || "";
+    if (!currentNotes.includes(noteLine)) {
+      const updatedNotes = currentNotes ? `${currentNotes}\n${noteLine}` : noteLine;
+      await db.update(contacts).set({ notes: updatedNotes }).where(eq(contacts.id, contactId));
+    }
   }
 
   await logActivity({

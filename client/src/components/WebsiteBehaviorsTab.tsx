@@ -9,6 +9,7 @@ const WEBSITE_ACTIONS = new Set([
   "property_contact_requested",
   "market_searched",
   "property_shared",
+  "user_registered",
   "analysis_requested",
   "showing_requested",
 ]);
