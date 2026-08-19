@@ -21,6 +21,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewDashboard",          label: "Admin Dashboard",          group: "Overview" },
   { key: "canViewIsmDashboard",       label: "ISM Dashboard",            group: "Overview" },
   { key: "canViewReporting",          label: "Reporting",                group: "Overview" },
+  { key: "canViewCustomReports",     label: "Custom Reports",         group: "Overview" },
   // CRM
   { key: "canViewContacts",           label: "All Contacts",             group: "CRM" },
   { key: "canViewPipeline",           label: "All Pipelines",            group: "CRM" },

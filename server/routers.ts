@@ -56,6 +56,7 @@ import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
 import { pulseRouter } from "./routers/pulse";
 import { dailyReportRouter } from "./routers/dailyReport";
 import { referralsRouter } from "./routers/referrals";
+import { customReportsRouter } from "./routers/customReports";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -223,6 +224,7 @@ export const appRouter = router({
   documents: documentsRouter,
   communications: communicationsRouter,
   analytics: analyticsRouter,
+  customReports: customReportsRouter,
   users: usersRouter,
   groups: groupsRouter,
   payouts: payoutsRouter,

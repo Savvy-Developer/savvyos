@@ -2608,6 +2608,23 @@ export const pulseTeamScopeLinks = mysqlTable("pulse_team_scope_links", {
 ]);
 export type PulseTeamScopeLink = typeof pulseTeamScopeLinks.$inferSelect;
 
+// ─── Custom Reports ──────────────────────────────────────────────────────────
+// Saved, allowlisted AI report definitions. The definition is validated before every run.
+export const customReports = mysqlTable("custom_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  prompt: text("prompt").notNull(),
+  definition: json("definition").$type<Record<string, unknown>>().notNull(),
+  createdById: int("createdById").notNull().references(() => users.id, { onDelete: "cascade" }),
+  lastRunAt: timestamp("lastRunAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("custom_reports_created_by_idx").on(table.createdById),
+]);
+export type CustomReport = typeof customReports.$inferSelect;
+export type InsertCustomReport = typeof customReports.$inferInsert;
+
 // ─── Admin Permissions ────────────────────────────────────────────────────────
 // Stores per-admin page-level permissions. One row per admin user.
 // Each boolean column corresponds to a nav link in the admin sidebar.
@@ -2620,6 +2637,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewDashboard: boolean("canViewDashboard").default(true).notNull(),
   canViewIsmDashboard: boolean("canViewIsmDashboard").default(false).notNull(),
   canViewReporting: boolean("canViewReporting").default(true).notNull(),
+  canViewCustomReports: boolean("canViewCustomReports").default(true).notNull(),
   // CRM
   canViewContacts: boolean("canViewContacts").default(true).notNull(),
   canViewPipeline: boolean("canViewPipeline").default(true).notNull(),
