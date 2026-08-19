@@ -705,7 +705,7 @@ export default function ProformaEmailComposer({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-5xl max-h-[96vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[94vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5" /> Email Proforma
@@ -713,7 +713,7 @@ export default function ProformaEmailComposer({
           </DialogHeader>
 
           <div className="space-y-5 py-1">
-            <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm">
+            <div className="break-words rounded-lg border bg-muted/30 px-3 py-2.5 text-sm">
               This editable, unbranded HTML proforma includes the full base-case
               investment snapshot for{" "}
               <strong>{propertyLabel || "this property"}</strong>. Recipients
@@ -888,7 +888,7 @@ export default function ProformaEmailComposer({
               </p>
             </div>
 
-            <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground">
+            <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground break-words">
               <p>
                 <strong className="text-foreground">From:</strong>{" "}
                 {user?.name || "Your SavvyOS name"} via Savvy STR Agents
@@ -904,7 +904,7 @@ export default function ProformaEmailComposer({
             </div>
           </div>
 
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
@@ -912,7 +912,7 @@ export default function ProformaEmailComposer({
             >
               Cancel
             </Button>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
@@ -938,7 +938,7 @@ export default function ProformaEmailComposer({
       </Dialog>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[96vh] overflow-x-hidden overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[94vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Proforma Email Preview</DialogTitle>
           </DialogHeader>
@@ -960,7 +960,7 @@ export default function ProformaEmailComposer({
                 {subject || "(No subject)"}
               </p>
             </div>
-            <article className="min-h-64 overflow-x-auto rounded-lg border bg-background p-4 sm:p-6">
+            <article className="min-h-64 max-w-full overflow-x-auto rounded-lg border bg-background p-4 sm:p-6">
               <div
                 className="prose prose-sm max-w-none break-words dark:prose-invert"
                 dangerouslySetInnerHTML={{ __html: htmlBody }}

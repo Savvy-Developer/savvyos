@@ -505,7 +505,7 @@ async function getCanonicalTransactionMetrics(filters: AnalyticsFilters, scope: 
     ${snapshotWhere}
   `;
   const db = await getDb();
-  const [snapshotRows, sourcePageCountRows] = db
+  const [snapshotRows, sourcePageCountRows]: [CanonicalMetricRow[], Array<{ count: unknown }>] = db
     ? await (db as any).transaction(async (tx: { execute: (query: SQL) => Promise<unknown> }) => {
         const rows = await runRowsWith<CanonicalMetricRow>(tx, snapshotRowsQuery);
         const countRows = await runRowsWith<{ count: unknown }>(tx, sourcePageCountQuery);
@@ -1577,13 +1577,13 @@ function buildDeterministicFallback(workspace: Awaited<ReturnType<typeof getAnal
       title: "Production is below prior period",
       observation: `Closed GCI is ${Math.abs(workspace.summary?.gciTrendPct ?? 0).toFixed(1)}% below the comparable prior period.`,
       explanation: "The change can reflect timing, deal size, mix, or execution. Compare individual production, active pipeline, recorded activity, and coaching cadence before attributing a cause.",
-      confidence: (workspace.summary?.prior?.closings ?? 0) >= 3 ? "medium" : "limited",
+      confidence: (workspace.summary?.prior?.count ?? 0) >= 3 ? "medium" : "limited",
       owner: "Leadership",
       action: "Open People & Execution and review production trends alongside last coaching date, current pipeline, and overdue work for the affected team members.",
       connectedSignals: ["Closed GCI trend", "Agent production", "Coaching cadence"],
       evidence: [
         { label: "Current GCI", value: `$${(workspace.summary?.gci ?? 0).toLocaleString()}`, report: "Executive Scorecard", drilldown: "transactions" },
-        { label: "Prior GCI", value: `$${(workspace.summary?.prior?.gci ?? 0).toLocaleString()}`, report: "Executive Scorecard", drilldown: "transactions" },
+        { label: "Prior GCI", value: `$${(workspace.summary?.prior?.totalGci ?? 0).toLocaleString()}`, report: "Executive Scorecard", drilldown: "transactions" },
       ],
     });
   }

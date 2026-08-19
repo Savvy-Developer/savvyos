@@ -192,7 +192,7 @@ export default function PipelineEmailComposer({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-6xl max-h-[96vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[94vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {mode === "mass" ? <Users className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
@@ -201,7 +201,7 @@ export default function PipelineEmailComposer({
           </DialogHeader>
 
           <div className="space-y-4 py-1">
-            <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm flex flex-wrap items-center justify-between gap-2">
+            <div className="break-words rounded-lg border bg-muted/30 px-3 py-2.5 text-sm flex flex-wrap items-center justify-between gap-2">
               <span>
                 <strong>{recipientCount}</strong> selected recipient{recipientCount === 1 ? "" : "s"}. Pipeline email is available for contacts with an email address in any status other than <strong>New</strong>, <strong>Dead</strong>, or <strong>Do Not Contact</strong>.
               </span>
@@ -278,14 +278,14 @@ export default function PipelineEmailComposer({
               </p>
             </div>
 
-            <div className="text-xs text-muted-foreground border-t pt-3">
+            <div className="break-words border-t pt-3 text-xs text-muted-foreground">
               <strong>Reply-To:</strong> {user?.email || "Your SavvyOS profile email"}. Emails are delivered through Savvy STR Agents and replies route directly to your logged-in email address.
             </div>
           </div>
 
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sendEmail.isPending}>Cancel</Button>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
               <Button type="button" variant="outline" onClick={() => setPreviewOpen(true)} disabled={!subject.trim() || !plainTextFromHtml(htmlBody)}>
                 <Eye className="mr-1.5 h-4 w-4" /> Preview
               </Button>
@@ -299,7 +299,7 @@ export default function PipelineEmailComposer({
       </Dialog>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-5xl max-h-[96vh] overflow-x-hidden overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[94vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Email Preview</DialogTitle>
           </DialogHeader>
@@ -308,7 +308,7 @@ export default function PipelineEmailComposer({
               <p><span className="font-medium">To:</span> {mode === "mass" ? `${recipientCount} selected connections` : "Selected connection"}</p>
               <p className="mt-1 break-words"><span className="font-medium">Subject:</span> {subject || "(No subject)"}</p>
             </div>
-            <article className="min-h-64 overflow-x-auto rounded-lg border bg-background p-4 sm:p-6">
+            <article className="min-h-64 max-w-full overflow-x-auto rounded-lg border bg-background p-4 sm:p-6">
               <div className="prose prose-sm max-w-none break-words dark:prose-invert" dangerouslySetInnerHTML={{ __html: htmlBody }} />
               {myProfile?.emailSignatureHtml && (
                 <div className="prose prose-sm mt-6 max-w-none border-t pt-4 break-words dark:prose-invert" dangerouslySetInnerHTML={{ __html: myProfile.emailSignatureHtml }} />
@@ -323,7 +323,7 @@ export default function PipelineEmailComposer({
       </Dialog>
 
       <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
-        <DialogContent className="max-w-lg w-[calc(100vw-2rem)]">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{templateMode === "update" ? "Update Email Template" : "Save Email Template"}</DialogTitle>
           </DialogHeader>

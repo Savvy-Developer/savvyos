@@ -859,7 +859,7 @@ export type OnboardingTemplate = typeof onboardingTemplates.$inferSelect;
 
 export const onboardingTemplateTasks = mysqlTable("onboarding_template_tasks", {
   id: int("id").autoincrement().primaryKey(),
-  templateId: int("templateId").notNull().references(() => onboardingTemplates.id, { onDelete: "cascade", name: "ott_template_fk" }),
+  templateId: int("templateId").notNull().references(() => onboardingTemplates.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   assignee: mysqlEnum("assignee", ["admin", "agent"]).default("admin").notNull(),

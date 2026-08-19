@@ -76,7 +76,7 @@ export async function generateImage(
         mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
       formData.append(
         "image[]",
-        new Blob([bytes], { type: mime }),
+        new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: mime }),
         `original-${index}.${ext}`
       );
     }

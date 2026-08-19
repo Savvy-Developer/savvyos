@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import PageHeader from "@/components/PageHeader";
+import { CreateReferralDialog } from "@/components/CreateReferralDialog";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
@@ -404,6 +405,7 @@ export default function ContactDetail() {
   const { celebrate } = useCelebration();
   const [editOpen, setEditOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
   const [deleteConnOpen, setDeleteConnOpen] = useState(false);
   const [deleteConnId, setDeleteConnId] = useState<number | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
@@ -476,6 +478,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const { data: allProperties = [] } = trpc.properties.list.useQuery({});
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
   const { data: contactReferrals = [] } = trpc.referrals.byContact.useQuery({ contactId }, { enabled: user?.role === "admin" || user?.role === "isa" });
+  const { data: referralConfig } = trpc.referrals.config.useQuery(undefined, { enabled: user?.role === "admin" || user?.role === "isa" });
 
   // Format system activity-log entries (e.g. property views logged via webhook)
   // so they can be shown in the Activity tab alongside communications.
@@ -547,8 +550,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     // Only check fields that actually changed — if the user didn't edit the
     // email or phone, there is no need to re-validate them (and doing so would
     // incorrectly block saves when a known duplicate shares the same digits).
-    const emailChanged = editForm.email !== (contact.email ?? "");
-    const phoneChanged = editForm.phone !== (contact.phone ?? "");
+    const emailChanged = editForm.email !== (contact?.email ?? "");
+    const phoneChanged = editForm.phone !== (contact?.phone ?? "");
     if (emailChanged || phoneChanged) {
       try {
         const dup = await checkDupMut.mutateAsync({
@@ -820,7 +823,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               </Button>
             )}
             {(isAdmin || isIsa) && (
-              <Button size="sm" onClick={() => navigate(`/referrals?createContactId=${contactId}`)}>
+              <Button size="sm" onClick={() => setReferralOpen(true)}>
                 <Handshake className="h-4 w-4 mr-1" /> Create a Referral
               </Button>
             )}
@@ -1014,7 +1017,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               <CardContent className="p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Outbound Referrals</span>
-                  <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => navigate(`/referrals?createContactId=${contactId}`)}>
+                  <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setReferralOpen(true)}>
                     <Plus className="h-3 w-3 mr-1" /> Create
                   </Button>
                 </div>
@@ -2076,6 +2079,21 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateReferralDialog
+        open={referralOpen}
+        onOpenChange={setReferralOpen}
+        lockedContact={contact ? {
+          id: contactId,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+        } : null}
+        statuses={(referralConfig as any)?.statuses ?? []}
+        agents={(referralConfig as any)?.agents ?? []}
+        owners={(referralConfig as any)?.owners ?? []}
+        onCreated={id => navigate(`/referrals/${id}`)}
+      />
 
       {/* ── Archive Contact Dialog ── */}
       <Dialog open={archiveContactOpen} onOpenChange={setArchiveContactOpen}>

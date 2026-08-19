@@ -94,9 +94,9 @@ export default function RichEmailEditor({ value, onChange, placeholder, classNam
   if (!editor) return null;
 
   return (
-    <div className={cn("border rounded-md overflow-hidden", className)}>
+    <div className={cn("min-w-0 border rounded-md overflow-hidden", className)}>
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 p-1.5 border-b bg-muted/30">
+      <div className="flex min-w-0 flex-wrap items-center gap-0.5 border-b bg-muted/30 p-1.5">
         {!isHtmlMode && (
           <>
             {/* History */}
@@ -164,12 +164,12 @@ export default function RichEmailEditor({ value, onChange, placeholder, classNam
         )}
 
         {/* HTML/WYSIWYG toggle — always visible */}
-        <div className="ml-auto">
+        <div className="ml-0 w-full sm:ml-auto sm:w-auto">
           <Button
             type="button"
             variant={isHtmlMode ? "default" : "outline"}
             size="sm"
-            className="h-7 text-xs gap-1.5"
+            className="h-7 w-full gap-1.5 text-xs sm:w-auto"
             onClick={isHtmlMode ? switchToWysiwyg : switchToHtml}
           >
             <Code2 className="h-3 w-3" />
@@ -192,7 +192,7 @@ export default function RichEmailEditor({ value, onChange, placeholder, classNam
       ) : (
         <EditorContent
           editor={editor}
-          className="prose prose-sm max-w-none p-3 min-h-[200px] focus-within:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-[180px]"
+          className="prose prose-sm max-w-none min-w-0 p-3 min-h-[200px] break-words focus-within:outline-none [&_.ProseMirror]:min-h-[180px] [&_.ProseMirror]:outline-none [&_.ProseMirror]:break-words [&_.ProseMirror_table]:w-full [&_.ProseMirror_table]:max-w-full [&_.ProseMirror_td]:break-words [&_.ProseMirror_th]:break-words"
         />
       )}
 

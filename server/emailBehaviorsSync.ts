@@ -538,7 +538,7 @@ async function checkForGap(db: any): Promise<boolean> {
     .where(sql`source = 'resend' AND sentAt BETWEEN '2026-07-30 00:00:00' AND '2026-08-03 21:00:00'`)
     .groupBy(sql`DATE(sentAt)`);
 
-  const dayMap = new Map(gapDays.map((d: any) => [d.day, d.cnt]));
+  const dayMap = new Map<string, number>(gapDays.map((d: { day: string; cnt: number }) => [d.day, d.cnt]));
   const expectedDays = ["2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03"];
   const hasGap = expectedDays.some((day) => (dayMap.get(day) ?? 0) < 1000);
 

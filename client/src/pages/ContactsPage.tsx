@@ -690,7 +690,7 @@ export default function ContactsPage() {
       )}
 
       {/* ── Insights Panel ── */}
-      {statusCounts && user?.role !== "agent" && (
+      {statusCounts && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <div className="rounded-lg border bg-card p-3 flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
