@@ -492,6 +492,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     "property_viewed",
     "property_favorited",
     "property_contact_requested",
+    "market_searched",
+    "property_shared",
     "analysis_requested",
     "showing_requested",
   ]);

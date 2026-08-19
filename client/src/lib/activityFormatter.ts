@@ -611,6 +611,24 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "info";
       break;
     }
+    case "market_searched":
+      title = "Searched Market";
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
+      icon = "info";
+      break;
+
+    case "property_shared":
+      title = "Shared Property";
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
+      icon = "check";
+      break;
+
     case "property_favorited":
       title = "Favorited Property";
       lines = [
