@@ -878,6 +878,8 @@ Please write the comprehensive AI summary now.`;
         property_viewed: "Viewed a property",
         property_favorited: "Favorited a property",
         property_contact_requested: "Requested contact about a property",
+        market_searched: "Searched market",
+        property_shared: "Shared a property",
         analysis_requested: "Requested an analysis",
         showing_requested: "Requested a showing",
         // Task actions

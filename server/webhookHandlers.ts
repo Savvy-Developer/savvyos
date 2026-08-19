@@ -371,6 +371,12 @@ export const SAVVY_WEB_EVENTS: Record<string, SavvyWebEventSpec> = {
   "activity.contact": {
     action: "property_contact_requested", createsContact: true, label: "Contact request",
   },
+  "activity.search": {
+    action: "market_searched", createsContact: true, label: "Market search",
+  },
+  "activity.share": {
+    action: "property_shared", createsContact: true, label: "Property share",
+  },
   "lead.analysis_requested": {
     action: "analysis_requested", createsContact: true, label: "Analysis request",
   },
