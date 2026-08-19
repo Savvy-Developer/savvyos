@@ -202,20 +202,6 @@ function CustomReportsRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function PulseConfigRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
-  if (!isAdmin) return <NotFound />;
-  if (isLoading) return <div className="min-h-[40vh]" />;
-  if (!(permissions as any)?.canViewPulse) return <NotFound />;
-  return <>{children}</>;
-}
-
-function PulseConfigPage() {
-  return <PulseConfigRoute><PulseFoundationPage /></PulseConfigRoute>;
-}
-
 function Router() {
   return (
     <AuthGuard>
@@ -281,7 +267,7 @@ function Router() {
           <Route path="/org-chart" component={OrgChartPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
-          <Route path="/pulse" component={PulseConfigPage} />
+          <Route path="/pulse" component={PulseFoundationPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />

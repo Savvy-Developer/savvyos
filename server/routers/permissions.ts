@@ -71,7 +71,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Projects & Plans" },
   // Admin — Passwords
   { key: "canViewPasswords",           label: "Passwords",                group: "Admin" },
-  { key: "canViewPulse",               label: "Pulse",                    group: "Admin" },
   // Super admin tools (default OFF — only Tyler/Elana/Dyl can use this page anyway)
   { key: "canViewSuperPermissions",   label: "Super Permissions",        group: "Admin" },
 ] as const;

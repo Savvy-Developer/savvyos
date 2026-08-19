@@ -224,7 +224,6 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
   canViewPasswords: "/passwords",
-  canViewPulse: "/pulse",
   canViewSuperPermissions: "/admin/super-permissions",
 };
 

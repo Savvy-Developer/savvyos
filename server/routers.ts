@@ -53,7 +53,6 @@ import { coachingRouter } from "./routers/coaching";
 import { hotLeadsRouter } from "./routers/hotLeads";
 import { passwordsRouter } from "./routers/passwords";
 import { rolesResponsibilitiesRouter } from "./routers/rolesResponsibilities";
-import { pulseRouter } from "./routers/pulse";
 import { dailyReportRouter } from "./routers/dailyReport";
 import { referralsRouter } from "./routers/referrals";
 import { customReportsRouter } from "./routers/customReports";
@@ -257,7 +256,6 @@ export const appRouter = router({
   hotLeads: hotLeadsRouter,
   passwords: passwordsRouter,
     rolesResponsibilities: rolesResponsibilitiesRouter,
-  pulse: pulseRouter,
   dailyReport: dailyReportRouter,
   referrals: referralsRouter,
 
