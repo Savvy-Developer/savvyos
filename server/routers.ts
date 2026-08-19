@@ -43,6 +43,7 @@ import { duplicatesRouter } from "./routers/duplicates";
 import { webhooksRouter } from "./routers/webhooks";
 import { ghlSyncRouter } from "./routers/ghlSync";
 import { pipelineEmailRouter } from "./routers/pipelineEmail";
+import { proformaEmailRouter } from "./routers/proformaEmail";
 import { permissionsRouter } from "./routers/permissions";
 import { emailBehaviorsRouter } from "./routers/emailBehaviors";
 import { aircallRouter } from "./routers/aircall";
@@ -244,6 +245,7 @@ export const appRouter = router({
   webhooks: webhooksRouter,
   ghlSync: ghlSyncRouter,
   pipelineEmail: pipelineEmailRouter,
+  proformaEmail: proformaEmailRouter,
   permissions: permissionsRouter,
   emailBehaviors: emailBehaviorsRouter,
   aircall: aircallRouter,

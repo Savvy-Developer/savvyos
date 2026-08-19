@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import PageHeader from "@/components/PageHeader";
-import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown } from "lucide-react";
+import ProformaEmailComposer from "@/components/ProformaEmailComposer";
+import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -256,6 +257,7 @@ export default function ProformaPage() {
   const [airbnbImportUrl, setAirbnbImportUrl] = useState("");
   const [showAirbnbImport, setShowAirbnbImport] = useState(false);
   const [showExistingComps, setShowExistingComps] = useState(false);
+  const [showEmailProforma, setShowEmailProforma] = useState(false);
   const [autoLoadDone, setAutoLoadDone] = useState(false);
 
   const utils = trpc.useUtils();
@@ -870,6 +872,9 @@ export default function ProformaPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => navigate("/proforma-defaults")}>
             <Settings className="h-4 w-4 mr-1" /> Defaults
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowEmailProforma(true)} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
+            <Mail className="h-4 w-4 mr-1" /> Email Proforma
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -2012,6 +2017,23 @@ export default function ProformaPage() {
           </div>
         </TabsContent>
       </Tabs>
+      <ProformaEmailComposer
+        open={showEmailProforma}
+        onOpenChange={setShowEmailProforma}
+        propertyId={propertyId}
+        proformaId={editingId}
+        proformaTitle={title}
+        propertyLabel={[property?.address, [property?.city, property?.state, property?.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
+        summary={{
+          purchasePrice: calc.pp,
+          totalCashNeeded: calc.totalCashNeeded,
+          grossRevenue: calc.s2.grossRevenue,
+          noi: calc.s2.noi,
+          cashFlow: calc.s2.cashFlow,
+          cashOnCash: calc.s2.cashOnCash,
+          capRate: calc.s2.capRate,
+        }}
+      />
     </div>
   );
 }
