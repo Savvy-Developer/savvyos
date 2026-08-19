@@ -187,7 +187,9 @@ export async function getUserByResetToken(token: string) {
 }
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
-export async function getContacts(search?: string, isaId?: number, agentId?: number, page = 1, limit = 25, isaStatus?: string, marketId?: number, leadSourceId?: number, sortOrder: "asc" | "desc" = "desc", addedFrom?: string, addedTo?: string, lastContactedFrom?: string, lastContactedTo?: string) {
+type ContactSortBy = "name" | "email" | "phone" | "leadSource" | "connectionCount" | "isaStatus" | "assignedIsa" | "lastContacted" | "createdAt";
+
+export async function getContacts(search?: string, isaId?: number, agentId?: number, page = 1, limit = 25, isaStatus?: string, marketId?: number, leadSourceId?: number, sortOrder: "asc" | "desc" = "desc", sortBy: ContactSortBy = "createdAt", addedFrom?: string, addedTo?: string, lastContactedFrom?: string, lastContactedTo?: string) {
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, page, limit };
@@ -230,7 +232,22 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
       ELSE 4
     END`);
   }
-  orderExprs.push(sortOrder === "asc" ? asc(contacts.firstName) : desc(contacts.createdAt));
+  // Keep sorting on the database so it remains correct across paginated results.
+  // Each field is selected from an allowlisted expression rather than accepting SQL from the client.
+  const sortField = {
+    name: sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})`,
+    email: contacts.email,
+    phone: contacts.phone,
+    leadSource: sql`COALESCE((SELECT name FROM lead_sources WHERE id = ${contacts.leadSourceId}), '')`,
+    connectionCount: sql`(SELECT COUNT(*) FROM agent_connections WHERE contactId = ${contacts.id})`,
+    isaStatus: contacts.isaStatus,
+    assignedIsa: sql`COALESCE((SELECT name FROM users WHERE id = ${contacts.assignedIsaId}), '')`,
+    lastContacted: sql`(SELECT MAX(communicatedAt) FROM communications WHERE relatedContactId = ${contacts.id})`,
+    createdAt: contacts.createdAt,
+  }[sortBy];
+  orderExprs.push(sortOrder === "asc" ? asc(sortField) : desc(sortField));
+  // Deterministic ordering prevents duplicates or gaps when values are tied across pages.
+  orderExprs.push(desc(contacts.id));
   if (isaId === -1) {
     conditions.push(isNull(contacts.assignedIsaId));
   } else if (isaId) {

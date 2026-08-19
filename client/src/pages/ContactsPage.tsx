@@ -23,7 +23,7 @@ import PageHeader from "@/components/PageHeader";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { Plus, Search, User, Link2, Users, X, ChevronRight, Upload, TrendingUp, Phone, Mail, ArrowUpAZ, ArrowDownAZ, Calendar } from "lucide-react";
+import { Plus, Search, User, Link2, Users, X, ChevronRight, Upload, TrendingUp, Phone, Mail, ArrowUpAZ, ArrowDownAZ, ArrowUpDown, Calendar } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useLocation, useSearch } from "wouter";
@@ -61,6 +61,25 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
   new_lead: "New Lead", attempted_contact: "Attempted Contact", nurture: "Nurture",
   active_client: "Active Client", under_contract: "Under Contract", closed: "Closed", dead: "Dead", do_not_contact: "Do Not Contact",
 };
+
+const CONTACT_SORT_FIELDS = ["name", "email", "phone", "leadSource", "connectionCount", "isaStatus", "assignedIsa", "lastContacted", "createdAt"] as const;
+type ContactSortBy = (typeof CONTACT_SORT_FIELDS)[number];
+
+const CONTACT_SORT_OPTIONS: Array<{ value: ContactSortBy; label: string }> = [
+  { value: "createdAt", label: "Date Added" },
+  { value: "lastContacted", label: "Last Contacted" },
+  { value: "name", label: "Name" },
+  { value: "email", label: "Email" },
+  { value: "phone", label: "Phone" },
+  { value: "leadSource", label: "Lead Source" },
+  { value: "connectionCount", label: "Agent Connections" },
+  { value: "isaStatus", label: "ISA Status" },
+  { value: "assignedIsa", label: "Assigned ISA" },
+];
+
+function isContactSortBy(value: string | null): value is ContactSortBy {
+  return value !== null && (CONTACT_SORT_FIELDS as readonly string[]).includes(value);
+}
 
 // ─── URL Search Params helpers ────────────────────────────────────────────────
 
@@ -224,7 +243,9 @@ export default function ContactsPage() {
   const isaFilter = sp.get("isa") ?? (user?.role === "isa" ? String(user.id) : "all");
   const isaStatusFilter = sp.get("isaStatus") ?? "all";
   const leadSourceFilter = sp.get("leadSource") ?? "all";
-  const sortOrder = (sp.get("sort") ?? "desc") as "asc" | "desc";
+  const sortOrder = sp.get("sort") === "asc" ? "asc" : "desc";
+  const requestedSortBy = sp.get("sortBy");
+  const sortBy: ContactSortBy = isContactSortBy(requestedSortBy) ? requestedSortBy : "createdAt";
   const addedFrom = sp.get("addedFrom") ?? "";
   const addedTo = sp.get("addedTo") ?? "";
   const lastContactedFrom = sp.get("lastFrom") ?? "";
@@ -235,7 +256,7 @@ export default function ContactsPage() {
   const setParams = useCallback((updates: Record<string, string>) => {
     const current = new URLSearchParams(rawSearch);
     for (const [k, v] of Object.entries(updates)) {
-      if (v === "" || (v === "all" && k !== "isa") || (k === "page" && v === "1") || (k === "sort" && v === "desc")) {
+      if (v === "" || (v === "all" && k !== "isa") || (k === "page" && v === "1") || (k === "sort" && v === "desc") || (k === "sortBy" && v === "createdAt")) {
         current.delete(k);
       } else {
         current.set(k, v);
@@ -258,7 +279,15 @@ export default function ContactsPage() {
   const handleIsaFilterChange = (val: string) => setParams({ isa: val, page: "1" });
   const handleIsaStatusFilterChange = (val: string) => setParams({ isaStatus: val, page: "1" });
   const handleLeadSourceFilterChange = (val: string) => setParams({ leadSource: val, page: "1" });
-  const handleSortToggle = () => setParams({ sort: sortOrder === "asc" ? "desc" : "asc" });
+  const handleColumnSort = (field: ContactSortBy) => {
+    const isCurrentField = sortBy === field;
+    const defaultOrder = ["createdAt", "lastContacted", "connectionCount"].includes(field) ? "desc" : "asc";
+    setParams({
+      sortBy: field,
+      sort: isCurrentField ? (sortOrder === "asc" ? "desc" : "asc") : defaultOrder,
+      page: "1",
+    });
+  };
   const handleAddedFromChange = (val: string) => setParams({ addedFrom: val, page: "1" });
   const handleAddedToChange = (val: string) => setParams({ addedTo: val, page: "1" });
   const handleLastContactedFromChange = (val: string) => setParams({ lastFrom: val, page: "1" });
@@ -323,6 +352,7 @@ export default function ContactsPage() {
     page,
     limit: 25,
     sortOrder,
+    sortBy,
     addedFrom: addedFrom || undefined,
     addedTo: addedTo || undefined,
     lastContactedFrom: lastContactedFrom || undefined,
@@ -481,6 +511,27 @@ export default function ContactsPage() {
   ];
 
   const hasDateFilters = addedFrom || addedTo || lastContactedFrom || lastContactedTo;
+  const activeSortLabel = CONTACT_SORT_OPTIONS.find((option) => option.value === sortBy)?.label ?? "Date Added";
+  const SortableHeader = ({ field, label }: { field: ContactSortBy; label: string }) => {
+    const isActive = sortBy === field;
+    const direction = sortOrder === "asc" ? "ascending" : "descending";
+    return (
+      <th className="text-left py-3 px-4 text-muted-foreground font-medium">
+        <button
+          type="button"
+          onClick={() => handleColumnSort(field)}
+          className="inline-flex items-center gap-1 rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label={`Sort by ${label}${isActive ? `, currently ${direction}` : ""}`}
+          aria-pressed={isActive}
+        >
+          {label}
+          {isActive
+            ? (sortOrder === "asc" ? <ArrowUpAZ className="h-3.5 w-3.5" /> : <ArrowDownAZ className="h-3.5 w-3.5" />)
+            : <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />}
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div>
@@ -553,16 +604,26 @@ export default function ContactsPage() {
             </SelectContent>
           </Select>
         )}
+        <Select value={sortBy} onValueChange={(value) => handleColumnSort(value as ContactSortBy)}>
+          <SelectTrigger className="w-full sm:w-44" aria-label="Sort contacts by">
+            <SelectValue placeholder="Sort contacts" />
+          </SelectTrigger>
+          <SelectContent>
+            {CONTACT_SORT_OPTIONS
+              .filter((option) => option.value !== "connectionCount" || user?.role === "admin")
+              .filter((option) => !["isaStatus", "assignedIsa"].includes(option.value) || user?.role === "admin" || user?.role === "isa")
+              .map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Button
           variant="outline"
           size="sm"
-          className="shrink-0 gap-1.5"
-          onClick={handleSortToggle}
-          title={sortOrder === "asc" ? "Sorted A → Z (click for Z → A)" : "Sorted Z → A (click for A → Z)"}
+          className="shrink-0"
+          onClick={() => handleColumnSort(sortBy)}
+          title={`Sort ${activeSortLabel} ${sortOrder === "asc" ? "ascending" : "descending"}; click to reverse`}
+          aria-label={`Reverse ${activeSortLabel} sort order`}
         >
-          {sortOrder === "asc"
-            ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></>
-            : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
+          {sortOrder === "asc" ? <ArrowUpAZ className="h-4 w-4" /> : <ArrowDownAZ className="h-4 w-4" />}
         </Button>
 
         {/* Date Filters Popover */}
@@ -748,21 +809,15 @@ export default function ContactsPage() {
                       />
                     </th>
                   )}
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Name</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Email</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Phone</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Lead Source</th>
-                  {user?.role === "admin" && (
-                    <th className="text-left py-3 px-4 text-muted-foreground font-medium">Agent Connections</th>
-                  )}
-                  {(user?.role === "admin" || user?.role === "isa") && (
-                    <th className="text-left py-3 px-4 text-muted-foreground font-medium">ISA Status</th>
-                  )}
-                  {(user?.role === "admin" || user?.role === "isa") && (
-                    <th className="text-left py-3 px-4 text-muted-foreground font-medium">Assigned ISA</th>
-                  )}
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Last Contacted</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Added</th>
+                  <SortableHeader field="name" label="Name" />
+                  <SortableHeader field="email" label="Email" />
+                  <SortableHeader field="phone" label="Phone" />
+                  <SortableHeader field="leadSource" label="Lead Source" />
+                  {user?.role === "admin" && <SortableHeader field="connectionCount" label="Agent Connections" />}
+                  {(user?.role === "admin" || user?.role === "isa") && <SortableHeader field="isaStatus" label="ISA Status" />}
+                  {(user?.role === "admin" || user?.role === "isa") && <SortableHeader field="assignedIsa" label="Assigned ISA" />}
+                  <SortableHeader field="lastContacted" label="Last Contacted" />
+                  <SortableHeader field="createdAt" label="Added" />
                   <th className="py-3 px-4"></th>
                 </tr>
               </thead>
