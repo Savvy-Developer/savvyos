@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,12 +33,21 @@ type ProformaEmailComposerProps = {
   propertyLabel: string;
   summary: {
     purchasePrice: number;
+    downPayment: number;
+    closingCosts: number;
+    loanAmount: number;
+    monthlyDebtService: number;
     totalCashNeeded: number;
+    adr: number;
+    occupancy: number;
+    bookedNights: number;
     grossRevenue: number;
+    totalExpenses: number;
     noi: number;
     cashFlow: number;
     cashOnCash: number;
     capRate: number;
+    dscr: number;
   };
   onSent?: () => void;
 };
@@ -75,6 +85,17 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function metricRow(label: string, value: string, shaded = false): string {
+  return `<tr${shaded ? ' style="background:#f8fafc;"' : ""}><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">${label}</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;color:#0f172a;">${value}</td></tr>`;
+}
+
+function metricTable(title: string, rows: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:18px 0;border:1px solid #e2e8f0;font-size:14px;">
+  <tr style="background:#0f766e;color:#ffffff;"><td colspan="2" style="padding:10px 12px;font-weight:700;">${title}</td></tr>
+  ${rows}
+</table>`;
+}
+
 function buildEmailTemplate(
   propertyLabel: string,
   proformaTitle: string,
@@ -82,22 +103,68 @@ function buildEmailTemplate(
 ): string {
   const safePropertyLabel = escapeHtml(propertyLabel || "this property");
   const safeTitle = escapeHtml(proformaTitle || "STR Investment Analysis");
+  const acquisition = metricTable(
+    "Acquisition & Financing",
+    [
+      metricRow("Purchase Price", formatCurrency(summary.purchasePrice)),
+      metricRow("Down Payment", formatCurrency(summary.downPayment), true),
+      metricRow("Closing Costs", formatCurrency(summary.closingCosts)),
+      metricRow("Loan Amount", formatCurrency(summary.loanAmount), true),
+      metricRow("Total Cash Needed", formatCurrency(summary.totalCashNeeded)),
+      metricRow(
+        "Monthly Debt Service",
+        formatCurrency(summary.monthlyDebtService),
+        true
+      ),
+    ].join("")
+  );
+  const operations = metricTable(
+    "Base-Case STR Operating Assumptions",
+    [
+      metricRow("Average Daily Rate", formatCurrency(summary.adr)),
+      metricRow("Occupancy", formatPercent(summary.occupancy), true),
+      metricRow(
+        "Projected Booked Nights",
+        new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(
+          summary.bookedNights
+        )
+      ),
+      metricRow(
+        "Projected Annual Revenue",
+        formatCurrency(summary.grossRevenue),
+        true
+      ),
+      metricRow(
+        "Projected Annual Expenses",
+        formatCurrency(summary.totalExpenses)
+      ),
+    ].join("")
+  );
+  const returns = metricTable(
+    "Base-Case Investment Returns",
+    [
+      metricRow("Projected Annual NOI", formatCurrency(summary.noi)),
+      metricRow(
+        "Projected Annual Cash Flow",
+        formatCurrency(summary.cashFlow),
+        true
+      ),
+      metricRow("Cash-on-Cash Return", formatPercent(summary.cashOnCash)),
+      metricRow("Cap Rate", formatPercent(summary.capRate), true),
+      metricRow(
+        "Debt Service Coverage Ratio",
+        Number.isFinite(summary.dscr) ? summary.dscr.toFixed(2) + "x" : "N/A"
+      ),
+    ].join("")
+  );
   return `<p>Hello,</p>
 <p>I wanted to share the proforma for <strong>${safePropertyLabel}</strong>.</p>
 <p><strong>${safeTitle}</strong></p>
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:18px 0;border:1px solid #e2e8f0;font-size:14px;">
-  <tr style="background:#0f766e;color:#ffffff;">
-    <td colspan="2" style="padding:10px 12px;font-weight:700;">Base-Case Investment Snapshot</td>
-  </tr>
-  <tr><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Purchase Price</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatCurrency(summary.purchasePrice)}</td></tr>
-  <tr style="background:#f8fafc;"><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Total Cash Needed</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatCurrency(summary.totalCashNeeded)}</td></tr>
-  <tr><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Projected Annual Revenue</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatCurrency(summary.grossRevenue)}</td></tr>
-  <tr style="background:#f8fafc;"><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Projected Annual NOI</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatCurrency(summary.noi)}</td></tr>
-  <tr><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Projected Annual Cash Flow</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatCurrency(summary.cashFlow)}</td></tr>
-  <tr style="background:#f8fafc;"><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Cash-on-Cash Return</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatPercent(summary.cashOnCash)}</td></tr>
-  <tr><td style="padding:9px 12px;border-top:1px solid #e2e8f0;color:#475569;">Cap Rate</td><td style="padding:9px 12px;border-top:1px solid #e2e8f0;text-align:right;font-weight:600;">${formatPercent(summary.capRate)}</td></tr>
-</table>
-<p>These are preliminary projections based on the assumptions in the attached analysis and should be reviewed as part of your due diligence. I would be happy to walk through the details and answer any questions.</p>
+<p style="margin:0;color:#475569;font-size:13px;">The complete unbranded base-case analysis is included below for easy review—there is no attachment required.</p>
+${acquisition}
+${operations}
+${returns}
+<p>These preliminary projections are based on the assumptions summarized above and should be reviewed as part of your due diligence. I would be happy to walk through the details and answer any questions.</p>
 <p>Best,</p>`;
 }
 
@@ -111,6 +178,7 @@ export default function ProformaEmailComposer({
   summary,
   onSent,
 }: ProformaEmailComposerProps) {
+  const { user } = useAuth();
   const utils = trpc.useUtils();
   const [recipientMode, setRecipientMode] = useState<RecipientMode>("contact");
   const [contactSearch, setContactSearch] = useState("");
@@ -133,7 +201,15 @@ export default function ProformaEmailComposer({
       proformaTitle,
       summary.purchasePrice,
       summary.totalCashNeeded,
+      summary.downPayment,
+      summary.closingCosts,
+      summary.loanAmount,
+      summary.monthlyDebtService,
+      summary.adr,
+      summary.occupancy,
+      summary.bookedNights,
       summary.grossRevenue,
+      summary.totalExpenses,
       summary.noi,
       summary.cashFlow,
       summary.cashOnCash,
@@ -255,9 +331,11 @@ export default function ProformaEmailComposer({
 
           <div className="space-y-5 py-1">
             <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm">
-              This editable template includes the base-case proforma summary for{" "}
-              <strong>{propertyLabel || "this property"}</strong>. Your saved
-              Email Signature is appended automatically when it is sent.
+              This editable, unbranded HTML proforma includes the full base-case
+              investment snapshot for{" "}
+              <strong>{propertyLabel || "this property"}</strong>. Recipients
+              can review it directly in the email; your saved Email Signature is
+              appended automatically when it is sent.
             </div>
 
             {!profileLoading && !hasEmailSignature && (
@@ -427,9 +505,19 @@ export default function ProformaEmailComposer({
               </p>
             </div>
 
-            <div className="text-xs text-muted-foreground border-t pt-3">
-              Emails are sent through Savvy STR Agents. Replies will go to your
-              SavvyOS profile email.
+            <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground">
+              <p>
+                <strong className="text-foreground">From:</strong>{" "}
+                {user?.name || "Your SavvyOS name"} via Savvy STR Agents
+              </p>
+              <p>
+                <strong className="text-foreground">Reply-to:</strong>{" "}
+                {user?.email || "Your SavvyOS login email"}
+              </p>
+              <p>
+                Your saved Email Signature is included beneath the proforma in
+                the delivered message.
+              </p>
             </div>
           </div>
 
@@ -475,6 +563,14 @@ export default function ProformaEmailComposer({
             <div className="rounded-lg border bg-muted/30 p-3 text-sm">
               <p>
                 <span className="font-medium">To:</span> {recipientPreview}
+              </p>
+              <p className="mt-1 break-words">
+                <span className="font-medium">From:</span>{" "}
+                {user?.name || "Your SavvyOS name"} via Savvy STR Agents
+              </p>
+              <p className="mt-1 break-words">
+                <span className="font-medium">Reply-to:</span>{" "}
+                {user?.email || "Your SavvyOS login email"}
               </p>
               <p className="mt-1 break-words">
                 <span className="font-medium">Subject:</span>{" "}

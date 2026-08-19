@@ -2026,12 +2026,21 @@ export default function ProformaPage() {
         propertyLabel={[property?.address, [property?.city, property?.state, property?.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
         summary={{
           purchasePrice: calc.pp,
+          downPayment: calc.downPayment,
+          closingCosts: calc.closingCosts,
+          loanAmount: calc.loanAmount,
+          monthlyDebtService: calc.monthlyMortgage,
           totalCashNeeded: calc.totalCashNeeded,
+          adr: calc.s2.adr,
+          occupancy: calc.s2.occ,
+          bookedNights: calc.s2.soldNights,
           grossRevenue: calc.s2.grossRevenue,
+          totalExpenses: calc.s2.totalExpensesAnnual,
           noi: calc.s2.noi,
           cashFlow: calc.s2.cashFlow,
           cashOnCash: calc.s2.cashOnCash,
           capRate: calc.s2.capRate,
+          dscr: calc.s2.dscr,
         }}
       />
     </div>

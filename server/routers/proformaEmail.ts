@@ -21,6 +21,17 @@ const OUTREACH_FROM_ADDRESS =
 const RESEND_EMAIL_ENDPOINT = "https://api.resend.com/emails";
 const ALLOWED_ROLES = new Set(["admin", "agent", "isa"]);
 
+function outboundMailbox(): string {
+  const bracketed = OUTREACH_FROM_ADDRESS.match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/);
+  return bracketed?.[1] ?? OUTREACH_FROM_ADDRESS.trim();
+}
+
+function personalizedFromAddress(senderName: string): string {
+  const safeName =
+    senderName.replace(/["<>\r\n]/g, "").trim() || "Savvy STR Agents";
+  return `${safeName} <${outboundMailbox()}>`;
+}
+
 type EmailRecipient = {
   email: string;
   firstName: string;
@@ -340,7 +351,7 @@ export const proformaEmailRouter = router({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: OUTREACH_FROM_ADDRESS,
+            from: personalizedFromAddress(senderName),
             to: [recipient.email],
             reply_to: replyTo,
             subject: renderedSubject,
@@ -406,6 +417,8 @@ export const proformaEmailRouter = router({
             contactId: recipient.contactId,
             proformaTitle: input.proformaTitle,
             resendMessageId,
+            fromName: senderName,
+            replyTo,
           },
         }),
       ]);
