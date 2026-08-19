@@ -513,32 +513,215 @@ const plannerSchema = {
   additionalProperties: false,
 };
 
+function localDate(value: Date): string {
+  const offset = value.getTimezoneOffset() * 60_000;
+  return new Date(value.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function deterministicDateRange(
+  prompt: string
+): Pick<CustomReportDefinition, "dateFrom" | "dateTo"> {
+  const normalized = prompt.toLowerCase();
+  const today = new Date();
+  const todayValue = localDate(today);
+  if (/\b(this|current) quarter\b/.test(normalized)) {
+    const quarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
+    return {
+      dateFrom: localDate(new Date(today.getFullYear(), quarterStartMonth, 1)),
+      dateTo: todayValue,
+    };
+  }
+  if (/\blast quarter\b/.test(normalized)) {
+    const currentQuarterStart = Math.floor(today.getMonth() / 3) * 3;
+    const end = new Date(today.getFullYear(), currentQuarterStart, 0);
+    const start = new Date(
+      end.getFullYear(),
+      Math.floor(end.getMonth() / 3) * 3,
+      1
+    );
+    return { dateFrom: localDate(start), dateTo: localDate(end) };
+  }
+  if (/\b(this|current) year\b|\bytd\b|\byear to date\b/.test(normalized)) {
+    return {
+      dateFrom: localDate(new Date(today.getFullYear(), 0, 1)),
+      dateTo: todayValue,
+    };
+  }
+  if (/\blast year\b/.test(normalized)) {
+    return {
+      dateFrom: `${today.getFullYear() - 1}-01-01`,
+      dateTo: `${today.getFullYear() - 1}-12-31`,
+    };
+  }
+  const lastDays = normalized.match(/\blast\s+(\d{1,3})\s+days?\b/);
+  if (lastDays) {
+    const days = Math.max(1, Math.min(365, Number(lastDays[1])));
+    const start = new Date(today);
+    start.setDate(start.getDate() - days + 1);
+    return { dateFrom: localDate(start), dateTo: todayValue };
+  }
+  if (/\b(this|current) month\b/.test(normalized)) {
+    return {
+      dateFrom: localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
+      dateTo: todayValue,
+    };
+  }
+  return { dateFrom: null, dateTo: null };
+}
+
+function deterministicCustomReportPlan(prompt: string): CustomReportDefinition {
+  const normalized = prompt.toLowerCase();
+  const wantsContacts =
+    /\b(contact|contacts|lead|leads|isa|email|emails|do not contact|dnc)\b/.test(
+      normalized
+    );
+  const dataset: CustomReportDefinition["dataset"] = wantsContacts
+    ? "contacts"
+    : "transactions";
+  const dateRange = deterministicDateRange(normalized);
+
+  if (dataset === "contacts") {
+    const groupBy: CustomReportDefinition["groupBy"] =
+      /\b(lead source|source)\b/.test(normalized)
+        ? "lead_source"
+        : /\b(assigned isa|\bisa\b)\b/.test(normalized)
+          ? "assigned_isa"
+          : /\b(state|states)\b/.test(normalized)
+            ? "contact_state"
+            : /\b(status|statuses)\b/.test(normalized)
+              ? "contact_status"
+              : /\b(month|monthly)\b/.test(normalized)
+                ? "contact_created_month"
+                : "none";
+    const metrics: CustomReportDefinition["metrics"] = ["contact_count"];
+    if (/\b(valid email|email quality|emails)\b/.test(normalized))
+      metrics.push("valid_email_count");
+    if (/\b(do not contact|dnc|opted out)\b/.test(normalized))
+      metrics.push("do_not_contact_count");
+    return customReportDefinitionSchema.parse({
+      dataset,
+      title: "Custom Contact Report",
+      description:
+        "SavvyOS applied a safe contact-reporting interpretation of your request. You can save or refine this approved definition after review.",
+      metrics,
+      groupBy,
+      ...dateRange,
+      dateBasis: "created",
+      transactionStatus: "all",
+      transactionType: "all",
+      agentIds: [],
+      leadSourceIds: [],
+      sortMetric: metrics[0],
+      sortDirection: "desc",
+      limit: 100,
+    });
+  }
+
+  const groupBy: CustomReportDefinition["groupBy"] =
+    /\b(by|per) agent\b|\bagents?\b/.test(normalized)
+      ? "agent"
+      : /\b(status|statuses)\b/.test(normalized)
+        ? "transaction_status"
+        : /\b(type|buyer|seller|dual)\b/.test(normalized)
+          ? "transaction_type"
+          : /\b(month|monthly)\b/.test(normalized)
+            ? "closing_month"
+            : /\b(lead source|source)\b/.test(normalized)
+              ? "lead_source"
+              : "none";
+  const metrics: CustomReportDefinition["metrics"] = [];
+  if (/\b(closed|closings)\b/.test(normalized)) metrics.push("closed_count");
+  if (/\b(under contract|pending)\b/.test(normalized))
+    metrics.push("under_contract_count");
+  if (/\b(volume|purchase price|purchase volume)\b/.test(normalized))
+    metrics.push("purchase_volume");
+  if (/\b(gci|gross commission|commission)\b/.test(normalized))
+    metrics.push("gross_commission");
+  if (/\b(savvy net|net revenue|company net)\b/.test(normalized))
+    metrics.push("savvy_net");
+  if (metrics.length === 0) metrics.push("transaction_count");
+  const transactionStatus: CustomReportDefinition["transactionStatus"] =
+    /\bunder contract\b/.test(normalized)
+      ? "under_contract"
+      : /\bclosed\b/.test(normalized)
+        ? "closed"
+        : /\bterminated\b/.test(normalized)
+          ? "terminated"
+          : "all";
+  const transactionType: CustomReportDefinition["transactionType"] =
+    /\bdual\b/.test(normalized)
+      ? "dual"
+      : /\bbuyer\b/.test(normalized)
+        ? "buyer"
+        : /\bseller\b/.test(normalized)
+          ? "seller"
+          : "all";
+  return customReportDefinitionSchema.parse({
+    dataset,
+    title: "Custom Transaction Report",
+    description:
+      "SavvyOS applied a safe transaction-reporting interpretation of your request. You can save or refine this approved definition after review.",
+    metrics,
+    groupBy,
+    ...dateRange,
+    dateBasis: /\bcontract\b/.test(normalized) ? "contract" : "closing",
+    transactionStatus,
+    transactionType,
+    agentIds: [],
+    leadSourceIds: [],
+    sortMetric: metrics[0],
+    sortDirection: "desc",
+    limit: 100,
+  });
+}
+
+function hasManagedForgeProvider(): boolean {
+  return Boolean(
+    process.env.BUILT_IN_FORGE_API_URL?.trim() &&
+      process.env.BUILT_IN_FORGE_API_KEY?.trim()
+  );
+}
+
 export async function planCustomReport(
   prompt: string
 ): Promise<CustomReportDefinition> {
-  const response = await invokeLLM({
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are SavvyOS's report planner. Convert an administrator's natural-language request into one safe report definition. You never create SQL, never request personal contact details, and only use the provided schema. Transaction metrics may only be grouped by none, agent, status, type, closing month, or lead source. Contact metrics may only be grouped by none, lead source, contact status, state, created month, or assigned ISA. Use only numeric record-count, status-count, purchase-volume, commission, Savvy-net, do-not-contact, and valid-email measures. If the request is ambiguous, choose a sensible aggregate report and explain the assumptions in description. Date values must use YYYY-MM-DD or null. Do not invent agent or lead-source IDs; use empty arrays when no specific ID was supplied.",
+  // Do not fall through to direct OpenAI billing when a managed Forge provider was
+  // not configured for this Railway service. The deterministic planner preserves a
+  // safe, useful reporting path until a managed model provider is available.
+  if (!hasManagedForgeProvider()) return deterministicCustomReportPlan(prompt);
+
+  try {
+    const response = await invokeLLM({
+      model: process.env.CUSTOM_REPORTS_MODEL?.trim() || "gpt-5-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are SavvyOS's report planner. Convert an administrator's natural-language request into one safe report definition. You never create SQL, never request personal contact details, and only use the provided schema. Transaction metrics may only be grouped by none, agent, status, type, closing month, or lead source. Contact metrics may only be grouped by none, lead source, contact status, state, created month, or assigned ISA. Use only numeric record-count, status-count, purchase-volume, commission, Savvy-net, do-not-contact, and valid-email measures. If the request is ambiguous, choose a sensible aggregate report and explain the assumptions in description. Date values must use YYYY-MM-DD or null. Do not invent agent or lead-source IDs; use empty arrays when no specific ID was supplied.",
+        },
+        { role: "user", content: prompt },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "custom_report_definition",
+          strict: true,
+          schema: plannerSchema,
+        },
       },
-      { role: "user", content: prompt },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "custom_report_definition",
-        strict: true,
-        schema: plannerSchema,
-      },
-    },
-    maxTokens: 1_800,
-  });
-  const content = response.choices[0]?.message?.content;
-  if (typeof content !== "string")
-    throw new Error("The report planner returned an empty response.");
-  return customReportDefinitionSchema.parse(JSON.parse(content));
+      maxTokens: 1_800,
+    });
+    const content = response.choices[0]?.message?.content;
+    if (typeof content !== "string")
+      throw new Error("The report planner returned an empty response.");
+    return customReportDefinitionSchema.parse(JSON.parse(content));
+  } catch (error) {
+    console.warn(
+      "[Custom Reports] Managed planner unavailable; using safe deterministic planner.",
+      error
+    );
+    return deterministicCustomReportPlan(prompt);
+  }
 }
 
 export function suggestedCustomReportPrompts(): string[] {
