@@ -88,6 +88,7 @@ import ProfilePage from "./pages/ProfilePage";
 import DevRoleSwitcher from "./components/DevRoleSwitcher";
 import DevLoginScreen from "./components/DevLoginScreen";
 import ActivityDownloadTracker from "./components/ActivityDownloadTracker";
+import IsaActivityTracker from "./components/IsaActivityTracker";
 import LoginPage from "./pages/LoginPage";
 import CareersPage from "./pages/CareersPage";
 import JobBoardAdminPage from "./pages/JobBoardAdminPage";
@@ -179,7 +180,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return <><ActivityDownloadTracker />{children}</>;
+  return <><ActivityDownloadTracker /><IsaActivityTracker />{children}</>;
 }
 
 function IsmDashboardRoute({ children }: { children: React.ReactNode }) {

@@ -3053,6 +3053,82 @@ export async function getAgentMonthlyGci(year: number) {
   return rows;
 }
 
+// ─── ISM Activity Log ─────────────────────────────────────────────────────────
+export async function getIsmActivityLog(opts: {
+  page?: number;
+  limit?: number;
+  isaIds?: number[];
+  entityTypes?: string[];
+  actions?: string[];
+  dateFrom?: Date;
+  dateTo?: Date;
+}) {
+  const db = await getDb();
+  if (!db) return { rows: [], total: 0, isas: [] };
+
+  const page = Math.max(1, opts.page ?? 1);
+  const limit = Math.min(Math.max(1, opts.limit ?? 50), 100);
+  const offset = (page - 1) * limit;
+  const isaIds = Array.from(
+    new Set((opts.isaIds ?? []).filter(id => Number.isInteger(id) && id > 0))
+  );
+  const conditions: any[] = [eq(users.role, "isa")];
+  if (isaIds.length) conditions.push(inArray(activityLog.userId, isaIds));
+  if (opts.entityTypes?.length) {
+    conditions.push(inArray(activityLog.entityType as any, opts.entityTypes));
+  }
+  if (opts.actions?.length) {
+    conditions.push(inArray(activityLog.action, opts.actions));
+  }
+  if (opts.dateFrom) conditions.push(gte(activityLog.createdAt, opts.dateFrom));
+  if (opts.dateTo) conditions.push(lte(activityLog.createdAt, opts.dateTo));
+  const where = and(...conditions);
+
+  const [rows, countResult, isas] = await Promise.all([
+    db
+      .select({
+        log: activityLog,
+        user: {
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+          title: users.title,
+          isActive: users.isActive,
+        },
+      })
+      .from(activityLog)
+      .innerJoin(users, eq(activityLog.userId, users.id))
+      .where(where)
+      .orderBy(desc(activityLog.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(activityLog)
+      .innerJoin(users, eq(activityLog.userId, users.id))
+      .where(where),
+    db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        title: users.title,
+        isActive: users.isActive,
+      })
+      .from(users)
+      .where(eq(users.role, "isa"))
+      .orderBy(asc(users.name)),
+  ]);
+
+  const enrichedRows = await resolveActivityRecordLinks(db, rows as any);
+  return {
+    rows: enrichedRows,
+    total: Number(countResult[0]?.count ?? 0),
+    isas,
+  };
+}
+
 // ─── Global Activity Log (admin timeline) ─────────────────────────────────────
 export async function getGlobalActivityLog(opts: {
   page?: number;

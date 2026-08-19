@@ -57,6 +57,7 @@ import {
   updateMarketGoal,
   getAgentMonthlyGci,
   getGlobalActivityLog,
+  getIsmActivityLog,
   getMyCareerStats,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -134,6 +135,16 @@ const ismDashboardInput = z.object({
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isaIds: z.array(z.number().int().positive()).max(25).optional(),
   leadSourceId: z.number().int().positive().optional(),
+});
+
+const ismActivityLogInput = z.object({
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(100).default(50),
+  isaIds: z.array(z.number().int().positive()).max(25).optional(),
+  entityTypes: z.array(z.string().min(1).max(64)).max(20).optional(),
+  actions: z.array(z.string().min(1).max(255)).max(20).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const reportingSuiteInput = z.object({
@@ -283,6 +294,47 @@ export const analyticsRouter = router({
         });
       }
       return getIsmDashboard(input ?? {});
+    }),
+
+  /**
+   * Paginated ISA-only audit feed for the ISM dashboard. It includes existing
+   * successful action records plus page and contact openings captured for ISAs.
+   */
+  ismActivityLog: protectedProcedure
+    .input(ismActivityLogInput)
+    .query(async ({ ctx, input }) => {
+      const allowed =
+        ctx.user.role === "admin" &&
+        (await canAdminUsePermission(ctx.user, "canViewIsmDashboard"));
+      if (!allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ISM Dashboard access is required.",
+        });
+      }
+
+      const dateFrom = input.dateFrom
+        ? new Date(`${input.dateFrom}T00:00:00.000Z`)
+        : undefined;
+      const dateTo = input.dateTo
+        ? new Date(`${input.dateTo}T23:59:59.999Z`)
+        : undefined;
+      if (dateFrom && dateTo && dateFrom > dateTo) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The start date must be on or before the end date.",
+        });
+      }
+
+      return getIsmActivityLog({
+        page: input.page,
+        limit: input.limit,
+        isaIds: input.isaIds,
+        entityTypes: input.entityTypes,
+        actions: input.actions,
+        dateFrom,
+        dateTo,
+      });
     }),
 
   /** Shared weekly and monthly peer benchmarks for healthy ISA team gamification. */

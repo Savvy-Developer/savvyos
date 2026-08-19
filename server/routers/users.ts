@@ -9,6 +9,7 @@ import {
   deleteUser,
   getDb,
   getGlobalActivityLog,
+  logActivity,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut } from "../storage";
@@ -75,6 +76,27 @@ function sanitizeEmailSignatureHtml(value: string): string {
     .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]+)/gi, " $1=\"#\"")
     .trim();
+}
+
+function describeIsaPage(path: string): string {
+  const labels: Array<[RegExp, string]> = [
+    [/^\/$/, "ISA Dashboard"],
+    [/^\/contacts$/, "All Contacts"],
+    [/^\/contacts\/\d+$/, "Contact"],
+    [/^\/hot-leads$/, "Hot Leads"],
+    [/^\/pipeline(?:\/|$)/, "Agent Pipelines"],
+    [/^\/connection-requests$/, "Connection Requests"],
+    [/^\/request-connection$/, "Request Connection"],
+    [/^\/tasks(?:\/|$)/, "Tasks"],
+    [/^\/isa-stats$/, "My Performance"],
+    [/^\/market-match-call$/, "Market Match Call"],
+    [/^\/market-match-config$/, "Market Match Hub"],
+    [/^\/org-chart$/, "Org Chart"],
+    [/^\/referrals(?:\/|$)/, "Referrals"],
+    [/^\/kb$/, "Knowledge Base"],
+    [/^\/profile$/, "Profile"],
+  ];
+  return labels.find(([matcher]) => matcher.test(path))?.[1] ?? "SavvyOS page";
 }
 
 function hasMeaningfulEmailSignature(value: string): boolean {
@@ -256,6 +278,35 @@ export const usersRouter = router({
         documentCount: countMap.get(u.id) ?? 0,
         profilePhotoUrl: photoMap.get(u.id) ?? null,
       }));
+    }),
+
+  /**
+   * Records a page-open event for the signed-in ISA. Entity classification is
+   * derived from the pathname on the server so an ISA cannot submit activity
+   * for another user or arbitrary records.
+   */
+  trackIsaNavigation: protectedProcedure
+    .input(z.object({ path: z.string().min(1).max(512).startsWith("/") }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "isa") return { recorded: false };
+
+      const path = input.path.split("?")[0]?.split("#")[0] || "/";
+      const contactMatch = path.match(/^\/contacts\/(\d+)$/);
+      const contactId = contactMatch ? Number(contactMatch[1]) : undefined;
+
+      await logActivity({
+        userId: ctx.user.id,
+        action: contactId ? "contact_opened" : "page_opened",
+        entityType: contactId ? "contact" : "page",
+        entityId: contactId,
+        relatedContactId: contactId,
+        details: {
+          path,
+          pageName: describeIsaPage(path),
+        },
+      });
+
+      return { recorded: true };
     }),
 
   /**

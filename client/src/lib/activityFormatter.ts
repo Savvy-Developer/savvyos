@@ -254,6 +254,18 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "alert";
       break;
 
+    case "contact_opened":
+      title = "Opened a contact";
+      lines = details.contactName ? [`Contact: ${details.contactName}`] : [];
+      icon = "info";
+      break;
+
+    case "page_opened":
+      title = "Opened a page";
+      lines = details.pageName ? [String(details.pageName)] : [];
+      icon = "info";
+      break;
+
     case "contacts_bulk_assign_isa": {
       title = "Bulk ISA assignment";
       const isaName = details.isaName as string | undefined;
