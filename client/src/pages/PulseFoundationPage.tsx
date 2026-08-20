@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import PulseWorkItemsPage from "@/pages/PulseWorkItemsPage";
+import PulseMeetingDashboardPage from "@/pages/PulseMeetingDashboardPage";
 import { useMemo, useState } from "react";
 
 type Meeting = {
@@ -145,41 +146,8 @@ function MeetingsList({ meetings, glossary, query }: { meetings: Meeting[]; glos
   );
 }
 
-function MeetingDetail({ meetingId, glossary }: { meetingId: string; glossary: GlossaryEntry[] }) {
-  const { data: meeting, isLoading, error } = trpc.pulse.get.useQuery({ meetingId });
-
-  if (isLoading) {
-    return <div className="max-w-3xl space-y-4"><Skeleton className="h-8 w-72" /><Skeleton className="h-24 w-full" /><Skeleton className="h-24 w-full" /></div>;
-  }
-  if (error || !meeting) {
-    return <EmptyInstruction actionHref="/pulse/meetings" actionLabel="Go to your meetings">This meeting no longer exists. Go to your meetings to choose one you can access.</EmptyInstruction>;
-  }
-
-  const enabledSections = meeting.sectionOrder.filter((section: string) => meeting.sectionsEnabled?.[section]);
-  return (
-    <div className="max-w-3xl space-y-6">
-      <div>
-        <Link href="/pulse/meetings" className="inline-flex min-h-11 items-center text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" /> Your meetings
-        </Link>
-        <PageHeading question={`What is happening in ${meeting.name}?`} detail="This meeting is visible because you are a member. Work from other meetings is not shown here." />
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">This meeting is ready</CardTitle>
-          <CardDescription className="text-base">The foundation is in place. Meeting sections will appear here as the next Pulse workflows are added.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Enabled sections: {enabledSections.length ? enabledSections.join(", ") : "None yet"}.</p>
-        </CardContent>
-      </Card>
-
-      <PulseWorkItemsPage meetingId={meetingId} meetingName={meeting.name} compact />
-
-      <p className="text-sm text-muted-foreground"><Term term="Rocks" glossary={glossary} /> and <Term term="Segue" glossary={glossary} /> are explained the first time they appear, so Pulse stays clear for everyone.</p>
-    </div>
-  );
+function MeetingDetail({ meetingId }: { meetingId: string }) {
+  return <PulseMeetingDashboardPage meetingId={meetingId} />;
 }
 
 export default function PulseFoundationPage() {
@@ -197,7 +165,7 @@ export default function PulseFoundationPage() {
     return <div className="mx-auto max-w-3xl space-y-5"><Skeleton className="h-8 w-64" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>;
   }
 
-  if (meetingId) return <MeetingDetail meetingId={meetingId} glossary={glossary as GlossaryEntry[]} />;
+  if (meetingId) return <MeetingDetail meetingId={meetingId} />;
 
   if (location === "/pulse/meetings") {
     return (

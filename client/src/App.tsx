@@ -106,6 +106,7 @@ import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
+import PulseMeetingRunPage from "./pages/PulseMeetingRunPage";
 import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
@@ -271,6 +272,7 @@ function Router() {
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
           <Route path="/pulse/slice" component={PulseThinSlicePage} />
+          <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMeetingRunPage meetingId={id} />}</Route>
           <Route path="/pulse/meetings/:id" component={PulseFoundationPage} />
           <Route path="/pulse/meetings" component={PulseFoundationPage} />
           <Route path="/pulse/work" component={PulseFoundationPage} />

@@ -1,0 +1,489 @@
+{
+  "generatedAt": "2026-08-20T18:38:19.234Z",
+  "fixture": {
+    "meetingA": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+    "meetingC": "f5fd508e-81a7-4192-acad-693dd3e41dc5"
+  },
+  "acceptance": {
+    "nineModules": {
+      "pass": true,
+      "evidence": [
+        {
+          "section": "segue",
+          "hasExport": true
+        },
+        {
+          "section": "headlines",
+          "hasExport": true
+        },
+        {
+          "section": "scorecard",
+          "hasExport": true
+        },
+        {
+          "section": "goals",
+          "hasExport": true
+        },
+        {
+          "section": "rocks",
+          "hasExport": true
+        },
+        {
+          "section": "todos",
+          "hasExport": true
+        },
+        {
+          "section": "issues",
+          "hasExport": true
+        },
+        {
+          "section": "cascading",
+          "hasExport": true
+        },
+        {
+          "section": "conclude",
+          "hasExport": true
+        }
+      ]
+    },
+    "dashboardRunnerDeepEquality": {
+      "pass": true,
+      "dashboard": [
+        {
+          "section": "segue",
+          "enabled": true,
+          "meta": {
+            "prompt": "Share one useful thing from this week.",
+            "mineSubmitted": false
+          },
+          "items": []
+        },
+        {
+          "section": "headlines",
+          "enabled": true,
+          "meta": {
+            "prompt": "Add the headline this meeting needs to hear."
+          },
+          "items": [
+            {
+              "id": "5615ad70-1aed-437b-8c65-144a0fd290ed",
+              "body": "Controlled shared query update",
+              "authorId": 1896819,
+              "authorName": "Pulse Slice — P2",
+              "createdAt": "2026-08-20T18:38:13.000Z"
+            }
+          ]
+        },
+        {
+          "section": "scorecard",
+          "enabled": true,
+          "meta": {
+            "prompt": "Enter this week's number before the meeting.",
+            "period": "2026-08-20"
+          },
+          "items": [
+            {
+              "id": "0703375f-f685-40ec-b8d4-d65412a5b5f5",
+              "title": "Initial Agent Meetings",
+              "targetValue": 5,
+              "ownerId": 1896818,
+              "sortOrder": 0,
+              "value": null,
+              "entryPersonId": null,
+              "entryId": null
+            }
+          ]
+        },
+        {
+          "section": "goals",
+          "enabled": true,
+          "meta": {
+            "cadence": "weekly",
+            "prompt": "Review the goals this meeting owns."
+          },
+          "items": []
+        },
+        {
+          "section": "rocks",
+          "enabled": true,
+          "meta": {
+            "prompt": "Keep your rock current so the meeting can act early."
+          },
+          "items": [
+            {
+              "id": "b3b27604-1ffb-4190-8b49-0738ca079c3a",
+              "type": "rock",
+              "title": "Pulse Slice A rock",
+              "description": null,
+              "meetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "ownerPersonId": null,
+              "assigneeId": 1896819,
+              "assigneeName": "Pulse Slice — P2",
+              "status": "on_track",
+              "dueDate": null,
+              "carriedOverCount": 0,
+              "priority": null,
+              "solvedNote": null,
+              "quarter": "Q3 2026",
+              "percentComplete": 0,
+              "percentSource": "manual",
+              "sortOrder": 0,
+              "meetingName": "Pulse Slice — A",
+              "createdAt": "2026-08-20T18:38:06.000Z",
+              "updatedAt": "2026-08-20T18:38:06.000Z",
+              "isOverdue": false
+            }
+          ]
+        },
+        {
+          "section": "todos",
+          "enabled": true,
+          "meta": {
+            "prompt": "Finish your next clear step."
+          },
+          "items": [
+            {
+              "id": "5419190d-ffd7-4371-acd3-1757b1698bc6",
+              "type": "todo",
+              "title": "Pulse Slice A todo",
+              "description": null,
+              "meetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "ownerPersonId": null,
+              "assigneeId": 1896819,
+              "assigneeName": "Pulse Slice — P2",
+              "status": "open",
+              "dueDate": "2026-08-31",
+              "carriedOverCount": 0,
+              "priority": null,
+              "solvedNote": null,
+              "quarter": null,
+              "percentComplete": 0,
+              "percentSource": "manual",
+              "sortOrder": 0,
+              "meetingName": "Pulse Slice — A",
+              "createdAt": "2026-08-20T18:38:05.000Z",
+              "updatedAt": "2026-08-20T18:38:05.000Z",
+              "isOverdue": false
+            }
+          ]
+        },
+        {
+          "section": "issues",
+          "enabled": true,
+          "meta": {
+            "prompt": "Name the issue that needs a decision."
+          },
+          "items": [
+            {
+              "id": "963a3669-978d-4ffb-af56-2be86302c22d",
+              "type": "issue",
+              "title": "Pulse Slice A issue",
+              "description": null,
+              "meetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "ownerPersonId": null,
+              "assigneeId": 1896819,
+              "assigneeName": "Pulse Slice — P2",
+              "status": "open",
+              "dueDate": null,
+              "carriedOverCount": 0,
+              "priority": 1,
+              "solvedNote": null,
+              "quarter": null,
+              "percentComplete": 0,
+              "percentSource": "manual",
+              "sortOrder": 0,
+              "meetingName": "Pulse Slice — A",
+              "createdAt": "2026-08-20T18:38:05.000Z",
+              "updatedAt": "2026-08-20T18:38:05.000Z",
+              "isOverdue": false
+            }
+          ]
+        },
+        {
+          "section": "cascading",
+          "enabled": true,
+          "meta": {
+            "prompt": "Acknowledge what this meeting needs to carry forward."
+          },
+          "items": [
+            {
+              "id": "834f2f7a-197f-4878-aa8b-3012bdba84c8",
+              "body": "Bring the platform decision to Leadership.",
+              "fromMeetingId": "f5fd508e-81a7-4192-acad-693dd3e41dc5",
+              "fromMeetingName": "Pulse Slice — C",
+              "toMeetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "toMeetingName": "Pulse Slice — A",
+              "acknowledgedAt": null,
+              "acknowledgedById": null,
+              "createdAt": "2026-08-20T18:38:07.000Z"
+            }
+          ]
+        },
+        {
+          "section": "conclude",
+          "enabled": true,
+          "meta": {
+            "prompt": "Close with the decision, rating, and next clear step."
+          },
+          "items": []
+        }
+      ],
+      "runner": [
+        {
+          "section": "segue",
+          "enabled": true,
+          "meta": {
+            "prompt": "Share one useful thing from this week.",
+            "mineSubmitted": false
+          },
+          "items": []
+        },
+        {
+          "section": "headlines",
+          "enabled": true,
+          "meta": {
+            "prompt": "Add the headline this meeting needs to hear."
+          },
+          "items": [
+            {
+              "id": "5615ad70-1aed-437b-8c65-144a0fd290ed",
+              "body": "Controlled shared query update",
+              "authorId": 1896819,
+              "authorName": "Pulse Slice — P2",
+              "createdAt": "2026-08-20T18:38:13.000Z"
+            }
+          ]
+        },
+        {
+          "section": "scorecard",
+          "enabled": true,
+          "meta": {
+            "prompt": "Enter this week's number before the meeting.",
+            "period": "2026-08-20"
+          },
+          "items": [
+            {
+              "id": "0703375f-f685-40ec-b8d4-d65412a5b5f5",
+              "title": "Initial Agent Meetings",
+              "targetValue": 5,
+              "ownerId": 1896818,
+              "sortOrder": 0,
+              "value": null,
+              "entryPersonId": null,
+              "entryId": null
+            }
+          ]
+        },
+        {
+          "section": "goals",
+          "enabled": true,
+          "meta": {
+            "cadence": "weekly",
+            "prompt": "Review the goals this meeting owns."
+          },
+          "items": []
+        },
+        {
+          "section": "rocks",
+          "enabled": true,
+          "meta": {
+            "prompt": "Keep your rock current so the meeting can act early."
+          },
+          "items": [
+            {
+              "id": "b3b27604-1ffb-4190-8b49-0738ca079c3a",
+              "type": "rock",
+              "title": "Pulse Slice A rock",
+              "description": null,
+              "meetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "ownerPersonId": null,
+              "assigneeId": 1896819,
+              "assigneeName": "Pulse Slice — P2",
+              "status": "on_track",
+              "dueDate": null,
+              "carriedOverCount": 0,
+              "priority": null,
+              "solvedNote": null,
+              "quarter": "Q3 2026",
+              "percentComplete": 0,
+              "percentSource": "manual",
+              "sortOrder": 0,
+              "meetingName": "Pulse Slice — A",
+              "createdAt": "2026-08-20T18:38:06.000Z",
+              "updatedAt": "2026-08-20T18:38:06.000Z",
+              "isOverdue": false
+            }
+          ]
+        },
+        {
+          "section": "todos",
+          "enabled": true,
+          "meta": {
+            "prompt": "Finish your next clear step."
+          },
+          "items": [
+            {
+              "id": "5419190d-ffd7-4371-acd3-1757b1698bc6",
+              "type": "todo",
+              "title": "Pulse Slice A todo",
+              "description": null,
+              "meetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "ownerPersonId": null,
+              "assigneeId": 1896819,
+              "assigneeName": "Pulse Slice — P2",
+              "status": "open",
+              "dueDate": "2026-08-31",
+              "carriedOverCount": 0,
+              "priority": null,
+              "solvedNote": null,
+              "quarter": null,
+              "percentComplete": 0,
+              "percentSource": "manual",
+              "sortOrder": 0,
+              "meetingName": "Pulse Slice — A",
+              "createdAt": "2026-08-20T18:38:05.000Z",
+              "updatedAt": "2026-08-20T18:38:05.000Z",
+              "isOverdue": false
+            }
+          ]
+        },
+        {
+          "section": "issues",
+          "enabled": true,
+          "meta": {
+            "prompt": "Name the issue that needs a decision."
+          },
+          "items": [
+            {
+              "id": "963a3669-978d-4ffb-af56-2be86302c22d",
+              "type": "issue",
+              "title": "Pulse Slice A issue",
+              "description": null,
+              "meetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "ownerPersonId": null,
+              "assigneeId": 1896819,
+              "assigneeName": "Pulse Slice — P2",
+              "status": "open",
+              "dueDate": null,
+              "carriedOverCount": 0,
+              "priority": 1,
+              "solvedNote": null,
+              "quarter": null,
+              "percentComplete": 0,
+              "percentSource": "manual",
+              "sortOrder": 0,
+              "meetingName": "Pulse Slice — A",
+              "createdAt": "2026-08-20T18:38:05.000Z",
+              "updatedAt": "2026-08-20T18:38:05.000Z",
+              "isOverdue": false
+            }
+          ]
+        },
+        {
+          "section": "cascading",
+          "enabled": true,
+          "meta": {
+            "prompt": "Acknowledge what this meeting needs to carry forward."
+          },
+          "items": [
+            {
+              "id": "834f2f7a-197f-4878-aa8b-3012bdba84c8",
+              "body": "Bring the platform decision to Leadership.",
+              "fromMeetingId": "f5fd508e-81a7-4192-acad-693dd3e41dc5",
+              "fromMeetingName": "Pulse Slice — C",
+              "toMeetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+              "toMeetingName": "Pulse Slice — A",
+              "acknowledgedAt": null,
+              "acknowledgedById": null,
+              "createdAt": "2026-08-20T18:38:07.000Z"
+            }
+          ]
+        },
+        {
+          "section": "conclude",
+          "enabled": true,
+          "meta": {
+            "prompt": "Close with the decision, rating, and next clear step."
+          },
+          "items": []
+        }
+      ]
+    },
+    "controlledSectionUpdate": {
+      "pass": true,
+      "before": "{\"section\":\"headlines\",\"enabled\":true,\"meta\":{\"prompt\":\"Add the headline this meeting needs to hear.\"},\"items\":[]}",
+      "after": "{\"section\":\"headlines\",\"enabled\":true,\"meta\":{\"prompt\":\"Add the headline this meeting needs to hear.\"},\"items\":[{\"id\":\"5615ad70-1aed-437b-8c65-144a0fd290ed\",\"body\":\"Controlled shared query update\",\"authorId\":1896819,\"authorName\":\"Pulse Slice — P2\",\"createdAt\":\"2026-08-20T18:38:13.000Z\"}]}"
+    },
+    "memberSafeMarkup": {
+      "pass": true,
+      "keys": [
+        "viewerId",
+        "meeting",
+        "sections",
+        "sectionFunctions"
+      ]
+    },
+    "runRoleGate": {
+      "pass": true,
+      "memberStatus": 404,
+      "managerStatus": 200
+    },
+    "missingAndDeniedIdentical": {
+      "pass": true,
+      "missingStatus": 404,
+      "deniedStatus": 404
+    },
+    "inlineActions": {
+      "pass": true,
+      "scoreStatus": 200,
+      "ackStatus": 200
+    },
+    "cascadingRouting": {
+      "pass": true,
+      "payload": {
+        "section": "cascading",
+        "enabled": true,
+        "meta": {
+          "prompt": "Acknowledge what this meeting needs to carry forward."
+        },
+        "items": [
+          {
+            "id": "834f2f7a-197f-4878-aa8b-3012bdba84c8",
+            "body": "Bring the platform decision to Leadership.",
+            "fromMeetingId": "f5fd508e-81a7-4192-acad-693dd3e41dc5",
+            "fromMeetingName": "Pulse Slice — C",
+            "toMeetingId": "d6c95a0b-00e9-4995-b8b3-c1ed8ea46370",
+            "toMeetingName": "Pulse Slice — A",
+            "acknowledgedAt": null,
+            "acknowledgedById": null,
+            "createdAt": "2026-08-20T18:38:07.000Z"
+          }
+        ]
+      }
+    },
+    "conclusionArchive": {
+      "pass": true,
+      "record": {
+        "attendeeIds": [
+          1896818,
+          1896819
+        ],
+        "durationActualMinutes": 44,
+        "todosCreated": 1,
+        "todosCompleted": 0,
+        "issuesCreated": 1,
+        "issuesResolved": 0,
+        "rating": 8,
+        "notes": "Prompt 3 fixture conclusion"
+      }
+    }
+  },
+  "fixtureRetirement": {
+    "pass": true,
+    "retirement": {
+      "people": 7,
+      "meetings": 3,
+      "workItems": 11
+    }
+  }
+}
