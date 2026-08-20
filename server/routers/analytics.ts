@@ -91,6 +91,7 @@ import {
   getTasksReport,
   getIsaActivitiesReport,
   getLeadSourcesReport,
+  getPipelineReport,
 } from "../analytics/reportingSuite";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 import { getIsmDashboard } from "../analytics/ismDashboard";
@@ -994,6 +995,13 @@ Return only valid JSON array.`;
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getAgentReport(input ?? {});
+    }),
+
+  pipelineReport: protectedProcedure
+    .input(reportingSuiteInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getPipelineReport(input ?? {});
     }),
 
   groupLeaderReport: protectedProcedure

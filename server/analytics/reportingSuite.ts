@@ -871,6 +871,64 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   };
 }
 
+const PIPELINE_STAGE_ORDER = ["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead", "do_not_contact"] as const;
+
+/** Live, agent-owned CRM pipeline health snapshot; date filters are intentionally ignored. */
+export async function getPipelineReport(filters: ReportingFilters = {}) {
+  const scopedAgents = where([
+    sql`u.\`role\` = 'agent'`,
+    sql`u.\`isActive\` = 1`,
+    filters.agentIds?.length ? sql`u.\`id\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`u.\`id\` = ${filters.agentId}` : undefined,
+  ]);
+  const open = sql`ac.\`pipelineStatus\` NOT IN ('closed', 'dead', 'do_not_contact')`;
+  const activity = sql`COALESCE(ac.\`agingUpdatedAt\`, ac.\`updatedAt\`)`;
+  const [agentRows, stageRows] = await Promise.all([
+    runRows<Row>(sql`
+      SELECT
+        u.\`id\` AS agentId,
+        COALESCE(NULLIF(TRIM(u.\`name\`), ''), u.\`email\`, 'Unassigned') AS agentName,
+        COUNT(ac.\`id\`) AS total,
+        COALESCE(SUM(CASE WHEN ${open} THEN 1 ELSE 0 END), 0) AS openCount,
+        COALESCE(SUM(CASE WHEN ac.\`pipelineStatus\` = 'new_lead' THEN 1 ELSE 0 END), 0) AS newLeads,
+        COALESCE(SUM(CASE WHEN ac.\`pipelineStatus\` = 'attempted_contact' THEN 1 ELSE 0 END), 0) AS attemptedContact,
+        COALESCE(SUM(CASE WHEN ac.\`pipelineStatus\` = 'nurture' THEN 1 ELSE 0 END), 0) AS nurture,
+        COALESCE(SUM(CASE WHEN ac.\`pipelineStatus\` = 'active_client' THEN 1 ELSE 0 END), 0) AS activeClient,
+        COALESCE(SUM(CASE WHEN ac.\`pipelineStatus\` = 'under_contract' THEN 1 ELSE 0 END), 0) AS underContract,
+        COALESCE(SUM(CASE WHEN ac.\`appointmentSet\` = 1 THEN 1 ELSE 0 END), 0) AS appointments,
+        COALESCE(SUM(CASE WHEN ${open} AND ac.\`followUpDate\` IS NOT NULL THEN 1 ELSE 0 END), 0) AS scheduledFollowUps,
+        COALESCE(SUM(CASE WHEN ${open} AND ac.\`followUpDate\` < CURDATE() THEN 1 ELSE 0 END), 0) AS overdueFollowUps,
+        COALESCE(SUM(CASE WHEN ${open} AND DATE(ac.\`followUpDate\`) = CURDATE() THEN 1 ELSE 0 END), 0) AS dueToday,
+        COALESCE(SUM(CASE WHEN ${open} AND ac.\`followUpDate\` IS NULL THEN 1 ELSE 0 END), 0) AS missingFollowUps,
+        COALESCE(AVG(CASE WHEN ${open} THEN GREATEST(DATEDIFF(NOW(), ${activity}), 0) ELSE NULL END), 0) AS averageAgeDays,
+        COALESCE(MAX(CASE WHEN ${open} THEN GREATEST(DATEDIFF(NOW(), ${activity}), 0) ELSE NULL END), 0) AS oldestAgeDays,
+        COALESCE(SUM(CASE WHEN ${open} AND DATEDIFF(NOW(), ${activity}) BETWEEN 0 AND 2 THEN 1 ELSE 0 END), 0) AS freshCount,
+        COALESCE(SUM(CASE WHEN ${open} AND DATEDIFF(NOW(), ${activity}) BETWEEN 3 AND 6 THEN 1 ELSE 0 END), 0) AS idleCount,
+        COALESCE(SUM(CASE WHEN ${open} AND DATEDIFF(NOW(), ${activity}) BETWEEN 7 AND 13 THEN 1 ELSE 0 END), 0) AS staleCount,
+        COALESCE(SUM(CASE WHEN ${open} AND DATEDIFF(NOW(), ${activity}) BETWEEN 14 AND 29 THEN 1 ELSE 0 END), 0) AS olderCount,
+        COALESCE(SUM(CASE WHEN ${open} AND DATEDIFF(NOW(), ${activity}) >= 30 THEN 1 ELSE 0 END), 0) AS criticalCount,
+        MAX(CASE WHEN ${open} THEN ${activity} ELSE NULL END) AS latestActivityAt
+      FROM \`users\` u
+      LEFT JOIN \`agent_connections\` ac ON ac.\`agentId\` = u.\`id\`
+      ${scopedAgents}
+      GROUP BY u.\`id\`, u.\`name\`, u.\`email\`
+      ORDER BY openCount DESC, overdueFollowUps DESC, agentName ASC
+    `),
+    runRows<Row>(sql`
+      SELECT ac.\`pipelineStatus\` AS stage, COUNT(*) AS count
+      FROM \`agent_connections\` ac
+      INNER JOIN \`users\` u ON u.\`id\` = ac.\`agentId\`
+      ${scopedAgents}
+      GROUP BY ac.\`pipelineStatus\`
+    `),
+  ]);
+  const agents = agentRows.map((row) => ({
+    agentId: asNumber(row.agentId), agentName: String(row.agentName ?? "Unassigned"), total: asNumber(row.total), openCount: asNumber(row.openCount), newLeads: asNumber(row.newLeads), attemptedContact: asNumber(row.attemptedContact), nurture: asNumber(row.nurture), activeClient: asNumber(row.activeClient), underContract: asNumber(row.underContract), appointments: asNumber(row.appointments), scheduledFollowUps: asNumber(row.scheduledFollowUps), overdueFollowUps: asNumber(row.overdueFollowUps), dueToday: asNumber(row.dueToday), missingFollowUps: asNumber(row.missingFollowUps), averageAgeDays: asNumber(row.averageAgeDays), oldestAgeDays: asNumber(row.oldestAgeDays), freshCount: asNumber(row.freshCount), idleCount: asNumber(row.idleCount), staleCount: asNumber(row.staleCount), olderCount: asNumber(row.olderCount), criticalCount: asNumber(row.criticalCount), latestActivityAt: asDay(row.latestActivityAt),
+  }));
+  const summary = agents.reduce((total, agent) => ({ total: total.total + agent.total, openCount: total.openCount + agent.openCount, appointments: total.appointments + agent.appointments, scheduledFollowUps: total.scheduledFollowUps + agent.scheduledFollowUps, overdueFollowUps: total.overdueFollowUps + agent.overdueFollowUps, dueToday: total.dueToday + agent.dueToday, missingFollowUps: total.missingFollowUps + agent.missingFollowUps, freshCount: total.freshCount + agent.freshCount, idleCount: total.idleCount + agent.idleCount, staleCount: total.staleCount + agent.staleCount, olderCount: total.olderCount + agent.olderCount, criticalCount: total.criticalCount + agent.criticalCount, totalAgeDays: total.totalAgeDays + (agent.averageAgeDays * agent.openCount) }), { total: 0, openCount: 0, appointments: 0, scheduledFollowUps: 0, overdueFollowUps: 0, dueToday: 0, missingFollowUps: 0, freshCount: 0, idleCount: 0, staleCount: 0, olderCount: 0, criticalCount: 0, totalAgeDays: 0 });
+  const stageCounts = new Map(stageRows.map((row) => [String(row.stage), asNumber(row.count)]));
+  return { filters: { agentId: filters.agentId ?? null, agentIds: filters.agentIds ?? [] }, summary: { ...summary, averageAgeDays: summary.openCount ? summary.totalAgeDays / summary.openCount : 0, followUpCoverage: summary.openCount ? (summary.scheduledFollowUps / summary.openCount) * 100 : null }, stageDistribution: PIPELINE_STAGE_ORDER.map((stage) => ({ stage, count: stageCounts.get(stage) ?? 0 })), agents };
+}
+
 export async function getAgentOnboardingReport(filters: ReportingFilters = {}) {
   return getAgentOnboardingReportingData(filters);
 }

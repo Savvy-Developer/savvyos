@@ -7,6 +7,7 @@ const analyticsRouter = () => readFileSync("server/routers/analytics.ts", "utf-8
 const expansionService = () => readFileSync("server/analytics/reportingExpansion.ts", "utf-8");
 const expansionViews = () => readFileSync("client/src/pages/ReportingExpansionViews.tsx", "utf-8");
 const appRoutes = () => readFileSync("client/src/App.tsx", "utf-8");
+const pipelineReportView = () => readFileSync("client/src/pages/PipelineReport.tsx", "utf-8");
 
 describe("Reporting suite — stable decision and evidence contract", () => {
   it("keeps the Agent Performance report centered on production, financial contribution, and operational attention", () => {
@@ -25,6 +26,23 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("<AgentMetric value={agent.grossCommission} total={totals.grossCommission}>");
     expect(content).not.toContain("<AgentMetric value={agent.overdueTasks} total={totals.overdueTasks}>");
     expect(content).not.toContain("<AgentMetric value={flagCount} total={totals.flags}>");
+  });
+
+  it("keeps the Pipeline Report agent-level, live, and operationally actionable", () => {
+    const page = reportPage();
+    const view = pipelineReportView();
+    const service = reportService();
+    const router = analyticsRouter();
+    expect(page).toContain('id: "pipelines"');
+    expect(page).toContain("pipelineReport.useQuery");
+    expect(view).toContain("Live Pipeline Snapshot");
+    expect(view).toContain("Agent pipeline scorecard");
+    expect(view).toContain("Follow-up coverage");
+    expect(view).toContain("/pipeline?agentId=${agent.agentId}");
+    expect(service).toContain("export async function getPipelineReport");
+    expect(service).toContain("missingFollowUps");
+    expect(service).toContain("criticalCount");
+    expect(router).toContain("pipelineReport: protectedProcedure");
   });
 
   it("keeps Group Leader Review in a selectable, coaching-ready team context", () => {
@@ -127,6 +145,7 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     const routes = appRoutes();
     expect(router).toContain("reportingFilters: protectedProcedure");
     expect(router).toContain("agentReport: protectedProcedure");
+    expect(router).toContain("pipelineReport: protectedProcedure");
     expect(router).toContain("groupLeaderReport: protectedProcedure");
     expect(router).toContain("transactionStatisticsReport: protectedProcedure");
     expect(router).toContain('ctx.user.role !== "admin"');

@@ -54,6 +54,7 @@ import {
   TasksReport,
 } from "./ReportingExpansionViews";
 import { BusinessInsightsReport } from "./BusinessInsightsReport";
+import PipelineReport from "./PipelineReport";
 import { SavvyOsAdoptionReport } from "./SavvyOsAdoptionReport";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -66,12 +67,13 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type ReportKind = "agents" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "adoption" | "business_insights";
+type ReportKind = "agents" | "pipelines" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "adoption" | "business_insights";
 
 type QueryPatch = Record<string, string | null | undefined>;
 
 const reportTabs: Array<{ id: ReportKind; label: string; description: string; icon: typeof UsersRound }> = [
   { id: "agents", label: "Agent Performance", description: "Production, financial contribution, and operational follow-through by agent.", icon: UsersRound },
+  { id: "pipelines", label: "Pipeline Report", description: "Live pipeline inventory, follow-up coverage, activity freshness, and risk by agent.", icon: Workflow },
   { id: "leaders", label: "Group Leader Review", description: "Coaching priorities and team health for group-leader conversations.", icon: UserRound },
   { id: "transactions", label: "Transaction Statistics", description: "Production mix, conversion outcomes, commissions, and transaction quality.", icon: BriefcaseBusiness },
   { id: "onboarding", label: "Agent Onboarding", description: "Progression, completion time, and early-adoption risk across agent onboarding plans.", icon: UserPlus },
@@ -338,6 +340,7 @@ function ReportingFilters({
   const leadSources = filters?.leadSources ?? [];
   const parents = new Map(leadSources.filter((source: any) => !source.parentId).map((source: any) => [source.id, source.name]));
   const sourceLabel = (source: any) => source.parentId ? String(parents.get(source.parentId) ?? "Unassigned category") + " → " + source.name + " (sub-source)" : source.name + " (category)";
+  if (activeReport === "pipelines") return <Card className="border-primary/15 shadow-sm"><CardContent className="flex flex-wrap items-end gap-3 p-3"><div className="space-y-1"><Label className="text-xs">Agents</Label><MultiSelect className="min-w-[220px] text-xs" options={(filters?.agents ?? []).map((agent: any) => ({ value: String(agent.id), label: agent.name }))} value={selectedAgents} onValueChange={(values) => update({ agentIds: values.length ? values.join(",") : null, agentId: null })} placeholder="All agents" searchPlaceholder="Search agents…" maxDisplay={2} /></div><p className="pb-0.5 text-xs leading-5 text-muted-foreground">Pipeline metrics are a live snapshot; date filters do not apply.</p><Button variant="ghost" size="sm" className="h-8 shrink-0 text-xs" onClick={() => update({ agentId: null, agentIds: null })}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Reset</Button></CardContent></Card>;
   const setPreset = (value: string) => {
     const preset = value as DatePreset;
     const range = dateRangeForPreset(preset);
@@ -733,6 +736,7 @@ export default function ReportingSuitePage() {
   const groupFilters = { ...baseFilters, agentId: undefined, agentIds: undefined };
   const marketFilters = { ...baseFilters, agentId: undefined, agentIds: undefined, groupLeaderId: undefined, marketProfileId: undefined };
   const agentQuery = trpc.analytics.agentReport.useQuery(baseFilters, { enabled: activeReport === "agents", staleTime: 20_000 });
+  const pipelineQuery = trpc.analytics.pipelineReport.useQuery(baseFilters, { enabled: activeReport === "pipelines", staleTime: 20_000 });
   const groupQuery = trpc.analytics.groupLeaderReport.useQuery(groupFilters, { enabled: activeReport === "leaders", staleTime: 20_000 });
   const transactionQuery = trpc.analytics.transactionStatisticsReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "transactions", staleTime: 20_000 });
   const onboardingQuery = trpc.analytics.agentOnboardingReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "onboarding", staleTime: 20_000 });
@@ -762,6 +766,7 @@ export default function ReportingSuitePage() {
   const activeConfig = reportTabs.find((tab) => tab.id === activeReport) ?? reportTabs[0];
   const queryByReport = {
     agents: agentQuery,
+    pipelines: pipelineQuery,
     leaders: groupQuery,
     transactions: transactionQuery,
     onboarding: onboardingQuery,
@@ -777,5 +782,5 @@ export default function ReportingSuitePage() {
 
   const reportNeedsFilters = activeReport !== "business_insights" && activeReport !== "adoption";
 
-  return <div className="space-y-4 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for production, agent adoption, operational follow-through, and company-wide intelligence." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="flex flex-wrap gap-1.5">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isActive ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background text-muted-foreground hover:border-primary/35 hover:bg-muted/25 hover:text-foreground"}`}><Icon className="h-3.5 w-3.5 shrink-0" />{tab.label}</button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{(reportNeedsFilters && filtersQuery.isLoading) || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : activeReport === "business_insights" ? <BusinessInsightsReport data={businessInsightsQuery.data as any} isRefreshing={refreshBusinessInsights.isPending} refreshError={refreshBusinessInsights.error?.message} onRefresh={() => refreshBusinessInsights.mutate()} canRefresh={user?.role === "admin"} /> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}{activeReport === "adoption" && <SavvyOsAdoptionReport data={reportData} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
+  return <div className="space-y-4 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for production, agent adoption, operational follow-through, and company-wide intelligence." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="flex flex-wrap gap-1.5">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isActive ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background text-muted-foreground hover:border-primary/35 hover:bg-muted/25 hover:text-foreground"}`}><Icon className="h-3.5 w-3.5 shrink-0" />{tab.label}</button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{(reportNeedsFilters && filtersQuery.isLoading) || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : activeReport === "business_insights" ? <BusinessInsightsReport data={businessInsightsQuery.data as any} isRefreshing={refreshBusinessInsights.isPending} refreshError={refreshBusinessInsights.error?.message} onRefresh={() => refreshBusinessInsights.mutate()} canRefresh={user?.role === "admin"} /> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "pipelines" && <PipelineReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}{activeReport === "adoption" && <SavvyOsAdoptionReport data={reportData} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
 }

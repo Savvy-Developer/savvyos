@@ -93,6 +93,13 @@ export default function PipelinePage() {
   const [followUpDate, setFollowUpDate] = useState("");
   const [agentNotes, setAgentNotes] = useState("");
   useEffect(() => {
+    const agentId = new URLSearchParams(window.location.search).get("agentId");
+    if (!agentId || !/^\d+$/.test(agentId)) return;
+    setSelectedStage("all");
+    setSelectedAgentId(agentId);
+    setCurrentPage(1);
+  }, [setSelectedAgentId, setSelectedStage]);
+  useEffect(() => {
     const activeUserId = String((user as any)?.id ?? "");
     if (!activeUserId || filterOwnerId === activeUserId) return;
 
