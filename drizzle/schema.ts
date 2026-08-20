@@ -3426,6 +3426,20 @@ export const pulseMeetingUpdates = mysqlTable("pulse_meeting_updates", {
 }, (table) => [index("pulse_meeting_updates_meeting_idx").on(table.meetingId, table.updateType, table.deletedAt, table.createdAt)]);
 export type PulseMeetingUpdate = typeof pulseMeetingUpdates.$inferSelect;
 
+export const pulsePersonalInputs = mysqlTable("pulse_personal_inputs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  meetingId: varchar("meetingId", { length: 36 }).references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  inputKey: varchar("inputKey", { length: 64 }).notNull(),
+  weekOf: date("weekOf").notNull(),
+  numericValue: int("numericValue"),
+  textValue: text("textValue"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [uniqueIndex("pulse_personal_input_week_unique").on(table.personId, table.meetingId, table.inputKey, table.weekOf), index("pulse_personal_input_person_idx").on(table.personId, table.weekOf, table.deletedAt)]);
+export type PulsePersonalInput = typeof pulsePersonalInputs.$inferSelect;
+
 export const pulseCascadingMessages = mysqlTable("pulse_cascading_messages", {
   id: varchar("id", { length: 36 }).primaryKey(),
   fromMeetingId: varchar("fromMeetingId", { length: 36 }).notNull().references(() => pulseMeetings.id),

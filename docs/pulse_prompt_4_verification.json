@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-08-20T19:02:35.582Z",
+  "acceptance": {
+    "inputsOwnershipAndTargets": {
+      "pass": true,
+      "fields": [
+        {
+          "key": "metric:41fbec25-30ea-46f5-a15b-f041f0dbc40f",
+          "kind": "number",
+          "label": "Active Lead Sources",
+          "target": 5,
+          "meetingId": "4369a94c-da74-48c7-8014-aa990e560c83",
+          "meetingName": "Pulse Slice — B",
+          "value": null
+        },
+        {
+          "key": "metric:4d68ff8e-149a-4e71-b9af-ea9464aaf9a4",
+          "kind": "number",
+          "label": "Weekly Marketing Leads",
+          "target": 40,
+          "meetingId": "3792c588-94dc-4793-a3e8-445b7e43a3ca",
+          "meetingName": "Pulse Slice — A",
+          "value": null
+        },
+        {
+          "key": "metric:971e36bb-c6ee-40c7-8b70-1fb1163076ce",
+          "kind": "number",
+          "label": "Initial Individual Agent Meetings",
+          "target": 5,
+          "meetingId": "3792c588-94dc-4793-a3e8-445b7e43a3ca",
+          "meetingName": "Pulse Slice — A",
+          "value": null
+        }
+      ]
+    },
+    "inputCompletionUnder60Seconds": {
+      "pass": true,
+      "elapsedMs": 6559
+    },
+    "multiMeetingAggregate": {
+      "pass": true,
+      "sources": [
+        "Personal",
+        "Pulse Slice — A",
+        "Pulse Slice — B",
+        "Pulse Slice — C",
+        "Pulse Slice — A",
+        "Pulse Slice — B",
+        "Pulse Slice — C",
+        "Personal",
+        "Pulse Slice — A",
+        "Pulse Slice — B",
+        "Pulse Slice — C"
+      ]
+    },
+    "singleMeetingDirectRedirect": {
+      "pass": true,
+      "redirectMeetingId": "3792c588-94dc-4793-a3e8-445b7e43a3ca"
+    },
+    "sharedTodoMutation": {
+      "pass": true,
+      "todoId": "65dd5deb-e63f-4e8c-a2bc-774e2edc5154"
+    },
+    "numericInputSupport": {
+      "pass": true
+    }
+  },
+  "fixtureRetirement": {
+    "pass": true,
+    "retired": {
+      "people": 7,
+      "meetings": 3,
+      "workItems": 11
+    }
+  }
+}

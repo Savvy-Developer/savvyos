@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import PulseWorkItemsPage from "@/pages/PulseWorkItemsPage";
 import PulseMeetingDashboardPage from "@/pages/PulseMeetingDashboardPage";
+import PulseMyInputsPage from "@/pages/PulseMyInputsPage";
+import PulseMyWorkPage from "@/pages/PulseMyWorkPage";
 import { useMemo, useState } from "react";
 
 type Meeting = {
@@ -180,15 +182,9 @@ export default function PulseFoundationPage() {
     );
   }
 
-  if (location === "/pulse/work") {
-    if (meetings.length <= 1) return <EmptyInstruction actionHref={shell?.canSeeSettings ? "/pulse/settings" : "/pulse"} actionLabel={shell?.canSeeSettings ? "Set up your first meeting" : "Go to Pulse home"}>My Work appears when you belong to more than one meeting. Start from Pulse home to see the work available to you now.</EmptyInstruction>;
-    return <PulseWorkItemsPage />;
-  }
+  if (location === "/pulse/work") return <PulseMyWorkPage />;
 
-  if (location === "/pulse/inputs") {
-    const noMeetings = meetings.length === 0;
-    return <div className="space-y-6"><PageHeading question="What do I need to put in this week?" detail="Put this week’s numbers, goals, and meeting updates here." /><EmptyInstruction actionHref={noMeetings && shell?.canSeeSettings ? "/pulse/settings" : "/pulse/meetings"} actionLabel={noMeetings && shell?.canSeeSettings ? "Set up your first meeting" : "View your meetings"}>{noMeetings && shell?.canSeeSettings ? "Inputs begin with a meeting. Set up your first meeting, then Pulse will show the updates it needs from you." : "There is nothing to enter yet. When inputs are ready, you will be able to update them here from your phone."}</EmptyInstruction></div>;
-  }
+  if (location === "/pulse/inputs") return <PulseMyInputsPage />;
 
   if (location === "/pulse/settings") {
     if (!shell?.canSeeSettings) return <EmptyInstruction actionHref="/pulse" actionLabel="Go to Pulse home">Only meeting owners and administrators can change settings. Go home to see what needs you now.</EmptyInstruction>;
