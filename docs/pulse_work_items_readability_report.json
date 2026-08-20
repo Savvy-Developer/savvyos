@@ -1,0 +1,207 @@
+{
+  "checkedAt": "2026-08-20T13:23:58.112Z",
+  "checkedStringCount": 40,
+  "stringsAboveGrade8": [],
+  "allStrings": [
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Go to your meetings",
+      "grade": 0.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This meeting is visible because you are a member. Work from other meetings is not shown here.",
+      "grade": 3.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What is happening in your meetings?",
+      "grade": 4.5
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "You only see meetings you have been added to. Choose one to see its work.",
+      "grade": 1.5
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What do I need to put in this week?",
+      "grade": -0.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Put this week’s numbers, goals, and meeting updates here.",
+      "grade": 4.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What do I need to set up?",
+      "grade": -1.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Meeting setup will be added here for people who own or administer a meeting.",
+      "grade": 7.6
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "What needs me right now?",
+      "grade": -1.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Pulse keeps your meetings and meeting work in one clear place. Start with a meeting you belong to.",
+      "grade": 2.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "No meetings match that search. Try a meeting name, or return home to see what needs you right now.",
+      "grade": 1.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This meeting no longer exists. Go to your meetings to choose one you can access.",
+      "grade": 3.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "This meeting is ready",
+      "grade": 3.7
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "The foundation is in place. Meeting sections will appear here as the next Pulse workflows are added.",
+      "grade": 4.4
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "are explained the first time they appear, so Pulse stays clear for everyone.",
+      "grade": 5.8
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "You have not been added to a meeting yet. Ask a meeting owner to add you, then your meetings will show here.",
+      "grade": 3.2
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "There is nothing to enter yet. When inputs are ready, you will be able to update them here from your phone.",
+      "grade": 3.1
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Only meeting owners and administrators can change settings. Go home to see what needs you now.",
+      "grade": 5.2
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "No settings need your attention right now. Open a meeting to review the information available to you.",
+      "grade": 7.2
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Open a meeting to see what is happening there.",
+      "grade": 5
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "You have not been added to a meeting yet. Ask a meeting owner to add you. Once they do, your meeting will appear here.",
+      "grade": 2.3
+    },
+    {
+      "file": "PulseFoundationPage.tsx",
+      "text": "Pulse saves meeting membership as the access rule, so you only see the meetings you are in.",
+      "grade": 7.7
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "At risk\", off_track: ",
+      "grade": -2.2
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": " ? \"What needs a decision?",
+      "grade": 2.9
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "What big goal matters this quarter?",
+      "grade": 2.5
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Mention someone in this meeting",
+      "grade": 5.2
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Update the work in this meeting without leaving the page.",
+      "grade": 4.8
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Use this internal view to verify real to-dos, issues, and rocks. Every item keeps its meeting name.",
+      "grade": 6.5
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "% · saves when you leave this field",
+      "grade": 0.5
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "This rock needs a quarter-end choice",
+      "grade": 2.5
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Choose what happens next. Nothing changes until you choose.",
+      "grade": 3.2
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "What did we decide?",
+      "grade": 0.7
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Create a to-do from this decision",
+      "grade": 4.5
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "No milestones yet. You can set progress directly from the list.",
+      "grade": 4.8
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "An item stays in one place. You can move it to another meeting you belong to.",
+      "grade": 3
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Mention a meeting member",
+      "grade": 6.6
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "No changes recorded yet.",
+      "grade": 6.6
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "All meetings I belong to",
+      "grade": 2.9
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "No work items match these filters.",
+      "grade": 2.5
+    },
+    {
+      "file": "PulseWorkItemsPage.tsx",
+      "text": "Click a name to see its description, comments, moves, and history.",
+      "grade": 6.9
+    }
+  ]
+}

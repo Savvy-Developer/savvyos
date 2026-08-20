@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
+import PulseWorkItemsPage from "@/pages/PulseWorkItemsPage";
 import { useMemo, useState } from "react";
 
 type Meeting = {
@@ -118,7 +119,6 @@ function MeetingsList({ meetings, glossary, query }: { meetings: Meeting[]; glos
 
 function MeetingDetail({ meetingId, glossary }: { meetingId: string; glossary: GlossaryEntry[] }) {
   const { data: meeting, isLoading, error } = trpc.pulse.get.useQuery({ meetingId });
-  const { data: sectionData } = trpc.pulse.sectionWorkItems.useQuery({ meetingId }, { enabled: !!meeting });
 
   if (isLoading) {
     return <div className="max-w-3xl space-y-4"><Skeleton className="h-8 w-72" /><Skeleton className="h-24 w-full" /><Skeleton className="h-24 w-full" /></div>;
@@ -147,21 +147,7 @@ function MeetingDetail({ meetingId, glossary }: { meetingId: string; glossary: G
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Work in this meeting</CardTitle>
-          <CardDescription className="text-base">To-dos, issues, and rocks from this meeting will appear here. Every item will show this meeting as its origin.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {sectionData?.items?.length ? (
-            <div className="space-y-2">
-              {sectionData.items.map((item: any) => <div key={item.id} className="rounded-lg border border-border p-3 text-sm text-foreground">{item.title}</div>)}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Nothing is in this meeting yet. Start with your next meeting, where items can be added and assigned.</p>
-          )}
-        </CardContent>
-      </Card>
+      <PulseWorkItemsPage meetingId={meetingId} meetingName={meeting.name} compact />
 
       <p className="text-sm text-muted-foreground"><Term term="Rocks" glossary={glossary} /> and <Term term="Segue" glossary={glossary} /> are explained the first time they appear, so Pulse stays clear for everyone.</p>
     </div>
@@ -198,9 +184,7 @@ export default function PulseFoundationPage() {
     );
   }
 
-  if (location === "/pulse/work") {
-    return <div className="space-y-6"><PageHeading question="What is mine, across everything?" detail="This dashboard will bring together your work across every meeting you are in." /><EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">Your work dashboard is ready for the next Pulse workflow. Until then, open a meeting to see the meeting context you can access.</EmptyInstruction></div>;
-  }
+  if (location === "/pulse/work") return <PulseWorkItemsPage />;
 
   if (location === "/pulse/inputs") {
     return <div className="space-y-6"><PageHeading question="What do I need to put in this week?" detail="Put this week’s numbers, goals, and meeting updates here." /><EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">There is nothing to enter yet. When inputs are ready, you will be able to update them here from your phone.</EmptyInstruction></div>;

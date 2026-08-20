@@ -3171,8 +3171,20 @@ export const pulseWorkItems = mysqlTable("pulse_work_items", {
   assigneeId: int("assigneeId").notNull().references(() => users.id),
   createdById: int("createdById").notNull().references(() => users.id),
   status: varchar("status", { length: 64 }).notNull(),
+  // To-dos default to seven days out in the creation API. Overdue is computed at read time
+  // from dueDate and status so it is always current without a mutable flag.
   dueDate: date("dueDate"),
   completedAt: timestamp("completedAt"),
+  completedById: int("completedById").references(() => users.id, { onDelete: "set null" }),
+  carriedOverCount: int("carriedOverCount").default(0).notNull(),
+  // Issues are ordered by drag position. solvedNote is required by the API before an
+  // issue can transition to solved; resulting to-dos are held in a FK-backed join table.
+  priority: int("priority"),
+  solvedNote: text("solvedNote"),
+  // Rocks use quarter and progress. Milestones, when present, own the percentage.
+  quarter: varchar("quarter", { length: 16 }),
+  percentComplete: int("percentComplete").default(0).notNull(),
+  percentSource: mysqlEnum("percentSource", ["manual", "from_milestones"]).default("manual").notNull(),
   origin: mysqlEnum("origin", ["manual", "cascaded", "ai_proposed", "carried_over"]).default("manual").notNull(),
   isProposed: boolean("isProposed").default(false).notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
@@ -3182,6 +3194,12 @@ export const pulseWorkItems = mysqlTable("pulse_work_items", {
 }, (table) => [
   // The schema—not application code—enforces one and only one ownership path.
   check("pulse_work_items_exactly_one_owner", sql`(${table.meetingId} is null) <> (${table.ownerPersonId} is null)`),
+  check("pulse_work_items_percent_complete_range", sql`${table.percentComplete} >= 0 and ${table.percentComplete} <= 100`),
+  check("pulse_work_items_status_matches_type", sql`(
+    (${table.type} = 'todo' and ${table.status} in ('open', 'done', 'dropped')) or
+    (${table.type} = 'issue' and ${table.status} in ('open', 'discussing', 'solved', 'dropped')) or
+    (${table.type} = 'rock' and ${table.status} in ('on_track', 'at_risk', 'off_track', 'done', 'dropped'))
+  )`),
   index("pulse_work_items_meeting_idx").on(table.meetingId, table.deletedAt, table.sortOrder),
   index("pulse_work_items_owner_idx").on(table.ownerPersonId, table.deletedAt, table.sortOrder),
   index("pulse_work_items_assignee_idx").on(table.assigneeId, table.status, table.deletedAt),
@@ -3201,6 +3219,79 @@ export const pulseWorkItemMoves = mysqlTable("pulse_work_item_moves", {
   index("pulse_work_item_moves_item_idx").on(table.workItemId, table.movedAt),
 ]);
 export type PulseWorkItemMove = typeof pulseWorkItemMoves.$inferSelect;
+
+// Work items stay unified. The following supporting tables add milestone,
+// decision, comment, and notification history without splitting todos, issues, and rocks.
+export const pulseRockMilestones = mysqlTable("pulse_rock_milestones", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 500 }).notNull(),
+  dueDate: date("dueDate").notNull(),
+  isComplete: boolean("isComplete").default(false).notNull(),
+  completedById: int("completedById").references(() => users.id, { onDelete: "set null" }),
+  completedAt: timestamp("completedAt"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_rock_milestones_item_idx").on(table.workItemId, table.deletedAt, table.sortOrder),
+]);
+export type PulseRockMilestone = typeof pulseRockMilestones.$inferSelect;
+
+// A solved issue can create one or more new to-dos. The join preserves an FK to
+// each resulting item instead of relying on an unenforceable JSON array.
+export const pulseIssueResultingTodos = mysqlTable("pulse_issue_resulting_todos", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  issueWorkItemId: varchar("issueWorkItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  todoWorkItemId: varchar("todoWorkItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_issue_resulting_todos_unique").on(table.issueWorkItemId, table.todoWorkItemId),
+  index("pulse_issue_resulting_todos_issue_idx").on(table.issueWorkItemId),
+]);
+export type PulseIssueResultingTodo = typeof pulseIssueResultingTodos.$inferSelect;
+
+export const pulseWorkItemComments = mysqlTable("pulse_work_item_comments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  authorId: int("authorId").notNull().references(() => users.id),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_work_item_comments_item_idx").on(table.workItemId, table.deletedAt, table.createdAt),
+]);
+export type PulseWorkItemComment = typeof pulseWorkItemComments.$inferSelect;
+
+export const pulseWorkItemCommentMentions = mysqlTable("pulse_work_item_comment_mentions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  commentId: varchar("commentId", { length: 36 }).notNull().references(() => pulseWorkItemComments.id, { onDelete: "cascade" }),
+  mentionedPersonId: int("mentionedPersonId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_comment_mention_unique").on(table.commentId, table.mentionedPersonId),
+  index("pulse_comment_mention_person_idx").on(table.mentionedPersonId, table.createdAt),
+]);
+export type PulseWorkItemCommentMention = typeof pulseWorkItemCommentMentions.$inferSelect;
+
+// Prompt 5 will surface these on Mission Control. They remain pending until an
+// action is recorded; creating an event never changes meeting membership.
+export const pulseWorkItemNotifications = mysqlTable("pulse_work_item_notifications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  recipientId: int("recipientId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  commentId: varchar("commentId", { length: 36 }).references(() => pulseWorkItemComments.id, { onDelete: "cascade" }),
+  notificationType: mysqlEnum("notificationType", ["mention", "rock_done", "quarter_rollover"]).notNull(),
+  actionedAt: timestamp("actionedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  index("pulse_notification_recipient_action_idx").on(table.recipientId, table.actionedAt, table.createdAt),
+  index("pulse_notification_item_idx").on(table.workItemId, table.notificationType),
+]);
+export type PulseWorkItemNotification = typeof pulseWorkItemNotifications.$inferSelect;
 
 export const pulseWorkItemStatusNotes = mysqlTable("pulse_work_item_status_notes", {
   id: varchar("id", { length: 36 }).primaryKey(),

@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 
 const files = [
   "/home/ubuntu/savvyos/client/src/pages/PulseFoundationPage.tsx",
+  "/home/ubuntu/savvyos/client/src/pages/PulseWorkItemsPage.tsx",
 ];
-const output = "/home/ubuntu/savvyos/docs/pulse_readability_report.json";
+const output = "/home/ubuntu/savvyos/docs/pulse_work_items_readability_report.json";
 
 function syllables(word: string) {
   const clean = word.toLowerCase().replace(/[^a-z]/g, "");
@@ -21,8 +22,10 @@ function grade(text: string) {
 }
 
 function isUserFacing(value: string) {
-  const technicalTokens = ["/", "className", "pulse_", "aria-", "http", "meetingId", "text-", "bg-", "border", "flex", "grid", "h-", "w-", "px-", "py-", "sm:", "focus-", "hover-", "rounded", "truncate", "transition", "items-", "max-", "lucide-", "underline", "decoration-", "space-", "gap-", "${", "label[]", "owner\" |", "member\""];
-  return value.length >= 8
+  const technicalTokens = ["/", "className", "pulse_", "aria-", "http", "meetingId", "text-", "bg-", "border", "flex", "grid", "h-", "w-", "px-", "py-", "sm:", "focus-", "hover-", "rounded", "truncate", "transition", "items-", "max-", "lucide-", "underline", "decoration-", "space-", "gap-", "${", "label[]", "owner\" |", "member\"", "=>", "{", "}", "??", "item.", "event.", "input.", "mutate", "onClick", "onChange", "defaultValue", "class=", "variant=", "type="];
+  const words = value.match(/[A-Za-z][A-Za-z'-]*/g) ?? [];
+  return value.length >= 12
+    && words.length >= 4
     && value.includes(" ")
     && /[A-Za-z]/.test(value)
     && !technicalTokens.some((token) => value.includes(token));

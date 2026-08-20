@@ -1,0 +1,70 @@
+{
+  "passed": true,
+  "generatedAt": "2026-08-20T13:19:36.458Z",
+  "unifiedWorkItems": {
+    "pass": true,
+    "createdTypes": [
+      "todo",
+      "issue",
+      "rock"
+    ]
+  },
+  "solvedIssueRequiresDecision": {
+    "pass": true,
+    "deniedMessage": "What did we decide? Add one sentence before solving this issue.",
+    "resultingTodoId": "f9e6a2fe-e40f-47b1-9df9-8e7f67707811",
+    "solvedStatus": 200
+  },
+  "rockStatusHistory": {
+    "pass": true,
+    "noteCount": 1
+  },
+  "milestoneProgress": {
+    "pass": true,
+    "progress": {
+      "completed": 2,
+      "total": 5,
+      "percent": 40
+    },
+    "source": "from_milestones"
+  },
+  "moveHistory": {
+    "pass": true,
+    "move": {
+      "id": "e3a43d53-de77-4d7f-8ab6-349c48e5b098",
+      "workItemId": "9cec415c-0b2c-409f-978e-7a7783888028",
+      "fromMeetingId": "a17649c9-fe34-4c11-a6d1-203694474b84",
+      "toMeetingId": "15c67d27-7b61-45c6-9524-41e34d53053f",
+      "movedById": 1880473,
+      "reason": "Move-history verification",
+      "movedAt": "2026-08-20T13:19:26.000Z",
+      "deletedAt": null,
+      "fromMeetingName": "Pulse Test — Leadership L10",
+      "toMeetingName": "Pulse Test — Team Tyler"
+    }
+  },
+  "rockCompletionAutomation": {
+    "pass": true,
+    "notificationRecipientIds": [
+      1880470
+    ]
+  },
+  "quarterRolloverAutomation": {
+    "pass": true,
+    "initialPromptPending": true,
+    "finalQuarter": "Q3 2026",
+    "finalStatus": "on_track"
+  },
+  "mentionAccessGuard": {
+    "pass": true,
+    "deniedMessage": "Pulse Test — Ashleigh isn't in Pulse Test — Marketing L10, so they can't see this item. Add them to the meeting, or move the item."
+  },
+  "carryOver": {
+    "pass": true,
+    "count": 1
+  },
+  "filterableList": {
+    "pass": true,
+    "resultCount": 1
+  }
+}

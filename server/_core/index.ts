@@ -27,6 +27,7 @@ import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
 import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
+import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -248,6 +249,9 @@ async function startServer() {
   // Aircall: durable webhook ledger, media-ready event handling, self-healing
   // webhook configuration, and periodic inventory reconciliation.
   scheduleAircallReliability();
+
+  // Pulse: deterministic weekly overdue digest and quarter rollover prompts.
+  schedulePulseWorkItemAutomation();
 }
 
 startServer().catch(console.error);

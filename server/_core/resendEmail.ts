@@ -42,11 +42,19 @@ export type EmailType =
   | "agent_production_report"
   | "daily_agent_report"
   | "coaching_weekly_accountability"
+  | "pulse_overdue_digest"
+  | "pulse_rock_completed"
   | "password_reset";
 
 interface EmailContext {
   recipientName?: string;
   recipientEmail: string;
+  // Pulse work-item email fields
+  pulseOverdueList?: string;
+  pulseOverdueCount?: string;
+  pulseWorkItemTitle?: string;
+  pulseMeetingName?: string;
+  pulseItemUrl?: string;
   // PM mention-specific
   mentionedByName?: string;
   projectTitle?: string;
@@ -443,6 +451,31 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ], "#059669")}
       ${ctaButton("View in Pipeline", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
       `Connection request approved — ${ctx.contactName ?? "contact"} added to your pipeline`
+    ),
+  }),
+
+  pulse_overdue_digest: (ctx) => ({
+    subject: `Your overdue Pulse work — ${ctx.pulseOverdueCount ?? "0"} item${ctx.pulseOverdueCount === "1" ? "" : "s"}`,
+    html: emailLayout(
+      `${heading("Your overdue Pulse work", "#D97706")}
+      ${subheading("A quick weekly check-in")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("These to-dos are still open. Pick the next one and update it in Pulse.")}
+      ${ctx.pulseOverdueList ?? bodyText("You have no overdue Pulse work.")}
+      ${ctaButton("Open Pulse work", APP_URL + "/pulse/work")}`,
+      `You have ${ctx.pulseOverdueCount ?? "0"} overdue Pulse work item${ctx.pulseOverdueCount === "1" ? "" : "s"}`
+    ),
+  }),
+
+  pulse_rock_completed: (ctx) => ({
+    subject: `Rock completed — ${ctx.pulseWorkItemTitle ?? "Pulse"}`,
+    html: emailLayout(
+      `${heading("A rock was completed", "#059669")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`The rock <strong>${ctx.pulseWorkItemTitle ?? "a Pulse rock"}</strong> was marked done.`)}
+      ${ctaButton("Open the work item", ctx.pulseItemUrl ?? APP_URL + "/pulse/work")}`,
+      `Rock completed — ${ctx.pulseWorkItemTitle ?? "Pulse"}`
     ),
   }),
 
