@@ -2959,6 +2959,8 @@ export const referrals = mysqlTable("referrals", {
   id: int("id").autoincrement().primaryKey(),
   contactId: int("contactId").notNull().references(() => contacts.id),
   referralAgentId: int("referralAgentId").notNull().references(() => referralAgents.id),
+  // Internal Savvy coordinator. This is assigned from the selected outside agent profile
+  // (or the creator as a fallback), rather than collected again for each referral.
   relationshipOwnerId: int("relationshipOwnerId").references(() => users.id, { onDelete: "set null" }),
   propertyId: int("propertyId").references(() => properties.id, { onDelete: "set null" }),
   agreementId: int("agreementId").references(() => referralAgreements.id, { onDelete: "set null" }),
@@ -2970,7 +2972,11 @@ export const referrals = mysqlTable("referrals", {
   market: varchar("market", { length: 255 }),
   metro: varchar("metro", { length: 255 }),
   state: varchar("state", { length: 64 }),
+  // Legacy per-referral coverage fields are retained for historical records. New coverage
+  // is maintained on the outside referral-agent profile, not entered on each referral.
   areasServed: text("areasServed"),
+  // Free-form description of the client's desired or relevant location for this referral.
+  locationNotes: text("locationNotes"),
   savvyReferralPct: decimal("savvyReferralPct", { precision: 5, scale: 2 }).notNull(),
   referralSentAt: timestamp("referralSentAt").defaultNow().notNull(),
   agentAcceptedAt: timestamp("agentAcceptedAt"),

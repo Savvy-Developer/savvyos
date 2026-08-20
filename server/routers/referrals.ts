@@ -130,6 +130,7 @@ async function getReferralOrThrow(referralId: number) {
 async function getReferralRows(filters: {
   search?: string;
   referralAgentId?: number;
+  relationshipOwnerId?: number;
   brokerage?: string;
   market?: string;
   referralType?: typeof REFERRAL_TYPES[number];
@@ -145,6 +146,7 @@ async function getReferralRows(filters: {
   const db = await ensureStatusOptions();
   const conditions: any[] = [];
   if (filters.referralAgentId) conditions.push(eq(referrals.referralAgentId, filters.referralAgentId));
+  if (filters.relationshipOwnerId) conditions.push(eq(referrals.relationshipOwnerId, filters.relationshipOwnerId));
   if (filters.brokerage) conditions.push(eq(referralAgents.brokerage, filters.brokerage));
   if (filters.market) conditions.push(like(referrals.market, `%${filters.market}%`));
   if (filters.referralType) conditions.push(eq(referrals.referralType, filters.referralType));
@@ -164,6 +166,8 @@ async function getReferralRows(filters: {
       like(referralAgents.name, search),
       like(referralAgents.brokerage, search),
       like(referrals.market, search),
+      like(referrals.locationNotes, search),
+      like(users.name, search),
     ));
   }
 
@@ -328,6 +332,7 @@ export const referralsRouter = router({
   list: protectedProcedure.input(z.object({
     search: z.string().trim().max(200).optional(),
     referralAgentId: z.number().optional(),
+    relationshipOwnerId: z.number().optional(),
     brokerage: z.string().trim().max(255).optional(),
     market: z.string().trim().max(255).optional(),
     referralType: z.enum(REFERRAL_TYPES).optional(),
@@ -516,16 +521,10 @@ export const referralsRouter = router({
   create: protectedProcedure.input(z.object({
     contactId: z.number(),
     referralAgentId: z.number(),
-    relationshipOwnerId: z.number().nullable().optional(),
     propertyId: z.number().nullable().optional(),
     referralType: z.enum(REFERRAL_TYPES),
-    statusKey: z.string().trim().min(1).max(96).default("referral_sent"),
-    savvyReferralPct: z.string().or(z.number()).nullable().optional(),
-    market: z.string().trim().max(255).nullable().optional(),
-    metro: z.string().trim().max(255).nullable().optional(),
-    state: z.string().trim().max(64).nullable().optional(),
-    areasServed: z.string().trim().nullable().optional(),
     referralSentAt: z.string().nullable().optional(),
+    locationNotes: z.string().trim().nullable().optional(),
     notes: z.string().nullable().optional(),
     agreement: z.object({
       title: z.string().trim().min(2).max(255),
@@ -542,13 +541,15 @@ export const referralsRouter = router({
     const [contactRows, agentRows, status] = await Promise.all([
       db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, input.contactId)).limit(1),
       db.select().from(referralAgents).where(eq(referralAgents.id, input.referralAgentId)).limit(1),
-      getStatus(input.statusKey),
+      getStatus("referral_sent"),
     ]);
     if (!contactRows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Savvy contact not found" });
     const referralAgent = agentRows[0];
     if (!referralAgent) throw new TRPCError({ code: "NOT_FOUND", message: "Referral agent not found" });
     if (!referralAgent.isActive) throw new TRPCError({ code: "BAD_REQUEST", message: "Reactivate this referral agent before creating a new referral" });
-    const snapshotPct = percentage(input.savvyReferralPct) ?? String(referralAgent.defaultSavvyReferralPct ?? "25.00");
+    // A referral records the selected outside agent's current default as a historical fee snapshot.
+    // The create flow intentionally does not accept a per-referral override.
+    const snapshotPct = String(referralAgent.defaultSavvyReferralPct ?? "25.00");
     let agreementId: number | null = null;
     if (input.agreement) {
       const agreementResult = await db.insert(referralAgreements).values({
@@ -568,17 +569,14 @@ export const referralsRouter = router({
     const result = await db.insert(referrals).values({
       contactId: input.contactId,
       referralAgentId: input.referralAgentId,
-      relationshipOwnerId: input.relationshipOwnerId ?? referralAgent.relationshipOwnerId ?? ctx.user.id,
+      relationshipOwnerId: referralAgent.relationshipOwnerId ?? ctx.user.id,
       propertyId: input.propertyId ?? null,
       agreementId,
       referralType: input.referralType,
       statusKey: status.key,
       statusCategory: status.category,
       savvyReferralPct: snapshotPct,
-      market: input.market || null,
-      metro: input.metro || null,
-      state: input.state || null,
-      areasServed: input.areasServed || null,
+      locationNotes: input.locationNotes || null,
       referralSentAt: asDate(input.referralSentAt) ?? new Date(),
       notes: input.notes || null,
       createdById: ctx.user.id,
@@ -603,6 +601,7 @@ export const referralsRouter = router({
     data: z.object({
       relationshipOwnerId: z.number().nullable().optional(),
       propertyId: z.number().nullable().optional(),
+      locationNotes: z.string().trim().nullable().optional(),
       referralType: z.enum(REFERRAL_TYPES).optional(),
       market: z.string().trim().max(255).nullable().optional(),
       metro: z.string().trim().max(255).nullable().optional(),
@@ -837,7 +836,7 @@ export const referralsRouter = router({
     const result = await db.insert(referrals).values({
       contactId: referral.contactId, referralAgentId: newAgent.id, relationshipOwnerId: newAgent.relationshipOwnerId ?? referral.relationshipOwnerId ?? ctx.user.id,
       propertyId: referral.propertyId, agreementId: input.agreementId ?? null, parentReferralId: referral.id, referralType: referral.referralType,
-      statusKey: "referral_sent", statusCategory: "active", market: referral.market, metro: referral.metro, state: referral.state, areasServed: referral.areasServed,
+      statusKey: "referral_sent", statusCategory: "active", market: referral.market, metro: referral.metro, state: referral.state, areasServed: referral.areasServed, locationNotes: referral.locationNotes,
       savvyReferralPct: percentage(input.savvyReferralPct) ?? String(newAgent.defaultSavvyReferralPct ?? referral.savvyReferralPct), referralSentAt: sentAt, notes: input.notes || referral.notes, createdById: ctx.user.id,
     });
     const newReferralId = Number(result[0].insertId);

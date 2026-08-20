@@ -29,6 +29,10 @@ interface SearchableSelectProps {
   onValueChange: (value: string) => void;
   placeholder?: string;
   searchPlaceholder?: string;
+  /** Optional controlled search text for server-backed result lists. */
+  searchValue?: string;
+  /** Called whenever the user changes the search text. */
+  onSearchChange?: (value: string) => void;
   emptyText?: string;
   /** Extra classes on the trigger button */
   className?: string;
@@ -45,6 +49,8 @@ export function SearchableSelect({
   onValueChange,
   placeholder = "Select…",
   searchPlaceholder = "Search…",
+  searchValue,
+  onSearchChange,
   emptyText = "No results found.",
   className,
   disabled = false,
@@ -100,7 +106,11 @@ export function SearchableSelect({
         align="start"
       >
         <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+          <CommandInput
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onValueChange={onSearchChange}
+          />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>

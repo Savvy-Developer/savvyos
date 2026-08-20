@@ -2099,9 +2099,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
           lastName: contact.lastName,
           email: contact.email,
         } : null}
-        statuses={(referralConfig as any)?.statuses ?? []}
         agents={(referralConfig as any)?.agents ?? []}
-        owners={(referralConfig as any)?.owners ?? []}
         onCreated={id => navigate(`/referrals/${id}`)}
       />
 
