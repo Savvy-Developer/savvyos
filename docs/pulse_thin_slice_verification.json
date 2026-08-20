@@ -1,0 +1,258 @@
+{
+  "passed": true,
+  "generatedAt": "2026-08-20T16:11:05.055Z",
+  "resetStatus": 200,
+  "fixture": {
+    "A": "398415a9-3de7-4c24-ad19-bd95a381bbd3",
+    "B": "6e9ef3d4-79f8-4742-8841-042045f00ae3",
+    "C": "ebf1f241-afe5-443c-81d3-1ceb15dd72f7"
+  },
+  "acceptance": {
+    "p4NoAccess": {
+      "pass": true,
+      "visibleMeetingIds": [],
+      "workItemCount": 0
+    },
+    "p1OnlyAIncludingSearch": {
+      "pass": true,
+      "titles": [
+        "Pulse Slice A todo",
+        "Pulse Slice A issue",
+        "Pulse Slice A rock"
+      ],
+      "searchItemIds": [
+        "7a02874d-cd23-496c-aadc-9e84373bc100",
+        "ec79715d-f4cc-413d-8866-bae3908a271a",
+        "efcca345-38eb-4e48-87c8-5c65d2d6f4ba"
+      ]
+    },
+    "p2AggregateAndPersonal": {
+      "pass": true,
+      "workItemCount": 11,
+      "uniqueIds": true,
+      "titles": [
+        "Pulse Slice P2 personal todo",
+        "Pulse Slice P2 personal rock",
+        "Pulse Slice A todo",
+        "Pulse Slice A issue",
+        "Pulse Slice A rock",
+        "Pulse Slice B todo",
+        "Pulse Slice B issue",
+        "Pulse Slice B rock",
+        "Pulse Slice C todo",
+        "Pulse Slice C issue",
+        "Pulse Slice C rock"
+      ]
+    },
+    "navCounts": {
+      "pass": true,
+      "p3": [
+        "Home",
+        "My Inputs",
+        "Pulse Slice — C"
+      ],
+      "p2": [
+        "Home",
+        "My Work",
+        "My Inputs",
+        "Meetings",
+        "Settings"
+      ]
+    },
+    "namedSources": {
+      "pass": true,
+      "sources": [
+        "Pulse Slice — A",
+        "Pulse Slice — A",
+        "Pulse Slice — A",
+        "Personal",
+        "Personal",
+        "Pulse Slice — A",
+        "Pulse Slice — A",
+        "Pulse Slice — A",
+        "Pulse Slice — B",
+        "Pulse Slice — B",
+        "Pulse Slice — B",
+        "Pulse Slice — C",
+        "Pulse Slice — C",
+        "Pulse Slice — C",
+        "Pulse Slice — C",
+        "Pulse Slice — C",
+        "Pulse Slice — C"
+      ]
+    },
+    "memberPayloadKeysAbsent": {
+      "pass": true
+    },
+    "sharedSectionQueries": {
+      "pass": true,
+      "rows": [
+        {
+          "section": "segue",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "headlines",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "scorecard",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "goals",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "rocks",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "todos",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "issues",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "cascading",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        },
+        {
+          "section": "conclude",
+          "queryFunction": "getVisibleSectionData",
+          "dashboardFunction": "getVisibleSectionData",
+          "runnerFunction": "getVisibleSectionData",
+          "sameFunction": true,
+          "dashboardEnabled": true,
+          "runnerEnabled": true
+        }
+      ]
+    },
+    "missingMeetingNoFallback": {
+      "pass": true,
+      "error": "This meeting no longer exists. Go to your meetings."
+    },
+    "p4DirectReadDenied": {
+      "pass": true,
+      "error": "This meeting no longer exists. Go to your meetings."
+    },
+    "moveCToA": {
+      "pass": true,
+      "p3After": [
+        "Pulse Slice C issue",
+        "Pulse Slice C rock"
+      ],
+      "p1After": [
+        "Pulse Slice C todo",
+        "Pulse Slice A todo",
+        "Pulse Slice A issue",
+        "Pulse Slice A rock"
+      ],
+      "moveRows": [
+        {
+          "workItemId": "e4a9523c-043d-484c-91e0-a58e0c33760d",
+          "fromMeetingId": "ebf1f241-afe5-443c-81d3-1ceb15dd72f7",
+          "toMeetingId": "398415a9-3de7-4c24-ad19-bd95a381bbd3"
+        }
+      ]
+    },
+    "addP3ToB": {
+      "pass": true,
+      "visibleMeetingIds": [
+        "ebf1f241-afe5-443c-81d3-1ceb15dd72f7",
+        "6e9ef3d4-79f8-4742-8841-042045f00ae3"
+      ],
+      "titles": [
+        "Pulse Slice B todo",
+        "Pulse Slice B issue",
+        "Pulse Slice B rock",
+        "Pulse Slice C issue",
+        "Pulse Slice C rock"
+      ]
+    },
+    "removeP3FromC": {
+      "pass": true,
+      "p3After": [
+        "Pulse Slice B todo",
+        "Pulse Slice B issue",
+        "Pulse Slice B rock"
+      ],
+      "p2After": [
+        "Pulse Slice P2 personal todo",
+        "Pulse Slice P2 personal rock",
+        "Pulse Slice C todo",
+        "Pulse Slice A todo",
+        "Pulse Slice A issue",
+        "Pulse Slice A rock",
+        "Pulse Slice B todo",
+        "Pulse Slice B issue",
+        "Pulse Slice B rock",
+        "Pulse Slice C issue",
+        "Pulse Slice C rock"
+      ]
+    },
+    "relabelOnly": {
+      "pass": true,
+      "labels": {
+        "A": "other",
+        "B": "one_on_one",
+        "C": "other"
+      }
+    },
+    "disabledIssuesRemainStored": {
+      "pass": true,
+      "section": {
+        "section": "issues",
+        "queryFunction": "getVisibleSectionData",
+        "dashboardFunction": "getVisibleSectionData",
+        "runnerFunction": "getVisibleSectionData",
+        "sameFunction": true,
+        "dashboardEnabled": false,
+        "runnerEnabled": false
+      },
+      "issueStillStored": true
+    }
+  }
+}

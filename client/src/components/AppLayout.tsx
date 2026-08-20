@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
+import { getPulseNavDestinations, type PulseNavShell } from "@shared/pulseNav";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -141,30 +142,22 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
   ];
 }
 
-type PulseShellNav = {
-  navMode?: "single_meeting" | "standard";
-  canSeeSettings?: boolean;
-  meetings?: Array<{ id: string; name: string }>;
-};
-
 /** The Pulse shell is intentionally capped at five destinations. */
-function buildPulseNav(shell?: PulseShellNav): NavGroup[] {
-  const meetings = shell?.meetings ?? [];
-  const canSeeSettings = shell?.canSeeSettings === true;
-  const isSingleMember = shell?.navMode === "single_meeting" && meetings.length === 1;
-
-  const items: NavItem[] = [{ icon: Home, label: "Home", path: "/pulse" }];
-  if (!isSingleMember && meetings.length > 1) items.push({ icon: CheckSquare, label: "My Work", path: "/pulse/work" });
-  items.push({ icon: StickyNote, label: "My Inputs", path: "/pulse/inputs" });
-
-  if (isSingleMember) {
-    items.push({ icon: Users, label: meetings[0].name, path: `/pulse/meetings/${meetings[0].id}` });
-  } else {
-    items.push({ icon: Users, label: "Meetings", path: "/pulse/meetings" });
-  }
-  if (canSeeSettings) items.push({ icon: Settings, label: "Settings", path: "/pulse/settings" });
-
-  return [{ label: "Pulse", items: items.slice(0, 5) }];
+function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
+  const icons: Record<string, React.ElementType> = {
+    Home,
+    "My Work": CheckSquare,
+    "My Inputs": StickyNote,
+    Meetings: Users,
+    Settings,
+  };
+  return [{
+    label: "Pulse",
+    items: getPulseNavDestinations(shell).map((item) => ({
+      ...item,
+      icon: icons[item.label] ?? Users,
+    })),
+  }];
 }
 
 function buildAgentSupportNav(): NavGroup[] {
@@ -692,7 +685,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
-  const baseNavGroups = isPulsePath ? buildPulseNav(pulseShell as PulseShellNav | undefined) : standardNavGroups;
+  const baseNavGroups = isPulsePath ? buildPulseNav(pulseShell as PulseNavShell | undefined) : standardNavGroups;
   // For admin users, filter nav by their permissions, then apply password-list visibility.
   const permissionFilteredNavGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)

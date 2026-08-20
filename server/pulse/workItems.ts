@@ -163,7 +163,7 @@ function itemResponse(item: any, meetingName: string | null) {
   };
 }
 
-async function listAccessibleItems(db: any, personId: number, filters: {
+export async function listAccessibleItems(db: any, personId: number, filters: {
   type?: z.infer<typeof workItemTypeSchema>;
   meetingId?: string | null;
   assigneeId?: number;

@@ -18,6 +18,7 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "../pulse/access";
 import { pulseWorkItemsRouter } from "../pulse/workItems";
+import { pulseThinSliceRouter } from "../pulse/thinSlice";
 
 const sectionKeySchema = z.enum(PULSE_SECTION_KEYS);
 const meetingLabelSchema = z.enum(["level_10", "one_on_one", "other"]);
@@ -144,6 +145,7 @@ async function getVisibleMeetingWorkItems(db: any, personId: number, meetingId: 
 
 export const pulseRouter = router({
   workItems: pulseWorkItemsRouter,
+  thinSlice: pulseThinSliceRouter,
 
   /** Used by the shell. This payload is built from membership, never platform role. */
   shell: protectedProcedure.query(async ({ ctx }) => {
