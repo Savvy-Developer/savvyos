@@ -94,6 +94,12 @@ import {
 } from "../analytics/reportingSuite";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 import { getIsmDashboard } from "../analytics/ismDashboard";
+import {
+  getAdminCommandCenter,
+  getCommandCenterFilterOptions,
+  reviewCommandCenterAlert,
+  saveCommandCenterSettings,
+} from "../analytics/adminCommandCenter";
 import { canAdminUsePermission } from "./permissions";
 
 const dateRangeInput = z.object({
@@ -146,6 +152,47 @@ const ismActivityLogInput = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
+
+const commandCenterInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  marketProfileId: z.number().int().positive().optional(),
+  agentId: z.number().int().positive().optional(),
+  isaId: z.number().int().positive().optional(),
+  leadSourceId: z.number().int().positive().optional(),
+  transactionType: z.enum(["buyer", "seller", "dual"]).optional(),
+  pipelineStatus: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead", "do_not_contact"]).optional(),
+  transactionStatus: z.enum(["under_contract", "closed", "terminated"]).optional(),
+});
+
+async function getCommandCenterAccess(ctx: { user: NonNullable<import("../_core/context").TrpcContext["user"]> }) {
+  if (ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });
+  }
+  const [dashboard, transactions, commission, contacts, pipeline, tasks, users, markets, reporting] = await Promise.all([
+    canAdminUsePermission(ctx.user, "canViewDashboard"),
+    canAdminUsePermission(ctx.user, "canViewTransactions"),
+    canAdminUsePermission(ctx.user, "canViewCommission"),
+    canAdminUsePermission(ctx.user, "canViewContacts"),
+    canAdminUsePermission(ctx.user, "canViewPipeline"),
+    canAdminUsePermission(ctx.user, "canViewTasks"),
+    canAdminUsePermission(ctx.user, "canViewUsers"),
+    canAdminUsePermission(ctx.user, "canViewMarketMatch"),
+    canAdminUsePermission(ctx.user, "canViewReporting"),
+  ]);
+  if (!dashboard) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin Dashboard access is required." });
+  }
+  return {
+    financial: transactions && commission,
+    contacts,
+    pipeline: pipeline && contacts,
+    tasks,
+    users,
+    markets: markets && users,
+    reporting,
+  };
+}
 
 const reportingSuiteInput = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -393,6 +440,63 @@ export const analyticsRouter = router({
       }
       return getAgentLeaderboard({ ...input, viewerAgentId: ctx.user.id });
     }),
+  // ─── Admin Command Center ─────────────────────────────────────────────────
+  adminCommandCenter: protectedProcedure
+    .input(commandCenterInput)
+    .query(async ({ ctx, input }) => {
+      const access = await getCommandCenterAccess({ user: ctx.user! });
+      const dateFrom = new Date(`${input.dateFrom}T00:00:00.000Z`);
+      const dateTo = new Date(`${input.dateTo}T23:59:59.999Z`);
+      if (dateFrom > dateTo) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The start date must be on or before the end date." });
+      }
+      return getAdminCommandCenter({
+        viewerId: ctx.user.id,
+        access,
+        filters: {
+          ...input,
+          dateFrom,
+          dateTo,
+        },
+      });
+    }),
+
+  adminCommandCenterFilters: protectedProcedure
+    .query(async ({ ctx }) => {
+      const access = await getCommandCenterAccess({ user: ctx.user! });
+      return getCommandCenterFilterOptions(access);
+    }),
+
+  updateAdminCommandCenterSettings: protectedProcedure
+    .input(z.object({
+      goalYear: z.number().int().min(2020).max(2100),
+      companyGciGoal: z.number().nonnegative().nullable().optional(),
+      companyVolumeGoal: z.number().nonnegative().nullable().optional(),
+      companyUnitsGoal: z.number().int().nonnegative().nullable().optional(),
+      newLeadSlaHours: z.number().int().min(1).max(720).optional(),
+      pipelineStaleDays: z.number().int().min(1).max(365).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await getCommandCenterAccess({ user: ctx.user! });
+      return saveCommandCenterSettings(input);
+    }),
+
+  reviewAdminCommandCenterAlert: protectedProcedure
+    .input(z.object({
+      alertKey: z.string().min(3).max(255),
+      status: z.enum(["reviewed", "snoozed"]),
+      snoozedUntil: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await getCommandCenterAccess({ user: ctx.user! });
+      return reviewCommandCenterAlert({
+        userId: ctx.user.id,
+        alertKey: input.alertKey,
+        status: input.status,
+        snoozedUntil: input.snoozedUntil ? new Date(input.snoozedUntil) : null,
+      });
+    }),
+
   // ─── NEW: Executive Dashboard ─────────────────────────────────────────────
   /** Executive dashboard: MTD/YTD metrics, pipeline coverage, revenue per lead/agent */
   executiveDashboard: protectedProcedure

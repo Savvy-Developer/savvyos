@@ -1942,6 +1942,44 @@ export const savvyosFeatureUpdates = mysqlTable("savvyos_feature_updates", {
 export type SavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferSelect;
 export type InsertSavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferInsert;
 
+// ─── Admin Command Center Settings & Alert State ──────────────────────────────
+// Calendar-year company targets and configurable operational thresholds. These
+// are separate from agent goals so company pacing is never inferred from partial
+// agent-level configuration.
+export const dashboardSettings = mysqlTable("dashboard_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  goalYear: int("goalYear").notNull(),
+  companyGciGoal: decimal("companyGciGoal", { precision: 15, scale: 2 }),
+  companyVolumeGoal: decimal("companyVolumeGoal", { precision: 15, scale: 2 }),
+  companyUnitsGoal: int("companyUnitsGoal"),
+  newLeadSlaHours: int("newLeadSlaHours").notNull().default(24),
+  pipelineStaleDays: int("pipelineStaleDays").notNull().default(14),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  goalYearUnq: uniqueIndex("dashboard_settings_goal_year_unq").on(table.goalYear),
+}));
+export type DashboardSettings = typeof dashboardSettings.$inferSelect;
+export type InsertDashboardSettings = typeof dashboardSettings.$inferInsert;
+
+// Each alert is a deterministic query result. Review state is per administrator,
+// so acknowledging a queue item never conceals the underlying exception from
+// other authorized admins.
+export const dashboardAlertReviews = mysqlTable("dashboard_alert_reviews", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  alertKey: varchar("alertKey", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["reviewed", "snoozed"]).notNull(),
+  snoozedUntil: timestamp("snoozedUntil"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  userAlertUnq: uniqueIndex("dashboard_alert_reviews_user_alert_unq").on(table.userId, table.alertKey),
+  userStatusIdx: index("dashboard_alert_reviews_user_status_idx").on(table.userId, table.status, table.snoozedUntil),
+}));
+export type DashboardAlertReview = typeof dashboardAlertReviews.$inferSelect;
+export type InsertDashboardAlertReview = typeof dashboardAlertReviews.$inferInsert;
+
 // ─── Analytics Insight Cache ─────────────────────────────────────────────────
 
 // Durable cache for evidence-grounded Analytics & Reporting explanations. The
