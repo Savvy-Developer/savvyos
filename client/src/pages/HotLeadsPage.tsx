@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
+import { Link, useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -78,15 +79,20 @@ type DeadConnectionsRemovalMode = "permanent" | "temporary";
 
 export default function HotLeadsPage() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const rawSearch = useSearch();
+  const searchParams = useMemo(() => new URLSearchParams(rawSearch), [rawSearch]);
+  const initialDeadConnectionsPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const initialTab = searchParams.get("tab") === "dead-connections" ? "dead-connections" : "property-views";
   const role = (user as any)?.role as string | undefined;
   const isAgent = role === "agent";
   const isAdminOrIsa = role === "admin" || role === "isa";
 
-  const [activeTab, setActiveTab] = useState("property-views");
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [pvPage, setPvPage] = useState(1);
   const [rvPage, setRvPage] = useState(1);
   const [eePage, setEePage] = useState(1);
-  const [dcPage, setDcPage] = useState(1);
+  const [dcPage, setDcPage] = useState(initialDeadConnectionsPage);
   const [favoritesPage, setFavoritesPage] = useState(1);
   const [analysisPage, setAnalysisPage] = useState(1);
   const [days, setDays] = useState<DaysFilter>("7");
@@ -114,6 +120,39 @@ export default function HotLeadsPage() {
   const [temporaryRemovalDuration, setTemporaryRemovalDuration] = useState<TemporaryRemovalOption>("7_days");
   const [deadConnectionsRemovalNote, setDeadConnectionsRemovalNote] = useState("");
   const [deadConnectionsRemovalError, setDeadConnectionsRemovalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("tab") === "dead-connections") {
+      setActiveTab("dead-connections");
+      setDcPage(initialDeadConnectionsPage);
+    }
+  }, [initialDeadConnectionsPage, searchParams]);
+
+  const setDeadConnectionsPage = (nextPage: number) => {
+    const normalizedPage = Math.max(1, nextPage);
+    setDcPage(normalizedPage);
+    const params = new URLSearchParams(rawSearch);
+    params.set("tab", "dead-connections");
+    if (normalizedPage === 1) {
+      params.delete("page");
+    } else {
+      params.set("page", String(normalizedPage));
+    }
+    navigate(`/hot-leads?${params.toString()}`);
+  };
+
+  const handleTabChange = (nextTab: string) => {
+    setActiveTab(nextTab);
+    if (nextTab === "dead-connections") {
+      setDeadConnectionsPage(dcPage);
+      return;
+    }
+    if (searchParams.has("tab") || searchParams.has("page")) {
+      navigate("/hot-leads");
+    }
+  };
+
+  const deadConnectionsReturnTo = `/hot-leads?tab=dead-connections${dcPage > 1 ? `&page=${dcPage}` : ""}`;
 
   // Fetch ISA and agent lists for filter dropdowns (admin/ISA only)
   const { data: usersList = [] } = trpc.users.list.useQuery(undefined, { enabled: isAdminOrIsa });
@@ -413,7 +452,7 @@ export default function HotLeadsPage() {
         subtitle="Contacts showing high engagement signals — prioritize outreach to these leads"
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="property-views" className="shrink-0 whitespace-nowrap gap-2">
             <Eye className="h-4 w-4" />
@@ -809,7 +848,7 @@ export default function HotLeadsPage() {
                   summaryText="have all agent connections marked dead"
                   page={dcPage}
                   totalPages={deadConnections.data?.totalPages ?? 1}
-                  onPageChange={setDcPage}
+                  onPageChange={setDeadConnectionsPage}
                   limit={limit}
                   headers={
                     <>
@@ -844,7 +883,7 @@ export default function HotLeadsPage() {
                         {(dcPage - 1) * limit + idx + 1}
                       </TableCell>
                       <TableCell>
-                        <ContactCell lead={lead} isAgent={false} />
+                        <ContactCell lead={lead} isAgent={false} returnTo={deadConnectionsReturnTo} />
                       </TableCell>
                       <TableCell className="text-center">
                         <Badge variant="destructive">{lead.deadConnectionCount}</Badge>
@@ -1264,20 +1303,21 @@ function AgentsList({ agents }: { agents: Array<{ name: string; connectionId: nu
   );
 }
 
-function ContactCell({ lead, isAgent }: { lead: { contactId: number; connectedAgents: Array<{ name: string; connectionId: number }>; firstName: string | null; lastName: string | null; email: string | null; phone: string | null }; isAgent: boolean }) {
+function ContactCell({ lead, isAgent, returnTo }: { lead: { contactId: number; connectedAgents: Array<{ name: string; connectionId: number }>; firstName: string | null; lastName: string | null; email: string | null; phone: string | null }; isAgent: boolean; returnTo?: string }) {
   const link = isAgent && lead.connectedAgents.length > 0
     ? `/pipeline/${lead.connectedAgents[0].connectionId}`
     : `/contacts/${lead.contactId}`;
+  const contactLink = returnTo ? `${link}?returnTo=${encodeURIComponent(returnTo)}` : link;
 
   return (
     <div className="flex flex-col">
-      <a
-        href={link}
+      <Link
+        href={contactLink}
         className="font-medium text-foreground hover:text-primary hover:underline flex items-center gap-1"
       >
         {lead.firstName} {lead.lastName}
         <ExternalLink className="h-3 w-3 opacity-50" />
-      </a>
+      </Link>
       <span className="text-xs text-muted-foreground">
         {lead.email || lead.phone || "—"}
       </span>
@@ -1300,6 +1340,8 @@ interface DataTableProps {
 }
 
 function DataTable({ isLoading, emptyIcon, emptyMessage, totalCount, summaryText, page, totalPages, onPageChange, limit, headers, rows }: DataTableProps) {
+  const paginationItems = getPaginationItems(page, totalPages);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -1346,7 +1388,7 @@ function DataTable({ isLoading, emptyIcon, emptyMessage, totalCount, summaryText
           <span className="text-sm text-muted-foreground">
             Page {page} of {totalPages} ({totalCount} total)
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               size="sm"
@@ -1356,6 +1398,24 @@ function DataTable({ isLoading, emptyIcon, emptyMessage, totalCount, summaryText
               <ChevronLeft className="h-4 w-4" />
               Previous
             </Button>
+            <div className="hidden items-center gap-1 sm:flex" aria-label="Pagination">
+              {paginationItems.map((item, index) => item === "ellipsis" ? (
+                <span key={`ellipsis-${index}`} className="px-1 text-sm text-muted-foreground" aria-hidden="true">…</span>
+              ) : (
+                <Button
+                  key={item}
+                  type="button"
+                  variant={item === page ? "default" : "outline"}
+                  size="sm"
+                  className="h-8 min-w-8 px-2"
+                  onClick={() => onPageChange(item)}
+                  aria-label={`Go to page ${item}`}
+                  aria-current={item === page ? "page" : undefined}
+                >
+                  {item}
+                </Button>
+              ))}
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -1370,6 +1430,25 @@ function DataTable({ isLoading, emptyIcon, emptyMessage, totalCount, summaryText
       )}
     </>
   );
+}
+
+function getPaginationItems(currentPage: number, totalPages: number): Array<number | "ellipsis"> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+
+  const nearbyPages = new Set([1, totalPages]);
+  for (let page = Math.max(2, currentPage - 2); page <= Math.min(totalPages - 1, currentPage + 2); page += 1) {
+    nearbyPages.add(page);
+  }
+
+  const orderedPages = Array.from(nearbyPages).sort((a, b) => a - b);
+  const items: Array<number | "ellipsis"> = [];
+  orderedPages.forEach((page, index) => {
+    const previousPage = orderedPages[index - 1];
+    if (previousPage && page - previousPage > 1) items.push("ellipsis");
+    items.push(page);
+  });
+
+  return items;
 }
 
 // ─── Badge Components ─────────────────────────────────────────────────────────

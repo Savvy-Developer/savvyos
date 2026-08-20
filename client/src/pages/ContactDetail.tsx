@@ -394,6 +394,13 @@ export default function ContactDetail() {
     const candidate = params.get("returnTo");
     return candidate?.startsWith("/analytics") ? candidate : null;
   })();
+  const hotLeadsReturnTo = (() => {
+    if (typeof window === "undefined") return null;
+    const candidate = new URLSearchParams(window.location.search).get("returnTo");
+    return candidate?.startsWith("/hot-leads") ? candidate : null;
+  })();
+  const backDestination = analyticsReturnTo ?? hotLeadsReturnTo;
+  const backLabel = analyticsReturnTo ? "Back to report" : hotLeadsReturnTo ? "Back to Hot Leads" : "Back";
   const { user } = useAuth();
   const contactId = parseInt(id ?? "0");
 
@@ -802,8 +809,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Button variant="ghost" size="sm" onClick={() => analyticsReturnTo ? navigate(analyticsReturnTo) : goBack()}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> {analyticsReturnTo ? "Back to report" : "Back"}
+        <Button variant="ghost" size="sm" onClick={() => backDestination ? navigate(backDestination) : goBack()}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> {backLabel}
         </Button>
       </div>
 
