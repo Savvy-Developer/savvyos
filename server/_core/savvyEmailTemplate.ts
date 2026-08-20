@@ -15,7 +15,7 @@ const SAVVY_EMAIL_TEMPLATE_HTML = `
         <td align="center" style="padding:32px 16px;">
           <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px; border-collapse:separate; border-spacing:0;">
             <tr>
-              <td style="padding:24px 32px; background-color:#0d2137; border-radius:12px 12px 0 0;">
+              <td style="padding:24px 32px; background-color:#ffffff; border:1px solid #e5e7eb; border-bottom:0; border-radius:12px 12px 0 0;">
                 <img src="${SAVVY_LOGO_URL}" width="136" alt="Savvy STR Agents" style="display:block; width:136px; max-width:100%; height:auto; border:0; outline:none; text-decoration:none;" />
               </td>
             </tr>

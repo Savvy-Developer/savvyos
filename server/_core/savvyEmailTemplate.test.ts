@@ -13,6 +13,8 @@ describe("Savvy outbound email template", () => {
     expect(html).toContain("Welcome");
     expect(html).toContain("<p>Hello there</p>");
     expect(html).toContain("{{{RESEND_UNSUBSCRIBE_URL}}}");
+    expect(html).toContain("background-color:#ffffff; border:1px solid #e5e7eb; border-bottom:0");
+    expect(html).not.toContain("background-color:#0d2137");
   });
 
   it("recognizes and preserves a sender-authored full HTML document", () => {
