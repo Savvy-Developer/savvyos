@@ -193,7 +193,7 @@ export default function PulseFoundationPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeading question="What needs me right now?" detail="Pulse keeps your meetings and meeting work in one clear place. Start with a meeting you belong to." />
+      <div className="flex flex-wrap items-start justify-between gap-3"><PageHeading question="What needs me right now?" detail="Pulse keeps your meetings and meeting work in one clear place. Start with a meeting you belong to." /><Button asChild variant="outline" className="min-h-11"><Link href="/pulse/mission">Mission Control</Link></Button></div>
       {meetings.length ? (
         <Card className="max-w-3xl">
           <CardHeader className="pb-3">

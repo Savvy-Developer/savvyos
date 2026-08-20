@@ -106,6 +106,7 @@ import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
+import PulseMissionControlPage from "./pages/PulseMissionControlPage";
 import PulseMeetingRunPage from "./pages/PulseMeetingRunPage";
 import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
@@ -275,6 +276,7 @@ function Router() {
           <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMeetingRunPage meetingId={id} />}</Route>
           <Route path="/pulse/meetings/:id" component={PulseFoundationPage} />
           <Route path="/pulse/meetings" component={PulseFoundationPage} />
+          <Route path="/pulse/mission" component={PulseMissionControlPage} />
           <Route path="/pulse/work" component={PulseFoundationPage} />
           <Route path="/pulse/inputs" component={PulseFoundationPage} />
           <Route path="/pulse/settings" component={PulseFoundationPage} />

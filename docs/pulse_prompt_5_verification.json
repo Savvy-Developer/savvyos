@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-08-20T19:53:23.554Z",
+  "acceptance": {
+    "frozenRosterAtSend": {
+      "pass": true,
+      "roster": [
+        {
+          "personId": 1896819,
+          "viaMeetingId": "305ac9a3-78e6-496a-8fc1-94be1bb9c464"
+        },
+        {
+          "personId": 1896819,
+          "viaMeetingId": "c198414f-648c-4f31-a098-ff6aecb980f9"
+        },
+        {
+          "personId": 1896820,
+          "viaMeetingId": "305ac9a3-78e6-496a-8fc1-94be1bb9c464"
+        },
+        {
+          "personId": 1896822,
+          "viaMeetingId": "305ac9a3-78e6-496a-8fc1-94be1bb9c464"
+        },
+        {
+          "personId": 1896822,
+          "viaMeetingId": "c198414f-648c-4f31-a098-ff6aecb980f9"
+        }
+      ]
+    },
+    "postSendMembershipDoesNotChangeRoster": {
+      "pass": true
+    },
+    "oneAcknowledgmentClearsAllRecipientRows": {
+      "pass": true
+    },
+    "identicalRoutingAcrossFourSurfaces": {
+      "pass": true
+    },
+    "oneTapMissionControlAcknowledgment": {
+      "pass": true
+    },
+    "unacknowledgedMessagePersistsBeyond14Days": {
+      "pass": true
+    },
+    "invisibleSourceNotificationFailsPlainly": {
+      "pass": true,
+      "message": "This message cannot be sent because one or more recipients cannot see the source meeting. Add them to the source meeting first."
+    },
+    "allSevenEmailTemplatesRender": {
+      "pass": true,
+      "templates": {
+        "meeting_reminder": true,
+        "todo_assigned": true,
+        "cascade_sent": true,
+        "overdue_digest": true,
+        "mention": true,
+        "rock_completed": true,
+        "welcome": true
+      }
+    },
+    "emailOffPulseOnCreatesInAppOnly": {
+      "pass": true
+    }
+  }
+}

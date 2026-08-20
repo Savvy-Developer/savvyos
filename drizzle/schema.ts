@@ -3440,6 +3440,54 @@ export const pulsePersonalInputs = mysqlTable("pulse_personal_inputs", {
 }, (table) => [uniqueIndex("pulse_personal_input_week_unique").on(table.personId, table.meetingId, table.inputKey, table.weekOf), index("pulse_personal_input_person_idx").on(table.personId, table.weekOf, table.deletedAt)]);
 export type PulsePersonalInput = typeof pulsePersonalInputs.$inferSelect;
 
+export const pulseCascadeDestinations = mysqlTable("pulse_cascade_destinations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  cascadingMessageId: varchar("cascadingMessageId", { length: 36 }).notNull().references(() => pulseCascadingMessages.id, { onDelete: "cascade" }),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("pulse_cascade_destination_unique").on(table.cascadingMessageId, table.meetingId)]);
+export type PulseCascadeDestination = typeof pulseCascadeDestinations.$inferSelect;
+
+export const pulseCascadeRecipients = mysqlTable("pulse_cascade_recipients", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  cascadingMessageId: varchar("cascadingMessageId", { length: 36 }).notNull().references(() => pulseCascadingMessages.id, { onDelete: "cascade" }),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  viaMeetingId: varchar("viaMeetingId", { length: 36 }).notNull().references(() => pulseMeetings.id),
+  acknowledgedAt: timestamp("acknowledgedAt"),
+  acknowledgedFrom: varchar("acknowledgedFrom", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("pulse_cascade_recipient_unique").on(table.cascadingMessageId, table.personId, table.viaMeetingId), index("pulse_cascade_recipient_person_idx").on(table.personId, table.acknowledgedAt)]);
+export type PulseCascadeRecipient = typeof pulseCascadeRecipients.$inferSelect;
+
+export const pulseNotifications = mysqlTable("pulse_notifications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  notificationType: mysqlEnum("notificationType", ["mention", "comment", "assignment", "cascade", "proposed_issue", "reminder", "overdue"]).notNull(),
+  requiresAction: boolean("requiresAction").notNull().default(false),
+  sourceType: varchar("sourceType", { length: 64 }).notNull(),
+  sourceId: varchar("sourceId", { length: 36 }).notNull(),
+  meetingId: varchar("meetingId", { length: 36 }).references(() => pulseMeetings.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  clearedAt: timestamp("clearedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("pulse_notifications_person_action_idx").on(table.personId, table.requiresAction, table.clearedAt, table.createdAt)]);
+export type PulseNotification = typeof pulseNotifications.$inferSelect;
+
+/** Per-person delivery choices. In-app and email are deliberately independent. */
+export const pulseNotificationPreferences = mysqlTable("pulse_notification_preferences", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  templateKey: varchar("templateKey", { length: 64 }).notNull(),
+  inApp: boolean("inApp").notNull().default(true),
+  email: boolean("email").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_notification_preference_person_template_unique").on(table.personId, table.templateKey),
+  index("pulse_notification_preference_person_idx").on(table.personId),
+]);
+export type PulseNotificationPreference = typeof pulseNotificationPreferences.$inferSelect;
+
 export const pulseCascadingMessages = mysqlTable("pulse_cascading_messages", {
   id: varchar("id", { length: 36 }).primaryKey(),
   fromMeetingId: varchar("fromMeetingId", { length: 36 }).notNull().references(() => pulseMeetings.id),

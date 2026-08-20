@@ -1,6 +1,7 @@
-import { aliasedTable, and, asc, desc, eq, isNull } from "drizzle-orm";
-import { pulseCascadingMessages, pulseMeetingUpdates, pulseMeetings, pulseScorecardEntries, pulseScorecardMetrics, users } from "../../../drizzle/schema";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { pulseMeetingUpdates, pulseScorecardEntries, pulseScorecardMetrics, users } from "../../../drizzle/schema";
 import { require_visible_meeting } from "../access";
+import { getMeetingCascadePayloads } from "../cascadePayload";
 import { listAccessibleItems } from "../workItems";
 
 export type SectionKey = "segue" | "headlines" | "scorecard" | "goals" | "rocks" | "todos" | "issues" | "cascading" | "conclude";
@@ -32,10 +33,5 @@ export async function scorecard(ctx: SectionContext) {
 }
 
 export async function cascades(ctx: SectionContext) {
-  const fromMeeting = aliasedTable(pulseMeetings, "cascade_from_meeting");
-  const toMeeting = aliasedTable(pulseMeetings, "cascade_to_meeting");
-  const rows = await ctx.db.select({ id: pulseCascadingMessages.id, body: pulseCascadingMessages.body, fromMeetingId: pulseCascadingMessages.fromMeetingId, fromMeetingName: fromMeeting.name, toMeetingId: pulseCascadingMessages.toMeetingId, toMeetingName: toMeeting.name, acknowledgedAt: pulseCascadingMessages.acknowledgedAt, acknowledgedById: pulseCascadingMessages.acknowledgedById, createdAt: pulseCascadingMessages.createdAt })
-    .from(pulseCascadingMessages).innerJoin(fromMeeting, eq(fromMeeting.id, pulseCascadingMessages.fromMeetingId)).innerJoin(toMeeting, eq(toMeeting.id, pulseCascadingMessages.toMeetingId))
-    .where(and(eq(pulseCascadingMessages.toMeetingId, ctx.meeting.id), isNull(pulseCascadingMessages.deletedAt))).orderBy(desc(pulseCascadingMessages.createdAt));
-  return rows;
+  return getMeetingCascadePayloads(ctx.db, ctx.viewerId, ctx.meeting.id);
 }

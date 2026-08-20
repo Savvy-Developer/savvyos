@@ -44,6 +44,13 @@ export type EmailType =
   | "coaching_weekly_accountability"
   | "pulse_overdue_digest"
   | "pulse_rock_completed"
+  | "meeting_reminder"
+  | "todo_assigned"
+  | "cascade_sent"
+  | "overdue_digest"
+  | "mention"
+  | "rock_completed"
+  | "welcome"
   | "password_reset";
 
 interface EmailContext {
@@ -55,6 +62,11 @@ interface EmailContext {
   pulseWorkItemTitle?: string;
   pulseMeetingName?: string;
   pulseItemUrl?: string;
+  pulseCascadeSource?: string;
+  pulseCascadeDestinations?: string;
+  pulseCascadeAcknowledgment?: string;
+  pulseCascadeBody?: string;
+  pulseActionUrl?: string;
   // PM mention-specific
   mentionedByName?: string;
   projectTitle?: string;
@@ -185,6 +197,10 @@ function greeting(name?: string): string {
 
 function bodyText(text: string): string {
   return `<p style="margin:0 0 4px;font-size:15px;color:#374151;line-height:1.6;">${text}</p>`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
 function infoCard(rows: string[], accentColor = CYAN): string {
@@ -451,6 +467,103 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ], "#059669")}
       ${ctaButton("View in Pipeline", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
       `Connection request approved — ${ctx.contactName ?? "contact"} added to your pipeline`
+    ),
+  }),
+
+  meeting_reminder: (ctx) => ({
+    subject: `Pulse meeting reminder — ${ctx.pulseMeetingName ?? "Your meeting"}`,
+    html: emailLayout(
+      `${heading("Your Pulse meeting is coming up")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Your meeting is coming up. Add what the team needs before it starts.")}
+      ${infoCard([`<strong style="color:${BLACK};">Meeting</strong>&nbsp;&nbsp; ${escapeHtml(ctx.pulseMeetingName ?? "Your Pulse meeting")}`])}
+      ${ctaButton("Open Pulse", ctx.pulseActionUrl ?? APP_URL + "/pulse/meetings")}`,
+      `Reminder for ${ctx.pulseMeetingName ?? "your Pulse meeting"}`
+    ),
+  }),
+
+  todo_assigned: (ctx) => ({
+    subject: `New Pulse to-do — ${ctx.pulseMeetingName ?? "Your meeting"}`,
+    html: emailLayout(
+      `${heading("You have a new Pulse to-do")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("A clear next step was assigned to you.")}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Meeting</strong>&nbsp;&nbsp; ${escapeHtml(ctx.pulseMeetingName ?? "Your Pulse meeting")}`,
+        `<strong style="color:${BLACK};">To-do</strong>&nbsp;&nbsp; ${escapeHtml(ctx.pulseWorkItemTitle ?? "Open Pulse to see the next step")}`,
+      ])}
+      ${ctaButton("Open to-do", ctx.pulseItemUrl ?? APP_URL + "/pulse/work")}`,
+      `New to-do in ${ctx.pulseMeetingName ?? "your Pulse meeting"}`
+    ),
+  }),
+
+  cascade_sent: (ctx) => ({
+    subject: `Pulse message needs you — ${ctx.pulseMeetingName ?? "A meeting"}`,
+    html: emailLayout(
+      `${heading("A Pulse message needs your acknowledgment")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Read the message, then acknowledge it in Pulse.")}
+      ${infoCard([
+        `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeSource ?? "From a Pulse meeting")}</strong>`,
+        `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeDestinations ?? "To your meeting")}</strong>`,
+        `<strong style="color:${BLACK};">${escapeHtml(ctx.pulseCascadeAcknowledgment ?? "0 of 0 acknowledged")}</strong>`,
+      ])}
+      <p style="margin:20px 0 0;font-size:15px;color:#374151;line-height:1.6;white-space:pre-wrap;">${escapeHtml(ctx.pulseCascadeBody ?? "Open Pulse to read this message.")}</p>
+      ${ctaButton("Acknowledge in Pulse", ctx.pulseActionUrl ?? APP_URL + "/pulse/mission")}`,
+      `Message from ${ctx.pulseMeetingName ?? "a Pulse meeting"}`
+    ),
+  }),
+
+  overdue_digest: (ctx) => ({
+    subject: `Your overdue Pulse work — ${ctx.pulseMeetingName ?? "Pulse"}`,
+    html: emailLayout(
+      `${heading("Your overdue Pulse work", "#D97706")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("These to-dos are still open. Pick the next one and update it in Pulse.")}
+      ${ctx.pulseOverdueList ?? bodyText("You have no overdue Pulse work.")}
+      ${ctaButton("Open Pulse work", ctx.pulseActionUrl ?? APP_URL + "/pulse/work")}`,
+      `Overdue work in ${ctx.pulseMeetingName ?? "Pulse"}`
+    ),
+  }),
+
+  mention: (ctx) => ({
+    subject: `You were mentioned in Pulse — ${ctx.pulseMeetingName ?? "Your meeting"}`,
+    html: emailLayout(
+      `${heading("You were mentioned in Pulse")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("A teammate mentioned you in a meeting item. Open Pulse to respond.")}
+      ${ctaButton("Open Pulse", ctx.pulseActionUrl ?? APP_URL + "/pulse")}`,
+      `A mention in ${ctx.pulseMeetingName ?? "your Pulse meeting"}`
+    ),
+  }),
+
+  rock_completed: (ctx) => ({
+    subject: `Rock completed — ${ctx.pulseMeetingName ?? "Pulse"}`,
+    html: emailLayout(
+      `${heading("A Pulse rock was completed", "#059669")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`The rock <strong>${escapeHtml(ctx.pulseWorkItemTitle ?? "a Pulse rock")}</strong> was marked done.`)}
+      ${ctaButton("Open Pulse", ctx.pulseItemUrl ?? APP_URL + "/pulse/work")}`,
+      `Rock completed in ${ctx.pulseMeetingName ?? "Pulse"}`
+    ),
+  }),
+
+  welcome: (ctx) => ({
+    subject: `Welcome to Pulse — ${ctx.pulseMeetingName ?? "Your meeting"}`,
+    html: emailLayout(
+      `${heading("Welcome to Pulse")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse meeting")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Pulse keeps your meetings, promises, and next steps in one clear place.")}
+      ${infoCard([`<strong style="color:${BLACK};">Meeting</strong>&nbsp;&nbsp; ${escapeHtml(ctx.pulseMeetingName ?? "Your Pulse meeting")}`])}
+      ${ctaButton("Open Pulse", ctx.pulseActionUrl ?? APP_URL + "/pulse")}`,
+      `Welcome to ${ctx.pulseMeetingName ?? "Pulse"}`
     ),
   }),
 
