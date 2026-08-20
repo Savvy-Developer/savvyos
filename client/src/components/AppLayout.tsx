@@ -237,6 +237,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewIsmDashboard: "/ism-dashboard",
   canViewReporting: "/analytics",
   canViewCustomReports: "/custom-reports",
+  canViewLeaderboard: "/leaderboard",
   canViewContacts: "/contacts",
   canViewPipeline: "/pipeline",
   canViewConnectionRequests: "/connection-requests",
@@ -248,6 +249,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewProperties: "/properties",
   canViewCommission: "/commission",
   canViewReferrals: "/referrals",
+  canViewPulse: "/pulse",
   canViewTasks: "/tasks",
   canViewOnboarding: "/onboarding",
   canViewCoachingHub: "/coaching",
@@ -270,6 +272,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewProjects: "/projects",
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
+  canViewFeatureUpdates: "/daily-report-updates",
   canViewPasswords: "/passwords",
   canViewSuperPermissions: "/admin/super-permissions",
 };

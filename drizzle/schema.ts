@@ -2041,6 +2041,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewIsmDashboard: boolean("canViewIsmDashboard").default(false).notNull(),
   canViewReporting: boolean("canViewReporting").default(true).notNull(),
   canViewCustomReports: boolean("canViewCustomReports").default(true).notNull(),
+  canViewLeaderboard: boolean("canViewLeaderboard").default(true).notNull(),
   // CRM
   canViewContacts: boolean("canViewContacts").default(true).notNull(),
   canViewPipeline: boolean("canViewPipeline").default(true).notNull(),
@@ -2063,6 +2064,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canUpdateReferralPayments: boolean("canUpdateReferralPayments").default(true).notNull(),
   canManageReferralAgreements: boolean("canManageReferralAgreements").default(true).notNull(),
   canEditHistoricalReferrals: boolean("canEditHistoricalReferrals").default(true).notNull(),
+  // Pulse
+  canViewPulse: boolean("canViewPulse").default(true).notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
@@ -2080,6 +2083,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewTechRequests: boolean("canViewTechRequests").default(true).notNull(),
   canViewGoals: boolean("canViewGoals").default(true).notNull(),
   canViewJobBoard: boolean("canViewJobBoard").default(true).notNull(),
+  canViewTalentProfile: boolean("canViewTalentProfile").default(true).notNull(),
   // Dev Tools
   canViewWebhooks: boolean("canViewWebhooks").default(true).notNull(),
   canViewDuplicates: boolean("canViewDuplicates").default(true).notNull(),
@@ -2089,6 +2093,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewProjects: boolean("canViewProjects").default(false).notNull(),
   canViewSmartPlans: boolean("canViewSmartPlans").default(false).notNull(),
   canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
+  canViewFeatureUpdates: boolean("canViewFeatureUpdates").default(true).notNull(),
   // Passwords
   canViewPasswords: boolean("canViewPasswords").default(true).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)

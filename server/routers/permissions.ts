@@ -22,6 +22,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewIsmDashboard",       label: "ISM Dashboard",            group: "Overview" },
   { key: "canViewReporting",          label: "Reporting",                group: "Overview" },
   { key: "canViewCustomReports",     label: "Custom Reports",         group: "Overview" },
+  { key: "canViewLeaderboard",       label: "Agent Leaderboard",       group: "Overview" },
   // CRM
   { key: "canViewContacts",           label: "All Contacts",             group: "CRM" },
   { key: "canViewPipeline",           label: "All Pipelines",            group: "CRM" },
@@ -44,6 +45,8 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canUpdateReferralPayments",  label: "Update Referral Payments", group: "Outbound Referrals" },
   { key: "canManageReferralAgreements",label: "Manage Agreements",        group: "Outbound Referrals" },
   { key: "canEditHistoricalReferrals", label: "Edit Historical Referrals",group: "Outbound Referrals" },
+  // Pulse
+  { key: "canViewPulse",             label: "Pulse",                    group: "Pulse" },
   // Operations
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },
@@ -61,6 +64,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewTechRequests",       label: "Tech Requests",            group: "Admin" },
   { key: "canViewGoals",              label: "Goals",                    group: "Admin" },
   { key: "canViewJobBoard",           label: "Job Board",                 group: "Admin" },
+  { key: "canViewTalentProfile",      label: "Talent Profiles",          group: "Admin" },
   // Dev Tools
   { key: "canViewWebhooks",           label: "Webhooks",                 group: "Dev Tools" },
   { key: "canViewDuplicates",         label: "Duplicate Contacts",       group: "Dev Tools" },
@@ -70,6 +74,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewProjects",           label: "Projects",                 group: "Projects & Plans" },
   { key: "canViewSmartPlans",         label: "Smart Plans",              group: "Projects & Plans" },
   { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Projects & Plans" },
+  { key: "canViewFeatureUpdates",     label: "Feature Updates",          group: "Projects & Plans" },
   // Admin — Passwords
   { key: "canViewPasswords",           label: "Passwords",                group: "Admin" },
   // Super admin tools (default OFF — only Tyler/Elana/Dyl can use this page anyway)
