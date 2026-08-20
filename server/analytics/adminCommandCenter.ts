@@ -275,11 +275,16 @@ export async function getAdminCommandCenter(input: {
       db.execute(sql`SELECT COUNT(*) AS units, COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
         WHERE ${activeContractScope}`),
-      db.execute(sql`SELECT DATE_FORMAT(t.closingDate, '%Y-%m') AS period, COUNT(*) AS units,
-          COALESCE(SUM(t.purchasePrice), 0) AS volume, COALESCE(SUM(t.grossCommissionIncome), 0) AS gci
+      db.execute(sql`SELECT DATE_FORMAT(t.closingDate, '%Y-%m') AS period,
+          COUNT(CASE WHEN t.status = 'closed' THEN 1 END) AS closedUnits,
+          COALESCE(SUM(CASE WHEN t.status = 'closed' THEN t.purchasePrice ELSE 0 END), 0) AS closedVolume,
+          COALESCE(SUM(CASE WHEN t.status = 'closed' THEN t.grossCommissionIncome ELSE 0 END), 0) AS closedGci,
+          COUNT(CASE WHEN t.status = 'under_contract' THEN 1 END) AS underContractUnits,
+          COALESCE(SUM(CASE WHEN t.status = 'under_contract' THEN t.purchasePrice ELSE 0 END), 0) AS underContractVolume,
+          COALESCE(SUM(CASE WHEN t.status = 'under_contract' THEN t.grossCommissionIncome ELSE 0 END), 0) AS underContractGci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
-        WHERE t.status = ${selectedProductionStatus} AND t.closingDate >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
-          AND ${transactionScope({ ...filters, dateFrom: new Date(0), dateTo: new Date(8640000000000000) }, { status: undefined, applyDate: false })}
+        WHERE t.status IN ('closed', 'under_contract') AND t.closingDate >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+          AND ${transactionScope({ ...filters, transactionStatus: undefined, dateFrom: new Date(0), dateTo: new Date(8640000000000000) }, { status: undefined, applyDate: false })}
         GROUP BY DATE_FORMAT(t.closingDate, '%Y-%m') ORDER BY period`),
     ])
     : Promise.resolve(null);
@@ -479,7 +484,13 @@ export async function getAdminCommandCenter(input: {
   const priorClosed = financialResult ? toMetric(rows<QueryRow>(financialResult[1])[0]) : null;
   const activeContracts = financialResult ? toMetric(rows<QueryRow>(financialResult[2])[0]) : null;
   const trend = financialResult ? rows<QueryRow>(financialResult[3]).map((row) => ({
-    period: String(row.period), units: number(row.units), volume: number(row.volume), gci: number(row.gci),
+    period: String(row.period),
+    closedUnits: number(row.closedUnits),
+    closedVolume: number(row.closedVolume),
+    closedGci: number(row.closedGci),
+    underContractUnits: number(row.underContractUnits),
+    underContractVolume: number(row.underContractVolume),
+    underContractGci: number(row.underContractGci),
   })) : [];
   const future = futureResult ? {
     days30: toMetric(rows<QueryRow>(futureResult[0])[0]),
