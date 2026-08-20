@@ -80,6 +80,34 @@ function EmptyInstruction({ children, actionHref, actionLabel }: { children: Rea
   );
 }
 
+function FirstMeetingSetup() {
+  const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
+  const [name, setName] = useState("");
+  const createMeeting = trpc.pulse.createMeeting.useMutation({
+    onSuccess: async ({ id }) => {
+      await utils.pulse.shell.invalidate();
+      navigate(`/pulse/meetings/${id}`);
+    },
+  });
+
+  return (
+    <Card className="max-w-3xl">
+      <CardContent className="p-6 sm:p-8">
+        <p className="max-w-2xl text-base leading-6 text-muted-foreground">Start with one meeting. You will be its owner, and you can add people and adjust the details next.</p>
+        <form className="mt-5 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => {
+          event.preventDefault();
+          if (name.trim()) createMeeting.mutate({ name: name.trim(), label: "other" });
+        }}>
+          <Input aria-label="Name your first meeting" className="min-h-11 text-base" value={name} onChange={(event) => setName(event.target.value)} placeholder="Name your first meeting" maxLength={255} required />
+          <Button type="submit" className="min-h-11 shrink-0" disabled={createMeeting.isPending}>{createMeeting.isPending ? "Creating…" : "Create meeting"}</Button>
+        </form>
+        {createMeeting.error && <p className="mt-3 text-sm text-destructive">{createMeeting.error.message}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MeetingsList({ meetings, glossary, query }: { meetings: Meeting[]; glossary: GlossaryEntry[]; query: string }) {
   const normalized = query.trim().toLocaleLowerCase();
   const filteredMeetings = normalized ? meetings.filter((meeting) => meeting.name.toLocaleLowerCase().includes(normalized)) : meetings;
@@ -179,20 +207,24 @@ export default function PulseFoundationPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input aria-label="Search your meetings" className="min-h-11 pl-10 text-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your meetings" />
         </div>
-        {meetings.length ? <MeetingsList meetings={meetings} glossary={glossary as GlossaryEntry[]} query={search} /> : <EmptyInstruction actionHref="/pulse" actionLabel="Go to Pulse home">You have not been added to a meeting yet. Ask a meeting owner to add you, then your meetings will show here.</EmptyInstruction>}
+        {meetings.length ? <MeetingsList meetings={meetings} glossary={glossary as GlossaryEntry[]} query={search} /> : <EmptyInstruction actionHref={shell?.canSeeSettings ? "/pulse/settings" : "/pulse"} actionLabel={shell?.canSeeSettings ? "Set up your first meeting" : "Go to Pulse home"}>{shell?.canSeeSettings ? "You do not have a meeting yet. Set up your first meeting to give Pulse a clear place to start." : "You have not been added to a meeting yet. Ask a meeting owner to add you, then your meetings will show here."}</EmptyInstruction>}
       </div>
     );
   }
 
-  if (location === "/pulse/work") return <PulseWorkItemsPage />;
+  if (location === "/pulse/work") {
+    if (meetings.length <= 1) return <EmptyInstruction actionHref={shell?.canSeeSettings ? "/pulse/settings" : "/pulse"} actionLabel={shell?.canSeeSettings ? "Set up your first meeting" : "Go to Pulse home"}>My Work appears when you belong to more than one meeting. Start from Pulse home to see the work available to you now.</EmptyInstruction>;
+    return <PulseWorkItemsPage />;
+  }
 
   if (location === "/pulse/inputs") {
-    return <div className="space-y-6"><PageHeading question="What do I need to put in this week?" detail="Put this week’s numbers, goals, and meeting updates here." /><EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">There is nothing to enter yet. When inputs are ready, you will be able to update them here from your phone.</EmptyInstruction></div>;
+    const noMeetings = meetings.length === 0;
+    return <div className="space-y-6"><PageHeading question="What do I need to put in this week?" detail="Put this week’s numbers, goals, and meeting updates here." /><EmptyInstruction actionHref={noMeetings && shell?.canSeeSettings ? "/pulse/settings" : "/pulse/meetings"} actionLabel={noMeetings && shell?.canSeeSettings ? "Set up your first meeting" : "View your meetings"}>{noMeetings && shell?.canSeeSettings ? "Inputs begin with a meeting. Set up your first meeting, then Pulse will show the updates it needs from you." : "There is nothing to enter yet. When inputs are ready, you will be able to update them here from your phone."}</EmptyInstruction></div>;
   }
 
   if (location === "/pulse/settings") {
     if (!shell?.canSeeSettings) return <EmptyInstruction actionHref="/pulse" actionLabel="Go to Pulse home">Only meeting owners and administrators can change settings. Go home to see what needs you now.</EmptyInstruction>;
-    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Meeting setup will be added here for people who own or administer a meeting." /><EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No settings need your attention right now. Open a meeting to review the information available to you.</EmptyInstruction></div>;
+    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Meeting setup will be added here for people who own or administer a meeting." />{meetings.length === 0 ? <FirstMeetingSetup /> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No settings need your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
   }
 
   return (
@@ -216,7 +248,7 @@ export default function PulseFoundationPage() {
           </CardContent>
         </Card>
       ) : (
-        <EmptyInstruction actionHref="/pulse/meetings" actionLabel="See your meetings">You have not been added to a meeting yet. Ask a meeting owner to add you. Once they do, your meeting will appear here.</EmptyInstruction>
+        <EmptyInstruction actionHref={shell?.canSeeSettings ? "/pulse/settings" : "/pulse/meetings"} actionLabel={shell?.canSeeSettings ? "Set up your first meeting" : "See your meetings"}>{shell?.canSeeSettings ? "You do not have a meeting yet. Set up your first meeting to make Pulse ready for your team." : "You have not been added to a meeting yet. Ask a meeting owner to add you. Once they do, your meeting will appear here."}</EmptyInstruction>
       )}
       <p className="max-w-3xl text-sm text-muted-foreground"><CheckCircle2 className="mr-1 inline h-4 w-4 text-primary" aria-hidden="true" /> Pulse saves meeting membership as the access rule, so you only see the meetings you are in.</p>
     </div>

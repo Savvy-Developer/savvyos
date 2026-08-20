@@ -301,6 +301,7 @@ export async function auditLogMutation(opts: {
       relatedContactId,
       details: {
         path: opts.path,
+        isFixtureVerification: opts.path.startsWith("pulse.thinSlice."),
         actorName: opts.userName ?? undefined,
         actorRole: opts.userRole ?? undefined,
         ...(sanitizedInput ?? {}),

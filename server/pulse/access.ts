@@ -2,6 +2,14 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { pulseMeetingMembers, pulseMeetings } from "../../drizzle/schema";
 
+// Missing and inaccessible meeting IDs must be indistinguishable. This prevents
+// membership probes from revealing that a meeting exists to someone outside it.
+export const PULSE_MEETING_NOT_FOUND = "This meeting no longer exists. Go to your meetings.";
+
+function unavailableMeetingError() {
+  return new TRPCError({ code: "NOT_FOUND", message: PULSE_MEETING_NOT_FOUND });
+}
+
 /**
  * The one and only visibility boundary for Pulse meeting-scoped data.
  * Platform roles, assignment, mentions, and SavvyOS groups never grant access.
@@ -25,12 +33,7 @@ export async function visible_meeting_ids(db: any, personId: number): Promise<st
  */
 export async function require_visible_meeting(db: any, personId: number, meetingId: string) {
   const visibleIds = await visible_meeting_ids(db, personId);
-  if (!visibleIds.includes(meetingId)) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "This meeting no longer exists. Go to your meetings.",
-    });
-  }
+  if (!visibleIds.includes(meetingId)) throw unavailableMeetingError();
 
   const [meeting] = await db
     .select()
@@ -41,12 +44,7 @@ export async function require_visible_meeting(db: any, personId: number, meeting
       inArray(pulseMeetings.id, visibleIds),
     ));
 
-  if (!meeting) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "This meeting no longer exists. Go to your meetings.",
-    });
-  }
+  if (!meeting) throw unavailableMeetingError();
 
   return meeting;
 }

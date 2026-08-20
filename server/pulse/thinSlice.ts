@@ -1,10 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, inArray, isNull, like, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   PULSE_SECTION_KEYS,
   activityLog,
-  pulseActivityLog,
   pulseMeetingMembers,
   pulseMeetings,
   pulseProfiles,
@@ -15,11 +14,13 @@ import {
 import { getPulseNavDestinations } from "../../shared/pulseNav";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { ENV } from "../_core/env";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { listAccessibleItems } from "./workItems";
 
 const PREFIX = "pulse_slice_fixture_";
 const MARKER = "Pulse Slice — ";
+const WORK_ITEM_MARKER = "Pulse Slice ";
 const DISPLAY_PERSONS = ["p1", "p2", "p3", "p4"] as const;
 const SUPPORT_PERSONS = ["p5", "p6", "p7"] as const;
 type FixtureKey = (typeof DISPLAY_PERSONS)[number] | (typeof SUPPORT_PERSONS)[number];
@@ -47,41 +48,93 @@ async function requireSuperAdmin(db: any, personId: number) {
 }
 
 async function fixturePeople(db: any) {
-  const records = await db.select({ id: users.id, openId: users.openId, name: users.name, email: users.email })
+  // The openId marker is the first and non-negotiable boundary for fixture people.
+  const records = await db.select({ id: users.id, openId: users.openId, name: users.name, email: users.email, isActive: users.isActive })
     .from(users)
     .where(like(users.openId, `${PREFIX}%`));
   return Object.fromEntries(records.map((person: any) => [person.openId.replace(PREFIX, "") as FixtureKey, person]));
 }
 
-async function fixtureMeetings(db: any) {
-  const records = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, sectionsEnabled: pulseMeetings.sectionsEnabled, sectionOrder: pulseMeetings.sectionOrder })
-    .from(pulseMeetings)
-    .where(and(like(pulseMeetings.name, `${MARKER}%`), isNull(pulseMeetings.deletedAt)));
+async function fixtureMeetings(db: any, includeRetired = false) {
+  const condition = includeRetired
+    ? like(pulseMeetings.name, `${MARKER}%`)
+    : and(like(pulseMeetings.name, `${MARKER}%`), isNull(pulseMeetings.deletedAt));
+  const records = await db.select().from(pulseMeetings).where(condition);
   return Object.fromEntries(records.map((meeting: any) => [meeting.name.replace(MARKER, "").toLowerCase() as "a" | "b" | "c", meeting]));
 }
 
-async function purgeFixture(db: any) {
+/**
+ * Retires only rows whose own marker column identifies them as a thin-slice fixture.
+ * This function deliberately contains no delete call. Shared activity_log and Pulse
+ * activity history remain append-only; retired fixture identities stay inactive so
+ * foreign-key-backed history remains readable but is never available to users.
+ */
+async function retireFixture(db: any) {
   const meetings = await fixtureMeetings(db);
   const meetingIds = Object.values(meetings).map((meeting: any) => meeting.id);
   const people = await fixturePeople(db);
   const peopleIds = Object.values(people).map((person: any) => person.id);
+  const now = new Date();
+
+  const itemRows = (meetingIds.length || peopleIds.length)
+    ? await db.select({ id: pulseWorkItems.id }).from(pulseWorkItems).where(and(
+      like(pulseWorkItems.title, `${WORK_ITEM_MARKER}%`),
+      isNull(pulseWorkItems.deletedAt),
+      or(
+        meetingIds.length ? inArray(pulseWorkItems.meetingId, meetingIds) : undefined,
+        peopleIds.length ? inArray(pulseWorkItems.ownerPersonId, peopleIds) : undefined,
+      ),
+    ))
+    : [];
+  const itemIds = itemRows.map((item: any) => item.id);
+
+  if (itemIds.length) {
+    await db.update(pulseWorkItemMoves).set({ deletedAt: now }).where(and(inArray(pulseWorkItemMoves.workItemId, itemIds), isNull(pulseWorkItemMoves.deletedAt)));
+    await db.update(pulseWorkItems).set({ deletedAt: now }).where(inArray(pulseWorkItems.id, itemIds));
+  }
+  if (meetingIds.length && peopleIds.length) {
+    await db.update(pulseMeetingMembers).set({ removedAt: now, deletedAt: now }).where(and(
+      inArray(pulseMeetingMembers.meetingId, meetingIds),
+      inArray(pulseMeetingMembers.personId, peopleIds),
+      isNull(pulseMeetingMembers.deletedAt),
+    ));
+  }
   if (meetingIds.length) {
-    await db.delete(pulseWorkItems).where(inArray(pulseWorkItems.meetingId, meetingIds));
-    await db.delete(pulseMeetingMembers).where(inArray(pulseMeetingMembers.meetingId, meetingIds));
-    await db.delete(pulseMeetings).where(inArray(pulseMeetings.id, meetingIds));
+    await db.update(pulseMeetings).set({ isActive: false, deletedAt: now }).where(and(
+      inArray(pulseMeetings.id, meetingIds),
+      like(pulseMeetings.name, `${MARKER}%`),
+      isNull(pulseMeetings.deletedAt),
+    ));
   }
   if (peopleIds.length) {
-    await db.delete(pulseWorkItems).where(inArray(pulseWorkItems.ownerPersonId, peopleIds));
-    await db.delete(pulseActivityLog).where(inArray(pulseActivityLog.personId, peopleIds));
-    await db.delete(activityLog).where(inArray(activityLog.userId, peopleIds));
-    await db.delete(pulseProfiles).where(inArray(pulseProfiles.userId, peopleIds));
-    await db.delete(users).where(inArray(users.id, peopleIds));
+    // Existing fixture audit rows remain immutable in count and content except for
+    // this durable marker, which lets normal operating views exclude test activity.
+    await db.update(activityLog).set({
+      details: sql`JSON_SET(COALESCE(${activityLog.details}, JSON_OBJECT()), '$.isFixtureVerification', true)`,
+    }).where(and(
+      inArray(activityLog.userId, peopleIds),
+      sql`JSON_UNQUOTE(JSON_EXTRACT(${activityLog.details}, '$.path')) LIKE 'pulse.thinSlice.%'`,
+    ));
+    await db.update(pulseProfiles).set({ isActive: false, deletedAt: now }).where(and(inArray(pulseProfiles.userId, peopleIds), isNull(pulseProfiles.deletedAt)));
+    await db.update(users).set({ isActive: false, passwordHash: null, passwordResetToken: null, passwordResetExpiry: null }).where(inArray(users.id, peopleIds));
   }
+  return { people: peopleIds.length, meetings: meetingIds.length, workItems: itemIds.length };
+}
+
+function requireThinSliceEnvironment() {
+  if (ENV.isProduction) throw new TRPCError({ code: "NOT_FOUND", message: "Not found." });
+}
+
+/** Development-only helper for tests and local cleanup; it is not registered as an RPC endpoint. */
+export async function retirePulseThinSliceFixture(db: any) {
+  requireThinSliceEnvironment();
+  return retireFixture(db);
 }
 
 /** Creates only marked, reversible test records. This never touches live Pulse meetings. */
 export async function resetPulseThinSliceFixture(db: any) {
-  await purgeFixture(db);
+  requireThinSliceEnvironment();
+  await retireFixture(db);
   const keyDefinitions: Array<{ key: FixtureKey; platformRole: "super_admin" | "member"; role: "admin" | "agent" }> = [
     { key: "p1", platformRole: "member", role: "agent" },
     { key: "p2", platformRole: "member", role: "agent" },
@@ -101,11 +154,15 @@ export async function resetPulseThinSliceFixture(db: any) {
         personType: "full_user",
         isActive: true,
         allowHiddenNav: false,
-      });
+      }).onDuplicateKeyUpdate({ set: {
+        name: fixtureName(person.key), email: `${fixtureOpenId(person.key)}@savvy.test`, role: person.role,
+        personType: "full_user", isActive: true, allowHiddenNav: false,
+        passwordHash: null, passwordResetToken: null, passwordResetExpiry: null,
+      } });
     }
     const people = await fixturePeople(tx);
     for (const person of keyDefinitions) {
-      await tx.insert(pulseProfiles).values({ userId: people[person.key].id, platformRole: person.platformRole, timezone: "America/New_York", notificationPrefs: {}, isActive: true });
+      await tx.insert(pulseProfiles).values({ userId: people[person.key].id, platformRole: person.platformRole, timezone: "America/New_York", notificationPrefs: {}, isActive: true }).onDuplicateKeyUpdate({ set: { platformRole: person.platformRole, timezone: "America/New_York", notificationPrefs: {}, isActive: true, deletedAt: null } });
     }
     const allSections = sections(PULSE_SECTION_KEYS);
     const limitedB = sections(["segue", "todos", "issues"]);
@@ -147,7 +204,7 @@ export async function resetPulseThinSliceFixture(db: any) {
 async function ensureFixture(db: any) {
   const meetings = await fixtureMeetings(db);
   const people = await fixturePeople(db);
-  if (!meetings.a || !meetings.b || !meetings.c || !DISPLAY_PERSONS.every((key) => people[key])) return resetPulseThinSliceFixture(db);
+  if (!meetings.a || !meetings.b || !meetings.c || !DISPLAY_PERSONS.every((key) => people[key]?.isActive)) return resetPulseThinSliceFixture(db);
   return { people, meetings };
 }
 
@@ -155,13 +212,25 @@ async function ensureFixture(db: any) {
 export async function getVisibleSectionData(db: any, personId: number, meetingId: string, section: SectionKey) {
   const meeting = await require_visible_meeting(db, personId, meetingId);
   const enabled = Boolean((meeting.sectionsEnabled as Record<string, boolean>)[section]);
-  if (!enabled) return { section, enabled: false, items: [] };
+  if (!enabled) return { section, enabled: false, data: null };
+
   const type = section === "todos" ? "todo" : section === "issues" ? "issue" : section === "rocks" ? "rock" : null;
-  const items = type
-    ? await db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, type: pulseWorkItems.type })
-      .from(pulseWorkItems).where(and(eq(pulseWorkItems.meetingId, meetingId), eq(pulseWorkItems.type, type), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.title))
-    : [];
-  return { section, enabled: true, items };
+  if (type) {
+    const items = await db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, type: pulseWorkItems.type, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, percentComplete: pulseWorkItems.percentComplete })
+      .from(pulseWorkItems).where(and(eq(pulseWorkItems.meetingId, meetingId), eq(pulseWorkItems.type, type), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.title));
+    return { section, enabled: true, data: { items } };
+  }
+
+  // Each non-work-item section exposes its own actual meeting configuration. This
+  // keeps the common visibility path while preventing a generic empty payload from
+  // masquerading as nine implemented sections.
+  const schedule = { cadence: meeting.cadence, dayOfWeek: meeting.dayOfWeek, startTime: meeting.startTime, timezone: meeting.timezone, durationMinutes: meeting.durationMinutes };
+  if (section === "segue") return { section, enabled: true, data: { schedule, prompt: "Check in with the people in this meeting." } };
+  if (section === "headlines") return { section, enabled: true, data: { meetingName: meeting.name, prompt: "Share the headlines that affect this meeting." } };
+  if (section === "scorecard") return { section, enabled: true, data: { schedule, prompt: "Review the numbers this meeting tracks." } };
+  if (section === "goals") return { section, enabled: true, data: { cadence: meeting.cadence, prompt: "Review the goals owned in this meeting." } };
+  if (section === "cascading") return { section, enabled: true, data: { meetingId: meeting.id, prompt: "Capture what this meeting needs to pass on." } };
+  return { section, enabled: true, data: { schedule, prompt: "Close with decisions and the next clear step." } };
 }
 export const getDashboardSectionData = getVisibleSectionData;
 export const getRunnerSectionData = getVisibleSectionData;
@@ -174,13 +243,17 @@ async function shellFor(db: any, personId: number) {
       .where(and(inArray(pulseMeetings.id, visibleIds), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name))
     : [];
   const [profile] = await db.select({ platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt))).limit(1);
-  const manager = meetings.some((meeting: any) => meeting.meetingRole === "owner" || meeting.meetingRole === "administrator");
-  const navMode = meetings.length === 1 && !manager ? "single_meeting" as const : "standard" as const;
+  const ownsOrAdministers = meetings.some((meeting: any) => meeting.meetingRole === "owner" || meeting.meetingRole === "administrator");
+  const isSuperAdmin = profile?.platformRole === "super_admin";
+  const canSeeSettings = ownsOrAdministers || isSuperAdmin;
+  const navMode = meetings.length === 1 && !ownsOrAdministers ? "single_meeting" as const : "standard" as const;
   return {
     meetings,
     navMode,
-    canSeeSettings: manager || profile?.platformRole === "super_admin",
-    destinations: getPulseNavDestinations({ navMode, canSeeSettings: manager || profile?.platformRole === "super_admin", meetings }),
+    ownsOrAdministers,
+    canSeeSettings,
+    settingsReason: ownsOrAdministers ? "meeting_manager" : isSuperAdmin ? "super_admin" : "none",
+    destinations: getPulseNavDestinations({ navMode, canSeeSettings, meetings }),
   };
 }
 
@@ -196,6 +269,8 @@ async function meetingPayloadProof(db: any, personId: number, meetingId: string)
     };
     return {
       meetingId, name: meeting.name, visible: true,
+      topLevelKeys: Object.keys(memberPayload).sort(),
+      payload: memberPayload,
       sensitiveKeysPresent: Object.fromEntries(["run", "configuration", "archive", "effectiveness"].map((key) => [key, Object.hasOwn(memberPayload, key)])),
       enabledSections: PULSE_SECTION_KEYS.filter((section) => Boolean((meeting.sectionsEnabled as Record<string, boolean>)[section])),
     };
@@ -217,6 +292,7 @@ async function personSnapshot(db: any, key: (typeof DISPLAY_PERSONS)[number], pe
     workItems: items.map((item: any) => ({ id: item.id, type: item.type, title: item.title, meetingId: item.meetingId, source: safeSource(item), resolvedMeetingName: item.meetingId ? item.meetingName : "Personal" })),
     searchItemIds: searchItems.map((item: any) => item.id),
     navDestinations: shell.destinations,
+    navEvidence: { navMode: shell.navMode, canSeeSettings: shell.canSeeSettings, settingsReason: shell.settingsReason, ownsOrAdministers: shell.ownsOrAdministers },
     meetingPayloads: payloads,
   };
 }
@@ -227,12 +303,12 @@ async function modelSnapshot(db: any) {
   const sectionProof = await Promise.all(PULSE_SECTION_KEYS.map(async (section) => {
     const dashboard = await getDashboardSectionData(db, people.p2.id, meetings.a.id, section);
     const runner = await getRunnerSectionData(db, people.p2.id, meetings.a.id, section);
-    return { section, queryFunction: "getVisibleSectionData", dashboardFunction: "getVisibleSectionData", runnerFunction: "getVisibleSectionData", sameFunction: true, dashboardEnabled: dashboard.enabled, runnerEnabled: runner.enabled };
+    return { section, dashboard, runner, deepEqual: JSON.stringify(dashboard) === JSON.stringify(runner) };
   }));
   const missingMeetingError = await meetingPayloadProof(db, people.p1.id, "00000000-0000-0000-0000-000000000000");
   const p4DirectDenial = await meetingPayloadProof(db, people.p4.id, meetings.a.id);
   return {
-    fixture: { meetings: Object.fromEntries(Object.entries(meetings).map(([key, meeting]: any) => [key.toUpperCase(), { id: meeting.id, name: meeting.name, label: meeting.label, sectionsEnabled: meeting.sectionsEnabled }])), people: Object.fromEntries(DISPLAY_PERSONS.map((key) => [key.toUpperCase(), { id: people[key].id, name: people[key].name }])) },
+    fixture: { meetings: Object.fromEntries(Object.entries(meetings).map(([key, meeting]: any) => [key.toUpperCase(), { ...meeting, record: meeting }])), people: Object.fromEntries(DISPLAY_PERSONS.map((key) => [key.toUpperCase(), { id: people[key].id, name: people[key].name }])) },
     persons, sectionProof, missingMeetingError, p4DirectDenial,
   };
 }
@@ -264,12 +340,14 @@ async function performOperation(db: any, actorId: number, operation: z.infer<typ
 
 export const pulseThinSliceRouter = router({
   snapshot: protectedProcedure.query(async ({ ctx }) => {
+    requireThinSliceEnvironment();
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
     await requireSuperAdmin(db, ctx.user.id);
     return modelSnapshot(db);
   }),
   reset: protectedProcedure.mutation(async ({ ctx }) => {
+    requireThinSliceEnvironment();
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
     await requireSuperAdmin(db, ctx.user.id);
@@ -277,6 +355,7 @@ export const pulseThinSliceRouter = router({
     return modelSnapshot(db);
   }),
   perform: protectedProcedure.input(z.object({ operation: operationSchema })).mutation(async ({ ctx, input }) => {
+    requireThinSliceEnvironment();
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
     await requireSuperAdmin(db, ctx.user.id);

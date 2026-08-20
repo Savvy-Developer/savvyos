@@ -3143,7 +3143,9 @@ export async function getGlobalActivityLog(opts: {
   const page = opts.page ?? 1;
   const limit = Math.min(opts.limit ?? 50, 100);
   const offset = (page - 1) * limit;
-  const conditions: any[] = [];
+  // Fixture-verification events are retained for audit integrity but never shown
+  // in operating views. The marker is written by the audit middleware, not inferred.
+  const conditions: any[] = [sql`COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${activityLog.details}, '$.isFixtureVerification')), 'false') <> 'true'`];
   if (opts.userId !== undefined) conditions.push(eq(activityLog.userId, opts.userId));
   if (opts.entityTypes && opts.entityTypes.length > 0) {
     conditions.push(inArray(activityLog.entityType as any, opts.entityTypes));

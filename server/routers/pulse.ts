@@ -162,15 +162,19 @@ export const pulseRouter = router({
       meeting.meetingRole === "owner" || meeting.meetingRole === "administrator"
     ));
     const platformRole = profile?.platformRole ?? "member";
+    const isSuperAdmin = platformRole === "super_admin";
+    const canSeeSettings = ownsOrAdministers || isSuperAdmin;
     const navMode = meetings.length === 1 && !ownsOrAdministers ? "single_meeting" : "standard";
 
     return {
       navMode,
       meetings,
-      // The shell may show settings to Pulse managers and super-admin reporting users,
-      // but neither case grants visibility into meetings they do not belong to.
-      canSeeSettings: ownsOrAdministers || platformRole === "super_admin",
-      canSeeAggregateReporting: platformRole === "super_admin",
+      ownsOrAdministers,
+      // Settings comes from a visible meeting-management role or the explicit
+      // super-admin role—never from merely belonging to several meetings.
+      canSeeSettings,
+      settingsReason: ownsOrAdministers ? "meeting_manager" : isSuperAdmin ? "super_admin" : "none",
+      canSeeAggregateReporting: isSuperAdmin,
     };
   }),
 

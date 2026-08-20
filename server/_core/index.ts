@@ -28,6 +28,7 @@ import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
+import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -179,6 +180,16 @@ async function startServer() {
       return res.status(500).json({ error: "Business insight refresh failed", detail: err.message });
     }
   });
+
+  // The thin-slice proof fixture is a development-only diagnostic. It must be
+  // unreachable in production even before a caller can authenticate or invoke tRPC.
+  if (ENV.isProduction) {
+    app.use("/pulse/slice", (_req, res) => res.status(404).json({ error: "Not found." }));
+    app.use("/api/trpc", (req, res, next) => {
+      if (req.path.startsWith("/pulse.thinSlice")) return res.status(404).json({ error: "Not found." });
+      next();
+    });
+  }
 
   // tRPC API
   app.use(

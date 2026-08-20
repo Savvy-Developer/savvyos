@@ -1,0 +1,647 @@
+{
+  "passed": true,
+  "generatedAt": "2026-08-20T16:56:12.957Z",
+  "fixture": {
+    "A": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+    "B": "ffa4b532-79e6-473e-9142-58e672b3d759",
+    "C": "d2748f74-bcf5-47b5-b745-b3784a507052"
+  },
+  "acceptance": {
+    "fixtureCleanupIsScopedAndAppendOnly": {
+      "pass": true,
+      "implementation": "retireFixture contains no delete call; it uses marker-scoped updates only.",
+      "retireResult": {
+        "people": 7,
+        "meetings": 3,
+        "workItems": 11
+      },
+      "auditCountBeforeRetire": 21,
+      "auditCountAfterRetire": 21,
+      "retiredViewCounts": {
+        "activeMeetings": 0,
+        "activeWorkItems": 0,
+        "activeUsers": 0
+      }
+    },
+    "p1Navigation": {
+      "pass": true,
+      "labels": [
+        "Home",
+        "My Inputs",
+        "Pulse Slice — A"
+      ],
+      "evidence": {
+        "navMode": "single_meeting",
+        "canSeeSettings": false,
+        "settingsReason": "none",
+        "ownsOrAdministers": false
+      }
+    },
+    "p4ZeroMeetingNavigation": {
+      "pass": true,
+      "labels": [
+        "Home",
+        "My Inputs",
+        "Meetings",
+        "Settings"
+      ],
+      "evidence": {
+        "navMode": "standard",
+        "canSeeSettings": true,
+        "settingsReason": "super_admin",
+        "ownsOrAdministers": false
+      },
+      "workItemCount": 0
+    },
+    "p2SettingsFromManagement": {
+      "pass": true,
+      "evidence": {
+        "navMode": "standard",
+        "canSeeSettings": true,
+        "settingsReason": "meeting_manager",
+        "ownsOrAdministers": true
+      },
+      "labels": [
+        "Home",
+        "My Work",
+        "My Inputs",
+        "Meetings",
+        "Settings"
+      ]
+    },
+    "memberPayloadKeyLists": {
+      "pass": true,
+      "prohibitedKeys": [
+        "run",
+        "configuration",
+        "archive",
+        "effectiveness"
+      ],
+      "P1": [
+        {
+          "meetingId": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+          "keys": [
+            "cadence",
+            "id",
+            "label",
+            "name",
+            "sectionOrder",
+            "sectionsEnabled"
+          ]
+        }
+      ],
+      "P2": [
+        {
+          "meetingId": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+          "keys": [
+            "cadence",
+            "id",
+            "label",
+            "name",
+            "sectionOrder",
+            "sectionsEnabled"
+          ]
+        },
+        {
+          "meetingId": "ffa4b532-79e6-473e-9142-58e672b3d759",
+          "keys": [
+            "cadence",
+            "id",
+            "label",
+            "name",
+            "sectionOrder",
+            "sectionsEnabled"
+          ]
+        },
+        {
+          "meetingId": "d2748f74-bcf5-47b5-b745-b3784a507052",
+          "keys": [
+            "cadence",
+            "id",
+            "label",
+            "name",
+            "sectionOrder",
+            "sectionsEnabled"
+          ]
+        }
+      ],
+      "P3": [
+        {
+          "meetingId": "d2748f74-bcf5-47b5-b745-b3784a507052",
+          "keys": [
+            "cadence",
+            "id",
+            "label",
+            "name",
+            "sectionOrder",
+            "sectionsEnabled"
+          ]
+        }
+      ]
+    },
+    "relabelOnly": {
+      "pass": true,
+      "allowedMechanicalKey": "updatedAt",
+      "meetingRecordChangedKeys": [
+        "label",
+        "updatedAt"
+      ],
+      "beforeMeetingRecord": {
+        "id": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+        "name": "Pulse Slice — A",
+        "label": "level_10",
+        "ownerId": 1896819,
+        "administratorId": 1896819,
+        "dayOfWeek": "monday",
+        "startTime": "09:00",
+        "durationMinutes": 90,
+        "cadence": "weekly",
+        "timezone": "America/New_York",
+        "reminderDay": null,
+        "reminderTime": null,
+        "sectionsEnabled": {
+          "goals": true,
+          "rocks": true,
+          "segue": true,
+          "todos": true,
+          "issues": true,
+          "conclude": true,
+          "cascading": true,
+          "headlines": true,
+          "scorecard": true
+        },
+        "sectionOrder": [
+          "segue",
+          "headlines",
+          "scorecard",
+          "goals",
+          "rocks",
+          "todos",
+          "issues",
+          "cascading",
+          "conclude"
+        ],
+        "sectionDurations": {
+          "goals": 5,
+          "rocks": 5,
+          "segue": 5,
+          "todos": 5,
+          "issues": 5,
+          "conclude": 5,
+          "cascading": 5,
+          "headlines": 5,
+          "scorecard": 5
+        },
+        "isActive": true,
+        "createdAt": "2026-08-20T16:55:48.000Z",
+        "updatedAt": "2026-08-20T16:55:48.000Z",
+        "deletedAt": null
+      },
+      "afterMeetingRecord": {
+        "id": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+        "name": "Pulse Slice — A",
+        "label": "other",
+        "ownerId": 1896819,
+        "administratorId": 1896819,
+        "dayOfWeek": "monday",
+        "startTime": "09:00",
+        "durationMinutes": 90,
+        "cadence": "weekly",
+        "timezone": "America/New_York",
+        "reminderDay": null,
+        "reminderTime": null,
+        "sectionsEnabled": {
+          "goals": true,
+          "rocks": true,
+          "segue": true,
+          "todos": true,
+          "issues": true,
+          "conclude": true,
+          "cascading": true,
+          "headlines": true,
+          "scorecard": true
+        },
+        "sectionOrder": [
+          "segue",
+          "headlines",
+          "scorecard",
+          "goals",
+          "rocks",
+          "todos",
+          "issues",
+          "cascading",
+          "conclude"
+        ],
+        "sectionDurations": {
+          "goals": 5,
+          "rocks": 5,
+          "segue": 5,
+          "todos": 5,
+          "issues": 5,
+          "conclude": 5,
+          "cascading": 5,
+          "headlines": 5,
+          "scorecard": 5
+        },
+        "isActive": true,
+        "createdAt": "2026-08-20T16:55:48.000Z",
+        "updatedAt": "2026-08-20T16:56:06.000Z",
+        "deletedAt": null
+      },
+      "memberPayloadChangedKeys": [
+        "label"
+      ],
+      "beforeMemberPayload": {
+        "id": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+        "name": "Pulse Slice — A",
+        "label": "level_10",
+        "cadence": "weekly",
+        "sectionsEnabled": {
+          "goals": true,
+          "rocks": true,
+          "segue": true,
+          "todos": true,
+          "issues": true,
+          "conclude": true,
+          "cascading": true,
+          "headlines": true,
+          "scorecard": true
+        },
+        "sectionOrder": [
+          "segue",
+          "headlines",
+          "scorecard",
+          "goals",
+          "rocks",
+          "todos",
+          "issues",
+          "cascading",
+          "conclude"
+        ]
+      },
+      "afterMemberPayload": {
+        "id": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+        "name": "Pulse Slice — A",
+        "label": "other",
+        "cadence": "weekly",
+        "sectionsEnabled": {
+          "goals": true,
+          "rocks": true,
+          "segue": true,
+          "todos": true,
+          "issues": true,
+          "conclude": true,
+          "cascading": true,
+          "headlines": true,
+          "scorecard": true
+        },
+        "sectionOrder": [
+          "segue",
+          "headlines",
+          "scorecard",
+          "goals",
+          "rocks",
+          "todos",
+          "issues",
+          "cascading",
+          "conclude"
+        ]
+      }
+    },
+    "sectionPayloadsAndDeepEquality": {
+      "pass": true,
+      "rows": [
+        {
+          "section": "segue",
+          "dashboard": {
+            "section": "segue",
+            "enabled": true,
+            "data": {
+              "schedule": {
+                "cadence": "weekly",
+                "dayOfWeek": "monday",
+                "startTime": "09:00",
+                "timezone": "America/New_York",
+                "durationMinutes": 90
+              },
+              "prompt": "Check in with the people in this meeting."
+            }
+          },
+          "runner": {
+            "section": "segue",
+            "enabled": true,
+            "data": {
+              "schedule": {
+                "cadence": "weekly",
+                "dayOfWeek": "monday",
+                "startTime": "09:00",
+                "timezone": "America/New_York",
+                "durationMinutes": 90
+              },
+              "prompt": "Check in with the people in this meeting."
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "headlines",
+          "dashboard": {
+            "section": "headlines",
+            "enabled": true,
+            "data": {
+              "meetingName": "Pulse Slice — A",
+              "prompt": "Share the headlines that affect this meeting."
+            }
+          },
+          "runner": {
+            "section": "headlines",
+            "enabled": true,
+            "data": {
+              "meetingName": "Pulse Slice — A",
+              "prompt": "Share the headlines that affect this meeting."
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "scorecard",
+          "dashboard": {
+            "section": "scorecard",
+            "enabled": true,
+            "data": {
+              "schedule": {
+                "cadence": "weekly",
+                "dayOfWeek": "monday",
+                "startTime": "09:00",
+                "timezone": "America/New_York",
+                "durationMinutes": 90
+              },
+              "prompt": "Review the numbers this meeting tracks."
+            }
+          },
+          "runner": {
+            "section": "scorecard",
+            "enabled": true,
+            "data": {
+              "schedule": {
+                "cadence": "weekly",
+                "dayOfWeek": "monday",
+                "startTime": "09:00",
+                "timezone": "America/New_York",
+                "durationMinutes": 90
+              },
+              "prompt": "Review the numbers this meeting tracks."
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "goals",
+          "dashboard": {
+            "section": "goals",
+            "enabled": true,
+            "data": {
+              "cadence": "weekly",
+              "prompt": "Review the goals owned in this meeting."
+            }
+          },
+          "runner": {
+            "section": "goals",
+            "enabled": true,
+            "data": {
+              "cadence": "weekly",
+              "prompt": "Review the goals owned in this meeting."
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "rocks",
+          "dashboard": {
+            "section": "rocks",
+            "enabled": true,
+            "data": {
+              "items": [
+                {
+                  "id": "b58dadc6-ec8c-413a-9fb7-9e72d38aab55",
+                  "title": "Pulse Slice A rock",
+                  "type": "rock",
+                  "status": "on_track",
+                  "dueDate": null,
+                  "percentComplete": 0
+                }
+              ]
+            }
+          },
+          "runner": {
+            "section": "rocks",
+            "enabled": true,
+            "data": {
+              "items": [
+                {
+                  "id": "b58dadc6-ec8c-413a-9fb7-9e72d38aab55",
+                  "title": "Pulse Slice A rock",
+                  "type": "rock",
+                  "status": "on_track",
+                  "dueDate": null,
+                  "percentComplete": 0
+                }
+              ]
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "todos",
+          "dashboard": {
+            "section": "todos",
+            "enabled": true,
+            "data": {
+              "items": [
+                {
+                  "id": "d30bf591-fd08-46a2-a48e-99a90a3c137d",
+                  "title": "Pulse Slice A todo",
+                  "type": "todo",
+                  "status": "open",
+                  "dueDate": "2026-08-31T00:00:00.000Z",
+                  "percentComplete": 0
+                }
+              ]
+            }
+          },
+          "runner": {
+            "section": "todos",
+            "enabled": true,
+            "data": {
+              "items": [
+                {
+                  "id": "d30bf591-fd08-46a2-a48e-99a90a3c137d",
+                  "title": "Pulse Slice A todo",
+                  "type": "todo",
+                  "status": "open",
+                  "dueDate": "2026-08-31T00:00:00.000Z",
+                  "percentComplete": 0
+                }
+              ]
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "issues",
+          "dashboard": {
+            "section": "issues",
+            "enabled": true,
+            "data": {
+              "items": [
+                {
+                  "id": "5332a2bd-f2b5-4564-a2c2-574e8732cff1",
+                  "title": "Pulse Slice A issue",
+                  "type": "issue",
+                  "status": "open",
+                  "dueDate": null,
+                  "percentComplete": 0
+                }
+              ]
+            }
+          },
+          "runner": {
+            "section": "issues",
+            "enabled": true,
+            "data": {
+              "items": [
+                {
+                  "id": "5332a2bd-f2b5-4564-a2c2-574e8732cff1",
+                  "title": "Pulse Slice A issue",
+                  "type": "issue",
+                  "status": "open",
+                  "dueDate": null,
+                  "percentComplete": 0
+                }
+              ]
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "cascading",
+          "dashboard": {
+            "section": "cascading",
+            "enabled": true,
+            "data": {
+              "meetingId": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+              "prompt": "Capture what this meeting needs to pass on."
+            }
+          },
+          "runner": {
+            "section": "cascading",
+            "enabled": true,
+            "data": {
+              "meetingId": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+              "prompt": "Capture what this meeting needs to pass on."
+            }
+          },
+          "deepEqual": true
+        },
+        {
+          "section": "conclude",
+          "dashboard": {
+            "section": "conclude",
+            "enabled": true,
+            "data": {
+              "schedule": {
+                "cadence": "weekly",
+                "dayOfWeek": "monday",
+                "startTime": "09:00",
+                "timezone": "America/New_York",
+                "durationMinutes": 90
+              },
+              "prompt": "Close with decisions and the next clear step."
+            }
+          },
+          "runner": {
+            "section": "conclude",
+            "enabled": true,
+            "data": {
+              "schedule": {
+                "cadence": "weekly",
+                "dayOfWeek": "monday",
+                "startTime": "09:00",
+                "timezone": "America/New_York",
+                "durationMinutes": 90
+              },
+              "prompt": "Close with decisions and the next clear step."
+            }
+          },
+          "deepEqual": true
+        }
+      ]
+    },
+    "missingAndDeniedAreByteIdentical": {
+      "pass": true,
+      "missing": {
+        "status": 404,
+        "body": {
+          "error": {
+            "json": {
+              "message": "This meeting no longer exists. Go to your meetings.",
+              "code": -32004,
+              "data": {
+                "code": "NOT_FOUND",
+                "httpStatus": 404,
+                "stack": "TRPCError: This meeting no longer exists. Go to your meetings.\n    at unavailableMeetingError (/home/ubuntu/savvyos/server/pulse/access.ts:10:10)\n    at require_visible_meeting (/home/ubuntu/savvyos/server/pulse/access.ts:36:46)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async <anonymous> (/home/ubuntu/savvyos/server/routers/pulse.ts:212:23)\n    at async resolveMiddleware (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:571:22)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async <anonymous> (/home/ubuntu/savvyos/server/_core/trpc.ts:17:18)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async procedure (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:673:20)\n    at async <anonymous> (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/http/resolveResponse.ts:347:31)\n    at async resolveResponse (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/http/resolveResponse.ts:375:31)\n    at async <anonymous> (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/adapters/node-http/nodeHTTPRequestHandler.ts:100:26)",
+                "path": "pulse.get"
+              }
+            }
+          }
+        }
+      },
+      "denied": {
+        "status": 404,
+        "body": {
+          "error": {
+            "json": {
+              "message": "This meeting no longer exists. Go to your meetings.",
+              "code": -32004,
+              "data": {
+                "code": "NOT_FOUND",
+                "httpStatus": 404,
+                "stack": "TRPCError: This meeting no longer exists. Go to your meetings.\n    at unavailableMeetingError (/home/ubuntu/savvyos/server/pulse/access.ts:10:10)\n    at require_visible_meeting (/home/ubuntu/savvyos/server/pulse/access.ts:36:46)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async <anonymous> (/home/ubuntu/savvyos/server/routers/pulse.ts:212:23)\n    at async resolveMiddleware (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:571:22)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async <anonymous> (/home/ubuntu/savvyos/server/_core/trpc.ts:17:18)\n    at async callRecursive (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:633:20)\n    at async procedure (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/procedureBuilder.ts:673:20)\n    at async <anonymous> (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/http/resolveResponse.ts:347:31)\n    at async resolveResponse (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/unstable-core-do-not-import/http/resolveResponse.ts:375:31)\n    at async <anonymous> (/home/ubuntu/savvyos/node_modules/.pnpm/@trpc+server@11.6.0_typescript@5.9.3/node_modules/@trpc/server/src/adapters/node-http/nodeHTTPRequestHandler.ts:100:26)",
+                "path": "pulse.get"
+              }
+            }
+          }
+        }
+      }
+    },
+    "originalModelProof": {
+      "pass": true,
+      "moveRows": [
+        {
+          "workItemId": "e331449f-0ef7-4fec-afd5-c7617e459dbc",
+          "fromMeetingId": "7df543aa-17b1-481c-985e-f0f26f99d610",
+          "toMeetingId": "d5e1ec45-2755-4a70-848c-ad6ed639a4f3",
+          "deletedAt": "2026-08-20T16:47:30.000Z"
+        },
+        {
+          "workItemId": "831bc976-4735-4280-98d2-6569ab2f6661",
+          "fromMeetingId": "a17256d1-a6f0-474c-9d3b-cc31d5b3ddd1",
+          "toMeetingId": "33103718-10e7-4869-82e3-691641aae899",
+          "deletedAt": "2026-08-20T16:42:30.000Z"
+        },
+        {
+          "workItemId": "326086d9-d5d0-4c50-9199-91fa2549ced8",
+          "fromMeetingId": "d2748f74-bcf5-47b5-b745-b3784a507052",
+          "toMeetingId": "d254067c-8b7e-4106-b0af-a6dab5650bc1",
+          "deletedAt": null
+        },
+        {
+          "workItemId": "388550bc-8528-41fd-b3e2-3514de786776",
+          "fromMeetingId": "a63d4353-1234-44bb-8be4-d064fdb11af0",
+          "toMeetingId": "2eef8a50-6caf-42f2-8136-a5795faa6c23",
+          "deletedAt": "2026-08-20T16:45:35.000Z"
+        }
+      ]
+    }
+  }
+}
