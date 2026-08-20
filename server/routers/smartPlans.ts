@@ -16,7 +16,7 @@ import {
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, sql, inArray, isNotNull, or } from "drizzle-orm";
 import { sendAircallSMS } from "../_core/aircall";
-import { sendSmartPlanEmail } from "../_core/smartPlanEmail";
+import { renderSavvyCampaignEmail, sendSmartPlanEmail } from "../_core/smartPlanEmail";
 import { renderMergeTags } from "../_core/smartPlanMergeTags";
 import { getResendEmailStatus } from "../_core/resendEmailStatus";
 import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
@@ -500,6 +500,9 @@ export const smartPlansRouter = router({
 
         return {
           ...sendRow,
+          emailPreviewHtml: sendRow.send.channel === "email"
+            ? renderSavvyCampaignEmail(sendRow.send.subject || sendRow.send.name, sendRow.send.body, true)
+            : null,
           recipients: rows.map((row) => ({ ...row, events: eventsByRecipient.get(row.recipient.id) ?? [] })),
           totalRecipients: Number(countRows[0]?.count ?? 0),
           page: input.page,

@@ -378,6 +378,34 @@ function RecipientHistoryDialog({
               </div>
             </div>
 
+            <div className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">Message sent</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {send.channel === "email"
+                      ? "This preview includes the branded email shell and the campaign content used for this send. Merge tags were personalized for each recipient."
+                      : "This is the recorded text message content used for this send. Merge tags were personalized for each recipient."}
+                  </p>
+                </div>
+                <Badge variant="outline">{send.channel === "email" ? "Email preview" : "SMS content"}</Badge>
+              </div>
+              {send.channel === "email" && data?.emailPreviewHtml ? (
+                <div className="mt-3 overflow-hidden rounded-lg border bg-white">
+                  <iframe
+                    title="Sent email preview"
+                    srcDoc={data.emailPreviewHtml}
+                    sandbox=""
+                    className="block h-[540px] w-full border-0 bg-white"
+                  />
+                </div>
+              ) : (
+                <p className="mt-3 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm leading-6 break-words">
+                  {send.body}
+                </p>
+              )}
+            </div>
+
             <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="font-medium text-sm">Resend provider status</p>
