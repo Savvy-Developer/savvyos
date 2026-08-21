@@ -491,7 +491,12 @@ function buildDeterministicFallback(facts: Record<string, unknown>): BusinessIns
   };
 }
 
-async function createInsightPayload(facts: Record<string, unknown>): Promise<BusinessInsightsPayload> {
+type BusinessInsightGenerationResult = {
+  payload: BusinessInsightsPayload;
+  modelError: string | null;
+};
+
+async function createInsightPayload(facts: Record<string, unknown>): Promise<BusinessInsightGenerationResult> {
   try {
     const response = await invokeLLM({
       model: MODEL,
@@ -525,10 +530,17 @@ Rules:
     if (!parsed || !Array.isArray(parsed.insights) || parsed.insights.length < 3) {
       throw new Error("Business insight model returned an empty or malformed structured payload.");
     }
-    return { ...parsed, generationMethod: "model" } as BusinessInsightsPayload;
+    return {
+      payload: { ...parsed, generationMethod: "model" } as BusinessInsightsPayload,
+      modelError: null,
+    };
   } catch (error) {
-    console.error("[BusinessInsights] Falling back to deterministic analysis:", error);
-    return buildDeterministicFallback(facts);
+    const modelError = error instanceof Error ? error.message : String(error);
+    console.error("[BusinessInsights] Falling back to deterministic analysis:", modelError);
+    return {
+      payload: buildDeterministicFallback(facts),
+      modelError: `Model generation fallback: ${modelError}`.slice(0, 2_000),
+    };
   }
 }
 
@@ -630,7 +642,8 @@ export async function refreshBusinessInsights(options: {
   try {
     const reports = await collectCompanyReports();
     const facts = buildFactPack(reports);
-    const payload = await createInsightPayload(facts);
+    const generation = await createInsightPayload(facts);
+    const { payload, modelError } = generation;
     const generatedAt = new Date();
     // A deterministic fallback keeps the report useful if the model is temporarily unavailable,
     // but it is deliberately short-lived so the scheduler retries the model promptly.
@@ -641,7 +654,7 @@ export async function refreshBusinessInsights(options: {
       status: "ready",
       generatedAt,
       expiresAt,
-      errorMessage: null,
+      errorMessage: modelError,
       refreshReason: reason,
       model: MODEL,
     }).where(eq(analyticsInsightCaches.scopeKey, BUSINESS_SCOPE_KEY));
@@ -655,7 +668,7 @@ export async function refreshBusinessInsights(options: {
         status: "ready" as const,
         model: MODEL,
         refreshReason: reason,
-        errorMessage: null,
+        errorMessage: modelError,
       },
       cacheHit: false,
       refreshing: false,
