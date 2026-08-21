@@ -109,6 +109,7 @@ import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
 import PulseMissionControlPage from "./pages/PulseMissionControlPage";
 import PulseMissionControlAdminPage from "./pages/PulseMissionControlAdminPage";
+import PulseGlobalAttentionPage from "./pages/PulseGlobalAttentionPage";
 import PulseNotificationPreferencesPage from "./pages/PulseNotificationPreferencesPage";
 import PulseMeetingRunPage from "./pages/PulseMeetingRunPage";
 import PulseThinSlicePage from "./pages/PulseThinSlicePage";
@@ -283,6 +284,7 @@ function Router() {
           <Route path="/pulse/meetings" component={PulseFoundationPage} />
           <Route path="/pulse/mission" component={PulseMissionControlPage} />
           <Route path="/pulse/settings/outstanding" component={PulseMissionControlAdminPage} />
+          <Route path="/pulse/settings/attention" component={PulseGlobalAttentionPage} />
           <Route path="/pulse/settings/notifications" component={PulseNotificationPreferencesPage} />
           <Route path="/pulse/work" component={PulseFoundationPage} />
           <Route path="/pulse/inputs" component={PulseFoundationPage} />

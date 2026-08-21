@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-08-21T17:43:44.763Z",
+  "acceptance": {
+    "annualGoalsVisibleToMembers": {
+      "pass": true
+    },
+    "goalsIndependentOfRocks": {
+      "pass": true
+    },
+    "rockMappingReadOnlyElsewhere": {
+      "pass": true
+    },
+    "globalRocksForbiddenForMember": {
+      "pass": true
+    },
+    "trendInlineNoChart": {
+      "pass": true
+    },
+    "needsAttentionBoundedAndManagerOnly": {
+      "pass": true
+    },
+    "generationWritesObservationsOnly": {
+      "pass": true
+    },
+    "humanRaisedProposalOnly": {
+      "pass": true
+    },
+    "accessibleTrendSignals": {
+      "pass": true
+    }
+  }
+}

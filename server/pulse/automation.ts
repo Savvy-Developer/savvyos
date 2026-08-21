@@ -104,7 +104,7 @@ export async function sendPulseOverdueDigest(reportDate = easternDate()) {
 
     const byAssignee = new Map<number, typeof overdue>();
     for (const item of overdue) {
-      if (!item.assigneeEmail) continue;
+      if (!item.assigneeId || !item.assigneeEmail) continue;
       const list = byAssignee.get(item.assigneeId) ?? [];
       list.push(item);
       byAssignee.set(item.assigneeId, list);
@@ -165,14 +165,14 @@ export async function createPulseQuarterRolloverPrompts(options: { workItemIds?:
         isNull(pulseWorkItemNotifications.deletedAt),
       ));
     const alreadyPrompted = new Set(existing.map((notification) => notification.workItemId));
-    const toCreate = priorRocks.filter((rock) => !alreadyPrompted.has(rock.id));
-    if (toCreate.length) await db.insert(pulseWorkItemNotifications).values(toCreate.map((rock) => ({
+    const toCreate = priorRocks.flatMap((rock) => rock.assigneeId != null && !alreadyPrompted.has(rock.id) ? [{
       id: crypto.randomUUID(),
       recipientId: rock.assigneeId,
       workItemId: rock.id,
       commentId: null,
       notificationType: "quarter_rollover" as const,
-    })));
+    }] : []);
+    if (toCreate.length) await db.insert(pulseWorkItemNotifications).values(toCreate);
     return { created: toCreate.length, skipped: false };
   } finally {
     isQuarterRolloverRunning = false;

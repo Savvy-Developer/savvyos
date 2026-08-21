@@ -24,6 +24,9 @@ import { pulsePersonalRouter } from "../pulse/personal";
 import { pulseCascadesRouter } from "../pulse/cascades";
 import { pulseNotificationsRouter } from "../pulse/notifications";
 import { pulseScorecardRouter } from "../pulse/scorecard";
+import { pulseGoalsRouter } from "../pulse/goals";
+import { pulseRocksRouter } from "../pulse/rocks";
+import { pulseObservationsRouter } from "../pulse/observations";
 
 const sectionKeySchema = z.enum(PULSE_SECTION_KEYS);
 const meetingLabelSchema = z.enum(["level_10", "one_on_one", "other"]);
@@ -156,6 +159,9 @@ export const pulseRouter = router({
   cascades: pulseCascadesRouter,
   notifications: pulseNotificationsRouter,
   scorecard: pulseScorecardRouter,
+  goals: pulseGoalsRouter,
+  rocks: pulseRocksRouter,
+  observations: pulseObservationsRouter,
 
   /** Used by the shell. This payload is built from membership, never platform role. */
   shell: protectedProcedure.query(async ({ ctx }) => {

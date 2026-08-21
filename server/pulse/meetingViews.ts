@@ -6,6 +6,7 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
 import { getMeetingSectionPayloads, PULSE_SECTION_FUNCTIONS } from "./sections";
+import { scorecardAttention } from "./scorecard";
 
 const meetingId = z.string().uuid();
 const uuid = () => crypto.randomUUID();
@@ -14,12 +15,13 @@ function unavailable() { return new TRPCError({ code: "INTERNAL_SERVER_ERROR", m
 async function dashboardPayload(db: any, viewerId: number, id: string) {
   const { meeting, sections } = await getMeetingSectionPayloads(db, viewerId, id);
   const isManager = await is_visible_meeting_manager(db, viewerId, id);
+  const scorecard = sections.find((section: any) => section.section === "scorecard");
   return {
     viewerId,
     meeting: { id: meeting.id, name: meeting.name, dayOfWeek: meeting.dayOfWeek, startTime: meeting.startTime, cadence: meeting.cadence, durationMinutes: meeting.durationMinutes, sectionsEnabled: meeting.sectionsEnabled, sectionOrder: meeting.sectionOrder },
     sections,
     sectionFunctions: PULSE_SECTION_FUNCTIONS,
-    ...(isManager ? { manager: { canRun: true } } : {}),
+    ...(isManager ? { manager: { canRun: true }, attention: scorecardAttention(scorecard?.items ?? [], meeting.id, meeting.name) } : {}),
   };
 }
 

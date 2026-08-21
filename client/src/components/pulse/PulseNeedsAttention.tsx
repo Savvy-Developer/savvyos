@@ -1,0 +1,8 @@
+import { AlertTriangle } from "lucide-react";
+
+function format(value: number | null, displayFormat: string) { if (value == null) return "—"; if (displayFormat === "percentage") return `${value}%`; if (displayFormat === "currency") return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value); return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value); }
+
+export function PulseNeedsAttention({ items, showMeeting = false }: { items: any[]; showMeeting?: boolean }) {
+  if (!items.length) return null;
+  return <section className="border-t border-border pt-5" aria-labelledby="needs-attention"><div className="mb-3 flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-700" aria-hidden="true" /><h2 id="needs-attention" className="text-base font-semibold">Needs Attention</h2></div><div className="space-y-2">{items.slice(0, 5).map((item: any) => <article key={`${item.meetingId}-${item.metricId}`} className="rounded-lg border border-border p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.name}</p>{showMeeting && item.meetingName && <p className="mt-1 text-sm text-muted-foreground">{item.meetingName}</p>}<p className="mt-1 text-sm text-muted-foreground">{item.reasons.join(" · ")}</p></div><p className="shrink-0 text-right text-sm"><span className="block font-semibold tabular-nums">{format(item.current?.value ?? null, item.displayFormat)}</span><span className="text-muted-foreground">target {format(item.target, item.displayFormat)}</span></p></div></article>)}</div></section>;
+}

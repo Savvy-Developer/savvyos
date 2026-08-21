@@ -1280,6 +1280,30 @@ export const agentGoals = mysqlTable("agent_goals", {
 export type AgentGoal = typeof agentGoals.$inferSelect;
 export type InsertAgentGoal = typeof agentGoals.$inferInsert;
 
+// ─── Company Goals ────────────────────────────────────────────────────────────
+// Company goals are the SavvyOS source used by Pulse. They are deliberately
+// distinct from agent_goals and market goals so a meeting never pulls an
+// ambiguous production target.
+export const companyGoals = mysqlTable("company_goals", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  ownerId: int("ownerId").references(() => users.id, { onDelete: "set null" }),
+  year: int("year").notNull(),
+  targetValue: decimal("targetValue", { precision: 15, scale: 2 }),
+  currentValue: decimal("currentValue", { precision: 15, scale: 2 }),
+  unit: varchar("unit", { length: 64 }).default("number").notNull(),
+  status: mysqlEnum("status", ["active", "inactive", "completed"]).default("active").notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("company_goals_year_status_idx").on(table.year, table.status),
+  index("company_goals_owner_idx").on(table.ownerId, table.status),
+]);
+export type CompanyGoal = typeof companyGoals.$inferSelect;
+export type InsertCompanyGoal = typeof companyGoals.$inferInsert;
+
 // ─── Market Match Call ────────────────────────────────────────────────────────
 
 export const marketProfiles = mysqlTable("market_profiles", {
@@ -3321,7 +3345,8 @@ export const pulseWorkItems = mysqlTable("pulse_work_items", {
   meetingId: varchar("meetingId", { length: 36 }).references(() => pulseMeetings.id),
   ownerPersonId: int("ownerPersonId").references(() => users.id),
   isPersonal: boolean("isPersonal").generatedAlwaysAs(sql`case when ${sql.identifier("meetingId")} is null then true else false end`),
-  assigneeId: int("assigneeId").notNull().references(() => users.id),
+  // Proposed AI-derived issues stay unassigned until a person chooses otherwise.
+  assigneeId: int("assigneeId").references(() => users.id),
   createdById: int("createdById").notNull().references(() => users.id),
   status: varchar("status", { length: 64 }).notNull(),
   // To-dos default to seven days out in the creation API. Overdue is computed at read time
@@ -3340,6 +3365,8 @@ export const pulseWorkItems = mysqlTable("pulse_work_items", {
   percentSource: mysqlEnum("percentSource", ["manual", "from_milestones"]).default("manual").notNull(),
   origin: mysqlEnum("origin", ["manual", "cascaded", "ai_proposed", "carried_over"]).default("manual").notNull(),
   isProposed: boolean("isProposed").default(false).notNull(),
+  // A proposed issue may cite a SavvyOS metric, but it never owns the metric or its values.
+  savvyosMetricId: int("savvyosMetricId").references(() => rrScorecardMetrics.id, { onDelete: "set null" }),
   sortOrder: int("sortOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -3507,6 +3534,61 @@ export const pulseMeetingScorecardMetrics = mysqlTable("meeting_scorecard_metric
   index("meeting_scorecard_metric_meeting_idx").on(table.meetingId, table.sortOrder),
 ]);
 export type PulseMeetingScorecardMetric = typeof pulseMeetingScorecardMetrics.$inferSelect;
+
+// Prompt 8: Pulse places SavvyOS company goals in a meeting but owns neither
+// goal definitions nor values.
+export const pulseMeetingGoals = mysqlTable("meeting_goals", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  savvyosGoalId: int("savvyosGoalId").references(() => companyGoals.id, { onDelete: "set null" }),
+  sortOrder: int("sortOrder").default(0).notNull(),
+}, (table) => [
+  uniqueIndex("meeting_goal_unique").on(table.meetingId, table.savvyosGoalId),
+  index("meeting_goal_meeting_idx").on(table.meetingId, table.sortOrder),
+]);
+export type PulseMeetingGoal = typeof pulseMeetingGoals.$inferSelect;
+
+// A rock has one home meeting on pulse_work_items. This mapping only permits a
+// read-only additional display in another meeting.
+export const pulseMeetingRocks = mysqlTable("meeting_rocks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  sortOrder: int("sortOrder").default(0).notNull(),
+}, (table) => [
+  uniqueIndex("meeting_rock_unique").on(table.meetingId, table.workItemId),
+  index("meeting_rock_meeting_idx").on(table.meetingId, table.sortOrder),
+]);
+export type PulseMeetingRock = typeof pulseMeetingRocks.$inferSelect;
+
+// Scheduled analytics may write observations only. A human may choose to turn
+// one into a proposed issue, accept it, or dismiss it with an optional reason.
+export const aiObservations = mysqlTable("ai_observations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  savvyosMetricId: int("savvyosMetricId").notNull().references(() => rrScorecardMetrics.id, { onDelete: "cascade" }),
+  observation: text("observation").notNull(),
+  triggerRule: varchar("triggerRule", { length: 128 }).notNull(),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  raisedAsIssueId: varchar("raisedAsIssueId", { length: 36 }).references(() => pulseWorkItems.id, { onDelete: "set null" }),
+  dismissedById: int("dismissedById").references(() => users.id, { onDelete: "set null" }),
+  dismissedAt: timestamp("dismissedAt"),
+  dismissReason: text("dismissReason"),
+}, (table) => [
+  index("ai_observation_metric_generated_idx").on(table.savvyosMetricId, table.generatedAt),
+  index("ai_observation_open_idx").on(table.raisedAsIssueId, table.dismissedAt),
+]);
+export type AiObservation = typeof aiObservations.$inferSelect;
+
+export const aiObservationRules = mysqlTable("ai_observation_rules", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ruleKey: varchar("ruleKey", { length: 128 }).notNull().unique(),
+  label: varchar("label", { length: 255 }).notNull(),
+  isEnabled: boolean("isEnabled").default(true).notNull(),
+  config: json("config").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AiObservationRule = typeof aiObservationRules.$inferSelect;
 
 export const pulseMeetingUpdates = mysqlTable("pulse_meeting_updates", {
   id: varchar("id", { length: 36 }).primaryKey(),

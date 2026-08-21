@@ -200,6 +200,8 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
     quarter: pulseWorkItems.quarter,
     percentComplete: pulseWorkItems.percentComplete,
     percentSource: pulseWorkItems.percentSource,
+    isProposed: pulseWorkItems.isProposed,
+    savvyosMetricId: pulseWorkItems.savvyosMetricId,
     sortOrder: pulseWorkItems.sortOrder,
     meetingName: pulseMeetings.name,
     createdAt: pulseWorkItems.createdAt,

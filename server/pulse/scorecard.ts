@@ -3,6 +3,8 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseMeetingScorecardMetrics,
+  pulseMeetings,
+  pulseProfiles,
   rolesResponsibilities,
   rrMetricValues,
   rrScorecardMetrics,
@@ -105,8 +107,8 @@ async function mappingRows(db: any, meetingId: string) {
     .orderBy(asc(pulseMeetingScorecardMetrics.sortOrder), asc(pulseMeetingScorecardMetrics.addedAt));
 }
 
-export async function getMeetingScorecard(db: any, viewerId: number, meetingId: string) {
-  await require_visible_meeting(db, viewerId, meetingId);
+export async function getMeetingScorecard(db: any, viewerId: number, meetingId: string, skipVisibility = false) {
+  if (!skipVisibility) await require_visible_meeting(db, viewerId, meetingId);
   const rows = await mappingRows(db, meetingId);
   const active = rows.filter((row: any) => row.metric?.status === "active" && row.responsibility && row.owner);
   const metricIds = active.map((row: any) => row.metric.id);
@@ -153,6 +155,18 @@ export async function getMeetingScorecard(db: any, viewerId: number, meetingId: 
     note: !row.metric ? "A selected SavvyOS metric was deleted and no longer appears in this meeting." : `“${row.metric.name}” is inactive in SavvyOS and no longer appears in this meeting.`,
   }));
   return { tabs: SCORECARD_CADENCES.filter((cadence) => items.some((item: any) => item.cadence === cadence)), items, configurationNotes };
+}
+
+export function scorecardAttention(items: any[], meetingId: string, meetingName?: string) {
+  return items.flatMap((metric: any) => {
+    const missing = metric.periods.filter((period: any) => period.value == null).length >= 2;
+    const wrongTrend = /declining/i.test(metric.trend ?? "") && metric.performanceDirection === "higher" || /rising/i.test(metric.trend ?? "") && metric.performanceDirection === "lower";
+    const offTarget = metric.onTarget === false;
+    if (!missing && !wrongTrend && !offTarget) return [];
+    const reasons = [offTarget ? "off target" : null, wrongTrend ? metric.trend.toLowerCase() : null, missing ? "missing recent data" : null].filter(Boolean);
+    const severity = Number(offTarget) * 3 + Number(wrongTrend) * 2 + Number(missing);
+    return [{ metricId: metric.metricId, name: metric.name, meetingId, meetingName, current: metric.current, target: metric.target, displayFormat: metric.displayFormat, trend: metric.trend, reasons, severity }];
+  }).sort((left: any, right: any) => right.severity - left.severity || left.name.localeCompare(right.name)).slice(0, 5);
 }
 
 export async function saveCurrentScorecardValue(db: any, personId: number, input: { meetingId: string; metricId: number; actualValue: number; note?: string | null }) {
@@ -212,6 +226,19 @@ export const pulseScorecardRouter = router({
     return { success: true };
   }),
 
+  attention: protectedProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
+    const db = await database(); await requireManager(db, ctx.user.id, input.meetingId);
+    const scorecard = await getMeetingScorecard(db, ctx.user.id, input.meetingId);
+    return scorecardAttention(scorecard.items, input.meetingId);
+  }),
+  globalAttention: protectedProcedure.query(async ({ ctx }) => {
+    const db = await database();
+    const [profile] = await db.select({ platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(eq(pulseProfiles.userId, ctx.user.id)).limit(1);
+    if (profile?.platformRole !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "Needs Attention is available to super admins only." });
+    const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name }).from(pulseMeetings).where(eq(pulseMeetings.isActive, true));
+    const attention = (await Promise.all(meetings.map(async (meeting) => scorecardAttention((await getMeetingScorecard(db, ctx.user.id, meeting.id, true)).items, meeting.id, meeting.name)))).flat();
+    return attention.sort((left: any, right: any) => right.severity - left.severity || left.name.localeCompare(right.name)).slice(0, 5);
+  }),
   saveCurrentValue: protectedProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive(), actualValue: z.number().finite(), note: z.string().max(5000).nullable().optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
     return saveCurrentScorecardValue(db, ctx.user.id, input);

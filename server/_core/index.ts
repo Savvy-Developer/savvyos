@@ -29,6 +29,7 @@ import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
+import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -267,6 +268,9 @@ async function startServer() {
 
   // Pulse: deterministic weekly overdue digest and quarter rollover prompts.
   schedulePulseWorkItemAutomation();
+
+  // Pulse: scheduled metric observations only. The job cannot create or alter work.
+  schedulePulseObservationGeneration();
 }
 
 startServer().catch(console.error);
