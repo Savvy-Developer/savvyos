@@ -145,7 +145,9 @@ export async function getAllUsers() {
 export async function getUsersByRole(role: "admin" | "agent" | "isa" | "agent_support") {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(users).where(eq(users.role, role)).orderBy(users.name);
+  // Role pickers serve active operating users only. Retired Pulse fixtures and
+  // offboarded people must never leak into agent-facing selectors.
+  return db.select().from(users).where(and(eq(users.role, role), eq(users.isActive, true))).orderBy(users.name);
 }
 
 export async function getUserById(id: number) {
