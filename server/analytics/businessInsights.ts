@@ -91,8 +91,14 @@ const BUSINESS_SCOPE_KEY = "business-insights-v1|company";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REFRESH_LOCK_MS = 20 * 60 * 1000;
-const MODEL = process.env.BUSINESS_INSIGHTS_MODEL || "gpt-5.5";
+// A concise, structured management brief does not require the highest-cost,
+// longest-running model. This model is fast enough for scheduled refreshes and
+// still supports strict JSON schema output.
+const MODEL = process.env.BUSINESS_INSIGHTS_MODEL || "gpt-5-mini";
 const YTD_START = new Date(new Date().getFullYear(), 0, 1);
+const MODEL_FACT_ARRAY_LIMIT = 10;
+const MODEL_FACT_OBJECT_FIELD_LIMIT = 28;
+const MODEL_FACT_MAX_DEPTH = 4;
 
 const BUSINESS_INSIGHT_SCHEMA = {
   name: "savvy_business_insights_v1",
@@ -238,12 +244,17 @@ function sanitizeForModel(value: unknown, depth = 0): unknown {
   if (value instanceof Date) return ymd(value);
   if (typeof value === "string") return value.length > 220 ? `${value.slice(0, 217)}...` : value;
   if (typeof value === "number" || typeof value === "boolean") return value;
-  if (depth > 5) return "[truncated]";
-  if (Array.isArray(value)) return value.slice(0, 30).map((item) => sanitizeForModel(item, depth + 1));
+  if (depth > MODEL_FACT_MAX_DEPTH) return "[truncated]";
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, MODEL_FACT_ARRAY_LIMIT)
+      .map((item) => sanitizeForModel(item, depth + 1));
+  }
   if (typeof value === "object") {
     const result: Row = {};
-    for (const [key, item] of Object.entries(value as Row)) {
-      if (SENSITIVE_KEY.test(key)) continue;
+    for (const [key, item] of Object.entries(value as Row)
+      .filter(([key]) => !SENSITIVE_KEY.test(key))
+      .slice(0, MODEL_FACT_OBJECT_FIELD_LIMIT)) {
       result[key] = sanitizeForModel(item, depth + 1);
     }
     return result;
@@ -484,15 +495,15 @@ async function createInsightPayload(facts: Record<string, unknown>): Promise<Bus
   try {
     const response = await invokeLLM({
       model: MODEL,
-      maxTokens: 9000,
-      reasoning: { effort: "high" },
+      maxTokens: 5000,
+      reasoning: { effort: "low" },
       messages: [
         {
           role: "system",
           content: `You are the executive business-intelligence strategist for Savvy STR Agents. Analyze only the supplied SavvyOS fact pack. Produce unusually deep, decision-quality cross-report synthesis—not report-by-report summaries.
 
 Rules:
-1. Never invent facts, owners, dates, causes, records, benchmarks, or unseen data. Use only exact values contained in the fact pack.
+1. Never invent facts, owners, dates, causes, records, benchmarks, or unseen data. Use only exact values contained in the fact pack. Treat companyProductionSnapshot as the canonical source for the headline YTD and current-pipeline production values.
 2. Treat observational relationships as hypotheses, never proof of causation. State the hypothesis and confidence explicitly.
 3. Every insight must connect at least two distinct data domains, such as production and pipeline, ISA appointments and cohort conversion, task execution and outcomes, or commission quality and Savvy Net.
 4. Every insight must include two or more exact evidence values, report locations, a responsible owner, and a concrete next action that can be taken this week.
