@@ -34,6 +34,21 @@ export function normaliseReceivedEmailList(payload: unknown): ReceivedEmailListI
   return [];
 }
 
+export function normaliseReceivedEmailListPage(payload: unknown): {
+  emails: ReceivedEmailListItem[];
+  hasMore: boolean;
+  nextCursor: string | null;
+} {
+  const emails = normaliseReceivedEmailList(payload);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { emails, hasMore: false, nextCursor: null };
+  }
+  const envelope = payload as { has_more?: unknown; data?: unknown };
+  const hasMore = envelope.has_more === true;
+  const lastId = emails.at(-1)?.id ?? null;
+  return { emails, hasMore, nextCursor: hasMore ? lastId : null };
+}
+
 type ReceivedEmail = {
   id?: string;
   from?: string | null;
@@ -281,19 +296,26 @@ export async function ingestResendReceivedEmail(event: ResendReceivedEvent): Pro
 }
 
 /** Backfill existing messages visible in Resend Receiving. Existing rows are idempotently skipped. */
-export async function backfillResendInbox(limit = 100): Promise<{ scanned: number; stored: number; skipped: number }> {
+export async function backfillResendInbox(input: { limit?: number; after?: string } = {}): Promise<{
+  scanned: number;
+  stored: number;
+  skipped: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}> {
   const resend = getResendClient();
   if (!resend) throw new Error("Resend API key is not configured");
-  const result = await (resend.emails as any).receiving.list({ limit: Math.min(Math.max(limit, 1), 100) }) as {
-    data?: unknown;
-    error?: { message?: string };
-  };
+  const limit = Math.min(Math.max(input.limit ?? 100, 1), 100);
+  const result = await (resend.emails as any).receiving.list({
+    limit,
+    ...(input.after ? { after: input.after } : {}),
+  }) as { data?: unknown; error?: { message?: string } };
   if (result.error) throw new Error(result.error.message ?? "Unable to list received emails from Resend");
-  const receivedEmails = normaliseReceivedEmailList(result.data);
+  const page = normaliseReceivedEmailListPage(result.data);
 
   let stored = 0;
   let skipped = 0;
-  for (const received of receivedEmails) {
+  for (const received of page.emails) {
     if (!received.id) {
       skipped += 1;
       continue;
@@ -312,7 +334,15 @@ export async function backfillResendInbox(limit = 100): Promise<{ scanned: numbe
     if (outcome.stored) stored += 1;
     else skipped += 1;
   }
-  return { scanned: receivedEmails.length, stored, skipped };
+  return {
+    scanned: page.emails.length,
+    stored,
+    skipped,
+    // A malformed cursor should never create an infinite client loop. The UI can
+    // still report the partial import and the operator can retry safely.
+    hasMore: page.hasMore && !!page.nextCursor,
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function getResendInboxThreads(userId: number, archived: boolean) {

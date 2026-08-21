@@ -74,11 +74,14 @@ export const resendInboxRouter = router({
     }),
 
   sync: protectedProcedure
-    .input(z.object({ limit: z.number().int().min(1).max(100).optional().default(100) }).optional())
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).optional().default(100),
+      after: z.string().min(1).max(255).optional(),
+    }).optional())
     .mutation(async ({ ctx, input }) => {
       await assertInboxAccess(ctx.user);
       try {
-        return await backfillResendInbox(input?.limit ?? 100);
+        return await backfillResendInbox({ limit: input?.limit ?? 100, after: input?.after });
       } catch (error) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

@@ -56,6 +56,8 @@ export default function ResendInboxPage() {
   const [replyHtml, setReplyHtml] = useState("<p></p>");
   const [showReply, setShowReply] = useState(false);
   const [mobileDetail, setMobileDetail] = useState(false);
+  const [isSyncingHistory, setIsSyncingHistory] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ pages: number; scanned: number; stored: number; skipped: number } | null>(null);
 
   const { data: threads = [], isLoading: listLoading, refetch: refetchThreads } = trpc.resendInbox.list.useQuery(
     { archived: showArchived },
@@ -124,13 +126,58 @@ export default function ResendInboxPage() {
   });
 
   const syncInbox = trpc.resendInbox.sync.useMutation({
-    onSuccess: async (result) => {
-      toast.success(`Inbox synced: ${result.stored} added, ${result.skipped} already saved`);
-      await refetchThreads();
-      await utils.resendInbox.unreadCount.invalidate();
-    },
     onError: (error) => toast.error(error.message),
   });
+
+  async function syncAllResendHistory() {
+    // The provider returns at most 100 messages per page. Cursor chaining keeps
+    // the browser responsive while importing the complete history in order.
+    const maxPagesPerRun = 500;
+    const seenCursors = new Set<string>();
+    let after: string | undefined;
+    let pages = 0;
+    let scanned = 0;
+    let stored = 0;
+    let skipped = 0;
+
+    setIsSyncingHistory(true);
+    setSyncProgress({ pages, scanned, stored, skipped });
+    try {
+      while (pages < maxPagesPerRun) {
+        const result = await syncInbox.mutateAsync({ limit: 100, ...(after ? { after } : {}) });
+        pages += 1;
+        scanned += result.scanned;
+        stored += result.stored;
+        skipped += result.skipped;
+        setSyncProgress({ pages, scanned, stored, skipped });
+
+        if (!result.hasMore) {
+          toast.success(`Resend history synced: ${stored} added across ${pages} page${pages === 1 ? "" : "s"}`);
+          break;
+        }
+        if (!result.nextCursor || seenCursors.has(result.nextCursor)) {
+          throw new Error("Resend returned an invalid pagination cursor. Please try Sync again.");
+        }
+        seenCursors.add(result.nextCursor);
+        after = result.nextCursor;
+      }
+
+      if (pages >= maxPagesPerRun) {
+        toast.warning(`Imported ${pages * 100} messages or more. Click Sync Resend History again to continue the remaining history.`);
+      }
+      await refetchThreads();
+      await utils.resendInbox.unreadCount.invalidate();
+    } catch (error) {
+      if (error instanceof Error && !/Resend returned an invalid pagination cursor/.test(error.message)) {
+        // Transport failures are already surfaced by the mutation; preserve the
+        // partial import because completed pages are idempotently stored.
+      } else if (error instanceof Error) {
+        toast.error(error.message);
+      }
+    } finally {
+      setIsSyncingHistory(false);
+    }
+  }
 
   const attachmentUrl = trpc.resendInbox.getAttachmentUrl.useMutation({
     onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
@@ -165,9 +212,9 @@ export default function ResendInboxPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => syncInbox.mutate({ limit: 100 })} disabled={syncInbox.isPending}>
-            {syncInbox.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-            Sync Resend
+          <Button variant="outline" size="sm" onClick={syncAllResendHistory} disabled={isSyncingHistory}>
+            {isSyncingHistory ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+            {isSyncingHistory && syncProgress ? `Syncing ${syncProgress.scanned} emails…` : "Sync Resend History"}
           </Button>
           <Button variant={showArchived ? "outline" : "secondary"} size="sm" onClick={() => setShowArchived(false)}>
             Inbox
@@ -193,7 +240,7 @@ export default function ResendInboxPage() {
               <div className="px-7 py-16 text-center text-muted-foreground">
                 <Inbox className="mx-auto mb-3 h-8 w-8 opacity-30" />
                 <p className="text-sm font-medium">{showArchived ? "No archived conversations" : "Your inbox is clear"}</p>
-                <p className="mt-1 text-xs">{showArchived ? "Archived email conversations appear here." : "Use Sync Resend to import messages already received."}</p>
+                <p className="mt-1 text-xs">{showArchived ? "Archived email conversations appear here." : "Use Sync Resend History to import every message already received."}</p>
               </div>
             ) : filteredThreads.map((thread) => {
               const active = thread.id === selectedThreadId;
