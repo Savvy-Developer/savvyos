@@ -11,6 +11,7 @@ import {
   pulseWorkItemComments,
   pulseWorkItemMoves,
   pulseWorkItemNotifications,
+  pulseNotifications,
   pulseWorkItemStatusNotes,
   pulseWorkItems,
   users,
@@ -19,6 +20,7 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
+import { getPulseNotificationPreference } from "./notifications";
 
 const workItemTypeSchema = z.enum(["todo", "issue", "rock"]);
 const todoStatusSchema = z.enum(["open", "done", "dropped"]);
@@ -358,7 +360,11 @@ export const pulseWorkItemsRouter = router({
       }
 
       const id = uuid();
+      const assigneeId = input.assigneeId ?? ctx.user.id;
       const dueDate = input.type === "todo" ? (input.dueDate ?? defaultDueDate()) : input.dueDate ?? null;
+      const assignmentPreference = assigneeId !== ctx.user.id
+        ? await getPulseNotificationPreference(db, assigneeId, "todo_assigned")
+        : null;
       await db.transaction(async (tx: any) => {
         await tx.insert(pulseWorkItems).values({
           id,
@@ -367,7 +373,7 @@ export const pulseWorkItemsRouter = router({
           description: input.description ?? null,
           meetingId: input.meetingId,
           ownerPersonId: input.ownerPersonId,
-          assigneeId: input.assigneeId ?? ctx.user.id,
+          assigneeId,
           createdById: ctx.user.id,
           status: defaultStatus(input.type),
           dueDate,
@@ -376,6 +382,18 @@ export const pulseWorkItemsRouter = router({
           percentSource: "manual",
         });
         await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, meetingId: input.meetingId, ownerPersonId: input.ownerPersonId });
+        if (assignmentPreference?.inApp) {
+          await tx.insert(pulseNotifications).values({
+            id: uuid(),
+            personId: assigneeId,
+            notificationType: "assignment",
+            requiresAction: true,
+            sourceType: "work_item",
+            sourceId: id,
+            meetingId: input.meetingId,
+            body: input.title,
+          });
+        }
       });
       return { id, dueDate };
     }),
@@ -633,6 +651,20 @@ export const pulseWorkItemsRouter = router({
         if (mentionedPersonIds.length) {
           await tx.insert(pulseWorkItemCommentMentions).values(mentionedPersonIds.map((mentionedPersonId) => ({ id: uuid(), commentId, mentionedPersonId })));
           await tx.insert(pulseWorkItemNotifications).values(mentionedPersonIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId, notificationType: "mention" as const })));
+        }
+        // A direct comment to the assignee needs a response even when it does not use an @mention.
+        // Do not create a second card when that same person was explicitly mentioned.
+        if (item.assigneeId !== ctx.user.id && !mentionedPersonIds.includes(item.assigneeId)) {
+          await tx.insert(pulseNotifications).values({
+            id: uuid(),
+            personId: item.assigneeId,
+            notificationType: "comment",
+            requiresAction: true,
+            sourceType: "work_item",
+            sourceId: item.id,
+            meetingId: item.meetingId,
+            body: input.body,
+          });
         }
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "comment_added", undefined, undefined, { commentId, mentionedPersonIds });
       });

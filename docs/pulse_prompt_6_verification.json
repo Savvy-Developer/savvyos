@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-08-21T13:19:03.161Z",
+  "acceptance": {
+    "atMostTwoActionSections": {
+      "pass": true
+    },
+    "cascadeAndMentionAppearWithOneTapActions": {
+      "pass": true
+    },
+    "emptyStatePointsForward": {
+      "pass": true
+    },
+    "persistenceAfterFourteenDays": {
+      "pass": true
+    },
+    "noDisallowedHomeContent": {
+      "pass": true
+    },
+    "everyActionNamesMeeting": {
+      "pass": true
+    },
+    "adminOutstandingCountsAndAges": {
+      "pass": true
+    },
+    "phoneReachableActions": {
+      "pass": true
+    },
+    "assignmentCompletesAndClears": {
+      "pass": true
+    }
+  }
+}

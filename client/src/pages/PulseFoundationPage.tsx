@@ -188,7 +188,7 @@ export default function PulseFoundationPage() {
 
   if (location === "/pulse/settings") {
     if (!shell?.canSeeSettings) return <EmptyInstruction actionHref="/pulse" actionLabel="Go to Pulse home">Only meeting owners and administrators can change settings. Go home to see what needs you now.</EmptyInstruction>;
-    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Meeting setup will be added here for people who own or administer a meeting." />{meetings.length === 0 ? <FirstMeetingSetup /> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No settings need your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
+    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Set delivery preferences, review meeting information, and keep Pulse clear for your team." /><Card className="max-w-3xl"><CardContent className="space-y-3 p-4 sm:p-6"><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:w-auto"><Link href="/pulse/settings/notifications">Pulse delivery settings</Link></Button>{shell?.settingsReason === "super_admin" && <Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/outstanding">Outstanding Pulse items</Link></Button>}</CardContent></Card>{meetings.length === 0 ? <FirstMeetingSetup /> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No meeting setup needs your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
   }
 
   return (

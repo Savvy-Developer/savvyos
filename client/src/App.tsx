@@ -107,6 +107,8 @@ import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
 import PulseMissionControlPage from "./pages/PulseMissionControlPage";
+import PulseMissionControlAdminPage from "./pages/PulseMissionControlAdminPage";
+import PulseNotificationPreferencesPage from "./pages/PulseNotificationPreferencesPage";
 import PulseMeetingRunPage from "./pages/PulseMeetingRunPage";
 import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
@@ -277,10 +279,12 @@ function Router() {
           <Route path="/pulse/meetings/:id" component={PulseFoundationPage} />
           <Route path="/pulse/meetings" component={PulseFoundationPage} />
           <Route path="/pulse/mission" component={PulseMissionControlPage} />
+          <Route path="/pulse/settings/outstanding" component={PulseMissionControlAdminPage} />
+          <Route path="/pulse/settings/notifications" component={PulseNotificationPreferencesPage} />
           <Route path="/pulse/work" component={PulseFoundationPage} />
           <Route path="/pulse/inputs" component={PulseFoundationPage} />
           <Route path="/pulse/settings" component={PulseFoundationPage} />
-          <Route path="/pulse" component={PulseFoundationPage} />
+          <Route path="/pulse" component={PulseMissionControlPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />
