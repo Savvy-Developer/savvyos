@@ -95,6 +95,7 @@ import {
 } from "../analytics/reportingSuite";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 import { getIsmDashboard } from "../analytics/ismDashboard";
+import { getIsmTaskBoard } from "../analytics/ismTasks";
 import {
   getAdminCommandCenter,
   getCommandCenterFilterOptions,
@@ -152,6 +153,14 @@ const ismActivityLogInput = z.object({
   actions: z.array(z.string().min(1).max(255)).max(20).optional(),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+const ismTaskBoardInput = z.object({
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(100).default(50),
+  isaIds: z.array(z.number().int().positive()).max(25).optional(),
+  status: z.enum(["all", "open", "overdue", "pending", "in_progress", "completed", "cancelled"]).default("open"),
+  dueDateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dueDateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const commandCenterInput = z.object({
@@ -343,7 +352,27 @@ export const analyticsRouter = router({
       }
       return getIsmDashboard(input ?? {});
     }),
-
+  /** ISA task workload, exceptions, and activity for the ISM dashboard. */
+  ismTaskBoard: protectedProcedure
+    .input(ismTaskBoardInput)
+    .query(async ({ ctx, input }) => {
+      const allowed =
+        ctx.user.role === "admin" &&
+        (await canAdminUsePermission(ctx.user, "canViewIsmDashboard"));
+      if (!allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ISM Dashboard access is required.",
+        });
+      }
+      if (input.dueDateFrom && input.dueDateTo && input.dueDateFrom > input.dueDateTo) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The due-date start must be on or before the due-date end.",
+        });
+      }
+      return getIsmTaskBoard(input);
+    }),
   /**
    * Paginated ISA-only audit feed for the ISM dashboard. It includes existing
    * successful action records plus page and contact openings captured for ISAs.

@@ -58,6 +58,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import IsmCallsTab from "./ism/IsmCallsTab";
 import IsmActivitiesTab from "./ism/IsmActivitiesTab";
+import IsmTasksTab from "./ism/IsmTasksTab";
 
 type QueueKey =
   | "recentUnassigned"
@@ -480,7 +481,7 @@ export default function IsmDashboardPage() {
   const [selectedIsaIds, setSelectedIsaIds] = useState<string[]>([]);
   const [leadSourceId, setLeadSourceId] = useState("all");
   const [selectedQueue, setSelectedQueue] = useState<QueueKey | null>(null);
-  const [activeTab, setActiveTab] = useState<"operations" | "calls" | "activities">("operations");
+  const [activeTab, setActiveTab] = useState<"operations" | "tasks" | "calls" | "activities">("operations");
   const [sort, setSort] = useState<SortState>({
     key: "staleSevenDays",
     direction: "desc",
@@ -690,15 +691,18 @@ export default function IsmDashboardPage() {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as "operations" | "calls" | "activities")}>
+      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as "operations" | "tasks" | "calls" | "activities")}>
         <TabsList>
           <TabsTrigger value="operations">Operations</TabsTrigger>
+          <TabsTrigger value="tasks"><ClipboardCheck className="h-4 w-4" />ISA Tasks</TabsTrigger>
           <TabsTrigger value="activities"><Activity className="h-4 w-4" />Activities</TabsTrigger>
           <TabsTrigger value="calls"><PhoneCall className="h-4 w-4" />Calls</TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {activeTab === "activities" ? (
+      {activeTab === "tasks" ? (
+        <IsmTasksTab />
+      ) : activeTab === "activities" ? (
         <IsmActivitiesTab />
       ) : activeTab === "calls" ? (
         <IsmCallsTab />
