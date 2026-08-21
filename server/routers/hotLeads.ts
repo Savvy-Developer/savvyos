@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getDb } from "../db";
-import { activityLog, communications, contacts, users, agentConnections, leadSources, emailBehaviors } from "../../drizzle/schema";
-import { eq, sql, and, gte, desc, asc } from "drizzle-orm";
+import { activityLog, communications, contacts, users, agentConnections, connectionRequests, leadSources, emailBehaviors } from "../../drizzle/schema";
+import { eq, sql, and, gte, desc, asc, inArray } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 
@@ -63,6 +63,15 @@ const deadConnectionsRemovalInput = z.object({
   { message: "Choose how long this contact should stay off the list.", path: ["temporaryDuration"] },
 );
 
+const deadConnectionsReconnectInput = z.object({
+  contactId: z.number().int().positive(),
+  agentId: z.number().int().positive(),
+});
+
+const deadConnectionsActivitiesInput = z.object({
+  limit: z.number().int().min(1).max(100).default(50),
+}).optional();
+
 function assertHotLeadsAccess(role: string) {
   if (role !== "admin" && role !== "isa" && role !== "agent") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
@@ -72,6 +81,12 @@ function assertHotLeadsAccess(role: string) {
 function assertDeadConnectionsAccess(role: string) {
   if (role !== "admin" && role !== "isa") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Dead Connections is available to admins and ISAs only" });
+  }
+}
+
+function assertDeadConnectionsActivitiesAccess(role: string) {
+  if (role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ISA Activities is available to admins only" });
   }
 }
 
@@ -457,12 +472,142 @@ export const hotLeadsRouter = router({
             temporaryDuration: input.temporaryDuration ?? null,
             excludedAt: excludedAt.toISOString(),
             excludedUntil: excludedUntil?.toISOString() ?? null,
+            note: input.note.trim(),
             noteId: Number(noteResult.insertId),
           },
         });
       });
 
       return { success: true, excludedUntil };
+    }),
+
+  /**
+   * reconnectDeadConnection — creates a new agent connection directly from the
+   * Dead Connections list. It is limited to contacts whose existing connections
+   * are all dead, so the contact leaves the list immediately after reconnection.
+   */
+  reconnectDeadConnection: protectedProcedure
+    .input(deadConnectionsReconnectInput)
+    .mutation(async ({ ctx, input }) => {
+      assertDeadConnectionsAccess(ctx.user.role);
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const [contact, targetAgent, existingConnection] = await Promise.all([
+        db
+          .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName })
+          .from(contacts)
+          .where(and(
+            eq(contacts.id, input.contactId),
+            eq(contacts.doNotContact, false),
+            sql`EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id})`,
+            sql`NOT EXISTS (SELECT 1 FROM agent_connections ac WHERE ac.contactId = ${contacts.id} AND ac.pipelineStatus <> 'dead')`,
+          ))
+          .limit(1),
+        db
+          .select({ id: users.id, name: users.name })
+          .from(users)
+          .where(and(eq(users.id, input.agentId), eq(users.role, "agent")))
+          .limit(1),
+        db
+          .select({ id: agentConnections.id })
+          .from(agentConnections)
+          .where(and(eq(agentConnections.contactId, input.contactId), eq(agentConnections.agentId, input.agentId)))
+          .limit(1),
+      ]);
+
+      const contactRecord = contact[0];
+      const targetAgentRecord = targetAgent[0];
+      if (!contactRecord) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This contact is no longer eligible for the Dead Connections list." });
+      }
+      if (!targetAgentRecord) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Choose an active Savvy agent for this reconnection." });
+      }
+      if (existingConnection.length) {
+        throw new TRPCError({ code: "CONFLICT", message: "That agent already has a connection with this contact." });
+      }
+
+      const createdAt = new Date();
+      const contactName = `${contactRecord.firstName ?? ""} ${contactRecord.lastName ?? ""}`.trim() || "Unknown Contact";
+      const targetAgentName = targetAgentRecord.name ?? "Unknown Agent";
+      let agentConnectionId: number | null = null;
+
+      await (db as any).transaction(async (tx: any) => {
+        await tx.insert(connectionRequests).values({
+          agentId: targetAgentRecord.id,
+          contactId: contactRecord.id,
+          requestedPipelineStatus: "new_lead",
+          status: "approved",
+          reviewedById: ctx.user.id,
+          reviewedAt: createdAt,
+          notes: "Reconnected from Hot Leads > Dead Connections",
+        });
+        const [connectionResult] = await tx.insert(agentConnections).values({
+          agentId: targetAgentRecord.id,
+          contactId: contactRecord.id,
+          pipelineStatus: "new_lead",
+        });
+        agentConnectionId = Number(connectionResult.insertId);
+        await tx.insert(activityLog).values({
+          userId: ctx.user.id,
+          action: "dead_connections_reconnected",
+          entityType: "agent_connection",
+          entityId: agentConnectionId,
+          relatedContactId: contactRecord.id,
+          details: {
+            actorName: ctx.user.name ?? "Unknown",
+            actorRole: ctx.user.role,
+            contactName,
+            agentId: targetAgentRecord.id,
+            agentName: targetAgentName,
+            pipelineStatus: "new_lead",
+            source: "dead_connections",
+          },
+        });
+      });
+
+      return { success: true, agentConnectionId };
+    }),
+
+  /** An admin-only feed of recorded Dead Connections actions performed by ISAs. */
+  deadConnectionsActivities: protectedProcedure
+    .input(deadConnectionsActivitiesInput)
+    .query(async ({ ctx, input }) => {
+      assertDeadConnectionsActivitiesAccess(ctx.user.role);
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const rows = await db
+        .select({
+          id: activityLog.id,
+          action: activityLog.action,
+          createdAt: activityLog.createdAt,
+          details: activityLog.details,
+          isaId: users.id,
+          isaName: users.name,
+          contactId: contacts.id,
+          contactFirstName: contacts.firstName,
+          contactLastName: contacts.lastName,
+        })
+        .from(activityLog)
+        .innerJoin(users, eq(activityLog.userId, users.id))
+        .leftJoin(contacts, eq(activityLog.relatedContactId, contacts.id))
+        .where(and(
+          eq(users.role, "isa"),
+          inArray(activityLog.action, ["dead_connections_list_removal", "dead_connections_reconnected"]),
+        ))
+        .orderBy(desc(activityLog.createdAt))
+        .limit(input?.limit ?? 50);
+
+      return rows.map((row: any) => ({
+        ...row,
+        contactName: `${row.contactFirstName ?? ""} ${row.contactLastName ?? ""}`.trim()
+          || row.details?.contactName
+          || "Unknown Contact",
+      }));
     }),
 
   propertyFavorites: protectedProcedure

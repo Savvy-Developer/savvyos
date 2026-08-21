@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Link, useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,8 @@ import {
   CircleOff,
   Heart,
   FileSearch,
+  ChevronDown,
+  UserRoundPlus,
   X,
 } from "lucide-react";
 
@@ -86,7 +89,8 @@ export default function HotLeadsPage() {
   const initialTab = searchParams.get("tab") === "dead-connections" ? "dead-connections" : "property-views";
   const role = (user as any)?.role as string | undefined;
   const isAgent = role === "agent";
-  const isAdminOrIsa = role === "admin" || role === "isa";
+  const isAdmin = role === "admin";
+  const isAdminOrIsa = isAdmin || role === "isa";
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const [pvPage, setPvPage] = useState(1);
@@ -120,6 +124,9 @@ export default function HotLeadsPage() {
   const [temporaryRemovalDuration, setTemporaryRemovalDuration] = useState<TemporaryRemovalOption>("7_days");
   const [deadConnectionsRemovalNote, setDeadConnectionsRemovalNote] = useState("");
   const [deadConnectionsRemovalError, setDeadConnectionsRemovalError] = useState<string | null>(null);
+  const [deadConnectionToReconnect, setDeadConnectionToReconnect] = useState<any | null>(null);
+  const [reconnectAgentId, setReconnectAgentId] = useState("");
+  const [deadConnectionsReconnectError, setDeadConnectionsReconnectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (searchParams.get("tab") === "dead-connections") {
@@ -202,14 +209,33 @@ export default function HotLeadsPage() {
     },
     { enabled: isAdminOrIsa && activeTab === "dead-connections" }
   );
+  const deadConnectionsActivities = trpc.hotLeads.deadConnectionsActivities.useQuery(
+    { limit: 50 },
+    { enabled: isAdmin && activeTab === "dead-connections" }
+  );
   const trpcUtils = trpc.useUtils();
   const removeDeadConnection = trpc.hotLeads.removeDeadConnection.useMutation({
     onSuccess: async () => {
-      await trpcUtils.hotLeads.deadConnections.invalidate();
+      await Promise.all([
+        trpcUtils.hotLeads.deadConnections.invalidate(),
+        trpcUtils.hotLeads.deadConnectionsActivities.invalidate(),
+      ]);
       closeDeadConnectionsRemovalDialog();
     },
     onError: (error) => {
       setDeadConnectionsRemovalError(error.message || "We couldn't take this contact off the list. Please try again.");
+    },
+  });
+  const reconnectDeadConnection = trpc.hotLeads.reconnectDeadConnection.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        trpcUtils.hotLeads.deadConnections.invalidate(),
+        trpcUtils.hotLeads.deadConnectionsActivities.invalidate(),
+      ]);
+      closeDeadConnectionsReconnectDialog();
+    },
+    onError: (error) => {
+      setDeadConnectionsReconnectError(error.message || "We couldn't reconnect this contact. Please try again.");
     },
   });
 
@@ -400,6 +426,28 @@ export default function HotLeadsPage() {
       note: deadConnectionsRemovalNote.trim(),
       mode: deadConnectionsRemovalMode,
       ...(deadConnectionsRemovalMode === "temporary" ? { temporaryDuration: temporaryRemovalDuration } : {}),
+    });
+  };
+
+  const openDeadConnectionsReconnectDialog = (lead: any) => {
+    setDeadConnectionToReconnect(lead);
+    setReconnectAgentId("");
+    setDeadConnectionsReconnectError(null);
+  };
+
+  const closeDeadConnectionsReconnectDialog = () => {
+    if (reconnectDeadConnection.isPending) return;
+    setDeadConnectionToReconnect(null);
+    setReconnectAgentId("");
+    setDeadConnectionsReconnectError(null);
+  };
+
+  const submitDeadConnectionsReconnect = () => {
+    if (!deadConnectionToReconnect || !reconnectAgentId) return;
+    setDeadConnectionsReconnectError(null);
+    reconnectDeadConnection.mutate({
+      contactId: deadConnectionToReconnect.contactId,
+      agentId: Number(reconnectAgentId),
     });
   };
 
@@ -823,6 +871,64 @@ export default function HotLeadsPage() {
                 <div className="px-4 pt-4 text-sm text-muted-foreground">
                   Contacts appear here only when they have at least one agent connection and every current connection is marked Dead. Use this list to revisit prospects for a potential connection in another market.
                 </div>
+                {isAdmin && (
+                  <div className="px-4 pt-4">
+                    <Collapsible className="rounded-lg border bg-muted/30">
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="group flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <span>
+                            <span className="flex items-center gap-2 text-sm font-semibold">
+                              ISA Activities
+                              <Badge variant="secondary" className="font-normal">Admin only</Badge>
+                            </span>
+                            <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                              Recent actions ISAs took from Dead Connections, including removals and new agent connections.
+                            </span>
+                          </span>
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="border-t">
+                        <div className="max-h-96 overflow-y-auto divide-y">
+                          {deadConnectionsActivities.isLoading ? (
+                            <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin" /> Loading ISA activity...
+                            </div>
+                          ) : (deadConnectionsActivities.data ?? []).length === 0 ? (
+                            <p className="px-4 py-5 text-sm text-muted-foreground">No ISA Dead Connections activity has been recorded yet.</p>
+                          ) : (
+                            (deadConnectionsActivities.data ?? []).map((activity: any) => {
+                              const details = activity.details ?? {};
+                              const isReconnect = activity.action === "dead_connections_reconnected";
+                              const removalTiming = details.mode === "temporary"
+                                ? `temporarily removed${details.temporaryDuration ? ` for ${String(details.temporaryDuration).replace("_", " ")}` : ""}`
+                                : "permanently removed";
+                              return (
+                                <div key={activity.id} className="px-4 py-3">
+                                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                    <p className="text-sm">
+                                      <span className="font-medium">{activity.isaName || "Unknown ISA"}</span>{" "}
+                                      {isReconnect ? (
+                                        <>reconnected <span className="font-medium">{activity.contactName}</span> with <span className="font-medium">{details.agentName || "a new agent"}</span>.</>
+                                      ) : (
+                                        <><span className="font-medium">{removalTiming}</span> <span className="font-medium">{activity.contactName}</span> from Dead Connections.</>
+                                      )}
+                                    </p>
+                                    <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeDate(activity.createdAt)}</span>
+                                  </div>
+                                  {details.note && <p className="mt-1 text-xs text-muted-foreground">Note: {details.note}</p>}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                )}
                 <FiltersBar
                   showTimeRange={false}
                   days={days}
@@ -872,8 +978,8 @@ export default function HotLeadsPage() {
                         <span className="inline-flex items-center">Lead Score <SortIcon col="leadScore" activeKey={dcSortKey} activeDir={dcSortDir} /></span>
                       </TableHead>
                       <TableHead>Agents</TableHead>
-                      <TableHead className="w-[52px] text-center">
-                        <span className="sr-only">Take off list</span>
+                      <TableHead className="w-[84px] text-center">
+                        <span className="sr-only">Dead Connections actions</span>
                       </TableHead>
                     </>
                   }
@@ -902,17 +1008,30 @@ export default function HotLeadsPage() {
                         <AgentsList agents={lead.connectedAgents} />
                       </TableCell>
                       <TableCell className="text-center">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => openDeadConnectionsRemovalDialog(lead)}
-                          title="Take off Dead Connections list"
-                          aria-label={`Take ${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() + " off Dead Connections list"}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                            onClick={() => openDeadConnectionsReconnectDialog(lead)}
+                            title="Reconnect with a new agent"
+                            aria-label={`Reconnect ${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() + " with a new agent"}
+                          >
+                            <UserRoundPlus className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => openDeadConnectionsRemovalDialog(lead)}
+                            title="Take off Dead Connections list"
+                            aria-label={`Take ${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() + " off Dead Connections list"}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1005,6 +1124,47 @@ export default function HotLeadsPage() {
             </Button>
             <Button type="button" variant="destructive" onClick={submitDeadConnectionsRemoval} disabled={!deadConnectionsRemovalNote.trim() || removeDeadConnection.isPending}>
               {removeDeadConnection.isPending ? "Saving..." : "Take off list"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deadConnectionToReconnect)}
+        onOpenChange={(open) => {
+          if (!open) closeDeadConnectionsReconnectDialog();
+        }}
+      >
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Reconnect {deadConnectionToReconnect?.firstName} {deadConnectionToReconnect?.lastName}</DialogTitle>
+            <DialogDescription>
+              Create a new connection for this contact with another Savvy agent. The contact will leave Dead Connections and the action will be recorded for administrators.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="dead-connections-reconnect-agent">New connected agent</Label>
+            <Select value={reconnectAgentId} onValueChange={setReconnectAgentId}>
+              <SelectTrigger id="dead-connections-reconnect-agent">
+                <SelectValue placeholder="Select an agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map((agent: any) => (
+                  <SelectItem key={agent.id} value={String(agent.id)}>{agent.name || agent.email || `Agent #${agent.id}`}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {agents.length === 0 && <p className="text-sm text-muted-foreground">No active agents are available to select.</p>}
+            {deadConnectionsReconnectError && <p className="text-sm text-destructive">{deadConnectionsReconnectError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeDeadConnectionsReconnectDialog} disabled={reconnectDeadConnection.isPending}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitDeadConnectionsReconnect} disabled={!reconnectAgentId || reconnectDeadConnection.isPending}>
+              {reconnectDeadConnection.isPending ? "Reconnecting..." : "Reconnect contact"}
             </Button>
           </DialogFooter>
         </DialogContent>
