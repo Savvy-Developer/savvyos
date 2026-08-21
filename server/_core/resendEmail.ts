@@ -21,6 +21,45 @@ function getResend(): Resend | null {
   return new Resend(ENV.resendApiKey);
 }
 
+/**
+ * Resend's SDK occasionally reports an application-level transport resolution
+ * failure despite the direct API being available. Use the same provider, sender,
+ * and idempotency key as a narrow fallback rather than abandoning an authorized
+ * operational delivery.
+ */
+async function sendViaResendHttpFallback(params: {
+  to: string;
+  cc?: string[];
+  subject: string;
+  html: string;
+  idempotencyKey?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ENV.resendApiKey}`,
+        "Content-Type": "application/json",
+        ...(params.idempotencyKey ? { "Idempotency-Key": params.idempotencyKey } : {}),
+      },
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({
+        from: FROM_ADDRESS,
+        to: [params.to],
+        ...(params.cc?.length ? { cc: params.cc } : {}),
+        subject: params.subject,
+        html: params.html,
+      }),
+    });
+    if (!response.ok) {
+      return { sent: false, reason: `HTTP ${response.status}: ${await response.text()}` };
+    }
+    return { sent: true };
+  } catch (error) {
+    return { sent: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export type EmailType =
   | "lead_assigned"
   | "transaction_created"
@@ -869,9 +908,20 @@ export async function sendTransactionalEmail(
       options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
     );
     if (result.error) {
-      const reason = result.error.message ?? "Resend rejected the email";
-      console.error("[Resend] Send error:", result.error);
-      return { sent: false, skipped: false, reason };
+      const sdkReason = result.error.message ?? "Resend rejected the email";
+      console.error("[Resend] SDK send error; attempting direct provider fallback:", result.error);
+      const fallback = await sendViaResendHttpFallback({
+        to: ctx.recipientEmail,
+        ...(ctx.ccEmails?.length ? { cc: ctx.ccEmails } : ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
+        subject,
+        html,
+        idempotencyKey: options.idempotencyKey,
+      });
+      if (fallback.sent) {
+        console.info("[Resend] Direct provider fallback succeeded.");
+        return { sent: true, skipped: false };
+      }
+      return { sent: false, skipped: false, reason: `${sdkReason}; fallback failed: ${fallback.reason ?? "unknown error"}` };
     }
 
     return { sent: true, skipped: false };
