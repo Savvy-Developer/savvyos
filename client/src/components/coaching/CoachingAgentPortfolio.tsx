@@ -466,8 +466,17 @@ export default function CoachingAgentPortfolio() {
                             </TableCell>
                           )}
                           {showCol("core") && (
-                            <TableCell className="text-[10px] text-muted-foreground truncate max-w-[80px]">
-                              {profile?.currentDevelopmentPriority ?? "—"}
+                            <TableCell className="text-[10px] text-muted-foreground">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="block max-w-[120px] cursor-help truncate">
+                                    {profile?.currentDevelopmentPriority ?? "—"}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-sm text-xs leading-5">
+                                  {profile?.currentDevelopmentPriority ?? "No current development priority has been set."}
+                                </TooltipContent>
+                              </Tooltip>
                             </TableCell>
                           )}
                           {showCol("core") && (

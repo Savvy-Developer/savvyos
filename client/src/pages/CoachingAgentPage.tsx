@@ -250,28 +250,34 @@ export default function CoachingAgentPage() {
 
       {/* ═══ TABS ═══ */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex overflow-x-auto h-auto gap-0 bg-transparent p-0 border-b rounded-none" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          {[
-            { id: "overview", label: "Overview", icon: BarChart3 },
-            { id: "ai-insights", label: "AI Insights", icon: Brain },
-            { id: "performance", label: "Performance", icon: TrendingUp },
-            { id: "goals", label: "Goals", icon: Target },
-            { id: "pipeline", label: "Pipeline & Leads", icon: Activity },
-            { id: "history", label: "Coaching History", icon: Clock },
-            { id: "commitments", label: "Commitments", icon: ListChecks, count: openCommitments?.length },
-            { id: "assessments", label: "Assessments", icon: FileText },
-            { id: "reset", label: "Perf. Reset", icon: Shield, active: !!activeReset },
-            { id: "market", label: "Market", icon: MapPin },
-            { id: "files", label: "Files", icon: FolderOpen },
-          ].map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-1.5 shrink-0 rounded-none border-b-2 border-transparent px-3 py-2 text-xs font-medium whitespace-nowrap data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-none">
-              <tab.icon className="h-3.5 w-3.5 shrink-0" />
-              {tab.label}
-              {(tab as any).count > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[9px] font-bold text-primary">{(tab as any).count}</span>}
-              {(tab as any).active && <span className="ml-1 h-2 w-2 rounded-full bg-red-500" />}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="w-full overflow-x-auto rounded-t-lg border-b bg-muted/20" aria-label="Agent detail sections">
+          <TabsList className="flex h-auto min-w-max items-stretch justify-start gap-0 bg-transparent p-0">
+            {[
+              { id: "overview", label: "Overview", icon: BarChart3 },
+              { id: "ai-insights", label: "AI Insights", icon: Brain },
+              { id: "performance", label: "Performance", icon: TrendingUp },
+              { id: "goals", label: "Goals", icon: Target },
+              { id: "pipeline", label: "Pipeline & Leads", icon: Activity },
+              { id: "history", label: "Coaching History", icon: Clock },
+              { id: "commitments", label: "Commitments", icon: ListChecks, count: openCommitments?.length },
+              { id: "assessments", label: "Assessments", icon: FileText },
+              { id: "reset", label: "Perf. Reset", icon: Shield, active: !!activeReset },
+              { id: "market", label: "Market", icon: MapPin },
+              { id: "files", label: "Files", icon: FolderOpen },
+            ].map((tab) => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="flex-none items-center gap-1.5 rounded-none border-x-0 border-y-0 border-b-2 border-transparent px-3 py-2.5 text-xs font-medium whitespace-nowrap data-[state=active]:border-primary data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-none"
+              >
+                <tab.icon className="h-3.5 w-3.5 shrink-0" />
+                {tab.label}
+                {(tab as any).count > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[9px] font-bold text-primary">{(tab as any).count}</span>}
+                {(tab as any).active && <span className="ml-1 h-2 w-2 rounded-full bg-red-500" />}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         {/* ─── OVERVIEW ─── */}
         <TabsContent value="overview" className="mt-4 space-y-4">
