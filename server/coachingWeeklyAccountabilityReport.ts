@@ -34,6 +34,7 @@ export const WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS = [
   "trish@savvy.realty",
   "ashleigh@savvy.realty",
   "hunter@savvy.realty",
+  "tyler@savvy.realty",
 ] as const;
 
 type SessionStatus = "Scheduled" | "In Progress" | "Completed" | "Canceled" | "No Show";
@@ -682,12 +683,12 @@ export function getWeeklyCoachingAccountabilityEmailSubject(report: CoachingWeek
  * Explicitly Tyler-only. This is the sole send function in the initial release;
  * it is intentionally not called by server startup or a recurring scheduler.
  */
-async function claimLiveCoachingReportRun(reportDate: string): Promise<boolean> {
+async function claimLiveCoachingReportRun(reportKey: string, reportDate: string): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database is not available for coaching report-run tracking.");
 
   const existing = await db.select().from(scheduledReportRuns)
-    .where(and(eq(scheduledReportRuns.reportKey, LIVE_REPORT_KEY), eq(scheduledReportRuns.reportDate, reportDate)))
+    .where(and(eq(scheduledReportRuns.reportKey, reportKey), eq(scheduledReportRuns.reportDate, reportDate)))
     .limit(1);
   const run = existing[0];
   if (run?.status === "sent") {
@@ -711,7 +712,7 @@ async function claimLiveCoachingReportRun(reportDate: string): Promise<boolean> 
   } else {
     try {
       await db.insert(scheduledReportRuns).values({
-        reportKey: LIVE_REPORT_KEY,
+        reportKey,
         reportDate,
         status: "running",
         startedAt: new Date(),
@@ -725,6 +726,7 @@ async function claimLiveCoachingReportRun(reportDate: string): Promise<boolean> 
 }
 
 async function finalizeLiveCoachingReportRun(
+  reportKey: string,
   reportDate: string,
   status: "sent" | "partial" | "failed" | "skipped",
   recipientCount: number,
@@ -739,14 +741,17 @@ async function finalizeLiveCoachingReportRun(
     successfulRecipientCount,
     errorMessage: errorMessage ?? null,
     completedAt: new Date(),
-  }).where(and(eq(scheduledReportRuns.reportKey, LIVE_REPORT_KEY), eq(scheduledReportRuns.reportDate, reportDate)));
+  }).where(and(eq(scheduledReportRuns.reportKey, reportKey), eq(scheduledReportRuns.reportDate, reportDate)));
 }
 
 /**
  * Sends one live leadership email: Phil is the primary recipient and the other
  * five named leaders are copied in the same conversation for Reply All.
  */
-export async function sendWeeklyCoachingAccountabilityReport(asOf = new Date()): Promise<{
+export async function sendWeeklyCoachingAccountabilityReport(
+  asOf = new Date(),
+  options: { reportKey?: string } = {},
+): Promise<{
   sent: boolean;
   skipped: boolean;
   reason?: string;
@@ -754,7 +759,8 @@ export async function sendWeeklyCoachingAccountabilityReport(asOf = new Date()):
 }> {
   const report = await buildWeeklyCoachingAccountabilityReport(asOf);
   const reportDate = easternDateKey(getEasternTimeParts(asOf));
-  if (!(await claimLiveCoachingReportRun(reportDate))) {
+  const reportKey = options.reportKey ?? LIVE_REPORT_KEY;
+  if (!(await claimLiveCoachingReportRun(reportKey, reportDate))) {
     return { sent: false, skipped: true, reason: "This live report was already claimed or delivered for the Eastern calendar date.", report };
   }
 
@@ -762,7 +768,7 @@ export async function sendWeeklyCoachingAccountabilityReport(asOf = new Date()):
   const copiedRecipients = report.leadershipRecipients.slice(1);
   if (!primaryRecipient || copiedRecipients.length !== WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS.length - 1) {
     const reason = "The configured shared leadership recipient group is incomplete.";
-    await finalizeLiveCoachingReportRun(reportDate, "failed", report.leadershipRecipients.length, 0, reason);
+    await finalizeLiveCoachingReportRun(reportKey, reportDate, "failed", report.leadershipRecipients.length, 0, reason);
     return { sent: false, skipped: false, reason, report };
   }
 
@@ -780,16 +786,17 @@ export async function sendWeeklyCoachingAccountabilityReport(asOf = new Date()):
       {
         allowTemplateOverride: false,
         injectMagicLinks: false,
-        idempotencyKey: `${LIVE_REPORT_KEY}:${reportDate}:shared-leadership`,
+        idempotencyKey: `${reportKey}:${reportDate}:shared-leadership`,
       },
     );
 
     const recipientCount = report.leadershipRecipients.length;
     if (delivery.sent) {
-      await finalizeLiveCoachingReportRun(reportDate, "sent", recipientCount, recipientCount);
+      await finalizeLiveCoachingReportRun(reportKey, reportDate, "sent", recipientCount, recipientCount);
       console.info(`[CoachingWeeklyAccountability] Sent one shared leadership email to ${primaryRecipient.email} with ${copiedRecipients.length} copied recipient(s).`);
     } else {
       await finalizeLiveCoachingReportRun(
+        reportKey,
         reportDate,
         delivery.skipped ? "skipped" : "failed",
         recipientCount,
@@ -800,10 +807,15 @@ export async function sendWeeklyCoachingAccountabilityReport(asOf = new Date()):
     return { ...delivery, report };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    await finalizeLiveCoachingReportRun(reportDate, "failed", report.leadershipRecipients.length, 0, reason);
+    await finalizeLiveCoachingReportRun(reportKey, reportDate, "failed", report.leadershipRecipients.length, 0, reason);
     console.error("[CoachingWeeklyAccountability] Shared leadership delivery failed:", error);
     return { sent: false, skipped: false, reason, report };
   }
+}
+
+/** One separately audited resend is available for a recipient-list correction without reopening the normal Friday delivery record. */
+export async function resendWeeklyCoachingAccountabilityReport(asOf = new Date()) {
+  return sendWeeklyCoachingAccountabilityReport(asOf, { reportKey: `${LIVE_REPORT_KEY}_resend` });
 }
 
 function getNextFridayAtNoonEastern(now = new Date()): Date {

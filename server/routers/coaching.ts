@@ -37,6 +37,7 @@ import {
   buildWeeklyCoachingAccountabilityReport,
   getWeeklyCoachingAccountabilityEmailSubject,
   renderWeeklyCoachingAccountabilityEmail,
+  resendWeeklyCoachingAccountabilityReport,
   sendWeeklyCoachingAccountabilityReport,
   sendWeeklyCoachingAccountabilityTest,
 } from "../coachingWeeklyAccountabilityReport";
@@ -3073,6 +3074,25 @@ Output JSON with this exact structure:
       subject: getWeeklyCoachingAccountabilityEmailSubject(result.report),
       periodLabel: result.report.periodLabel,
       recurringSchedule: "Every Friday at 12:00 PM Eastern",
+    };
+  }),
+
+  /** Resend the current shared report once after a recipient-list correction; retained separately from the normal Friday run. */
+  resendWeeklyAccountabilityEmailNow: protectedProcedure.mutation(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const result = await resendWeeklyCoachingAccountabilityReport();
+    if (!result.sent) {
+      throw new TRPCError({
+        code: result.skipped ? "CONFLICT" : "INTERNAL_SERVER_ERROR",
+        message: result.reason ?? "The revised shared weekly coaching accountability email was not sent.",
+      });
+    }
+    return {
+      sent: true,
+      primaryRecipient: result.report.leadershipRecipients[0]?.email ?? null,
+      copiedRecipients: result.report.leadershipRecipients.slice(1).map((recipient) => recipient.email),
+      subject: getWeeklyCoachingAccountabilityEmailSubject(result.report),
+      periodLabel: result.report.periodLabel,
     };
   }),
 

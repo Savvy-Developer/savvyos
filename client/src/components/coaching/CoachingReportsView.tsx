@@ -36,6 +36,10 @@ export default function CoachingReportsView() {
     onSuccess: (data) => toast.success(`Shared report sent to ${data.primaryRecipient} with ${data.copiedRecipients.length} leadership recipients copied.`),
     onError: (error) => toast.error(error.message),
   });
+  const resendWeeklyLive = trpc.coaching.resendWeeklyAccountabilityEmailNow.useMutation({
+    onSuccess: (data) => toast.success(`Revised shared report sent to ${data.primaryRecipient} with ${data.copiedRecipients.length} recipients copied.`),
+    onError: (error) => toast.error(error.message),
+  });
   const metrics = commandData?.metrics;
   const statusCounts = metrics?.statusCounts ?? {};
 
@@ -79,25 +83,29 @@ export default function CoachingReportsView() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-base">Weekly Coaching Accountability Email</CardTitle>
-              <CardDescription className="mt-1 max-w-3xl">One shared leadership report for Phil, Dyl, Elana, Trish, Ashleigh, and Hunter. It exposes roster ownership, meeting completion, documentation gaps, next-session coverage, commitment follow-through, and named exceptions by coach.</CardDescription>
+              <CardDescription className="mt-1 max-w-3xl">One shared leadership report for Phil, Dyl, Elana, Trish, Ashleigh, Hunter, and Tyler. It exposes roster ownership, meeting completion, documentation gaps, next-session coverage, commitment follow-through, and named exceptions by coach.</CardDescription>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button size="sm" variant="outline" onClick={() => setWeeklyPreviewOpen(true)}>
                 <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview
               </Button>
-              <Button size="sm" variant="outline" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending || sendWeeklyLive.isPending}>
+              <Button size="sm" variant="outline" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending || sendWeeklyLive.isPending || resendWeeklyLive.isPending}>
                 {sendWeeklyTest.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
                 Send Test to Tyler
               </Button>
-              <Button size="sm" onClick={() => sendWeeklyLive.mutate()} disabled={sendWeeklyLive.isPending || sendWeeklyTest.isPending}>
+              <Button size="sm" onClick={() => sendWeeklyLive.mutate()} disabled={sendWeeklyLive.isPending || sendWeeklyTest.isPending || resendWeeklyLive.isPending}>
                 {sendWeeklyLive.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
                 Send Shared Report Now
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => resendWeeklyLive.mutate()} disabled={resendWeeklyLive.isPending || sendWeeklyLive.isPending || sendWeeklyTest.isPending}>
+                {resendWeeklyLive.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                Resend Updated Group
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <p className="text-xs text-muted-foreground"><strong>Delivery:</strong> one shared email, addressed to Phil with Dyl, Elana, Trish, Ashleigh, and Hunter copied for Reply All. It runs every Friday at <strong>12:00 PM Eastern</strong>; the test action remains Tyler-only.</p>
+          <p className="text-xs text-muted-foreground"><strong>Delivery:</strong> one shared email, addressed to Phil with Dyl, Elana, Trish, Ashleigh, Hunter, and Tyler copied for Reply All. It runs every Friday at <strong>12:00 PM Eastern</strong>; the test action remains Tyler-only.</p>
         </CardContent>
       </Card>
 
@@ -139,11 +147,14 @@ export default function CoachingReportsView() {
           </div>
           <DialogFooter className="shrink-0 border-t px-6 py-3">
             <Button variant="outline" onClick={() => setWeeklyPreviewOpen(false)}>Close</Button>
-            <Button variant="outline" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending || sendWeeklyLive.isPending}>
+            <Button variant="outline" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending || sendWeeklyLive.isPending || resendWeeklyLive.isPending}>
               {sendWeeklyTest.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Send Test to Tyler
             </Button>
-            <Button onClick={() => sendWeeklyLive.mutate()} disabled={sendWeeklyLive.isPending || sendWeeklyTest.isPending}>
+            <Button onClick={() => sendWeeklyLive.mutate()} disabled={sendWeeklyLive.isPending || sendWeeklyTest.isPending || resendWeeklyLive.isPending}>
               {sendWeeklyLive.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Send Shared Report Now
+            </Button>
+            <Button variant="outline" onClick={() => resendWeeklyLive.mutate()} disabled={resendWeeklyLive.isPending || sendWeeklyLive.isPending || sendWeeklyTest.isPending}>
+              {resendWeeklyLive.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Resend Updated Group
             </Button>
           </DialogFooter>
         </DialogContent>
