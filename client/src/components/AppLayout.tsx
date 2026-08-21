@@ -40,6 +40,7 @@ import {
   X,
   CheckSquare,
   Mail,
+  Inbox,
   Zap,
   MessageSquarePlus,
   Settings,
@@ -266,6 +267,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewSmartPlans: "/smart-plans",
   canViewEmailNotifications: "/email-notifications",
   canViewFeatureUpdates: "/daily-report-updates",
+  canViewResendInbox: "/resend-inbox",
   canViewPasswords: "/passwords",
   canViewSuperPermissions: "/admin/super-permissions",
 };
@@ -289,7 +291,7 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .filter((group) => group.items.length > 0);
 }
 
-function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0): NavGroup[] {
+function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0, resendInboxUnread: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
@@ -352,6 +354,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Target, label: "Goals", path: "/goals" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
+        { icon: Inbox, label: "Resend Inbox", path: "/resend-inbox", badge: resendInboxUnread > 0 ? resendInboxUnread : undefined },
         { icon: Lock, label: "Passwords", path: "/passwords" },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
       ],
@@ -650,6 +653,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: role === "admin", staleTime: 30000 }
   );
 
+  // Resend Inbox is separately super-permissioned because it contains external correspondence.
+  const canUseResendInbox = role === "admin" && !!(adminPerms as Record<string, boolean> | undefined)?.canViewResendInbox;
+  const { data: resendInboxUnreadData } = trpc.resendInbox.unreadCount.useQuery(
+    undefined,
+    { enabled: canUseResendInbox, refetchInterval: 30000 }
+  );
+
   // Password navigation is available only to list owners, selected recipients, and designated super users.
   const { data: passwordAccess } = trpc.passwords.hasAccessibleLists.useQuery(
     undefined,
@@ -676,10 +686,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const unreadPmCount = (inboxCount as any)?.count ?? 0;
+  const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
 
   const standardNavGroups =
     role === "admin"
-      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount)
+      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount, resendInboxUnreadCount)
       : role === "isa"
       ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
       : role === "agent_support"

@@ -114,6 +114,7 @@ import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
 import ReferralsPage from "./pages/ReferralsPage";
+import ResendInboxPage from "./pages/ResendInboxPage";
 import ReferralDetailPage from "./pages/ReferralDetailPage";
 import ReferralAgentDetailPage from "./pages/ReferralAgentDetailPage";
 
@@ -304,6 +305,7 @@ function Router() {
           <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
           <Route path="/daily-report-updates">{() => <AdminRoute><DailyReportFeatureUpdatesPage /></AdminRoute>}</Route>
+          <Route path="/resend-inbox">{() => <AdminRoute><ResendInboxPage /></AdminRoute>}</Route>
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
           <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
           <Route path="/job-board">{() => <AdminRoute><JobBoardAdminPage /></AdminRoute>}</Route>

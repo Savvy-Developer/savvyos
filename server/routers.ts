@@ -58,6 +58,7 @@ import { dailyReportRouter } from "./routers/dailyReport";
 import { referralsRouter } from "./routers/referrals";
 import { customReportsRouter } from "./routers/customReports";
 import { pulseRouter } from "./routers/pulse";
+import { resendInboxRouter } from "./routers/resendInbox";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -262,6 +263,7 @@ export const appRouter = router({
   dailyReport: dailyReportRouter,
   referrals: referralsRouter,
   pulse: pulseRouter,
+  resendInbox: resendInboxRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

@@ -17,6 +17,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
 import { createHmac } from "crypto";
+import { ingestResendReceivedEmail } from "../resendInbox";
 
 export function verifyResendWebhookSignature(
   payload: string,
@@ -274,6 +275,13 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
   const recipientEmail = (data.to && data.to[0]) || data.email || null;
   const emailId = data.email_id;
 
+  // Persist inbox content before analytics correlations. This keeps retries safe:
+  // the inbox insert is idempotent by provider email ID, while downstream event
+  // ledgers may have already accepted a previous delivery attempt.
+  const inboxResult = type === "email.received"
+    ? await ingestResendReceivedEmail(event)
+    : null;
+
   // Always attempt Smart Plan correlation first. It has no effect on ordinary
   // Resend messages, and returns a no-op when the provider ID is not a plan send.
   const smartPlanResult = await recordSmartPlanEvent(event, webhookEventId);
@@ -349,7 +357,13 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
   }
 
   if (type === "email.received") {
-    return { handled: true, action: smartPlanResult.executionId || oneTimeSendResult.recipientId ? "smart_plan_reply_recorded" : "inbound_email_unmatched", executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };
+    return {
+      handled: true,
+      action: inboxResult?.stored ? "inbox_email_stored" : (smartPlanResult.executionId || oneTimeSendResult.recipientId ? "smart_plan_reply_recorded" : "inbound_email_already_stored"),
+      threadId: inboxResult?.threadId,
+      executionId: smartPlanResult.executionId,
+      recipientId: oneTimeSendResult.recipientId,
+    };
   }
 
   return { handled: smartPlanResult.executionId !== undefined || oneTimeSendResult.recipientId !== undefined, reason: "unhandled_event_type", type, executionId: smartPlanResult.executionId, recipientId: oneTimeSendResult.recipientId };

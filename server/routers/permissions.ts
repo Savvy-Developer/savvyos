@@ -75,6 +75,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewSmartPlans",         label: "Smart Plans",              group: "Projects & Plans" },
   { key: "canViewEmailNotifications", label: "Email Notifications",      group: "Projects & Plans" },
   { key: "canViewFeatureUpdates",     label: "Feature Updates",          group: "Projects & Plans" },
+  { key: "canViewResendInbox",        label: "Resend Inbox",             group: "Admin" },
   // Admin — Passwords
   { key: "canViewPasswords",           label: "Passwords",                group: "Admin" },
   // Super admin tools (default OFF — only Tyler/Elana/Dyl can use this page anyway)
@@ -285,9 +286,16 @@ export const permissionsRouter = router({
         } else if (row) {
           for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
         } else {
-          // No row yet — defaults: most ON, Projects & Plans OFF
+          // No row yet — defaults: most ON, except intentionally restricted views.
+          const defaultOff = new Set<PermissionKey>([
+            "canViewProjects",
+            "canViewSmartPlans",
+            "canViewEmailNotifications",
+            "canViewSuperPermissions",
+            "canViewResendInbox",
+          ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
-            perms[p.key] = p.group !== "Projects & Plans";
+            perms[p.key] = !defaultOff.has(p.key);
           }
         }
         return {

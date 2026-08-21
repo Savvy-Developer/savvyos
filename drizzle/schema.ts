@@ -3,6 +3,7 @@ import {
   mysqlEnum,
   mysqlTable,
   text,
+  mediumtext,
   timestamp,
   date,
   varchar,
@@ -2132,6 +2133,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewSmartPlans: boolean("canViewSmartPlans").default(false).notNull(),
   canViewEmailNotifications: boolean("canViewEmailNotifications").default(false).notNull(),
   canViewFeatureUpdates: boolean("canViewFeatureUpdates").default(true).notNull(),
+  // Inbox access is sensitive because it exposes inbound external correspondence.
+  canViewResendInbox: boolean("canViewResendInbox").default(false).notNull(),
   // Passwords
   canViewPasswords: boolean("canViewPasswords").default(true).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)
@@ -2143,6 +2146,75 @@ export const adminPermissions = mysqlTable("admin_permissions", {
 });
 export type AdminPermissions = typeof adminPermissions.$inferSelect;
 export type InsertAdminPermissions = typeof adminPermissions.$inferInsert;
+
+// ─── Resend Inbox ─────────────────────────────────────────────────────────────
+// A durable, access-controlled mailbox projection for emails received by Resend.
+// Thread state is shared, while read state is personal to each authorized admin.
+export const resendInboxThreads = mysqlTable("resend_inbox_threads", {
+  id: int("id").autoincrement().primaryKey(),
+  subject: varchar("subject", { length: 1024 }).notNull(),
+  normalizedSubject: varchar("normalizedSubject", { length: 1024 }).notNull(),
+  receivedAddress: varchar("receivedAddress", { length: 320 }).notNull(),
+  participantEmail: varchar("participantEmail", { length: 320 }).notNull(),
+  lastMessageAt: timestamp("lastMessageAt").notNull(),
+  lastIncomingAt: timestamp("lastIncomingAt").notNull(),
+  archivedAt: timestamp("archivedAt"),
+  archivedById: int("archivedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("resend_inbox_threads_active_idx").on(table.archivedAt, table.lastIncomingAt),
+  index("resend_inbox_threads_participant_idx").on(table.participantEmail, table.lastIncomingAt),
+]);
+export type ResendInboxThread = typeof resendInboxThreads.$inferSelect;
+
+export const resendInboxMessages = mysqlTable("resend_inbox_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  threadId: int("threadId").notNull().references(() => resendInboxThreads.id, { onDelete: "cascade" }),
+  direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
+  providerEmailId: varchar("providerEmailId", { length: 255 }).unique(),
+  // 768 is the MySQL utf8mb4-safe maximum for the indexed Message-ID value.
+  internetMessageId: varchar("internetMessageId", { length: 768 }),
+  inReplyToMessageId: varchar("inReplyToMessageId", { length: 1024 }),
+  fromEmail: varchar("fromEmail", { length: 320 }).notNull(),
+  fromName: varchar("fromName", { length: 320 }),
+  toRecipients: json("toRecipients").$type<string[]>().notNull(),
+  ccRecipients: json("ccRecipients").$type<string[]>(),
+  replyToRecipients: json("replyToRecipients").$type<string[]>(),
+  subject: varchar("subject", { length: 1024 }).notNull(),
+  bodyHtml: mediumtext("bodyHtml"),
+  bodyText: mediumtext("bodyText"),
+  headers: json("headers").$type<Record<string, string>>(),
+  attachments: json("attachments").$type<Array<{
+    id: string;
+    filename: string;
+    size: number;
+    contentType: string | null;
+    contentDisposition: string | null;
+    contentId: string | null;
+  }>>(),
+  sentById: int("sentById").references(() => users.id, { onDelete: "set null" }),
+  receivedAt: timestamp("receivedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("resend_inbox_messages_thread_idx").on(table.threadId, table.receivedAt),
+  index("resend_inbox_messages_internet_id_idx").on(table.internetMessageId),
+]);
+export type ResendInboxMessage = typeof resendInboxMessages.$inferSelect;
+
+export const resendInboxThreadReads = mysqlTable("resend_inbox_thread_reads", {
+  id: int("id").autoincrement().primaryKey(),
+  threadId: int("threadId").notNull().references(() => resendInboxThreads.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  lastReadAt: timestamp("lastReadAt"),
+  markedUnread: boolean("markedUnread").notNull().default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("resend_inbox_thread_reads_user_thread_unq").on(table.threadId, table.userId),
+  index("resend_inbox_thread_reads_user_idx").on(table.userId, table.markedUnread),
+]);
+export type ResendInboxThreadRead = typeof resendInboxThreadReads.$inferSelect;
 
 // ─── Email Behaviors ──────────────────────────────────────────────────────────
 // Stores email activity imported from Resend and GoHighLevel, matched to a

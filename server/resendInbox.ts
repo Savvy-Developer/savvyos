@@ -1,0 +1,448 @@
+import { Resend } from "resend";
+import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { getDb } from "./db";
+import { ENV } from "./_core/env";
+import {
+  resendInboxMessages,
+  resendInboxThreadReads,
+  resendInboxThreads,
+} from "../drizzle/schema";
+
+type ReceivedAttachment = {
+  id: string;
+  filename?: string | null;
+  size?: number | null;
+  content_type?: string | null;
+  content_disposition?: string | null;
+  content_id?: string | null;
+};
+
+type ReceivedEmail = {
+  id?: string;
+  from?: string | null;
+  to?: string[] | null;
+  cc?: string[] | null;
+  reply_to?: string[] | null;
+  subject?: string | null;
+  html?: string | null;
+  text?: string | null;
+  headers?: Record<string, string> | null;
+  attachments?: ReceivedAttachment[] | null;
+  message_id?: string | null;
+  created_at?: string | null;
+};
+
+export type ResendReceivedEvent = {
+  type: string;
+  created_at?: string;
+  data?: {
+    email_id?: string;
+    message_id?: string;
+    from?: string;
+    to?: string[];
+    subject?: string;
+    created_at?: string;
+  };
+};
+
+function getResendClient(): Resend | null {
+  return ENV.resendApiKey ? new Resend(ENV.resendApiKey) : null;
+}
+
+function cleanEmail(value: string | null | undefined): string {
+  if (!value) return "";
+  const bracket = value.match(/<([^>]+)>/);
+  return (bracket?.[1] ?? value).trim().toLowerCase();
+}
+
+function displayName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const bracket = value.match(/^\s*(.*?)\s*<[^>]+>\s*$/);
+  const name = (bracket?.[1] ?? "").trim().replace(/^['\"]|['\"]$/g, "");
+  return name || null;
+}
+
+function cleanRecipients(values: string[] | null | undefined): string[] {
+  return (values ?? []).map(cleanEmail).filter(Boolean);
+}
+
+function normaliseSubject(subject: string | null | undefined): string {
+  return (subject ?? "(no subject)")
+    .replace(/^(?:\s*(?:re|fwd?|fw)\s*:\s*)+/i, "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 1024) || "(no subject)";
+}
+
+function replySubject(subject: string): string {
+  return /^\s*re\s*:/i.test(subject) ? subject : `Re: ${subject}`;
+}
+
+function parseDate(value: string | null | undefined): Date {
+  if (!value) return new Date();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function normaliseHeaders(headers: Record<string, string> | null | undefined): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers ?? {}).map(([key, value]) => [key.toLowerCase(), String(value)]),
+  );
+}
+
+function referencedMessageIds(headers: Record<string, string>): string[] {
+  const values = [headers["in-reply-to"], headers.references]
+    .filter(Boolean)
+    .join(" ");
+  return Array.from(new Set(values.match(/<[^>]+>/g) ?? []));
+}
+
+function mapAttachments(attachments: ReceivedAttachment[] | null | undefined) {
+  return (attachments ?? []).map((attachment) => ({
+    id: attachment.id,
+    filename: attachment.filename ?? "attachment",
+    size: Number(attachment.size ?? 0),
+    contentType: attachment.content_type ?? null,
+    contentDisposition: attachment.content_disposition ?? null,
+    contentId: attachment.content_id ?? null,
+  }));
+}
+
+async function markThreadRead(threadId: number, userId: number, markedUnread = false) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db
+    .select({ id: resendInboxThreadReads.id })
+    .from(resendInboxThreadReads)
+    .where(and(eq(resendInboxThreadReads.threadId, threadId), eq(resendInboxThreadReads.userId, userId)))
+    .limit(1);
+
+  if (existing[0]) {
+    await db
+      .update(resendInboxThreadReads)
+      .set({ lastReadAt: new Date(), markedUnread })
+      .where(eq(resendInboxThreadReads.id, existing[0].id));
+  } else {
+    await db.insert(resendInboxThreadReads).values({
+      threadId,
+      userId,
+      lastReadAt: new Date(),
+      markedUnread,
+    });
+  }
+}
+
+async function findThreadForInbound(
+  receivedAddress: string,
+  participantEmail: string,
+  subject: string,
+  references: string[],
+): Promise<typeof resendInboxThreads.$inferSelect | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  if (references.length > 0) {
+    const referenced = await db
+      .select({ threadId: resendInboxMessages.threadId })
+      .from(resendInboxMessages)
+      .where(inArray(resendInboxMessages.internetMessageId, references))
+      .orderBy(desc(resendInboxMessages.receivedAt))
+      .limit(1);
+    if (referenced[0]) {
+      const thread = await db
+        .select()
+        .from(resendInboxThreads)
+        .where(eq(resendInboxThreads.id, referenced[0].threadId))
+        .limit(1);
+      if (thread[0]) return thread[0];
+    }
+  }
+
+  const fallback = await db
+    .select()
+    .from(resendInboxThreads)
+    .where(and(
+      eq(resendInboxThreads.receivedAddress, receivedAddress),
+      eq(resendInboxThreads.participantEmail, participantEmail),
+      eq(resendInboxThreads.normalizedSubject, normaliseSubject(subject)),
+    ))
+    .orderBy(desc(resendInboxThreads.lastMessageAt))
+    .limit(1);
+  return fallback[0] ?? null;
+}
+
+/** Store a received email using its canonical content returned by Resend. Safe on webhook replay. */
+export async function ingestResendReceivedEmail(event: ResendReceivedEvent): Promise<{ stored: boolean; threadId?: number; reason?: string }> {
+  if (event.type !== "email.received" || !event.data?.email_id) {
+    return { stored: false, reason: "not_received_event" };
+  }
+  const db = await getDb();
+  const resend = getResendClient();
+  if (!db) return { stored: false, reason: "db_unavailable" };
+  if (!resend) return { stored: false, reason: "resend_not_configured" };
+
+  const providerEmailId = event.data.email_id;
+  const prior = await db
+    .select({ id: resendInboxMessages.id, threadId: resendInboxMessages.threadId })
+    .from(resendInboxMessages)
+    .where(eq(resendInboxMessages.providerEmailId, providerEmailId))
+    .limit(1);
+  if (prior[0]) return { stored: false, threadId: prior[0].threadId, reason: "duplicate" };
+
+  const receivedResult = await (resend.emails as any).receiving.get(providerEmailId) as { data?: ReceivedEmail; error?: { message?: string } };
+  if (receivedResult.error || !receivedResult.data) {
+    throw new Error(receivedResult.error?.message ?? "Resend did not return received email content");
+  }
+
+  const received = receivedResult.data;
+  const headers = normaliseHeaders(received.headers);
+  const fromRaw = received.from ?? event.data.from ?? "";
+  const fromEmail = cleanEmail(fromRaw);
+  const fromName = displayName(fromRaw);
+  const toRecipients = cleanRecipients(received.to ?? event.data.to);
+  const receivedAddress = toRecipients[0] ?? "";
+  const subject = (received.subject ?? event.data.subject ?? "(no subject)").slice(0, 1024);
+  const messageId = received.message_id ?? event.data.message_id ?? headers["message-id"] ?? null;
+  const references = referencedMessageIds(headers);
+  const receivedAt = parseDate(received.created_at ?? event.created_at ?? event.data.created_at);
+
+  if (!fromEmail || !receivedAddress) {
+    throw new Error("Received email is missing a sender or recipient address");
+  }
+
+  let thread = await findThreadForInbound(receivedAddress, fromEmail, subject, references);
+  if (!thread) {
+    const inserted = await db.insert(resendInboxThreads).values({
+      subject,
+      normalizedSubject: normaliseSubject(subject),
+      receivedAddress,
+      participantEmail: fromEmail,
+      lastMessageAt: receivedAt,
+      lastIncomingAt: receivedAt,
+    });
+    const id = Number(inserted[0].insertId);
+    const rows = await db.select().from(resendInboxThreads).where(eq(resendInboxThreads.id, id)).limit(1);
+    thread = rows[0] ?? null;
+  }
+  if (!thread) throw new Error("Unable to create an inbox conversation");
+
+  await db.transaction(async (tx) => {
+    await tx.insert(resendInboxMessages).values({
+      threadId: thread!.id,
+      direction: "inbound",
+      providerEmailId,
+      internetMessageId: messageId,
+      inReplyToMessageId: headers["in-reply-to"] ?? null,
+      fromEmail,
+      fromName,
+      toRecipients,
+      ccRecipients: cleanRecipients(received.cc),
+      replyToRecipients: cleanRecipients(received.reply_to),
+      subject,
+      bodyHtml: received.html ?? null,
+      bodyText: received.text ?? null,
+      headers,
+      attachments: mapAttachments(received.attachments),
+      receivedAt,
+    });
+    await tx
+      .update(resendInboxThreads)
+      .set({
+        subject,
+        normalizedSubject: normaliseSubject(subject),
+        receivedAddress,
+        participantEmail: fromEmail,
+        lastMessageAt: receivedAt,
+        lastIncomingAt: receivedAt,
+        archivedAt: null,
+        archivedById: null,
+      })
+      .where(eq(resendInboxThreads.id, thread!.id));
+  });
+
+  return { stored: true, threadId: thread.id };
+}
+
+/** Backfill existing messages visible in Resend Receiving. Existing rows are idempotently skipped. */
+export async function backfillResendInbox(limit = 100): Promise<{ scanned: number; stored: number; skipped: number }> {
+  const resend = getResendClient();
+  if (!resend) throw new Error("Resend API key is not configured");
+  const result = await (resend.emails as any).receiving.list({ limit: Math.min(Math.max(limit, 1), 100) }) as {
+    data?: Array<{ id?: string; created_at?: string; from?: string; to?: string[]; subject?: string; message_id?: string }>;
+    error?: { message?: string };
+  };
+  if (result.error) throw new Error(result.error.message ?? "Unable to list received emails from Resend");
+
+  let stored = 0;
+  let skipped = 0;
+  for (const received of result.data ?? []) {
+    if (!received.id) {
+      skipped += 1;
+      continue;
+    }
+    const outcome = await ingestResendReceivedEmail({
+      type: "email.received",
+      created_at: received.created_at,
+      data: {
+        email_id: received.id,
+        message_id: received.message_id,
+        from: received.from ?? undefined,
+        to: received.to,
+        subject: received.subject ?? undefined,
+      },
+    });
+    if (outcome.stored) stored += 1;
+    else skipped += 1;
+  }
+  return { scanned: (result.data ?? []).length, stored, skipped };
+}
+
+export async function getResendInboxThreads(userId: number, archived: boolean) {
+  const db = await getDb();
+  if (!db) return [];
+  const threads = await db
+    .select()
+    .from(resendInboxThreads)
+    .where(archived ? gt(resendInboxThreads.archivedAt, new Date(0)) : isNull(resendInboxThreads.archivedAt))
+    .orderBy(desc(resendInboxThreads.lastIncomingAt))
+    .limit(250);
+
+  if (threads.length === 0) return [];
+  const reads = await db
+    .select()
+    .from(resendInboxThreadReads)
+    .where(and(
+      eq(resendInboxThreadReads.userId, userId),
+      inArray(resendInboxThreadReads.threadId, threads.map((thread) => thread.id)),
+    ));
+  const readByThread = new Map(reads.map((read) => [read.threadId, read]));
+
+  return threads.map((thread) => {
+    const read = readByThread.get(thread.id);
+    const isUnread = read?.markedUnread || !read?.lastReadAt || thread.lastIncomingAt > read.lastReadAt;
+    return { ...thread, isUnread };
+  });
+}
+
+export async function getResendInboxUnreadCount(userId: number): Promise<number> {
+  const threads = await getResendInboxThreads(userId, false);
+  return threads.filter((thread) => thread.isUnread).length;
+}
+
+export async function getResendInboxThread(threadId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const thread = await db.select().from(resendInboxThreads).where(eq(resendInboxThreads.id, threadId)).limit(1);
+  if (!thread[0]) return null;
+  const messages = await db
+    .select()
+    .from(resendInboxMessages)
+    .where(eq(resendInboxMessages.threadId, threadId))
+    .orderBy(resendInboxMessages.receivedAt);
+  await markThreadRead(threadId, userId, false);
+  return { thread: thread[0], messages };
+}
+
+export async function setResendInboxThreadUnread(threadId: number, userId: number, markedUnread: boolean) {
+  await markThreadRead(threadId, userId, markedUnread);
+  return { success: true };
+}
+
+export async function archiveResendInboxThread(threadId: number, userId: number, archived: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  await db
+    .update(resendInboxThreads)
+    .set({ archivedAt: archived ? new Date() : null, archivedById: archived ? userId : null })
+    .where(eq(resendInboxThreads.id, threadId));
+  return { success: true };
+}
+
+export async function sendResendInboxReply(input: { threadId: number; bodyHtml: string; userId: number }) {
+  const db = await getDb();
+  const resend = getResendClient();
+  if (!db) throw new Error("Database unavailable");
+  if (!resend) throw new Error("Resend API key is not configured");
+
+  const threadRows = await db.select().from(resendInboxThreads).where(eq(resendInboxThreads.id, input.threadId)).limit(1);
+  const thread = threadRows[0];
+  if (!thread) throw new Error("Conversation not found");
+
+  const messages = await db
+    .select()
+    .from(resendInboxMessages)
+    .where(eq(resendInboxMessages.threadId, thread.id))
+    .orderBy(desc(resendInboxMessages.receivedAt));
+  const latestInbound = messages.find((message) => message.direction === "inbound");
+  if (!latestInbound) throw new Error("This conversation has no inbound message to reply to");
+
+  const replyRecipients = (latestInbound.replyToRecipients?.length
+    ? latestInbound.replyToRecipients
+    : [latestInbound.fromEmail]).filter(Boolean);
+  if (replyRecipients.length === 0) throw new Error("No reply address is available for this message");
+
+  const references = Array.from(new Set([
+    ...messages.map((message) => message.internetMessageId).filter((id): id is string => Boolean(id)),
+    latestInbound.internetMessageId,
+  ].filter((id): id is string => Boolean(id))));
+  const subject = replySubject(thread.subject);
+  const headers: Record<string, string> = {};
+  if (latestInbound.internetMessageId) headers["In-Reply-To"] = latestInbound.internetMessageId;
+  if (references.length > 0) headers.References = references.join(" ");
+
+  const sendResult = await resend.emails.send({
+    from: thread.receivedAddress,
+    to: replyRecipients,
+    subject,
+    html: input.bodyHtml,
+    headers,
+  });
+  if (sendResult.error) throw new Error(sendResult.error.message ?? "Resend rejected the reply");
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.insert(resendInboxMessages).values({
+      threadId: thread.id,
+      direction: "outbound",
+      providerEmailId: sendResult.data?.id ?? null,
+      internetMessageId: null,
+      inReplyToMessageId: latestInbound.internetMessageId ?? null,
+      fromEmail: thread.receivedAddress,
+      fromName: "Savvy STR Agents",
+      toRecipients: replyRecipients,
+      subject,
+      bodyHtml: input.bodyHtml,
+      bodyText: null,
+      headers,
+      sentById: input.userId,
+      receivedAt: now,
+    });
+    await tx
+      .update(resendInboxThreads)
+      .set({ lastMessageAt: now })
+      .where(eq(resendInboxThreads.id, thread.id));
+  });
+  await markThreadRead(thread.id, input.userId, false);
+  return { success: true, messageId: sendResult.data?.id ?? null };
+}
+
+export async function getResendInboxAttachmentUrl(messageId: number, attachmentId: string): Promise<string> {
+  const db = await getDb();
+  const resend = getResendClient();
+  if (!db) throw new Error("Database unavailable");
+  if (!resend) throw new Error("Resend API key is not configured");
+  const messages = await db.select().from(resendInboxMessages).where(eq(resendInboxMessages.id, messageId)).limit(1);
+  const message = messages[0];
+  if (!message?.providerEmailId || message.direction !== "inbound") throw new Error("Attachment source is unavailable");
+  const attachment = (message.attachments ?? []).find((item) => item.id === attachmentId);
+  if (!attachment) throw new Error("Attachment not found");
+
+  const result = await (resend.emails as any).receiving.attachments.get({
+    emailId: message.providerEmailId,
+    id: attachmentId,
+  }) as { data?: { download_url?: string }; error?: { message?: string } };
+  if (result.error || !result.data?.download_url) {
+    throw new Error(result.error?.message ?? "Unable to create attachment download link");
+  }
+  return result.data.download_url;
+}
