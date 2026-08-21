@@ -1096,8 +1096,9 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         ))
         .limit(1);
 
-      // Get market assignments
-      const marketAssignments = await db
+      // Get market assignments. The Users market is the authoritative primary assignment;
+      // coverage assignments can add context, but must not hide the primary market.
+      const marketAssignments: any[] = await db
         .select({
           assignment: marketAgentAssignments,
           market: { id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, status: marketProfiles.status },
@@ -1105,6 +1106,17 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         .from(marketAgentAssignments)
         .leftJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
         .where(eq(marketAgentAssignments.agentId, input.agentId));
+      const [primaryMarket] = await db
+        .select({ id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, status: marketProfiles.status })
+        .from(users)
+        .innerJoin(marketProfiles, eq(users.marketProfileId, marketProfiles.id))
+        .where(eq(users.id, input.agentId));
+      if (primaryMarket && !marketAssignments.some((row) => row.market?.id === primaryMarket.id)) {
+        marketAssignments.unshift({
+          assignment: { agentId: input.agentId, marketProfileId: primaryMarket.id, isPrimary: true, source: "users" },
+          market: primaryMarket,
+        });
+      }
 
       // Get assessments
       const assessments = await db
