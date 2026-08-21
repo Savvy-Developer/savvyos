@@ -99,6 +99,7 @@ const YTD_START = new Date(new Date().getFullYear(), 0, 1);
 const MODEL_FACT_ARRAY_LIMIT = 10;
 const MODEL_FACT_OBJECT_FIELD_LIMIT = 28;
 const MODEL_FACT_MAX_DEPTH = 4;
+const MODEL_FALLBACK_NOTICE = "AI narrative generation is temporarily unavailable. SavvyOS is displaying a verified aggregate fallback and will retry automatically.";
 
 const BUSINESS_INSIGHT_SCHEMA = {
   name: "savvy_business_insights_v1",
@@ -539,7 +540,7 @@ Rules:
     console.error("[BusinessInsights] Falling back to deterministic analysis:", modelError);
     return {
       payload: buildDeterministicFallback(facts),
-      modelError: `Model generation fallback: ${modelError}`.slice(0, 2_000),
+      modelError: MODEL_FALLBACK_NOTICE,
     };
   }
 }
