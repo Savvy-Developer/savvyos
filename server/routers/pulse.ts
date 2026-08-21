@@ -27,6 +27,7 @@ import { pulseScorecardRouter } from "../pulse/scorecard";
 import { pulseGoalsRouter } from "../pulse/goals";
 import { pulseRocksRouter } from "../pulse/rocks";
 import { pulseObservationsRouter } from "../pulse/observations";
+import { pulseSettingsRouter } from "../pulse/settings";
 
 const sectionKeySchema = z.enum(PULSE_SECTION_KEYS);
 const meetingLabelSchema = z.enum(["level_10", "one_on_one", "other"]);
@@ -162,6 +163,7 @@ export const pulseRouter = router({
   goals: pulseGoalsRouter,
   rocks: pulseRocksRouter,
   observations: pulseObservationsRouter,
+  settings: pulseSettingsRouter,
 
   /** Used by the shell. This payload is built from membership, never platform role. */
   shell: protectedProcedure.query(async ({ ctx }) => {
@@ -189,6 +191,7 @@ export const pulseRouter = router({
       // Settings comes from a visible meeting-management role or the explicit
       // super-admin role—never from merely belonging to several meetings.
       canSeeSettings,
+      isSuperAdmin,
       settingsReason: ownsOrAdministers ? "meeting_manager" : isSuperAdmin ? "super_admin" : "none",
       canSeeAggregateReporting: isSuperAdmin,
     };

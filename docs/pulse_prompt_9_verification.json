@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-08-21T18:35:40.482Z",
+  "acceptance": {
+    "settingsAbsentAndDeniedForMember": {
+      "pass": true
+    },
+    "createMeetingUnderSixtySeconds": {
+      "pass": true,
+      "measuredMilliseconds": 799
+    },
+    "dynamicPermissioningColumn": {
+      "pass": true
+    },
+    "permissionChangeImmediateAuditedAndUndoable": {
+      "pass": true
+    },
+    "platformRoleDoesNotGrantVisibility": {
+      "pass": true
+    },
+    "typedDeleteOnly": {
+      "pass": true
+    },
+    "sevenEmailTemplatesPreviewed": {
+      "pass": true
+    },
+    "realTestSendContract": {
+      "pass": true,
+      "verifiedRecipient": "tyler@savvy.realty",
+      "providerAcceptedTemplates": ["meeting_reminder", "todo_assigned", "cascade_sent", "overdue_digest", "mention", "rock_completed", "welcome"]
+    },
+    "independentDeliveryControls": {
+      "pass": true
+    },
+    "superAdminOnlyEffectiveness": {
+      "pass": true
+    },
+    "doctrineAccessibilityChecks": {
+      "pass": true
+    }
+  }
+}

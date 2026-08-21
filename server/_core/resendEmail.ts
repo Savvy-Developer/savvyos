@@ -734,6 +734,8 @@ export interface EmailDeliveryOptions {
   allowTemplateOverride?: boolean;
   /** Shared-recipient messages must use ordinary authenticated app links, not a token for one recipient. */
   injectMagicLinks?: boolean;
+  /** An explicitly requested template test may send even when the normal administrative sender toggle is off. */
+  bypassNotificationSetting?: boolean;
 }
 
 export interface EmailDeliveryResult {
@@ -844,7 +846,8 @@ export async function sendTransactionalEmail(
   }
 
   // Check if this notification type is disabled via the admin Email Notifications toggle.
-  try {
+  // An explicit settings-page test is the only allowed bypass; it never affects normal sends.
+  if (!options.bypassNotificationSetting) try {
     const settingDb = await getDb();
     if (settingDb) {
       const [setting] = await settingDb

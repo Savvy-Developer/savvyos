@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import {
   pulseMeetings,
+  pulseNotifications,
   pulseWorkItemNotifications,
   pulseWorkItems,
   scheduledReportRuns,
@@ -8,6 +9,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { sendTransactionalEmail } from "../_core/resendEmail";
+import { getPulseNotificationPreference } from "./notifications";
 
 const OVERDUE_DIGEST_KEY = "pulse_overdue_digest";
 let isDigestRunning = false;
@@ -115,14 +117,23 @@ export async function sendPulseOverdueDigest(reportDate = easternDate()) {
     for (const [assigneeId, items] of Array.from(byAssignee.entries())) {
       const first = items[0];
       const list = `<ul style="margin:0;padding-left:20px;">${items.map((item) => `<li style="margin:8px 0;"><strong>${escapeHtml(item.title)}</strong> — ${escapeHtml(item.meetingName ?? "Personal work")} · due ${escapeHtml(String(item.dueDate).slice(0, 10))}</li>`).join("")}</ul>`;
-      const result = await sendTransactionalEmail("pulse_overdue_digest", {
-        recipientEmail: first.assigneeEmail!,
-        recipientName: first.assigneeName ?? undefined,
-        pulseOverdueCount: String(items.length),
-        pulseOverdueList: list,
-      }, { idempotencyKey: `pulse-overdue:${reportDate}:${assigneeId}` });
-      if (result.sent || result.skipped) sent += 1;
-      else failed += 1;
+      const preference = await getPulseNotificationPreference(db, assigneeId, "overdue_digest");
+      let delivered = false;
+      if (preference.inApp) {
+        await db.insert(pulseNotifications).values({ id: crypto.randomUUID(), personId: assigneeId, notificationType: "overdue", requiresAction: false, sourceType: "overdue_digest", sourceId: `${reportDate}:${assigneeId}`, meetingId: null, body: `${items.length} overdue Pulse item${items.length === 1 ? "" : "s"} need attention.` });
+        delivered = true;
+      }
+      if (preference.email) {
+        const result = await sendTransactionalEmail("overdue_digest", {
+          recipientEmail: first.assigneeEmail!,
+          recipientName: first.assigneeName ?? undefined,
+          pulseOverdueCount: String(items.length),
+          pulseOverdueList: list,
+        }, { idempotencyKey: `pulse-overdue:${reportDate}:${assigneeId}` });
+        if (result.sent || result.skipped) delivered = true;
+        else failed += 1;
+      }
+      if (delivered) sent += 1;
     }
 
     await db.update(scheduledReportRuns).set({

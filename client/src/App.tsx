@@ -112,6 +112,11 @@ import PulseMissionControlAdminPage from "./pages/PulseMissionControlAdminPage";
 import PulseGlobalAttentionPage from "./pages/PulseGlobalAttentionPage";
 import PulseNotificationPreferencesPage from "./pages/PulseNotificationPreferencesPage";
 import PulseMeetingRunPage from "./pages/PulseMeetingRunPage";
+import PulseMeetingSettingsPage from "./pages/PulseMeetingSettingsPage";
+import PulseSettingsHubPage from "./pages/PulseSettingsHubPage";
+import PulsePermissioningPage from "./pages/PulsePermissioningPage";
+import PulseCreateMeetingPage from "./pages/PulseCreateMeetingPage";
+import PulseMeetingEffectivenessPage from "./pages/PulseMeetingEffectivenessPage";
 import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
@@ -280,15 +285,19 @@ function Router() {
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
           <Route path="/pulse/slice" component={PulseThinSlicePage} />
           <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMeetingRunPage meetingId={id} />}</Route>
+          <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseMeetingSettingsPage meetingId={id} />}</Route>
+          <Route path="/pulse/settings/create" component={PulseCreateMeetingPage} />
           <Route path="/pulse/meetings/:id" component={PulseFoundationPage} />
           <Route path="/pulse/meetings" component={PulseFoundationPage} />
           <Route path="/pulse/mission" component={PulseMissionControlPage} />
           <Route path="/pulse/settings/outstanding" component={PulseMissionControlAdminPage} />
           <Route path="/pulse/settings/attention" component={PulseGlobalAttentionPage} />
           <Route path="/pulse/settings/notifications" component={PulseNotificationPreferencesPage} />
+          <Route path="/pulse/settings/permissioning" component={PulsePermissioningPage} />
+          <Route path="/pulse/settings/effectiveness" component={PulseMeetingEffectivenessPage} />
           <Route path="/pulse/work" component={PulseFoundationPage} />
           <Route path="/pulse/inputs" component={PulseFoundationPage} />
-          <Route path="/pulse/settings" component={PulseFoundationPage} />
+          <Route path="/pulse/settings" component={PulseSettingsHubPage} />
           <Route path="/pulse" component={PulseMissionControlPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />

@@ -397,6 +397,16 @@ export const pulseWorkItemsRouter = router({
           });
         }
       });
+      if (assignmentPreference?.email && meeting) {
+        const [recipient] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, assigneeId)).limit(1);
+        if (recipient?.email) await sendTransactionalEmail("todo_assigned", {
+          recipientEmail: recipient.email,
+          recipientName: recipient.name ?? undefined,
+          pulseMeetingName: meeting.name,
+          pulseWorkItemTitle: input.title,
+          pulseItemUrl: "https://os.savvy-agents.com/pulse/work",
+        }, { idempotencyKey: `pulse-todo-assigned:${id}:${assigneeId}` });
+      }
       return { id, dueDate };
     }),
 
@@ -510,6 +520,9 @@ export const pulseWorkItemsRouter = router({
       const rockDoneRecipientIds = input.status === "done" && meeting
         ? Array.from(new Set<number>([meeting.ownerId, meeting.administratorId])).filter((id) => id !== ctx.user.id)
         : [];
+      const rockDonePreferences = new Map<number, { inApp: boolean; email: boolean }>();
+      for (const recipientId of rockDoneRecipientIds) rockDonePreferences.set(recipientId, await getPulseNotificationPreference(db, recipientId, "rock_completed"));
+      const inAppRockDoneRecipientIds = rockDoneRecipientIds.filter((recipientId) => rockDonePreferences.get(recipientId)?.inApp);
       await db.transaction(async (tx: any) => {
         await tx.update(pulseWorkItems).set({
           status: input.status,
@@ -519,12 +532,12 @@ export const pulseWorkItemsRouter = router({
         if (note || input.status === "done") {
           await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note, personId: ctx.user.id });
         }
-        if (rockDoneRecipientIds.length) await tx.insert(pulseWorkItemNotifications).values(rockDoneRecipientIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId: null, notificationType: "rock_done" as const })));
+        if (inAppRockDoneRecipientIds.length) await tx.insert(pulseWorkItemNotifications).values(inAppRockDoneRecipientIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId: null, notificationType: "rock_done" as const })));
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, input.status);
       });
       if (rockDoneRecipientIds.length && meeting) {
         const recipients = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, rockDoneRecipientIds));
-        await Promise.all(recipients.filter((recipient) => !!recipient.email).map((recipient) => sendTransactionalEmail("pulse_rock_completed", {
+        await Promise.all(recipients.filter((recipient) => !!recipient.email && rockDonePreferences.get(recipient.id)?.email).map((recipient) => sendTransactionalEmail("rock_completed", {
           recipientEmail: recipient.email!,
           recipientName: recipient.name ?? undefined,
           pulseWorkItemTitle: item.title,
@@ -647,12 +660,15 @@ export const pulseWorkItemsRouter = router({
       if (meeting) {
         for (const personId of mentionedPersonIds) await requireMeetingMember(db, personId, meeting);
       }
+      const mentionPreferences = new Map<number, { inApp: boolean; email: boolean }>();
+      for (const personId of mentionedPersonIds) mentionPreferences.set(personId, await getPulseNotificationPreference(db, personId, "mention"));
+      const inAppMentionedPersonIds = mentionedPersonIds.filter((personId) => mentionPreferences.get(personId)?.inApp);
       const commentId = uuid();
       await db.transaction(async (tx: any) => {
         await tx.insert(pulseWorkItemComments).values({ id: commentId, workItemId: item.id, authorId: ctx.user.id, body: input.body });
         if (mentionedPersonIds.length) {
           await tx.insert(pulseWorkItemCommentMentions).values(mentionedPersonIds.map((mentionedPersonId) => ({ id: uuid(), commentId, mentionedPersonId })));
-          await tx.insert(pulseWorkItemNotifications).values(mentionedPersonIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId, notificationType: "mention" as const })));
+          if (inAppMentionedPersonIds.length) await tx.insert(pulseWorkItemNotifications).values(inAppMentionedPersonIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId, notificationType: "mention" as const })));
         }
         // A direct comment to the assignee needs a response even when it does not use an @mention.
         // Do not create a second card when that same person was explicitly mentioned.
@@ -670,6 +686,13 @@ export const pulseWorkItemsRouter = router({
         }
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "comment_added", undefined, undefined, { commentId, mentionedPersonIds });
       });
+      if (meeting && mentionedPersonIds.length) {
+        const [author] = await db.select({ name: users.name }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
+        const recipients = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, mentionedPersonIds));
+        await Promise.all(recipients.filter((recipient) => !!recipient.email && mentionPreferences.get(recipient.id)?.email).map((recipient) => sendTransactionalEmail("mention", {
+          recipientEmail: recipient.email!, recipientName: recipient.name ?? undefined, mentionedByName: author?.name ?? "A teammate", pulseMeetingName: meeting.name, pulseActionUrl: `https://os.savvy-agents.com/pulse/meetings/${meeting.id}`,
+        }, { idempotencyKey: `pulse-mention:${commentId}:${recipient.id}` })));
+      }
       return { id: commentId };
     }),
 

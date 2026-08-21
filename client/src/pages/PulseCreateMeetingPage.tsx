@@ -1,0 +1,29 @@
+import { useMemo, useState } from "react";
+import { Link, useLocation } from "wouter";
+import { ArrowLeft, Check, Plus, X } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+
+export default function PulseCreateMeetingPage() {
+  const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
+  const people = trpc.pulse.settings.peopleForAdministration.useQuery();
+  const [name, setName] = useState("");
+  const [label, setLabel] = useState<"level_10" | "one_on_one" | "other">("level_10");
+  const [ownerId, setOwnerId] = useState("");
+  const [administratorId, setAdministratorId] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberIds, setMemberIds] = useState<number[]>([]);
+  const create = trpc.pulse.settings.createMeeting.useMutation({ onSuccess: async ({ id }) => { await utils.pulse.shell.invalidate(); navigate(`/pulse/settings/meetings/${id}`); } });
+  const selectedIds = new Set([Number(ownerId), Number(administratorId), ...memberIds].filter(Boolean));
+  const matching = useMemo(() => (people.data ?? []).filter((person: any) => !selectedIds.has(person.id) && `${person.name} ${person.email}`.toLocaleLowerCase().includes(memberSearch.toLocaleLowerCase())), [people.data, selectedIds, memberSearch]);
+  if (people.isLoading) return <main className="mx-auto max-w-3xl"><Skeleton className="h-96 w-full" /></main>;
+  if (people.error) return <main className="mx-auto max-w-3xl"><Card><CardContent className="p-6"><p className="font-medium">This Pulse page is not available.</p><Link className="mt-3 inline-block underline" href="/pulse/settings">Return to Pulse settings</Link></CardContent></Card></main>;
+  const personName = (id: number) => (people.data ?? []).find((person: any) => person.id === id)?.name ?? "Person";
+  return <main className="mx-auto max-w-3xl space-y-6 pb-10"><header className="border-b border-border pb-5"><Button asChild variant="ghost" className="-ml-3 min-h-11"><Link href="/pulse/settings"><ArrowLeft className="mr-2 h-4 w-4" />Pulse settings</Link></Button><p className="mt-3 text-sm font-medium text-primary">Pulse</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Create a meeting</h1><p className="mt-2 text-base leading-6 text-muted-foreground">Set the essentials now. The meeting’s section switches are ready to adjust on the next screen.</p></header><Card><CardContent className="space-y-5 p-5 sm:p-6"><div className="space-y-2"><Label htmlFor="meeting-name">Meeting name</Label><Input id="meeting-name" className="min-h-11 text-base" value={name} onChange={(event) => setName(event.target.value)} placeholder="Leadership" autoFocus /></div><div className="space-y-2"><Label>Label</Label><Select value={label} onValueChange={(value) => setLabel(value as any)}><SelectTrigger className="min-h-11 text-base"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="level_10">Level 10</SelectItem><SelectItem value="one_on_one">One-on-One</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>Owner</Label><Select value={ownerId} onValueChange={setOwnerId}><SelectTrigger className="min-h-11 text-base"><SelectValue placeholder="Choose an owner" /></SelectTrigger><SelectContent>{(people.data ?? []).map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Administrator</Label><Select value={administratorId} onValueChange={setAdministratorId}><SelectTrigger className="min-h-11 text-base"><SelectValue placeholder="Choose an administrator" /></SelectTrigger><SelectContent>{(people.data ?? []).map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}</SelectContent></Select></div></div><div className="space-y-2"><Label htmlFor="meeting-member-search">Members</Label><Input id="meeting-member-search" className="min-h-11 text-base" value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} placeholder="Search people to add" />{memberSearch ? <div className="rounded-lg border border-border">{matching.slice(0, 8).map((person: any) => <button key={person.id} type="button" className="flex min-h-11 w-full items-center justify-between px-3 text-left hover:bg-muted" onClick={() => { setMemberIds((current) => [...current, person.id]); setMemberSearch(""); }}><span><span className="block font-medium">{person.name}</span><span className="text-sm text-muted-foreground">{person.email}</span></span><Plus className="h-4 w-4" /></button>)}</div> : null}<div className="flex flex-wrap gap-2">{memberIds.map((id) => <button key={id} type="button" className="inline-flex min-h-11 items-center gap-1 rounded-full bg-muted px-3 text-sm" onClick={() => setMemberIds((current) => current.filter((memberId) => memberId !== id))}>{personName(id)}<X className="h-4 w-4" /></button>)}</div></div><Button className="min-h-11" disabled={!name.trim() || !ownerId || !administratorId || create.isPending} onClick={() => create.mutate({ name: name.trim(), label, ownerId: Number(ownerId), administratorId: Number(administratorId), memberIds })}>{create.isPending ? "Creating…" : <><Check className="mr-2 h-4 w-4" />Create meeting</>}</Button>{create.error ? <p className="text-sm text-destructive">{create.error.message}</p> : null}</CardContent></Card></main>;
+}
