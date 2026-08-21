@@ -14,6 +14,7 @@ import {
   coachingAssessments,
   coachingHistorySnapshots,
   coachingSettings,
+  activityLog,
   users,
   agentGoals,
   transactions,
@@ -43,6 +44,42 @@ import {
 // ─── Helper: admin or coach guard ────────────────────────────────────────────
 function requireAdminOrCoach(role: string) {
   if (role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+}
+
+const LEGACY_COACHING_ACTIVITY_ACTIONS = [
+  "performance_reset_created",
+  "coach_out_recommendation_created",
+];
+
+async function logCoachingActivity({
+  userId,
+  action,
+  entityType,
+  entityId,
+  agentId,
+  details = {},
+}: {
+  userId: number;
+  action: string;
+  entityType: string;
+  entityId?: number | null;
+  agentId?: number | null;
+  details?: Record<string, unknown>;
+}) {
+  await logActivity({
+    userId,
+    action,
+    entityType,
+    entityId: entityId ?? null,
+    details: { ...details, ...(agentId ? { agentId } : {}) },
+  });
+}
+
+function coachingActivityCondition() {
+  return or(
+    like(activityLog.action, "coaching_%"),
+    inArray(activityLog.action, LEGACY_COACHING_ACTIVITY_ACTIONS),
+  );
 }
 
 // ─── Helper: get live production stats for an agent ──────────────────────────
@@ -1390,11 +1427,12 @@ Please provide your comprehensive coaching analysis.`,
         .values(insertValues)
         .onDuplicateKeyUpdate({ set: { ...fields, nextSessionDate: fields.nextSessionDate ? new Date(fields.nextSessionDate) : undefined, launchStartDate: fields.launchStartDate ? new Date(fields.launchStartDate) : undefined, updatedAt: sql`NOW()` } as any });
 
-      void logActivity({
+      await logCoachingActivity({
         userId: ctx.user.id,
         action: "coaching_profile_updated",
         entityType: "coaching_profile",
         entityId: agentId,
+        agentId,
         details: { updatedFields: Object.keys(fields) },
       });
 
@@ -1457,6 +1495,89 @@ Please provide your comprehensive coaching analysis.`,
       ]);
 
       return { rows, total: Number(countRows[0]?.count ?? 0) };
+    }),
+
+  /** Filterable audit trail for all coaching work, including the agent opened by a coach. */
+  listActivities: protectedProcedure
+    .input(z.object({
+      agentId: z.number().optional(),
+      userId: z.number().optional(),
+      action: z.string().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      limit: z.number().default(100),
+      offset: z.number().default(0),
+    }).optional())
+    .query(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0, actors: [], actionTypes: [] };
+
+      const from = input?.dateFrom ? new Date(input.dateFrom) : undefined;
+      const to = input?.dateTo ? new Date(input.dateTo) : undefined;
+      if (to) to.setHours(23, 59, 59, 999);
+
+      const baseConditions: any[] = [coachingActivityCondition()];
+      if (from) baseConditions.push(gte(activityLog.createdAt, from));
+      if (to) baseConditions.push(lte(activityLog.createdAt, to));
+      if (input?.agentId) {
+        baseConditions.push(sql`JSON_EXTRACT(${activityLog.details}, '$.agentId') = ${input.agentId}`);
+      }
+
+      const filterConditions = [...baseConditions];
+      if (input?.userId) filterConditions.push(eq(activityLog.userId, input.userId));
+      if (input?.action) filterConditions.push(eq(activityLog.action, input.action));
+      const whereClause = and(...filterConditions);
+      const agentAlias = aliasedTable(users, "activityAgent");
+
+      const [rows, countRows, actors, actionTypes] = await Promise.all([
+        db.select({
+          activity: activityLog,
+          actor: { id: users.id, name: users.name, email: users.email },
+          agent: { id: agentAlias.id, name: agentAlias.name, email: agentAlias.email },
+        })
+          .from(activityLog)
+          .leftJoin(users, eq(activityLog.userId, users.id))
+          .leftJoin(agentAlias, sql`JSON_EXTRACT(${activityLog.details}, '$.agentId') = ${agentAlias.id}`)
+          .where(whereClause)
+          .orderBy(desc(activityLog.createdAt))
+          .limit(input?.limit ?? 100)
+          .offset(input?.offset ?? 0),
+        db.select({ count: sql<number>`COUNT(*)` })
+          .from(activityLog)
+          .where(whereClause),
+        db.selectDistinct({ id: users.id, name: users.name, email: users.email })
+          .from(activityLog)
+          .innerJoin(users, eq(activityLog.userId, users.id))
+          .where(and(...baseConditions))
+          .orderBy(users.name),
+        db.selectDistinct({ action: activityLog.action })
+          .from(activityLog)
+          .where(and(...baseConditions))
+          .orderBy(activityLog.action),
+      ]);
+
+      return {
+        rows,
+        total: Number(countRows[0]?.count ?? 0),
+        actors,
+        actionTypes: actionTypes.map((row) => row.action),
+      };
+    }),
+
+  /** Record that a coach or admin opened an agent workspace. */
+  recordAgentOpened: protectedProcedure
+    .input(z.object({ agentId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_agent_opened",
+        entityType: "coaching_profile",
+        entityId: input.agentId,
+        agentId: input.agentId,
+      });
+      return { success: true };
     }),
 
   /** Get a single session with full context for the Session Workspace */
@@ -1582,6 +1703,14 @@ Open Commitments:\n${openCommitments || "None"}`,
         updatedAt: sql`NOW()`,
       }).where(eq(coachingSessions.id, input.sessionId));
 
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_pre_session_brief_generated",
+        entityType: "coaching_session",
+        entityId: input.sessionId,
+        agentId,
+      });
+
       return { brief: parsed, generatedAt: new Date().toISOString() };
     }),
 
@@ -1626,12 +1755,13 @@ Open Commitments:\n${openCommitments || "None"}`,
         }).where(eq(coachingProfiles.agentId, input.agentId));
       }
 
-      void logActivity({
+      await logCoachingActivity({
         userId: ctx.user.id,
         action: "coaching_session_created",
         entityType: "coaching_session",
         entityId: (result as any).insertId,
-        details: { agentId: input.agentId, sessionType: input.sessionType },
+        agentId: input.agentId,
+        details: { sessionType: input.sessionType },
       });
 
       return { success: true, sessionId: (result as any).insertId };
@@ -1645,12 +1775,22 @@ Open Commitments:\n${openCommitments || "None"}`,
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const [session] = await db.select({ agentId: coachingSessions.agentId })
+        .from(coachingSessions)
+        .where(eq(coachingSessions.id, input.sessionId));
       await db.update(coachingSessions).set({
         status: "In Progress",
         actualCoachId: ctx.user.id,
         startedAt: sql`NOW()`,
         updatedAt: sql`NOW()`,
       }).where(eq(coachingSessions.id, input.sessionId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_session_started",
+        entityType: "coaching_session",
+        entityId: input.sessionId,
+        agentId: session?.agentId,
+      });
 
       return { success: true };
     }),
@@ -1706,11 +1846,12 @@ Open Commitments:\n${openCommitments || "None"}`,
         }
       }
 
-      void logActivity({
+      await logCoachingActivity({
         userId: ctx.user.id,
         action: "coaching_session_completed",
         entityType: "coaching_session",
         entityId: sessionId,
+        agentId: session?.agentId,
         details: { diagnosis: fields.primaryDiagnosis },
       });
 
@@ -1780,11 +1921,13 @@ Open Commitments:\n${openCommitments || "None"}`,
         }
       }
 
-      void logActivity({
+      const [session] = await db.select({ agentId: coachingSessions.agentId }).from(coachingSessions).where(eq(coachingSessions.id, sessionId));
+      await logCoachingActivity({
         userId: ctx.user.id,
         action: "coaching_session_updated",
         entityType: "coaching_session",
         entityId: sessionId,
+        agentId: session?.agentId,
         details: { updatedFields: Object.keys(fields) },
       });
 
@@ -1798,7 +1941,17 @@ Open Commitments:\n${openCommitments || "None"}`,
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [session] = await db.select({ agentId: coachingSessions.agentId })
+        .from(coachingSessions)
+        .where(eq(coachingSessions.id, input.sessionId));
       await db.update(coachingSessions).set({ isSummaryApproved: true, updatedAt: sql`NOW()` }).where(eq(coachingSessions.id, input.sessionId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_session_summary_approved",
+        entityType: "coaching_session",
+        entityId: input.sessionId,
+        agentId: session?.agentId,
+      });
       return { success: true };
     }),
 
@@ -1897,6 +2050,14 @@ Open Commitments:\n${openCommitments || "None"}`,
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
         status: input.isAiExtracted ? "AI Suggested" : "Not Started",
       });
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_commitment_created",
+        entityType: "coaching_commitment",
+        entityId: (result as any).insertId,
+        agentId: input.agentId,
+        details: { isAiExtracted: input.isAiExtracted },
+      });
       return { success: true, commitmentId: (result as any).insertId };
     }),
 
@@ -1919,11 +2080,22 @@ Open Commitments:\n${openCommitments || "None"}`,
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const { commitmentId, ...fields } = input;
+      const [commitment] = await db.select({ agentId: coachingCommitments.agentId })
+        .from(coachingCommitments)
+        .where(eq(coachingCommitments.id, commitmentId));
       const updateValues: any = { ...fields, updatedAt: sql`NOW()` };
       if (fields.dueDate !== undefined) updateValues.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
       if (fields.status === "Completed") updateValues.completedDate = sql`NOW()`;
 
       await db.update(coachingCommitments).set(updateValues).where(eq(coachingCommitments.id, commitmentId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_commitment_updated",
+        entityType: "coaching_commitment",
+        entityId: commitmentId,
+        agentId: commitment?.agentId,
+        details: { updatedFields: Object.keys(fields), status: fields.status },
+      });
       return { success: true };
     }),
 
@@ -1935,12 +2107,22 @@ Open Commitments:\n${openCommitments || "None"}`,
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const commitments = await db.select({ id: coachingCommitments.id, agentId: coachingCommitments.agentId })
+        .from(coachingCommitments)
+        .where(inArray(coachingCommitments.id, input.commitmentIds));
       await db.update(coachingCommitments)
         .set({ status: "Not Started", updatedAt: sql`NOW()` })
         .where(and(
           inArray(coachingCommitments.id, input.commitmentIds),
           eq(coachingCommitments.status, "AI Suggested"),
         ));
+      await Promise.all(commitments.map((commitment) => logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_commitment_ai_approved",
+        entityType: "coaching_commitment",
+        entityId: commitment.id,
+        agentId: commitment.agentId,
+      })));
 
       return { success: true, approvedCount: input.commitmentIds.length };
     }),
@@ -1953,11 +2135,21 @@ Open Commitments:\n${openCommitments || "None"}`,
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const commitments = await db.select({ id: coachingCommitments.id, agentId: coachingCommitments.agentId })
+        .from(coachingCommitments)
+        .where(inArray(coachingCommitments.id, input.commitmentIds));
       await db.delete(coachingCommitments)
         .where(and(
           inArray(coachingCommitments.id, input.commitmentIds),
           eq(coachingCommitments.status, "AI Suggested"),
         ));
+      await Promise.all(commitments.map((commitment) => logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_commitment_ai_dismissed",
+        entityType: "coaching_commitment",
+        entityId: commitment.id,
+        agentId: commitment.agentId,
+      })));
 
       return { success: true };
     }),
@@ -1969,7 +2161,17 @@ Open Commitments:\n${openCommitments || "None"}`,
       requireAdminOrCoach(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [commitment] = await db.select({ agentId: coachingCommitments.agentId })
+        .from(coachingCommitments)
+        .where(eq(coachingCommitments.id, input.commitmentId));
       await db.delete(coachingCommitments).where(eq(coachingCommitments.id, input.commitmentId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_commitment_deleted",
+        entityType: "coaching_commitment",
+        entityId: input.commitmentId,
+        agentId: commitment?.agentId,
+      });
       return { success: true };
     }),
 
@@ -2079,12 +2281,12 @@ Open Commitments:\n${openCommitments || "None"}`,
         updatedAt: sql`NOW()`,
       }).where(eq(coachingProfiles.agentId, input.agentId));
 
-      void logActivity({
+      await logCoachingActivity({
         userId: ctx.user.id,
-        action: "performance_reset_created",
+        action: "coaching_performance_reset_created",
         entityType: "performance_reset",
         entityId: resetId,
-        details: { agentId: input.agentId },
+        agentId: input.agentId,
       });
 
       return { success: true, resetId };
@@ -2110,11 +2312,22 @@ Open Commitments:\n${openCommitments || "None"}`,
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const { resetId, ...fields } = input;
+      const [reset] = await db.select({ agentId: performanceResets.agentId })
+        .from(performanceResets)
+        .where(eq(performanceResets.id, resetId));
       const updateValues: any = { ...fields, updatedAt: sql`NOW()` };
       if (fields.startDate !== undefined) updateValues.startDate = fields.startDate ? new Date(fields.startDate) : null;
       if (fields.endDate !== undefined) updateValues.endDate = fields.endDate ? new Date(fields.endDate) : null;
 
       await db.update(performanceResets).set(updateValues).where(eq(performanceResets.id, resetId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_performance_reset_updated",
+        entityType: "performance_reset",
+        entityId: resetId,
+        agentId: reset?.agentId,
+        details: { updatedFields: Object.keys(fields), status: fields.status },
+      });
       return { success: true };
     }),
 
@@ -2130,7 +2343,21 @@ Open Commitments:\n${openCommitments || "None"}`,
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { requirementId, ...fields } = input;
+      const [requirement] = await db.select({ resetId: performanceResetRequirements.resetId })
+        .from(performanceResetRequirements)
+        .where(eq(performanceResetRequirements.id, requirementId));
+      const [reset] = requirement ? await db.select({ agentId: performanceResets.agentId })
+        .from(performanceResets)
+        .where(eq(performanceResets.id, requirement.resetId)) : [];
       await db.update(performanceResetRequirements).set(fields).where(eq(performanceResetRequirements.id, requirementId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_reset_requirement_updated",
+        entityType: "performance_reset_requirement",
+        entityId: requirementId,
+        agentId: reset?.agentId,
+        details: { updatedFields: Object.keys(fields), status: fields.status },
+      });
       return { success: true };
     }),
 
@@ -2146,10 +2373,24 @@ Open Commitments:\n${openCommitments || "None"}`,
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { checkpointId, ...fields } = input;
+      const [checkpoint] = await db.select({ resetId: performanceResetCheckpoints.resetId })
+        .from(performanceResetCheckpoints)
+        .where(eq(performanceResetCheckpoints.id, checkpointId));
+      const [reset] = checkpoint ? await db.select({ agentId: performanceResets.agentId })
+        .from(performanceResets)
+        .where(eq(performanceResets.id, checkpoint.resetId)) : [];
       await db.update(performanceResetCheckpoints).set({
         ...fields,
         conductedById: ctx.user.id,
       }).where(eq(performanceResetCheckpoints.id, checkpointId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_reset_checkpoint_updated",
+        entityType: "performance_reset_checkpoint",
+        entityId: checkpointId,
+        agentId: reset?.agentId,
+        details: { updatedFields: Object.keys(fields), status: fields.status },
+      });
       return { success: true };
     }),
 
@@ -2216,6 +2457,14 @@ Open Commitments:\n${openCommitments || "None"}`,
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
         status: "Submitted",
       });
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_escalation_created",
+        entityType: "capacity_escalation",
+        entityId: (result as any).insertId,
+        agentId: input.agentId,
+        details: { urgency: input.urgency, issueCategory: input.issueCategory },
+      });
 
       return { success: true, escalationId: (result as any).insertId };
     }),
@@ -2235,10 +2484,21 @@ Open Commitments:\n${openCommitments || "None"}`,
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const { escalationId, ...fields } = input;
+      const [escalation] = await db.select({ agentId: capacityEscalations.agentId })
+        .from(capacityEscalations)
+        .where(eq(capacityEscalations.id, escalationId));
       const updateValues: any = { ...fields, updatedAt: sql`NOW()` };
       if (fields.status === "Resolved") updateValues.resolutionDate = sql`NOW()`;
 
       await db.update(capacityEscalations).set(updateValues).where(eq(capacityEscalations.id, escalationId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_escalation_updated",
+        entityType: "capacity_escalation",
+        entityId: escalationId,
+        agentId: escalation?.agentId,
+        details: { updatedFields: Object.keys(fields), status: fields.status },
+      });
       return { success: true };
     }),
 
@@ -2301,12 +2561,12 @@ Open Commitments:\n${openCommitments || "None"}`,
         status: "Draft",
       });
 
-      void logActivity({
+      await logCoachingActivity({
         userId: ctx.user.id,
-        action: "coach_out_recommendation_created",
+        action: "coaching_coach_out_created",
         entityType: "coach_out_recommendation",
         entityId: (result as any).insertId,
-        details: { agentId: input.agentId },
+        agentId: input.agentId,
       });
 
       return { success: true, coachOutId: (result as any).insertId };
@@ -2333,6 +2593,9 @@ Open Commitments:\n${openCommitments || "None"}`,
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const { coachOutId, ...fields } = input;
+      const [coachOut] = await db.select({ agentId: coachOutRecommendations.agentId })
+        .from(coachOutRecommendations)
+        .where(eq(coachOutRecommendations.id, coachOutId));
       const updateValues: any = { ...fields, updatedAt: sql`NOW()` };
       if (fields.proposedEffectiveDate !== undefined) updateValues.proposedEffectiveDate = fields.proposedEffectiveDate ? new Date(fields.proposedEffectiveDate) : null;
       if (["Approved", "Declined", "More Information Required"].includes(fields.status ?? "")) {
@@ -2341,6 +2604,14 @@ Open Commitments:\n${openCommitments || "None"}`,
       }
 
       await db.update(coachOutRecommendations).set(updateValues).where(eq(coachOutRecommendations.id, coachOutId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_coach_out_updated",
+        entityType: "coach_out_recommendation",
+        entityId: coachOutId,
+        agentId: coachOut?.agentId,
+        details: { updatedFields: Object.keys(fields), status: fields.status },
+      });
       return { success: true };
     }),
 
@@ -2379,6 +2650,14 @@ Open Commitments:\n${openCommitments || "None"}`,
         uploadedById: ctx.user.id,
         assessmentDate: input.assessmentDate ? new Date(input.assessmentDate) : null,
       });
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_assessment_created",
+        entityType: "coaching_assessment",
+        entityId: (result as any).insertId,
+        agentId: input.agentId,
+        details: { assessmentType: input.assessmentType },
+      });
 
       return { success: true, assessmentId: (result as any).insertId };
     }),
@@ -2405,7 +2684,18 @@ Open Commitments:\n${openCommitments || "None"}`,
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { assessmentId, ...fields } = input;
+      const [assessment] = await db.select({ agentId: coachingAssessments.agentId })
+        .from(coachingAssessments)
+        .where(eq(coachingAssessments.id, assessmentId));
       await db.update(coachingAssessments).set({ ...fields, updatedAt: sql`NOW()` }).where(eq(coachingAssessments.id, assessmentId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_assessment_updated",
+        entityType: "coaching_assessment",
+        entityId: assessmentId,
+        agentId: assessment?.agentId,
+        details: { updatedFields: Object.keys(fields) },
+      });
       return { success: true };
     }),
 
@@ -2525,6 +2815,14 @@ Output JSON with this exact structure:
             }))
           );
         }
+        await logCoachingActivity({
+          userId: ctx.user.id,
+          action: "coaching_session_summary_generated",
+          entityType: "coaching_session",
+          entityId: input.sessionId,
+          agentId: session.session.agentId,
+          details: { suggestedCommitmentCount: parsed.commitments?.length ?? 0 },
+        });
 
         return { success: true, summary: parsed.summary, commitmentCount: parsed.commitments?.length ?? 0, parsed };
       } catch (err) {
@@ -2581,6 +2879,13 @@ Output JSON with this exact structure:
         potentialCoachingRisks: parsed.potentialCoachingRisks ?? null,
         updatedAt: sql`NOW()`,
       }).where(eq(coachingAssessments.id, input.assessmentId));
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_assessment_summary_generated",
+        entityType: "coaching_assessment",
+        entityId: input.assessmentId,
+        agentId: assessment.assessment.agentId,
+      });
 
       return { success: true, summary: parsed.summary };
     }),
@@ -2783,6 +3088,12 @@ Output JSON with this exact structure:
       await db.insert(coachingSettings)
         .values({ ...input, updatedById: ctx.user.id })
         .onDuplicateKeyUpdate({ set: { settingValue: input.settingValue, updatedById: ctx.user.id, updatedAt: sql`NOW()` } });
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_setting_updated",
+        entityType: "coaching_setting",
+        details: { settingKey: input.settingKey, settingGroup: input.settingGroup },
+      });
 
       return { success: true };
     }),
@@ -2891,6 +3202,13 @@ Output JSON with this exact structure:
         await db.delete(coachingProfiles)
           .where(eq(coachingProfiles.agentId, input.agentId));
       }
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: input.enrolled ? "coaching_agent_enrolled" : "coaching_agent_unenrolled",
+        entityType: "coaching_profile",
+        entityId: input.agentId,
+        agentId: input.agentId,
+      });
       return { success: true };
     }),
 });

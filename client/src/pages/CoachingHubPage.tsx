@@ -67,8 +67,9 @@ import CoachingEscalationsView from "@/components/coaching/CoachingEscalationsVi
 import CoachingReportsView from "@/components/coaching/CoachingReportsView";
 import CoachingSettingsView from "@/components/coaching/CoachingSettingsView";
 import CoachingHelpView from "@/components/coaching/CoachingHelpView";
+import CoachingActivitiesView from "@/components/coaching/CoachingActivitiesView";
 
-type ViewId = "command" | "portfolio" | "sessions" | "commitments" | "resets" | "markets" | "escalations" | "reports" | "settings" | "help";
+type ViewId = "command" | "portfolio" | "sessions" | "commitments" | "resets" | "markets" | "escalations" | "reports" | "settings" | "help" | "activities";
 
 const VIEWS: { id: ViewId; label: string; shortLabel: string; icon: any }[] = [
   { id: "command", label: "Command Center", shortLabel: "Command", icon: BarChart3 },
@@ -81,6 +82,7 @@ const VIEWS: { id: ViewId; label: string; shortLabel: string; icon: any }[] = [
   { id: "reports", label: "Reports", shortLabel: "Reports", icon: FileText },
   { id: "settings", label: "Settings", shortLabel: "Settings", icon: Settings },
   { id: "help", label: "Help & Definitions", shortLabel: "Help", icon: HelpCircle },
+  { id: "activities", label: "Activities", shortLabel: "Activity", icon: Activity },
 ];
 
 // ─── Scrollable Tab Nav ────────────────────────────────────────────────────
@@ -258,6 +260,7 @@ export default function CoachingHubPage() {
       {activeView === "reports" && <CoachingReportsView />}
       {activeView === "settings" && <CoachingSettingsView />}
       {activeView === "help" && <CoachingHelpView />}
+      {activeView === "activities" && <CoachingActivitiesView />}
     </div>
   );
 }

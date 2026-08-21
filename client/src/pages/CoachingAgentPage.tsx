@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -107,6 +107,14 @@ export default function CoachingAgentPage() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showNewSession, setShowNewSession] = useState(false);
   const [showAllTerminations, setShowAllTerminations] = useState(false);
+  const openedAgentIdRef = useRef<number | null>(null);
+  const recordAgentOpened = trpc.coaching.recordAgentOpened.useMutation();
+
+  useEffect(() => {
+    if (!Number.isInteger(agentId) || openedAgentIdRef.current === agentId) return;
+    openedAgentIdRef.current = agentId;
+    recordAgentOpened.mutate({ agentId });
+  }, [agentId, recordAgentOpened]);
 
   // Session form state (must be before early returns to satisfy React hooks rules)
   const [sessionForm, setSessionForm] = useState({
@@ -253,17 +261,10 @@ export default function CoachingAgentPage() {
         <div className="w-full overflow-x-auto rounded-t-lg border-b bg-muted/20" aria-label="Agent detail sections">
           <TabsList className="flex h-auto min-w-max items-stretch justify-start gap-0 bg-transparent p-0">
             {[
-              { id: "overview", label: "Overview", icon: BarChart3 },
-              { id: "ai-insights", label: "AI Insights", icon: Brain },
-              { id: "performance", label: "Performance", icon: TrendingUp },
-              { id: "goals", label: "Goals", icon: Target },
-              { id: "pipeline", label: "Pipeline & Leads", icon: Activity },
-              { id: "history", label: "Coaching History", icon: Clock },
-              { id: "commitments", label: "Commitments", icon: ListChecks, count: openCommitments?.length },
-              { id: "assessments", label: "Assessments", icon: FileText },
-              { id: "reset", label: "Perf. Reset", icon: Shield, active: !!activeReset },
-              { id: "market", label: "Market", icon: MapPin },
-              { id: "files", label: "Files", icon: FolderOpen },
+              { id: "overview", label: "At a Glance", icon: BarChart3 },
+              { id: "coach", label: "Coaching", icon: ListChecks, count: openCommitments?.length },
+              { id: "performance", label: "Performance & Pipeline", icon: TrendingUp },
+              { id: "records", label: "Records", icon: FileText, active: !!activeReset },
             ].map((tab) => (
               <TabsTrigger
                 key={tab.id}
@@ -414,8 +415,8 @@ export default function CoachingAgentPage() {
           </div>
         </TabsContent>
 
-        {/* ─── AI INSIGHTS ─── */}
-        <TabsContent value="ai-insights" className="mt-4">
+        {/* ─── AI INSIGHTS (At a Glance) ─── */}
+        <TabsContent value="overview" className="mt-4">
           <CoachingAIInsightsTab agentId={agentId} profile={profile} onRefresh={refetch} />
         </TabsContent>
 
@@ -525,8 +526,8 @@ export default function CoachingAgentPage() {
           </div>
         </TabsContent>
 
-        {/* ─── GOALS ─── */}
-        <TabsContent value="goals" className="mt-4 space-y-4">
+        {/* ─── GOALS (At a Glance) ─── */}
+        <TabsContent value="overview" className="mt-4 space-y-4">
           {goalsData?.annualGoal ? (
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>
@@ -554,8 +555,8 @@ export default function CoachingAgentPage() {
           )}
         </TabsContent>
 
-        {/* ─── PIPELINE & LEADS ─── */}
-        <TabsContent value="pipeline" className="mt-4 space-y-4">
+        {/* ─── PIPELINE & LEADS (Performance & Pipeline) ─── */}
+        <TabsContent value="performance" className="mt-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Pipeline by Stage</CardTitle></CardHeader>
@@ -593,8 +594,8 @@ export default function CoachingAgentPage() {
           </div>
         </TabsContent>
 
-        {/* ─── COACHING HISTORY ─── */}
-        <TabsContent value="history" className="mt-4 space-y-4">
+        {/* ─── COACHING HISTORY (Coaching) ─── */}
+        <TabsContent value="coach" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between"><CardTitle className="text-sm">Full Coaching History</CardTitle><Button size="sm" onClick={() => setShowNewSession(true)}><Plus className="h-3.5 w-3.5 mr-1" />New Session</Button></div>
@@ -624,17 +625,17 @@ export default function CoachingAgentPage() {
           </Card>
         </TabsContent>
 
-        {/* ─── COMMITMENTS ─── */}
-        <TabsContent value="commitments" className="mt-4"><CoachingCommitmentsPanel agentId={agentId} /></TabsContent>
+        {/* ─── COMMITMENTS (Coaching) ─── */}
+        <TabsContent value="coach" className="mt-4"><CoachingCommitmentsPanel agentId={agentId} /></TabsContent>
 
-        {/* ─── ASSESSMENTS ─── */}
-        <TabsContent value="assessments" className="mt-4"><CoachingAssessmentsPanel agentId={agentId} /></TabsContent>
+        {/* ─── ASSESSMENTS (Records) ─── */}
+        <TabsContent value="records" className="mt-4"><CoachingAssessmentsPanel agentId={agentId} /></TabsContent>
 
-        {/* ─── PERFORMANCE RESET ─── */}
-        <TabsContent value="reset" className="mt-4"><CoachingPerformanceResetPanel agentId={agentId} /></TabsContent>
+        {/* ─── PERFORMANCE RESET (Coaching) ─── */}
+        <TabsContent value="coach" className="mt-4"><CoachingPerformanceResetPanel agentId={agentId} /></TabsContent>
 
-        {/* ─── MARKET ─── */}
-        <TabsContent value="market" className="mt-4 space-y-4">
+        {/* ─── MARKET (Records) ─── */}
+        <TabsContent value="records" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4" />Market Assignments</CardTitle></CardHeader>
             <CardContent>
@@ -651,8 +652,8 @@ export default function CoachingAgentPage() {
           {profile?.marketProtectionStatus && <Card><CardContent className="p-4"><p className="text-xs"><strong>Market Protection Status:</strong> {profile.marketProtectionStatus}</p></CardContent></Card>}
         </TabsContent>
 
-        {/* ─── FILES ─── */}
-        <TabsContent value="files" className="mt-4 space-y-4">
+        {/* ─── FILES (Records) ─── */}
+        <TabsContent value="records" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between"><CardTitle className="text-sm flex items-center gap-2"><FolderOpen className="h-4 w-4" />Files & Recordings</CardTitle><Button size="sm" variant="outline"><Upload className="h-3.5 w-3.5 mr-1" />Upload File</Button></div>
