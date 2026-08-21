@@ -48,6 +48,7 @@ import { proformaEmailRouter } from "./routers/proformaEmail";
 import { permissionsRouter } from "./routers/permissions";
 import { emailBehaviorsRouter } from "./routers/emailBehaviors";
 import { aircallRouter } from "./routers/aircall";
+import { aircallCallingRouter } from "./routers/aircallCalling";
 import { jobBoardRouter } from "./routers/jobBoard";
 import { talentProfileRouter } from "./routers/talentProfile";
 import { coachingRouter } from "./routers/coaching";
@@ -254,6 +255,7 @@ export const appRouter = router({
   permissions: permissionsRouter,
   emailBehaviors: emailBehaviorsRouter,
   aircall: aircallRouter,
+  aircallCalling: aircallCallingRouter,
   jobBoard: jobBoardRouter,
   talentProfile: talentProfileRouter,
   coaching: coachingRouter,

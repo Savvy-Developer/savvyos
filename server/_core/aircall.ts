@@ -4,7 +4,8 @@
  * Docs: https://developer.aircall.io/api-references#send-message
  */
 
-const AIRCALL_API_BASE = "https://api.aircall.io/v1";
+const AIRCALL_API_ORIGIN = "https://api.aircall.io";
+const AIRCALL_API_BASE = `${AIRCALL_API_ORIGIN}/v1`;
 
 function getAircallAuth(): string | null {
   const apiId = process.env.AIRCALL_API_ID;
@@ -14,8 +15,34 @@ function getAircallAuth(): string | null {
 }
 
 
+export function isAircallApiConfigured(): boolean {
+  return !!getAircallAuth();
+}
+
 export function isAircallConfigured(): boolean {
-  return !!(process.env.AIRCALL_API_ID && process.env.AIRCALL_API_TOKEN && process.env.AIRCALL_NUMBER_ID);
+  return isAircallApiConfigured() && !!process.env.AIRCALL_NUMBER_ID;
+}
+
+/**
+ * Make an authenticated request to a supported Aircall REST path. Credentials
+ * remain server-only and callers may pass either a v1 or v2 API path.
+ */
+export async function aircallApiRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const auth = getAircallAuth();
+  if (!auth) throw new Error("Aircall API credentials are not configured");
+  if (!path.startsWith("/v1/") && !path.startsWith("/v2/")) {
+    throw new Error("Unsupported Aircall API path");
+  }
+
+  return fetch(`${AIRCALL_API_ORIGIN}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Basic ${auth}`,
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers ?? {}),
+    },
+  });
 }
 
 export async function sendAircallSMS(to: string, body: string): Promise<{ success: boolean; messageId?: string; error?: string }> {

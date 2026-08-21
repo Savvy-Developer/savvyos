@@ -16,7 +16,7 @@ import { CreateReferralDialog } from "@/components/CreateReferralDialog";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
 
@@ -489,6 +489,10 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
   const { data: contactReferrals = [] } = trpc.referrals.byContact.useQuery({ contactId }, { enabled: user?.role === "admin" || user?.role === "isa" });
   const { data: referralConfig } = trpc.referrals.config.useQuery(undefined, { enabled: user?.role === "admin" || user?.role === "isa" });
+  const { data: aircallCallingStatus } = trpc.aircallCalling.myStatus.useQuery(
+    undefined,
+    { enabled: user?.role === "isa", retry: false },
+  );
 
   // Format system activity-log entries (e.g. property views logged via webhook)
   // so they can be shown in the Activity tab alongside communications.
@@ -686,6 +690,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     onSuccess: () => { toast.success("Contact deleted"); navigate("/contacts"); },
     onError: (e) => toast.error(e.message),
   });
+  const startAircallCall = trpc.aircallCalling.startContactCall.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Calling ${result.destination} through Aircall`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
 
   function openEditTask(taskRow: any) {
     const t = taskRow.task;
@@ -753,6 +763,19 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const canAssign = user?.role === "admin" || user?.role === "isa";
   const isAdmin = user?.role === "admin";
   const isIsa = user?.role === "isa";
+  const aircallCallBlockedReason = !contact.phone
+    ? "Add a primary phone number before calling."
+    : (contact as any).doNotContact
+      ? "This contact is marked Do Not Contact."
+      : aircallCallingStatus?.reason ?? null;
+
+  function handleAircallCall() {
+    if (aircallCallBlockedReason) {
+      toast.error(aircallCallBlockedReason);
+      return;
+    }
+    startAircallCall.mutate({ contactId });
+  }
 
   function handleAssign() {
     if (!assignForm.agentId) { toast.error("Please select an agent"); return; }
@@ -820,6 +843,17 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
         subtitle="Contact profile and relationship history"
         actions={
           <div className="flex gap-2">
+            {isIsa && (
+              <Button
+                size="sm"
+                onClick={handleAircallCall}
+                disabled={!!aircallCallBlockedReason || startAircallCall.isPending || !aircallCallingStatus}
+                title={aircallCallBlockedReason ?? "Start a call in Aircall"}
+              >
+                <PhoneCall className={`h-4 w-4 mr-1 ${startAircallCall.isPending ? "animate-pulse" : ""}`} />
+                {startAircallCall.isPending ? "Starting call…" : "Call via Aircall"}
+              </Button>
+            )}
             {(isIsa || isAdmin) && (
               <Button
                 variant="outline"

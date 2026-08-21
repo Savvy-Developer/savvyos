@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -559,7 +560,39 @@ function AgentProfileSection({ userId }: { userId: number }) {
 
 // ── ISA Profile Section ───────────────────────────────────────────────────────
 function IsaProfileSection({ userId }: { userId: number }) {
+  const { user: currentUser } = useAuth();
+  const canManageAircall = currentUser?.role === "admin";
   const { data: profile, refetch } = trpc.users.getIsaProfile.useQuery({ userId });
+  const { data: aircallAssignment, refetch: refetchAircallAssignment } = trpc.aircallCalling.getAssignment.useQuery(
+    { userId },
+    { enabled: canManageAircall },
+  );
+  const { data: aircallUsers = [], error: aircallUsersError, isLoading: aircallUsersLoading } = trpc.aircallCalling.listAircallUsers.useQuery(
+    undefined,
+    { enabled: canManageAircall },
+  );
+  const [aircallUserId, setAircallUserId] = useState("");
+  const [aircallNumberId, setAircallNumberId] = useState("");
+  const { data: aircallNumbers = [], error: aircallNumbersError, isLoading: aircallNumbersLoading } = trpc.aircallCalling.listAircallUserNumbers.useQuery(
+    { aircallUserId: Number(aircallUserId || 0) },
+    { enabled: canManageAircall && Number(aircallUserId) > 0 },
+  );
+  const saveAircallAssignment = trpc.aircallCalling.setAssignment.useMutation({
+    onSuccess: () => {
+      toast.success("Aircall caller assignment saved");
+      refetchAircallAssignment();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const removeAircallAssignment = trpc.aircallCalling.removeAssignment.useMutation({
+    onSuccess: () => {
+      toast.success("Aircall caller assignment removed");
+      setAircallUserId("");
+      setAircallNumberId("");
+      refetchAircallAssignment();
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const upsert = trpc.users.upsertIsaProfile.useMutation({
     onSuccess: () => { toast.success("ISA profile saved"); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -591,6 +624,13 @@ function IsaProfileSection({ userId }: { userId: number }) {
       });
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (aircallAssignment) {
+      setAircallUserId(String(aircallAssignment.aircallUserId));
+      setAircallNumberId(String(aircallAssignment.aircallNumberId));
+    }
+  }, [aircallAssignment]);
 
   const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }));
@@ -639,7 +679,7 @@ function IsaProfileSection({ userId }: { userId: number }) {
                 <Field label="End Date with Savvy">
                   <Input className="h-8 text-sm" type="date" value={form.endDateWithSavvy} onChange={f("endDateWithSavvy")} />
                 </Field>
-                <Field label="Dialer / Calling Platform User ID">
+                <Field label="Other Dialer / Calling Platform User ID">
                   <Input className="h-8 text-sm" value={form.dialerUserId} onChange={f("dialerUserId")} />
                 </Field>
                 <Field label="CRM User ID">
@@ -670,6 +710,102 @@ function IsaProfileSection({ userId }: { userId: number }) {
             </div>
           </AccordionContent>
         </AccordionItem>
+        {canManageAircall && (
+          <AccordionItem value="isa-aircall" className="border rounded-lg px-4">
+            <AccordionTrigger className="text-sm font-semibold py-3">Aircall Direct Calling</AccordionTrigger>
+            <AccordionContent className="pb-4">
+              <div className="space-y-4">
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Assign one Aircall user and one of that user’s currently associated numbers. SavvyOS prevents the same Aircall user or number from being assigned to more than one ISA.
+                </p>
+                {aircallUsersError ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    {aircallUsersError.message}
+                  </div>
+                ) : (
+                  <>
+                    <SectionGrid>
+                      <Field label="Aircall User">
+                        <Select
+                          value={aircallUserId || undefined}
+                          onValueChange={(value) => {
+                            setAircallUserId(value);
+                            setAircallNumberId("");
+                          }}
+                          disabled={aircallUsersLoading || saveAircallAssignment.isPending}
+                        >
+                          <SelectTrigger className="h-8 text-sm"><SelectValue placeholder={aircallUsersLoading ? "Loading Aircall users…" : "Select Aircall user"} /></SelectTrigger>
+                          <SelectContent>
+                            {aircallUsers.map((aircallUser) => (
+                              <SelectItem key={aircallUser.id} value={String(aircallUser.id)}>
+                                {aircallUser.name}{aircallUser.email ? ` — ${aircallUser.email}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Outbound Aircall Number">
+                        <Select
+                          value={aircallNumberId || undefined}
+                          onValueChange={setAircallNumberId}
+                          disabled={!aircallUserId || aircallNumbersLoading || saveAircallAssignment.isPending}
+                        >
+                          <SelectTrigger className="h-8 text-sm"><SelectValue placeholder={aircallNumbersLoading ? "Loading assigned numbers…" : "Select caller number"} /></SelectTrigger>
+                          <SelectContent>
+                            {aircallNumbers.map((number) => (
+                              <SelectItem key={number.id} value={String(number.id)}>
+                                {number.name}{number.digits ? ` — ${number.digits}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </SectionGrid>
+                    {aircallNumbersError && <p className="text-xs text-destructive">{aircallNumbersError.message}</p>}
+                    {aircallAssignment?.verifiedAt && (
+                      <p className="text-xs text-muted-foreground">
+                        Current assignment: {aircallAssignment.aircallNumberName ?? "Aircall number"}{aircallAssignment.aircallNumberDigits ? ` (${aircallAssignment.aircallNumberDigits})` : ""}.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          if (!aircallUserId || !aircallNumberId) {
+                            toast.error("Select an Aircall user and caller number first.");
+                            return;
+                          }
+                          saveAircallAssignment.mutate({
+                            savvyUserId: userId,
+                            aircallUserId: Number(aircallUserId),
+                            aircallNumberId: Number(aircallNumberId),
+                          });
+                        }}
+                        disabled={!aircallUserId || !aircallNumberId || saveAircallAssignment.isPending}
+                      >
+                        {saveAircallAssignment.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : null}
+                        Save Aircall Assignment
+                      </Button>
+                      {aircallAssignment && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive hover:text-destructive"
+                          disabled={removeAircallAssignment.isPending}
+                          onClick={() => removeAircallAssignment.mutate({ savvyUserId: userId })}
+                        >
+                          Remove Assignment
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        )}
       </Accordion>
 
       <div className="flex justify-end">

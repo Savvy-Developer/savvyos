@@ -2321,9 +2321,36 @@ export const listingDocuments = mysqlTable("listing_documents", {
 export type ListingDocument = typeof listingDocuments.$inferSelect;
 export type InsertListingDocument = typeof listingDocuments.$inferInsert;
 
+// ─── Aircall ISA Caller Assignments ───────────────────────────────────────────
+// SavvyOS owns this one-to-one map for outbound ISA calling. Aircall remains the
+// source of truth for whether the user is currently linked to the number; the
+// router verifies that relationship again before every initiated call.
+export const aircallIsaAssignments = mysqlTable(
+  "aircall_isa_assignments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    savvyUserId: int("savvyUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    aircallUserId: int("aircallUserId").notNull(),
+    aircallNumberId: int("aircallNumberId").notNull(),
+    aircallNumberName: varchar("aircallNumberName", { length: 255 }),
+    aircallNumberDigits: varchar("aircallNumberDigits", { length: 32 }),
+    verifiedAt: timestamp("verifiedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_isa_assignments_savvy_user_unique").on(table.savvyUserId),
+    uniqueIndex("aircall_isa_assignments_aircall_user_unique").on(table.aircallUserId),
+    uniqueIndex("aircall_isa_assignments_aircall_number_unique").on(table.aircallNumberId),
+  ],
+);
+export type AircallIsaAssignment = typeof aircallIsaAssignments.$inferSelect;
+export type InsertAircallIsaAssignment = typeof aircallIsaAssignments.$inferInsert;
+
 // ─── Aircall Calls ─────────────────────────────────────────────────────────────
 // Stores every Aircall call record. Each matched call also has a corresponding
 // `communications` row (type = "call") linked via communicationId.
+
 // aircallCallId is the Aircall call ID and acts as the deduplication key.
 export const aircallCalls = mysqlTable(
   "aircall_calls",
