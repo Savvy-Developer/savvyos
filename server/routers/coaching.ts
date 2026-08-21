@@ -675,7 +675,14 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
       const yearStart = new Date(now.getFullYear(), 0, 1);
 
       const coachAlias = aliasedTable(users, "coach");
-      const conditions: any[] = [eq(users.role, "agent"), sql`users.isActive = 1`];
+      // Enrollment is represented by a coaching profile. Keep the portfolio roster in
+      // lockstep with the Settings enrollment panel, which removes this profile when
+      // an agent is not activated for Coaching Hub.
+      const conditions: any[] = [
+        eq(users.role, "agent"),
+        sql`users.isActive = 1`,
+        isNotNull(coachingProfiles.id),
+      ];
       if (input?.performanceStatus) conditions.push(eq(coachingProfiles.performanceStatus, input.performanceStatus as any));
       if (input?.retentionRiskStatus) conditions.push(eq(coachingProfiles.retentionRiskStatus, input.retentionRiskStatus as any));
       if (input?.coachOfRecordId) conditions.push(eq(coachingProfiles.coachOfRecordId, input.coachOfRecordId));
