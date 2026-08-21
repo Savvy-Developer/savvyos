@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MapView } from "@/components/Map";
+import { MapContainer, CircleMarker, Popup, TileLayer, useMap } from "react-leaflet";
+import { latLngBounds, type LatLngExpression } from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { Building2, Globe2, Mail, MapPin, Phone, Search, Users } from "lucide-react";
 
 type DirectoryMarket = {
@@ -49,18 +51,85 @@ function valuesToOptions(values: string[]) {
   return values.map((value) => ({ value, label: value }));
 }
 
-function AgentMarketMap({ agents }: { agents: DirectoryAgent[] }) {
-  const [map, setMap] = useState<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+type MarketPoint = {
+  key: string;
+  market: DirectoryMarket;
+  agents: DirectoryAgent[];
+  position: LatLngExpression;
+};
 
-  const onMapReady = useCallback((readyMap: google.maps.Map) => setMap(readyMap), []);
+const MARKET_COORDINATES: Array<{ includes: string; position: LatLngExpression }> = [
+  { includes: "30a", position: [30.39, -86.13] },
+  { includes: "all of utah", position: [40.76, -111.89] },
+  { includes: "asheville", position: [35.60, -82.55] },
+  { includes: "austin", position: [30.27, -97.74] },
+  { includes: "blue ridge", position: [34.86, -84.32] },
+  { includes: "bradenton", position: [27.34, -82.53] },
+  { includes: "broken bow", position: [34.03, -94.74] },
+  { includes: "cape cod", position: [41.70, -70.20] },
+  { includes: "central fl", position: [28.54, -81.38] },
+  { includes: "columbus", position: [39.96, -83.00] },
+  { includes: "daytona", position: [29.21, -81.02] },
+  { includes: "destin", position: [30.24, -86.53] },
+  { includes: "florida keys", position: [25.20, -80.35] },
+  { includes: "gulf shores", position: [30.25, -87.70] },
+  { includes: "hocking hills", position: [39.48, -82.54] },
+  { includes: "indianapolis", position: [39.77, -86.16] },
+  { includes: "jacksonville", position: [30.33, -81.65] },
+  { includes: "kentucky bourbon", position: [37.99, -84.27] },
+  { includes: "largo", position: [27.90, -82.78] },
+  { includes: "missourri", position: [38.57, -92.30] },
+  { includes: "ne fl", position: [29.89, -81.31] },
+  { includes: "new jersey", position: [40.06, -74.41] },
+  { includes: "northwest arkansas", position: [36.06, -94.16] },
+  { includes: "oak island", position: [33.92, -78.16] },
+  { includes: "outer banks", position: [35.56, -75.66] },
+  { includes: "palm coast", position: [29.58, -81.21] },
+  { includes: "panama city beach", position: [30.18, -85.80] },
+  { includes: "phoenix", position: [33.45, -112.07] },
+  { includes: "poconos", position: [41.12, -75.28] },
+  { includes: "raleigh", position: [35.78, -78.64] },
+  { includes: "shenandoah", position: [38.35, -78.66] },
+  { includes: "smokies", position: [35.71, -83.49] },
+  { includes: "south fl", position: [26.20, -80.25] },
+  { includes: "st. louis", position: [38.63, -90.20] },
+  { includes: "texas gulf coast", position: [29.30, -94.80] },
+  { includes: "treasure coast", position: [27.25, -80.22] },
+  { includes: "western sc", position: [34.85, -82.40] },
+  { includes: "whitefish", position: [48.41, -114.34] },
+  { includes: "wilmington", position: [34.23, -77.94] },
+];
+
+const STATE_CENTERS: Record<string, LatLngExpression> = {
+  AL: [32.81, -86.79], FL: [27.99, -81.76], GA: [32.17, -82.90], IN: [39.85, -86.26],
+  MO: [38.46, -92.29], NC: [35.78, -78.64], OH: [40.42, -82.91], OK: [35.47, -97.52],
+  PA: [40.59, -77.21], TN: [35.52, -86.58], TX: [31.00, -99.90], UT: [39.32, -111.09], VA: [37.43, -78.66],
+};
+
+function resolveMarketPosition(market: DirectoryMarket): LatLngExpression | null {
+  const normalizedName = market.name.trim().toLowerCase();
+  const exactMarket = MARKET_COORDINATES.find((entry) => normalizedName.includes(entry.includes));
+  return exactMarket?.position ?? STATE_CENTERS[market.state.trim().toUpperCase()] ?? null;
+}
+
+function FitMarketBounds({ points }: { points: MarketPoint[] }) {
+  const map = useMap();
+  const pointSignature = points.map((point) => `${point.key}:${point.position}`).join("|");
 
   useEffect(() => {
-    if (!map || !window.google?.maps?.Geocoder) return;
-    let cancelled = false;
-    markersRef.current.forEach((marker) => { marker.map = null; });
-    markersRef.current = [];
+    if (points.length === 0) return;
+    if (points.length === 1) {
+      map.setView(points[0].position, 7, { animate: false });
+      return;
+    }
+    map.fitBounds(latLngBounds(points.map((point) => point.position)), { padding: [36, 36], maxZoom: 6, animate: false });
+  }, [map, pointSignature, points]);
 
+  return null;
+}
+
+function AgentMarketMap({ agents }: { agents: DirectoryAgent[] }) {
+  const points = useMemo(() => {
     const byMarket = new Map<string, { market: DirectoryMarket; agents: DirectoryAgent[] }>();
     for (const agent of agents) {
       for (const market of agent.markets) {
@@ -70,43 +139,11 @@ function AgentMarketMap({ agents }: { agents: DirectoryAgent[] }) {
         byMarket.set(key, entry);
       }
     }
-
-    const geocoder = new window.google.maps.Geocoder();
-    const infoWindow = new window.google.maps.InfoWindow();
-    const bounds = new window.google.maps.LatLngBounds();
-    const locateMarkets = async () => {
-      const found = await Promise.all(Array.from(byMarket.values()).map(async ({ market, agents: agentsAtMarket }) => {
-        try {
-          const result = await geocoder.geocode({ address: `${market.name}, ${market.state}, USA` });
-          const location = result.results[0]?.geometry.location;
-          if (!location || cancelled) return false;
-          const marker = new window.google.maps.marker.AdvancedMarkerElement({
-            map,
-            position: location,
-            title: `${market.name}, ${market.state} — ${agentsAtMarket.length} agent${agentsAtMarket.length === 1 ? "" : "s"}`,
-          });
-          marker.addListener("click", () => {
-            const names = agentsAtMarket.map((agent) => agent.name ?? "Unnamed agent").join(", ");
-            infoWindow.setContent(`<div style="min-width:180px"><strong>${market.name}, ${market.state}</strong><br/><span>${names}</span></div>`);
-            infoWindow.open({ map, anchor: marker });
-          });
-          markersRef.current.push(marker);
-          bounds.extend(location);
-          return true;
-        } catch {
-          return false;
-        }
-      }));
-      if (!cancelled && found.some(Boolean)) map.fitBounds(bounds, 56);
-    };
-    void locateMarkets();
-
-    return () => {
-      cancelled = true;
-      markersRef.current.forEach((marker) => { marker.map = null; });
-      markersRef.current = [];
-    };
-  }, [agents, map]);
+    return Array.from(byMarket.entries()).flatMap(([key, entry]) => {
+      const position = resolveMarketPosition(entry.market);
+      return position ? [{ key, ...entry, position }] : [];
+    });
+  }, [agents]);
 
   if (agents.length === 0) {
     return <div className="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground">No agents match the current filters.</div>;
@@ -114,8 +151,36 @@ function AgentMarketMap({ agents }: { agents: DirectoryAgent[] }) {
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
-      <div className="border-b px-4 py-3 text-sm text-muted-foreground">Market locations are grouped by city and show the agents available in each market.</div>
-      <MapView className="h-[560px]" initialCenter={{ lat: 39.8283, lng: -98.5795 }} initialZoom={4} onMapReady={onMapReady} />
+      <div className="border-b px-4 py-3 text-sm text-muted-foreground">Market locations are grouped by market. Select a marker to see the Savvy agents serving that area.</div>
+      <MapContainer center={[39.8283, -98.5795]} zoom={4} scrollWheelZoom className="h-[560px] w-full" aria-label="Savvy agent markets map">
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <FitMarketBounds points={points} />
+        {points.map((point) => {
+          const agentNames = point.agents.map((agent) => agent.name ?? "Unnamed agent");
+          return (
+            <CircleMarker
+              key={point.key}
+              center={point.position}
+              radius={Math.min(14, 7 + Math.log2(point.agents.length + 1) * 2)}
+              pathOptions={{ color: "#0e7490", fillColor: "#06b6d4", fillOpacity: 0.9, weight: 2 }}
+            >
+              <Popup>
+                <div className="min-w-[190px] space-y-1 text-sm">
+                  <p className="font-semibold">{point.market.name}{point.market.state && point.market.state !== "N/A" ? `, ${point.market.state}` : ""}</p>
+                  <p className="text-muted-foreground">{point.agents.length} Savvy agent{point.agents.length === 1 ? "" : "s"}</p>
+                  <p>{agentNames.slice(0, 8).join(", ")}{agentNames.length > 8 ? ` +${agentNames.length - 8} more` : ""}</p>
+                </div>
+              </Popup>
+            </CircleMarker>
+          );
+        })}
+      </MapContainer>
+      {points.length < new Set(agents.flatMap((agent) => agent.markets.map((market) => `${market.name}|${market.state}`))).size && (
+        <p className="border-t px-4 py-2 text-xs text-muted-foreground">Some new markets do not yet have a map coordinate. They remain available in the directory list and filters.</p>
+      )}
     </div>
   );
 }
