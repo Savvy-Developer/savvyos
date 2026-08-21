@@ -96,6 +96,7 @@ const YTD_START = new Date(new Date().getFullYear(), 0, 1);
 
 const BUSINESS_INSIGHT_SCHEMA = {
   name: "savvy_business_insights_v1",
+  strict: true,
   schema: {
     type: "object",
     additionalProperties: false,
@@ -197,6 +198,38 @@ function toRecord(value: unknown): Row {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 }
 
+function toRows(value: unknown): Row[] {
+  return Array.isArray(value) ? value.map(toRecord) : [];
+}
+
+/**
+ * Normalizes the production measures that must be stated exactly in the company
+ * narrative. The Transaction Statistics summary can include multiple outcome
+ * statuses for a status="all" report, so closed GCI is deliberately taken from
+ * the closed-status rollup while the pipeline remains a current snapshot.
+ */
+function buildCompanyProductionSnapshot(transactionStatistics: unknown) {
+  const report = toRecord(transactionStatistics);
+  const summary = toRecord(report.summary);
+  const pipeline = toRecord(report.pipeline);
+  const closedStatus = toRows(report.statuses).find((row) => String(row.status ?? "") === "closed");
+
+  return {
+    ytdClosed: {
+      units: asNumber(closedStatus?.units ?? summary.closedUnits ?? summary.closings),
+      volume: asNumber(closedStatus?.volume ?? summary.volume),
+      grossCommission: asNumber(closedStatus?.grossCommission ?? summary.grossCommission),
+      savvyNet: asNumber(closedStatus?.savvyNet ?? summary.savvyNet),
+    },
+    currentUnderContract: {
+      units: asNumber(pipeline.units),
+      volume: asNumber(pipeline.volume),
+      grossCommission: asNumber(pipeline.grossCommission),
+      savvyNet: asNumber(pipeline.savvyNet),
+    },
+  };
+}
+
 /** Prevent raw client and row-level evidence data from crossing the model boundary. */
 const SENSITIVE_KEY = /contact|property|address|email|phone|note|description|evidence|transactionnumber|followup|session|message|content|file|url/i;
 
@@ -229,11 +262,13 @@ function period(): { dateFrom: string; dateTo: string; label: string } {
 
 function buildFactPack(reports: Record<string, unknown>) {
   const activePeriod = period();
+  const companyProductionSnapshot = buildCompanyProductionSnapshot(reports.transactionStatistics);
   return {
     definitionVersion: "business-insights-v1",
     generatedFor: activePeriod,
     scope: "Company-wide, all active Savvy STR Agents records. Period reports are YTD; current pipeline and operational flags are explicitly point-in-time snapshots.",
     privacy: "The model fact pack excludes client names, contact identifiers, property addresses, emails, phone numbers, notes, and item-level evidence.",
+    companyProductionSnapshot,
     reportFacts: Object.fromEntries(
       Object.entries(reports).map(([name, report]) => [name, sanitizeForModel(report)]),
     ),
@@ -302,25 +337,32 @@ function evidence(label: string, value: string, report: string, drilldown: Busin
 }
 
 function buildDeterministicFallback(facts: Record<string, unknown>): BusinessInsightsPayload {
-  const transactions = toRecord(facts.transactionStatistics);
+  // Runtime generation passes a sanitized fact pack, while narrow unit probes can
+  // supply raw report objects. Support both shapes so a model outage never turns
+  // valid production into zero-value narrative claims.
+  const reportFacts = toRecord(facts.reportFacts);
+  const transactions = toRecord(reportFacts.transactionStatistics ?? facts.transactionStatistics);
+  const productionSnapshot = toRecord(reportFacts.companyProductionSnapshot ?? facts.companyProductionSnapshot);
+  const ytdClosed = toRecord(productionSnapshot.ytdClosed);
+  const currentUnderContract = toRecord(productionSnapshot.currentUnderContract);
   const summary = toRecord(transactions.summary);
   const pipeline = toRecord(transactions.pipeline);
   const flags = toRecord(transactions.flags);
-  const taskReport = toRecord(facts.taskExecution);
+  const taskReport = toRecord(reportFacts.taskExecution ?? facts.taskExecution);
   const taskSummary = toRecord(taskReport.summary);
-  const isa = toRecord(facts.isaAppointmentsAndFunnel);
-  const cohort = toRecord(facts.leadCohortConversion);
+  const isa = toRecord(reportFacts.isaAppointmentsAndFunnel ?? facts.isaAppointmentsAndFunnel);
+  const cohort = toRecord(reportFacts.leadCohortConversion ?? facts.leadCohortConversion);
   const cohortSummary = toRecord(cohort.summary);
-  const economics = toRecord(facts.transactionEconomics);
+  const economics = toRecord(reportFacts.transactionEconomics ?? facts.transactionEconomics);
   const economicsActuals = toRecord(economics.actuals ?? economics.closedFlow ?? economics.summary);
 
-  const closedUnits = asNumber(summary.closedUnits ?? summary.closings);
+  const closedUnits = asNumber(ytdClosed.units ?? summary.closedUnits ?? summary.closings);
   const terminatedUnits = asNumber(summary.terminatedUnits);
-  const pipelineUnits = asNumber(pipeline.units);
+  const pipelineUnits = asNumber(currentUnderContract.units ?? pipeline.units);
   const overdueTasks = asNumber(taskSummary.overdue ?? taskSummary.overdueTasks);
   const appointments = asNumber(isa.totalAppointmentsSet);
-  const grossCommission = asNumber(summary.grossCommission);
-  const savvyNet = asNumber(summary.savvyNet);
+  const grossCommission = asNumber(ytdClosed.grossCommission ?? summary.grossCommission);
+  const savvyNet = asNumber(ytdClosed.savvyNet ?? summary.savvyNet);
   const missingExpectedClose = asNumber(flags.noExpectedClose ?? flags.missingExpectedCloseDate ?? flags.missingExpectedClose);
   const pastExpectedClose = asNumber(flags.pastExpectedClose ?? flags.pastExpectedCloseDate);
   const commissionFlags = asNumber(flags.commissionFlags ?? flags.payoutIntegrity);
@@ -686,6 +728,7 @@ export const businessInsightRefreshApi = { refreshDueBusinessInsights };
 /** Included only for narrow test probes without exposing report facts to callers. */
 export const businessInsightTestApi = {
   buildFactPack,
+  buildCompanyProductionSnapshot,
   buildDeterministicFallback,
   asNumber,
 };
