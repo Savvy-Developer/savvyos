@@ -38,6 +38,7 @@ export const listingsRouter = router({
       terminationDateFrom: z.string().optional(),
       terminationDateTo: z.string().optional(),
       filterAgentId: z.number().optional(),
+      contactId: z.number().optional(),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
     }).optional())
     .query(async ({ input, ctx }) => {
@@ -53,6 +54,7 @@ export const listingsRouter = router({
         terminationDateFrom: input?.terminationDateFrom,
         terminationDateTo: input?.terminationDateTo,
         filterAgentId: input?.filterAgentId,
+        contactId: input?.contactId,
         sortOrder: input?.sortOrder ?? "desc",
       });
     }),

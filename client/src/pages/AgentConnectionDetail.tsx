@@ -75,6 +75,14 @@ export default function AgentConnectionDetail() {
   const { data: docs } = trpc.documents.list.useQuery({ contactId: conn?.connection?.contactId }, { enabled: !!conn?.connection?.contactId });
   const { data: txnsData } = trpc.transactions.list.useQuery({}, { enabled: !!conn?.connection?.contactId });
   const txns = txnsData?.rows ?? [];
+  const { data: contactProperties = [] } = trpc.contactProperties.list.useQuery(
+    { contactId: conn?.connection?.contactId ?? 0 },
+    { enabled: !!conn?.connection?.contactId },
+  );
+  const { data: contactListings = [] } = trpc.listings.list.useQuery(
+    { contactId: conn?.connection?.contactId ?? 0 },
+    { enabled: !!conn?.connection?.contactId },
+  );
 
   const updateConn = trpc.agentConnections.update.useMutation({
     onSuccess: () => {
@@ -185,6 +193,7 @@ export default function AgentConnectionDetail() {
 
   const { connection, contact, agent, isa, leadSource, parentLeadSource } = conn as any;
   const contactTransactions = txns?.filter((t: any) => t.transaction?.primaryContactId === contact?.id || t.contact?.id === contact?.id) ?? [];
+  const relatedRecordCount = contactProperties.length + contactListings.length + contactTransactions.length;
   const stage = PIPELINE_STAGES.find(s => s.value === connection.pipelineStatus);
   const emailEligible = Boolean(
     contact?.email?.trim()
@@ -494,7 +503,7 @@ export default function AgentConnectionDetail() {
             <TabsList className="mb-4 grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:grid-cols-3 xl:grid-cols-4">
               <TabsTrigger value="communications" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Communications ({comms?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="tasks" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Tasks ({tasks?.length ?? 0})</TabsTrigger>
-              <TabsTrigger value="transactions" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Transactions ({contactTransactions?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="related" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Related Records ({relatedRecordCount})</TabsTrigger>
               <TabsTrigger value="documents" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm">Documents ({docs?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="smart-plans" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm"><Zap className="mr-1 inline h-3.5 w-3.5" />Smart Plans</TabsTrigger>
               <TabsTrigger value="email-behaviors" className="min-h-10 whitespace-normal px-2 text-xs leading-tight sm:text-sm"><Inbox className="mr-1 inline h-3.5 w-3.5" />Email Behaviors</TabsTrigger>
@@ -593,40 +602,75 @@ export default function AgentConnectionDetail() {
               )}
             </TabsContent>
 
-            {/* Transactions Tab */}
-            <TabsContent value="transactions" className="space-y-3">
-              {!contactTransactions.length ? (
-                <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
-                  <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                  <p>No transactions for this contact yet.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {contactTransactions.map((t: any) => {
-                    const tx = t.transaction;
-                    return (
-                      <div key={tx.id} className="rounded-xl border bg-card p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-sm">{tx.transactionName || `Transaction #${tx.id}`}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Badge variant="outline" className="text-xs">{tx.transactionType}</Badge>
-                              <Badge variant="outline" className="text-xs">{tx.status}</Badge>
-                              {tx.purchasePrice && <span className="text-xs text-muted-foreground">${Number(tx.purchasePrice).toLocaleString()}</span>}
-                            </div>
-                          </div>
-                          {tx.closingDate && (
-                            <span className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              Closing: {safeFormat(tx.closingDate, "MMM d, yyyy")}
-                            </span>
-                          )}
+            {/* Related Records Tab */}
+            <TabsContent value="related" className="space-y-6">
+              <p className="text-sm text-muted-foreground">Properties, listings, and transactions associated with this connection’s contact.</p>
+
+              <section className="space-y-2">
+                <div className="flex items-center gap-2"><Home className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Properties ({contactProperties.length})</h3></div>
+                {!contactProperties.length ? (
+                  <div className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">No properties linked to this contact yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {contactProperties.map((property: any) => (
+                      <div key={property.id} className="rounded-xl border bg-card p-4 flex items-start gap-3">
+                        <div className="mt-0.5 p-2 rounded-lg bg-primary/10"><Home className="h-4 w-4 text-primary" /></div>
+                        <div>
+                          <p className="font-medium text-sm">{property.address || "Property address not set"}</p>
+                          <p className="text-xs text-muted-foreground">{[property.city, property.state, property.zip].filter(Boolean).join(", ") || "Location not set"}</p>
+                          {(property.beds || property.baths || property.sqft) && <p className="text-xs text-muted-foreground mt-0.5">{property.beds && `${property.beds} bd`}{property.baths && ` · ${property.baths} ba`}{property.sqft && ` · ${Number(property.sqft).toLocaleString()} sqft`}</p>}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-2">
+                <div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-amber-600" /><h3 className="text-sm font-semibold">Listings ({contactListings.length})</h3></div>
+                {!contactListings.length ? (
+                  <div className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">No listings linked to this contact yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {contactListings.map(({ listing, property, agent: listingAgent }: any) => (
+                      <div key={listing.id} className="rounded-xl border bg-card p-4 cursor-pointer hover:bg-muted/20" onClick={() => navigate(`/listings/${listing.id}`)}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{property?.address || `Listing #${listing.id}`}</p>
+                            <p className="text-xs text-muted-foreground truncate">{property ? [property.city, property.state, property.zip].filter(Boolean).join(", ") : "Property not set"}{listing.mlsNumber ? ` · MLS ${listing.mlsNumber}` : ""}</p>
+                            {listingAgent?.name && <p className="text-xs text-muted-foreground mt-0.5">Agent: {listingAgent.name}</p>}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            {listing.listPrice && <span className="text-sm font-semibold text-emerald-700">${Number(listing.listPrice).toLocaleString()}</span>}
+                            <Badge variant="outline" className="text-xs capitalize">{listing.listingStatus?.replace(/_/g, " ")}</Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-2">
+                <div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-semibold">Transactions ({contactTransactions.length})</h3></div>
+                {!contactTransactions.length ? (
+                  <div className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">No transactions for this contact yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {contactTransactions.map((t: any) => {
+                      const tx = t.transaction;
+                      return (
+                        <div key={tx.id} className="rounded-xl border bg-card p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div><p className="font-medium text-sm">{tx.transactionName || `Transaction #${tx.id}`}</p><div className="flex flex-wrap items-center gap-2 mt-1"><Badge variant="outline" className="text-xs">{tx.transactionType}</Badge><Badge variant="outline" className="text-xs">{tx.status}</Badge>{tx.purchasePrice && <span className="text-xs text-muted-foreground">${Number(tx.purchasePrice).toLocaleString()}</span>}</div></div>
+                            {tx.closingDate && <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0"><Calendar className="h-3 w-3" />Closing: {safeFormat(tx.closingDate, "MMM d, yyyy")}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
             </TabsContent>
 
             {/* Documents Tab */}

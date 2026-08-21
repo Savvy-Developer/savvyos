@@ -1766,13 +1766,15 @@ export async function getListings(opts?: {
   expirationDateFrom?: string; expirationDateTo?: string;
   terminationDateFrom?: string; terminationDateTo?: string;
   filterAgentId?: number;
+  contactId?: number;
 }) {
   const db = await getDb();
   if (!db) return [];
-  const { agentId, status, search, listingDateFrom, listingDateTo, expirationDateFrom, expirationDateTo, terminationDateFrom, terminationDateTo, filterAgentId } = opts || {};
+  const { agentId, status, search, listingDateFrom, listingDateTo, expirationDateFrom, expirationDateTo, terminationDateFrom, terminationDateTo, filterAgentId, contactId } = opts || {};
   const conditions: any[] = [];
   if (agentId) conditions.push(eq(listings.agentId, agentId));
   if (filterAgentId) conditions.push(eq(listings.agentId, filterAgentId));
+  if (contactId) conditions.push(eq(listings.contactId, contactId));
   if (status) conditions.push(eq(listings.listingStatus, status as any));
   if (search) {
     conditions.push(

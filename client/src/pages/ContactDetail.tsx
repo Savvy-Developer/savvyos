@@ -484,6 +484,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" });
   const { data: isas = [] } = trpc.users.list.useQuery({ role: "isa" });
   const { data: contactProps, refetch: refetchProps } = trpc.contactProperties.list.useQuery({ contactId });
+  const { data: contactListings = [] } = trpc.listings.list.useQuery({ contactId });
   const { data: allProperties = [] } = trpc.properties.list.useQuery({});
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
   const { data: contactReferrals = [] } = trpc.referrals.byContact.useQuery({ contactId }, { enabled: user?.role === "admin" || user?.role === "isa" });
@@ -1108,8 +1109,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             <div className="mb-4 space-y-2">
               <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
                 <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
-                <TabsTrigger value="properties" className="shrink-0 whitespace-nowrap">Properties ({contactProps?.length ?? 0})</TabsTrigger>
-                <TabsTrigger value="transactions" className="shrink-0 whitespace-nowrap">Transactions ({contactTransactions.length})</TabsTrigger>
+                <TabsTrigger value="related" className="shrink-0 whitespace-nowrap">Related Records ({(contactProps?.length ?? 0) + contactListings.length + contactTransactions.length})</TabsTrigger>
                 <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
                 <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">History</TabsTrigger>
                 <TabsTrigger value="smart-plans" className="shrink-0 whitespace-nowrap"><Zap className="h-3.5 w-3.5 mr-1 inline shrink-0" />Smart Plans</TabsTrigger>
@@ -1282,92 +1282,95 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               )}
             </TabsContent>
 
-            <TabsContent value="properties">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm text-muted-foreground">Properties associated with this contact</p>
+            <TabsContent value="related" className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">Properties, listings, and transactions associated with this contact.</p>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={() => setLinkPropertyOpen(true)}>
-                    <Link2 className="h-4 w-4 mr-1" /> Link Existing
+                    <Link2 className="h-4 w-4 mr-1" /> Link Property
                   </Button>
                   <Button size="sm" onClick={() => setAddPropertyOpen(true)}>
                     <Plus className="h-4 w-4 mr-1" /> Add Property
                   </Button>
                 </div>
               </div>
-              {!contactProps || contactProps.length === 0 ? (
-                <Card>
-                  <CardContent className="py-10 text-center text-muted-foreground">
-                    <Home className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No properties linked yet.</p>
-                    <p className="text-xs mt-1">Add a mailing address, primary home, or investment property.</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-2">
-                  {contactProps.map((cp) => (
-                    <Card key={cp.id}>
-                      <CardContent className="p-4 flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-                            <Home className="h-4 w-4 text-primary" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <p className="text-sm font-medium">{formatStreet(cp.address)}</p>
-                              <Badge variant="outline" className="text-xs">{cp.label}</Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {formatCityStateZip(cp.city, cp.state, cp.zip)}
-                            </p>
-                            {(cp.beds || cp.baths || cp.sqft) && (
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {cp.beds && `${cp.beds} bd`}{cp.baths && ` · ${cp.baths} ba`}{cp.sqft && ` · ${Number(cp.sqft).toLocaleString()} sqft`}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-xs text-destructive hover:text-destructive shrink-0"
-                          onClick={() => unlinkProperty.mutate({ id: cp.id })}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
 
-            <TabsContent value="transactions">
-              {contactTransactions.length === 0 ? (
-                <Card><CardContent className="py-10 text-center text-muted-foreground text-sm">No transactions linked to this contact</CardContent></Card>
-              ) : (
-                <div className="space-y-2">
-                  {contactTransactions.map(({ transaction, property }) => (
-                    <Card
-                      key={transaction.id}
-                      className={isIsa ? "" : "cursor-pointer hover:bg-muted/20"}
-                      onClick={isIsa ? undefined : () => navigate(`/transactions/${transaction.id}`)}
-                    >
-                      <CardContent className="p-4 flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-sm">{transaction.transactionNumber ?? `TXN-${transaction.id}`}</p>
-                          <p className="text-xs text-muted-foreground">{(property as any)?.address ? formatStreet((property as any).address) : "No property"}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {transaction.grossCommissionIncome && (
-                            <span className="text-sm font-semibold text-emerald-700">${Number(transaction.grossCommissionIncome).toLocaleString()}</span>
-                          )}
-                          <TransactionStatusBadge status={transaction.status} />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Home className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-semibold">Properties ({contactProps?.length ?? 0})</h3>
                 </div>
-              )}
+                {!contactProps || contactProps.length === 0 ? (
+                  <Card><CardContent className="py-6 text-center text-sm text-muted-foreground">No properties linked yet. Add a mailing address, primary home, or investment property.</CardContent></Card>
+                ) : (
+                  <div className="space-y-2">
+                    {contactProps.map((cp) => (
+                      <Card key={cp.id}>
+                        <CardContent className="p-4 flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <div className="p-2 rounded-lg bg-primary/10 shrink-0"><Home className="h-4 w-4 text-primary" /></div>
+                            <div>
+                              <div className="flex items-center gap-2 mb-0.5"><p className="text-sm font-medium">{formatStreet(cp.address)}</p><Badge variant="outline" className="text-xs">{cp.label}</Badge></div>
+                              <p className="text-xs text-muted-foreground">{formatCityStateZip(cp.city, cp.state, cp.zip)}</p>
+                              {(cp.beds || cp.baths || cp.sqft) && <p className="text-xs text-muted-foreground mt-0.5">{cp.beds && `${cp.beds} bd`}{cp.baths && ` · ${cp.baths} ba`}{cp.sqft && ` · ${Number(cp.sqft).toLocaleString()} sqft`}</p>}
+                            </div>
+                          </div>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive hover:text-destructive shrink-0" onClick={() => unlinkProperty.mutate({ id: cp.id })}><Trash2 className="h-3 w-3" /></Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-amber-600" />
+                  <h3 className="text-sm font-semibold">Listings ({contactListings.length})</h3>
+                </div>
+                {contactListings.length === 0 ? (
+                  <Card><CardContent className="py-6 text-center text-sm text-muted-foreground">No listings linked to this contact.</CardContent></Card>
+                ) : (
+                  <div className="space-y-2">
+                    {contactListings.map(({ listing, property, agent }: any) => (
+                      <Card key={listing.id} className="cursor-pointer hover:bg-muted/20" onClick={() => navigate(`/listings/${listing.id}`)}>
+                        <CardContent className="p-4 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{property?.address ? formatStreet(property.address) : `Listing #${listing.id}`}</p>
+                            <p className="text-xs text-muted-foreground truncate">{property ? formatCityStateZip(property.city, property.state, property.zip) : "Property not set"}{listing.mlsNumber ? ` · MLS ${listing.mlsNumber}` : ""}</p>
+                            {agent?.name && <p className="text-xs text-muted-foreground mt-0.5">Agent: {agent.name}</p>}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            {listing.listPrice && <span className="text-sm font-semibold text-emerald-700">${Number(listing.listPrice).toLocaleString()}</span>}
+                            <Badge variant="outline" className="text-xs capitalize">{listing.listingStatus?.replace(/_/g, " ")}</Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-emerald-600" />
+                  <h3 className="text-sm font-semibold">Transactions ({contactTransactions.length})</h3>
+                </div>
+                {contactTransactions.length === 0 ? (
+                  <Card><CardContent className="py-6 text-center text-sm text-muted-foreground">No transactions linked to this contact.</CardContent></Card>
+                ) : (
+                  <div className="space-y-2">
+                    {contactTransactions.map(({ transaction, property }) => (
+                      <Card key={transaction.id} className={isIsa ? "" : "cursor-pointer hover:bg-muted/20"} onClick={isIsa ? undefined : () => navigate(`/transactions/${transaction.id}`)}>
+                        <CardContent className="p-4 flex items-center justify-between">
+                          <div><p className="font-medium text-sm">{transaction.transactionNumber ?? `TXN-${transaction.id}`}</p><p className="text-xs text-muted-foreground">{(property as any)?.address ? formatStreet((property as any).address) : "No property"}</p></div>
+                          <div className="flex items-center gap-3">{transaction.grossCommissionIncome && <span className="text-sm font-semibold text-emerald-700">${Number(transaction.grossCommissionIncome).toLocaleString()}</span>}<TransactionStatusBadge status={transaction.status} /></div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </section>
             </TabsContent>
 
             <TabsContent value="tasks">
