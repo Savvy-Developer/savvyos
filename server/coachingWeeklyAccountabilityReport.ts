@@ -3,6 +3,7 @@ import {
   coachingCommitments,
   coachingProfiles,
   coachingSessions,
+  scheduledReportRuns,
   users,
 } from "../drizzle/schema";
 import { getDb } from "./db";
@@ -16,6 +17,10 @@ import { sendTransactionalEmail } from "./_core/resendEmail";
 
 const EASTERN_TIME_ZONE = "America/New_York";
 const TEST_RECIPIENT_EMAIL = "tyler@savvy.realty";
+const LIVE_REPORT_KEY = "coaching_weekly_accountability";
+const FRIDAY_INDEX = 5;
+const LIVE_REPORT_HOUR = 12;
+const STALE_RUN_MS = 60 * 60 * 1000;
 
 /**
  * This deliberately exists as a recipient allowlist rather than a role query.
@@ -606,12 +611,23 @@ export function renderWeeklyCoachingAccountabilityEmail(
   const exceptionRows = report.exceptions.map(exceptionRowHtml).join("");
   const scheduledMeetingLabel = getCompletedLabel(summary.completed, summary.scheduled);
   const recipients = report.leadershipRecipients.map((recipient) => escapeHtml(recipient.name)).join(", ");
+  const compactCoachCards = report.coaches.map((row) => `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 0 12px;border:1px solid #D1D5DB;border-radius:8px;border-collapse:separate;background:#FFFFFF;">
+    <tr><td colspan="2" style="padding:11px 12px;background:#F8FAFC;border-bottom:1px solid #E5E7EB;font-size:14px;font-weight:800;color:#111827;">${escapeHtml(row.coachName)} <span style="float:right;color:${row.exceptionCount > 0 ? "#B91C1C" : "#047857"};font-size:12px;">${row.exceptionCount} exception${row.exceptionCount === 1 ? "" : "s"}</span></td></tr>
+    <tr><td style="width:50%;padding:9px 12px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;">Roster <strong style="float:right;color:#111827;">${row.activeRoster}</strong></td><td style="width:50%;padding:9px 12px;border-bottom:1px solid #E5E7EB;border-left:1px solid #E5E7EB;font-size:12px;color:#374151;">Meetings completed <strong style="float:right;color:#111827;">${getCompletedLabel(row.completed, row.scheduled)}</strong></td></tr>
+    <tr><td style="width:50%;padding:9px 12px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;">Future meeting <strong style="float:right;color:${row.nextMeetingRecorded === row.activeRoster ? "#047857" : "#B45309"};">${getCompletedLabel(row.nextMeetingRecorded, row.activeRoster)}</strong></td><td style="width:50%;padding:9px 12px;border-bottom:1px solid #E5E7EB;border-left:1px solid #E5E7EB;font-size:12px;color:#374151;">Documentation <strong style="float:right;color:${row.completed === 0 || row.documentationComplete === row.completed ? "#047857" : "#B45309"};">${getCompletedLabel(row.documentationComplete, row.completed)}</strong></td></tr>
+    <tr><td style="width:50%;padding:9px 12px;font-size:12px;color:#374151;">New commitments <strong style="float:right;color:#111827;">${row.commitmentsCreated}/${row.completeCommitments}</strong></td><td style="width:50%;padding:9px 12px;border-left:1px solid #E5E7EB;font-size:12px;color:#374151;">Overdue commitments <strong style="float:right;color:${row.openOverdueCommitments > 0 ? "#B91C1C" : "#047857"};">${row.openOverdueCommitments}</strong></td></tr>
+  </table>`).join("");
+  const compactExceptionCards = report.exceptions.map((exception) => {
+    const priorityColor = exception.priority === "P1" ? "#B91C1C" : exception.priority === "P2" ? "#B45309" : "#475569";
+    const actionUrl = `https://os.savvy-agents.com${exception.actionPath}`;
+    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 0 10px;border:1px solid #E5E7EB;border-left:4px solid ${priorityColor};border-radius:6px;border-collapse:separate;background:#FFFFFF;"><tr><td style="padding:11px 12px;"><div style="font-size:11px;font-weight:800;color:${priorityColor};letter-spacing:.2px;">${exception.priority} · ${escapeHtml(exception.category)} · ${escapeHtml(exception.coachName)}</div><div style="margin-top:4px;font-size:13px;font-weight:800;color:#111827;">${escapeHtml(exception.agentName)}</div><div style="margin-top:4px;font-size:12px;line-height:1.45;color:#374151;">${escapeHtml(exception.issue)}</div><div style="margin-top:7px;font-size:11px;line-height:1.4;color:#6B7280;"><strong>Age:</strong> ${escapeHtml(exception.ageLabel)}<br /><strong>Required action:</strong> ${escapeHtml(exception.action)}</div><a href="${actionUrl}" style="display:inline-block;margin-top:9px;color:#0284C7;font-size:12px;font-weight:800;text-decoration:none;">Open record →</a></td></tr></table>`;
+  }).join("");
 
   return `
-    ${options.isTest ? `<div style="margin:0 0 18px;padding:11px 14px;border:1px solid #0EA5E9;border-radius:8px;background:#F0F9FF;font-size:12px;line-height:1.5;color:#0C4A6E;"><strong>Test delivery only.</strong> This report was sent only to Tyler for review. Recurring Monday delivery is not enabled.</div>` : ""}
+    ${options.isTest ? `<div style="margin:0 0 18px;padding:11px 14px;border:1px solid #0EA5E9;border-radius:8px;background:#F0F9FF;font-size:12px;line-height:1.5;color:#0C4A6E;"><strong>Test delivery only.</strong> This preview/test was sent only to Tyler for review. The live shared leadership report is scheduled for Friday at 12:00 PM Eastern.</div>` : ""}
     <h1 style="margin:0 0 5px;font-size:22px;line-height:1.25;color:#0A0A0A;letter-spacing:-.25px;">Coaching Hub Weekly Accountability</h1>
     <p style="margin:0 0 18px;font-size:13px;font-weight:600;letter-spacing:.2px;color:#6B7280;">${escapeHtml(report.periodLabel)} &nbsp;·&nbsp; Frozen view generated ${escapeHtml(report.asOfLabel)}</p>
-    <p style="margin:0 0 18px;font-size:14px;line-height:1.55;color:#374151;">This is a shared leadership accountability report. It shows assigned roster ownership, session execution, documentation discipline, next-meeting coverage, and commitment follow-through. Missing data is counted as an exception rather than treated as zero.</p>
+    <p style="margin:0 0 18px;font-size:14px;line-height:1.55;color:#374151;">This is one shared leadership accountability report. Use Reply All to keep Phil, Dyl, Elana, Trish, Ashleigh, and Hunter in the same follow-through conversation. It shows assigned roster ownership, session execution, documentation discipline, next-meeting coverage, and commitment follow-through. Missing data is counted as an exception rather than treated as zero.</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 0 16px;">
       <tr>
@@ -631,9 +647,10 @@ export function renderWeeklyCoachingAccountabilityEmail(
     </table>
 
     <h2 style="margin:0 0 8px;font-size:16px;color:#0A0A0A;">Coach Scoreboard</h2>
+    ${compactCoachCards || `<p style="margin:0 0 20px;font-size:12px;color:#6B7280;">No active coaching profiles are currently enrolled.</p>`}
     <p style="margin:0 0 12px;font-size:12px;line-height:1.45;color:#6B7280;">Sessions are assigned to the coach of record. “Documentation complete” is a transparent first-version proxy: substantive notes or transcript, primary diagnosis with evidence, and duration recorded. This report does not yet score cadence compliance because cadence policy is not configured in SavvyOS.</p>
-    <div style="margin:0 -18px 24px;overflow-x:auto;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:1080px;border-collapse:collapse;border:1px solid #D1D5DB;">
+    <div style="display:none;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:1px solid #D1D5DB;">
         <tr style="background:#0A0A0A;">
           <th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;letter-spacing:.2px;">Coach</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Roster</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Scheduled</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Completed</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Cancel / No-show</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Future meeting</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Documentation</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">New commitments / complete</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Due on time</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Open overdue</th><th style="padding:9px 8px;text-align:center;font-size:10px;color:#FFFFFF;">Exceptions</th>
         </tr>
@@ -641,10 +658,11 @@ export function renderWeeklyCoachingAccountabilityEmail(
       </table>
     </div>
 
-    <h2 style="margin:0 0 8px;font-size:16px;color:#0A0A0A;">Named Exception Ledger</h2>
+    <h2 style="margin:22px 0 8px;font-size:16px;color:#0A0A0A;">Named Exception Ledger</h2>
+    ${compactExceptionCards || `<p style="margin:0 0 20px;font-size:12px;color:#047857;font-weight:700;">No named exceptions in this reporting window.</p>`}
     <p style="margin:0 0 12px;font-size:12px;line-height:1.45;color:#6B7280;">Every exception remains visible by owner and agent. P1 requires immediate leadership attention; P2 requires resolution this week; P3 is a data-quality correction. Open SavvyOS Coaching Hub to resolve the underlying record.</p>
-    <div style="margin:0 -18px 20px;overflow-x:auto;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:980px;border-collapse:collapse;border:1px solid #D1D5DB;">
+    <div style="display:none;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:1px solid #D1D5DB;">
         <tr style="background:#0A0A0A;">
           <th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Priority</th><th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Category</th><th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Coach</th><th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Agent</th><th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Exception</th><th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Age</th><th style="padding:9px 8px;text-align:left;font-size:10px;color:#FFFFFF;">Required action</th>
         </tr>
@@ -652,7 +670,7 @@ export function renderWeeklyCoachingAccountabilityEmail(
       </table>
     </div>
     <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:22px 0 0;"><tr><td style="background:#0FC0DF;border-radius:7px;"><a href="https://os.savvy-agents.com/coaching" style="display:inline-block;padding:12px 20px;color:#0A0A0A;font-size:13px;font-weight:800;text-decoration:none;">Open Coaching Hub</a></td></tr></table>
-    <p style="margin:18px 0 0;font-size:11px;line-height:1.5;color:#6B7280;">Configured shared leadership recipients: ${recipients}. Future scheduled delivery remains disabled until explicitly authorized. Report definitions: “notes recorded” requires substantive notes or transcript; “complete commitment” requires an owner, due date, expected result, and substantive description; no data is not converted to zero.</p>
+    <p style="margin:18px 0 0;font-size:11px;line-height:1.5;color:#6B7280;">Shared leadership recipients: ${recipients}. This report is sent as one email conversation so Reply All keeps the group together. Report definitions: “notes recorded” requires substantive notes or transcript; “complete commitment” requires an owner, due date, expected result, and substantive description; no data is not converted to zero.</p>
   `;
 }
 
@@ -664,6 +682,169 @@ export function getWeeklyCoachingAccountabilityEmailSubject(report: CoachingWeek
  * Explicitly Tyler-only. This is the sole send function in the initial release;
  * it is intentionally not called by server startup or a recurring scheduler.
  */
+async function claimLiveCoachingReportRun(reportDate: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available for coaching report-run tracking.");
+
+  const existing = await db.select().from(scheduledReportRuns)
+    .where(and(eq(scheduledReportRuns.reportKey, LIVE_REPORT_KEY), eq(scheduledReportRuns.reportDate, reportDate)))
+    .limit(1);
+  const run = existing[0];
+  if (run?.status === "sent") {
+    console.info(`[CoachingWeeklyAccountability] ${reportDate} already delivered — skipping duplicate run.`);
+    return false;
+  }
+  if (run?.status === "running" && Date.now() - run.startedAt.getTime() < STALE_RUN_MS) {
+    console.info(`[CoachingWeeklyAccountability] ${reportDate} is already running — skipping overlap.`);
+    return false;
+  }
+
+  if (run) {
+    await db.update(scheduledReportRuns).set({
+      status: "running",
+      startedAt: new Date(),
+      completedAt: null,
+      recipientCount: 0,
+      successfulRecipientCount: 0,
+      errorMessage: null,
+    }).where(eq(scheduledReportRuns.id, run.id));
+  } else {
+    try {
+      await db.insert(scheduledReportRuns).values({
+        reportKey: LIVE_REPORT_KEY,
+        reportDate,
+        status: "running",
+        startedAt: new Date(),
+      });
+    } catch (error) {
+      console.warn("[CoachingWeeklyAccountability] Could not claim report run:", error);
+      return false;
+    }
+  }
+  return true;
+}
+
+async function finalizeLiveCoachingReportRun(
+  reportDate: string,
+  status: "sent" | "partial" | "failed" | "skipped",
+  recipientCount: number,
+  successfulRecipientCount: number,
+  errorMessage?: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(scheduledReportRuns).set({
+    status,
+    recipientCount,
+    successfulRecipientCount,
+    errorMessage: errorMessage ?? null,
+    completedAt: new Date(),
+  }).where(and(eq(scheduledReportRuns.reportKey, LIVE_REPORT_KEY), eq(scheduledReportRuns.reportDate, reportDate)));
+}
+
+/**
+ * Sends one live leadership email: Phil is the primary recipient and the other
+ * five named leaders are copied in the same conversation for Reply All.
+ */
+export async function sendWeeklyCoachingAccountabilityReport(asOf = new Date()): Promise<{
+  sent: boolean;
+  skipped: boolean;
+  reason?: string;
+  report: CoachingWeeklyAccountabilityReport;
+}> {
+  const report = await buildWeeklyCoachingAccountabilityReport(asOf);
+  const reportDate = easternDateKey(getEasternTimeParts(asOf));
+  if (!(await claimLiveCoachingReportRun(reportDate))) {
+    return { sent: false, skipped: true, reason: "This live report was already claimed or delivered for the Eastern calendar date.", report };
+  }
+
+  const primaryRecipient = report.leadershipRecipients[0];
+  const copiedRecipients = report.leadershipRecipients.slice(1);
+  if (!primaryRecipient || copiedRecipients.length !== WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS.length - 1) {
+    const reason = "The configured shared leadership recipient group is incomplete.";
+    await finalizeLiveCoachingReportRun(reportDate, "failed", report.leadershipRecipients.length, 0, reason);
+    return { sent: false, skipped: false, reason, report };
+  }
+
+  try {
+    const delivery = await sendTransactionalEmail(
+      "coaching_weekly_accountability",
+      {
+        recipientName: primaryRecipient.name,
+        recipientEmail: primaryRecipient.email,
+        ccEmails: copiedRecipients.map((recipient) => recipient.email),
+        coachingReportDate: report.periodLabel,
+        coachingReportHtml: renderWeeklyCoachingAccountabilityEmail(report),
+        coachingReportSubject: getWeeklyCoachingAccountabilityEmailSubject(report),
+      },
+      {
+        allowTemplateOverride: false,
+        injectMagicLinks: false,
+        idempotencyKey: `${LIVE_REPORT_KEY}:${reportDate}:shared-leadership`,
+      },
+    );
+
+    const recipientCount = report.leadershipRecipients.length;
+    if (delivery.sent) {
+      await finalizeLiveCoachingReportRun(reportDate, "sent", recipientCount, recipientCount);
+      console.info(`[CoachingWeeklyAccountability] Sent one shared leadership email to ${primaryRecipient.email} with ${copiedRecipients.length} copied recipient(s).`);
+    } else {
+      await finalizeLiveCoachingReportRun(
+        reportDate,
+        delivery.skipped ? "skipped" : "failed",
+        recipientCount,
+        0,
+        delivery.reason,
+      );
+    }
+    return { ...delivery, report };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await finalizeLiveCoachingReportRun(reportDate, "failed", report.leadershipRecipients.length, 0, reason);
+    console.error("[CoachingWeeklyAccountability] Shared leadership delivery failed:", error);
+    return { sent: false, skipped: false, reason, report };
+  }
+}
+
+function getNextFridayAtNoonEastern(now = new Date()): Date {
+  const eastern = getEasternTimeParts(now);
+  const daysUntilFriday = (FRIDAY_INDEX - weekdayIndex(eastern.weekday) + 7) % 7;
+  let targetDate = addEasternDays(easternDateKey(eastern), daysUntilFriday);
+  if (daysUntilFriday === 0 && (eastern.hour > LIVE_REPORT_HOUR || (eastern.hour === LIVE_REPORT_HOUR && (eastern.minute > 0 || eastern.second > 0)))) {
+    targetDate = addEasternDays(targetDate, 7);
+  }
+  return easternDateTimeToUtc(targetDate, LIVE_REPORT_HOUR);
+}
+
+let liveReportTimer: NodeJS.Timeout | undefined;
+let liveReportStartupRecoveryTimer: NodeJS.Timeout | undefined;
+
+function scheduleNextLiveCoachingReport(): void {
+  if (liveReportTimer) clearTimeout(liveReportTimer);
+  const nextRun = getNextFridayAtNoonEastern();
+  const delay = Math.max(nextRun.getTime() - Date.now(), 1_000);
+  console.info(`[CoachingWeeklyAccountability] Next shared report scheduled for ${nextRun.toLocaleString("en-US", { timeZone: EASTERN_TIME_ZONE })}.`);
+  liveReportTimer = setTimeout(async () => {
+    await sendWeeklyCoachingAccountabilityReport();
+    scheduleNextLiveCoachingReport();
+  }, delay);
+}
+
+/** Schedule one shared leadership report at 12:00 PM every Friday in America/New_York. */
+export function scheduleWeeklyCoachingAccountabilityReport(): void {
+  scheduleNextLiveCoachingReport();
+  if (liveReportStartupRecoveryTimer) clearTimeout(liveReportStartupRecoveryTimer);
+  liveReportStartupRecoveryTimer = setTimeout(() => {
+    const eastern = getEasternTimeParts();
+    if (eastern.weekday === "Fri" && eastern.hour >= LIVE_REPORT_HOUR) {
+      sendWeeklyCoachingAccountabilityReport().catch((error) =>
+        console.error("[CoachingWeeklyAccountability] Friday startup recovery failed:", error),
+      );
+    }
+  }, 30_000);
+}
+
+/** The restricted preview/test path remains Tyler-only. */
 export async function sendWeeklyCoachingAccountabilityTest(asOf = new Date()): Promise<{
   sent: boolean;
   skipped: boolean;

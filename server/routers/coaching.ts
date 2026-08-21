@@ -37,6 +37,7 @@ import {
   buildWeeklyCoachingAccountabilityReport,
   getWeeklyCoachingAccountabilityEmailSubject,
   renderWeeklyCoachingAccountabilityEmail,
+  sendWeeklyCoachingAccountabilityReport,
   sendWeeklyCoachingAccountabilityTest,
 } from "../coachingWeeklyAccountabilityReport";
 
@@ -3015,12 +3016,13 @@ Output JSON with this exact structure:
       subject: getWeeklyCoachingAccountabilityEmailSubject(report, true),
       html: renderWeeklyCoachingAccountabilityEmail(report, { isTest: true }),
       report,
-      recurringDeliveryEnabled: false,
+      recurringDeliveryEnabled: true,
+      recurringSchedule: "Every Friday at 12:00 PM Eastern",
     };
   }),
 
   /**
-   * Intentional safety control: the initial release has no scheduler and this
+   * Tyler-only test control; live shared delivery is scheduled separately and
    * action can only send one test email to Tyler's fixed SavvyOS address.
    */
   sendWeeklyAccountabilityEmailTest: protectedProcedure.mutation(async ({ ctx }) => {
@@ -3037,7 +3039,28 @@ Output JSON with this exact structure:
       recipient: "tyler@savvy.realty",
       subject: getWeeklyCoachingAccountabilityEmailSubject(result.report, true),
       periodLabel: result.report.periodLabel,
-      recurringDeliveryEnabled: false,
+      recurringDeliveryEnabled: true,
+      recurringSchedule: "Every Friday at 12:00 PM Eastern",
+    };
+  }),
+
+  /** Send the one shared leadership report immediately, with the named group copied together. */
+  sendWeeklyAccountabilityEmailNow: protectedProcedure.mutation(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const result = await sendWeeklyCoachingAccountabilityReport();
+    if (!result.sent) {
+      throw new TRPCError({
+        code: result.skipped ? "CONFLICT" : "INTERNAL_SERVER_ERROR",
+        message: result.reason ?? "The shared weekly coaching accountability email was not sent.",
+      });
+    }
+    return {
+      sent: true,
+      primaryRecipient: result.report.leadershipRecipients[0]?.email ?? null,
+      copiedRecipients: result.report.leadershipRecipients.slice(1).map((recipient) => recipient.email),
+      subject: getWeeklyCoachingAccountabilityEmailSubject(result.report),
+      periodLabel: result.report.periodLabel,
+      recurringSchedule: "Every Friday at 12:00 PM Eastern",
     };
   }),
 

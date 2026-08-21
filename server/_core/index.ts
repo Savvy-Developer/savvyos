@@ -17,6 +17,7 @@ import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
+import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
@@ -239,6 +240,9 @@ async function startServer() {
 
   // Personalized agent operating digest: daily at 6:00 PM Eastern
   scheduleDailyAgentReports();
+
+  // Shared coaching leadership accountability report: Fridays at 12:00 PM Eastern
+  scheduleWeeklyCoachingAccountabilityReport();
 
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.

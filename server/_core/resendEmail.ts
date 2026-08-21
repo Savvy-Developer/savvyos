@@ -73,6 +73,7 @@ interface EmailContext {
   noteContent?: string;
   projectUrl?: string;
   ccEmail?: string;
+  ccEmails?: string[];
   contactName?: string;
   agentName?: string;
   transactionNumber?: string;
@@ -665,7 +666,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     html: emailLayout(
       `${ctx.coachingReportHtml ?? bodyText("The Coaching Hub accountability report could not be generated. Please open SavvyOS to review the live Coaching Hub.")}`,
       `Coaching Hub weekly accountability — ${ctx.coachingReportDate ?? "current week"}`,
-      1200,
+      680,
     ),
   }),
 
@@ -692,6 +693,8 @@ export interface EmailDeliveryOptions {
   idempotencyKey?: string;
   /** Dynamic reports retain their generated subject and table instead of a generic override. */
   allowTemplateOverride?: boolean;
+  /** Shared-recipient messages must use ordinary authenticated app links, not a token for one recipient. */
+  injectMagicLinks?: boolean;
 }
 
 export interface EmailDeliveryResult {
@@ -845,11 +848,13 @@ export async function sendTransactionalEmail(
       }
     }
 
-    // Inject magic link tokens into all APP_URL links so recipients are auto-logged in
-    try {
-      html = await injectMagicLinks(html, ctx.recipientEmail);
-    } catch (mlErr) {
-      console.warn("[Resend] Magic link injection failed (sending without):", mlErr);
+    // Shared-recipient messages may deliberately use ordinary authenticated links.
+    if (options.injectMagicLinks !== false) {
+      try {
+        html = await injectMagicLinks(html, ctx.recipientEmail);
+      } catch (mlErr) {
+        console.warn("[Resend] Magic link injection failed (sending without):", mlErr);
+      }
     }
 
     const sendOptions: Parameters<typeof resend.emails.send>[0] = {
@@ -857,7 +862,7 @@ export async function sendTransactionalEmail(
       to: ctx.recipientEmail,
       subject,
       html,
-      ...(ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
+      ...(ctx.ccEmails?.length ? { cc: ctx.ccEmails } : ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
     };
     const result = await resend.emails.send(
       sendOptions,

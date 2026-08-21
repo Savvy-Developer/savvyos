@@ -29,7 +29,11 @@ export default function CoachingReportsView() {
     enabled: weeklyPreviewOpen,
   });
   const sendWeeklyTest = trpc.coaching.sendWeeklyAccountabilityEmailTest.useMutation({
-    onSuccess: (data) => toast.success(`Test email sent to ${data.recipient}. Recurring Monday delivery remains disabled.`),
+    onSuccess: (data) => toast.success(`Test email sent to ${data.recipient}. The shared live report runs Fridays at 12:00 PM Eastern.`),
+    onError: (error) => toast.error(error.message),
+  });
+  const sendWeeklyLive = trpc.coaching.sendWeeklyAccountabilityEmailNow.useMutation({
+    onSuccess: (data) => toast.success(`Shared report sent to ${data.primaryRecipient} with ${data.copiedRecipients.length} leadership recipients copied.`),
     onError: (error) => toast.error(error.message),
   });
   const metrics = commandData?.metrics;
@@ -81,15 +85,19 @@ export default function CoachingReportsView() {
               <Button size="sm" variant="outline" onClick={() => setWeeklyPreviewOpen(true)}>
                 <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview
               </Button>
-              <Button size="sm" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending}>
+              <Button size="sm" variant="outline" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending || sendWeeklyLive.isPending}>
                 {sendWeeklyTest.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
                 Send Test to Tyler
+              </Button>
+              <Button size="sm" onClick={() => sendWeeklyLive.mutate()} disabled={sendWeeklyLive.isPending || sendWeeklyTest.isPending}>
+                {sendWeeklyLive.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                Send Shared Report Now
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <p className="text-xs text-amber-700 dark:text-amber-400"><strong>Delivery safety:</strong> recurring Monday delivery is intentionally disabled. The current send action can only send a test to Tyler.</p>
+          <p className="text-xs text-muted-foreground"><strong>Delivery:</strong> one shared email, addressed to Phil with Dyl, Elana, Trish, Ashleigh, and Hunter copied for Reply All. It runs every Friday at <strong>12:00 PM Eastern</strong>; the test action remains Tyler-only.</p>
         </CardContent>
       </Card>
 
@@ -131,8 +139,11 @@ export default function CoachingReportsView() {
           </div>
           <DialogFooter className="shrink-0 border-t px-6 py-3">
             <Button variant="outline" onClick={() => setWeeklyPreviewOpen(false)}>Close</Button>
-            <Button onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending}>
+            <Button variant="outline" onClick={() => sendWeeklyTest.mutate()} disabled={sendWeeklyTest.isPending || sendWeeklyLive.isPending}>
               {sendWeeklyTest.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Send Test to Tyler
+            </Button>
+            <Button onClick={() => sendWeeklyLive.mutate()} disabled={sendWeeklyLive.isPending || sendWeeklyTest.isPending}>
+              {sendWeeklyLive.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Send Shared Report Now
             </Button>
           </DialogFooter>
         </DialogContent>
