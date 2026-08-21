@@ -17,6 +17,23 @@ type ReceivedAttachment = {
   content_id?: string | null;
 };
 
+type ReceivedEmailListItem = {
+  id?: string;
+  created_at?: string;
+  from?: string;
+  to?: string[];
+  subject?: string;
+  message_id?: string;
+};
+
+export function normaliseReceivedEmailList(payload: unknown): ReceivedEmailListItem[] {
+  if (Array.isArray(payload)) return payload as ReceivedEmailListItem[];
+  if (payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: ReceivedEmailListItem[] }).data;
+  }
+  return [];
+}
+
 type ReceivedEmail = {
   id?: string;
   from?: string | null;
@@ -268,14 +285,15 @@ export async function backfillResendInbox(limit = 100): Promise<{ scanned: numbe
   const resend = getResendClient();
   if (!resend) throw new Error("Resend API key is not configured");
   const result = await (resend.emails as any).receiving.list({ limit: Math.min(Math.max(limit, 1), 100) }) as {
-    data?: Array<{ id?: string; created_at?: string; from?: string; to?: string[]; subject?: string; message_id?: string }>;
+    data?: unknown;
     error?: { message?: string };
   };
   if (result.error) throw new Error(result.error.message ?? "Unable to list received emails from Resend");
+  const receivedEmails = normaliseReceivedEmailList(result.data);
 
   let stored = 0;
   let skipped = 0;
-  for (const received of result.data ?? []) {
+  for (const received of receivedEmails) {
     if (!received.id) {
       skipped += 1;
       continue;
@@ -294,7 +312,7 @@ export async function backfillResendInbox(limit = 100): Promise<{ scanned: numbe
     if (outcome.stored) stored += 1;
     else skipped += 1;
   }
-  return { scanned: (result.data ?? []).length, stored, skipped };
+  return { scanned: receivedEmails.length, stored, skipped };
 }
 
 export async function getResendInboxThreads(userId: number, archived: boolean) {
