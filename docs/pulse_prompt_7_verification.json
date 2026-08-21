@@ -1,0 +1,1737 @@
+{
+  "generatedAt": "2026-08-21T16:46:08.407Z",
+  "debug": {
+    "before": {
+      "status": 200,
+      "value": {
+        "viewerId": 1896819,
+        "meeting": {
+          "id": "bba4663e-8639-4e51-af5b-968438204077",
+          "name": "Pulse Slice — A",
+          "dayOfWeek": "monday",
+          "startTime": "09:00",
+          "cadence": "weekly",
+          "durationMinutes": 90,
+          "sectionsEnabled": {
+            "goals": true,
+            "rocks": true,
+            "segue": true,
+            "todos": true,
+            "issues": true,
+            "conclude": true,
+            "cascading": true,
+            "headlines": true,
+            "scorecard": true
+          },
+          "sectionOrder": [
+            "segue",
+            "headlines",
+            "scorecard",
+            "goals",
+            "rocks",
+            "todos",
+            "issues",
+            "cascading",
+            "conclude"
+          ]
+        },
+        "sections": [
+          {
+            "section": "segue",
+            "enabled": true,
+            "meta": {
+              "prompt": "Share one useful thing from this week.",
+              "mineSubmitted": false
+            },
+            "items": []
+          },
+          {
+            "section": "headlines",
+            "enabled": true,
+            "meta": {
+              "prompt": "Add the headline this meeting needs to hear."
+            },
+            "items": []
+          },
+          {
+            "section": "scorecard",
+            "enabled": true,
+            "meta": {
+              "tabs": [
+                "weekly",
+                "monthly",
+                "quarterly"
+              ],
+              "configurationNotes": []
+            },
+            "items": [
+              {
+                "mappingId": "af689e96-9b49-46bf-a90c-c11b2292ee4d",
+                "metricId": 13,
+                "name": "Pulse Prompt 7 Fixture Weekly",
+                "cadence": "weekly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 5,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-17",
+                  "periodEnd": "2026-08-23",
+                  "label": "Aug 17",
+                  "value": null,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-17",
+                    "periodEnd": "2026-08-23",
+                    "label": "Aug 17",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-10",
+                    "periodEnd": "2026-08-16",
+                    "label": "Aug 10",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-03",
+                    "periodEnd": "2026-08-09",
+                    "label": "Aug 3",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": null,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 5,
+                  "cadence": "weekly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-17",
+                      "periodEnd": "2026-08-23",
+                      "label": "Aug 17",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-10",
+                      "periodEnd": "2026-08-16",
+                      "label": "Aug 10",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-03",
+                      "periodEnd": "2026-08-09",
+                      "label": "Aug 3",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              },
+              {
+                "mappingId": "5d2f0c4b-49ab-44fc-aa92-f6500f53b167",
+                "metricId": 14,
+                "name": "Pulse Prompt 7 Fixture Monthly",
+                "cadence": "monthly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 40,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-01",
+                  "periodEnd": "2026-08-31",
+                  "label": "Aug 2026",
+                  "value": null,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-01",
+                    "periodEnd": "2026-08-31",
+                    "label": "Aug 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-07-01",
+                    "periodEnd": "2026-07-31",
+                    "label": "Jul 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-06-01",
+                    "periodEnd": "2026-06-30",
+                    "label": "Jun 2026",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": null,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 40,
+                  "cadence": "monthly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-01",
+                      "periodEnd": "2026-08-31",
+                      "label": "Aug 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-07-01",
+                      "periodEnd": "2026-07-31",
+                      "label": "Jul 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-06-01",
+                      "periodEnd": "2026-06-30",
+                      "label": "Jun 2026",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              },
+              {
+                "mappingId": "c2e2ebac-df0a-4ca6-9b4f-f1e19afac57e",
+                "metricId": 15,
+                "name": "Pulse Prompt 7 Fixture Quarterly",
+                "cadence": "quarterly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 10,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-07-01",
+                  "periodEnd": "2026-09-30",
+                  "label": "Q3 2026",
+                  "value": null,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-07-01",
+                    "periodEnd": "2026-09-30",
+                    "label": "Q3 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-04-01",
+                    "periodEnd": "2026-06-30",
+                    "label": "Q2 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-01-01",
+                    "periodEnd": "2026-03-31",
+                    "label": "Q1 2026",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": null,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 10,
+                  "cadence": "quarterly",
+                  "history": [
+                    {
+                      "periodStart": "2026-07-01",
+                      "periodEnd": "2026-09-30",
+                      "label": "Q3 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-04-01",
+                      "periodEnd": "2026-06-30",
+                      "label": "Q2 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-01-01",
+                      "periodEnd": "2026-03-31",
+                      "label": "Q1 2026",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "section": "goals",
+            "enabled": true,
+            "meta": {
+              "cadence": "weekly",
+              "prompt": "Review the goals this meeting owns."
+            },
+            "items": []
+          },
+          {
+            "section": "rocks",
+            "enabled": true,
+            "meta": {
+              "prompt": "Keep your rock current so the meeting can act early."
+            },
+            "items": [
+              {
+                "id": "1be4d3d6-0a90-4798-ace1-a1349fa8e4da",
+                "type": "rock",
+                "title": "Pulse Slice A rock",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "on_track",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": "Q3 2026",
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "todos",
+            "enabled": true,
+            "meta": {
+              "prompt": "Finish your next clear step."
+            },
+            "items": [
+              {
+                "id": "f837d497-f77c-42b1-936c-fac53ddf3760",
+                "type": "todo",
+                "title": "Pulse Slice A todo",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": "2026-08-31",
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "issues",
+            "enabled": true,
+            "meta": {
+              "prompt": "Name the issue that needs a decision."
+            },
+            "items": [
+              {
+                "id": "7ca0b70a-b350-467d-b91f-ef57758084ee",
+                "type": "issue",
+                "title": "Pulse Slice A issue",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": 1,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "cascading",
+            "enabled": true,
+            "meta": {
+              "prompt": "Acknowledge what this meeting needs to carry forward."
+            },
+            "items": []
+          },
+          {
+            "section": "conclude",
+            "enabled": true,
+            "meta": {
+              "prompt": "Close with the decision, rating, and next clear step."
+            },
+            "items": []
+          }
+        ],
+        "sectionFunctions": {
+          "segue": "pulse/sections/segue.ts#getSectionData",
+          "headlines": "pulse/sections/headlines.ts#getSectionData",
+          "scorecard": "pulse/sections/scorecard.ts#getSectionData",
+          "goals": "pulse/sections/goals.ts#getSectionData",
+          "rocks": "pulse/sections/rocks.ts#getSectionData",
+          "todos": "pulse/sections/todos.ts#getSectionData",
+          "issues": "pulse/sections/issues.ts#getSectionData",
+          "cascading": "pulse/sections/cascading.ts#getSectionData",
+          "conclude": "pulse/sections/conclude.ts#getSectionData"
+        },
+        "manager": {
+          "canRun": true
+        }
+      },
+      "message": ""
+    },
+    "saved": {
+      "status": 200,
+      "value": {
+        "success": true,
+        "periodStart": "2026-08-17",
+        "periodEnd": "2026-08-23"
+      },
+      "message": ""
+    },
+    "rrValues": [
+      {
+        "actualValue": "3.0000",
+        "enteredById": 1896819
+      }
+    ],
+    "afterWrite": {
+      "status": 200,
+      "value": {
+        "viewerId": 1896819,
+        "meeting": {
+          "id": "bba4663e-8639-4e51-af5b-968438204077",
+          "name": "Pulse Slice — A",
+          "dayOfWeek": "monday",
+          "startTime": "09:00",
+          "cadence": "weekly",
+          "durationMinutes": 90,
+          "sectionsEnabled": {
+            "goals": true,
+            "rocks": true,
+            "segue": true,
+            "todos": true,
+            "issues": true,
+            "conclude": true,
+            "cascading": true,
+            "headlines": true,
+            "scorecard": true
+          },
+          "sectionOrder": [
+            "segue",
+            "headlines",
+            "scorecard",
+            "goals",
+            "rocks",
+            "todos",
+            "issues",
+            "cascading",
+            "conclude"
+          ]
+        },
+        "sections": [
+          {
+            "section": "segue",
+            "enabled": true,
+            "meta": {
+              "prompt": "Share one useful thing from this week.",
+              "mineSubmitted": false
+            },
+            "items": []
+          },
+          {
+            "section": "headlines",
+            "enabled": true,
+            "meta": {
+              "prompt": "Add the headline this meeting needs to hear."
+            },
+            "items": []
+          },
+          {
+            "section": "scorecard",
+            "enabled": true,
+            "meta": {
+              "tabs": [
+                "weekly",
+                "monthly",
+                "quarterly"
+              ],
+              "configurationNotes": []
+            },
+            "items": [
+              {
+                "mappingId": "af689e96-9b49-46bf-a90c-c11b2292ee4d",
+                "metricId": 13,
+                "name": "Pulse Prompt 7 Fixture Weekly",
+                "cadence": "weekly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 5,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-17",
+                  "periodEnd": "2026-08-23",
+                  "label": "Aug 17",
+                  "value": 3,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-17",
+                    "periodEnd": "2026-08-23",
+                    "label": "Aug 17",
+                    "value": 3,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-10",
+                    "periodEnd": "2026-08-16",
+                    "label": "Aug 10",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-03",
+                    "periodEnd": "2026-08-09",
+                    "label": "Aug 3",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": false,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 5,
+                  "cadence": "weekly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-17",
+                      "periodEnd": "2026-08-23",
+                      "label": "Aug 17",
+                      "value": 3,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-10",
+                      "periodEnd": "2026-08-16",
+                      "label": "Aug 10",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-03",
+                      "periodEnd": "2026-08-09",
+                      "label": "Aug 3",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              },
+              {
+                "mappingId": "5d2f0c4b-49ab-44fc-aa92-f6500f53b167",
+                "metricId": 14,
+                "name": "Pulse Prompt 7 Fixture Monthly",
+                "cadence": "monthly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 40,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-01",
+                  "periodEnd": "2026-08-31",
+                  "label": "Aug 2026",
+                  "value": null,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-01",
+                    "periodEnd": "2026-08-31",
+                    "label": "Aug 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-07-01",
+                    "periodEnd": "2026-07-31",
+                    "label": "Jul 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-06-01",
+                    "periodEnd": "2026-06-30",
+                    "label": "Jun 2026",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": null,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 40,
+                  "cadence": "monthly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-01",
+                      "periodEnd": "2026-08-31",
+                      "label": "Aug 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-07-01",
+                      "periodEnd": "2026-07-31",
+                      "label": "Jul 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-06-01",
+                      "periodEnd": "2026-06-30",
+                      "label": "Jun 2026",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              },
+              {
+                "mappingId": "c2e2ebac-df0a-4ca6-9b4f-f1e19afac57e",
+                "metricId": 15,
+                "name": "Pulse Prompt 7 Fixture Quarterly",
+                "cadence": "quarterly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 10,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-07-01",
+                  "periodEnd": "2026-09-30",
+                  "label": "Q3 2026",
+                  "value": null,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-07-01",
+                    "periodEnd": "2026-09-30",
+                    "label": "Q3 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-04-01",
+                    "periodEnd": "2026-06-30",
+                    "label": "Q2 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-01-01",
+                    "periodEnd": "2026-03-31",
+                    "label": "Q1 2026",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": null,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 10,
+                  "cadence": "quarterly",
+                  "history": [
+                    {
+                      "periodStart": "2026-07-01",
+                      "periodEnd": "2026-09-30",
+                      "label": "Q3 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-04-01",
+                      "periodEnd": "2026-06-30",
+                      "label": "Q2 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-01-01",
+                      "periodEnd": "2026-03-31",
+                      "label": "Q1 2026",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "section": "goals",
+            "enabled": true,
+            "meta": {
+              "cadence": "weekly",
+              "prompt": "Review the goals this meeting owns."
+            },
+            "items": []
+          },
+          {
+            "section": "rocks",
+            "enabled": true,
+            "meta": {
+              "prompt": "Keep your rock current so the meeting can act early."
+            },
+            "items": [
+              {
+                "id": "1be4d3d6-0a90-4798-ace1-a1349fa8e4da",
+                "type": "rock",
+                "title": "Pulse Slice A rock",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "on_track",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": "Q3 2026",
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "todos",
+            "enabled": true,
+            "meta": {
+              "prompt": "Finish your next clear step."
+            },
+            "items": [
+              {
+                "id": "f837d497-f77c-42b1-936c-fac53ddf3760",
+                "type": "todo",
+                "title": "Pulse Slice A todo",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": "2026-08-31",
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "issues",
+            "enabled": true,
+            "meta": {
+              "prompt": "Name the issue that needs a decision."
+            },
+            "items": [
+              {
+                "id": "7ca0b70a-b350-467d-b91f-ef57758084ee",
+                "type": "issue",
+                "title": "Pulse Slice A issue",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": 1,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "cascading",
+            "enabled": true,
+            "meta": {
+              "prompt": "Acknowledge what this meeting needs to carry forward."
+            },
+            "items": []
+          },
+          {
+            "section": "conclude",
+            "enabled": true,
+            "meta": {
+              "prompt": "Close with the decision, rating, and next clear step."
+            },
+            "items": []
+          }
+        ],
+        "sectionFunctions": {
+          "segue": "pulse/sections/segue.ts#getSectionData",
+          "headlines": "pulse/sections/headlines.ts#getSectionData",
+          "scorecard": "pulse/sections/scorecard.ts#getSectionData",
+          "goals": "pulse/sections/goals.ts#getSectionData",
+          "rocks": "pulse/sections/rocks.ts#getSectionData",
+          "todos": "pulse/sections/todos.ts#getSectionData",
+          "issues": "pulse/sections/issues.ts#getSectionData",
+          "cascading": "pulse/sections/cascading.ts#getSectionData",
+          "conclude": "pulse/sections/conclude.ts#getSectionData"
+        },
+        "manager": {
+          "canRun": true
+        }
+      },
+      "message": ""
+    },
+    "secondMeeting": {
+      "status": 200,
+      "value": {
+        "viewerId": 1896822,
+        "meeting": {
+          "id": "0d6a5e33-53e2-487c-8986-625ee133b3e3",
+          "name": "Pulse Slice — B",
+          "dayOfWeek": "monday",
+          "startTime": "09:00",
+          "cadence": "weekly",
+          "durationMinutes": 90,
+          "sectionsEnabled": {
+            "goals": false,
+            "rocks": false,
+            "segue": true,
+            "todos": true,
+            "issues": true,
+            "conclude": false,
+            "cascading": false,
+            "headlines": false,
+            "scorecard": true
+          },
+          "sectionOrder": [
+            "segue",
+            "todos",
+            "issues",
+            "scorecard"
+          ]
+        },
+        "sections": [
+          {
+            "section": "segue",
+            "enabled": true,
+            "meta": {
+              "prompt": "Share one useful thing from this week.",
+              "mineSubmitted": false
+            },
+            "items": []
+          },
+          {
+            "section": "todos",
+            "enabled": true,
+            "meta": {
+              "prompt": "Finish your next clear step."
+            },
+            "items": [
+              {
+                "id": "78e6705f-de8e-4ba3-a19d-352e305a4eff",
+                "type": "todo",
+                "title": "Pulse Slice B todo",
+                "description": null,
+                "meetingId": "0d6a5e33-53e2-487c-8986-625ee133b3e3",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": "2026-08-31",
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — B",
+                "createdAt": "2026-08-21T16:45:57.000Z",
+                "updatedAt": "2026-08-21T16:45:57.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "issues",
+            "enabled": true,
+            "meta": {
+              "prompt": "Name the issue that needs a decision."
+            },
+            "items": [
+              {
+                "id": "1f4197bb-cf41-401b-a8ee-436ef6fdf0d3",
+                "type": "issue",
+                "title": "Pulse Slice B issue",
+                "description": null,
+                "meetingId": "0d6a5e33-53e2-487c-8986-625ee133b3e3",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": 1,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — B",
+                "createdAt": "2026-08-21T16:45:57.000Z",
+                "updatedAt": "2026-08-21T16:45:57.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "scorecard",
+            "enabled": true,
+            "meta": {
+              "tabs": [
+                "weekly"
+              ],
+              "configurationNotes": []
+            },
+            "items": [
+              {
+                "mappingId": "bb8c8da6-dc98-4142-973f-2476095aeac0",
+                "metricId": 13,
+                "name": "Pulse Prompt 7 Fixture Weekly",
+                "cadence": "weekly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 5,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-17",
+                  "periodEnd": "2026-08-23",
+                  "label": "Aug 17",
+                  "value": 3,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-17",
+                    "periodEnd": "2026-08-23",
+                    "label": "Aug 17",
+                    "value": 3,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-10",
+                    "periodEnd": "2026-08-16",
+                    "label": "Aug 10",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-03",
+                    "periodEnd": "2026-08-09",
+                    "label": "Aug 3",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": false,
+                "trend": null,
+                "canEdit": false,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 5,
+                  "cadence": "weekly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-17",
+                      "periodEnd": "2026-08-23",
+                      "label": "Aug 17",
+                      "value": 3,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-10",
+                      "periodEnd": "2026-08-16",
+                      "label": "Aug 10",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-03",
+                      "periodEnd": "2026-08-09",
+                      "label": "Aug 3",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "sectionFunctions": {
+          "segue": "pulse/sections/segue.ts#getSectionData",
+          "headlines": "pulse/sections/headlines.ts#getSectionData",
+          "scorecard": "pulse/sections/scorecard.ts#getSectionData",
+          "goals": "pulse/sections/goals.ts#getSectionData",
+          "rocks": "pulse/sections/rocks.ts#getSectionData",
+          "todos": "pulse/sections/todos.ts#getSectionData",
+          "issues": "pulse/sections/issues.ts#getSectionData",
+          "cascading": "pulse/sections/cascading.ts#getSectionData",
+          "conclude": "pulse/sections/conclude.ts#getSectionData"
+        },
+        "manager": {
+          "canRun": true
+        }
+      },
+      "message": ""
+    },
+    "thirdMeeting": {
+      "status": 200,
+      "value": {
+        "viewerId": 1896822,
+        "meeting": {
+          "id": "c642eda7-b8df-4ba9-806c-81789af964bc",
+          "name": "Pulse Slice — C",
+          "dayOfWeek": "monday",
+          "startTime": "09:00",
+          "cadence": "weekly",
+          "durationMinutes": 90,
+          "sectionsEnabled": {
+            "goals": false,
+            "rocks": false,
+            "segue": false,
+            "todos": true,
+            "issues": true,
+            "conclude": false,
+            "cascading": false,
+            "headlines": false,
+            "scorecard": true
+          },
+          "sectionOrder": [
+            "todos",
+            "issues",
+            "scorecard"
+          ]
+        },
+        "sections": [
+          {
+            "section": "todos",
+            "enabled": true,
+            "meta": {
+              "prompt": "Finish your next clear step."
+            },
+            "items": [
+              {
+                "id": "db2cd275-268c-4579-be15-cafbc12c78d1",
+                "type": "todo",
+                "title": "Pulse Slice C todo",
+                "description": null,
+                "meetingId": "c642eda7-b8df-4ba9-806c-81789af964bc",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": "2026-08-31",
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — C",
+                "createdAt": "2026-08-21T16:45:57.000Z",
+                "updatedAt": "2026-08-21T16:45:57.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "issues",
+            "enabled": true,
+            "meta": {
+              "prompt": "Name the issue that needs a decision."
+            },
+            "items": [
+              {
+                "id": "c0652541-2b06-42d3-a6c6-f60e1f43c038",
+                "type": "issue",
+                "title": "Pulse Slice C issue",
+                "description": null,
+                "meetingId": "c642eda7-b8df-4ba9-806c-81789af964bc",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": 1,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — C",
+                "createdAt": "2026-08-21T16:45:57.000Z",
+                "updatedAt": "2026-08-21T16:45:57.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "scorecard",
+            "enabled": true,
+            "meta": {
+              "tabs": [
+                "weekly"
+              ],
+              "configurationNotes": []
+            },
+            "items": [
+              {
+                "mappingId": "4a483039-cad0-4d5d-8cdb-595c1e4bafc0",
+                "metricId": 13,
+                "name": "Pulse Prompt 7 Fixture Weekly",
+                "cadence": "weekly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 5,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-17",
+                  "periodEnd": "2026-08-23",
+                  "label": "Aug 17",
+                  "value": 3,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-17",
+                    "periodEnd": "2026-08-23",
+                    "label": "Aug 17",
+                    "value": 3,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-10",
+                    "periodEnd": "2026-08-16",
+                    "label": "Aug 10",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-03",
+                    "periodEnd": "2026-08-09",
+                    "label": "Aug 3",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": false,
+                "trend": null,
+                "canEdit": false,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 5,
+                  "cadence": "weekly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-17",
+                      "periodEnd": "2026-08-23",
+                      "label": "Aug 17",
+                      "value": 3,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-10",
+                      "periodEnd": "2026-08-16",
+                      "label": "Aug 10",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-03",
+                      "periodEnd": "2026-08-09",
+                      "label": "Aug 3",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "sectionFunctions": {
+          "segue": "pulse/sections/segue.ts#getSectionData",
+          "headlines": "pulse/sections/headlines.ts#getSectionData",
+          "scorecard": "pulse/sections/scorecard.ts#getSectionData",
+          "goals": "pulse/sections/goals.ts#getSectionData",
+          "rocks": "pulse/sections/rocks.ts#getSectionData",
+          "todos": "pulse/sections/todos.ts#getSectionData",
+          "issues": "pulse/sections/issues.ts#getSectionData",
+          "cascading": "pulse/sections/cascading.ts#getSectionData",
+          "conclude": "pulse/sections/conclude.ts#getSectionData"
+        },
+        "manager": {
+          "canRun": true
+        }
+      },
+      "message": ""
+    },
+    "inactiveDashboard": {
+      "status": 200,
+      "value": {
+        "viewerId": 1896819,
+        "meeting": {
+          "id": "bba4663e-8639-4e51-af5b-968438204077",
+          "name": "Pulse Slice — A",
+          "dayOfWeek": "monday",
+          "startTime": "09:00",
+          "cadence": "weekly",
+          "durationMinutes": 90,
+          "sectionsEnabled": {
+            "goals": true,
+            "rocks": true,
+            "segue": true,
+            "todos": true,
+            "issues": true,
+            "conclude": true,
+            "cascading": true,
+            "headlines": true,
+            "scorecard": true
+          },
+          "sectionOrder": [
+            "segue",
+            "headlines",
+            "scorecard",
+            "goals",
+            "rocks",
+            "todos",
+            "issues",
+            "cascading",
+            "conclude"
+          ]
+        },
+        "sections": [
+          {
+            "section": "segue",
+            "enabled": true,
+            "meta": {
+              "prompt": "Share one useful thing from this week.",
+              "mineSubmitted": false
+            },
+            "items": []
+          },
+          {
+            "section": "headlines",
+            "enabled": true,
+            "meta": {
+              "prompt": "Add the headline this meeting needs to hear."
+            },
+            "items": []
+          },
+          {
+            "section": "scorecard",
+            "enabled": true,
+            "meta": {
+              "tabs": [
+                "weekly",
+                "quarterly"
+              ],
+              "configurationNotes": [
+                {
+                  "mappingId": "5d2f0c4b-49ab-44fc-aa92-f6500f53b167",
+                  "note": "“Pulse Prompt 7 Fixture Monthly” is inactive in SavvyOS and no longer appears in this meeting."
+                }
+              ]
+            },
+            "items": [
+              {
+                "mappingId": "af689e96-9b49-46bf-a90c-c11b2292ee4d",
+                "metricId": 13,
+                "name": "Pulse Prompt 7 Fixture Weekly",
+                "cadence": "weekly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 5,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-08-17",
+                  "periodEnd": "2026-08-23",
+                  "label": "Aug 17",
+                  "value": 3,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-08-17",
+                    "periodEnd": "2026-08-23",
+                    "label": "Aug 17",
+                    "value": 3,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-10",
+                    "periodEnd": "2026-08-16",
+                    "label": "Aug 10",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-08-03",
+                    "periodEnd": "2026-08-09",
+                    "label": "Aug 3",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": false,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 5,
+                  "cadence": "weekly",
+                  "history": [
+                    {
+                      "periodStart": "2026-08-17",
+                      "periodEnd": "2026-08-23",
+                      "label": "Aug 17",
+                      "value": 3,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-10",
+                      "periodEnd": "2026-08-16",
+                      "label": "Aug 10",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-08-03",
+                      "periodEnd": "2026-08-09",
+                      "label": "Aug 3",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              },
+              {
+                "mappingId": "c2e2ebac-df0a-4ca6-9b4f-f1e19afac57e",
+                "metricId": 15,
+                "name": "Pulse Prompt 7 Fixture Quarterly",
+                "cadence": "quarterly",
+                "owner": {
+                  "id": 1896819,
+                  "name": "Pulse Slice — P2"
+                },
+                "target": 10,
+                "performanceDirection": "higher",
+                "displayFormat": "number",
+                "metricType": "manual",
+                "current": {
+                  "periodStart": "2026-07-01",
+                  "periodEnd": "2026-09-30",
+                  "label": "Q3 2026",
+                  "value": null,
+                  "note": null
+                },
+                "periods": [
+                  {
+                    "periodStart": "2026-07-01",
+                    "periodEnd": "2026-09-30",
+                    "label": "Q3 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-04-01",
+                    "periodEnd": "2026-06-30",
+                    "label": "Q2 2026",
+                    "value": null,
+                    "note": null
+                  },
+                  {
+                    "periodStart": "2026-01-01",
+                    "periodEnd": "2026-03-31",
+                    "label": "Q1 2026",
+                    "value": null,
+                    "note": null
+                  }
+                ],
+                "onTarget": null,
+                "trend": null,
+                "canEdit": true,
+                "detail": {
+                  "responsibility": "Pulse Prompt 7 Fixture",
+                  "definition": "A plain-language scorecard fixture definition.",
+                  "ownerName": "Pulse Slice — P2",
+                  "target": 10,
+                  "cadence": "quarterly",
+                  "history": [
+                    {
+                      "periodStart": "2026-07-01",
+                      "periodEnd": "2026-09-30",
+                      "label": "Q3 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-04-01",
+                      "periodEnd": "2026-06-30",
+                      "label": "Q2 2026",
+                      "value": null,
+                      "note": null
+                    },
+                    {
+                      "periodStart": "2026-01-01",
+                      "periodEnd": "2026-03-31",
+                      "label": "Q1 2026",
+                      "value": null,
+                      "note": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "section": "goals",
+            "enabled": true,
+            "meta": {
+              "cadence": "weekly",
+              "prompt": "Review the goals this meeting owns."
+            },
+            "items": []
+          },
+          {
+            "section": "rocks",
+            "enabled": true,
+            "meta": {
+              "prompt": "Keep your rock current so the meeting can act early."
+            },
+            "items": [
+              {
+                "id": "1be4d3d6-0a90-4798-ace1-a1349fa8e4da",
+                "type": "rock",
+                "title": "Pulse Slice A rock",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "on_track",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": "Q3 2026",
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "todos",
+            "enabled": true,
+            "meta": {
+              "prompt": "Finish your next clear step."
+            },
+            "items": [
+              {
+                "id": "f837d497-f77c-42b1-936c-fac53ddf3760",
+                "type": "todo",
+                "title": "Pulse Slice A todo",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": "2026-08-31",
+                "carriedOverCount": 0,
+                "priority": null,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "issues",
+            "enabled": true,
+            "meta": {
+              "prompt": "Name the issue that needs a decision."
+            },
+            "items": [
+              {
+                "id": "7ca0b70a-b350-467d-b91f-ef57758084ee",
+                "type": "issue",
+                "title": "Pulse Slice A issue",
+                "description": null,
+                "meetingId": "bba4663e-8639-4e51-af5b-968438204077",
+                "ownerPersonId": null,
+                "assigneeId": 1896819,
+                "assigneeName": "Pulse Slice — P2",
+                "status": "open",
+                "dueDate": null,
+                "carriedOverCount": 0,
+                "priority": 1,
+                "solvedNote": null,
+                "quarter": null,
+                "percentComplete": 0,
+                "percentSource": "manual",
+                "sortOrder": 0,
+                "meetingName": "Pulse Slice — A",
+                "createdAt": "2026-08-21T16:45:56.000Z",
+                "updatedAt": "2026-08-21T16:45:56.000Z",
+                "isOverdue": false
+              }
+            ]
+          },
+          {
+            "section": "cascading",
+            "enabled": true,
+            "meta": {
+              "prompt": "Acknowledge what this meeting needs to carry forward."
+            },
+            "items": []
+          },
+          {
+            "section": "conclude",
+            "enabled": true,
+            "meta": {
+              "prompt": "Close with the decision, rating, and next clear step."
+            },
+            "items": []
+          }
+        ],
+        "sectionFunctions": {
+          "segue": "pulse/sections/segue.ts#getSectionData",
+          "headlines": "pulse/sections/headlines.ts#getSectionData",
+          "scorecard": "pulse/sections/scorecard.ts#getSectionData",
+          "goals": "pulse/sections/goals.ts#getSectionData",
+          "rocks": "pulse/sections/rocks.ts#getSectionData",
+          "todos": "pulse/sections/todos.ts#getSectionData",
+          "issues": "pulse/sections/issues.ts#getSectionData",
+          "cascading": "pulse/sections/cascading.ts#getSectionData",
+          "conclude": "pulse/sections/conclude.ts#getSectionData"
+        },
+        "manager": {
+          "canRun": true
+        }
+      },
+      "message": ""
+    },
+    "config": {
+      "status": 200,
+      "value": {
+        "mapped": [
+          {
+            "mappingId": "af689e96-9b49-46bf-a90c-c11b2292ee4d",
+            "metricId": 13,
+            "name": "Pulse Prompt 7 Fixture Weekly",
+            "status": "active",
+            "sortOrder": 0
+          },
+          {
+            "mappingId": "5d2f0c4b-49ab-44fc-aa92-f6500f53b167",
+            "metricId": 14,
+            "name": "Pulse Prompt 7 Fixture Monthly",
+            "status": "inactive",
+            "sortOrder": 1
+          },
+          {
+            "mappingId": "c2e2ebac-df0a-4ca6-9b4f-f1e19afac57e",
+            "metricId": 15,
+            "name": "Pulse Prompt 7 Fixture Quarterly",
+            "status": "active",
+            "sortOrder": 2
+          }
+        ],
+        "available": [
+          {
+            "id": 15,
+            "name": "Pulse Prompt 7 Fixture Quarterly",
+            "frequency": "quarterly",
+            "ownerName": "Pulse Slice — P2",
+            "responsibilityTitle": "Pulse Prompt 7 Fixture"
+          },
+          {
+            "id": 13,
+            "name": "Pulse Prompt 7 Fixture Weekly",
+            "frequency": "weekly",
+            "ownerName": "Pulse Slice — P2",
+            "responsibilityTitle": "Pulse Prompt 7 Fixture"
+          }
+        ]
+      },
+      "message": ""
+    },
+    "ownerMembershipInThirdMeeting": []
+  },
+  "acceptance": {
+    "onlyMappingTableInPulseSchema": {
+      "pass": true
+    },
+    "pulseWritesSavvyOsOnly": {
+      "pass": true
+    },
+    "failedWriteIsPlainAndReverts": {
+      "pass": true
+    },
+    "oneMetricThreeMeetingsOneOwnerOneValue": {
+      "pass": true
+    },
+    "metricOwnerNeedNotBeMeetingMember": {
+      "pass": true
+    },
+    "cadenceTabsArePresentAndLocal": {
+      "pass": true
+    },
+    "inactiveMetricDisappearsWithConfigurationNote": {
+      "pass": true
+    },
+    "phoneStackedNumericInput": {
+      "pass": true
+    }
+  }
+}

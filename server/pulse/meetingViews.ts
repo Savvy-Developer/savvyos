@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { pulseCascadingMessages, pulseMeetingUpdates, pulseMeetingsArchive, pulseScorecardEntries, pulseScorecardMetrics } from "../../drizzle/schema";
+import { pulseCascadingMessages, pulseMeetingUpdates, pulseMeetingsArchive } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
@@ -10,7 +10,6 @@ import { getMeetingSectionPayloads, PULSE_SECTION_FUNCTIONS } from "./sections";
 const meetingId = z.string().uuid();
 const uuid = () => crypto.randomUUID();
 function unavailable() { return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." }); }
-function startOfWeek() { const d = new Date(); const day = d.getDay(); d.setDate(d.getDate() - ((day + 6) % 7)); d.setHours(0, 0, 0, 0); return d; }
 
 async function dashboardPayload(db: any, viewerId: number, id: string) {
   const { meeting, sections } = await getMeetingSectionPayloads(db, viewerId, id);
@@ -38,13 +37,6 @@ export const pulseMeetingViewsRouter = router({
   addUpdate: protectedProcedure.input(z.object({ meetingId, updateType: z.enum(["segue", "headline"]), body: z.string().trim().min(1).max(4000) })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable(); await require_visible_meeting(db, ctx.user.id, input.meetingId);
     await db.insert(pulseMeetingUpdates).values({ id: uuid(), meetingId: input.meetingId, authorId: ctx.user.id, updateType: input.updateType, body: input.body }); return { success: true };
-  }),
-  setScorecardValue: protectedProcedure.input(z.object({ metricId: z.string().uuid(), value: z.number().int().min(-1000000).max(1000000) })).mutation(async ({ ctx, input }) => {
-    const db = await getDb(); if (!db) throw unavailable();
-    const [metric] = await db.select().from(pulseScorecardMetrics).where(and(eq(pulseScorecardMetrics.id, input.metricId), isNull(pulseScorecardMetrics.deletedAt))).limit(1);
-    if (!metric) throw new TRPCError({ code: "NOT_FOUND", message: "That number is no longer available." }); await require_visible_meeting(db, ctx.user.id, metric.meetingId);
-    const periodStart = startOfWeek();
-    await db.insert(pulseScorecardEntries).values({ id: uuid(), metricId: metric.id, personId: ctx.user.id, periodStart, value: input.value }).onDuplicateKeyUpdate({ set: { value: input.value, deletedAt: null } }); return { success: true };
   }),
   acknowledgeCascade: protectedProcedure.input(z.object({ messageId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();

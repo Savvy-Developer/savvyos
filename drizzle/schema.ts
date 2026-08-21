@@ -3464,32 +3464,22 @@ export const pulseGlossary = mysqlTable("pulse_glossary", {
 ]);
 export type PulseGlossary = typeof pulseGlossary.$inferSelect;
 
-// Prompt 3 stores only the small records needed by the meeting dashboard. The
-// meeting remains the sole access boundary for every one of these records.
-export const pulseScorecardMetrics = mysqlTable("pulse_scorecard_metrics", {
+// Prompt 7: Pulse owns only display placement. Metric definitions, ownership,
+// targets, cadence, observations, and every value remain in SavvyOS R&R.
+// A nullable FK lets configuration explain that a master metric was deleted;
+// inactive metrics stay linked but never render in a meeting scorecard.
+export const pulseMeetingScorecardMetrics = mysqlTable("meeting_scorecard_metrics", {
   id: varchar("id", { length: 36 }).primaryKey(),
   meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
-  title: varchar("title", { length: 255 }).notNull(),
-  targetValue: int("targetValue"),
-  ownerId: int("ownerId").references(() => users.id, { onDelete: "set null" }),
+  savvyosMetricId: int("savvyosMetricId").references(() => rrScorecardMetrics.id, { onDelete: "set null" }),
   sortOrder: int("sortOrder").default(0).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  deletedAt: timestamp("deletedAt"),
-}, (table) => [index("pulse_scorecard_metric_meeting_idx").on(table.meetingId, table.deletedAt, table.sortOrder)]);
-export type PulseScorecardMetric = typeof pulseScorecardMetrics.$inferSelect;
-
-export const pulseScorecardEntries = mysqlTable("pulse_scorecard_entries", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  metricId: varchar("metricId", { length: 36 }).notNull().references(() => pulseScorecardMetrics.id, { onDelete: "cascade" }),
-  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  periodStart: date("periodStart").notNull(),
-  value: int("value").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  deletedAt: timestamp("deletedAt"),
-}, (table) => [uniqueIndex("pulse_scorecard_entry_period_unique").on(table.metricId, table.personId, table.periodStart), index("pulse_scorecard_entry_metric_idx").on(table.metricId, table.periodStart, table.deletedAt)]);
-export type PulseScorecardEntry = typeof pulseScorecardEntries.$inferSelect;
+  addedById: int("addedById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  addedAt: timestamp("addedAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("meeting_scorecard_metric_unique").on(table.meetingId, table.savvyosMetricId),
+  index("meeting_scorecard_metric_meeting_idx").on(table.meetingId, table.sortOrder),
+]);
+export type PulseMeetingScorecardMetric = typeof pulseMeetingScorecardMetrics.$inferSelect;
 
 export const pulseMeetingUpdates = mysqlTable("pulse_meeting_updates", {
   id: varchar("id", { length: 36 }).primaryKey(),

@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
-import { pulseMeetingUpdates, pulseScorecardEntries, pulseScorecardMetrics, users } from "../../../drizzle/schema";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { pulseMeetingUpdates, users } from "../../../drizzle/schema";
 import { require_visible_meeting } from "../access";
 import { getMeetingCascadePayloads } from "../cascadePayload";
 import { listAccessibleItems } from "../workItems";
+import { getMeetingScorecard } from "../scorecard";
 
 export type SectionKey = "segue" | "headlines" | "scorecard" | "goals" | "rocks" | "todos" | "issues" | "cascading" | "conclude";
 export type SectionContext = { db: any; viewerId: number; meeting: any };
@@ -26,10 +27,7 @@ export async function meetingUpdates(ctx: SectionContext, updateType: "segue" | 
 }
 
 export async function scorecard(ctx: SectionContext) {
-  const rows = await ctx.db.select({ id: pulseScorecardMetrics.id, title: pulseScorecardMetrics.title, targetValue: pulseScorecardMetrics.targetValue, ownerId: pulseScorecardMetrics.ownerId, sortOrder: pulseScorecardMetrics.sortOrder, value: pulseScorecardEntries.value, entryPersonId: pulseScorecardEntries.personId, entryId: pulseScorecardEntries.id })
-    .from(pulseScorecardMetrics).leftJoin(pulseScorecardEntries, and(eq(pulseScorecardEntries.metricId, pulseScorecardMetrics.id), eq(pulseScorecardEntries.personId, ctx.viewerId), isNull(pulseScorecardEntries.deletedAt)))
-    .where(and(eq(pulseScorecardMetrics.meetingId, ctx.meeting.id), isNull(pulseScorecardMetrics.deletedAt))).orderBy(asc(pulseScorecardMetrics.sortOrder));
-  return rows;
+  return getMeetingScorecard(ctx.db, ctx.viewerId, ctx.meeting.id);
 }
 
 export async function cascades(ctx: SectionContext) {
