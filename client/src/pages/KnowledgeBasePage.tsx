@@ -92,10 +92,11 @@ function parseRoles(visibleToRoles: string): string[] {
   return visibleToRoles.split(",").map((r) => r.trim()).filter(Boolean);
 }
 
-function buildRolesString(roles: { admin: boolean; agent: boolean; isa: boolean }): string {
+function buildRolesString(roles: { admin: boolean; agent: boolean; isa: boolean; agentSupport: boolean }): string {
   const arr = ["admin"];
   if (roles.agent) arr.push("agent");
   if (roles.isa) arr.push("isa");
+  if (roles.agentSupport) arr.push("agent_support");
   return arr.join(",");
 }
 
@@ -118,7 +119,12 @@ function CategoryDialog({
   const [sortOrder, setSortOrder] = useState(existing?.sortOrder ?? 0);
   const [catRoles, setCatRoles] = useState(() => {
     const r = parseRoles(existing?.visibleToRoles ?? "admin,agent,isa");
-    return { admin: true, agent: r.includes("agent"), isa: r.includes("isa") };
+    return {
+      admin: true,
+      agent: r.includes("agent"),
+      isa: r.includes("isa"),
+      agentSupport: r.includes("agent_support"),
+    };
   });
 
   const utils = trpc.useUtils();
@@ -197,6 +203,14 @@ function CategoryDialog({
                 />
                 <label htmlFor="cat-role-isa" className="text-sm">ISA</label>
               </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="cat-role-agent-support"
+                  checked={catRoles.agentSupport}
+                  onCheckedChange={(c) => setCatRoles((r) => ({ ...r, agentSupport: !!c }))}
+                />
+                <label htmlFor="cat-role-agent-support" className="text-sm">Agent Support</label>
+              </div>
             </div>
             <p className="text-xs text-muted-foreground">Controls which roles can see this category and its articles.</p>
           </div>
@@ -233,7 +247,12 @@ function ArticleEditorDialog({
   const [sortOrder, setSortOrder] = useState(existing?.sortOrder ?? 0);
   const [roles, setRoles] = useState(() => {
     const r = parseRoles(existing?.visibleToRoles ?? "admin");
-    return { admin: true, agent: r.includes("agent"), isa: r.includes("isa") };
+    return {
+      admin: true,
+      agent: r.includes("agent"),
+      isa: r.includes("isa"),
+      agentSupport: r.includes("agent_support"),
+    };
   });
   const utils = trpc.useUtils();
   const create = trpc.kb.createArticle.useMutation({
@@ -303,6 +322,14 @@ function ArticleEditorDialog({
                   onCheckedChange={(c) => setRoles((r) => ({ ...r, isa: !!c }))}
                 />
                 <label htmlFor="role-isa" className="text-sm">ISA</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="role-agent-support"
+                  checked={roles.agentSupport}
+                  onCheckedChange={(c) => setRoles((r) => ({ ...r, agentSupport: !!c }))}
+                />
+                <label htmlFor="role-agent-support" className="text-sm">Agent Support</label>
               </div>
             </div>
           </div>
@@ -391,7 +418,7 @@ function ArticleDetail({
                   <><Circle className="h-3 w-3 mr-1" />Draft</>
                 )}
               </Badge>
-              {roles.includes("agent") || roles.includes("isa") ? (
+              {roles.includes("agent") || roles.includes("isa") || roles.includes("agent_support") ? (
                 <Badge variant="outline" className="text-xs">
                   <Globe className="h-3 w-3 mr-1" />
                   Visible to: {roles.filter((r) => r !== "admin").join(", ")}
@@ -662,7 +689,7 @@ export default function KnowledgeBasePage() {
                   <div className="divide-y">
                     {displayArticles.map((article) => {
                       const roles = parseRoles(article.visibleToRoles);
-                      const isPublic = roles.includes("agent") || roles.includes("isa");
+                      const isPublic = roles.includes("agent") || roles.includes("isa") || roles.includes("agent_support");
                       return (
                         <div
                           key={article.id}
@@ -736,7 +763,7 @@ export default function KnowledgeBasePage() {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       const r = parseRoles(article.visibleToRoles);
-                                      const allRoles = "admin,agent,isa";
+                                      const allRoles = "admin,agent,isa,agent_support";
                                       const adminOnly = "admin";
                                       setVisibility.mutate({
                                         id: article.id,

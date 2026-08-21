@@ -30,6 +30,7 @@ import { registerAircallWebhook } from "../aircallWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
+import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -218,6 +219,11 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Canonical role-specific training guides are safely created or refreshed on startup.
+  ensureSavvyOSTrainingGuides().catch((err) =>
+    console.error("[TrainingGuides] Publication failed:", err)
+  );
 
   // Smart Plan scheduler: process drip steps and a bounded batch of one-time sends every 5 minutes.
   setInterval(() => {

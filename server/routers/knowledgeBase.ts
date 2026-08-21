@@ -16,9 +16,8 @@ function requireAdmin(role: string) {
 function canViewArticle(visibleToRoles: string, userRole: string): boolean {
   if (userRole === "admin") return true;
   const roles = visibleToRoles.split(",").map((r) => r.trim());
-  // agent_support gets the same KB visibility as agent
-  const effectiveRole = userRole === "agent_support" ? "agent" : userRole;
-  return roles.includes(effectiveRole);
+  // Agent Support can receive dedicated content and retains access to agent-facing references.
+  return roles.includes(userRole) || (userRole === "agent_support" && roles.includes("agent"));
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -34,7 +33,25 @@ export const knowledgeBaseRouter = router({
       .select()
       .from(kbCategories)
       .orderBy(asc(kbCategories.sortOrder), asc(kbCategories.name));
-    return cats;
+    if (ctx.user.role === "admin") return cats;
+
+    const articles = await db
+      .select({
+        categoryId: kbArticles.categoryId,
+        visibleToRoles: kbArticles.visibleToRoles,
+        status: kbArticles.status,
+      })
+      .from(kbArticles);
+
+    return cats.filter((category) =>
+      canViewArticle(category.visibleToRoles, ctx.user.role) &&
+      articles.some(
+        (article) =>
+          article.categoryId === category.id &&
+          article.status === "published" &&
+          canViewArticle(article.visibleToRoles, ctx.user.role)
+      )
+    );
   }),
 
   createCategory: protectedProcedure
@@ -99,6 +116,15 @@ export const knowledgeBaseRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return [];
+      const [category] = await db
+        .select({ visibleToRoles: kbCategories.visibleToRoles })
+        .from(kbCategories)
+        .where(eq(kbCategories.id, input.categoryId));
+      if (!category) return [];
+      if (ctx.user.role !== "admin" && !canViewArticle(category.visibleToRoles, ctx.user.role)) {
+        return [];
+      }
+
       const all = await db
         .select({
           id: kbArticles.id,
@@ -136,8 +162,14 @@ export const knowledgeBaseRouter = router({
       if (!article) throw new TRPCError({ code: "NOT_FOUND" });
 
       if (ctx.user.role !== "admin") {
+        const [category] = await db
+          .select({ visibleToRoles: kbCategories.visibleToRoles })
+          .from(kbCategories)
+          .where(eq(kbCategories.id, article.categoryId));
         if (
+          !category ||
           article.status !== "published" ||
+          !canViewArticle(category.visibleToRoles, ctx.user.role) ||
           !canViewArticle(article.visibleToRoles, ctx.user.role)
         ) {
           throw new TRPCError({ code: "FORBIDDEN" });
@@ -306,9 +338,19 @@ Rules:
       const filtered = all.filter((a) => a.title.toLowerCase().includes(q));
 
       if (ctx.user.role === "admin") return filtered;
-      return filtered.filter(
-        (a) =>
-          a.status === "published" && canViewArticle(a.visibleToRoles, ctx.user.role)
-      );
+
+      const categories = await db
+        .select({ id: kbCategories.id, visibleToRoles: kbCategories.visibleToRoles })
+        .from(kbCategories);
+      const categoriesById = new Map(categories.map((category) => [category.id, category]));
+      return filtered.filter((a) => {
+        const category = categoriesById.get(a.categoryId);
+        return Boolean(
+          category &&
+          a.status === "published" &&
+          canViewArticle(category.visibleToRoles, ctx.user.role) &&
+          canViewArticle(a.visibleToRoles, ctx.user.role)
+        );
+      });
     }),
 });
