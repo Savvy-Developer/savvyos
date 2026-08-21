@@ -54,6 +54,7 @@ export default function AgentConnectionDetail() {
   const [addCommDialog, setAddCommDialog] = useState(false);
   const [postCommStagePrompt, setPostCommStagePrompt] = useState(false);
   const [addTaskDialog, setAddTaskDialog] = useState(false);
+  const [isFollowUpMode, setIsFollowUpMode] = useState(false);
   const [sendEmailOpen, setSendEmailOpen] = useState(false);
   const [uploadDocDialog, setUploadDocDialog] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -114,6 +115,7 @@ export default function AgentConnectionDetail() {
       utils.tasks.list.invalidate();
       toast.success("Task created");
       setAddTaskDialog(false);
+      setIsFollowUpMode(false);
       setTaskForm({ title: "", taskType: "follow_up", priority: "medium", dueDate: "", notes: "" });
     },
     onError: (e) => toast.error(e.message),
@@ -203,6 +205,19 @@ export default function AgentConnectionDetail() {
     && !contact?.doNotContact,
   );
 
+  const openFollowUpScheduler = () => {
+    const contactName = [conn?.contact?.firstName, conn?.contact?.lastName].filter(Boolean).join(" ") || "client";
+    setTaskForm({
+      title: `Follow up with ${contactName}`,
+      taskType: "follow_up",
+      priority: "medium",
+      dueDate: connection?.followUpDate ? safeFormat(connection.followUpDate, "yyyy-MM-dd") : "",
+      notes: "",
+    });
+    setIsFollowUpMode(true);
+    setAddTaskDialog(true);
+  };
+
   const handleSaveBuyBox = () => {
     // Empty form fields come through as "" — convert to null, and parse the
     // numeric fields, so we never send "" to a number/decimal column or to a
@@ -288,6 +303,9 @@ export default function AgentConnectionDetail() {
           </p>
         </div>
         <Badge className={`${stage?.color} border-0 text-sm px-3 py-1`}>{stage?.label ?? connection.pipelineStatus}</Badge>
+        <Button variant="outline" size="sm" onClick={openFollowUpScheduler}>
+          <Calendar className="h-4 w-4 mr-1" /> Schedule Follow-Up
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -564,8 +582,11 @@ export default function AgentConnectionDetail() {
 
             {/* Tasks Tab */}
             <TabsContent value="tasks" className="space-y-3">
-              <div className="flex justify-end">
-                <Button size="sm" onClick={() => setAddTaskDialog(true)}>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" onClick={openFollowUpScheduler}>
+                  <Calendar className="h-4 w-4 mr-1" /> Schedule Follow-Up
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => { setIsFollowUpMode(false); setAddTaskDialog(true); }}>
                   <Plus className="h-4 w-4 mr-1" /> Add Task
                 </Button>
               </div>
@@ -929,9 +950,9 @@ export default function AgentConnectionDetail() {
       </Dialog>
 
       {/* Add Task Dialog */}
-      <Dialog open={addTaskDialog} onOpenChange={setAddTaskDialog}>
+      <Dialog open={addTaskDialog} onOpenChange={(open) => { setAddTaskDialog(open); if (!open) setIsFollowUpMode(false); }}>
         <DialogContent className="max-w-md w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Task</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{isFollowUpMode ? "Schedule Follow-Up" : "Add Task"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div>
               <Label>Task Title</Label>
@@ -992,7 +1013,7 @@ export default function AgentConnectionDetail() {
               })}
               disabled={!taskForm.title || addTask.isPending}
             >
-              {addTask.isPending ? "Creating..." : "Create Task"}
+              {addTask.isPending ? "Creating..." : isFollowUpMode ? "Schedule Follow-Up" : "Create Task"}
             </Button>
           </DialogFooter>
         </DialogContent>

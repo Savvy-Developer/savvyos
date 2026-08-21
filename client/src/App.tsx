@@ -47,6 +47,7 @@ import SmartPlanEditorPage from "./pages/SmartPlanEditorPage";
 import EmailTestPage from "./pages/EmailTestPage";
 import MarketsPage from "./pages/MarketsPage";
 import OrgChartPage from "./pages/OrgChartPage";
+import AgentDirectoryPage from "./pages/AgentDirectoryPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
 import MarketPerformancePage from "./pages/MarketPerformancePage";
 import TransactionReportingPage from "./pages/TransactionReportingPage";
@@ -273,6 +274,7 @@ function Router() {
           <Route path="/referrals/:id">{() => <AdminOrIsaRoute><ReferralDetailPage /></AdminOrIsaRoute>}</Route>
           <Route path="/my-onboarding" component={MyOnboardingPage} />
           <Route path="/org-chart" component={OrgChartPage} />
+          <Route path="/agent-directory" component={AgentDirectoryPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
           <Route path="/pulse/slice" component={PulseThinSlicePage} />

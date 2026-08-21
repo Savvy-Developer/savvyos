@@ -40,7 +40,7 @@ export const communicationsRouter = router({
 
       // Reset the stale/aging clock when an agent logs activity on a connection
       if (ctx.user.role === "agent" && input.relatedAgentConnectionId) {
-        try { await resetLeadAgingByConnectionId(input.relatedAgentConnectionId); } catch (_) {}
+        try { await resetLeadAgingByConnectionId(input.relatedAgentConnectionId, ctx.user.id); } catch (_) {}
       }
 
       return { id };
@@ -77,6 +77,11 @@ export const communicationsRouter = router({
           editedById: ctx.user.id,
         })
         .where(eq(communications.id, input.id));
+
+      // Editing an agent-authored connection note is meaningful lead work too.
+      if (ctx.user.role === "agent" && existing.relatedAgentConnectionId) {
+        try { await resetLeadAgingByConnectionId(existing.relatedAgentConnectionId, ctx.user.id); } catch (_) {}
+      }
       return { success: true };
     }),
 

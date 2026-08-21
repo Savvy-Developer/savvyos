@@ -1194,6 +1194,11 @@ export const agentProfiles = mysqlTable("agent_profiles", {
   googleBusinessUrl: varchar("googleBusinessUrl", { length: 512 }),
   // Agent-Specific Operations
   agentStatus: mysqlEnum("agentStatus", ["active", "paused", "recruiting", "offboarded"]).default("active"),
+  // Agent Directory metadata. Multi-value fields are stored as comma-separated
+  // values so admins can maintain them without a separate taxonomy table.
+  directorySpecialties: text("directorySpecialties"),
+  directoryLanguages: text("directoryLanguages"),
+  directoryProductionLevel: mysqlEnum("directoryProductionLevel", ["emerging", "growing", "established", "elite"]),
   startDateWithSavvy: timestamp("startDateWithSavvy"),
   endDateWithSavvy: timestamp("endDateWithSavvy"),
   boardAssociation: varchar("boardAssociation", { length: 255 }),

@@ -22,6 +22,7 @@ import {
   isaProfiles,
   adminProfiles,
   marketProfiles,
+  marketAgentAssignments,
   groups,
   groupMembers,
   activityLog,
@@ -128,6 +129,9 @@ const agentProfileSchema = z.object({
   personalWebsiteUrl: z.string().optional().nullable(),
   googleBusinessUrl: z.string().optional().nullable(),
   agentStatus: z.enum(["active", "paused", "recruiting", "offboarded"]).optional().nullable(),
+  directorySpecialties: z.string().max(2_000).optional().nullable(),
+  directoryLanguages: z.string().max(2_000).optional().nullable(),
+  directoryProductionLevel: z.enum(["emerging", "growing", "established", "elite"]).optional().nullable(),
   startDateWithSavvy: z.string().optional().nullable(),
   endDateWithSavvy: z.string().optional().nullable(),
   boardAssociation: z.string().optional().nullable(),
@@ -723,6 +727,108 @@ export const usersRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await db.delete(userDocuments).where(eq(userDocuments.id, input.documentId));
       return { success: true };
+    }),
+
+  // Agent Directory — collaboration-focused data available to all authenticated users.
+  // It intentionally excludes HR, licensing, internal notes, and other private
+  // profile fields while making agent-to-agent contact easy.
+  agentDirectory: protectedProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const allUsers = (await getAllUsers() as any[])
+        .filter((user) => user.role === "agent" && user.isActive !== false);
+      if (allUsers.length === 0) return [];
+      const agentIds = allUsers.map((user) => user.id as number);
+
+      const [coreRows, profileRows, assignmentRows, membershipRows, leaderRows] = await Promise.all([
+        db.select({
+          userId: userProfiles.userId,
+          profilePhotoUrl: userProfiles.profilePhotoUrl,
+          primaryPhone: userProfiles.primaryPhone,
+        }).from(userProfiles).where(inArray(userProfiles.userId, agentIds)),
+        db.select({
+          userId: agentProfiles.userId,
+          agentStatus: agentProfiles.agentStatus,
+          bio: agentProfiles.bio,
+          directorySpecialties: agentProfiles.directorySpecialties,
+          directoryLanguages: agentProfiles.directoryLanguages,
+          directoryProductionLevel: agentProfiles.directoryProductionLevel,
+        }).from(agentProfiles).where(inArray(agentProfiles.userId, agentIds)),
+        db.select({
+          agentId: marketAgentAssignments.agentId,
+          marketId: marketProfiles.id,
+          marketName: marketProfiles.name,
+          marketState: marketProfiles.state,
+          isPrimary: marketAgentAssignments.isPrimary,
+          isAvailable: marketAgentAssignments.isAvailable,
+        }).from(marketAgentAssignments)
+          .innerJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
+          .where(inArray(marketAgentAssignments.agentId, agentIds)),
+        db.select({ userId: groupMembers.userId, groupName: groups.name })
+          .from(groupMembers)
+          .innerJoin(groups, eq(groupMembers.groupId, groups.id))
+          .where(inArray(groupMembers.userId, agentIds)),
+        db.select({ leaderId: groups.leaderId, groupName: groups.name })
+          .from(groups)
+          .where(inArray(groups.leaderId, agentIds)),
+      ]);
+
+      const splitValues = (value: string | null) => Array.from(new Set(
+        (value ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+      ));
+      const coreByUser = new Map(coreRows.map((row) => [row.userId, row]));
+      const profileByUser = new Map(profileRows.map((row) => [row.userId, row]));
+      const marketsByAgent = new Map<number, any[]>();
+      for (const row of assignmentRows) {
+        const entries = marketsByAgent.get(row.agentId) ?? [];
+        entries.push({
+          id: row.marketId,
+          name: row.marketName,
+          state: row.marketState,
+          isPrimary: Boolean(row.isPrimary),
+          isAvailable: Boolean(row.isAvailable),
+        });
+        marketsByAgent.set(row.agentId, entries);
+      }
+      // Retain the legacy primary-market relationship as a fallback where an
+      // agent has not yet been added to the market assignment table.
+      const marketRows = await db.select({ id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state }).from(marketProfiles);
+      const marketById = new Map(marketRows.map((row) => [row.id, row]));
+      const teamsByAgent = new Map<number, string[]>();
+      for (const row of [...membershipRows, ...leaderRows.filter((row) => row.leaderId != null).map((row) => ({ userId: row.leaderId!, groupName: row.groupName }))]) {
+        const teams = teamsByAgent.get(row.userId) ?? [];
+        if (!teams.includes(row.groupName)) teams.push(row.groupName);
+        teamsByAgent.set(row.userId, teams);
+      }
+
+      return allUsers.map((user) => {
+        const core = coreByUser.get(user.id);
+        const profile = profileByUser.get(user.id);
+        const assignedMarkets = marketsByAgent.get(user.id) ?? [];
+        const fallbackMarket = assignedMarkets.length === 0 && user.marketProfileId
+          ? marketById.get(user.marketProfileId)
+          : null;
+        const markets = fallbackMarket
+          ? [{ id: fallbackMarket.id, name: fallbackMarket.name, state: fallbackMarket.state, isPrimary: true, isAvailable: true }]
+          : assignedMarkets;
+        return {
+          id: user.id,
+          name: user.name ?? null,
+          email: user.email ?? null,
+          phone: user.phone ?? core?.primaryPhone ?? null,
+          title: user.title ?? null,
+          profilePhotoUrl: core?.profilePhotoUrl ?? null,
+          agentStatus: profile?.agentStatus ?? "active",
+          specialties: splitValues(profile?.directorySpecialties ?? null),
+          languages: splitValues(profile?.directoryLanguages ?? null),
+          productionLevel: profile?.directoryProductionLevel ?? null,
+          bio: profile?.bio ?? null,
+          teams: teamsByAgent.get(user.id) ?? [],
+          markets,
+        };
+      });
     }),
 
   // Org chart — accessible by all authenticated users (agents, ISAs, admins)

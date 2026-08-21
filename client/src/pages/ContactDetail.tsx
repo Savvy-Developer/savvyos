@@ -1943,18 +1943,21 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             </div>
             <div>
               <Label>Assigned To</Label>
-              <Select
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={[
+                  { value: "unassigned", label: "Unassigned" },
+                  ...([...(agents as any[]), ...(isas as any[])]).map((u: any) => ({
+                    value: String(u.id),
+                    label: u.name ?? `User #${u.id}`,
+                    description: u.role,
+                  })),
+                ]}
                 value={addTaskForm.assignedToId || "unassigned"}
                 onValueChange={v => setAddTaskForm(f => ({ ...f, assignedToId: v === "unassigned" ? "" : v }))}
-              >
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select person..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {([...(agents as any[]), ...(isas as any[])]).map((u: any) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name} ({u.role})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Select person…"
+                searchPlaceholder="Search agents and ISAs…"
+              />
             </div>
           </div>
           <DialogFooter>
@@ -2036,18 +2039,21 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             </div>
             <div>
               <Label>Assigned To</Label>
-              <Select
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={[
+                  { value: "unassigned", label: "Unassigned" },
+                  ...([...(agents as any[]), ...(isas as any[])]).map((u: any) => ({
+                    value: String(u.id),
+                    label: u.name ?? `User #${u.id}`,
+                    description: u.role,
+                  })),
+                ]}
                 value={editTaskForm.assignedToId || "unassigned"}
                 onValueChange={v => setEditTaskForm(f => ({ ...f, assignedToId: v === "unassigned" ? "" : v }))}
-              >
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select person..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {([...(agents as any[]), ...(isas as any[])]).map((u: any) => (
-                    <SelectItem key={u.id} value={String(u.id)}>{u.name} ({u.role})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Select person…"
+                searchPlaceholder="Search agents and ISAs…"
+              />
             </div>
             {editingTask?.task?.createdAt && (
               <p className="text-xs text-muted-foreground">
@@ -2074,14 +2080,20 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
           <div className="space-y-3 py-2">
             <div>
               <Label>Property</Label>
-              <Select value={linkPropertyId || "none"} onValueChange={v => setLinkPropertyId(v === "none" ? "" : v)}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select property..." /></SelectTrigger>
-                <SelectContent>
-                  {(allProperties as any[]).map((p: any) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.address}{p.city ? `, ${p.city}` : ""}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={(allProperties as any[]).map((p: any) => ({
+                  value: String(p.id),
+                  label: `${p.address ?? "Property address not set"}${p.city ? `, ${p.city}` : ""}`,
+                  description: [p.state, p.zip].filter(Boolean).join(" ") || undefined,
+                }))}
+                value={linkPropertyId || ""}
+                onValueChange={setLinkPropertyId}
+                placeholder="Select property…"
+                searchPlaceholder="Search address, city, or ZIP…"
+                emptyText="No matching properties found."
+                clearable
+              />
             </div>
             <div>
               <Label>Label</Label>

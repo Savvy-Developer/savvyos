@@ -149,7 +149,7 @@ export const tasksRouter = router({
 
       // Reset the stale/aging clock when an agent creates a task on a connection
       if (ctx.user.role === "agent" && input.relatedAgentConnectionId) {
-        try { await resetLeadAgingByConnectionId(input.relatedAgentConnectionId); } catch (_) {}
+        try { await resetLeadAgingByConnectionId(input.relatedAgentConnectionId, ctx.user.id); } catch (_) {}
       }
 
       await logActivity({
@@ -185,17 +185,31 @@ export const tasksRouter = router({
       if (input.data.status === "completed" && !completedAt) {
         updateData.completedAt = new Date();
       }
+      const db = await getDb();
+      let relatedConnectionId: number | null = null;
+      let onboardingInstanceTaskId: number | null = null;
+      if (db) {
+        const [task] = await db
+          .select({
+            relatedAgentConnectionId: tasksTable.relatedAgentConnectionId,
+            onboardingInstanceTaskId: tasksTable.onboardingInstanceTaskId,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, input.id));
+        relatedConnectionId = task?.relatedAgentConnectionId ?? null;
+        onboardingInstanceTaskId = task?.onboardingInstanceTaskId ?? null;
+      }
+
       await updateTask(input.id, updateData);
-      if (input.data.status) {
-        const db = await getDb();
-        if (db) {
-          const [task] = await db.select({ onboardingInstanceTaskId: tasksTable.onboardingInstanceTaskId })
-            .from(tasksTable)
-            .where(eq(tasksTable.id, input.id));
-          if (task?.onboardingInstanceTaskId) {
-            await syncLinkedOnboardingTask(task.onboardingInstanceTaskId, input.data.status === "completed", input.data.status === "completed" ? ctx.user.id : null);
-          }
-        }
+      if (input.data.status && onboardingInstanceTaskId) {
+        await syncLinkedOnboardingTask(
+          onboardingInstanceTaskId,
+          input.data.status === "completed",
+          input.data.status === "completed" ? ctx.user.id : null,
+        );
+      }
+      if (ctx.user.role === "agent" && relatedConnectionId) {
+        try { await resetLeadAgingByConnectionId(relatedConnectionId, ctx.user.id); } catch (_) {}
       }
       await logActivity({
         userId: ctx.user.id,
@@ -229,7 +243,7 @@ export const tasksRouter = router({
 
       // Reset the stale/aging clock when an agent completes a task on a connection
       if (ctx.user.role === "agent" && relatedConnectionId) {
-        try { await resetLeadAgingByConnectionId(relatedConnectionId); } catch (_) {}
+        try { await resetLeadAgingByConnectionId(relatedConnectionId, ctx.user.id); } catch (_) {}
       }
 
       await logActivity({ userId: ctx.user.id, action: "task_completed", entityType: "task", entityId: input.id });
@@ -260,6 +274,13 @@ export const tasksRouter = router({
         authorId: ctx.user.id,
         content: input.content,
       });
+      if (ctx.user.role === "agent") {
+        try {
+          const task = await getTaskById(input.taskId);
+          const connectionId = (task as any)?.task?.relatedAgentConnectionId ?? (task as any)?.relatedAgentConnectionId;
+          if (connectionId) await resetLeadAgingByConnectionId(connectionId, ctx.user.id);
+        } catch (_) {}
+      }
       return { id };
     }),
 });

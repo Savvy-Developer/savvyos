@@ -20,6 +20,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Loader2, Save } from "lucide-react";
 
 interface Props {
@@ -46,6 +47,27 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function SectionGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{children}</div>;
+}
+
+const DIRECTORY_SPECIALTY_OPTIONS = [
+  "Short-Term Rentals", "Investment Properties", "Luxury", "Second Homes",
+  "Vacation Homes", "Cabins & Mountain Homes", "Beach & Coastal", "Urban STRs",
+  "New Construction", "Multi-Family", "1031 Exchange", "Buyer Representation",
+  "Seller Representation", "Relocation", "Remote Investors", "Land & Development",
+];
+const DIRECTORY_LANGUAGE_OPTIONS = [
+  "English", "Spanish", "French", "Portuguese", "German", "Italian",
+  "Mandarin", "Cantonese", "Korean", "Japanese", "Arabic", "Hindi", "ASL",
+];
+
+function splitDirectoryValues(value: string | null | undefined): string[] {
+  return Array.from(new Set((value ?? "").split(",").map((item) => item.trim()).filter(Boolean)));
+}
+
+function directoryOptions(defaultOptions: string[], currentValues: string[]) {
+  return Array.from(new Set([...defaultOptions, ...currentValues]))
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({ value, label: value }));
 }
 
 // ── Core Profile Section ─────────────────────────────────────────────────────
@@ -283,7 +305,9 @@ function AgentProfileSection({ userId }: { userId: number }) {
     bio: "",
     instagramUrl: "", facebookUrl: "", linkedinUrl: "", youtubeUrl: "",
     tiktokUrl: "", personalWebsiteUrl: "", googleBusinessUrl: "",
-    agentStatus: "active" as string, startDateWithSavvy: "", endDateWithSavvy: "",
+    agentStatus: "active" as string,
+    directorySpecialties: [] as string[], directoryLanguages: [] as string[], directoryProductionLevel: "" as string,
+    startDateWithSavvy: "", endDateWithSavvy: "",
     boardAssociation: "", mlsId: "", narId: "", showingServiceLoginNotes: "",
     transactionCoordinatorAssigned: "", assistantAssigned: "",
     personalBrandNotes: "", specialInternalNotes: "",
@@ -310,6 +334,9 @@ function AgentProfileSection({ userId }: { userId: number }) {
         personalWebsiteUrl: profile.personalWebsiteUrl ?? "",
         googleBusinessUrl: profile.googleBusinessUrl ?? "",
         agentStatus: profile.agentStatus ?? "active",
+        directorySpecialties: splitDirectoryValues(profile.directorySpecialties),
+        directoryLanguages: splitDirectoryValues(profile.directoryLanguages),
+        directoryProductionLevel: profile.directoryProductionLevel ?? "",
         startDateWithSavvy: toInputDate(profile.startDateWithSavvy),
         endDateWithSavvy: toInputDate(profile.endDateWithSavvy),
         boardAssociation: profile.boardAssociation ?? "",
@@ -333,6 +360,9 @@ function AgentProfileSection({ userId }: { userId: number }) {
     upsert.mutate({
       userId,
       ...form,
+      directorySpecialties: form.directorySpecialties.join(", ") || null,
+      directoryLanguages: form.directoryLanguages.join(", ") || null,
+      directoryProductionLevel: (form.directoryProductionLevel || null) as any,
       agentStatus: form.agentStatus as any,
       licenseExpirationDate: form.licenseExpirationDate || null,
       startDateWithSavvy: form.startDateWithSavvy || null,
@@ -430,6 +460,38 @@ function AgentProfileSection({ userId }: { userId: number }) {
                       <SelectItem value="paused">Paused</SelectItem>
                       <SelectItem value="recruiting">Recruiting</SelectItem>
                       <SelectItem value="offboarded">Offboarded</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Directory Specialties">
+                  <MultiSelect
+                    options={directoryOptions(DIRECTORY_SPECIALTY_OPTIONS, form.directorySpecialties)}
+                    value={form.directorySpecialties}
+                    onValueChange={(directorySpecialties) => setForm((p) => ({ ...p, directorySpecialties }))}
+                    placeholder="Select specialties…"
+                    searchPlaceholder="Search specialties…"
+                    className="h-8 text-sm"
+                  />
+                </Field>
+                <Field label="Directory Languages">
+                  <MultiSelect
+                    options={directoryOptions(DIRECTORY_LANGUAGE_OPTIONS, form.directoryLanguages)}
+                    value={form.directoryLanguages}
+                    onValueChange={(directoryLanguages) => setForm((p) => ({ ...p, directoryLanguages }))}
+                    placeholder="Select languages…"
+                    searchPlaceholder="Search languages…"
+                    className="h-8 text-sm"
+                  />
+                </Field>
+                <Field label="Directory Production Level">
+                  <Select value={form.directoryProductionLevel || "none"} onValueChange={(v) => setForm((p) => ({ ...p, directoryProductionLevel: v === "none" ? "" : v }))}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select level" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not specified</SelectItem>
+                      <SelectItem value="emerging">Emerging</SelectItem>
+                      <SelectItem value="growing">Growing</SelectItem>
+                      <SelectItem value="established">Established</SelectItem>
+                      <SelectItem value="elite">Elite</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>

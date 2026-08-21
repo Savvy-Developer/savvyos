@@ -95,7 +95,7 @@ export const voiceRouter = router({
 
       // Reset the stale/aging clock when an agent records a voice note on a connection
       if (ctx.user.role === "agent" && input.agentConnectionId) {
-        try { await resetLeadAgingByConnectionId(input.agentConnectionId); } catch (_) {}
+        try { await resetLeadAgingByConnectionId(input.agentConnectionId, ctx.user.id); } catch (_) {}
       }
 
       await logActivity({

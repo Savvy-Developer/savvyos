@@ -71,7 +71,7 @@ import { getPulseNavDestinations, type PulseNavShell } from "@shared/pulseNav";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type NavItem = { icon: React.ElementType; label: string; path: string; badge?: number };
+type NavItem = { icon: React.ElementType; label: string; path: string; badge?: number; external?: boolean };
 type NavGroup = { label: string; items: NavItem[] };
 
 // ─── Static Nav Configs ──────────────────────────────────────────────────────
@@ -90,6 +90,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
   const operationsItems: NavItem[] = [
     { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
+    { icon: Users, label: "Agent Directory", path: "/agent-directory" },
   ];
   if (hasActiveOnboarding) {
     operationsItems.push({ icon: UserCheck, label: "On/Offboarding", path: "/my-onboarding" });
@@ -138,6 +139,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       label: "Resources",
       items: [
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
+        { icon: Link2, label: "Savvy-Agents.com", path: "https://www.savvy-agents.com/admin/properties", external: true },
       ],
     },
   ];
@@ -209,6 +211,7 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: PhoneCall, label: "Market Match Call", path: "/market-match-call" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
+    { icon: Users, label: "Agent Directory", path: "/agent-directory" },
       ],
     },
     {
@@ -347,6 +350,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: CheckSquare, label: "Admin Approvals", path: "/approvals", badge: pendingApprovals > 0 ? pendingApprovals : undefined },
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
+    { icon: Users, label: "Agent Directory", path: "/agent-directory" },
         { icon: ClipboardList, label: "Roles & Responsibilities", path: "/roles-responsibilities" },
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
@@ -438,15 +442,16 @@ function SidebarNav({
             )}
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const isActive =
+                const isActive = !item.external && (
                   item.path === "/"
                     ? currentPath === "/"
-                    : currentPath.startsWith(item.path);
+                    : currentPath.startsWith(item.path)
+                );
                 return (
                   <li key={item.path}>
                     <button
                       type="button"
-                      onClick={() => onNavigate(item.path)}
+                      onClick={() => item.external ? window.open(item.path, "_blank", "noopener,noreferrer") : onNavigate(item.path)}
                       title={collapsed ? item.label : undefined}
                       className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
                         isActive
@@ -458,6 +463,7 @@ function SidebarNav({
                       {!collapsed && (
                         <span className="truncate leading-tight flex-1">{item.label}</span>
                       )}
+                      {!collapsed && item.external && <Link2 className="h-3 w-3 shrink-0 opacity-60" />}
                       {!collapsed && item.badge != null && (
                         <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
                           {item.badge}

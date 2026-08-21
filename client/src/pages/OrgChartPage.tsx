@@ -90,6 +90,7 @@ function OrgNode({
   searchQuery,
   canViewRr,
   openProfile,
+  openDirectoryProfile,
 }: {
   user: OrgUser;
   directChildren: OrgUser[];
@@ -102,6 +103,7 @@ function OrgNode({
   searchQuery: string;
   canViewRr: boolean;
   openProfile: (userId: number) => void;
+  openDirectoryProfile: (userId: number) => void;
 }) {
   const isExpanded = expandedSet.has(user.id);
   const isDetailOpen = detailSet.has(user.id);
@@ -148,9 +150,18 @@ function OrgNode({
         {/* Main info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm text-foreground">
-              {user.name ?? user.email ?? "Unknown"}
-            </span>
+            {user.role === "agent" ? (
+              <button
+                type="button"
+                onClick={() => openDirectoryProfile(user.id)}
+                className="text-left font-semibold text-sm text-foreground hover:text-primary hover:underline"
+                title="Open Agent Directory profile"
+              >
+                {user.name ?? user.email ?? "Unknown"}
+              </button>
+            ) : (
+              <span className="font-semibold text-sm text-foreground">{user.name ?? user.email ?? "Unknown"}</span>
+            )}
             <Badge
               variant="outline"
               className={`text-xs px-1.5 py-0 ${ROLE_BADGE_COLORS[user.role] ?? ""}`}
@@ -286,6 +297,7 @@ function OrgNode({
                   searchQuery={searchQuery}
                   canViewRr={canViewRr}
                   openProfile={openProfile}
+                  openDirectoryProfile={openDirectoryProfile}
                 />
               ))}
             </div>
@@ -302,6 +314,7 @@ export default function OrgChartPage() {
   const { user } = useAuth();
   const canViewRr = (user as any)?.role === "admin";
   const openProfile = (userId: number) => navigate(`/agents/${userId}`);
+  const openDirectoryProfile = (userId: number) => navigate(`/agent-directory?agent=${userId}`);
   const { data: rawUsers = [], isLoading } = trpc.users.orgChart.useQuery(undefined, {
     staleTime: 60_000,
   });
@@ -427,6 +440,9 @@ export default function OrgChartPage() {
         <Button variant="outline" size="sm" onClick={collapseAll}>
           <Minimize2 className="h-4 w-4 mr-1.5" /> Collapse All
         </Button>
+        <Button size="sm" onClick={() => navigate("/agent-directory")}>
+          <Users className="h-4 w-4 mr-1.5" /> Agent Directory
+        </Button>
       </div>
 
       {/* Legend */}
@@ -468,6 +484,7 @@ export default function OrgChartPage() {
               searchQuery={searchQuery}
               canViewRr={canViewRr}
               openProfile={openProfile}
+              openDirectoryProfile={openDirectoryProfile}
             />
           ))
         )}

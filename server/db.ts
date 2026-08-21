@@ -684,15 +684,22 @@ export async function resetLeadAgingForAgent(contactId: number, agentId: number)
     ));
 }
 
-/** Resets the aging clock directly by connection ID. Used when agent activity
- *  (communication, task, voice note, email) targets a specific connection. */
-export async function resetLeadAgingByConnectionId(connectionId: number) {
+/**
+ * Resets a connection's aging clock only when the acting agent owns that
+ * connection. This prevents admin/ISA activity, or work on another agent's
+ * connection, from suppressing the assigned agent's lead-aging signal.
+ */
+export async function resetLeadAgingByConnectionId(connectionId: number, agentId: number) {
   const db = await getDb();
-  if (!db) return;
-  await db
+  if (!db) return false;
+  const result = await db
     .update(agentConnections)
     .set({ agingUpdatedAt: new Date() })
-    .where(eq(agentConnections.id, connectionId));
+    .where(and(
+      eq(agentConnections.id, connectionId),
+      eq(agentConnections.agentId, agentId),
+    ));
+  return (result as any)[0]?.affectedRows > 0;
 }
 
 // ─── Properties ───────────────────────────────────────────────────────────────

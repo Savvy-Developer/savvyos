@@ -510,7 +510,7 @@ export const pipelineEmailRouter = router({
           ]);
           // Reset the stale/aging clock when an agent sends an email to a connection
           if (ctx.user.role === "agent") {
-            try { await resetLeadAgingByConnectionId(recipient.connection.id); } catch (_) {}
+            try { await resetLeadAgingByConnectionId(recipient.connection.id, ctx.user.id); } catch (_) {}
           }
           return { success: true };
         }

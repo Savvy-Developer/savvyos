@@ -417,7 +417,7 @@ export const proformaEmailRouter = router({
       ]);
       if (ctx.user.role === "agent" && recipient.agentConnectionId) {
         try {
-          await resetLeadAgingByConnectionId(recipient.agentConnectionId);
+          await resetLeadAgingByConnectionId(recipient.agentConnectionId, ctx.user.id);
         } catch (_) {}
       }
 
