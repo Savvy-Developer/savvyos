@@ -55,8 +55,6 @@ export default function PulseMissionControlPage() {
   const next = nextMeeting(shell.data?.meetings ?? []);
   const firstName = user?.name?.trim().split(/\s+/)[0] || "there";
   const hasActions = cascades.length > 0 || responses.length > 0;
-  const hasMeetings = (shell.data?.meetings ?? []).length > 0;
-  const canCreateMeetings = Boolean(shell.data?.capabilities?.canManageSettings);
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 pb-8">
@@ -124,13 +122,13 @@ export default function PulseMissionControlPage() {
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
             <div>
               <p className="text-base font-medium">Nothing needs you right now.</p>
-              {!hasMeetings ? <p className="mt-1 text-base leading-6 text-muted-foreground">{canCreateMeetings ? <>Meetings are where Pulse keeps your team’s work. <Link href="/pulse/settings/create" className="font-medium text-primary underline-offset-4 hover:underline">Create your first meeting</Link>.</> : <>You have not been added to a meeting yet. Your work will appear here once a meeting owner adds you.</>}</p> : <p className="mt-1 text-base leading-6 text-muted-foreground">Your next meeting is {next ? `${next.name}${next.dayOfWeek ? ` on ${next.dayOfWeek.charAt(0).toUpperCase()}${next.dayOfWeek.slice(1)}` : ""}.` : "not scheduled yet."} <Link href="/pulse/work" className="font-medium text-primary underline-offset-4 hover:underline">See your work</Link>.</p>}
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">Your next meeting is {next ? `${next.name}${next.dayOfWeek ? ` on ${next.dayOfWeek.charAt(0).toUpperCase()}${next.dayOfWeek.slice(1)}` : ""}.` : "not scheduled yet."} <Link href="/pulse/work" className="font-medium text-primary underline-offset-4 hover:underline">See your work</Link></p>
             </div>
           </div>
         </section>
       )}
 
-      {hasActions && next && <p className="border-t border-border pt-4 text-base text-muted-foreground">Next meeting: <Link className="font-medium text-foreground underline-offset-4 hover:underline" href={`/pulse/meetings/${next.id}`}>{next.name}</Link>{next.dayOfWeek ? ` on ${next.dayOfWeek.charAt(0).toUpperCase()}${next.dayOfWeek.slice(1)}` : ""}.</p>}
+      {hasActions && next && <p className="border-t border-border pt-4 text-sm text-muted-foreground">Next meeting: <Link className="font-medium text-foreground underline-offset-4 hover:underline" href={`/pulse/meetings/${next.id}`}>{next.name}</Link>{next.dayOfWeek ? ` on ${next.dayOfWeek.charAt(0).toUpperCase()}${next.dayOfWeek.slice(1)}` : ""}.</p>}
     </main>
   );
 }

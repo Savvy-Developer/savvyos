@@ -11,6 +11,7 @@ import {
   pulseMeetingScorecardMetrics,
   pulseMeetings,
   pulseMeetingsArchive,
+  pulseProfiles,
   pulseWorkItems,
   rrScorecardMetrics,
   rolesResponsibilities,
@@ -19,12 +20,12 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
-import { hasPulseCapability } from "./capabilities";
 
 const id = () => crypto.randomUUID();
 const daySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
 const cadenceSchema = z.enum(["weekly", "biweekly", "monthly", "daily", "ad_hoc"]);
 const labelSchema = z.enum(["level_10", "one_on_one", "other"]);
+const platformRoleSchema = z.enum(["super_admin", "admin", "member"]);
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time such as 09:30.");
 const sectionKeySchema = z.enum(PULSE_SECTION_KEYS);
 const meetingIdSchema = z.string().uuid();
@@ -35,16 +36,28 @@ async function database() {
   return db;
 }
 
-async function requireCapability(
-  user: { id: number; role: string; email?: string | null },
-  capability: Parameters<typeof hasPulseCapability>[1],
-) {
-  if (!await hasPulseCapability(user, capability)) {
+async function profileRole(db: any, personId: number) {
+  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
+    .from(pulseProfiles)
+    .where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt)))
+    .limit(1);
+  return profile?.platformRole ?? "member";
+}
+
+async function requireSuperAdmin(db: any, personId: number) {
+  if (await profileRole(db, personId) !== "super_admin") {
     throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
   }
 }
 
 async function requireConfigurationAccess(db: any, personId: number, meetingId: string) {
+  if (await profileRole(db, personId) === "super_admin") {
+    const [meeting] = await db.select().from(pulseMeetings)
+      .where(and(eq(pulseMeetings.id, meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt)))
+      .limit(1);
+    if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
+    return meeting;
+  }
   if (!await is_visible_meeting_manager(db, personId, meetingId)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
   }
@@ -179,6 +192,13 @@ export const pulseSettingsRouter = router({
 
   configurationMeetings: protectedProcedure.query(async ({ ctx }) => {
     const db = await database();
+    const role = await profileRole(db, ctx.user.id);
+    if (role === "super_admin") {
+      return db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, meetingRole: pulseMeetingMembers.meetingRole })
+        .from(pulseMeetings)
+        .leftJoin(pulseMeetingMembers, and(eq(pulseMeetingMembers.meetingId, pulseMeetings.id), eq(pulseMeetingMembers.personId, ctx.user.id), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)))
+        .where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name));
+    }
     return db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, meetingRole: pulseMeetingMembers.meetingRole })
       .from(pulseMeetings).innerJoin(pulseMeetingMembers, and(eq(pulseMeetingMembers.meetingId, pulseMeetings.id), eq(pulseMeetingMembers.personId, ctx.user.id), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)))
       .where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt), inArray(pulseMeetingMembers.meetingRole, ["owner", "administrator"]))).orderBy(asc(pulseMeetings.name));
@@ -261,38 +281,24 @@ export const pulseSettingsRouter = router({
 
   peopleForAdministration: protectedProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireCapability(ctx.user, "canViewPulseSettings");
+    await requireSuperAdmin(db, ctx.user.id);
     return db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.isActive, true)).orderBy(asc(users.name));
   }),
 
   createMeeting: protectedProcedure
     .input(z.object({
-      name: z.string().trim().min(1).max(255),
-      purpose: z.string().trim().max(2000).nullable().optional(),
-      label: labelSchema,
-      ownerId: z.number().int().positive().optional(),
-      administratorId: z.number().int().positive().optional(),
-      memberIds: z.array(z.number().int().positive()).max(100).default([]),
+      name: z.string().trim().min(1).max(255), label: labelSchema, ownerId: z.number().int().positive(), administratorId: z.number().int().positive(), memberIds: z.array(z.number().int().positive()).max(100).default([]),
       dayOfWeek: daySchema.nullable().optional(), startTime: timeSchema.nullable().optional(), durationMinutes: z.number().int().min(5).max(480).default(90), timezone: z.string().trim().min(1).max(64).default("America/New_York"), cadence: cadenceSchema.default("weekly"), reminderDay: daySchema.nullable().optional(), reminderTime: timeSchema.nullable().optional(),
-      sectionsEnabled: z.record(sectionKeySchema, z.boolean()).optional(),
-      sectionOrder: z.array(sectionKeySchema).min(1).max(PULSE_SECTION_KEYS.length).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireCapability(ctx.user, "canViewPulseSettings");
-      const ownerId = input.ownerId ?? ctx.user.id;
-      const administratorId = input.administratorId ?? ctx.user.id;
-      await assertActivePerson(db, ownerId); await assertActivePerson(db, administratorId);
-      const meetingId = id();
-      const sectionOrder = input.sectionOrder ?? PULSE_MEETING_PRESETS[input.label];
-      const sectionsEnabled = input.sectionsEnabled ?? Object.fromEntries(PULSE_SECTION_KEYS.map((section) => [section, sectionOrder.includes(section)]));
-      const memberIds = new Set([ownerId, administratorId, ...input.memberIds]);
-      if (input.label === "one_on_one" && memberIds.size !== 2) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A one-on-one meeting has exactly two people." });
-      }
+      await requireSuperAdmin(db, ctx.user.id);
+      await assertActivePerson(db, input.ownerId); await assertActivePerson(db, input.administratorId);
+      const meetingId = id(); const sectionOrder = PULSE_MEETING_PRESETS[input.label];
+      const memberIds = new Set([input.ownerId, input.administratorId, ...input.memberIds]);
       await db.transaction(async (tx: any) => {
-        await tx.insert(pulseMeetings).values({ id: meetingId, name: input.name, purpose: input.purpose?.trim() || null, label: input.label, ownerId, administratorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: input.cadence, reminderDay: input.reminderDay ?? null, reminderTime: input.reminderTime ?? null, sectionsEnabled, sectionOrder, sectionDurations: defaultSectionDurations(sectionOrder) });
-        await tx.insert(pulseMeetingMembers).values(Array.from(memberIds).map((personId) => ({ id: id(), meetingId, personId, meetingRole: personId === ownerId ? "owner" as const : personId === administratorId ? "administrator" as const : "member" as const, addedById: ctx.user.id })));
+        await tx.insert(pulseMeetings).values({ id: meetingId, name: input.name, label: input.label, ownerId: input.ownerId, administratorId: input.administratorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: input.cadence, reminderDay: input.reminderDay ?? null, reminderTime: input.reminderTime ?? null, sectionsEnabled: Object.fromEntries(PULSE_SECTION_KEYS.map((section) => [section, sectionOrder.includes(section)])), sectionOrder, sectionDurations: defaultSectionDurations(sectionOrder) });
+        await tx.insert(pulseMeetingMembers).values(Array.from(memberIds).map((personId) => ({ id: id(), meetingId, personId, meetingRole: personId === input.ownerId ? "owner" as const : personId === input.administratorId ? "administrator" as const : "member" as const, addedById: ctx.user.id })));
       });
       return { id: meetingId };
     }),
@@ -309,7 +315,7 @@ export const pulseSettingsRouter = router({
 
   effectiveness: protectedProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireCapability(ctx.user, "canViewPulseEffectiveness");
+    await requireSuperAdmin(db, ctx.user.id);
     const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name, scheduledMinutes: pulseMeetings.durationMinutes }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name));
     return Promise.all(meetings.map(async (meeting: any) => {
       const [occurrencesDescending, members] = await Promise.all([
@@ -337,7 +343,7 @@ export const pulseSettingsRouter = router({
 
   effectivenessHistory: protectedProcedure.input(z.object({ meetingId: meetingIdSchema })).query(async ({ ctx, input }) => {
     const db = await database();
-    await requireCapability(ctx.user, "canViewPulseHistory");
+    await requireSuperAdmin(db, ctx.user.id);
     const [meeting] = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name, scheduledMinutes: pulseMeetings.durationMinutes }).from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), isNull(pulseMeetings.deletedAt))).limit(1);
     if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists." });
     const [occurrences, members] = await Promise.all([
@@ -347,4 +353,44 @@ export const pulseSettingsRouter = router({
     return { meeting: { ...meeting, memberCount: members.length }, occurrences };
   }),
 
+  permissioning: protectedProcedure.query(async ({ ctx }) => {
+    const db = await database();
+    await requireSuperAdmin(db, ctx.user.id);
+    const [people, meetings, memberships, profiles] = await Promise.all([
+      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.isActive, true)).orderBy(asc(users.name)),
+      db.select({ id: pulseMeetings.id, name: pulseMeetings.name, ownerId: pulseMeetings.ownerId, administratorId: pulseMeetings.administratorId }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name)),
+      db.select({ meetingId: pulseMeetingMembers.meetingId, personId: pulseMeetingMembers.personId, meetingRole: pulseMeetingMembers.meetingRole }).from(pulseMeetingMembers).where(and(isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))),
+      db.select({ userId: pulseProfiles.userId, platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(isNull(pulseProfiles.deletedAt)),
+    ]);
+    return { people, meetings, memberships, profiles };
+  }),
+
+  setPermission: protectedProcedure
+    .input(z.object({ meetingId: meetingIdSchema, personId: z.number().int().positive(), hasAccess: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await database();
+      await requireSuperAdmin(db, ctx.user.id);
+      const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
+      if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists." });
+      if (!input.hasAccess && (input.personId === meeting.ownerId || input.personId === meeting.administratorId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a new owner or administrator before removing this person." });
+      if (input.hasAccess) {
+        await assertActivePerson(db, input.personId);
+        await db.insert(pulseMeetingMembers).values({ id: id(), meetingId: input.meetingId, personId: input.personId, meetingRole: "member", addedById: ctx.user.id })
+          .onDuplicateKeyUpdate({ set: { removedAt: null, deletedAt: null, addedById: ctx.user.id } });
+      } else {
+        await db.update(pulseMeetingMembers).set({ removedAt: new Date() }).where(and(eq(pulseMeetingMembers.meetingId, input.meetingId), eq(pulseMeetingMembers.personId, input.personId), isNull(pulseMeetingMembers.deletedAt)));
+      }
+      return { success: true, undo: { meetingId: input.meetingId, personId: input.personId, restoreAccess: !input.hasAccess } };
+    }),
+
+  setPlatformRole: protectedProcedure
+    .input(z.object({ personId: z.number().int().positive(), platformRole: platformRoleSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await database();
+      await requireSuperAdmin(db, ctx.user.id);
+      await assertActivePerson(db, input.personId);
+      await db.insert(pulseProfiles).values({ userId: input.personId, platformRole: input.platformRole, timezone: "America/New_York", isActive: true })
+        .onDuplicateKeyUpdate({ set: { platformRole: input.platformRole, deletedAt: null, isActive: true } });
+      return { success: true };
+    }),
 });

@@ -2168,13 +2168,6 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewPasswords: boolean("canViewPasswords").default(true).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)
   canViewSuperPermissions: boolean("canViewSuperPermissions").default(false).notNull(),
-  // Pulse capabilities — deliberately default OFF. They govern administration only;
-  // meeting visibility remains exclusively in pulse_meeting_members.
-  canViewPulseSettings: boolean("canViewPulseSettings").default(false).notNull(),
-  canViewPulseEffectiveness: boolean("canViewPulseEffectiveness").default(false).notNull(),
-  canViewPulseHistory: boolean("canViewPulseHistory").default(false).notNull(),
-  canViewAllQuarterlyRocks: boolean("canViewAllQuarterlyRocks").default(false).notNull(),
-  canViewPulsePermissioning: boolean("canViewPulsePermissioning").default(false).notNull(),
   // JSON map of { permissionKey: ISO-timestamp } for temporarily-granted permissions
   tempGrantExpiry: json("tempGrantExpiry").$type<Record<string, string>>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -3304,8 +3297,6 @@ export type PulseProfile = typeof pulseProfiles.$inferSelect;
 export const pulseMeetings = mysqlTable("pulse_meetings", {
   id: varchar("id", { length: 36 }).primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
-  // A plain-language statement of what this meeting is for.
-  purpose: text("purpose"),
   // This is presentation-only. It may only guide list grouping and defaults at creation.
   label: mysqlEnum("label", ["level_10", "one_on_one", "other"]).notNull(),
   ownerId: int("ownerId").notNull().references(() => users.id),

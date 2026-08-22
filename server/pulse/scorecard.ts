@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   pulseMeetingScorecardMetrics,
   pulseMeetings,
+  pulseProfiles,
   rolesResponsibilities,
   rrMetricValues,
   rrScorecardMetrics,
@@ -12,7 +13,6 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
-import { hasPulseCapability } from "./capabilities";
 
 export const SCORECARD_CADENCES = ["weekly", "monthly", "quarterly", "annually"] as const;
 export type ScorecardCadence = (typeof SCORECARD_CADENCES)[number];
@@ -233,9 +233,8 @@ export const pulseScorecardRouter = router({
   }),
   globalAttention: protectedProcedure.query(async ({ ctx }) => {
     const db = await database();
-    if (!await hasPulseCapability(ctx.user, "canViewPulseEffectiveness")) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "Needs Attention is not available to you." });
-    }
+    const [profile] = await db.select({ platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(eq(pulseProfiles.userId, ctx.user.id)).limit(1);
+    if (profile?.platformRole !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "Needs Attention is available to super admins only." });
     const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name }).from(pulseMeetings).where(eq(pulseMeetings.isActive, true));
     const attention = (await Promise.all(meetings.map(async (meeting) => scorecardAttention((await getMeetingScorecard(db, ctx.user.id, meeting.id, true)).items, meeting.id, meeting.name)))).flat();
     return attention.sort((left: any, right: any) => right.severity - left.severity || left.name.localeCompare(right.name)).slice(0, 5);

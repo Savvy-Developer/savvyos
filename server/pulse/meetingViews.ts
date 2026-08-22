@@ -18,7 +18,7 @@ async function dashboardPayload(db: any, viewerId: number, id: string) {
   const scorecard = sections.find((section: any) => section.section === "scorecard");
   return {
     viewerId,
-    meeting: { id: meeting.id, name: meeting.name, purpose: meeting.purpose, dayOfWeek: meeting.dayOfWeek, startTime: meeting.startTime, cadence: meeting.cadence, durationMinutes: meeting.durationMinutes, sectionsEnabled: meeting.sectionsEnabled, sectionOrder: meeting.sectionOrder },
+    meeting: { id: meeting.id, name: meeting.name, dayOfWeek: meeting.dayOfWeek, startTime: meeting.startTime, cadence: meeting.cadence, durationMinutes: meeting.durationMinutes, sectionsEnabled: meeting.sectionsEnabled, sectionOrder: meeting.sectionOrder },
     sections,
     sectionFunctions: PULSE_SECTION_FUNCTIONS,
     ...(isManager ? { manager: { canRun: true }, attention: scorecardAttention(scorecard?.items ?? [], meeting.id, meeting.name) } : {}),

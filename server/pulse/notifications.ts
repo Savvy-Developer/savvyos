@@ -8,6 +8,7 @@ import {
   pulseMeetings,
   pulseNotificationPreferences,
   pulseNotifications,
+  pulseProfiles,
   pulseWorkItemComments,
   pulseWorkItemNotifications,
   pulseWorkItems,
@@ -17,7 +18,6 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getEmailPreview, sendTransactionalEmail } from "../_core/resendEmail";
 import { visible_meeting_ids } from "./access";
-import { hasPulseCapability } from "./capabilities";
 
 export const PULSE_NOTIFICATION_TEMPLATE_KEYS = [
   "meeting_reminder",
@@ -42,13 +42,12 @@ async function database() {
   return db;
 }
 
-async function requireSettingsAccess(
-  db: any,
-  user: { id: number; role: string; email?: string | null },
-) {
-  if (await hasPulseCapability(user, "canViewPulseSettings")) return;
+async function requireSettingsAccess(db: any, personId: number) {
+  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
+    .from(pulseProfiles).where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt))).limit(1);
+  if (profile?.platformRole === "super_admin") return;
   const [membership] = await db.select({ meetingRole: pulseMeetingMembers.meetingRole }).from(pulseMeetingMembers)
-    .where(and(eq(pulseMeetingMembers.personId, user.id), inArray(pulseMeetingMembers.meetingRole, ["owner", "administrator"]), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))).limit(1);
+    .where(and(eq(pulseMeetingMembers.personId, personId), inArray(pulseMeetingMembers.meetingRole, ["owner", "administrator"]), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))).limit(1);
   if (!membership) throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
 }
 
@@ -70,6 +69,13 @@ function sampleContext(person: { name: string | null; email: string }, templateK
   };
 }
 
+async function requireSuperAdmin(db: any, personId: number) {
+  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
+    .from(pulseProfiles)
+    .where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt)))
+    .limit(1);
+  if (profile?.platformRole !== "super_admin") throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
+}
 
 export async function getPulseNotificationPreference(
   db: any,
@@ -189,7 +195,7 @@ async function pendingResponseItems(db: any, personId: number) {
 export const pulseNotificationsRouter = router({
   preferences: protectedProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireSettingsAccess(db, ctx.user);
+    await requireSettingsAccess(db, ctx.user.id);
     const rows = await db.select({ templateKey: pulseNotificationPreferences.templateKey, inApp: pulseNotificationPreferences.inApp, email: pulseNotificationPreferences.email })
       .from(pulseNotificationPreferences)
       .where(eq(pulseNotificationPreferences.personId, ctx.user.id));
@@ -212,7 +218,7 @@ export const pulseNotificationsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireSettingsAccess(db, ctx.user);
+      await requireSettingsAccess(db, ctx.user.id);
       const current = await getPulseNotificationPreference(db, ctx.user.id, input.templateKey);
       const next = { inApp: input.inApp ?? current.inApp, email: input.email ?? current.email };
       await db.insert(pulseNotificationPreferences).values({ id: id(), personId: ctx.user.id, templateKey: input.templateKey, ...next })
@@ -222,7 +228,7 @@ export const pulseNotificationsRouter = router({
 
   templatePreview: protectedProcedure.input(z.object({ templateKey: templateKeySchema })).query(async ({ ctx, input }) => {
     const db = await database();
-    await requireSettingsAccess(db, ctx.user);
+    await requireSettingsAccess(db, ctx.user.id);
     const [person] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
     if (!person?.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address to your SavvyOS account before previewing or testing email." });
     const preview = getEmailPreview(input.templateKey, sampleContext({ name: person.name, email: person.email }, input.templateKey));
@@ -231,7 +237,7 @@ export const pulseNotificationsRouter = router({
 
   sendTemplateTest: protectedProcedure.input(z.object({ templateKey: templateKeySchema })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    await requireSettingsAccess(db, ctx.user);
+    await requireSettingsAccess(db, ctx.user.id);
     const [person] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
     if (!person?.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address to your SavvyOS account before sending a test." });
     const result = await sendTransactionalEmail(input.templateKey, sampleContext({ name: person.name, email: person.email }, input.templateKey), { bypassNotificationSetting: true, idempotencyKey: `pulse-template-test:${ctx.user.id}:${input.templateKey}:${Date.now()}` });
@@ -278,9 +284,7 @@ export const pulseNotificationsRouter = router({
 
   adminOutstanding: protectedProcedure.query(async ({ ctx }) => {
     const db = await database();
-    if (!await hasPulseCapability(ctx.user, "canViewPulseSettings")) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
-    }
+    await requireSuperAdmin(db, ctx.user.id);
     const [cascades, notifications, legacyMentions] = await Promise.all([
       db.select({ personId: pulseCascadeRecipients.personId, messageId: pulseCascadeRecipients.cascadingMessageId, createdAt: pulseCascadingMessages.createdAt })
         .from(pulseCascadeRecipients)
