@@ -114,10 +114,8 @@ import PulseNotificationPreferencesPage from "./pages/PulseNotificationPreferenc
 import PulseMeetingRunPage from "./pages/PulseMeetingRunPage";
 import PulseMeetingSettingsPage from "./pages/PulseMeetingSettingsPage";
 import PulseSettingsHubPage from "./pages/PulseSettingsHubPage";
-import PulsePermissioningPage from "./pages/PulsePermissioningPage";
 import PulseCreateMeetingPage from "./pages/PulseCreateMeetingPage";
 import PulseMeetingEffectivenessPage from "./pages/PulseMeetingEffectivenessPage";
-import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
 import ReferralsPage from "./pages/ReferralsPage";
@@ -283,7 +281,6 @@ function Router() {
           <Route path="/agent-directory" component={AgentDirectoryPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
-          <Route path="/pulse/slice" component={PulseThinSlicePage} />
           <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMeetingRunPage meetingId={id} />}</Route>
           <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseMeetingSettingsPage meetingId={id} />}</Route>
           <Route path="/pulse/settings/create" component={PulseCreateMeetingPage} />
@@ -293,7 +290,6 @@ function Router() {
           <Route path="/pulse/settings/outstanding" component={PulseMissionControlAdminPage} />
           <Route path="/pulse/settings/attention" component={PulseGlobalAttentionPage} />
           <Route path="/pulse/settings/notifications" component={PulseNotificationPreferencesPage} />
-          <Route path="/pulse/settings/permissioning" component={PulsePermissioningPage} />
           <Route path="/pulse/settings/effectiveness" component={PulseMeetingEffectivenessPage} />
           <Route path="/pulse/work" component={PulseFoundationPage} />
           <Route path="/pulse/inputs" component={PulseFoundationPage} />

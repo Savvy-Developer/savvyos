@@ -37,16 +37,6 @@ function sections(enabled: readonly SectionKey[]) {
   };
 }
 
-async function requireSuperAdmin(db: any, personId: number) {
-  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
-    .from(pulseProfiles)
-    .where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt)))
-    .limit(1);
-  if (profile?.platformRole !== "super_admin") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "This Pulse verification page is for super admins only." });
-  }
-}
-
 async function fixturePeople(db: any) {
   // The openId marker is the first and non-negotiable boundary for fixture people.
   const records = await db.select({ id: users.id, openId: users.openId, name: users.name, email: users.email, isActive: users.isActive })
@@ -135,14 +125,14 @@ export async function retirePulseThinSliceFixture(db: any) {
 export async function resetPulseThinSliceFixture(db: any) {
   requireThinSliceEnvironment();
   await retireFixture(db);
-  const keyDefinitions: Array<{ key: FixtureKey; platformRole: "super_admin" | "member"; role: "admin" | "agent" }> = [
-    { key: "p1", platformRole: "member", role: "agent" },
-    { key: "p2", platformRole: "member", role: "agent" },
-    { key: "p3", platformRole: "member", role: "agent" },
-    { key: "p4", platformRole: "super_admin", role: "admin" },
-    { key: "p5", platformRole: "member", role: "agent" },
-    { key: "p6", platformRole: "member", role: "agent" },
-    { key: "p7", platformRole: "member", role: "agent" },
+  const keyDefinitions: Array<{ key: FixtureKey; role: "admin" | "agent" }> = [
+    { key: "p1", role: "agent" },
+    { key: "p2", role: "agent" },
+    { key: "p3", role: "agent" },
+    { key: "p4", role: "admin" },
+    { key: "p5", role: "agent" },
+    { key: "p6", role: "agent" },
+    { key: "p7", role: "agent" },
   ];
   await db.transaction(async (tx: any) => {
     for (const person of keyDefinitions) {
@@ -161,9 +151,6 @@ export async function resetPulseThinSliceFixture(db: any) {
       } });
     }
     const people = await fixturePeople(tx);
-    for (const person of keyDefinitions) {
-      await tx.insert(pulseProfiles).values({ userId: people[person.key].id, platformRole: person.platformRole, timezone: "America/New_York", notificationPrefs: {}, isActive: true }).onDuplicateKeyUpdate({ set: { platformRole: person.platformRole, timezone: "America/New_York", notificationPrefs: {}, isActive: true, deletedAt: null } });
-    }
     const allSections = sections(PULSE_SECTION_KEYS);
     const limitedB = sections(["segue", "todos", "issues"]);
     const limitedC = sections(["todos", "issues"]);
@@ -242,17 +229,15 @@ async function shellFor(db: any, personId: number) {
       .from(pulseMeetings).innerJoin(pulseMeetingMembers, and(eq(pulseMeetingMembers.meetingId, pulseMeetings.id), eq(pulseMeetingMembers.personId, personId), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)))
       .where(and(inArray(pulseMeetings.id, visibleIds), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name))
     : [];
-  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt))).limit(1);
   const ownsOrAdministers = meetings.some((meeting: any) => meeting.meetingRole === "owner" || meeting.meetingRole === "administrator");
-  const isSuperAdmin = profile?.platformRole === "super_admin";
-  const canSeeSettings = ownsOrAdministers || isSuperAdmin;
+  const canSeeSettings = ownsOrAdministers;
   const navMode = meetings.length === 1 && !ownsOrAdministers ? "single_meeting" as const : "standard" as const;
   return {
     meetings,
     navMode,
     ownsOrAdministers,
     canSeeSettings,
-    settingsReason: ownsOrAdministers ? "meeting_manager" : isSuperAdmin ? "super_admin" : "none",
+    settingsReason: ownsOrAdministers ? "meeting_manager" : "none",
     destinations: getPulseNavDestinations({ navMode, canSeeSettings, meetings }),
   };
 }
@@ -343,14 +328,14 @@ export const pulseThinSliceRouter = router({
     requireThinSliceEnvironment();
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
-    await requireSuperAdmin(db, ctx.user.id);
+    requireThinSliceEnvironment();
     return modelSnapshot(db);
   }),
   reset: protectedProcedure.mutation(async ({ ctx }) => {
     requireThinSliceEnvironment();
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
-    await requireSuperAdmin(db, ctx.user.id);
+    requireThinSliceEnvironment();
     await resetPulseThinSliceFixture(db);
     return modelSnapshot(db);
   }),
@@ -358,7 +343,7 @@ export const pulseThinSliceRouter = router({
     requireThinSliceEnvironment();
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
-    await requireSuperAdmin(db, ctx.user.id);
+    requireThinSliceEnvironment();
     const before = await modelSnapshot(db);
     const after = await performOperation(db, ctx.user.id, input.operation);
     return { operation: input.operation, before, after };

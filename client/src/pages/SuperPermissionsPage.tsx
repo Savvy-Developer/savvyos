@@ -40,7 +40,7 @@ const GROUP_ORDER = [
   "CRM",
   "Transactions",
   "Outbound Referrals",
-  "Pulse",
+  "PULSE",
   "Operations",
   "Admin",
   "Dev Tools",
@@ -53,7 +53,7 @@ const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }>
   "CRM":              { bg: "#f5f3ff", text: "#6d28d9", border: "#ddd6fe" },
   "Transactions":     { bg: "#ecfdf5", text: "#065f46", border: "#a7f3d0" },
   "Outbound Referrals": { bg: "#fefce8", text: "#854d0e", border: "#fde68a" },
-  "Pulse":            { bg: "#f0f9ff", text: "#075985", border: "#bae6fd" },
+  "PULSE":            { bg: "#f0f9ff", text: "#075985", border: "#bae6fd" },
   "Operations":       { bg: "#fffbeb", text: "#92400e", border: "#fde68a" },
   "Admin":            { bg: "#fff1f2", text: "#9f1239", border: "#fecdd3" },
   "Dev Tools":        { bg: "#f8fafc", text: "#475569", border: "#e2e8f0" },
@@ -75,8 +75,11 @@ type AdminRow = {
   name: string;
   email: string;
   isProtected: boolean;
+  isAdmin: boolean;
   permissions: Record<string, boolean>;
 };
+
+const PULSE_GROUP = "PULSE";
 
 type PermDef = { key: string; label: string; group: string };
 
@@ -108,8 +111,10 @@ function computeChanges(
     const local = localPerms[admin.userId];
     if (!local) continue;
     for (const def of definitions) {
-      const origVal = orig[def.key] ?? true;
-      const newVal = local[def.key] ?? true;
+      if (!admin.isAdmin && def.group !== PULSE_GROUP) continue;
+      const defaultValue = def.group === PULSE_GROUP ? false : true;
+      const origVal = orig[def.key] ?? defaultValue;
+      const newVal = local[def.key] ?? defaultValue;
       if (origVal !== newVal) {
         changes.push({
           userId: admin.userId,
@@ -373,8 +378,8 @@ export default function SuperPermissionsPage() {
   function handleToggleAllForAdmin(userId: number, value: boolean) {
     const admin = allAdmins.find((a) => a.userId === userId);
     if (!admin || admin.isProtected) return;
-    const updated: Record<string, boolean> = {};
-    for (const def of definitions) updated[def.key] = value;
+    const updated: Record<string, boolean> = { ...(localPerms[userId] ?? admin.permissions) };
+    for (const def of definitions) if (admin.isAdmin || def.group === PULSE_GROUP) updated[def.key] = value;
     setLocalPerms((prev) => ({ ...prev, [userId]: updated }));
     setDirty(true);
   }
@@ -383,7 +388,7 @@ export default function SuperPermissionsPage() {
     setLocalPerms((prev) => {
       const next = { ...prev };
       for (const admin of allAdmins) {
-        if (admin.isProtected) continue;
+        if (admin.isProtected || (!admin.isAdmin && definitions.find((definition) => definition.key === key)?.group !== PULSE_GROUP)) continue;
         next[admin.userId] = { ...next[admin.userId], [key]: value };
       }
       return next;
@@ -396,7 +401,7 @@ export default function SuperPermissionsPage() {
     setLocalPerms((prev) => {
       const next = { ...prev };
       for (const admin of allAdmins) {
-        if (admin.isProtected) continue;
+        if (admin.isProtected || (!admin.isAdmin && group !== PULSE_GROUP)) continue;
         const updated = { ...next[admin.userId] };
         for (const key of groupKeys) updated[key] = value;
         next[admin.userId] = updated;
@@ -449,7 +454,7 @@ export default function SuperPermissionsPage() {
           <ShieldCheck className="h-5 w-5 text-primary" />
           <div>
             <h1 className="text-lg font-semibold leading-tight">Super Permissions</h1>
-            <p className="text-xs text-muted-foreground">Manage all admin page access in one place</p>
+            <p className="text-xs text-muted-foreground">Manage SavvyOS page access and static Pulse capabilities in one place</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -505,7 +510,8 @@ export default function SuperPermissionsPage() {
                       </Badge>
                     ) : (
                       <div className="flex gap-1">
-                        <button title="Grant all pages" onClick={() => handleToggleAllForAdmin(admin.userId, true)} className="text-muted-foreground hover:text-emerald-600 transition-colors">
+                                                  <button title={admin.isAdmin ? "Grant all available permissions" : "Grant all Pulse capabilities"} onClick={() => handleToggleAllForAdmin(admin.userId, true)} className="text-muted-foreground hover:text-emerald-600 transition-colors">
+
                           <CheckSquare className="h-3 w-3" />
                         </button>
                         <button title="Revoke all pages" onClick={() => handleToggleAllForAdmin(admin.userId, false)} className="text-muted-foreground hover:text-rose-500 transition-colors">
@@ -602,9 +608,11 @@ export default function SuperPermissionsPage() {
 
                     {/* Admin checkbox cells */}
                     {allAdmins.map((admin) => {
+                      const isPulseCapability = def.group === PULSE_GROUP;
+                      const unavailableForPerson = !admin.isAdmin && !isPulseCapability;
                       const checked = admin.isProtected
-                        ? true
-                        : (localPerms[admin.userId]?.[def.key] ?? true);
+                        ? Boolean(admin.permissions[def.key])
+                        : (localPerms[admin.userId]?.[def.key] ?? (isPulseCapability ? false : true));
                       return (
                         <td
                           key={admin.userId}
@@ -612,8 +620,12 @@ export default function SuperPermissionsPage() {
                           style={{ width: 88, minWidth: 88 }}
                         >
                           {admin.isProtected ? (
-                            <div className="flex justify-center" title="Tyler always has full access">
+                            <div className="flex justify-center" title="Protected account">
                               <Lock className="h-3.5 w-3.5 text-amber-400" />
+                            </div>
+                          ) : unavailableForPerson ? (
+                            <div className="flex justify-center" title="This is an admin-only SavvyOS page permission">
+                              <span className="text-xs text-muted-foreground">—</span>
                             </div>
                           ) : (
                             <div className="flex justify-center">

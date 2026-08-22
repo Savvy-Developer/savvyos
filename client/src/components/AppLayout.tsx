@@ -147,20 +147,26 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
 
 /** The Pulse shell is intentionally capped at five destinations. */
 function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
-  const icons: Record<string, React.ElementType> = {
-    Home,
-    "My Work": CheckSquare,
-    "My Inputs": StickyNote,
-    Meetings: Users,
-    Settings,
-  };
-  return [{
-    label: "Pulse",
-    items: getPulseNavDestinations(shell).map((item) => ({
-      ...item,
-      icon: icons[item.label] ?? Users,
-    })),
-  }];
+  const destinations = getPulseNavDestinations(shell);
+  const meetings = shell?.meetings ?? [];
+  const fixedItems = destinations
+    .filter((item) => item.label !== "Meetings" && !meetings.some((meeting) => item.path === `/pulse/meetings/${meeting.id}`))
+    .map((item) => ({ ...item, icon: item.label === "Home" ? Home : item.label === "My Work" ? CheckSquare : item.label === "My Inputs" ? StickyNote : Settings }));
+  const meetingGroups: Array<{ label: string; match: (label?: string) => boolean }> = [
+    { label: "Team meetings", match: (label) => label === "level_10" },
+    { label: "One-on-ones", match: (label) => label === "one_on_one" },
+    { label: "Ad hoc", match: (label) => label === "other" },
+  ];
+
+  return [
+    { label: "SavvyOS", items: [{ icon: ChevronLeft, label: "Back to SavvyOS", path: "/" }] },
+    { label: "Pulse", items: fixedItems },
+    ...meetingGroups.map((group) => ({
+      label: group.label,
+      items: meetings.filter((meeting) => group.match(meeting.label)).map((meeting) => ({ icon: Users, label: meeting.name, path: `/pulse/meetings/${meeting.id}` })),
+    })).filter((group) => group.items.length > 0),
+    ...(!meetings.length ? [{ label: "Meetings", items: [{ icon: Users, label: "Meetings", path: "/pulse/meetings" }] }] : []),
+  ];
 }
 
 function buildAgentSupportNav(): NavGroup[] {
@@ -246,7 +252,6 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewProperties: "/properties",
   canViewCommission: "/commission",
   canViewReferrals: "/referrals",
-  canViewPulse: "/pulse",
   canViewTasks: "/tasks",
   canViewOnboarding: "/onboarding",
   canViewCoachingHub: "/coaching",
@@ -436,7 +441,7 @@ function SidebarNav({
         {navGroups.map((group) => (
           <div key={group.label}>
             {!collapsed && (
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-2 mb-1">
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground px-2 mb-1">
                 {group.label}
               </p>
             )}
@@ -453,7 +458,7 @@ function SidebarNav({
                       type="button"
                       onClick={() => item.external ? window.open(item.path, "_blank", "noopener,noreferrer") : onNavigate(item.path)}
                       title={collapsed ? item.label : undefined}
-                      className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
+                      className={`w-full min-h-11 flex items-center gap-2.5 px-2 py-2 rounded-md text-base transition-colors text-left ${
                         isActive
                           ? "bg-[oklch(0.74_0.14_200)]/15 text-[oklch(0.60_0.14_200)] font-semibold"
                           : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -557,6 +562,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { data: pulseShell } = trpc.pulse.shell.useQuery(
     undefined,
     { enabled: !!user && isPulsePath, staleTime: 30000 },
+  );
+  // This is intentionally the actionable-only Pulse feed. It never counts
+  // passive activity or items belonging to another person.
+  const { data: pulseActionItems = [] } = trpc.pulse.notifications.pending.useQuery(
+    undefined,
+    { enabled: !!user && isPulsePath, refetchInterval: 30000 },
   );
 
   // Fetch pending approvals count for admin badge
@@ -693,6 +704,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const unreadPmCount = (inboxCount as any)?.count ?? 0;
   const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
+  const pulseActionCount = (pulseActionItems as any[]).length;
 
   const standardNavGroups =
     role === "admin"
@@ -813,6 +825,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </button>
+          {isPulsePath ? <button
+            type="button"
+            className="md:hidden min-h-11 min-w-11 rounded-md px-2 text-base font-medium text-primary hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => navigate("/")}
+            aria-label="Return to SavvyOS"
+          >
+            <span aria-hidden="true">←</span><span className="ml-1">SavvyOS</span>
+          </button> : null}
           {/* Mobile: centered brand logo */}
           <div className="md:hidden flex items-center gap-2 flex-1 justify-center">
             <img
@@ -829,6 +849,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           {/* Desktop: spacer */}
           <div className="hidden md:flex flex-1" />
+
+          {isPulsePath ? <button
+            type="button"
+            onClick={() => navigate("/pulse/mission")}
+            className="relative min-h-11 min-w-11 rounded-md p-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={pulseActionCount ? `${pulseActionCount} Pulse action${pulseActionCount === 1 ? "" : "s"} need you` : "Open Pulse Mission Control"}
+            title="Pulse Mission Control"
+          >
+            <Bell className="h-5 w-5 text-muted-foreground" />
+            {pulseActionCount > 0 ? <span className="absolute right-1 top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold text-white">{pulseActionCount}</span> : null}
+          </button> : null}
 
           {/* PM Inbox Bell — visible to Tyler and all admins */}
           {isPmUser && (

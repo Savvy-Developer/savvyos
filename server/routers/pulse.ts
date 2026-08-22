@@ -9,7 +9,6 @@ import {
   pulseGlossary,
   pulseMeetingMembers,
   pulseMeetings,
-  pulseProfiles,
   pulseWorkItemMoves,
   pulseWorkItems,
   users,
@@ -17,6 +16,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "../pulse/access";
+import { hasPulseCapability } from "../pulse/capabilities";
 import { pulseWorkItemsRouter } from "../pulse/workItems";
 import { pulseThinSliceRouter } from "../pulse/thinSlice";
 import { pulseMeetingViewsRouter } from "../pulse/meetingViews";
@@ -171,29 +171,35 @@ export const pulseRouter = router({
     if (!db) throw serviceUnavailable();
     await ensureGlossary(db);
     const meetings = await listVisibleMeetings(db, ctx.user.id);
-    const [profile] = await db.select().from(pulseProfiles).where(and(
-      eq(pulseProfiles.userId, ctx.user.id),
-      isNull(pulseProfiles.deletedAt),
-    ));
-
     const ownsOrAdministers = meetings.some((meeting: any) => (
       meeting.meetingRole === "owner" || meeting.meetingRole === "administrator"
     ));
-    const platformRole = profile?.platformRole ?? "member";
-    const isSuperAdmin = platformRole === "super_admin";
-    const canSeeSettings = ownsOrAdministers || isSuperAdmin;
+    const [canManageSettings, canViewEffectiveness, canViewHistory, canViewAllQuarterlyRocks, canUseReservedPermissioning] = await Promise.all([
+      hasPulseCapability(ctx.user, "canViewPulseSettings"),
+      hasPulseCapability(ctx.user, "canViewPulseEffectiveness"),
+      hasPulseCapability(ctx.user, "canViewPulseHistory"),
+      hasPulseCapability(ctx.user, "canViewAllQuarterlyRocks"),
+      hasPulseCapability(ctx.user, "canViewPulsePermissioning"),
+    ]);
+    const canSeeSettings = ownsOrAdministers || canManageSettings;
     const navMode = meetings.length === 1 && !ownsOrAdministers ? "single_meeting" : "standard";
 
     return {
       navMode,
       meetings,
       ownsOrAdministers,
-      // Settings comes from a visible meeting-management role or the explicit
-      // super-admin role—never from merely belonging to several meetings.
       canSeeSettings,
-      isSuperAdmin,
-      settingsReason: ownsOrAdministers ? "meeting_manager" : isSuperAdmin ? "super_admin" : "none",
-      canSeeAggregateReporting: isSuperAdmin,
+      capabilities: {
+        canManageSettings,
+        canViewEffectiveness,
+        canViewHistory,
+        canViewAllQuarterlyRocks,
+        // Reserved capability is intentionally not attached to an active
+        // membership surface in Prompt 10 Amendment A.
+        canUseReservedPermissioning,
+      },
+      settingsReason: ownsOrAdministers ? "meeting_manager" : canManageSettings ? "capability" : "none",
+      canSeeAggregateReporting: canViewEffectiveness,
     };
   }),
 
@@ -311,13 +317,9 @@ export const pulseRouter = router({
       const db = await getDb();
       if (!db) throw serviceUnavailable();
 
-      // Creating a meeting is an administrative capability, but it does not create
-      // visibility to unrelated meetings. The creator becomes owner of this record.
-      const [profile] = await db.select().from(pulseProfiles).where(and(
-        eq(pulseProfiles.userId, ctx.user.id),
-        isNull(pulseProfiles.deletedAt),
-      ));
-      if (profile?.platformRole !== "admin" && profile?.platformRole !== "super_admin" && ctx.user.role !== "admin") {
+      // Creating a meeting is a SavvyOS matrix capability. It never grants
+      // visibility to unrelated meetings; membership remains separate.
+      if (!await hasPulseCapability(ctx.user, "canViewPulseSettings")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to create a meeting." });
       }
 

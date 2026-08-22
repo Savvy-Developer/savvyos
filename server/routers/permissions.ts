@@ -15,6 +15,28 @@ const PERMISSION_MANAGERS = [
 // ── Tyler's email — her permissions can never be edited ───────────────────────
 const PROTECTED_EMAIL = "tyler@savvy.realty";
 
+/**
+ * Static Pulse administration capabilities. These flags never grant meeting
+ * visibility; `pulse_meeting_members` remains the sole source of that access.
+ */
+export const PULSE_CAPABILITY_KEYS = [
+  "canViewPulseSettings",
+  "canViewPulseEffectiveness",
+  "canViewPulseHistory",
+  "canViewAllQuarterlyRocks",
+  "canViewPulsePermissioning",
+] as const;
+
+export type PulseCapabilityKey = (typeof PULSE_CAPABILITY_KEYS)[number];
+
+function isPulseCapability(key: string): key is PulseCapabilityKey {
+  return (PULSE_CAPABILITY_KEYS as readonly string[]).includes(key);
+}
+
+function defaultPermissionValue(key: string): boolean {
+  return !isPulseCapability(key);
+}
+
 // ── All permission keys with their labels and group ───────────────────────────
 export const ADMIN_NAV_PERMISSIONS = [
   // Overview
@@ -45,8 +67,12 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canUpdateReferralPayments",  label: "Update Referral Payments", group: "Outbound Referrals" },
   { key: "canManageReferralAgreements",label: "Manage Agreements",        group: "Outbound Referrals" },
   { key: "canEditHistoricalReferrals", label: "Edit Historical Referrals",group: "Outbound Referrals" },
-  // Pulse
-  { key: "canViewPulse",             label: "Pulse",                    group: "Pulse" },
+  // PULSE — administration capability only. None of these rows grants a meeting.
+  { key: "canViewPulseSettings",      label: "Pulse Settings",          group: "PULSE" },
+  { key: "canViewPulseEffectiveness", label: "Meeting Effectiveness",   group: "PULSE" },
+  { key: "canViewPulseHistory",       label: "Meeting History",         group: "PULSE" },
+  { key: "canViewAllQuarterlyRocks",  label: "All Quarterly Rocks",     group: "PULSE" },
+  { key: "canViewPulsePermissioning", label: "Pulse Permissioning",    group: "PULSE" },
   // Operations
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },
@@ -93,7 +119,10 @@ export async function canAdminUsePermission(
   permission: PermissionKey,
 ): Promise<boolean> {
   if (user.role !== "admin") return false;
-  if (user.email === PROTECTED_EMAIL) return true;
+  // Protected access stays intact for existing SavvyOS pages. New Pulse
+  // capabilities deliberately default off and must be granted through the
+  // same matrix rather than through an implicit Pulse bootstrap.
+  if (user.email === PROTECTED_EMAIL) return !isPulseCapability(permission);
 
   const db = await getDb();
   if (!db) return false;
@@ -124,12 +153,14 @@ export const permissionsRouter = router({
       const targetUsers = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
       const targetUser = targetUsers[0];
       if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      if (targetUser.role !== "admin") throw new TRPCError({ code: "BAD_REQUEST", message: "Permissions only apply to admin users" });
+      // Non-admin people may receive only the five static Pulse capabilities.
+      // This grants no platform role and never grants meeting membership.
 
-      // Tyler always has full access — return synthetic all-true object
+      // Tyler retains all existing SavvyOS access. New Pulse capabilities are
+      // intentionally unchecked until a permission manager grants them.
       if (targetUser.email === PROTECTED_EMAIL) {
         const allTrue: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = true;
+        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = defaultPermissionValue(p.key);
         return { userId: input.userId, permissions: allTrue, isProtected: true };
       }
 
@@ -141,7 +172,7 @@ export const permissionsRouter = router({
         const newRows = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, input.userId)).limit(1);
         const row = newRows[0];
         const perms: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? defaultPermissionValue(p.key);
         return { userId: input.userId, permissions: perms, isProtected: false };
       }
 
@@ -160,10 +191,11 @@ export const permissionsRouter = router({
 
       const email = (ctx.user as any).email as string;
 
-      // Tyler always has full access
+      // Tyler retains all existing SavvyOS access. New Pulse capabilities are
+      // intentionally unchecked until a permission manager grants them.
       if (email === PROTECTED_EMAIL) {
         const allTrue: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = true;
+        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = defaultPermissionValue(p.key);
         return allTrue;
       }
 
@@ -174,7 +206,7 @@ export const permissionsRouter = router({
         const newRows = await db.select().from(adminPermissions).where(eq(adminPermissions.userId, ctx.user.id)).limit(1);
         const row = newRows[0];
         const perms: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+        for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? defaultPermissionValue(p.key);
         return perms;
       }
 
@@ -203,11 +235,11 @@ export const permissionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Look up target user
+      // Look up target user. People who are not SavvyOS admins can receive
+      // only static PULSE capability rows; their platform role stays unchanged.
       const targetUsers = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
       const targetUser = targetUsers[0];
       if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      if (targetUser.role !== "admin") throw new TRPCError({ code: "BAD_REQUEST", message: "Permissions only apply to admin users" });
 
       // Cannot edit Tyler's permissions
       if (targetUser.email === PROTECTED_EMAIL) {
@@ -217,13 +249,13 @@ export const permissionsRouter = router({
         });
       }
 
-      // Build the update object — only allow known permission keys
+      // Build the update object. Non-admin people may receive only static
+      // PULSE capabilities; no mutation here can promote a platform role.
       const validKeys = new Set(ADMIN_NAV_PERMISSIONS.map((p) => p.key));
+      const allowedKeys = targetUser.role === "admin" ? validKeys : new Set<string>(PULSE_CAPABILITY_KEYS);
       const updateData: Record<string, boolean> = {};
       for (const [key, val] of Object.entries(input.permissions)) {
-        if (validKeys.has(key as PermissionKey)) {
-          updateData[key] = val;
-        }
+        if (validKeys.has(key as PermissionKey) && allowedKeys.has(key)) updateData[key] = val;
       }
 
       // Upsert
@@ -264,11 +296,12 @@ export const permissionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Get all active admin users
+      // Existing people only. Static Pulse capabilities can be granted without
+      // creating an account or changing a SavvyOS platform role.
       const adminUsers = await db
-        .select({ id: users.id, name: users.name, email: users.email })
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
         .from(users)
-        .where(eq(users.role, "admin"))
+        .where(eq(users.isActive, true))
         .orderBy(users.name);
 
       // Get all existing permissions rows
@@ -282,20 +315,22 @@ export const permissionsRouter = router({
         const perms: Record<string, boolean> = {};
         if (u.email === PROTECTED_EMAIL) {
           // Tyler always has full access
-          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = true;
+          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = defaultPermissionValue(p.key);
         } else if (row) {
-          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = (row as any)[p.key] ?? true;
+          for (const p of ADMIN_NAV_PERMISSIONS) perms[p.key] = u.role === "admin" ? ((row as any)[p.key] ?? defaultPermissionValue(p.key)) : (isPulseCapability(p.key) ? ((row as any)[p.key] ?? false) : false);
         } else {
-          // No row yet — defaults: most ON, except intentionally restricted views.
+          // No row yet. Existing admin defaults remain unchanged; people who
+          // are not admins have only unchecked static PULSE capability cells.
           const defaultOff = new Set<PermissionKey>([
             "canViewProjects",
             "canViewSmartPlans",
             "canViewEmailNotifications",
             "canViewSuperPermissions",
             "canViewResendInbox",
+            ...PULSE_CAPABILITY_KEYS,
           ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
-            perms[p.key] = !defaultOff.has(p.key);
+            perms[p.key] = u.role === "admin" ? !defaultOff.has(p.key) : false;
           }
         }
         return {
@@ -303,6 +338,7 @@ export const permissionsRouter = router({
           name: u.name ?? u.email ?? String(u.id),
           email: u.email ?? "",
           isProtected: u.email === PROTECTED_EMAIL,
+          isAdmin: u.role === "admin",
           permissions: perms,
         };
       });
@@ -332,15 +368,17 @@ export const permissionsRouter = router({
       const validKeys = new Set(ADMIN_NAV_PERMISSIONS.map((p) => p.key));
 
       for (const item of input) {
-        // Look up user to ensure they're admin and not Tyler
+        // Existing people may receive only static PULSE capabilities unless
+        // they are already SavvyOS admins. Their platform role is never changed.
         const targetUsers = await db.select({ email: users.email, role: users.role, id: users.id }).from(users).where(eq(users.id, item.userId)).limit(1);
         const targetUser = targetUsers[0];
-        if (!targetUser || targetUser.role !== "admin") continue;
+        if (!targetUser) continue;
         if (targetUser.email === PROTECTED_EMAIL) continue; // skip Tyler
+        const allowedKeys = targetUser.role === "admin" ? validKeys : new Set<string>(PULSE_CAPABILITY_KEYS);
 
         const updateData: Record<string, boolean> = {};
         for (const [key, val] of Object.entries(item.permissions)) {
-          if (validKeys.has(key as PermissionKey)) updateData[key] = val;
+          if (validKeys.has(key as PermissionKey) && allowedKeys.has(key)) updateData[key] = val;
         }
 
         // Merge tempExpiry: fetch existing, remove keys that are now permanent, add new temp keys

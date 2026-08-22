@@ -1,4 +1,4 @@
-export type PulseNavMeeting = { id: string; name: string };
+export type PulseNavMeeting = { id: string; name: string; label?: "level_10" | "one_on_one" | "other" };
 export type PulseNavShell = {
   navMode?: "single_meeting" | "standard";
   canSeeSettings?: boolean;

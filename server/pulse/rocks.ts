@@ -5,6 +5,7 @@ import { pulseMeetingRocks, pulseMeetings, pulseWorkItems, users } from "../../d
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
+import { hasPulseCapability } from "./capabilities";
 
 const id = () => crypto.randomUUID();
 function unavailable() { return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Rocks are not available right now. Please try again." }); }
@@ -51,8 +52,9 @@ export const pulseRocksRouter = router({
   }),
   globalQuarterly: protectedProcedure.query(async ({ ctx }) => {
     const db = await dbOrThrow();
-    const [profile] = await db.select({ platformRole: (await import("../../drizzle/schema")).pulseProfiles.platformRole }).from((await import("../../drizzle/schema")).pulseProfiles).where(eq((await import("../../drizzle/schema")).pulseProfiles.userId, ctx.user.id)).limit(1);
-    if (profile?.platformRole !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "Quarterly Rocks is available to super admins only." });
+    if (!await hasPulseCapability(ctx.user, "canViewAllQuarterlyRocks")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "All Quarterly Rocks is not available to you." });
+    }
     return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, percentComplete: pulseWorkItems.percentComplete, quarter: pulseWorkItems.quarter, meetingName: pulseMeetings.name, assigneeName: users.name }).from(pulseWorkItems).leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId)).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId)).where(and(eq(pulseWorkItems.type, "rock"), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.quarter), asc(pulseWorkItems.title));
   }),
 });
