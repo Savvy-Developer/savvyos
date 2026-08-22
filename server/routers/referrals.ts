@@ -4,6 +4,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb, createListing, createTransaction, logActivity, updateListing, updateTransaction } from "../db";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
+import { normalizeOptionalUsPhone } from "@shared/phone";
 import {
   contacts,
   listings,
@@ -414,7 +415,7 @@ export const referralsRouter = router({
       name: input.name,
       brokerage: input.brokerage || null,
       email: input.email || null,
-      phone: input.phone || null,
+      phone: normalizeOptionalUsPhone(input.phone),
       primaryMarket: input.primaryMarket || null,
       defaultSavvyReferralPct: percentage(input.defaultSavvyReferralPct) ?? "25.00",
       licenseNumber: input.licenseNumber || null,
@@ -439,6 +440,9 @@ export const referralsRouter = router({
     const updateData: Record<string, unknown> = { ...rest };
     if (defaultSavvyReferralPct !== undefined) updateData.defaultSavvyReferralPct = percentage(defaultSavvyReferralPct) ?? "0.00";
     if (email !== undefined) updateData.email = email || null;
+    if (Object.prototype.hasOwnProperty.call(input.data, "phone")) {
+      updateData.phone = normalizeOptionalUsPhone(input.data.phone);
+    }
     await db.update(referralAgents).set(updateData as any).where(eq(referralAgents.id, input.id));
     if (coverage) {
       await db.delete(referralAgentCoverage).where(eq(referralAgentCoverage.referralAgentId, input.id));

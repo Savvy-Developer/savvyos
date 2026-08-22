@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CheckCircle2, Loader2, Send, User, Phone, Mail, StickyNote, Building2 } from "lucide-react";
+import { formatPhone, isValidPhone } from "@/lib/inputFormatters";
 
 // ─── Form State ───────────────────────────────────────────────────────────────
 
@@ -128,6 +129,9 @@ export default function PartnerLeadForm() {
     if (!form.phone.trim() && !form.email.trim()) {
       errs.phone = "At least one of phone or email is required.";
       errs.email = "At least one of phone or email is required.";
+    }
+    if (form.phone && !isValidPhone(form.phone)) {
+      errs.phone = "Enter a 10-digit U.S. phone number.";
     }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       errs.email = "Please enter a valid email address.";
@@ -283,8 +287,11 @@ export default function PartnerLeadForm() {
                   id="phone"
                   type="tel"
                   value={form.phone}
-                  onChange={(e) => set("phone", e.target.value)}
+                  onChange={(e) => set("phone", formatPhone(e.target.value))}
                   placeholder="(555) 000-0000"
+                  inputMode="numeric"
+                  maxLength={14}
+                  autoComplete="tel"
                   className={errors.phone ? "border-red-400 focus-visible:ring-red-300" : ""}
                 />
                 {errors.phone && <p className="text-xs text-red-500">{errors.phone}</p>}

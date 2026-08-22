@@ -21,6 +21,7 @@ import {
 } from "../drizzle/schema";
 import { asc, eq, or, and, like, inArray, desc, isNull, isNotNull, lt, gte, sql } from "drizzle-orm";
 import { transcribeAndSummarize } from "./aircallTranscribe";
+import { formatUsPhoneDigits } from "@shared/phone";
 
 // ─── Phone Normalisation ──────────────────────────────────────────────────────
 
@@ -40,6 +41,11 @@ export function normalizePhone(raw: string | null | undefined): string {
     return digits.slice(1);
   }
   return digits;
+}
+
+function canonicalStoredPhone(raw: string | null | undefined): string | null {
+  const digits = normalizePhone(raw);
+  return digits.length === 10 ? formatUsPhoneDigits(digits) : null;
 }
 
 // ─── Contact Lookup ───────────────────────────────────────────────────────────
@@ -691,9 +697,9 @@ export async function processAircallCall(
         duration: call.duration ?? null,
         startedAt: startedAt ?? undefined,
         endedAt: endedAt ?? undefined,
-        callerNumber: callerNumber || null,
-        calleeNumber: calleeNumber || null,
-        attemptedPhone: normalizePhone(matchPhone) || null,
+        callerNumber: canonicalStoredPhone(callerNumber),
+        calleeNumber: canonicalStoredPhone(calleeNumber),
+        attemptedPhone: canonicalStoredPhone(matchPhone),
         rawPayload: call as any,
       });
     }
@@ -755,8 +761,8 @@ export async function processAircallCall(
     startedAt: startedAt ?? undefined,
     answeredAt: answeredAt ?? undefined,
     endedAt: endedAt ?? undefined,
-    callerNumber: callerNumber || null,
-    calleeNumber: calleeNumber || null,
+    callerNumber: canonicalStoredPhone(callerNumber),
+    calleeNumber: canonicalStoredPhone(calleeNumber),
     recordingUrl: recordingResult?.url ?? null,
     recordingKey: recordingResult?.key ?? null,
     voicemailUrl: voicemailResult?.url ?? null,

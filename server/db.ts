@@ -34,6 +34,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { resolveActivityRecordLinks } from "./activityLinkResolver";
+import { normalizePhoneFields } from "@shared/phone";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -407,28 +408,30 @@ export function scheduleAircallPhoneRematch(
 export async function createContact(data: typeof contacts.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const [result] = await db.insert(contacts).values(data);
+  const normalizedData = normalizePhoneFields(data, ["phone", "secondaryPhone", "spousePhone"]);
+  const [result] = await db.insert(contacts).values(normalizedData);
   const insertId = (result as any).insertId as number;
   // Outbound GHL sync — fire-and-forget; never blocks contact creation. See
   // server/_core/ghlSync.ts for the chokepoint design.
   void import("./_core/ghlSync").then((m) => m.triggerGhlContactSync(insertId));
   // Deferred email behaviors match — promote any unmatched email records for this address.
-  if (data.email) {
+  if (normalizedData.email) {
     void import("./emailBehaviorsSync").then((m) =>
-      m.promoteUnmatchedEmailBehaviors(insertId, data.email as string).catch((err) =>
+      m.promoteUnmatchedEmailBehaviors(insertId, normalizedData.email as string).catch((err) =>
         console.error("[EmailBehaviors] Deferred match error on contact create:", err),
       ),
     );
   }
-  scheduleAircallPhoneRematch(insertId, data);
+  scheduleAircallPhoneRematch(insertId, normalizedData);
   return insertId;
 }
 
 export async function updateContact(id: number, data: Partial<typeof contacts.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(contacts).set(data).where(eq(contacts.id, id));
-  scheduleAircallPhoneRematch(id, data);
+  const normalizedData = normalizePhoneFields(data, ["phone", "secondaryPhone", "spousePhone"]);
+  await db.update(contacts).set(normalizedData).where(eq(contacts.id, id));
+  scheduleAircallPhoneRematch(id, normalizedData);
 }
 export async function archiveContact(id: number) {
   const db = await getDb();
@@ -1621,15 +1624,16 @@ export async function createUser(data: { name: string; email: string; role: "adm
   if (!db) throw new Error("DB unavailable");
   // Generate a placeholder openId so the user can be created before they log in
   const openId = `manual_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const normalizedData = normalizePhoneFields(data, ["phone"]);
   const [result] = await db.insert(users).values({
     openId,
     name: data.name,
     email: data.email,
     role: data.role,
-    phone: data.phone ?? null,
-    title: data.title ?? null,
-    reportsToId: data.reportsToId ?? null,
-    marketProfileId: data.marketProfileId ?? null,
+    phone: normalizedData.phone ?? null,
+    title: normalizedData.title ?? null,
+    reportsToId: normalizedData.reportsToId ?? null,
+    marketProfileId: normalizedData.marketProfileId ?? null,
     loginMethod: "manual",
     lastSignedIn: new Date(),
   });
@@ -1639,7 +1643,8 @@ export async function createUser(data: { name: string; email: string; role: "adm
 export async function updateUser(id: number, data: { name?: string; email?: string; role?: "admin" | "agent" | "isa" | "agent_support"; phone?: string | null; title?: string | null; reportsToId?: number | null; marketProfileId?: number | null; isActive?: boolean; allowHiddenNav?: boolean; commissionSplit?: number | null; callBookingLink?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(users).set(data).where(eq(users.id, id));
+  const normalizedData = normalizePhoneFields(data, ["phone"]);
+  await db.update(users).set(normalizedData).where(eq(users.id, id));
 }
 
 export async function deleteUser(id: number) {

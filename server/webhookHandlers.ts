@@ -21,6 +21,7 @@ async function getDb() {
 import { contacts, leadSources, agentConnections } from "../drizzle/schema";
 import { eq, and, or, isNull } from "drizzle-orm";
 import type { WebhookEndpoint } from "../drizzle/schema";
+import { normalizeOptionalUsPhone } from "@shared/phone";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,7 +187,9 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
   if (!firstName) throw new Error("first_name (or name) is required");
 
   const email = (p.email as string) || undefined;
-  const phone = (p.phone as string) || undefined;
+  const phone = normalizeOptionalUsPhone(p.phone == null ? undefined : String(p.phone));
+  const secondaryPhone = normalizeOptionalUsPhone(p.secondaryPhone == null ? undefined : String(p.secondaryPhone));
+  const spousePhone = normalizeOptionalUsPhone(p.spousePhone == null ? undefined : String(p.spousePhone));
 
   // Resolve lead source
   const leadSourceId = await resolveLeadSourceId(
@@ -195,7 +198,7 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
   );
 
   // Find or create contact
-  const existingId = await findExistingContact(email, phone);
+  const existingId = await findExistingContact(email, phone ?? undefined);
 
   let contactId: number;
   let action: HandlerResult["action"];
@@ -208,7 +211,7 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     if (email) updates.email = email;
     if (phone) updates.phone = phone;
     if (p.secondaryEmail) updates.secondaryEmail = p.secondaryEmail as string;
-    if (p.secondaryPhone) updates.secondaryPhone = p.secondaryPhone as string;
+    if (secondaryPhone) updates.secondaryPhone = secondaryPhone;
     if (p.address) updates.address = p.address as string;
     if (p.city) updates.city = p.city as string;
     if (p.state) updates.state = p.state as string;
@@ -228,9 +231,9 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
       firstName,
       lastName: lastName || "",
       email: email || null,
-      phone: phone || null,
+      phone,
       secondaryEmail: (p.secondaryEmail as string) || null,
-      secondaryPhone: (p.secondaryPhone as string) || null,
+      secondaryPhone,
       address: (p.address as string) || null,
       city: (p.city as string) || null,
       state: (p.state as string) || null,
@@ -240,7 +243,7 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
       spouseFirstName: (p.spouseFirstName as string) || null,
       spouseLastName: (p.spouseLastName as string) || null,
       spouseEmail: (p.spouseEmail as string) || null,
-      spousePhone: (p.spousePhone as string) || null,
+      spousePhone,
     });
     contactId = (result as any).insertId;
     action = "created";
@@ -254,8 +257,8 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
 
   scheduleAircallPhoneRematch(contactId, {
     phone,
-    secondaryPhone: (p.secondaryPhone as string) || null,
-    spousePhone: (p.spousePhone as string) || null,
+    secondaryPhone,
+    spousePhone,
   });
 
   // Record how/where this lead entered the system so the contact history isn't
@@ -311,9 +314,9 @@ const contactUpdateHandler: HandlerFn = async (rawPayload, endpoint) => {
 
   const p = normalisePayload(rawPayload);
   const email = (p.email as string) || undefined;
-  const phone = (p.phone as string) || undefined;
+  const phone = normalizeOptionalUsPhone(p.phone == null ? undefined : String(p.phone));
 
-  const existingId = await findExistingContact(email, phone);
+  const existingId = await findExistingContact(email, phone ?? undefined);
   if (!existingId) {
     throw new Error("No contact found matching the provided email or phone");
   }
@@ -462,7 +465,7 @@ async function createContactFromEvent(
 ): Promise<number> {
   const db = await getDb();
   const { firstName, lastName } = resolveContactName(data, raw, email);
-  const phone = pickField(data, raw, ["phone", "mobile", "cell"]) ?? null;
+  const phone = normalizeOptionalUsPhone(pickField(data, raw, ["phone", "mobile", "cell"]));
 
   const leadSourceId =
     (await resolveLeadSourceId(undefined, endpoint.defaultLeadSourceId)) ??

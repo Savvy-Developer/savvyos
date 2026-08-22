@@ -20,6 +20,7 @@ import { nanoid } from "nanoid";
 import { invokeLLM } from "../_core/llm";
 import { Resend } from "resend";
 import { ENV } from "../_core/env";
+import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
 
 function getResend() {
   if (!ENV.resendApiKey) return null;
@@ -138,7 +139,7 @@ export const jobBoardRouter = router({
       step: z.number().int().min(1).max(6),
       firstName: z.string().max(128).optional(),
       lastName: z.string().max(128).optional(),
-      phone: z.string().max(64).optional(),
+      phone: z.string().max(32).optional().refine(isValidOptionalUsPhone, { message: "Phone number must contain exactly 10 digits." }),
       city: z.string().max(128).optional(),
       state: z.string().max(64).optional(),
       country: z.string().max(64).optional(),
@@ -172,6 +173,7 @@ export const jobBoardRouter = router({
       const updateData: any = { currentStep: Math.max(app.currentStep ?? 1, input.step) };
       const fields = ["firstName","lastName","phone","city","state","country","linkedinUrl","portfolioUrl","resumeUrl","resumeFileName","resumeLinkUrl","coverLetterUrl","coverLetterFileName","coverLetter","whyInterested","salaryExpectation","availableStartDate"] as const;
       for (const f of fields) { if ((input as any)[f] !== undefined) updateData[f] = (input as any)[f]; }
+      if (input.phone !== undefined) updateData.phone = normalizeOptionalUsPhone(input.phone);
       if (input.customAnswers !== undefined) updateData.customAnswers = JSON.stringify(input.customAnswers);
       await db.update(jobApplicationsV2).set(updateData).where(eq(jobApplicationsV2.id, input.applicationId));
 

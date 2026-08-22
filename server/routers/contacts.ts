@@ -20,19 +20,28 @@ import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { invokeLLM } from "../_core/llm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
+import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
+
+const optionalUsPhone = z
+  .string()
+  .trim()
+  .max(32)
+  .nullable()
+  .optional()
+  .refine(isValidOptionalUsPhone, { message: "Phone number must contain exactly 10 digits." });
 
 const contactInput = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.union([z.string().email("Please enter a valid email address"), z.literal("")]).optional().nullable(),
-  phone: z.string().optional().nullable(),
+  phone: optionalUsPhone,
   secondaryEmail: z.union([z.string().email("Invalid email address"), z.literal("")]).optional().nullable(),
-  secondaryPhone: z.string().optional().nullable(),
+  secondaryPhone: optionalUsPhone,
   // address/city/state/zip removed — use Properties tab instead
   spouseFirstName: z.string().optional().nullable(),
   spouseLastName: z.string().optional().nullable(),
   spouseEmail: z.union([z.string().email("Invalid email address"), z.literal("")]).optional().nullable(),
-  spousePhone: z.string().optional().nullable(),
+  spousePhone: optionalUsPhone,
   leadSourceId: z.number().optional().nullable(),
   leadSourceType: z.enum(["referral", "paid_lead", "paid_partnership", "organic", "sphere"]).optional().nullable(),
   referralPartnerId: z.number().optional().nullable(),
@@ -979,10 +988,13 @@ Please write the comprehensive AI summary now.`;
             errors++;
             continue;
           }
-          // Duplicate check by email or phone
+          const phone = normalizeOptionalUsPhone(row.phone);
+          const secondaryPhone = normalizeOptionalUsPhone(row.secondaryPhone);
+          const spousePhone = normalizeOptionalUsPhone(row.spousePhone);
+          // Duplicate check by email or canonical phone value.
           const conditions = [];
           if (row.email?.trim()) conditions.push(eq(contactsTable.email, row.email.trim()));
-          if (row.phone?.trim()) conditions.push(eq(contactsTable.phone, row.phone.trim()));
+          if (phone) conditions.push(eq(contactsTable.phone, phone));
           if (conditions.length > 0) {
             const existing = await db.select({ id: contactsTable.id })
               .from(contactsTable)
@@ -999,9 +1011,9 @@ Please write the comprehensive AI summary now.`;
             firstName: row.firstName.trim(),
             lastName: row.lastName.trim(),
             email: row.email?.trim() || null,
-            phone: row.phone?.trim() || null,
+            phone,
             secondaryEmail: row.secondaryEmail?.trim() || null,
-            secondaryPhone: row.secondaryPhone?.trim() || null,
+            secondaryPhone,
             address: row.address?.trim() || null,
             city: row.city?.trim() || null,
             state: row.state?.trim() || null,
@@ -1009,7 +1021,7 @@ Please write the comprehensive AI summary now.`;
             spouseFirstName: row.spouseFirstName?.trim() || null,
             spouseLastName: row.spouseLastName?.trim() || null,
             spouseEmail: row.spouseEmail?.trim() || null,
-            spousePhone: row.spousePhone?.trim() || null,
+            spousePhone,
             notes: row.notes?.trim() || null,
             tags: tags ?? null,
             leadSourceType: (row.leadSourceType as any) ?? null,

@@ -15,6 +15,7 @@ import { getDb, scheduleAircallPhoneRematch } from "../db";
 import { webhookEndpoints, webhookLogs, users, leadSources, contacts } from "../../drizzle/schema";
 import { eq, desc, and, like, isNull, or, count, sql } from "drizzle-orm";
 import crypto from "crypto";
+import { normalizeOptionalUsPhone } from "@shared/phone";
 
 // ── IP Rate Limiter (in-memory, resets on server restart) ─────────────────────
 // Allows max 5 submissions per IP per 15-minute window
@@ -309,6 +310,7 @@ export const webhooksRouter = router({
 
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const phone = normalizeOptionalUsPhone(input.phone);
 
       // Resolve lead source
       let leadSourceId: number | null = input.partnerSourceId ?? null;
@@ -329,14 +331,14 @@ export const webhooksRouter = router({
       // Dedup check
       let contactId: number;
       let action: "created" | "updated" = "created";
-      const existing = input.email || input.phone
+      const existing = input.email || phone
         ? await db
             .select({ id: contacts.id })
             .from(contacts)
             .where(
               or(
                 input.email ? eq(contacts.email, input.email) : undefined,
-                input.phone ? eq(contacts.phone, input.phone) : undefined,
+                phone ? eq(contacts.phone, phone) : undefined,
               )
             )
             .limit(1)
@@ -349,7 +351,7 @@ export const webhooksRouter = router({
         if (firstName) updates.firstName = firstName;
         if (lastName) updates.lastName = lastName;
         if (input.email) updates.email = input.email;
-        if (input.phone) updates.phone = input.phone;
+        if (phone) updates.phone = phone;
         if (input.notes) updates.notes = input.notes;
         if (leadSourceId) updates.leadSourceId = leadSourceId;
         if (Object.keys(updates).length > 0) {
@@ -360,7 +362,7 @@ export const webhooksRouter = router({
           firstName,
           lastName,
           email: input.email ?? null,
-          phone: input.phone ?? null,
+          phone,
           notes: input.notes ?? null,
           leadSourceId,
         });
@@ -371,13 +373,13 @@ export const webhooksRouter = router({
         triggerGhlContactSync(contactId);
       }
 
-      scheduleAircallPhoneRematch(contactId, { phone: input.phone ?? null });
+      scheduleAircallPhoneRematch(contactId, { phone });
 
       // Notify admins
       const partnerLabel = input.partnerSourceName || (input.partnerSourceId ? `Source #${input.partnerSourceId}` : "Unknown Partner");
       await notifyOwner({
         title: "New Partner Lead Submitted",
-        content: `A new lead was submitted via the Partner Intake Form.\n\nClient: ${input.clientName}\nPhone: ${input.phone || "—"}\nEmail: ${input.email || "—"}\nPartner Source: ${partnerLabel}\nNotes: ${input.notes || "—"}\n\nContact ID: ${contactId} (${action})`,
+        content: `A new lead was submitted via the Partner Intake Form.\n\nClient: ${input.clientName}\nPhone: ${phone || "—"}\nEmail: ${input.email || "—"}\nPartner Source: ${partnerLabel}\nNotes: ${input.notes || "—"}\n\nContact ID: ${contactId} (${action})`,
       }).catch(() => {/* non-blocking */});
 
       // Send confirmation email to partner if they provided their email

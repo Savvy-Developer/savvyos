@@ -36,6 +36,7 @@ import {
   rolesResponsibilities,
 } from "../../drizzle/schema";
 import { eq, desc, sql, and, gte, lt, inArray } from "drizzle-orm";
+import { isValidOptionalUsPhone, normalizePhoneFields } from "@shared/phone";
 
 // ── Zod schemas for profile upserts ──────────────────────────────────────────
 const coreProfileSchema = z.object({
@@ -119,7 +120,7 @@ const agentProfileSchema = z.object({
   brokerageAffiliation: z.string().optional().nullable(),
   brokerFullName: z.string().optional().nullable(),
   brokerEmail: z.string().optional().nullable(),
-  brokerOfficeNumber: z.string().optional().nullable(),
+  brokerOfficeNumber: z.string().max(32).optional().nullable().refine(isValidOptionalUsPhone, { message: "Phone number must contain exactly 10 digits." }),
   bio: z.string().optional().nullable(),
   instagramUrl: z.string().optional().nullable(),
   facebookUrl: z.string().optional().nullable(),
@@ -518,7 +519,7 @@ export const usersRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { userId, ...rest } = input;
-      const data: any = { ...rest };
+      const data: any = normalizePhoneFields(rest, ["primaryPhone", "secondaryPhone", "emergencyContactPhone"]);
       // Convert date strings to Date objects
       for (const key of ["dateOfBirth", "onboardedDate", "offboardedDate", "workAnniversaryDate"] as const) {
         if (key in data) data[key] = toDate(data[key]);
@@ -551,7 +552,7 @@ export const usersRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { userId, ...rest } = input;
-      const data: any = { ...rest };
+      const data: any = normalizePhoneFields(rest, ["brokerOfficeNumber"]);
       for (const key of ["licenseExpirationDate", "startDateWithSavvy", "endDateWithSavvy"] as const) {
         if (key in data) data[key] = toDate(data[key]);
       }

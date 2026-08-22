@@ -23,6 +23,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Loader2, Save } from "lucide-react";
+import { formatPhone, isValidPhone } from "@/lib/inputFormatters";
 
 interface Props {
   userId: number;
@@ -124,10 +125,18 @@ function CoreProfileSection({ userId }: { userId: number }) {
     }
   }, [profile]);
 
-  const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((p) => ({ ...p, [k]: e.target.value }));
+  const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const value = k === "primaryPhone" || k === "secondaryPhone" || k === "emergencyContactPhone"
+      ? formatPhone(e.target.value)
+      : e.target.value;
+    setForm((p) => ({ ...p, [k]: value }));
+  };
 
   const handleSave = () => {
+    if (![form.primaryPhone, form.secondaryPhone, form.emergencyContactPhone].every(isValidPhone)) {
+      toast.error("Enter each phone number using 10 U.S. digits.");
+      return;
+    }
     upsert.mutate({
       userId,
       ...form,
@@ -157,10 +166,10 @@ function CoreProfileSection({ userId }: { userId: number }) {
                 <Input className="h-8 text-sm" type="email" value={form.personalEmail} onChange={f("personalEmail")} placeholder="personal@email.com" />
               </Field>
               <Field label="Primary Phone">
-                <Input className="h-8 text-sm" value={form.primaryPhone} onChange={f("primaryPhone")} placeholder="(555) 000-0000" />
+                <Input className="h-8 text-sm" type="tel" inputMode="numeric" maxLength={14} value={form.primaryPhone} onChange={f("primaryPhone")} placeholder="(555) 000-0000" />
               </Field>
               <Field label="Secondary Phone">
-                <Input className="h-8 text-sm" value={form.secondaryPhone} onChange={f("secondaryPhone")} placeholder="(555) 000-0000" />
+                <Input className="h-8 text-sm" type="tel" inputMode="numeric" maxLength={14} value={form.secondaryPhone} onChange={f("secondaryPhone")} placeholder="(555) 000-0000" />
               </Field>
               <Field label="Time Zone">
                 <Input className="h-8 text-sm" value={form.timeZone} onChange={f("timeZone")} placeholder="e.g. America/New_York" />
@@ -224,7 +233,7 @@ function CoreProfileSection({ userId }: { userId: number }) {
                   <Input className="h-8 text-sm" value={form.emergencyContactName} onChange={f("emergencyContactName")} />
                 </Field>
                 <Field label="Emergency Contact Phone">
-                  <Input className="h-8 text-sm" value={form.emergencyContactPhone} onChange={f("emergencyContactPhone")} />
+                  <Input className="h-8 text-sm" type="tel" inputMode="numeric" maxLength={14} value={form.emergencyContactPhone} onChange={f("emergencyContactPhone")} placeholder="(555) 000-0000" />
                 </Field>
                 <Field label="Relationship">
                   <Input className="h-8 text-sm" value={form.emergencyContactRelationship} onChange={f("emergencyContactRelationship")} placeholder="Spouse, Parent, etc." />
@@ -355,9 +364,13 @@ function AgentProfileSection({ userId }: { userId: number }) {
   }, [profile]);
 
   const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((p) => ({ ...p, [k]: e.target.value }));
+    setForm((p) => ({ ...p, [k]: k === "brokerOfficeNumber" ? formatPhone(e.target.value) : e.target.value }));
 
   const handleSave = () => {
+    if (!isValidPhone(form.brokerOfficeNumber)) {
+      toast.error("Enter a 10-digit U.S. broker office number.");
+      return;
+    }
     upsert.mutate({
       userId,
       ...form,
@@ -405,7 +418,7 @@ function AgentProfileSection({ userId }: { userId: number }) {
                   <Input className="h-8 text-sm" type="email" value={form.brokerEmail} onChange={f("brokerEmail")} placeholder="broker@example.com" />
                 </Field>
                 <Field label="Broker Office Number">
-                  <Input className="h-8 text-sm" type="tel" value={form.brokerOfficeNumber} onChange={f("brokerOfficeNumber")} placeholder="(615) 555-0100" />
+                  <Input className="h-8 text-sm" type="tel" inputMode="numeric" maxLength={14} value={form.brokerOfficeNumber} onChange={f("brokerOfficeNumber")} placeholder="(615) 555-0100" />
                 </Field>
               </SectionGrid>
             </div>

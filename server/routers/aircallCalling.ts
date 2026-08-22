@@ -5,6 +5,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { aircallApiRequest, isAircallApiConfigured } from "../_core/aircall";
 import { getDb, logActivity } from "../db";
 import { aircallIsaAssignments, contacts, users } from "../../drizzle/schema";
+import { normalizeOptionalUsPhone } from "@shared/phone";
 
 type AircallUser = {
   id: number;
@@ -290,7 +291,7 @@ export const aircallCallingRouter = router({
         aircallUserId: input.aircallUserId,
         aircallNumberId: input.aircallNumberId,
         aircallNumberName: selectedNumber.name ?? null,
-        aircallNumberDigits: selectedNumber.digits ?? null,
+        aircallNumberDigits: normalizeOptionalUsPhone(selectedNumber.digits),
         verifiedAt: new Date(),
       };
       const existing = await db
