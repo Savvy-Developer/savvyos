@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { pulseProcedure } from "./authorization";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -12,7 +13,7 @@ import {
 } from "../../drizzle/schema";
 import { getCascadeRoutingPresentation } from "../../shared/pulseCascadePresentation";
 import { sendTransactionalEmail } from "../_core/resendEmail";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { getPendingCascadePayloads } from "./cascadePayload";
 import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "./access";
@@ -27,7 +28,7 @@ async function database() {
 }
 
 export const pulseCascadesRouter = router({
-  send: protectedProcedure
+  send: pulseProcedure
     .input(z.object({
       fromMeetingId: z.string().uuid(),
       toMeetingIds: z.array(z.string().uuid()).min(1).max(20),
@@ -157,7 +158,7 @@ export const pulseCascadesRouter = router({
       };
     }),
 
-  acknowledge: protectedProcedure
+  acknowledge: pulseProcedure
     .input(z.object({ messageId: z.string().uuid(), from: z.string().max(64).default("pulse") }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
@@ -188,7 +189,7 @@ export const pulseCascadesRouter = router({
       return { success: true };
     }),
 
-  pending: protectedProcedure.query(async ({ ctx }) => {
+  pending: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
     return getPendingCascadePayloads(db, ctx.user.id);
   }),

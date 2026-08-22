@@ -83,34 +83,6 @@ function EmptyInstruction({ children, actionHref, actionLabel }: { children: Rea
   );
 }
 
-function FirstMeetingSetup() {
-  const utils = trpc.useUtils();
-  const [, navigate] = useLocation();
-  const [name, setName] = useState("");
-  const createMeeting = trpc.pulse.createMeeting.useMutation({
-    onSuccess: async ({ id }) => {
-      await utils.pulse.shell.invalidate();
-      navigate(`/pulse/meetings/${id}`);
-    },
-  });
-
-  return (
-    <Card className="max-w-3xl">
-      <CardContent className="p-6 sm:p-8">
-        <p className="max-w-2xl text-base leading-6 text-muted-foreground">Start with one meeting. You will be its owner, and you can add people and adjust the details next.</p>
-        <form className="mt-5 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => {
-          event.preventDefault();
-          if (name.trim()) createMeeting.mutate({ name: name.trim(), label: "other" });
-        }}>
-          <Input aria-label="Name your first meeting" className="min-h-11 text-base" value={name} onChange={(event) => setName(event.target.value)} placeholder="Name your first meeting" maxLength={255} required />
-          <Button type="submit" className="min-h-11 shrink-0" disabled={createMeeting.isPending}>{createMeeting.isPending ? "Creating…" : "Create meeting"}</Button>
-        </form>
-        {createMeeting.error && <p className="mt-3 text-sm text-destructive">{createMeeting.error.message}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
 function MeetingsList({ meetings, glossary, query }: { meetings: Meeting[]; glossary: GlossaryEntry[]; query: string }) {
   const normalized = query.trim().toLocaleLowerCase();
   const filteredMeetings = normalized ? meetings.filter((meeting) => meeting.name.toLocaleLowerCase().includes(normalized)) : meetings;
@@ -188,7 +160,7 @@ export default function PulseFoundationPage() {
 
   if (location === "/pulse/settings") {
     if (!shell?.canSeeSettings) return <EmptyInstruction actionHref="/pulse" actionLabel="Go to Pulse home">Only meeting owners and administrators can change settings. Go home to see what needs you now.</EmptyInstruction>;
-    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Set delivery preferences, review meeting information, and keep Pulse clear for your team." /><Card className="max-w-3xl"><CardContent className="space-y-3 p-4 sm:p-6"><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:w-auto"><Link href="/pulse/settings/notifications">Pulse delivery settings</Link></Button>{shell?.settingsReason === "super_admin" && <><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/outstanding">Outstanding Pulse items</Link></Button><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/attention">Needs Attention</Link></Button></>}</CardContent></Card>{meetings.length === 0 ? <FirstMeetingSetup /> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No meeting setup needs your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
+    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Set delivery preferences, review meeting information, and keep Pulse clear for your team." /><Card className="max-w-3xl"><CardContent className="space-y-3 p-4 sm:p-6"><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:w-auto"><Link href="/pulse/settings/notifications">Pulse delivery settings</Link></Button>{shell?.settingsReason === "super_admin" && <><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/outstanding">Outstanding Pulse items</Link></Button><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/attention">Needs Attention</Link></Button></>}</CardContent></Card>{meetings.length === 0 ? <EmptyInstruction actionHref={shell?.canOpenPulseSettings ? "/pulse/settings/create" : "/pulse/meetings"} actionLabel={shell?.canOpenPulseSettings ? "Create a meeting" : "View your meetings"}>{shell?.canOpenPulseSettings ? "No meetings have been created yet. Create the first meeting when the real roster is ready." : "No meeting setup needs your attention right now. Open a meeting to review the information available to you."}</EmptyInstruction> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No meeting setup needs your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
   }
 
   return (

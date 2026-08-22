@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { canOpenPulseSettings, pulseProcedure } from "../pulse/authorization";
 import { and, asc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -9,16 +10,14 @@ import {
   pulseGlossary,
   pulseMeetingMembers,
   pulseMeetings,
-  pulseProfiles,
   pulseWorkItemMoves,
   pulseWorkItems,
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { is_visible_meeting_manager, require_visible_meeting, visible_meeting_ids } from "../pulse/access";
 import { pulseWorkItemsRouter } from "../pulse/workItems";
-import { pulseThinSliceRouter } from "../pulse/thinSlice";
 import { pulseMeetingViewsRouter } from "../pulse/meetingViews";
 import { pulsePersonalRouter } from "../pulse/personal";
 import { pulseCascadesRouter } from "../pulse/cascades";
@@ -154,7 +153,6 @@ async function getVisibleMeetingWorkItems(db: any, personId: number, meetingId: 
 
 export const pulseRouter = router({
   workItems: pulseWorkItemsRouter,
-  thinSlice: pulseThinSliceRouter,
   meetingViews: pulseMeetingViewsRouter,
   personal: pulsePersonalRouter,
   cascades: pulseCascadesRouter,
@@ -166,38 +164,32 @@ export const pulseRouter = router({
   settings: pulseSettingsRouter,
 
   /** Used by the shell. This payload is built from membership, never platform role. */
-  shell: protectedProcedure.query(async ({ ctx }) => {
+  shell: pulseProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw serviceUnavailable();
     await ensureGlossary(db);
     const meetings = await listVisibleMeetings(db, ctx.user.id);
-    const [profile] = await db.select().from(pulseProfiles).where(and(
-      eq(pulseProfiles.userId, ctx.user.id),
-      isNull(pulseProfiles.deletedAt),
-    ));
-
     const ownsOrAdministers = meetings.some((meeting: any) => (
       meeting.meetingRole === "owner" || meeting.meetingRole === "administrator"
     ));
-    const platformRole = profile?.platformRole ?? "member";
-    const isSuperAdmin = platformRole === "super_admin";
-    const canSeeSettings = ownsOrAdministers || isSuperAdmin;
+    const hasPulseSettings = await canOpenPulseSettings(db, ctx.user);
+    const canSeeSettings = ownsOrAdministers || hasPulseSettings;
     const navMode = meetings.length === 1 && !ownsOrAdministers ? "single_meeting" : "standard";
 
     return {
       navMode,
       meetings,
       ownsOrAdministers,
-      // Settings comes from a visible meeting-management role or the explicit
-      // super-admin role—never from merely belonging to several meetings.
+      // Settings comes from the SavvyOS Pulse Settings row or from management
+      // of a meeting the current person already belongs to.
       canSeeSettings,
-      isSuperAdmin,
-      settingsReason: ownsOrAdministers ? "meeting_manager" : isSuperAdmin ? "super_admin" : "none",
-      canSeeAggregateReporting: isSuperAdmin,
+      canOpenPulseSettings: hasPulseSettings,
+      settingsReason: ownsOrAdministers ? "meeting_manager" : hasPulseSettings ? "pulse_settings" : "none",
+      canSeeAggregateReporting: hasPulseSettings,
     };
   }),
 
-  glossary: protectedProcedure.query(async () => {
+  glossary: pulseProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw serviceUnavailable();
     await ensureGlossary(db);
@@ -207,13 +199,13 @@ export const pulseRouter = router({
       .orderBy(asc(pulseGlossary.term));
   }),
 
-  visibleMeetingIds: protectedProcedure.query(async ({ ctx }) => {
+  visibleMeetingIds: pulseProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw serviceUnavailable();
     return visible_meeting_ids(db, ctx.user.id);
   }),
 
-  list: protectedProcedure
+  list: pulseProcedure
     .input(z.object({ search: z.string().trim().max(100).optional() }).optional())
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -223,7 +215,7 @@ export const pulseRouter = router({
       return query ? meetings.filter((meeting: any) => meeting.name.toLocaleLowerCase().includes(query)) : meetings;
     }),
 
-  get: protectedProcedure
+  get: pulseProcedure
     .input(z.object({ meetingId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -255,7 +247,7 @@ export const pulseRouter = router({
       };
     }),
 
-  sectionWorkItems: protectedProcedure
+  sectionWorkItems: pulseProcedure
     .input(z.object({ meetingId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -263,7 +255,7 @@ export const pulseRouter = router({
       return getVisibleMeetingWorkItems(db, ctx.user.id, input.meetingId);
     }),
 
-  search: protectedProcedure
+  search: pulseProcedure
     .input(z.object({ query: z.string().trim().min(1).max(100) }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -292,86 +284,7 @@ export const pulseRouter = router({
         ));
     }),
 
-  createMeeting: protectedProcedure
-    .input(z.object({
-      name: z.string().trim().min(1).max(255),
-      label: meetingLabelSchema,
-      administratorId: z.number().int().positive().optional(),
-      memberIds: z.array(z.number().int().positive()).max(100).default([]),
-      cadence: cadenceSchema.default("weekly"),
-      dayOfWeek: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]).optional().nullable(),
-      startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().nullable(),
-      durationMinutes: z.number().int().min(5).max(480).default(90),
-      timezone: z.string().min(1).max(64).default("America/New_York"),
-      sectionsEnabled: z.record(sectionKeySchema, z.boolean()).optional(),
-      sectionOrder: z.array(sectionKeySchema).min(1).optional(),
-      sectionDurations: z.record(sectionKeySchema, z.number().int().min(0).max(240)).optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
-      if (!db) throw serviceUnavailable();
-
-      // Creating a meeting is an administrative capability, but it does not create
-      // visibility to unrelated meetings. The creator becomes owner of this record.
-      const [profile] = await db.select().from(pulseProfiles).where(and(
-        eq(pulseProfiles.userId, ctx.user.id),
-        isNull(pulseProfiles.deletedAt),
-      ));
-      if (profile?.platformRole !== "admin" && profile?.platformRole !== "super_admin" && ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to create a meeting." });
-      }
-
-      const id = uuid();
-      const sectionOrder = input.sectionOrder ?? getPresetSections(input.label);
-      const sectionsEnabled = input.sectionsEnabled ?? Object.fromEntries(PULSE_SECTION_KEYS.map((key) => [key, sectionOrder.includes(key)]));
-      const sectionDurations = input.sectionDurations ?? defaultSectionDurations(sectionOrder);
-      const administratorId = input.administratorId ?? ctx.user.id;
-
-      await db.transaction(async (tx: any) => {
-        await tx.insert(pulseMeetings).values({
-          id,
-          name: input.name,
-          label: input.label,
-          ownerId: ctx.user.id,
-          administratorId,
-          cadence: input.cadence,
-          dayOfWeek: input.dayOfWeek ?? null,
-          startTime: input.startTime ?? null,
-          durationMinutes: input.durationMinutes,
-          timezone: input.timezone,
-          sectionsEnabled,
-          sectionOrder,
-          sectionDurations,
-        });
-
-        const memberRoleById = new Map<number, z.infer<typeof meetingRoleSchema>>();
-        memberRoleById.set(ctx.user.id, "owner");
-        memberRoleById.set(administratorId, administratorId === ctx.user.id ? "owner" : "administrator");
-        input.memberIds.forEach((memberId) => {
-          if (!memberRoleById.has(memberId)) memberRoleById.set(memberId, "member");
-        });
-
-        await tx.insert(pulseMeetingMembers).values(Array.from(memberRoleById.entries()).map(([personId, meetingRole]) => ({
-          id: uuid(),
-          meetingId: id,
-          personId,
-          meetingRole,
-          addedById: ctx.user.id,
-        })));
-
-        await writePulseActivity(tx, {
-          personId: ctx.user.id,
-          entityType: "meeting",
-          entityId: id,
-          action: "created",
-          newValue: { name: input.name, label: input.label, memberCount: memberRoleById.size },
-        });
-      });
-
-      return { id };
-    }),
-
-  addMember: protectedProcedure
+  addMember: pulseProcedure
     .input(z.object({
       meetingId: z.string().uuid(),
       personId: z.number().int().positive(),
@@ -403,7 +316,7 @@ export const pulseRouter = router({
       return { success: true };
     }),
 
-  moveWorkItem: protectedProcedure
+  moveWorkItem: pulseProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       toMeetingId: z.string().uuid().nullable(),

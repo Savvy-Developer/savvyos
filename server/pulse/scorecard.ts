@@ -1,16 +1,16 @@
 import { TRPCError } from "@trpc/server";
+import { canOpenPulseSettings, pulseProcedure } from "./authorization";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseMeetingScorecardMetrics,
   pulseMeetings,
-  pulseProfiles,
   rolesResponsibilities,
   rrMetricValues,
   rrScorecardMetrics,
   users,
 } from "../../drizzle/schema";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
 
@@ -194,7 +194,7 @@ async function requireManager(db: any, personId: number, meetingId: string) {
 }
 
 export const pulseScorecardRouter = router({
-  configuration: protectedProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
+  configuration: pulseProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const db = await database();
     await requireManager(db, ctx.user.id, input.meetingId);
     const [mapped, available] = await Promise.all([
@@ -209,7 +209,7 @@ export const pulseScorecardRouter = router({
     };
   }),
 
-  addMetric: protectedProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+  addMetric: pulseProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await database();
     await requireManager(db, ctx.user.id, input.meetingId);
     const [metric] = await db.select({ id: rrScorecardMetrics.id, status: rrScorecardMetrics.status }).from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, input.metricId)).limit(1);
@@ -219,27 +219,26 @@ export const pulseScorecardRouter = router({
     return { success: true };
   }),
 
-  removeMetric: protectedProcedure.input(z.object({ meetingId: z.string().uuid(), mappingId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+  removeMetric: pulseProcedure.input(z.object({ meetingId: z.string().uuid(), mappingId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db = await database();
     await requireManager(db, ctx.user.id, input.meetingId);
     await db.delete(pulseMeetingScorecardMetrics).where(and(eq(pulseMeetingScorecardMetrics.id, input.mappingId), eq(pulseMeetingScorecardMetrics.meetingId, input.meetingId)));
     return { success: true };
   }),
 
-  attention: protectedProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
+  attention: pulseProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const db = await database(); await requireManager(db, ctx.user.id, input.meetingId);
     const scorecard = await getMeetingScorecard(db, ctx.user.id, input.meetingId);
     return scorecardAttention(scorecard.items, input.meetingId);
   }),
-  globalAttention: protectedProcedure.query(async ({ ctx }) => {
+  globalAttention: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    const [profile] = await db.select({ platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(eq(pulseProfiles.userId, ctx.user.id)).limit(1);
-    if (profile?.platformRole !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "Needs Attention is available to super admins only." });
+    if (!await canOpenPulseSettings(db, ctx.user)) throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
     const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name }).from(pulseMeetings).where(eq(pulseMeetings.isActive, true));
     const attention = (await Promise.all(meetings.map(async (meeting) => scorecardAttention((await getMeetingScorecard(db, ctx.user.id, meeting.id, true)).items, meeting.id, meeting.name)))).flat();
     return attention.sort((left: any, right: any) => right.severity - left.severity || left.name.localeCompare(right.name)).slice(0, 5);
   }),
-  saveCurrentValue: protectedProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive(), actualValue: z.number().finite(), note: z.string().max(5000).nullable().optional() })).mutation(async ({ ctx, input }) => {
+  saveCurrentValue: pulseProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive(), actualValue: z.number().finite(), note: z.string().max(5000).nullable().optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
     return saveCurrentScorecardValue(db, ctx.user.id, input);
   }),

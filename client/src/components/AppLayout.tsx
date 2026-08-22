@@ -56,6 +56,7 @@ import {
   Link2,
   Target,
   Activity,
+  ArrowLeft,
   Briefcase,
   GraduationCap,
   Flame,
@@ -123,12 +124,6 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       items: operationsItems,
     },
     {
-      label: "Pulse",
-      items: [
-        { icon: Activity, label: "Pulse", path: "/pulse" },
-      ],
-    },
-    {
       label: "Requests",
       items: [
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-requests" },
@@ -172,12 +167,6 @@ function buildAgentSupportNav(): NavGroup[] {
       ],
     },
     {
-      label: "Pulse",
-      items: [
-        { icon: Activity, label: "Pulse", path: "/pulse" },
-      ],
-    },
-    {
       label: "Resources",
       items: [
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
@@ -212,12 +201,6 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
         { icon: PhoneCall, label: "Market Match Call", path: "/market-match-call" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
     { icon: Users, label: "Agent Directory", path: "/agent-directory" },
-      ],
-    },
-    {
-      label: "Pulse",
-      items: [
-        { icon: Activity, label: "Pulse", path: "/pulse" },
       ],
     },
     {
@@ -702,7 +685,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
-  const baseNavGroups = isPulsePath ? buildPulseNav(pulseShell as PulseNavShell | undefined) : standardNavGroups;
+  const canUsePulseLayout = isPulsePath && role === "admin" && !!(adminPerms as Record<string, boolean> | undefined)?.canViewPulse;
+  const baseNavGroups = canUsePulseLayout ? buildPulseNav(pulseShell as PulseNavShell | undefined) : standardNavGroups;
   // For admin users, filter nav by their permissions, then apply password-list visibility.
   const permissionFilteredNavGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
@@ -712,7 +696,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .filter((group) => group.items.length > 0);
   const passwordNavItem: NavItem = { icon: Lock, label: "Passwords", path: "/passwords" };
   const passwordNavTargetGroup = role === "admin" ? "Admin" : "Resources";
-  const navGroups: NavGroup[] = isPulsePath
+  const navGroups: NavGroup[] = canUsePulseLayout
     ? baseNavGroups
     : passwordAccess?.hasAccessibleLists
       ? navGroupsWithoutPasswords.some((group) => group.label === passwordNavTargetGroup)
@@ -745,7 +729,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-background">
+    <>
+      <a href="#main-content" className="sr-only fixed left-4 top-4 z-[100] min-h-11 rounded-md bg-primary px-4 py-3 text-base font-medium text-primary-foreground focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">Skip to content</a>
+      <div className="flex h-[100dvh] overflow-hidden bg-background">
       {/* ── Desktop Sidebar ── */}
       <aside
         className={`hidden md:flex flex-col shrink-0 ${sidebarBg} ${sidebarWidth} transition-[width] duration-200 ease-linear relative z-20`}
@@ -804,6 +790,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Top bar — mobile gets a branded header, desktop gets a minimal bar */}
         <header className="flex items-center h-14 px-3 md:px-4 border-b bg-card shrink-0 gap-3">
+          {canUsePulseLayout ? <button type="button" onClick={() => navigate("/")} className="hidden min-h-11 items-center gap-2 rounded-md px-3 text-base font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:inline-flex" aria-label="Return to SavvyOS"><ArrowLeft className="h-4 w-4" />SavvyOS</button> : null}
+          {canUsePulseLayout ? <button type="button" onClick={() => navigate("/")} className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-base font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden" aria-label="Return to SavvyOS"><ArrowLeft className="h-4 w-4" />SavvyOS</button> : null}
           {/* Mobile: hamburger + logo */}
           <button
             type="button"
@@ -942,7 +930,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <WorkAsAgentBanner />
 
         {/* Page content — extra bottom padding on mobile for the dev switcher */}
-        <main className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 bg-background pb-safe">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 bg-background pb-safe">
           {children}
         </main>
 
@@ -952,5 +940,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
       </div>
     </div>
+    </>
   );
 }

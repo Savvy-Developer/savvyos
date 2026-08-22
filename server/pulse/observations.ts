@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { pulseProcedure } from "./authorization";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -13,7 +14,7 @@ import {
   rrScorecardMetrics,
 } from "../../drizzle/schema";
 import { invokeLLM } from "../_core/llm";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { require_visible_meeting } from "./access";
 
@@ -108,14 +109,14 @@ async function proposalRecipients(db: any, meetingId: string) {
 }
 
 export const pulseObservationsRouter = router({
-  forMeeting: protectedProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
+  forMeeting: pulseProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await require_visible_meeting(db, ctx.user.id, input.meetingId);
     const mapped = await db.select({ metricId: pulseMeetingScorecardMetrics.savvyosMetricId }).from(pulseMeetingScorecardMetrics).where(eq(pulseMeetingScorecardMetrics.meetingId, input.meetingId));
     const metricIds = mapped.map((row) => row.metricId).filter((value): value is number => value != null); if (!metricIds.length) return [];
     return db.select({ id: aiObservations.id, metricId: rrScorecardMetrics.id, metricName: rrScorecardMetrics.name, observation: aiObservations.observation, triggerRule: aiObservations.triggerRule, generatedAt: aiObservations.generatedAt, raisedAsIssueId: aiObservations.raisedAsIssueId, dismissedAt: aiObservations.dismissedAt })
       .from(aiObservations).innerJoin(rrScorecardMetrics, eq(rrScorecardMetrics.id, aiObservations.savvyosMetricId)).where(and(inArray(aiObservations.savvyosMetricId, metricIds), isNull(aiObservations.dismissedAt))).orderBy(desc(aiObservations.generatedAt));
   }),
-  raiseAsIssue: protectedProcedure.input(z.object({ observationId: z.string().uuid(), meetingId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+  raiseAsIssue: pulseProcedure.input(z.object({ observationId: z.string().uuid(), meetingId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await require_visible_meeting(db, ctx.user.id, input.meetingId);
     const row = await observationWithMetric(db, input.observationId);
     if (row.observation.dismissedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "That observation was dismissed." });
@@ -129,12 +130,12 @@ export const pulseObservationsRouter = router({
     });
     return { success: true, workItemId: itemId, alreadyRaised: false };
   }),
-  acceptProposal: protectedProcedure.input(z.object({ workItemId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+  acceptProposal: pulseProcedure.input(z.object({ workItemId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); const [item] = await db.select().from(pulseWorkItems).where(and(eq(pulseWorkItems.id, input.workItemId), isNull(pulseWorkItems.deletedAt))).limit(1);
     if (!item?.meetingId || item.type !== "issue" || !item.isProposed) throw new TRPCError({ code: "NOT_FOUND", message: "That proposed issue is no longer available." }); await require_visible_meeting(db, ctx.user.id, item.meetingId);
     await db.transaction(async (tx: any) => { await tx.update(pulseWorkItems).set({ isProposed: false }).where(eq(pulseWorkItems.id, item.id)); await tx.update(pulseNotifications).set({ clearedAt: new Date() }).where(and(eq(pulseNotifications.sourceType, "work_item"), eq(pulseNotifications.sourceId, item.id))); }); return { success: true };
   }),
-  dismissProposal: protectedProcedure.input(z.object({ workItemId: z.string().uuid(), reason: z.string().trim().max(500).optional() })).mutation(async ({ ctx, input }) => {
+  dismissProposal: pulseProcedure.input(z.object({ workItemId: z.string().uuid(), reason: z.string().trim().max(500).optional() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); const [item] = await db.select().from(pulseWorkItems).where(and(eq(pulseWorkItems.id, input.workItemId), isNull(pulseWorkItems.deletedAt))).limit(1);
     if (!item?.meetingId || item.type !== "issue" || !item.isProposed) throw new TRPCError({ code: "NOT_FOUND", message: "That proposed issue is no longer available." }); await require_visible_meeting(db, ctx.user.id, item.meetingId);
     await db.transaction(async (tx: any) => { await tx.update(pulseWorkItems).set({ status: "dropped", deletedAt: new Date() }).where(eq(pulseWorkItems.id, item.id)); await tx.update(aiObservations).set({ dismissedById: ctx.user.id, dismissedAt: new Date(), dismissReason: input.reason?.trim() || null }).where(eq(aiObservations.raisedAsIssueId, item.id)); await tx.update(pulseNotifications).set({ clearedAt: new Date() }).where(and(eq(pulseNotifications.sourceType, "work_item"), eq(pulseNotifications.sourceId, item.id))); }); return { success: true };

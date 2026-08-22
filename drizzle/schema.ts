@@ -2134,6 +2134,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canEditHistoricalReferrals: boolean("canEditHistoricalReferrals").default(true).notNull(),
   // Pulse
   canViewPulse: boolean("canViewPulse").default(true).notNull(),
+  // Default OFF: an admin must be granted this explicitly before Pulse-wide settings appear.
+  canViewPulseSettings: boolean("canViewPulseSettings").default(false).notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
@@ -3297,6 +3299,7 @@ export type PulseProfile = typeof pulseProfiles.$inferSelect;
 export const pulseMeetings = mysqlTable("pulse_meetings", {
   id: varchar("id", { length: 36 }).primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
+  purpose: varchar("purpose", { length: 500 }),
   // This is presentation-only. It may only guide list grouping and defaults at creation.
   label: mysqlEnum("label", ["level_10", "one_on_one", "other"]).notNull(),
   ownerId: int("ownerId").notNull().references(() => users.id),

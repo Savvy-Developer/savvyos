@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { pulseProcedure } from "./authorization";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseActivityLog,
@@ -17,7 +18,7 @@ import {
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { getPulseNotificationPreference } from "./notifications";
@@ -89,12 +90,15 @@ async function writeActivity(db: any, personId: number, entityType: string, enti
 }
 
 async function visibleMeetingMember(db: any, meetingId: string, personId: number) {
-  const [membership] = await db.select({ id: pulseMeetingMembers.id }).from(pulseMeetingMembers).where(and(
-    eq(pulseMeetingMembers.meetingId, meetingId),
-    eq(pulseMeetingMembers.personId, personId),
-    isNull(pulseMeetingMembers.removedAt),
-    isNull(pulseMeetingMembers.deletedAt),
-  )).limit(1);
+  const [membership] = await db.select({ id: pulseMeetingMembers.id }).from(pulseMeetingMembers)
+    .innerJoin(users, eq(users.id, pulseMeetingMembers.personId))
+    .where(and(
+      eq(pulseMeetingMembers.meetingId, meetingId),
+      eq(pulseMeetingMembers.personId, personId),
+      isNull(pulseMeetingMembers.removedAt),
+      isNull(pulseMeetingMembers.deletedAt),
+      sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`,
+    )).limit(1);
   return !!membership;
 }
 
@@ -216,7 +220,7 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
 }
 
 export const pulseWorkItemsRouter = router({
-  list: protectedProcedure
+  list: pulseProcedure
     .input(z.object({
       type: workItemTypeSchema.optional(),
       meetingId: z.string().uuid().nullable().optional(),
@@ -229,7 +233,7 @@ export const pulseWorkItemsRouter = router({
       return listAccessibleItems(db, ctx.user.id, input ?? {});
     }),
 
-  detail: protectedProcedure
+  detail: pulseProcedure
     .input(z.object({ workItemId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -332,7 +336,7 @@ export const pulseWorkItemsRouter = router({
       };
     }),
 
-  create: protectedProcedure
+  create: pulseProcedure
     .input(z.object({
       type: workItemTypeSchema,
       title: z.string().trim().min(1).max(500),
@@ -410,7 +414,7 @@ export const pulseWorkItemsRouter = router({
       return { id, dueDate };
     }),
 
-  update: protectedProcedure
+  update: pulseProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       title: z.string().trim().min(1).max(500).optional(),
@@ -436,7 +440,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  setTodoStatus: protectedProcedure
+  setTodoStatus: pulseProcedure
     .input(z.object({ workItemId: z.string().uuid(), status: todoStatusSchema }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -456,7 +460,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  setIssueStatus: protectedProcedure
+  setIssueStatus: pulseProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       status: issueStatusSchema,
@@ -505,7 +509,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true, todoId };
     }),
 
-  setRockStatus: protectedProcedure
+  setRockStatus: pulseProcedure
     .input(z.object({ workItemId: z.string().uuid(), status: rockStatusSchema, note: z.string().trim().max(2000).optional().nullable() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -548,7 +552,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true, asksForNote: shouldAsk };
     }),
 
-  setManualRockPercent: protectedProcedure
+  setManualRockPercent: pulseProcedure
     .input(z.object({ workItemId: z.string().uuid(), percentComplete: z.number().int().min(0).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -564,7 +568,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  addMilestone: protectedProcedure
+  addMilestone: pulseProcedure
     .input(z.object({ workItemId: z.string().uuid(), title: z.string().trim().min(1).max(500), dueDate: dateSchema, sortOrder: z.number().int().min(0).optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -581,7 +585,7 @@ export const pulseWorkItemsRouter = router({
       return { id };
     }),
 
-  setMilestoneComplete: protectedProcedure
+  setMilestoneComplete: pulseProcedure
     .input(z.object({ milestoneId: z.string().uuid(), isComplete: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -602,7 +606,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  reorderIssues: protectedProcedure
+  reorderIssues: pulseProcedure
     .input(z.object({ meetingId: z.string().uuid(), issueIds: z.array(z.string().uuid()).min(1).max(500) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -622,7 +626,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  move: protectedProcedure
+  move: pulseProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       toMeetingId: z.string().uuid().nullable(),
@@ -649,7 +653,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  addComment: protectedProcedure
+  addComment: pulseProcedure
     .input(z.object({ workItemId: z.string().uuid(), body: z.string().trim().min(1).max(8000), mentionedPersonIds: z.array(z.number().int().positive()).max(50).default([]) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -696,7 +700,7 @@ export const pulseWorkItemsRouter = router({
       return { id: commentId };
     }),
 
-  resolveQuarterRollover: protectedProcedure
+  resolveQuarterRollover: pulseProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       action: z.enum(["carry", "done", "drop"]),
@@ -735,7 +739,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  assignees: protectedProcedure.query(async ({ ctx }) => {
+  assignees: pulseProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw unavailable();
     const visibleIds = await visible_meeting_ids(db, ctx.user.id);
@@ -743,7 +747,7 @@ export const pulseWorkItemsRouter = router({
     const rows = await db.select({ id: users.id, name: users.name, email: users.email })
       .from(pulseMeetingMembers)
       .innerJoin(users, eq(users.id, pulseMeetingMembers.personId))
-      .where(and(inArray(pulseMeetingMembers.meetingId, visibleIds), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)))
+      .where(and(inArray(pulseMeetingMembers.meetingId, visibleIds), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`))
       .orderBy(asc(users.name));
     const unique = new Map<number, typeof rows[number]>();
     for (const row of rows) unique.set(row.id, row);
@@ -751,7 +755,7 @@ export const pulseWorkItemsRouter = router({
     return Array.from(unique.values());
   }),
 
-  validStatuses: protectedProcedure.query(() => ({
+  validStatuses: pulseProcedure.query(() => ({
     todo: todoStatusSchema.options,
     issue: issueStatusSchema.options,
     rock: rockStatusSchema.options,

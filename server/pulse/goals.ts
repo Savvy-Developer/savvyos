@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
+import { pulseProcedure } from "./authorization";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { companyGoals, pulseMeetingGoals, users } from "../../drizzle/schema";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { getDb } from "../db";
 import { is_visible_meeting_manager, require_visible_meeting } from "./access";
 
@@ -34,7 +35,7 @@ export async function getMeetingGoals(db: any, viewerId: number, meetingId: stri
 }
 
 export const pulseGoalsRouter = router({
-  configuration: protectedProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
+  configuration: pulseProcedure.input(z.object({ meetingId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await requireManager(db, ctx.user.id, input.meetingId);
     const [mapped, available] = await Promise.all([
       mappedGoals(db, input.meetingId),
@@ -42,14 +43,14 @@ export const pulseGoalsRouter = router({
     ]);
     return { mapped: mapped.map((row: any) => ({ mappingId: row.mapping.id, goalId: row.goal?.id ?? null, title: row.goal?.title ?? "Deleted SavvyOS company goal", status: row.goal?.status ?? "deleted", sortOrder: row.mapping.sortOrder })), available };
   }),
-  addGoal: protectedProcedure.input(z.object({ meetingId: z.string().uuid(), goalId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+  addGoal: pulseProcedure.input(z.object({ meetingId: z.string().uuid(), goalId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await requireManager(db, ctx.user.id, input.meetingId);
     const [goal] = await db.select({ id: companyGoals.id, status: companyGoals.status }).from(companyGoals).where(eq(companyGoals.id, input.goalId)).limit(1);
     if (!goal || goal.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active SavvyOS company goal." });
     const rows = await mappedGoals(db, input.meetingId); const sortOrder = rows.length ? Math.max(...rows.map((row: any) => row.mapping.sortOrder)) + 1 : 0;
     await db.insert(pulseMeetingGoals).values({ id: id(), meetingId: input.meetingId, savvyosGoalId: input.goalId, sortOrder }); return { success: true };
   }),
-  removeGoal: protectedProcedure.input(z.object({ meetingId: z.string().uuid(), mappingId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+  removeGoal: pulseProcedure.input(z.object({ meetingId: z.string().uuid(), mappingId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await requireManager(db, ctx.user.id, input.meetingId);
     await db.delete(pulseMeetingGoals).where(and(eq(pulseMeetingGoals.id, input.mappingId), eq(pulseMeetingGoals.meetingId, input.meetingId))); return { success: true };
   }),

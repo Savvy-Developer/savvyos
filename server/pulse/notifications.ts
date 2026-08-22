@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { canOpenPulseSettings, pulseProcedure } from "./authorization";
 import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -8,14 +9,13 @@ import {
   pulseMeetings,
   pulseNotificationPreferences,
   pulseNotifications,
-  pulseProfiles,
   pulseWorkItemComments,
   pulseWorkItemNotifications,
   pulseWorkItems,
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { getEmailPreview, sendTransactionalEmail } from "../_core/resendEmail";
 import { visible_meeting_ids } from "./access";
 
@@ -42,13 +42,9 @@ async function database() {
   return db;
 }
 
-async function requireSettingsAccess(db: any, personId: number) {
-  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
-    .from(pulseProfiles).where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt))).limit(1);
-  if (profile?.platformRole === "super_admin") return;
-  const [membership] = await db.select({ meetingRole: pulseMeetingMembers.meetingRole }).from(pulseMeetingMembers)
-    .where(and(eq(pulseMeetingMembers.personId, personId), inArray(pulseMeetingMembers.meetingRole, ["owner", "administrator"]), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))).limit(1);
-  if (!membership) throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
+async function requirePulseSettingsAccess(db: any, user: { id: number; role: string; email?: string | null }) {
+  if (await canOpenPulseSettings(db, user)) return;
+  throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
 }
 
 function sampleContext(person: { name: string | null; email: string }, templateKey: PulseNotificationTemplateKey) {
@@ -69,13 +65,6 @@ function sampleContext(person: { name: string | null; email: string }, templateK
   };
 }
 
-async function requireSuperAdmin(db: any, personId: number) {
-  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
-    .from(pulseProfiles)
-    .where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt)))
-    .limit(1);
-  if (profile?.platformRole !== "super_admin") throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
-}
 
 export async function getPulseNotificationPreference(
   db: any,
@@ -193,9 +182,9 @@ async function pendingResponseItems(db: any, personId: number) {
 }
 
 export const pulseNotificationsRouter = router({
-  preferences: protectedProcedure.query(async ({ ctx }) => {
+  preferences: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireSettingsAccess(db, ctx.user.id);
+    await requirePulseSettingsAccess(db, ctx.user);
     const rows = await db.select({ templateKey: pulseNotificationPreferences.templateKey, inApp: pulseNotificationPreferences.inApp, email: pulseNotificationPreferences.email })
       .from(pulseNotificationPreferences)
       .where(eq(pulseNotificationPreferences.personId, ctx.user.id));
@@ -208,7 +197,7 @@ export const pulseNotificationsRouter = router({
     }));
   }),
 
-  setPreference: protectedProcedure
+  setPreference: pulseProcedure
     .input(z.object({
       templateKey: templateKeySchema,
       inApp: z.boolean().optional(),
@@ -218,7 +207,7 @@ export const pulseNotificationsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireSettingsAccess(db, ctx.user.id);
+      await requirePulseSettingsAccess(db, ctx.user);
       const current = await getPulseNotificationPreference(db, ctx.user.id, input.templateKey);
       const next = { inApp: input.inApp ?? current.inApp, email: input.email ?? current.email };
       await db.insert(pulseNotificationPreferences).values({ id: id(), personId: ctx.user.id, templateKey: input.templateKey, ...next })
@@ -226,18 +215,18 @@ export const pulseNotificationsRouter = router({
       return { templateKey: input.templateKey, ...next };
     }),
 
-  templatePreview: protectedProcedure.input(z.object({ templateKey: templateKeySchema })).query(async ({ ctx, input }) => {
+  templatePreview: pulseProcedure.input(z.object({ templateKey: templateKeySchema })).query(async ({ ctx, input }) => {
     const db = await database();
-    await requireSettingsAccess(db, ctx.user.id);
+    await requirePulseSettingsAccess(db, ctx.user);
     const [person] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
     if (!person?.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address to your SavvyOS account before previewing or testing email." });
     const preview = getEmailPreview(input.templateKey, sampleContext({ name: person.name, email: person.email }, input.templateKey));
     return { ...preview, recipientEmail: person.email };
   }),
 
-  sendTemplateTest: protectedProcedure.input(z.object({ templateKey: templateKeySchema })).mutation(async ({ ctx, input }) => {
+  sendTemplateTest: pulseProcedure.input(z.object({ templateKey: templateKeySchema })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    await requireSettingsAccess(db, ctx.user.id);
+    await requirePulseSettingsAccess(db, ctx.user);
     const [person] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
     if (!person?.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address to your SavvyOS account before sending a test." });
     const result = await sendTransactionalEmail(input.templateKey, sampleContext({ name: person.name, email: person.email }, input.templateKey), { bypassNotificationSetting: true, idempotencyKey: `pulse-template-test:${ctx.user.id}:${input.templateKey}:${Date.now()}` });
@@ -245,12 +234,12 @@ export const pulseNotificationsRouter = router({
     return { success: true, recipientEmail: person.email };
   }),
 
-  pending: protectedProcedure.query(async ({ ctx }) => {
+  pending: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
     return pendingResponseItems(db, ctx.user.id);
   }),
 
-  clear: protectedProcedure
+  clear: pulseProcedure
     .input(z.object({ notificationId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
@@ -264,7 +253,7 @@ export const pulseNotificationsRouter = router({
       return { success: true };
     }),
 
-  clearWorkItemNotification: protectedProcedure
+  clearWorkItemNotification: pulseProcedure
     .input(z.object({ notificationId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
@@ -282,9 +271,9 @@ export const pulseNotificationsRouter = router({
       return { success: true };
     }),
 
-  adminOutstanding: protectedProcedure.query(async ({ ctx }) => {
+  adminOutstanding: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireSuperAdmin(db, ctx.user.id);
+    await requirePulseSettingsAccess(db, ctx.user);
     const [cascades, notifications, legacyMentions] = await Promise.all([
       db.select({ personId: pulseCascadeRecipients.personId, messageId: pulseCascadeRecipients.cascadingMessageId, createdAt: pulseCascadingMessages.createdAt })
         .from(pulseCascadeRecipients)

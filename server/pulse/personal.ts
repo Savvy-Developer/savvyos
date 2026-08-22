@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
+import { pulseProcedure } from "./authorization";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { pulseMeetingUpdates, pulsePersonalInputs } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { router } from "../_core/trpc";
 import { visible_meeting_ids } from "./access";
 import { getMeetingScorecard, saveCurrentScorecardValue } from "./scorecard";
 import { listAccessibleItems } from "./workItems";
@@ -14,7 +15,7 @@ async function dbOrThrow() { const db = await getDb(); if (!db) throw new TRPCEr
 async function myMeetings(db: any, personId: number) { return visible_meeting_ids(db, personId); }
 
 export const pulsePersonalRouter = router({
-  inputs: protectedProcedure.query(async ({ ctx }) => {
+  inputs: pulseProcedure.query(async ({ ctx }) => {
     const db = await dbOrThrow();
     const ids = await myMeetings(db, ctx.user.id);
     if (!ids.length) return { weekOf: week(), fields: [], complete: true };
@@ -38,7 +39,7 @@ export const pulsePersonalRouter = router({
     return { weekOf: week(), fields, complete: required.every((field) => field.value !== null) };
   }),
 
-  saveInput: protectedProcedure.input(z.object({ key: z.string().min(1).max(100), value: z.union([z.number().finite(), z.string().max(8000)]), meetingId: z.string().uuid().optional() })).mutation(async ({ ctx, input }) => {
+  saveInput: pulseProcedure.input(z.object({ key: z.string().min(1).max(100), value: z.union([z.number().finite(), z.string().max(8000)]), meetingId: z.string().uuid().optional() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
     const ids = await myMeetings(db, ctx.user.id);
     if (input.key.startsWith("metric:")) {
@@ -59,7 +60,7 @@ export const pulsePersonalRouter = router({
     throw new TRPCError({ code: "BAD_REQUEST", message: "That input is not available." });
   }),
 
-  dashboard: protectedProcedure.query(async ({ ctx }) => {
+  dashboard: pulseProcedure.query(async ({ ctx }) => {
     const db = await dbOrThrow();
     const ids = await myMeetings(db, ctx.user.id);
     if (ids.length <= 1) return { redirectMeetingId: ids[0] ?? null, items: [] };

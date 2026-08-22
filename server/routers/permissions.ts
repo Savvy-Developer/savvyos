@@ -47,6 +47,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canEditHistoricalReferrals", label: "Edit Historical Referrals",group: "Outbound Referrals" },
   // Pulse
   { key: "canViewPulse",             label: "Pulse",                    group: "Pulse" },
+  { key: "canViewPulseSettings",     label: "Pulse Settings",           group: "Pulse" },
   // Operations
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },
@@ -129,7 +130,7 @@ export const permissionsRouter = router({
       // Tyler always has full access — return synthetic all-true object
       if (targetUser.email === PROTECTED_EMAIL) {
         const allTrue: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = true;
+        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = p.key === "canViewPulseSettings" ? false : true;
         return { userId: input.userId, permissions: allTrue, isProtected: true };
       }
 
@@ -163,7 +164,7 @@ export const permissionsRouter = router({
       // Tyler always has full access
       if (email === PROTECTED_EMAIL) {
         const allTrue: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = true;
+        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = p.key === "canViewPulseSettings" ? false : true;
         return allTrue;
       }
 
@@ -293,6 +294,7 @@ export const permissionsRouter = router({
             "canViewEmailNotifications",
             "canViewSuperPermissions",
             "canViewResendInbox",
+            "canViewPulseSettings",
           ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
             perms[p.key] = !defaultOff.has(p.key);

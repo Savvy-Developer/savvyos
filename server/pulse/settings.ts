@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   PULSE_MEETING_PRESETS,
@@ -11,21 +11,19 @@ import {
   pulseMeetingScorecardMetrics,
   pulseMeetings,
   pulseMeetingsArchive,
-  pulseProfiles,
   pulseWorkItems,
   rrScorecardMetrics,
   rolesResponsibilities,
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
-import { is_visible_meeting_manager, require_visible_meeting } from "./access";
+import { router } from "../_core/trpc";
+import { canOpenPulseSettings, requireMeetingConfigurationAccess, requirePulseSettingsAccess, pulseProcedure } from "./authorization";
 
 const id = () => crypto.randomUUID();
 const daySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
 const cadenceSchema = z.enum(["weekly", "biweekly", "monthly", "daily", "ad_hoc"]);
 const labelSchema = z.enum(["level_10", "one_on_one", "other"]);
-const platformRoleSchema = z.enum(["super_admin", "admin", "member"]);
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time such as 09:30.");
 const sectionKeySchema = z.enum(PULSE_SECTION_KEYS);
 const meetingIdSchema = z.string().uuid();
@@ -36,38 +34,11 @@ async function database() {
   return db;
 }
 
-async function profileRole(db: any, personId: number) {
-  const [profile] = await db.select({ platformRole: pulseProfiles.platformRole })
-    .from(pulseProfiles)
-    .where(and(eq(pulseProfiles.userId, personId), isNull(pulseProfiles.deletedAt)))
-    .limit(1);
-  return profile?.platformRole ?? "member";
-}
-
-async function requireSuperAdmin(db: any, personId: number) {
-  if (await profileRole(db, personId) !== "super_admin") {
-    throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
-  }
-}
-
-async function requireConfigurationAccess(db: any, personId: number, meetingId: string) {
-  if (await profileRole(db, personId) === "super_admin") {
-    const [meeting] = await db.select().from(pulseMeetings)
-      .where(and(eq(pulseMeetings.id, meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt)))
-      .limit(1);
-    if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
-    return meeting;
-  }
-  if (!await is_visible_meeting_manager(db, personId, meetingId)) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "This Pulse page is not available." });
-  }
-  return require_visible_meeting(db, personId, meetingId);
-}
 
 async function assertActivePerson(db: any, personId: number) {
   const [person] = await db.select({ id: users.id, name: users.name, email: users.email, isActive: users.isActive })
     .from(users)
-    .where(and(eq(users.id, personId), eq(users.isActive, true)))
+    .where(and(eq(users.id, personId), eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`))
     .limit(1);
   if (!person) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active SavvyOS person." });
   return person;
@@ -130,11 +101,13 @@ async function meetingMembers(db: any, meetingId: string) {
 }
 
 export const pulseSettingsRouter = router({
-  configuration: protectedProcedure
+  configuration: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema }))
     .query(async ({ ctx, input }) => {
       const db = await database();
-      const meeting = await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
+      const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
+      if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
       const [members, metricMappings, goalMappings, rockMappings, archive, metricCandidates, goalCandidates, rockCandidates] = await Promise.all([
         meetingMembers(db, meeting.id),
         db.select({ id: pulseMeetingScorecardMetrics.id, metricId: rrScorecardMetrics.id, name: rrScorecardMetrics.name, ownerName: users.name, sortOrder: pulseMeetingScorecardMetrics.sortOrder })
@@ -155,11 +128,11 @@ export const pulseSettingsRouter = router({
       return { meeting, members, metricMappings, goalMappings, rockMappings, archive, metricCandidates, goalCandidates, rockCandidates };
     }),
 
-  setContentMapping: protectedProcedure
+  setContentMapping: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, kind: z.enum(["metric", "goal", "rock"]), sourceId: z.union([z.number().int().positive(), z.string().uuid()]), selected: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
       if (input.kind === "metric") {
         const metricId = Number(input.sourceId);
         if (input.selected) {
@@ -190,10 +163,9 @@ export const pulseSettingsRouter = router({
       return { success: true };
     }),
 
-  configurationMeetings: protectedProcedure.query(async ({ ctx }) => {
+  configurationMeetings: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    const role = await profileRole(db, ctx.user.id);
-    if (role === "super_admin") {
+    if (await canOpenPulseSettings(db, ctx.user)) {
       return db.select({ id: pulseMeetings.id, name: pulseMeetings.name, label: pulseMeetings.label, meetingRole: pulseMeetingMembers.meetingRole })
         .from(pulseMeetings)
         .leftJoin(pulseMeetingMembers, and(eq(pulseMeetingMembers.meetingId, pulseMeetings.id), eq(pulseMeetingMembers.personId, ctx.user.id), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)))
@@ -204,22 +176,23 @@ export const pulseSettingsRouter = router({
       .where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt), inArray(pulseMeetingMembers.meetingRole, ["owner", "administrator"]))).orderBy(asc(pulseMeetings.name));
   }),
 
-  searchPeople: protectedProcedure
+  searchPeople: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, query: z.string().trim().max(100).default("") }))
     .query(async ({ ctx, input }) => {
       const db = await database();
-      await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
       const condition = input.query ? or(like(users.name, `%${input.query}%`), like(users.email, `%${input.query}%`)) : undefined;
       return db.select({ id: users.id, name: users.name, email: users.email })
         .from(users)
-        .where(and(eq(users.isActive, true), condition))
+        .where(and(eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`, condition))
         .orderBy(asc(users.name)).limit(50);
     }),
 
-  updateMeeting: protectedProcedure
+  updateMeeting: pulseProcedure
     .input(z.object({
       meetingId: meetingIdSchema,
       name: z.string().trim().min(1).max(255).optional(),
+      purpose: z.string().trim().min(1).max(500).nullable().optional(),
       label: labelSchema.optional(),
       dayOfWeek: daySchema.nullable().optional(),
       startTime: timeSchema.nullable().optional(),
@@ -236,7 +209,9 @@ export const pulseSettingsRouter = router({
     }).refine((value) => Object.keys(value).some((key) => key !== "meetingId"), { message: "Choose a meeting setting to update." }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      const meeting = await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
+      const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
+      if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
       const { meetingId, ownerId, administratorId, ...changes } = input;
       if (changes.sectionOrder && changes.sectionsEnabled) {
         for (const section of PULSE_SECTION_KEYS) if (!(section in changes.sectionsEnabled)) changes.sectionsEnabled[section] = false;
@@ -248,11 +223,13 @@ export const pulseSettingsRouter = router({
       return { success: true };
     }),
 
-  setMemberAccess: protectedProcedure
+  setMemberAccess: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, personId: z.number().int().positive(), hasAccess: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      const meeting = await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
+      const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
+      if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
       const [existing] = await db.select({ meetingRole: pulseMeetingMembers.meetingRole, removedAt: pulseMeetingMembers.removedAt })
         .from(pulseMeetingMembers).where(and(eq(pulseMeetingMembers.meetingId, input.meetingId), eq(pulseMeetingMembers.personId, input.personId), isNull(pulseMeetingMembers.deletedAt))).limit(1);
       if (input.hasAccess) {
@@ -268,54 +245,63 @@ export const pulseSettingsRouter = router({
       return { success: true, undo: { meetingId: input.meetingId, personId: input.personId, restoreAccess: !input.hasAccess } };
     }),
 
-  restoreMemberAccess: protectedProcedure
+  restoreMemberAccess: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, personId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
       await assertActivePerson(db, input.personId);
       await db.update(pulseMeetingMembers).set({ removedAt: null, addedById: ctx.user.id })
         .where(and(eq(pulseMeetingMembers.meetingId, input.meetingId), eq(pulseMeetingMembers.personId, input.personId), isNull(pulseMeetingMembers.deletedAt)));
       return { success: true };
     }),
 
-  peopleForAdministration: protectedProcedure.query(async ({ ctx }) => {
+  peopleForAdministration: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireSuperAdmin(db, ctx.user.id);
-    return db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.isActive, true)).orderBy(asc(users.name));
+    await requirePulseSettingsAccess(db, ctx.user);
+    return db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)).orderBy(asc(users.name));
   }),
 
-  createMeeting: protectedProcedure
+  createMeeting: pulseProcedure
     .input(z.object({
-      name: z.string().trim().min(1).max(255), label: labelSchema, ownerId: z.number().int().positive(), administratorId: z.number().int().positive(), memberIds: z.array(z.number().int().positive()).max(100).default([]),
+      name: z.string().trim().min(1).max(255), purpose: z.string().trim().min(1).max(500), label: labelSchema, ownerId: z.number().int().positive(), administratorId: z.number().int().positive(), memberIds: z.array(z.number().int().positive()).max(100).default([]),
       dayOfWeek: daySchema.nullable().optional(), startTime: timeSchema.nullable().optional(), durationMinutes: z.number().int().min(5).max(480).default(90), timezone: z.string().trim().min(1).max(64).default("America/New_York"), cadence: cadenceSchema.default("weekly"), reminderDay: daySchema.nullable().optional(), reminderTime: timeSchema.nullable().optional(),
+      sectionsEnabled: z.record(sectionKeySchema, z.boolean()).optional(), sectionOrder: z.array(sectionKeySchema).min(1).max(PULSE_SECTION_KEYS.length).optional(), sectionDurations: z.record(sectionKeySchema, z.number().int().min(0).max(240)).optional(),
+    }).superRefine((value, context) => {
+      if (value.label === "one_on_one" && value.ownerId === value.administratorId) context.addIssue({ code: "custom", message: "A one-on-one requires a distinct owner and administrator." });
+      if (value.label === "one_on_one" && value.memberIds.length) context.addIssue({ code: "custom", message: "A one-on-one includes only its owner and administrator." });
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireSuperAdmin(db, ctx.user.id);
+      await requirePulseSettingsAccess(db, ctx.user);
       await assertActivePerson(db, input.ownerId); await assertActivePerson(db, input.administratorId);
-      const meetingId = id(); const sectionOrder = PULSE_MEETING_PRESETS[input.label];
+      const meetingId = id();
+      const sectionOrder = input.sectionOrder ?? PULSE_MEETING_PRESETS[input.label];
+      const sectionsEnabled = input.sectionsEnabled ?? Object.fromEntries(PULSE_SECTION_KEYS.map((section) => [section, sectionOrder.includes(section)]));
+      const sectionDurations = input.sectionDurations ?? defaultSectionDurations(sectionOrder);
       const memberIds = new Set([input.ownerId, input.administratorId, ...input.memberIds]);
       await db.transaction(async (tx: any) => {
-        await tx.insert(pulseMeetings).values({ id: meetingId, name: input.name, label: input.label, ownerId: input.ownerId, administratorId: input.administratorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: input.cadence, reminderDay: input.reminderDay ?? null, reminderTime: input.reminderTime ?? null, sectionsEnabled: Object.fromEntries(PULSE_SECTION_KEYS.map((section) => [section, sectionOrder.includes(section)])), sectionOrder, sectionDurations: defaultSectionDurations(sectionOrder) });
+        await tx.insert(pulseMeetings).values({ id: meetingId, name: input.name, purpose: input.purpose, label: input.label, ownerId: input.ownerId, administratorId: input.administratorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: input.cadence, reminderDay: input.reminderDay ?? null, reminderTime: input.reminderTime ?? null, sectionsEnabled, sectionOrder, sectionDurations });
         await tx.insert(pulseMeetingMembers).values(Array.from(memberIds).map((personId) => ({ id: id(), meetingId, personId, meetingRole: personId === input.ownerId ? "owner" as const : personId === input.administratorId ? "administrator" as const : "member" as const, addedById: ctx.user.id })));
       });
       return { id: meetingId };
     }),
 
-  deleteMeeting: protectedProcedure
+  deleteMeeting: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, confirmation: z.string().trim().min(1).max(255) }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      const meeting = await requireConfigurationAccess(db, ctx.user.id, input.meetingId);
+      await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
+      const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
+      if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
       if (input.confirmation !== meeting.name) throw new TRPCError({ code: "BAD_REQUEST", message: "Type the meeting name exactly to delete it." });
       await db.update(pulseMeetings).set({ isActive: false, deletedAt: new Date() }).where(eq(pulseMeetings.id, meeting.id));
       return { success: true };
     }),
 
-  effectiveness: protectedProcedure.query(async ({ ctx }) => {
+  effectiveness: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireSuperAdmin(db, ctx.user.id);
+    await requirePulseSettingsAccess(db, ctx.user);
     const meetings = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name, scheduledMinutes: pulseMeetings.durationMinutes }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name));
     return Promise.all(meetings.map(async (meeting: any) => {
       const [occurrencesDescending, members] = await Promise.all([
@@ -341,9 +327,9 @@ export const pulseSettingsRouter = router({
     }));
   }),
 
-  effectivenessHistory: protectedProcedure.input(z.object({ meetingId: meetingIdSchema })).query(async ({ ctx, input }) => {
+  effectivenessHistory: pulseProcedure.input(z.object({ meetingId: meetingIdSchema })).query(async ({ ctx, input }) => {
     const db = await database();
-    await requireSuperAdmin(db, ctx.user.id);
+    await requirePulseSettingsAccess(db, ctx.user);
     const [meeting] = await db.select({ id: pulseMeetings.id, name: pulseMeetings.name, scheduledMinutes: pulseMeetings.durationMinutes }).from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), isNull(pulseMeetings.deletedAt))).limit(1);
     if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists." });
     const [occurrences, members] = await Promise.all([
@@ -353,23 +339,22 @@ export const pulseSettingsRouter = router({
     return { meeting: { ...meeting, memberCount: members.length }, occurrences };
   }),
 
-  permissioning: protectedProcedure.query(async ({ ctx }) => {
+  permissioning: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
-    await requireSuperAdmin(db, ctx.user.id);
-    const [people, meetings, memberships, profiles] = await Promise.all([
-      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.isActive, true)).orderBy(asc(users.name)),
+    await requirePulseSettingsAccess(db, ctx.user);
+    const [people, meetings, memberships] = await Promise.all([
+      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)).orderBy(asc(users.name)),
       db.select({ id: pulseMeetings.id, name: pulseMeetings.name, ownerId: pulseMeetings.ownerId, administratorId: pulseMeetings.administratorId }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name)),
       db.select({ meetingId: pulseMeetingMembers.meetingId, personId: pulseMeetingMembers.personId, meetingRole: pulseMeetingMembers.meetingRole }).from(pulseMeetingMembers).where(and(isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))),
-      db.select({ userId: pulseProfiles.userId, platformRole: pulseProfiles.platformRole }).from(pulseProfiles).where(isNull(pulseProfiles.deletedAt)),
     ]);
-    return { people, meetings, memberships, profiles };
+    return { people, meetings, memberships };
   }),
 
-  setPermission: protectedProcedure
+  setPermission: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, personId: z.number().int().positive(), hasAccess: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requireSuperAdmin(db, ctx.user.id);
+      await requirePulseSettingsAccess(db, ctx.user);
       const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
       if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists." });
       if (!input.hasAccess && (input.personId === meeting.ownerId || input.personId === meeting.administratorId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a new owner or administrator before removing this person." });
@@ -383,14 +368,4 @@ export const pulseSettingsRouter = router({
       return { success: true, undo: { meetingId: input.meetingId, personId: input.personId, restoreAccess: !input.hasAccess } };
     }),
 
-  setPlatformRole: protectedProcedure
-    .input(z.object({ personId: z.number().int().positive(), platformRole: platformRoleSchema }))
-    .mutation(async ({ ctx, input }) => {
-      const db = await database();
-      await requireSuperAdmin(db, ctx.user.id);
-      await assertActivePerson(db, input.personId);
-      await db.insert(pulseProfiles).values({ userId: input.personId, platformRole: input.platformRole, timezone: "America/New_York", isActive: true })
-        .onDuplicateKeyUpdate({ set: { platformRole: input.platformRole, deletedAt: null, isActive: true } });
-      return { success: true };
-    }),
 });

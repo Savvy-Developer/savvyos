@@ -117,7 +117,6 @@ import PulseSettingsHubPage from "./pages/PulseSettingsHubPage";
 import PulsePermissioningPage from "./pages/PulsePermissioningPage";
 import PulseCreateMeetingPage from "./pages/PulseCreateMeetingPage";
 import PulseMeetingEffectivenessPage from "./pages/PulseMeetingEffectivenessPage";
-import PulseThinSlicePage from "./pages/PulseThinSlicePage";
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
 import ReferralsPage from "./pages/ReferralsPage";
@@ -217,6 +216,16 @@ function CustomReportsRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PulseRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewPulse) return <NotFound />;
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <AuthGuard>
@@ -283,22 +292,21 @@ function Router() {
           <Route path="/agent-directory" component={AgentDirectoryPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
-          <Route path="/pulse/slice" component={PulseThinSlicePage} />
-          <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMeetingRunPage meetingId={id} />}</Route>
-          <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseMeetingSettingsPage meetingId={id} />}</Route>
-          <Route path="/pulse/settings/create" component={PulseCreateMeetingPage} />
-          <Route path="/pulse/meetings/:id" component={PulseFoundationPage} />
-          <Route path="/pulse/meetings" component={PulseFoundationPage} />
-          <Route path="/pulse/mission" component={PulseMissionControlPage} />
-          <Route path="/pulse/settings/outstanding" component={PulseMissionControlAdminPage} />
-          <Route path="/pulse/settings/attention" component={PulseGlobalAttentionPage} />
-          <Route path="/pulse/settings/notifications" component={PulseNotificationPreferencesPage} />
-          <Route path="/pulse/settings/permissioning" component={PulsePermissioningPage} />
-          <Route path="/pulse/settings/effectiveness" component={PulseMeetingEffectivenessPage} />
-          <Route path="/pulse/work" component={PulseFoundationPage} />
-          <Route path="/pulse/inputs" component={PulseFoundationPage} />
-          <Route path="/pulse/settings" component={PulseSettingsHubPage} />
-          <Route path="/pulse" component={PulseMissionControlPage} />
+          <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseRoute><PulseMeetingRunPage meetingId={id} /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseRoute><PulseMeetingSettingsPage meetingId={id} /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/create">{() => <PulseRoute><PulseCreateMeetingPage /></PulseRoute>}</Route>
+          <Route path="/pulse/meetings/:id">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
+          <Route path="/pulse/meetings">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
+          <Route path="/pulse/mission">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/outstanding">{() => <PulseRoute><PulseMissionControlAdminPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/attention">{() => <PulseRoute><PulseGlobalAttentionPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/notifications">{() => <PulseRoute><PulseNotificationPreferencesPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/permissioning">{() => <PulseRoute><PulsePermissioningPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings/effectiveness">{() => <PulseRoute><PulseMeetingEffectivenessPage /></PulseRoute>}</Route>
+          <Route path="/pulse/work">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
+          <Route path="/pulse/inputs">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
+          <Route path="/pulse/settings">{() => <PulseRoute><PulseSettingsHubPage /></PulseRoute>}</Route>
+          <Route path="/pulse">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />
