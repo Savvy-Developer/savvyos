@@ -188,6 +188,7 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
       label: "Leads & CRM",
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
+        { icon: MessageSquarePlus, label: "My Communications", path: "/communications" },
         { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
         { icon: GitBranch, label: "Agent Pipelines", path: "/pipeline" },
         { icon: GitMerge, label: "Connection Requests", path: "/connection-requests", badge: pendingConnReqs > 0 ? pendingConnReqs : undefined },

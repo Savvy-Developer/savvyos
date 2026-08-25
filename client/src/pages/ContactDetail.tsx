@@ -690,13 +690,6 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     onSuccess: () => { toast.success("Contact deleted"); navigate("/contacts"); },
     onError: (e) => toast.error(e.message),
   });
-  const startAircallCall = trpc.aircallCalling.startContactCall.useMutation({
-    onSuccess: (result) => {
-      toast.success(`Calling ${result.destination} through Aircall`);
-    },
-    onError: (error) => toast.error(error.message),
-  });
-
   function openEditTask(taskRow: any) {
     const t = taskRow.task;
     setEditingTask(taskRow);
@@ -774,7 +767,15 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       toast.error(aircallCallBlockedReason);
       return;
     }
-    startAircallCall.mutate({ contactId });
+    navigate(`/communications?contact=${contactId}&dial=${encodeURIComponent(contact?.phone ?? "")}`);
+  }
+
+  function handleAircallText() {
+    if (aircallCallBlockedReason) {
+      toast.error(aircallCallBlockedReason);
+      return;
+    }
+    navigate(`/communications?contact=${contactId}`);
   }
 
   function handleAssign() {
@@ -844,15 +845,25 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
         actions={
           <div className="flex gap-2">
             {isIsa && (
-              <Button
-                size="sm"
-                onClick={handleAircallCall}
-                disabled={!!aircallCallBlockedReason || startAircallCall.isPending || !aircallCallingStatus}
-                title={aircallCallBlockedReason ?? "Start a call in Aircall"}
-              >
-                <PhoneCall className={`h-4 w-4 mr-1 ${startAircallCall.isPending ? "animate-pulse" : ""}`} />
-                {startAircallCall.isPending ? "Starting call…" : "Call via Aircall"}
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  onClick={handleAircallCall}
+                  disabled={!!aircallCallBlockedReason || !aircallCallingStatus}
+                  title={aircallCallBlockedReason ?? "Open this number in the embedded Aircall dialer"}
+                >
+                  <PhoneCall className="h-4 w-4 mr-1" /> Call with Aircall
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAircallText}
+                  disabled={!!aircallCallBlockedReason || !aircallCallingStatus}
+                  title={aircallCallBlockedReason ?? "Open this Contact's Aircall text conversation"}
+                >
+                  <MessageSquare className="h-4 w-4 mr-1" /> Text now
+                </Button>
+              </>
             )}
             {(isIsa || isAdmin) && (
               <Button

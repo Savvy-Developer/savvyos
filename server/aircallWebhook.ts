@@ -8,6 +8,7 @@
 
 import type { Express, Request, Response } from "express";
 import type { AircallCallData } from "./aircall";
+import { isAircallMessageWebhook, persistAircallMessage } from "./aircallMessaging";
 import {
   persistAircallWebhook,
   processDueAircallWebhookEvents,
@@ -41,22 +42,37 @@ function isValidPayload(payload: unknown): payload is AircallWebhookPayload {
 export function registerAircallWebhook(app: Express): void {
   app.post("/api/webhooks/aircall", async (req: Request, res: Response) => {
     const payload = req.body as unknown;
-    if (!isValidPayload(payload)) {
+    const messagePayload = isAircallMessageWebhook(payload);
+    const callPayload = isValidPayload(payload);
+    if (!callPayload && !messagePayload) {
       console.warn("[Aircall Webhook] Rejected malformed payload");
       res.sendStatus(400);
       return;
     }
 
+    const eventName = messagePayload
+      ? (payload.event ?? payload.event_name ?? "message.unknown")
+      : payload.event;
+
     try {
       const tokenValid = await verifyAircallWebhookToken(payload.token);
       if (!tokenValid) {
-        console.error(`[Aircall Webhook] Rejected token for ${payload.event} / call ${payload.data.id}`);
+        console.error(`[Aircall Webhook] Rejected token for ${eventName}`);
         res.sendStatus(401);
         return;
       }
 
+      // Native Aircall messages are already fully materialized. Persist their
+      // state before the acknowledgement so a failed CRM write is retried by
+      // Aircall instead of silently dropping Contact history.
+      if (messagePayload) {
+        await persistAircallMessage(payload.data);
+        res.sendStatus(204);
+        return;
+      }
+
       // Acknowledge unrelated Aircall events after validation. The integration
-      // self-check intentionally subscribes only to the two durable call events.
+      // self-check intentionally subscribes only to the durable call events.
       if (!DURABLE_CALL_EVENTS.has(payload.event)) {
         res.sendStatus(204);
         return;
@@ -72,7 +88,7 @@ export function registerAircallWebhook(app: Express): void {
       void processDueAircallWebhookEvents();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[Aircall Webhook] Durable persistence failed for ${payload.event}:`, message);
+      console.error(`[Aircall Webhook] Durable persistence failed for ${eventName}:`, message);
       // Non-2xx asks Aircall to retry rather than silently accepting a lost call.
       res.sendStatus(503);
     }

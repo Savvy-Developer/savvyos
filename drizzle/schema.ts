@@ -2402,6 +2402,39 @@ export const aircallIsaAssignments = mysqlTable(
 export type AircallIsaAssignment = typeof aircallIsaAssignments.$inferSelect;
 export type InsertAircallIsaAssignment = typeof aircallIsaAssignments.$inferInsert;
 
+// ─── Aircall Messages ──────────────────────────────────────────────────────────
+// Keeps SavvyOS's CRM timeline and ISA communications workspace synchronized with
+// Aircall's native message events. The Aircall message id is the idempotency key.
+export const aircallMessages = mysqlTable(
+  "aircall_messages",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    aircallMessageId: varchar("aircallMessageId", { length: 128 }).notNull(),
+    contactId: int("contactId").references(() => contacts.id),
+    communicationId: int("communicationId").references(() => communications.id),
+    savvyUserId: int("savvyUserId").references(() => users.id),
+    aircallNumberId: int("aircallNumberId").notNull(),
+    direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
+    status: varchar("status", { length: 64 }).notNull().default("pending"),
+    fromNumber: varchar("fromNumber", { length: 32 }),
+    toNumber: varchar("toNumber", { length: 32 }),
+    body: text("body"),
+    sentAt: timestamp("sentAt"),
+    receivedAt: timestamp("receivedAt"),
+    rawPayload: json("rawPayload"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("aircall_messages_aircall_message_unique").on(table.aircallMessageId),
+    index("aircall_messages_contact_sent_idx").on(table.contactId, table.sentAt),
+    index("aircall_messages_isa_sent_idx").on(table.savvyUserId, table.sentAt),
+    index("aircall_messages_number_sent_idx").on(table.aircallNumberId, table.sentAt),
+  ],
+);
+export type AircallMessage = typeof aircallMessages.$inferSelect;
+export type InsertAircallMessage = typeof aircallMessages.$inferInsert;
+
 // ─── Aircall Calls ─────────────────────────────────────────────────────────────
 // Stores every Aircall call record. Each matched call also has a corresponding
 // `communications` row (type = "call") linked via communicationId.

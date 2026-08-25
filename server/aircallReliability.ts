@@ -18,7 +18,13 @@ import {
 import { transcribeAndSummarize } from "./aircallTranscribe";
 
 const AIRCALL_WEBHOOK_URL = `${(process.env.APP_URL || "https://os.savvy-agents.com").replace(/\/$/, "")}/api/webhooks/aircall`;
-const REQUIRED_EVENTS = ["call.ended", "call.comm_assets_generated"];
+const REQUIRED_EVENTS = [
+  "call.ended",
+  "call.comm_assets_generated",
+  "message.sent",
+  "message.received",
+  "message.status_updated",
+];
 const WORKER_INTERVAL_MS = 15_000;
 const INVENTORY_INTERVAL_MS = 30 * 60_000;
 const WEBHOOK_VERIFY_INTERVAL_MS = 6 * 60 * 60_000;
@@ -423,7 +429,7 @@ export async function ensureAircallWebhookConfiguration(): Promise<void> {
       const response = await aircallApi("/webhooks", {
         method: "POST",
         body: JSON.stringify({
-          custom_name: "SavvyOS Call Reliability",
+          custom_name: "SavvyOS Communications",
           url: AIRCALL_WEBHOOK_URL,
           events: REQUIRED_EVENTS,
         }),

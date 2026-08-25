@@ -151,6 +151,9 @@ importers:
       '@types/turndown':
         specifier: ^5.0.6
         version: 5.0.6
+      aircall-everywhere:
+        specifier: ^2.0.6
+        version: 2.0.6
       axios:
         specifier: ^1.12.0
         version: 1.12.2
@@ -2721,6 +2724,10 @@ packages:
 
   add@2.0.6:
     resolution: {integrity: sha512-j5QzrmsokwWWp6kUcJQySpbG+xfOBqqKnup3OIk1pz+kB/80SLorZ9V8zHFLO92Lcd+hbvq8bT+zOGoPkmBV0Q==}
+
+  aircall-everywhere@2.0.6:
+    resolution: {integrity: sha512-8js67cu1m9HTQZl3pvLXMKspw3LbC+52UJZphJ0DZpaDZ38dyECg+LrfPuWEZ5F4TtLFfLwYRjLu8adotKZknQ==}
+    engines: {node: '>=16.0.0'}
 
   ansi-regex@6.2.2:
     resolution: {integrity: sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==}
@@ -7770,6 +7777,8 @@ snapshots:
   acorn@8.15.0: {}
 
   add@2.0.6: {}
+
+  aircall-everywhere@2.0.6: {}
 
   ansi-regex@6.2.2: {}
 
