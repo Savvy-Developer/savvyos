@@ -372,6 +372,7 @@ function AutomaticGraphicDialog({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [generated, setGenerated] = useState<{ imageUrl: string; fileName: string; label: string } | null>(null);
   const profileQuery = trpc.users.getMyCoreProfile.useQuery();
+  const utils = trpc.useUtils();
   const generateMutation = trpc.marketingRequests.automaticGenerate.useMutation();
 
   const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -429,6 +430,7 @@ function AutomaticGraphicDialog({
         },
       });
       setGenerated(result);
+      utils.marketingRequests.automaticHistory.invalidate();
       toast.success("Your graphic is ready");
     } catch (error: any) {
       const message = error?.message || "We could not generate that graphic. Please try again.";
@@ -722,6 +724,56 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
+// ─── Automatic Graphic History Card ──────────────────────────────────────────
+
+function AutomaticGraphicHistoryCard({
+  graphic,
+}: {
+  graphic: {
+    id: number;
+    graphicType: AutomaticGraphicType;
+    propertyAddress: string;
+    price: string | null;
+    imageUrl: string;
+    fileName: string;
+    createdAt: Date | string;
+  };
+}) {
+  const config = AUTOMATIC_GRAPHIC_TYPES[graphic.graphicType];
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex gap-4">
+          <img
+            src={graphic.imageUrl}
+            alt={`${config.label} graphic for ${graphic.propertyAddress}`}
+            className="h-24 w-20 shrink-0 rounded-md border object-cover bg-muted"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium text-sm">{config.label}</p>
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">{graphic.propertyAddress}</p>
+              </div>
+              <Badge className="shrink-0 bg-primary/10 text-primary hover:bg-primary/10">Automatic</Badge>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {graphic.price && <span>{graphic.price}</span>}
+              <span>Generated {safeFormatET(graphic.createdAt, { month: "short", day: "numeric", year: "numeric" })}</span>
+            </div>
+            <Button className="mt-3" size="sm" variant="outline" asChild>
+              <a href={graphic.imageUrl} download={graphic.fileName} target="_blank" rel="noopener noreferrer">
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Download Graphic
+              </a>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Request Card ─────────────────────────────────────────────────────────────
 
 function RequestCard({
@@ -800,9 +852,11 @@ export default function MarketingRequestsPage() {
     statusFilter: ["completed", "cancelled"],
     includeCompleted: true,
   });
+  const automaticHistoryQuery = trpc.marketingRequests.automaticHistory.useQuery();
 
   const activeRequests = activeQuery.data ?? [];
   const completedRequests = completedQuery.data ?? [];
+  const automaticGraphics = automaticHistoryQuery.data ?? [];
 
   const handleCreated = () => {
     utils.marketingRequests.list.invalidate();
@@ -852,7 +906,13 @@ export default function MarketingRequestsPage() {
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="completed" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">History</TabsTrigger>
+          <TabsTrigger value="completed" className="shrink-0 whitespace-nowrap">History
+            {automaticGraphics.length + completedRequests.length > 0 && (
+              <span className="ml-1.5 bg-muted-foreground/15 text-foreground text-xs rounded-full px-1.5 py-0.5">
+                {automaticGraphics.length + completedRequests.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="active">
@@ -884,26 +944,47 @@ export default function MarketingRequestsPage() {
         </TabsContent>
 
         <TabsContent value="completed">
-          {completedQuery.isLoading ? (
+          {completedQuery.isLoading || automaticHistoryQuery.isLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : completedRequests.length === 0 ? (
+          ) : automaticGraphics.length === 0 && completedRequests.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
-                <p className="text-muted-foreground font-medium">No completed requests yet</p>
+                <p className="text-muted-foreground font-medium">No history yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">Completed requests and Automatic graphics will appear here.</p>
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {completedRequests.map((row) => (
-                <RequestCard
-                  key={row.request.id}
-                  row={row}
-                  onClick={() => setSelectedId(row.request.id)}
-                />
-              ))}
+            <div className="space-y-6">
+              {automaticGraphics.length > 0 && (
+                <section>
+                  <div className="mb-3">
+                    <h2 className="text-base font-semibold">Automatic Graphics</h2>
+                    <p className="text-sm text-muted-foreground">Download any graphic you previously created.</p>
+                  </div>
+                  <div className="space-y-3">
+                    {automaticGraphics.map((graphic) => (
+                      <AutomaticGraphicHistoryCard key={graphic.id} graphic={graphic as any} />
+                    ))}
+                  </div>
+                </section>
+              )}
+              {completedRequests.length > 0 && (
+                <section>
+                  {automaticGraphics.length > 0 && <h2 className="mb-3 text-base font-semibold">Request History</h2>}
+                  <div className="space-y-3">
+                    {completedRequests.map((row) => (
+                      <RequestCard
+                        key={row.request.id}
+                        row={row}
+                        onClick={() => setSelectedId(row.request.id)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           )}
         </TabsContent>

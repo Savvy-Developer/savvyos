@@ -1492,6 +1492,26 @@ export type MarketingRequestAttachment =
 export type InsertMarketingRequestAttachment =
   typeof marketingRequestAttachments.$inferInsert;
 
+// ─── Automatic Marketing Graphics ───────────────────────────────────────────
+// Persistent generated assets so agents can revisit and download their graphics.
+export const automaticMarketingGraphics = mysqlTable(
+  "automatic_marketing_graphics",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    graphicType: mysqlEnum("graphicType", ["under_contract", "just_closed", "just_listed"]).notNull(),
+    propertyAddress: varchar("propertyAddress", { length: 160 }).notNull(),
+    price: varchar("price", { length: 64 }),
+    imageUrl: text("imageUrl").notNull(),
+    imageKey: varchar("imageKey", { length: 512 }).notNull(),
+    fileName: varchar("fileName", { length: 255 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [index("automatic_marketing_graphics_agent_created_idx").on(table.agentId, table.createdAt)]
+);
+export type AutomaticMarketingGraphic = typeof automaticMarketingGraphics.$inferSelect;
+export type InsertAutomaticMarketingGraphic = typeof automaticMarketingGraphics.$inferInsert;
+
 // ─── Tech Requests ────────────────────────────────────────────────────────────
 // Internal requests submitted by SavvyOS users and tracked by the technology team.
 export const techRequests = mysqlTable(

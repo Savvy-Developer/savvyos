@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import {
+  automaticMarketingGraphics,
   marketingRequests,
   marketingRequestAttachments,
   userProfiles,
@@ -247,14 +248,35 @@ export const marketingRequestsRouter = router({
       const outputBuffer = Buffer.from(await generatedImageResponse.arrayBuffer());
       const fileName = `savvy-${template.fileSlug}-${Date.now()}.${outputExtension}`;
       const outputKey = `automatic-marketing/${ctx.user.id}/generated/${Date.now()}-${randomSuffix()}.${outputExtension}`;
-      const { url: imageUrl } = await storagePut(outputKey, outputBuffer, outputMimeType);
+      const { url: imageUrl, key: imageKey } = await storagePut(outputKey, outputBuffer, outputMimeType);
+      const [graphic] = await db.insert(automaticMarketingGraphics).values({
+        agentId: ctx.user.id,
+        graphicType: type,
+        propertyAddress: input.location,
+        price: template.requiresPrice ? price : null,
+        imageUrl,
+        imageKey,
+        fileName,
+      });
 
       return {
+        id: Number((graphic as any).insertId),
         imageUrl,
         fileName,
         label: template.label,
       };
     }),
+
+  // Generated Automatic graphics are private to the agent who created them.
+  automaticHistory: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    return db
+      .select()
+      .from(automaticMarketingGraphics)
+      .where(eq(automaticMarketingGraphics.agentId, ctx.user.id))
+      .orderBy(desc(automaticMarketingGraphics.createdAt));
+  }),
 
   // List requests — agents see their own; admins/ISAs see all
   list: protectedProcedure
