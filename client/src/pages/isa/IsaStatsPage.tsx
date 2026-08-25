@@ -28,8 +28,11 @@ import {
   Clock3,
   Flame,
   Handshake,
+  History,
+  Link2,
   Loader2,
   PhoneCall,
+  ShieldCheck,
   Target,
   TrendingUp,
   Trophy,
@@ -77,6 +80,17 @@ function monthLabel(value: string) {
   return new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" });
 }
 
+function formatDate(value: Date | string | null | undefined) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function attributionLabel(value: string) {
+  if (value === "appointment_setter") return "Appointment setter";
+  if (value === "manual") return "Manual attribution";
+  return "Assigned ISA at transaction";
+}
+
 function MetricCard({
   label,
   value,
@@ -116,31 +130,6 @@ function MetricCard({
   );
 }
 
-function OutcomeStep({
-  label,
-  value,
-  rate,
-  tone,
-}: {
-  label: string;
-  value: number;
-  rate?: number | null;
-  tone: "blue" | "amber" | "emerald";
-}) {
-  const tones = {
-    blue: "border-blue-200 bg-blue-50 text-blue-700",
-    amber: "border-amber-200 bg-amber-50 text-amber-700",
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  };
-  return (
-    <div className={`rounded-xl border p-4 ${tones[tone]}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide opacity-75">{label}</p>
-      <p className="mt-2 text-3xl font-semibold">{value}</p>
-      {rate !== undefined && <p className="mt-1 text-xs font-medium">{formatPct(rate)} of appointments</p>}
-    </div>
-  );
-}
-
 export default function IsaStatsPage() {
   const { user } = useAuth() as any;
   const [, navigate] = useLocation();
@@ -175,6 +164,7 @@ export default function IsaStatsPage() {
   const benchmarkViewer = benchmark?.leaderboard.find((row) => row.isViewer);
 
   const summary = statsQuery.data?.summary;
+  const attributedOutcomes = statsQuery.data?.attributedOutcomes ?? [];
   const trend = useMemo(
     () => (statsQuery.data?.trend ?? []).map((row) => ({
       ...row,
@@ -329,9 +319,9 @@ export default function IsaStatsPage() {
               ))}
             </div>
           </div>
-          <p className="mt-4 text-xs leading-5 text-muted-foreground">
-            Lead metrics reflect contacts created in the selected period. Appointment results reflect appointments set in the selected period and their current lead outcome. Task and Market Match metrics are measured by activity date.
-          </p>
+          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5 text-xs leading-5 text-blue-900">
+            <strong>Activity window:</strong> lead, appointment, completed-task, Market Match, and Closed-in-period metrics follow the selected dates. <strong>Current Under Contract</strong> ignores the date range, and <strong>Lifetime Closed</strong> is always all-time. The lead-status filter affects lead and appointment activity only; it does not remove attributed transaction outcomes.
+          </div>
         </CardContent>
       </Card>
 
@@ -350,7 +340,7 @@ export default function IsaStatsPage() {
         <Card className="overflow-hidden">
           <CardHeader className="border-b bg-muted/20 pb-4">
             <CardTitle className="flex items-center gap-2 text-base"><Trophy className="h-4 w-4 text-amber-500" />Where you stand</CardTitle>
-            <CardDescription>Compare the same period across active ISAs. The ranking prioritizes appointments set, then downstream outcomes and lead engagement.</CardDescription>
+            <CardDescription>Compare the same activity period across active ISAs. Current Under Contract is always current inventory; Closed uses the selected benchmark period.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {benchmarkQuery.isLoading ? (
@@ -381,8 +371,8 @@ export default function IsaStatsPage() {
                         <th className="px-4 py-3 text-left font-medium">ISA</th>
                         <th className="px-4 py-3 text-right font-medium">Appointments</th>
                         <th className="px-4 py-3 text-right font-medium">Engaged leads</th>
-                        <th className="px-4 py-3 text-right font-medium">Under contract</th>
-                        <th className="px-4 py-3 text-right font-medium">Closed</th>
+                        <th className="px-4 py-3 text-right font-medium">Current UC</th>
+                        <th className="px-4 py-3 text-right font-medium">Closed in period</th>
                         <th className="px-4 py-3 text-right font-medium">Follow-ups</th>
                       </tr>
                     </thead>
@@ -408,30 +398,86 @@ export default function IsaStatsPage() {
       </section>
 
       <section>
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <Target className="h-4 w-4 text-primary" />
-          <h2 className="text-base font-semibold">Appointment Outcomes</h2>
-          <Badge variant="secondary">Selected period</Badge>
+          <h2 className="text-base font-semibold">Attributed Transaction Outcomes</h2>
+          <Badge variant="secondary">Stable ISA credit</Badge>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <MetricCard label="Appointments Set" value={summary?.appointmentsSet ?? 0} description="Appointments generated by you" icon={CalendarDays} tone="blue" />
-          <MetricCard label="Under Contract" value={summary?.underContract ?? 0} description={`${formatPct(summary?.appointmentToContractRate)} of selected appointments`} icon={Handshake} tone="amber" />
-          <MetricCard label="Closed" value={summary?.closed ?? 0} description={`${formatPct(summary?.appointmentToCloseRate)} of selected appointments`} icon={CheckCircle2} tone="emerald" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Appointments Set" value={summary?.appointmentsSet ?? 0} description="Recorded by you in the selected period" icon={CalendarDays} tone="blue" />
+          <MetricCard label="Current Under Contract" value={summary?.underContract ?? 0} description="All current attributed deals; date filter does not apply" icon={Handshake} tone="amber" />
+          <MetricCard label="Closed in Period" value={summary?.closed ?? 0} description="Attributed closings whose closing date is in the selected period" icon={CheckCircle2} tone="emerald" />
+          <MetricCard label="Lifetime Closed" value={summary?.lifetimeClosed ?? 0} description="All attributed closed transactions in SavvyOS" icon={History} tone="violet" />
         </div>
       </section>
 
-      <Card>
+      <Card className="border-primary/20">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base"><TrendingUp className="h-4 w-4 text-primary" />Appointment-to-Outcome Funnel</CardTitle>
-          <CardDescription>Track the downstream impact of the appointments you created during the selected period.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" />How SavvyOS gives you outcome credit</CardTitle>
+          <CardDescription>Credit is saved separately from daily activity so a later reassignment or date filter cannot silently erase it.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-3">
-            <OutcomeStep label="Appointments Set" value={summary?.appointmentsSet ?? 0} tone="blue" />
-            <OutcomeStep label="Under Contract" value={summary?.underContract ?? 0} rate={summary?.appointmentToContractRate} tone="amber" />
-            <OutcomeStep label="Closed" value={summary?.closed ?? 0} rate={summary?.appointmentToCloseRate} tone="emerald" />
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><CalendarDays className="h-4 w-4 text-blue-600" />1. Appointment setter</div>
+              <p className="text-xs leading-5 text-muted-foreground">When an ISA records an appointment while connecting a contact to an agent, SavvyOS saves that ISA on the appointment.</p>
+            </div>
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-amber-600" />2. Transaction attribution</div>
+              <p className="text-xs leading-5 text-muted-foreground">When a transaction is recorded, credit goes to the recorded appointment setter for that contact and agent. If no recorded appointment exists, credit falls back to the contact’s assigned ISA at that time.</p>
+            </div>
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="h-4 w-4 text-emerald-600" />3. Credit stays put</div>
+              <p className="text-xs leading-5 text-muted-foreground">Later contact reassignment does not move the outcome. Under Contract reflects current transaction status; Closed-in-period follows the transaction closing date.</p>
+            </div>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">An appointment is counted from an assigned lead’s recorded appointment. Outcome status is evaluated as of today, so the funnel preserves long-term attribution to your work.</p>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b bg-muted/20 pb-4">
+          <CardTitle className="flex items-center gap-2 text-base"><Handshake className="h-4 w-4 text-primary" />Your attributed deals</CardTitle>
+          <CardDescription>The latest Under Contract and Closed transactions credited to this ISA, with the attribution method shown.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {attributedOutcomes.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">Transaction</th>
+                    <th className="px-4 py-3 text-left font-medium">Contact</th>
+                    <th className="px-4 py-3 text-left font-medium">Agent</th>
+                    <th className="px-4 py-3 text-left font-medium">Status</th>
+                    <th className="px-4 py-3 text-left font-medium">Outcome date</th>
+                    <th className="px-4 py-3 text-left font-medium">Credit source</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {attributedOutcomes.map((row) => (
+                    <tr key={row.transactionId} className="hover:bg-muted/30">
+                      <td className="px-4 py-3">
+                        <Button variant="link" className="h-auto p-0 font-semibold" onClick={() => navigate(`/transactions/${row.transactionId}`)}>
+                          {row.transactionNumber || `Transaction #${row.transactionId}`}
+                        </Button>
+                      </td>
+                      <td className="px-4 py-3 font-medium">{row.contactName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{row.agentName ?? "—"}</td>
+                      <td className="px-4 py-3"><Badge variant={row.status === "closed" ? "default" : "secondary"}>{row.status === "closed" ? "Closed" : "Under Contract"}</Badge></td>
+                      <td className="px-4 py-3">{formatDate(row.status === "closed" ? row.closedAt : row.underContractAt)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{attributionLabel(row.attributionBasis)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="flex min-h-44 flex-col items-center justify-center px-6 text-center text-muted-foreground">
+              <Handshake className="mb-3 h-8 w-8 opacity-35" />
+              <p className="text-sm font-medium">No attributed transactions yet</p>
+              <p className="mt-1 max-w-lg text-xs">When an assigned or appointment-linked contact reaches Under Contract or Closed in SavvyOS, the transaction will appear here automatically.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

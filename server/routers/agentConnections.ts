@@ -201,6 +201,7 @@ export const agentConnectionsRouter = router({
         agentNotes: input.agentNotes,
         appointmentSet: input.appointmentSet ?? false,
         appointmentSetAt: input.appointmentSet ? new Date() : null,
+        appointmentSetByUserId: input.appointmentSet && ctx.user.role === "isa" ? ctx.user.id : null,
         ...normalizeBuyBox(input.buyBox),
       } as any);
 

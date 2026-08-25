@@ -28,6 +28,7 @@ import { sendEmailAlert } from "../_core/emailAlerts";
 import { generateAutoPayouts } from "../autoPayouts";
 import { syncReferralPaymentForTransaction } from "./referrals";
 import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
+import { syncIsaOutcomeAttribution } from "../isaOutcomeAttribution";
 import { getDb } from "../db";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
@@ -43,6 +44,14 @@ const wholePercentageSchema = z.coerce
 function normalizeReferralPayoutPercentage(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   return value > 0 && value < 1 ? Number((value * 100).toFixed(2)) : value;
+}
+
+async function syncIsaOutcomeAttributionSafely(transactionId: number): Promise<void> {
+  try {
+    await syncIsaOutcomeAttribution(transactionId);
+  } catch (error) {
+    console.error("[ISA Attribution] Failed to sync transaction outcome:", { transactionId, error });
+  }
 }
 
 async function triggerSmartPlansForTransactionStatus(
@@ -253,6 +262,7 @@ export const transactionsRouter = router({
         contractDate: input.contractDate ? new Date(input.contractDate) : null,
         closingDate: input.closingDate ? new Date(input.closingDate) : null,
       } as any);
+      await syncIsaOutcomeAttributionSafely(id);
 
       // Enrich activity log with names of all involved parties
       let txContactName = "Unknown Contact";
@@ -401,6 +411,7 @@ export const transactionsRouter = router({
       if (contractDate !== undefined) updateData.contractDate = contractDate ? new Date(contractDate) : null;
       if (closingDate !== undefined) updateData.closingDate = closingDate ? new Date(closingDate) : null;
       await updateTransaction(input.id, updateData as any);
+      await syncIsaOutcomeAttributionSafely(input.id);
 
       // Fetch transaction for context (used in emails and logging)
       const txForEmail = await getTransactionById(input.id);
@@ -1382,6 +1393,7 @@ export const transactionsRouter = router({
           referralPayoutPct: referralPayoutPct !== null ? String(referralPayoutPct) : null,
           notes: row.notes?.trim() ?? null,
         } as any);
+        await syncIsaOutcomeAttributionSafely(txId);
 
         // ── 12. Auto-generate commission payouts ──────────────────────────────
         if (gci && gci > 0) {

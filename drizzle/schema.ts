@@ -219,6 +219,9 @@ export const agentConnections = mysqlTable("agent_connections", {
   // Tracks whether the ISA set an appointment when making this connection
   appointmentSet: boolean("appointmentSet").default(false).notNull(),
   appointmentSetAt: timestamp("appointmentSetAt"),
+  // The user who recorded the appointment. Unlike the contact's current ISA
+  // assignment, this snapshot does not change when a lead is reassigned.
+  appointmentSetByUserId: int("appointmentSetByUserId").references(() => users.id),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -324,6 +327,32 @@ export const transactions = mysqlTable("transactions", {
 
 export type Transaction = typeof transactions.$inferSelect;
 export type InsertTransaction = typeof transactions.$inferInsert;
+
+// ─── ISA Transaction Outcome Attribution ──────────────────────────────────────
+// Snapshots the ISA who receives downstream transaction credit. This is kept
+// separate from activity metrics so contact reassignment and date filters cannot
+// silently move or erase Under Contract / Closed attribution.
+export const isaOutcomeAttributions = mysqlTable("isa_outcome_attributions", {
+  id: int("id").autoincrement().primaryKey(),
+  transactionId: int("transactionId").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  isaId: int("isaId").notNull().references(() => users.id),
+  contactId: int("contactId").notNull().references(() => contacts.id),
+  appointmentConnectionId: int("appointmentConnectionId").references(() => agentConnections.id, { onDelete: "set null" }),
+  attributionBasis: mysqlEnum("attributionBasis", ["appointment_setter", "assigned_isa", "manual"]).notNull(),
+  status: mysqlEnum("status", ["under_contract", "closed", "terminated"]).notNull(),
+  underContractAt: timestamp("underContractAt"),
+  closedAt: timestamp("closedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  transactionUniqueIdx: uniqueIndex("isa_outcome_transaction_uidx").on(table.transactionId),
+  isaStatusIdx: index("isa_outcome_isa_status_idx").on(table.isaId, table.status),
+  contactIdx: index("isa_outcome_contact_idx").on(table.contactId),
+  appointmentIdx: index("isa_outcome_appointment_idx").on(table.appointmentConnectionId),
+}));
+
+export type IsaOutcomeAttribution = typeof isaOutcomeAttributions.$inferSelect;
+export type InsertIsaOutcomeAttribution = typeof isaOutcomeAttributions.$inferInsert;
 
 // ─── Transaction Export History ───────────────────────────────────────────────
 export const transactionExports = mysqlTable("transaction_exports", {

@@ -27,6 +27,7 @@ import {
   properties,
   isaProfiles,
   userProfiles,
+  isaOutcomeAttributions,
 } from "../drizzle/schema";
 
 let _pool: mysql.Pool | null = null;
@@ -1526,11 +1527,11 @@ export type IsaDashboardStatus = (typeof ISA_DASHBOARD_STATUSES)[number];
 
 /**
  * A personal ISA performance view. The selected date range is applied to the
- * relevant activity date for each metric: contacts use assignment/creation date,
+ * relevant activity date for each metric: contacts use creation date,
  * appointments use appointmentSetAt (falling back to connection creation for
  * legacy records), sessions use startedAt, and completed tasks use completedAt.
- * Appointment outcomes intentionally use the contact's current ISA status so an
- * ISA can follow the long-term downstream result of appointments they generated.
+ * Transaction outcomes come from durable ISA attribution records: current Under
+ * Contract ignores the selected date range, while Closed in period uses closedAt.
  */
 export async function getIsaDashboardStats(opts: {
   isaId?: number;
@@ -1553,9 +1554,10 @@ export async function getIsaDashboardStats(opts: {
     isNull(contacts.archivedAt),
   );
 
+  const appointmentCreditIsaId = sql`COALESCE(${agentConnections.appointmentSetByUserId}, ${contacts.assignedIsaId})`;
   const appointmentWhere = and(
     eq(agentConnections.appointmentSet, true),
-    isaId ? eq(contacts.assignedIsaId, isaId) : undefined,
+    isaId ? sql`${appointmentCreditIsaId} = ${isaId}` : undefined,
     dateFrom ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${dateFrom}` : undefined,
     dateTo ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${dateTo}` : undefined,
     contactStatusFilter,
@@ -1581,7 +1583,34 @@ export async function getIsaDashboardStats(opts: {
     lte(tasks.dueDate, new Date()),
   );
 
-  const [leadRows, appointmentRows, outcomeRows, sessionRows, completedTaskRows, overdueTaskRows, trendRows] = await Promise.all([
+  const outcomeIsaWhere = isaId ? eq(isaOutcomeAttributions.isaId, isaId) : undefined;
+  const currentUnderContractWhere = and(
+    outcomeIsaWhere,
+    eq(isaOutcomeAttributions.status, "under_contract"),
+  );
+  const closedPeriodWhere = and(
+    outcomeIsaWhere,
+    eq(isaOutcomeAttributions.status, "closed"),
+    dateFrom ? gte(isaOutcomeAttributions.closedAt, dateFrom) : undefined,
+    dateTo ? lte(isaOutcomeAttributions.closedAt, dateTo) : undefined,
+  );
+  const lifetimeClosedWhere = and(
+    outcomeIsaWhere,
+    eq(isaOutcomeAttributions.status, "closed"),
+  );
+
+  const [
+    leadRows,
+    appointmentRows,
+    currentUnderContractRows,
+    closedPeriodRows,
+    lifetimeClosedRows,
+    attributedOutcomeRows,
+    sessionRows,
+    completedTaskRows,
+    overdueTaskRows,
+    trendRows,
+  ] = await Promise.all([
     db
       .select({
         assignedLeads: sql<number>`COUNT(*)`,
@@ -1600,15 +1629,39 @@ export async function getIsaDashboardStats(opts: {
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
       .where(appointmentWhere),
     db
+      .select({ underContract: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})` })
+      .from(isaOutcomeAttributions)
+      .where(currentUnderContractWhere),
+    db
+      .select({ closed: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})` })
+      .from(isaOutcomeAttributions)
+      .where(closedPeriodWhere),
+    db
+      .select({ closed: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})` })
+      .from(isaOutcomeAttributions)
+      .where(lifetimeClosedWhere),
+    db
       .select({
-        underContract: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'under_contract' THEN 1 ELSE 0 END)`,
-        closed: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'closed' THEN 1 ELSE 0 END)`,
-        activeClients: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'active_client' THEN 1 ELSE 0 END)`,
-        dead: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'dead' THEN 1 ELSE 0 END)`,
+        transactionId: isaOutcomeAttributions.transactionId,
+        transactionNumber: transactions.transactionNumber,
+        status: isaOutcomeAttributions.status,
+        underContractAt: isaOutcomeAttributions.underContractAt,
+        closedAt: isaOutcomeAttributions.closedAt,
+        attributionBasis: isaOutcomeAttributions.attributionBasis,
+        contactFirstName: contacts.firstName,
+        contactLastName: contacts.lastName,
+        agentName: users.name,
       })
-      .from(agentConnections)
-      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
-      .where(appointmentWhere),
+      .from(isaOutcomeAttributions)
+      .innerJoin(transactions, eq(transactions.id, isaOutcomeAttributions.transactionId))
+      .innerJoin(contacts, eq(contacts.id, isaOutcomeAttributions.contactId))
+      .leftJoin(users, eq(users.id, transactions.agentId))
+      .where(and(
+        outcomeIsaWhere,
+        inArray(isaOutcomeAttributions.status, ["under_contract", "closed"]),
+      ))
+      .orderBy(sql`COALESCE(${isaOutcomeAttributions.closedAt}, ${isaOutcomeAttributions.underContractAt}, ${isaOutcomeAttributions.createdAt}) DESC`)
+      .limit(12),
     db
       .select({
         total: sql<number>`COUNT(*)`,
@@ -1640,13 +1693,13 @@ export async function getIsaDashboardStats(opts: {
 
   const leads = leadRows[0] ?? {};
   const appointments = appointmentRows[0] ?? {};
-  const outcomes = outcomeRows[0] ?? {};
   const sessions = sessionRows[0] ?? {};
   const assignedLeads = Number(leads.assignedLeads ?? 0);
   const engagedLeads = Number(leads.engagedLeads ?? 0);
   const appointmentsSet = Number(appointments.appointmentsSet ?? 0);
-  const underContract = Number(outcomes.underContract ?? 0);
-  const closed = Number(outcomes.closed ?? 0);
+  const underContract = Number(currentUnderContractRows[0]?.underContract ?? 0);
+  const closed = Number(closedPeriodRows[0]?.closed ?? 0);
+  const lifetimeClosed = Number(lifetimeClosedRows[0]?.closed ?? 0);
 
   return {
     summary: {
@@ -1659,10 +1712,7 @@ export async function getIsaDashboardStats(opts: {
       contactsWithAppointments: Number(appointments.contactsWithAppointments ?? 0),
       underContract,
       closed,
-      activeClients: Number(outcomes.activeClients ?? 0),
-      dead: Number(outcomes.dead ?? 0),
-      appointmentToContractRate: appointmentsSet > 0 ? (underContract / appointmentsSet) * 100 : null,
-      appointmentToCloseRate: appointmentsSet > 0 ? (closed / appointmentsSet) * 100 : null,
+      lifetimeClosed,
       completedFollowUps: Number(completedTaskRows[0]?.completed ?? 0),
       overdueFollowUps: Number(overdueTaskRows[0]?.overdue ?? 0),
       marketMatchSessions: Number(sessions.total ?? 0),
@@ -1671,6 +1721,16 @@ export async function getIsaDashboardStats(opts: {
         ? Number(sessions.avgDurationSeconds) / 60
         : null,
     },
+    attributedOutcomes: attributedOutcomeRows.map((row) => ({
+      transactionId: row.transactionId,
+      transactionNumber: row.transactionNumber,
+      status: row.status,
+      underContractAt: row.underContractAt,
+      closedAt: row.closedAt,
+      attributionBasis: row.attributionBasis,
+      contactName: `${row.contactFirstName} ${row.contactLastName}`.trim(),
+      agentName: row.agentName,
+    })),
     trend: trendRows.map((row) => ({
       month: String(row.month ?? ""),
       appointmentsSet: Number(row.appointmentsSet ?? 0),
@@ -1734,7 +1794,8 @@ export async function getIsaTeamBenchmark(opts: {
   }
 
   const isaIds = activeIsas.map((isa) => isa.id);
-  const [leadRows, appointmentRows, taskRows] = await Promise.all([
+  const benchmarkAppointmentIsaId = sql<number>`COALESCE(${agentConnections.appointmentSetByUserId}, ${contacts.assignedIsaId})`;
+  const [leadRows, appointmentRows, outcomeRows, taskRows] = await Promise.all([
     db
       .select({
         isaId: contacts.assignedIsaId,
@@ -1750,21 +1811,31 @@ export async function getIsaTeamBenchmark(opts: {
       .groupBy(contacts.assignedIsaId),
     db
       .select({
-        isaId: contacts.assignedIsaId,
+        isaId: benchmarkAppointmentIsaId,
         appointmentsSet: sql<number>`COUNT(*)`,
-        underContract: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'under_contract' THEN 1 ELSE 0 END)`,
-        closed: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} = 'closed' THEN 1 ELSE 0 END)`,
       })
       .from(agentConnections)
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
       .where(and(
         eq(agentConnections.appointmentSet, true),
-        inArray(contacts.assignedIsaId, isaIds),
+        or(
+          inArray(agentConnections.appointmentSetByUserId, isaIds),
+          and(isNull(agentConnections.appointmentSetByUserId), inArray(contacts.assignedIsaId, isaIds)),
+        ),
         sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${start}`,
         sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${end}`,
         isNull(contacts.archivedAt),
       ))
-      .groupBy(contacts.assignedIsaId),
+      .groupBy(benchmarkAppointmentIsaId),
+    db
+      .select({
+        isaId: isaOutcomeAttributions.isaId,
+        underContract: sql<number>`SUM(CASE WHEN ${isaOutcomeAttributions.status} = 'under_contract' THEN 1 ELSE 0 END)`,
+        closed: sql<number>`SUM(CASE WHEN ${isaOutcomeAttributions.status} = 'closed' AND ${isaOutcomeAttributions.closedAt} >= ${start} AND ${isaOutcomeAttributions.closedAt} <= ${end} THEN 1 ELSE 0 END)`,
+      })
+      .from(isaOutcomeAttributions)
+      .where(inArray(isaOutcomeAttributions.isaId, isaIds))
+      .groupBy(isaOutcomeAttributions.isaId),
     db
       .select({
         isaId: tasks.assignedToId,
@@ -1781,8 +1852,8 @@ export async function getIsaTeamBenchmark(opts: {
   ]);
 
   const leadMap = new Map(leadRows.map((row) => [row.isaId, Number(row.engagedLeads ?? 0)]));
-  const appointmentMap = new Map(appointmentRows.map((row) => [row.isaId, {
-    appointmentsSet: Number(row.appointmentsSet ?? 0),
+  const appointmentMap = new Map(appointmentRows.map((row) => [Number(row.isaId), Number(row.appointmentsSet ?? 0)]));
+  const outcomeMap = new Map(outcomeRows.map((row) => [row.isaId, {
     underContract: Number(row.underContract ?? 0),
     closed: Number(row.closed ?? 0),
   }]));
@@ -1790,14 +1861,14 @@ export async function getIsaTeamBenchmark(opts: {
 
   const leaderboard = activeIsas
     .map((isa) => {
-      const appointment = appointmentMap.get(isa.id);
+      const outcome = outcomeMap.get(isa.id);
       return {
         isaId: isa.id,
         isaName: isa.name ?? `ISA #${isa.id}`,
         engagedLeads: leadMap.get(isa.id) ?? 0,
-        appointmentsSet: appointment?.appointmentsSet ?? 0,
-        underContract: appointment?.underContract ?? 0,
-        closed: appointment?.closed ?? 0,
+        appointmentsSet: appointmentMap.get(isa.id) ?? 0,
+        underContract: outcome?.underContract ?? 0,
+        closed: outcome?.closed ?? 0,
         completedFollowUps: taskMap.get(isa.id) ?? 0,
         isViewer: isa.id === opts.viewerIsaId,
       };
