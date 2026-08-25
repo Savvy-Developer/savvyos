@@ -107,6 +107,42 @@ export default function UsersPage() {
   const { data: onboardingTemplates } = trpc.onboarding.listTemplates.useQuery();
   // Only Tyler/Elana/Dyl can create or promote admin users
   const { data: canManagePerms } = trpc.permissions.canManagePermissions.useQuery();
+  const isAdmin = (me as any)?.role === "admin";
+
+  // Aircall caller assignments are administered here so the workflow is visible
+  // in the active Users experience instead of relying on a profile-only panel.
+  const [selectedAircallIsaId, setSelectedAircallIsaId] = useState("");
+  const [selectedAircallUserId, setSelectedAircallUserId] = useState("");
+  const [selectedAircallNumberId, setSelectedAircallNumberId] = useState("");
+  const selectedAircallIsaIdNumber = Number(selectedAircallIsaId || 0);
+  const { data: selectedAircallAssignment, refetch: refetchSelectedAircallAssignment } = trpc.aircallCalling.getAssignment.useQuery(
+    { userId: selectedAircallIsaIdNumber },
+    { enabled: isAdmin && selectedAircallIsaIdNumber > 0 },
+  );
+  const { data: aircallUsers = [], error: aircallUsersError, isLoading: aircallUsersLoading } = trpc.aircallCalling.listAircallUsers.useQuery(
+    undefined,
+    { enabled: isAdmin },
+  );
+  const { data: aircallNumbers = [], error: aircallNumbersError, isLoading: aircallNumbersLoading } = trpc.aircallCalling.listAircallUserNumbers.useQuery(
+    { aircallUserId: Number(selectedAircallUserId || 0) },
+    { enabled: isAdmin && Number(selectedAircallUserId) > 0 },
+  );
+  const saveAircallAssignment = trpc.aircallCalling.setAssignment.useMutation({
+    onSuccess: () => {
+      toast.success("Aircall caller assignment saved");
+      void refetchSelectedAircallAssignment();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const removeAircallAssignment = trpc.aircallCalling.removeAssignment.useMutation({
+    onSuccess: () => {
+      toast.success("Aircall caller assignment removed");
+      setSelectedAircallUserId("");
+      setSelectedAircallNumberId("");
+      void refetchSelectedAircallAssignment();
+    },
+    onError: (error) => toast.error(error.message),
+  });
 
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<UserRow | null>(null);
@@ -647,9 +683,120 @@ export default function UsersPage() {
       <Tabs value={usersTab} onValueChange={setUsersTab} className="space-y-6">
         <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="members" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Team Members</TabsTrigger>
+          {isAdmin && <TabsTrigger value="aircall" className="shrink-0 whitespace-nowrap">Aircall Assignments</TabsTrigger>}
           <TabsTrigger value="groups" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Groups</TabsTrigger>
           <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
         </TabsList>
+        {isAdmin && (
+          <TabsContent value="aircall" className="space-y-5">
+            <div>
+              <h2 className="text-lg font-semibold">Aircall Assignments</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Assign each ISA one Aircall user and one caller number that Aircall already associates with that user. SavvyOS prevents a user or number from being assigned twice.
+              </p>
+            </div>
+            {aircallUsersError ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {aircallUsersError.message}
+              </div>
+            ) : (
+              <div className="max-w-2xl rounded-lg border bg-card p-5 space-y-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>ISA</Label>
+                    <Select
+                      value={selectedAircallIsaId || undefined}
+                      onValueChange={(value) => {
+                        setSelectedAircallIsaId(value);
+                        setSelectedAircallUserId("");
+                        setSelectedAircallNumberId("");
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select ISA" /></SelectTrigger>
+                      <SelectContent>
+                        {(users as UserRow[]).filter((member) => member.role === "isa").map((isa) => (
+                          <SelectItem key={isa.id} value={String(isa.id)}>{isa.name ?? isa.email ?? `ISA #${isa.id}`}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Aircall User</Label>
+                    <Select
+                      value={selectedAircallUserId || undefined}
+                      onValueChange={(value) => {
+                        setSelectedAircallUserId(value);
+                        setSelectedAircallNumberId("");
+                      }}
+                      disabled={aircallUsersLoading || saveAircallAssignment.isPending}
+                    >
+                      <SelectTrigger><SelectValue placeholder={aircallUsersLoading ? "Loading Aircall users…" : "Select Aircall user"} /></SelectTrigger>
+                      <SelectContent>
+                        {aircallUsers.map((aircallUser) => (
+                          <SelectItem key={aircallUser.id} value={String(aircallUser.id)}>
+                            {aircallUser.name}{aircallUser.email ? ` — ${aircallUser.email}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Outbound Aircall Number</Label>
+                  <Select
+                    value={selectedAircallNumberId || undefined}
+                    onValueChange={setSelectedAircallNumberId}
+                    disabled={!selectedAircallUserId || aircallNumbersLoading || saveAircallAssignment.isPending}
+                  >
+                    <SelectTrigger><SelectValue placeholder={aircallNumbersLoading ? "Loading assigned numbers…" : "Select caller number"} /></SelectTrigger>
+                    <SelectContent>
+                      {aircallNumbers.map((number) => (
+                        <SelectItem key={number.id} value={String(number.id)}>
+                          {number.name}{number.digits ? ` — ${number.digits}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {aircallNumbersError && <p className="text-xs text-destructive">{aircallNumbersError.message}</p>}
+                </div>
+                {selectedAircallAssignment && (
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm">
+                    Current assignment: <span className="font-medium">{selectedAircallAssignment.aircallNumberName ?? "Aircall number"}{selectedAircallAssignment.aircallNumberDigits ? ` (${selectedAircallAssignment.aircallNumberDigits})` : ""}</span>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      if (!selectedAircallIsaId || !selectedAircallUserId || !selectedAircallNumberId) {
+                        toast.error("Select an ISA, Aircall user, and caller number first.");
+                        return;
+                      }
+                      saveAircallAssignment.mutate({
+                        savvyUserId: Number(selectedAircallIsaId),
+                        aircallUserId: Number(selectedAircallUserId),
+                        aircallNumberId: Number(selectedAircallNumberId),
+                      });
+                    }}
+                    disabled={!selectedAircallIsaId || !selectedAircallUserId || !selectedAircallNumberId || saveAircallAssignment.isPending}
+                  >
+                    {saveAircallAssignment.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Save Assignment
+                  </Button>
+                  {selectedAircallAssignment && (
+                    <Button
+                      variant="outline"
+                      className="text-destructive hover:text-destructive"
+                      disabled={removeAircallAssignment.isPending}
+                      onClick={() => removeAircallAssignment.mutate({ savvyUserId: Number(selectedAircallIsaId) })}
+                    >
+                      Remove Assignment
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        )}
         <TabsContent value="groups"><GroupsPage /></TabsContent>
         <TabsContent value="activity" className="space-y-5">
           <div>
