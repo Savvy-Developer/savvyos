@@ -107,7 +107,7 @@ const SETTING_GROUPS: SettingGroup[] = [
     settings: [
       { key: "ai_auto_extract_commitments", label: "Auto-Extract Commitments", type: "toggle", description: "Automatically extract commitments from session summaries", defaultValue: "true" },
       { key: "ai_auto_generate_brief", label: "Auto-Generate Pre-Session Brief", type: "toggle", description: "Automatically generate pre-session brief when session is created", defaultValue: "false" },
-      { key: "ai_model_preference", label: "AI Model Preference", type: "text", description: "Preferred LLM model for coaching AI features", defaultValue: "gpt-4o" },
+      { key: "ai_model_preference", label: "AI Model Preference", type: "text", description: "Preferred LLM model for coaching AI features", defaultValue: "gpt-5-mini" },
       { key: "ai_summary_style", label: "Summary Style", type: "text", description: "Style preference for AI summaries (concise, detailed, narrative)", defaultValue: "concise" },
     ],
   },

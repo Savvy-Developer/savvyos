@@ -445,7 +445,7 @@ ${customAnswersSummary || "None"}
 
 Provide a concise 4-6 sentence AI assessment covering: (1) overall fit, (2) key strengths, (3) gaps or concerns to probe in interview, (4) recommended next step. Write in paragraph form, be direct and actionable.`;
 
-      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], model: "gpt-4o-mini" });
+      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], model: "gpt-5-mini" });
       const rawContent = response.choices?.[0]?.message?.content;
       const insight = (typeof rawContent === "string" ? rawContent : null) ?? "Unable to generate insight.";
       await db.update(jobApplicationsV2).set({ aiInsight: insight, aiInsightGeneratedAt: new Date() }).where(eq(jobApplicationsV2.id, input.id));

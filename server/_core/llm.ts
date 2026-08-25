@@ -277,6 +277,44 @@ const normalizeResponseFormat = ({
   };
 };
 
+export const DEFAULT_LLM_MODEL = "gpt-5-mini";
+
+const LEGACY_MODEL_ALIASES: Record<string, string> = {
+  "gpt-4o": DEFAULT_LLM_MODEL,
+  "gpt-4o-mini": DEFAULT_LLM_MODEL,
+};
+
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 45_000;
+
+export function resolveLlmModel(model?: string): string {
+  const requestedModel = model?.trim();
+  if (!requestedModel) return DEFAULT_LLM_MODEL;
+  return LEGACY_MODEL_ALIASES[requestedModel] ?? requestedModel;
+}
+
+const sleep = (durationMs: number) =>
+  new Promise<void>(resolve => setTimeout(resolve, durationMs));
+
+const readProviderError = (body: unknown): string | null => {
+  if (!body || typeof body !== "object") return null;
+  const value = body as Record<string, unknown>;
+  if (typeof value.error === "string") return value.error;
+  if (value.error && typeof value.error === "object") {
+    const nested = value.error as Record<string, unknown>;
+    if (typeof nested.message === "string") return nested.message;
+  }
+  if (typeof value.message === "string") return value.message;
+  return null;
+};
+
+const isInvokeResult = (value: unknown): value is InvokeResult => {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Record<string, unknown>;
+  return Array.isArray(result.choices);
+};
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
@@ -292,9 +330,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
     reasoning,
   } = params;
+  const resolvedModel = resolveLlmModel(model);
 
   const payload: Record<string, unknown> = {
-    model: model ?? "gpt-4o-mini",
+    model: resolvedModel,
     messages: messages.map(normalizeMessage),
   };
 
@@ -310,12 +349,16 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_completion_tokens = params.maxTokens ?? params.max_tokens ?? 4096;
+  const maxTokens = params.maxTokens ?? params.max_tokens ?? 4096;
+  payload[resolvedModel.startsWith("gpt-") || resolvedModel.startsWith("o")
+    ? "max_completion_tokens"
+    : "max_tokens"] = maxTokens;
+
   // GPT-5 models use the OpenAI-compatible `reasoning` object. Preserve the
   // legacy `reasoning_effort` shape for o-series callers until they migrate.
-  if (reasoning?.effort && model?.startsWith("gpt-5")) {
+  if (reasoning?.effort && resolvedModel.startsWith("gpt-5")) {
     payload.reasoning = reasoning;
-  } else if (reasoning?.effort && (model?.startsWith("o1") || model?.startsWith("o3") || model?.startsWith("o-"))) {
+  } else if (reasoning?.effort && (resolvedModel.startsWith("o1") || resolvedModel.startsWith("o3") || resolvedModel.startsWith("o-"))) {
     payload.reasoning_effort = reasoning.effort;
   }
 
@@ -330,21 +373,55 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(resolveApiUrl(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ENV.forgeApiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const responseText = await response.text();
+      let body: unknown = null;
+      try {
+        body = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        body = responseText;
+      }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
+      if (!response.ok) {
+        const error = new Error(
+          `LLM invoke failed: ${response.status} ${response.statusText} – ${readProviderError(body) ?? responseText}`
+        );
+        if (attempt < MAX_ATTEMPTS && RETRYABLE_STATUSES.has(response.status)) {
+          await sleep(250 * 2 ** (attempt - 1));
+          continue;
+        }
+        throw error;
+      }
+
+      if (!isInvokeResult(body)) {
+        throw new Error(
+          `LLM provider returned an invalid completion – ${readProviderError(body) ?? "missing choices array"}`
+        );
+      }
+
+      return body;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const isKnownProviderError = lastError.message.startsWith("LLM invoke failed:") ||
+        lastError.message.startsWith("LLM provider returned an invalid completion");
+      if (attempt < MAX_ATTEMPTS && !isKnownProviderError) {
+        await sleep(250 * 2 ** (attempt - 1));
+        continue;
+      }
+      throw lastError;
+    }
   }
 
-  return (await response.json()) as InvokeResult;
+  throw lastError ?? new Error("LLM invoke failed after retries");
 }

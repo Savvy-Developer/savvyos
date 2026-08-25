@@ -388,7 +388,7 @@ Extract the following information from the materials. If a field cannot be deter
 
       const response = await invokeLLM({
         messages: [{ role: "user", content: prompt }],
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         maxTokens: 4096,
       });
 

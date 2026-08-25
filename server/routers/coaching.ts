@@ -610,7 +610,7 @@ export const coachingRouter = router({
       .where(gte(coachingCommitments.createdAt, thirtyDaysAgo));
 
     const response = await invokeLLM({
-      model: "gpt-4o",
+      model: "gpt-5-mini",
       messages: [
         {
           role: "system",
@@ -1265,7 +1265,7 @@ Generate a brief covering: 1) Overall health assessment, 2) Key risks requiring 
         : "Benchmarks unavailable";
 
       const response = await invokeLLM({
-        model: "gpt-4o",
+        model: "gpt-5-mini",
         messages: [
           {
             role: "system",
@@ -1678,7 +1678,7 @@ Please provide your comprehensive coaching analysis.`,
         .join("\n");
 
       const response = await invokeLLM({
-        model: "gpt-4o",
+        model: "gpt-5-mini",
         messages: [
           {
             role: "system",
@@ -2789,7 +2789,7 @@ Output JSON with this exact structure:
 }`;
 
         const response = await invokeLLM({
-          model: "gpt-4o",
+          model: "gpt-5-mini",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: `Agent: ${agentName}\nCurrent Status: ${profile?.performanceStatus ?? 'Unknown'}\nAnnual Goal: ${goalsData.annualGoal?.closingsTarget ?? 'Not set'} closings\n\nSession Notes/Transcript:\n${content}` },
@@ -2866,7 +2866,7 @@ Output JSON with this exact structure:
       if (!assessment.assessment.rawText) throw new TRPCError({ code: "BAD_REQUEST", message: "No assessment text available." });
 
       const response = await invokeLLM({
-        model: "gpt-4o",
+        model: "gpt-5-mini",
         messages: [
           {
             role: "system",

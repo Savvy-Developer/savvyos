@@ -543,19 +543,19 @@ Write a practical manager guide with:
 End with: "These suggestions are starting hypotheses. Update your approach based on observed behavior — real performance data is always more authoritative than assessment results."`;
       }
 
-      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], model: "gpt-4o-mini" });
+      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], model: "gpt-5-mini" });
       const rawContent = response.choices?.[0]?.message?.content;
       const narrative = (typeof rawContent === "string" ? rawContent : null) ?? "Unable to generate report.";
 
       const contentJson = JSON.stringify({ dimensions: dimScores, strengths, motivators, pressurePatterns });
       const reportRows = await db.execute(sql`
         INSERT INTO stp_reports (sessionId, reportType, contentJson, narrativeHtml, aiModel, aiPromptVersion, aiInputJson, generatedBy)
-        VALUES (${input.sessionId}, ${input.reportType}, ${contentJson}, ${narrative}, 'gpt-4o-mini', '1.0', ${prompt}, ${ctx.user.email ?? "admin"})
+        VALUES (${input.sessionId}, ${input.reportType}, ${contentJson}, ${narrative}, 'gpt-5-mini', '1.0', ${prompt}, ${ctx.user.email ?? "admin"})
       `);
 
       await db.execute(sql`
         INSERT INTO stp_ai_generation_log (sessionId, model, promptVersion, inputJson, outputText)
-        VALUES (${input.sessionId}, 'gpt-4o-mini', '1.0', ${prompt}, ${narrative})
+        VALUES (${input.sessionId}, 'gpt-5-mini', '1.0', ${prompt}, ${narrative})
       `);
 
       return { ok: true, narrative, reportId: (reportRows[0] as any)?.insertId };
@@ -688,7 +688,7 @@ Based on this role, provide a JSON response with:
 
 IMPORTANT: This is a DRAFT for human review. Do not claim these ranges are validated. Provide all 8 dimensions.`;
 
-      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], model: "gpt-4o-mini" });
+      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], model: "gpt-5-mini" });
       const rawContent = response.choices?.[0]?.message?.content;
       const text = (typeof rawContent === "string" ? rawContent : "") ?? "";
 

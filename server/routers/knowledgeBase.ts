@@ -284,7 +284,7 @@ export const knowledgeBaseRouter = router({
     .mutation(async ({ ctx, input }) => {
       requireAdmin(ctx.user.role);
       const result = await invokeLLM({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         messages: [
           {
             role: "system",
