@@ -80,6 +80,7 @@ export type EmailType =
   | "partner_lead_confirmation"
   | "agent_production_report"
   | "daily_agent_report"
+  | "daily_isa_activities"
   | "coaching_weekly_accountability"
   | "pulse_overdue_digest"
   | "pulse_rock_completed"
@@ -155,6 +156,10 @@ interface EmailContext {
   dailyReportDate?: string;
   dailyReportAsOf?: string;
   dailyReportHtml?: string;
+  // Daily ISA Activities report-specific fields
+  dailyIsaReportDate?: string;
+  dailyIsaReportHtml?: string;
+  dailyIsaReportSubject?: string;
   // Coaching weekly accountability report-specific fields
   coachingReportDate?: string;
   coachingReportHtml?: string;
@@ -697,6 +702,15 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${ctx.dailyReportHtml ?? bodyText("Your daily SavvyOS report could not be generated. Please open SavvyOS to review your current tasks and pipeline.")}`,
       `Your end-of-day SavvyOS priorities — ${ctx.dailyReportAsOf ?? "today"}`,
       640,
+    ),
+  }),
+
+  daily_isa_activities: (ctx) => ({
+    subject: ctx.dailyIsaReportSubject ?? `Daily ISA Activities | ${ctx.dailyIsaReportDate ?? "Prior Day"}`,
+    html: emailLayout(
+      `${ctx.dailyIsaReportHtml ?? bodyText("The Daily ISA Activities report could not be generated. Please open SavvyOS to review the ISA Dashboard.")}`,
+      `Daily ISA activity report for ${ctx.dailyIsaReportDate ?? "the prior day"}`,
+      720,
     ),
   }),
 

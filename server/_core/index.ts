@@ -17,6 +17,7 @@ import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
+import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
@@ -247,7 +248,8 @@ async function startServer() {
 
   // Personalized agent operating digest: daily at 6:00 PM Eastern
   scheduleDailyAgentReports();
-
+  // Shared leadership ISA activity report: daily at 8:00 AM Eastern for the prior day
+  scheduleDailyIsaActivitiesReport();
   // Shared coaching leadership accountability report: Fridays at 12:00 PM Eastern
   scheduleWeeklyCoachingAccountabilityReport();
 
