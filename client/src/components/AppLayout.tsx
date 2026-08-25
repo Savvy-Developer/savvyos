@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DevRoleSwitcher from "./DevRoleSwitcher";
+import CommunicationsHub from "./CommunicationsHub";
 import FeedbackDialog from "./FeedbackDialog";
 import DevLoginScreen from "./DevLoginScreen";
 import { SimulateAsButton, SimulationBanner, WorkAsAgentBanner } from "./SimulateAsButton";
@@ -934,6 +935,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 bg-background pb-safe">
           {children}
         </main>
+
+        {/* This remains outside routed page content so the embedded Aircall Workspace and text drafts survive navigation. */}
+        {role === "isa" && <CommunicationsHub />}
 
         {/* Dev mode role switcher */}
         {import.meta.env.VITE_DEV_LOGIN_ENABLED === "true" && (

@@ -15,11 +15,13 @@ type AircallWorkspaceInstance = {
 type Props = {
   initialPhone?: string | null;
   onCallStarted?: (phone: string) => void;
+  compact?: boolean;
 };
 
 export default function AircallWorkspacePanel({
   initialPhone,
   onCallStarted,
+  compact = false,
 }: Props) {
   const workspaceRef = useRef<AircallWorkspaceInstance | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -95,21 +97,29 @@ export default function AircallWorkspacePanel({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_376px]">
-      <section className="rounded-xl border bg-card p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-primary/10 p-2.5 text-primary">
-            <PhoneCall className="h-5 w-5" />
+    <div
+      className={
+        compact ? "space-y-3" : "grid gap-5 xl:grid-cols-[minmax(0,1fr)_376px]"
+      }
+    >
+      <section
+        className={`rounded-xl border bg-card space-y-4 ${compact ? "p-3" : "p-5"}`}
+      >
+        {!compact && (
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-primary/10 p-2.5 text-primary">
+              <PhoneCall className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-semibold">Embedded Aircall Dialer</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Make and receive calls without leaving SavvyOS. Aircall still
+                handles the phone connection, caller ID, recordings, and call
+                controls.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="font-semibold">Embedded Aircall Dialer</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Make and receive calls without leaving SavvyOS. Aircall still
-              handles the phone connection, caller ID, recordings, and call
-              controls.
-            </p>
-          </div>
-        </div>
+        )}
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             value={dialNumber}
@@ -139,7 +149,11 @@ export default function AircallWorkspacePanel({
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div
           id="savvyos-aircall-workspace"
-          className="h-[666px] min-h-[600px] w-full"
+          className={
+            compact
+              ? "h-[460px] min-h-[420px] w-full"
+              : "h-[666px] min-h-[600px] w-full"
+          }
         />
       </section>
     </div>

@@ -18,6 +18,7 @@ import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBa
 import { toast } from "sonner";
 import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
+import { openCommunicationsHub } from "@/components/CommunicationsHub";
 import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -767,7 +768,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       toast.error(aircallCallBlockedReason);
       return;
     }
-    navigate(`/communications?contact=${contactId}&dial=${encodeURIComponent(contact?.phone ?? "")}`);
+    openCommunicationsHub({ contactId, phone: contact?.phone, tab: "calls" });
   }
 
   function handleAircallText() {
@@ -775,7 +776,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       toast.error(aircallCallBlockedReason);
       return;
     }
-    navigate(`/communications?contact=${contactId}`);
+    openCommunicationsHub({ contactId, tab: "texts" });
   }
 
   function handleAssign() {
