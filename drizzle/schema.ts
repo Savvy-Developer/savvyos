@@ -1518,6 +1518,7 @@ export const techRequests = mysqlTable(
   "tech_requests",
   {
     id: int("id").autoincrement().primaryKey(),
+    trackingNumber: varchar("trackingNumber", { length: 32 }).notNull().unique(),
     requesterId: int("requesterId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -1530,6 +1531,7 @@ export const techRequests = mysqlTable(
     status: mysqlEnum("status", ["new", "in_progress", "completed", "cancelled"])
       .default("new")
       .notNull(),
+    dueDate: date("dueDate"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -1537,6 +1539,7 @@ export const techRequests = mysqlTable(
     index("tech_requests_status_idx").on(table.status),
     index("tech_requests_requester_idx").on(table.requesterId),
     index("tech_requests_assignee_idx").on(table.assigneeId),
+    index("tech_requests_due_date_idx").on(table.dueDate),
   ]
 );
 export type TechRequest = typeof techRequests.$inferSelect;

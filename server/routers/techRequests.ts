@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 import { techRequests, users } from "../../drizzle/schema";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -12,6 +13,20 @@ const assigneeUser = alias(users, "tech_request_assignee");
 
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const statusSchema = z.enum(["new", "in_progress", "completed", "cancelled"]);
+const dueDateSchema = z.union([
+  z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid due date.")
+    .refine((value) => {
+      const [year, month, day] = value.split("-").map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+    }, "Use a valid due date."),
+  z.null(),
+]);
+
+function toDueDate(value: string | null | undefined): Date | null {
+  return value ? new Date(`${value}T12:00:00.000Z`) : null;
+}
 
 async function canManageTechRequests(ctx: { user: { id: number; role: string; email?: string | null } }) {
   return canAdminUsePermission(ctx.user, "canViewTechRequests");
@@ -43,6 +58,7 @@ export const techRequestsRouter = router({
         description: z.string().trim().max(20_000).optional(),
         priority: prioritySchema.default("medium"),
         assigneeId: z.number().nullable().optional(),
+        dueDate: dueDateSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -56,17 +72,32 @@ export const techRequestsRouter = router({
       if (input.assigneeId !== undefined && input.assigneeId !== null) {
         await validateAssignee(db, input.assigneeId);
       }
+      if (input.dueDate !== undefined && !canManage) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can set tech request due dates." });
+      }
 
-      const [result] = await db.insert(techRequests).values({
-        requesterId: ctx.user.id,
-        title: input.title,
-        description: input.description || null,
-        priority: input.priority,
-        assigneeId: input.assigneeId ?? null,
-        status: "new",
+      return db.transaction(async (tx) => {
+        const [result] = await tx.insert(techRequests).values({
+          // This provisional value allows the unique field to be populated before MySQL assigns the numeric ID.
+          trackingNumber: `PENDING-${nanoid(21)}`,
+          requesterId: ctx.user.id,
+          title: input.title,
+          description: input.description || null,
+          priority: input.priority,
+          assigneeId: input.assigneeId ?? null,
+          dueDate: toDueDate(input.dueDate),
+          status: "new",
+        });
+        const id = Number((result as { insertId: number }).insertId);
+        const trackingNumber = `TR${String(id).padStart(3, "0")}`;
+
+        await tx
+          .update(techRequests)
+          .set({ trackingNumber })
+          .where(eq(techRequests.id, id));
+
+        return { id, trackingNumber };
       });
-
-      return { id: Number((result as { insertId: number }).insertId) };
     }),
 
   /** Requesters see their own cards; permitted admins see the complete board. */
@@ -141,6 +172,7 @@ export const techRequestsRouter = router({
         status: statusSchema.optional(),
         priority: prioritySchema.optional(),
         assigneeId: z.number().nullable().optional(),
+        dueDate: dueDateSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -158,6 +190,7 @@ export const techRequestsRouter = router({
       if (input.status !== undefined) updates.status = input.status;
       if (input.priority !== undefined) updates.priority = input.priority;
       if (input.assigneeId !== undefined) updates.assigneeId = input.assigneeId;
+      if (input.dueDate !== undefined) updates.dueDate = toDueDate(input.dueDate);
       if (Object.keys(updates).length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one field to update." });
       }

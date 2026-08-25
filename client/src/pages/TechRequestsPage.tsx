@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { safeFormatET } from "@/lib/safeFormat";
+import { safeFormatDate, safeFormatET } from "@/lib/safeFormat";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,11 +33,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  CalendarDays,
   CheckCircle2,
   CircleDot,
   Clock3,
   Loader2,
   Plus,
+  Search,
   Trash2,
   UserRound,
   Wrench,
@@ -51,12 +53,14 @@ type Assignee = { id: number; name: string | null; email: string | null; role: s
 type BoardRow = {
   request: {
     id: number;
+    trackingNumber: string;
     requesterId: number;
     assigneeId: number | null;
     title: string;
     description: string | null;
     priority: Priority;
     status: Status;
+    dueDate: string | null;
     createdAt: Date;
     updatedAt: Date;
   };
@@ -107,6 +111,12 @@ function displayPerson(person: { name: string | null; email: string | null } | n
   return person?.name?.trim() || person?.email?.trim() || fallback;
 }
 
+function dueDateInputValue(dueDate: unknown): string {
+  if (dueDate == null || dueDate === "") return "";
+  const value = String(dueDate);
+  return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : "";
+}
+
 function PriorityBadge({ priority }: { priority: Priority }) {
   const config = PRIORITY_CONFIG[priority];
   return <Badge variant="outline" className={`font-medium ${config.className}`}>{config.label}</Badge>;
@@ -141,6 +151,7 @@ function NewTechRequestDialog({
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
   const [assigneeId, setAssigneeId] = useState("unassigned");
+  const [dueDate, setDueDate] = useState("");
   const create = trpc.techRequests.create.useMutation();
 
   const reset = () => {
@@ -148,6 +159,7 @@ function NewTechRequestDialog({
     setDescription("");
     setPriority("medium");
     setAssigneeId("unassigned");
+    setDueDate("");
   };
 
   const handleSubmit = async () => {
@@ -157,13 +169,18 @@ function NewTechRequestDialog({
     }
 
     try {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
-        ...(canManage ? { assigneeId: assigneeId === "unassigned" ? null : Number(assigneeId) } : {}),
+        ...(canManage
+          ? {
+              assigneeId: assigneeId === "unassigned" ? null : Number(assigneeId),
+              dueDate: dueDate || null,
+            }
+          : {}),
       });
-      toast.success("Tech request submitted.");
+      toast.success(`Tech request ${created.trackingNumber} submitted.`);
       reset();
       onOpenChange(false);
       onCreated();
@@ -178,7 +195,7 @@ function NewTechRequestDialog({
         <DialogHeader>
           <DialogTitle>New Tech Request</DialogTitle>
           <DialogDescription>
-            Describe the SavvyOS or technology support you need. Your request will appear in the Tech Request Board.
+            Describe the SavvyOS or technology support you need. Your request will receive a tracking number and appear in the Tech Request Board.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -196,7 +213,7 @@ function NewTechRequestDialog({
               autoFocus
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className={`grid gap-4 ${canManage ? "sm:grid-cols-3" : "sm:grid-cols-1"}`}>
             <div>
               <label className="mb-1.5 block text-sm font-medium">Priority</label>
               <Select value={priority} onValueChange={(value) => setPriority(value as Priority)}>
@@ -209,20 +226,26 @@ function NewTechRequestDialog({
               </Select>
             </div>
             {canManage && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Assignee</label>
-                <Select value={assigneeId} onValueChange={setAssigneeId}>
-                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {assignees.map((person) => (
-                      <SelectItem key={person.id} value={String(person.id)}>
-                        {displayPerson(person)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Assignee</label>
+                  <Select value={assigneeId} onValueChange={setAssigneeId}>
+                    <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {assignees.map((person) => (
+                        <SelectItem key={person.id} value={String(person.id)}>
+                          {displayPerson(person)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Due date</label>
+                  <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+                </div>
+              </>
             )}
           </div>
           <div>
@@ -248,24 +271,56 @@ function NewTechRequestDialog({
   );
 }
 
-function TechRequestCard({ row, onOpen }: { row: BoardRow; onOpen: () => void }) {
+function TechRequestCard({
+  row,
+  onOpen,
+  canManage,
+  isDragging,
+  onDragStart,
+  onDragEnd,
+}: {
+  row: BoardRow;
+  onOpen: () => void;
+  canManage: boolean;
+  isDragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
   const request = row.request;
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="w-full rounded-xl text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.99]"
+      draggable={canManage}
+      onDragStart={(event) => {
+        if (!canManage) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(request.id));
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      className={`w-full rounded-xl text-left transition-all duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.99] ${
+        canManage ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+      } ${isDragging ? "opacity-45" : ""}`}
+      aria-label={`${request.trackingNumber}: ${request.title}`}
     >
       <Card className="border-border/80 shadow-sm transition-shadow hover:shadow-md">
         <CardContent className="space-y-3 p-4">
           <div className="flex items-start justify-between gap-3">
-            <p className="min-w-0 flex-1 break-words text-sm font-semibold leading-5">{request.title}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold tracking-wide text-primary">{request.trackingNumber}</p>
+              <p className="mt-1 break-words text-sm font-semibold leading-5">{request.title}</p>
+            </div>
             <PriorityBadge priority={request.priority} />
           </div>
           {request.description && (
             <p className="line-clamp-3 text-sm leading-5 text-muted-foreground">{request.description}</p>
           )}
           <div className="space-y-1.5 border-t pt-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              <span>Due: {request.dueDate ? safeFormatDate(request.dueDate, "MMM d, yyyy") : "Not set"}</span>
+            </div>
             <div className="flex items-center gap-1.5">
               <UserRound className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">Requester: {displayPerson(row.requester)}</span>
@@ -313,7 +368,7 @@ function TechRequestDetailDialog({
     onChanged();
   };
 
-  const handleUpdate = async (changes: { status?: Status; priority?: Priority; assigneeId?: number | null }) => {
+  const handleUpdate = async (changes: { status?: Status; priority?: Priority; assigneeId?: number | null; dueDate?: string | null }) => {
     if (!requestId) return;
     try {
       await update.mutateAsync({ id: requestId, ...changes });
@@ -348,6 +403,7 @@ function TechRequestDetailDialog({
               <DialogHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3 pr-7">
                   <div>
+                    <p className="mb-1 text-xs font-bold tracking-wide text-primary">{data.request.trackingNumber}</p>
                     <DialogTitle className="text-xl">{data.request.title}</DialogTitle>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <StatusBadge status={data.request.status as Status} />
@@ -358,6 +414,14 @@ function TechRequestDetailDialog({
               </DialogHeader>
               <div className="space-y-5 py-3">
                 <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/25 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tracking number</p>
+                    <p className="mt-1 text-sm font-semibold">{data.request.trackingNumber}</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/25 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Due date</p>
+                    <p className="mt-1 text-sm font-medium">{data.request.dueDate ? safeFormatDate(data.request.dueDate, "MMMM d, yyyy") : "Not set"}</p>
+                  </div>
                   <div className="rounded-lg border bg-muted/25 p-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Requester</p>
                     <p className="mt-1 text-sm font-medium">{displayPerson(data.requester)}</p>
@@ -374,7 +438,7 @@ function TechRequestDetailDialog({
                   </p>
                 </div>
                 {canManage && (
-                  <div className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-3">
+                  <div className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <label className="mb-1.5 block text-sm font-medium">Status</label>
                       <Select
@@ -420,6 +484,15 @@ function TechRequestDetailDialog({
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium">Due date</label>
+                      <Input
+                        type="date"
+                        value={dueDateInputValue(data.request.dueDate)}
+                        onChange={(event) => handleUpdate({ dueDate: event.target.value || null })}
+                        disabled={update.isPending}
+                      />
                     </div>
                   </div>
                 )}
@@ -473,6 +546,9 @@ export default function TechRequestsPage() {
   const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [draggedRequestId, setDraggedRequestId] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<Status | null>(null);
   const utils = trpc.useUtils();
   const { data: access } = trpc.techRequests.access.useQuery();
   const canManage = access?.canManage === true;
@@ -481,6 +557,28 @@ export default function TechRequestsPage() {
     undefined,
     { enabled: canManage }
   );
+  const updateStatus = trpc.techRequests.update.useMutation();
+
+  const filteredBoardRows = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return boardRows as BoardRow[];
+
+    return (boardRows as BoardRow[]).filter((row) => {
+      const searchable = [
+        row.request.trackingNumber,
+        row.request.title,
+        row.request.description,
+        row.request.priority,
+        row.request.status,
+        displayPerson(row.requester, ""),
+        displayPerson(row.assignee, ""),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(query);
+    });
+  }, [boardRows, searchTerm]);
 
   const rowsByStatus = useMemo(() => {
     const result: Record<Status, BoardRow[]> = {
@@ -489,16 +587,36 @@ export default function TechRequestsPage() {
       completed: [],
       cancelled: [],
     };
-    for (const row of boardRows as BoardRow[]) result[row.request.status].push(row);
+    for (const row of filteredBoardRows) result[row.request.status].push(row);
     return result;
-  }, [boardRows]);
+  }, [filteredBoardRows]);
 
   const refreshBoard = () => {
     void utils.techRequests.list.invalidate();
     void utils.techRequests.pendingCount.invalidate();
   };
 
+  const handleStatusDrop = async (event: React.DragEvent<HTMLElement>, status: Status) => {
+    event.preventDefault();
+    setDropTarget(null);
+    const id = Number(event.dataTransfer.getData("text/plain"));
+    setDraggedRequestId(null);
+    if (!canManage || !Number.isInteger(id)) return;
+
+    const request = (boardRows as BoardRow[]).find((row) => row.request.id === id)?.request;
+    if (!request || request.status === status) return;
+
+    try {
+      await updateStatus.mutateAsync({ id, status });
+      toast.success(`${request.trackingNumber} moved to ${STATUS_CONFIG[status].label}.`);
+      refreshBoard();
+    } catch (error: any) {
+      toast.error(error?.message || "The request could not be moved.");
+    }
+  };
+
   const requesterName = displayPerson({ name: user?.name ?? null, email: user?.email ?? null }, "Current user");
+  const resultLabel = `${filteredBoardRows.length} ${filteredBoardRows.length === 1 ? "request" : "requests"}`;
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-6 p-4 sm:p-6">
@@ -512,12 +630,27 @@ export default function TechRequestsPage() {
           </div>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
             Submit SavvyOS and technology support needs, then follow their progress across the board.
+            {canManage && " Drag a request into another column to update its stage."}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New Tech Request
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-xl">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search by tracking number, title, requester, or assignee"
+            className="pl-9"
+            aria-label="Search tech requests"
+          />
+        </div>
+        <p className="text-sm text-muted-foreground">{searchTerm.trim() ? `${resultLabel} found` : resultLabel}</p>
       </div>
 
       {isLoading ? (
@@ -527,8 +660,26 @@ export default function TechRequestsPage() {
           {KANBAN_STATUSES.map((status) => {
             const config = STATUS_CONFIG[status];
             const rows = rowsByStatus[status];
+            const isDropTarget = canManage && dropTarget === status;
             return (
-              <section key={status} className="min-h-64 rounded-xl border bg-muted/20 p-3">
+              <section
+                key={status}
+                className={`min-h-64 rounded-xl border bg-muted/20 p-3 transition-colors ${
+                  isDropTarget ? "border-primary bg-primary/5 ring-2 ring-primary/20" : ""
+                }`}
+                onDragOver={(event) => {
+                  if (!canManage) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDropTarget(status);
+                }}
+                onDragLeave={(event) => {
+                  if (!canManage || event.currentTarget.contains(event.relatedTarget as Node)) return;
+                  setDropTarget((current) => current === status ? null : current);
+                }}
+                onDrop={(event) => void handleStatusDrop(event, status)}
+                aria-label={`${config.label} tech request column`}
+              >
                 <div className="mb-3 flex items-center gap-2 px-1">
                   <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${config.className}`}>
                     {config.icon}
@@ -537,10 +688,23 @@ export default function TechRequestsPage() {
                   <span className="ml-auto text-xs font-medium text-muted-foreground">{rows.length}</span>
                 </div>
                 <div className="space-y-3">
-                  {rows.map((row) => <TechRequestCard key={row.request.id} row={row} onOpen={() => setSelectedId(row.request.id)} />)}
+                  {rows.map((row) => (
+                    <TechRequestCard
+                      key={row.request.id}
+                      row={row}
+                      onOpen={() => setSelectedId(row.request.id)}
+                      canManage={canManage}
+                      isDragging={draggedRequestId === row.request.id}
+                      onDragStart={() => setDraggedRequestId(row.request.id)}
+                      onDragEnd={() => {
+                        setDraggedRequestId(null);
+                        setDropTarget(null);
+                      }}
+                    />
+                  ))}
                   {rows.length === 0 && (
                     <div className="rounded-lg border border-dashed bg-background/50 px-4 py-9 text-center text-xs text-muted-foreground">
-                      {config.empty}
+                      {searchTerm.trim() ? "No matching tech requests" : config.empty}
                     </div>
                   )}
                 </div>
