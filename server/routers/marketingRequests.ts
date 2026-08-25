@@ -14,6 +14,47 @@ function randomSuffix() {
   return Math.random().toString(36).substring(2, 10);
 }
 
+const AUTOMATIC_MARKETING_TYPES = {
+  under_contract: {
+    template: "V4WN6JDxPNa2D3Gqjk",
+    label: "Under Contract",
+    fileSlug: "under-contract",
+    contractText: "UNDER",
+    underText: "CONTRACT",
+  },
+  just_closed: {
+    template: "7wpnPQZz0roEDdOgxo",
+    label: "Just Closed",
+    fileSlug: "just-closed",
+    contractText: "JUST",
+    underText: "CLOSED",
+  },
+  just_listed: {
+    template: "N1qMxz5vpKdVbeQ4ko",
+    label: "Just Listed",
+    fileSlug: "just-listed",
+    contractText: "JUST",
+    underText: "LISTED",
+  },
+} as const;
+
+type AutomaticMarketingType = keyof typeof AUTOMATIC_MARKETING_TYPES;
+
+const AUTOMATIC_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+const MAX_AUTOMATIC_IMAGE_BYTES = 8 * 1024 * 1024;
+
+function imageExtensionForMimeType(mimeType: string): "jpg" | "png" | "webp" {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
+}
+
+function outputExtensionForMimeType(mimeType: string | null): "jpg" | "png" | "webp" {
+  if (mimeType?.includes("png")) return "png";
+  if (mimeType?.includes("webp")) return "webp";
+  return "jpg";
+}
+
 export const marketingRequestsRouter = router({
   // Create a new marketing request (agents + admins)
   create: protectedProcedure
@@ -43,6 +84,131 @@ export const marketingRequestsRouter = router({
         status: "new",
       });
       return { id: (result as any).insertId as number };
+    }),
+
+  // Generate a branded listing-status graphic without exposing the Bannerbear API key to the client.
+  automaticGenerate: protectedProcedure
+    .input(
+      z.object({
+        type: z.enum(["under_contract", "just_closed", "just_listed"]),
+        location: z.string().trim().min(2).max(160),
+        propertyImage: z.object({
+          fileName: z.string().trim().min(1).max(255),
+          mimeType: z.enum(AUTOMATIC_IMAGE_MIME_TYPES),
+          base64Data: z.string().min(1).max(12 * 1024 * 1024),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const bannerbearApiKey = process.env.BANNERBEAR_API_KEY?.trim();
+      if (!bannerbearApiKey) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Automatic graphics are not configured yet. Please contact support.",
+        });
+      }
+
+      const imageBuffer = Buffer.from(input.propertyImage.base64Data, "base64");
+      if (!imageBuffer.length || imageBuffer.length > MAX_AUTOMATIC_IMAGE_BYTES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Use a JPG, PNG, or WebP property photo that is 8 MB or smaller.",
+        });
+      }
+
+      const type = input.type as AutomaticMarketingType;
+      const template = AUTOMATIC_MARKETING_TYPES[type];
+      const sourceExtension = imageExtensionForMimeType(input.propertyImage.mimeType);
+      const sourceKey = `automatic-marketing/${ctx.user.id}/source/${Date.now()}-${randomSuffix()}.${sourceExtension}`;
+      const { url: sourceImageUrl } = await storagePut(
+        sourceKey,
+        imageBuffer,
+        input.propertyImage.mimeType
+      );
+
+      let bannerbearResponse: Response;
+      try {
+        bannerbearResponse = await fetch("https://sync.api.bannerbear.com/v2/images", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${bannerbearApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            template: template.template,
+            modifications: [
+              { name: "Property Image", image_url: sourceImageUrl },
+              { name: "location", text: input.location },
+              { name: "Contract", text: template.contractText },
+              { name: "Under", text: template.underText },
+            ],
+            transparent: false,
+            metadata: JSON.stringify({ source: "savvyos", user_id: ctx.user.id, type }),
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch {
+        throw new TRPCError({
+          code: "TIMEOUT",
+          message: "The graphic took too long to generate. Please try again.",
+        });
+      }
+
+      if (!bannerbearResponse.ok) {
+        if (bannerbearResponse.status === 402) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Automatic graphics are temporarily unavailable. Please contact support.",
+          });
+        }
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: "We could not generate that graphic. Please confirm the photo and try again.",
+        });
+      }
+
+      const rendered = (await bannerbearResponse.json()) as {
+        status?: string;
+        image_url?: string | null;
+      };
+      if (rendered.status !== "completed" || !rendered.image_url) {
+        throw new TRPCError({
+          code: "TIMEOUT",
+          message: "The graphic took too long to generate. Please try again.",
+        });
+      }
+
+      let generatedImageResponse: Response;
+      try {
+        generatedImageResponse = await fetch(rendered.image_url, {
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: "Your graphic was generated but could not be saved. Please try again.",
+        });
+      }
+
+      if (!generatedImageResponse.ok) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: "Your graphic was generated but could not be saved. Please try again.",
+        });
+      }
+
+      const outputMimeType = generatedImageResponse.headers.get("content-type")?.split(";")[0] ?? "image/jpeg";
+      const outputExtension = outputExtensionForMimeType(outputMimeType);
+      const outputBuffer = Buffer.from(await generatedImageResponse.arrayBuffer());
+      const fileName = `savvy-${template.fileSlug}-${Date.now()}.${outputExtension}`;
+      const outputKey = `automatic-marketing/${ctx.user.id}/generated/${Date.now()}-${randomSuffix()}.${outputExtension}`;
+      const { url: imageUrl } = await storagePut(outputKey, outputBuffer, outputMimeType);
+
+      return {
+        imageUrl,
+        fileName,
+        label: template.label,
+      };
     }),
 
   // List requests — agents see their own; admins/ISAs see all

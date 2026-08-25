@@ -41,7 +41,17 @@ import {
   Megaphone,
   Layers,
   HelpCircle,
+  WandSparkles,
+  Upload,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { safeFormatET, safeFormatDate } from "@/lib/safeFormat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -56,6 +66,22 @@ type RequestType =
   | "other";
 type Priority = "low" | "normal" | "high" | "urgent";
 type Status = "new" | "in_progress" | "completed" | "cancelled";
+type AutomaticGraphicType = "under_contract" | "just_closed" | "just_listed";
+
+const AUTOMATIC_GRAPHIC_TYPES: Record<AutomaticGraphicType, { label: string; description: string }> = {
+  under_contract: {
+    label: "Under Contract",
+    description: "Create a branded graphic as soon as a property goes under contract.",
+  },
+  just_closed: {
+    label: "Just Closed",
+    description: "Celebrate a successful closing with a ready-to-share graphic.",
+  },
+  just_listed: {
+    label: "Just Listed",
+    description: "Announce a new listing with a branded property graphic.",
+  },
+};
 
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   graphic: "Graphic",
@@ -322,6 +348,176 @@ function NewRequestDialog({
   );
 }
 
+// ─── Automatic Graphic Dialog ────────────────────────────────────────────────
+
+function AutomaticGraphicDialog({
+  type,
+  onClose,
+}: {
+  type: AutomaticGraphicType | null;
+  onClose: () => void;
+}) {
+  const [location, setLocation] = useState("");
+  const [propertyImage, setPropertyImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<{ imageUrl: string; fileName: string; label: string } | null>(null);
+  const generateMutation = trpc.marketingRequests.automaticGenerate.useMutation();
+
+  const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Use a JPG, PNG, or WebP property photo");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Property photos must be 8 MB or smaller");
+      event.target.value = "";
+      return;
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPropertyImage(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleGenerate = async () => {
+    if (!type) return;
+    if (!location.trim()) {
+      toast.error("Enter the property location");
+      return;
+    }
+    if (!propertyImage) {
+      toast.error("Upload a property photo");
+      return;
+    }
+
+    try {
+      const base64Data = await fileToBase64(propertyImage);
+      const result = await generateMutation.mutateAsync({
+        type,
+        location: location.trim(),
+        propertyImage: {
+          fileName: propertyImage.name,
+          mimeType: propertyImage.type as "image/jpeg" | "image/png" | "image/webp",
+          base64Data,
+        },
+      });
+      setGenerated(result);
+      toast.success("Your graphic is ready");
+    } catch (error: any) {
+      toast.error(error?.message || "We could not generate that graphic. Please try again.");
+    }
+  };
+
+  const removePhoto = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPropertyImage(null);
+    setPreviewUrl(null);
+  };
+
+  const reset = () => {
+    removePhoto();
+    setLocation("");
+    setGenerated(null);
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  if (!type) return null;
+  const graphic = AUTOMATIC_GRAPHIC_TYPES[type];
+
+  return (
+    <Dialog open={type !== null} onOpenChange={(open) => !open && handleClose()}>
+      <DialogContent className="max-w-lg">
+        {generated ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{generated.label} Graphic Ready</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">
+                Your branded graphic is ready to download and share.
+              </p>
+              <div className="overflow-hidden rounded-lg border bg-muted/30">
+                <img
+                  src={generated.imageUrl}
+                  alt={`${generated.label} graphic for ${location}`}
+                  className="w-full h-auto"
+                />
+              </div>
+            </div>
+            <DialogFooter className="sm:justify-between gap-2">
+              <Button variant="outline" onClick={reset}>Create Another</Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleClose}>Close</Button>
+                <Button asChild>
+                  <a href={generated.imageUrl} download={generated.fileName} target="_blank" rel="noopener noreferrer">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download Graphic
+                  </a>
+                </Button>
+              </div>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Create {graphic.label} Graphic</DialogTitle>
+              <p className="text-sm text-muted-foreground pt-1">{graphic.description}</p>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Property Location *</label>
+                <Input
+                  placeholder="e.g. 123 Main Street, Nashville, TN"
+                  value={location}
+                  maxLength={160}
+                  onChange={(event) => setLocation(event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Property Photo *</label>
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border p-5 text-center transition-colors hover:border-primary/50">
+                  <Upload className="mb-2 h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-medium">Choose a property photo</span>
+                  <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, or WebP up to 8 MB</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={handlePhotoChange}
+                  />
+                </label>
+                {propertyImage && (
+                  <div className="mt-3 flex items-center gap-3 rounded-lg border bg-muted/30 p-2">
+                    {previewUrl && <img src={previewUrl} alt="Property photo preview" className="h-14 w-20 rounded object-cover" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{propertyImage.name}</p>
+                      <p className="text-xs text-muted-foreground">{(propertyImage.size / (1024 * 1024)).toFixed(1)} MB</p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={removePhoto}>Remove</Button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={handleClose} disabled={generateMutation.isPending}>Cancel</Button>
+              <Button onClick={handleGenerate} disabled={generateMutation.isPending}>
+                {generateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Generate Graphic
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Request Detail Dialog ────────────────────────────────────────────────────
 
 function RequestDetailDialog({
@@ -542,6 +738,7 @@ function fileToBase64(file: File): Promise<string> {
 
 export default function MarketingRequestsPage() {
   const [showNew, setShowNew] = useState(false);
+  const [automaticType, setAutomaticType] = useState<AutomaticGraphicType | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [tab, setTab] = useState<"active" | "completed">("active");
   const utils = trpc.useUtils();
@@ -571,10 +768,29 @@ export default function MarketingRequestsPage() {
             Submit requests for graphics, images, slideshows, videos, and more
           </p>
         </div>
-        <Button onClick={() => setShowNew(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Request
-        </Button>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <WandSparkles className="h-4 w-4 mr-2" />
+                Automatic
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Generate a listing graphic</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {(Object.keys(AUTOMATIC_GRAPHIC_TYPES) as AutomaticGraphicType[]).map((type) => (
+                <DropdownMenuItem key={type} onSelect={() => setAutomaticType(type)}>
+                  {AUTOMATIC_GRAPHIC_TYPES[type].label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button onClick={() => setShowNew(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Request
+          </Button>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "active" | "completed")}>
@@ -648,6 +864,11 @@ export default function MarketingRequestsPage() {
         open={showNew}
         onClose={() => setShowNew(false)}
         onCreated={handleCreated}
+      />
+      <AutomaticGraphicDialog
+        key={automaticType ?? "automatic-graphic"}
+        type={automaticType}
+        onClose={() => setAutomaticType(null)}
       />
       <RequestDetailDialog
         requestId={selectedId}
