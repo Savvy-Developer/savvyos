@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import {
   marketingRequests,
   marketingRequestAttachments,
+  userProfiles,
   users,
 } from "../../drizzle/schema";
 import { eq, desc, and, inArray, ne, or, sql } from "drizzle-orm";
@@ -16,25 +17,34 @@ function randomSuffix() {
 
 const AUTOMATIC_MARKETING_TYPES = {
   under_contract: {
-    template: "V4WN6JDxPNa2D3Gqjk",
+    template: "Kp21rAZjovRl56eLnd",
     label: "Under Contract",
     fileSlug: "under-contract",
-    contractText: "UNDER",
-    underText: "CONTRACT",
+    requiresPrice: false,
+    primaryLayer: "Contract",
+    primaryText: "Contract",
+    secondaryLayer: "Under",
+    secondaryText: "Under",
   },
   just_closed: {
     template: "7wpnPQZz0roEDdOgxo",
     label: "Just Closed",
     fileSlug: "just-closed",
-    contractText: "JUST",
-    underText: "CLOSED",
+    requiresPrice: true,
+    primaryLayer: "Contract",
+    primaryText: "",
+    secondaryLayer: "Under",
+    secondaryText: "Just closed!",
   },
   just_listed: {
-    template: "N1qMxz5vpKdVbeQ4ko",
+    template: "RnxGpW5l0BAq5EXrJ1",
     label: "Just Listed",
     fileSlug: "just-listed",
-    contractText: "JUST",
-    underText: "LISTED",
+    requiresPrice: true,
+    primaryLayer: "Price",
+    primaryText: "",
+    secondaryLayer: "Property Status",
+    secondaryText: "Just Listed!",
   },
 } as const;
 
@@ -92,6 +102,7 @@ export const marketingRequestsRouter = router({
       z.object({
         type: z.enum(["under_contract", "just_closed", "just_listed"]),
         location: z.string().trim().min(2).max(160),
+        price: z.string().trim().max(64).optional(),
         propertyImage: z.object({
           fileName: z.string().trim().min(1).max(255),
           mimeType: z.enum(AUTOMATIC_IMAGE_MIME_TYPES),
@@ -118,6 +129,29 @@ export const marketingRequestsRouter = router({
 
       const type = input.type as AutomaticMarketingType;
       const template = AUTOMATIC_MARKETING_TYPES[type];
+      const price = input.price?.trim();
+      if (template.requiresPrice && !price) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Enter the listing price before generating this graphic.",
+        });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [profile] = await db
+        .select({ profilePhotoUrl: userProfiles.profilePhotoUrl })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, ctx.user.id))
+        .limit(1);
+      const agentImageUrl = profile?.profilePhotoUrl?.trim();
+      if (!agentImageUrl) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Add a profile photo in My Profile before creating an automatic graphic.",
+        });
+      }
+
       const sourceExtension = imageExtensionForMimeType(input.propertyImage.mimeType);
       const sourceKey = `automatic-marketing/${ctx.user.id}/source/${Date.now()}-${randomSuffix()}.${sourceExtension}`;
       const { url: sourceImageUrl } = await storagePut(
@@ -138,9 +172,14 @@ export const marketingRequestsRouter = router({
             template: template.template,
             modifications: [
               { name: "Property Image", image_url: sourceImageUrl },
+              { name: "rectangle_10", color: null },
+              { name: "Agent Image", image_url: agentImageUrl },
               { name: "location", text: input.location },
-              { name: "Contract", text: template.contractText },
-              { name: "Under", text: template.underText },
+              {
+                name: template.primaryLayer,
+                text: template.requiresPrice ? price! : template.primaryText,
+              },
+              { name: template.secondaryLayer, text: template.secondaryText },
             ],
             transparent: false,
             metadata: JSON.stringify({ source: "savvyos", user_id: ctx.user.id, type }),

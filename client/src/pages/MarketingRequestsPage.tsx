@@ -68,18 +68,21 @@ type Priority = "low" | "normal" | "high" | "urgent";
 type Status = "new" | "in_progress" | "completed" | "cancelled";
 type AutomaticGraphicType = "under_contract" | "just_closed" | "just_listed";
 
-const AUTOMATIC_GRAPHIC_TYPES: Record<AutomaticGraphicType, { label: string; description: string }> = {
+const AUTOMATIC_GRAPHIC_TYPES: Record<AutomaticGraphicType, { label: string; description: string; requiresPrice: boolean }> = {
   under_contract: {
     label: "Under Contract",
     description: "Create a branded graphic as soon as a property goes under contract.",
+    requiresPrice: false,
   },
   just_closed: {
     label: "Just Closed",
     description: "Celebrate a successful closing with a ready-to-share graphic.",
+    requiresPrice: true,
   },
   just_listed: {
     label: "Just Listed",
     description: "Announce a new listing with a branded property graphic.",
+    requiresPrice: true,
   },
 };
 
@@ -358,6 +361,7 @@ function AutomaticGraphicDialog({
   onClose: () => void;
 }) {
   const [location, setLocation] = useState("");
+  const [price, setPrice] = useState("");
   const [propertyImage, setPropertyImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [generated, setGenerated] = useState<{ imageUrl: string; fileName: string; label: string } | null>(null);
@@ -387,6 +391,10 @@ function AutomaticGraphicDialog({
       toast.error("Enter the property location");
       return;
     }
+    if (type !== "under_contract" && !price.trim()) {
+      toast.error("Enter the listing price");
+      return;
+    }
     if (!propertyImage) {
       toast.error("Upload a property photo");
       return;
@@ -397,6 +405,7 @@ function AutomaticGraphicDialog({
       const result = await generateMutation.mutateAsync({
         type,
         location: location.trim(),
+        price: price.trim() || undefined,
         propertyImage: {
           fileName: propertyImage.name,
           mimeType: propertyImage.type as "image/jpeg" | "image/png" | "image/webp",
@@ -419,6 +428,7 @@ function AutomaticGraphicDialog({
   const reset = () => {
     removePhoto();
     setLocation("");
+    setPrice("");
     setGenerated(null);
   };
 
@@ -478,6 +488,20 @@ function AutomaticGraphicDialog({
                   maxLength={160}
                   onChange={(event) => setLocation(event.target.value)}
                 />
+              </div>
+              {graphic.requiresPrice && (
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Listing Price *</label>
+                  <Input
+                    placeholder="e.g. $1,000,000"
+                    value={price}
+                    maxLength={64}
+                    onChange={(event) => setPrice(event.target.value)}
+                  />
+                </div>
+              )}
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
+                Your SavvyOS profile photo is automatically included as the agent headshot.
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">Property Photo *</label>
