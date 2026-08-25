@@ -79,6 +79,7 @@ export type EmailType =
   | "pm_mention"
   | "partner_lead_confirmation"
   | "agent_production_report"
+  | "weekly_lead_report"
   | "daily_agent_report"
   | "daily_isa_activities"
   | "coaching_weekly_accountability"
@@ -152,6 +153,10 @@ interface EmailContext {
   reportDate?: string;
   reportAsOf?: string;
   reportTableHtml?: string;
+  // Weekly Lead Report-specific fields
+  weeklyLeadReportDate?: string;
+  weeklyLeadReportHtml?: string;
+  weeklyLeadReportSubject?: string;
   // Daily agent report-specific fields
   dailyReportDate?: string;
   dailyReportAsOf?: string;
@@ -692,6 +697,15 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${ctaButton("Open SavvyOS", APP_URL + "/analytics")}`,
       `Agent production report for ${ctx.reportDate ?? "this week"}`,
       1200,
+    ),
+  }),
+
+  weekly_lead_report: (ctx) => ({
+    subject: ctx.weeklyLeadReportSubject ?? `Weekly Lead Report | ${ctx.weeklyLeadReportDate ?? "Current Week"}`,
+    html: emailLayout(
+      `${ctx.weeklyLeadReportHtml ?? bodyText("The Weekly Lead Report could not be generated. Please open SavvyOS to review lead-source performance.")}`,
+      `Weekly Lead Report — ${ctx.weeklyLeadReportDate ?? "Current Week"}`,
+      980,
     ),
   }),
 
