@@ -42,6 +42,7 @@ import UserActivityTab from "@/components/UserActivityTab";
 type UserRow = {
   id: number;
   profilePhotoUrl?: string | null;
+  backgroundlessHeadshotUrl?: string | null;
   name: string | null;
   email: string | null;
   phone: string | null;
@@ -161,6 +162,11 @@ export default function UsersPage() {
   const [headshotUploadState, setHeadshotUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [headshotError, setHeadshotError] = useState<string | null>(null);
   const headshotInputRef = useRef<HTMLInputElement>(null);
+  const [backgroundlessPreview, setBackgroundlessPreview] = useState<string | null>(null);
+  const [backgroundlessFile, setBackgroundlessFile] = useState<File | null>(null);
+  const [backgroundlessUploadState, setBackgroundlessUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [backgroundlessError, setBackgroundlessError] = useState<string | null>(null);
+  const backgroundlessInputRef = useRef<HTMLInputElement>(null);
   const adminUpdateAvatarMutation = trpc.users.adminUpdateAvatar.useMutation({
     onSuccess: (_data, variables) => {
       utils.users.listWithDocCounts.invalidate();
@@ -265,6 +271,30 @@ export default function UsersPage() {
     setHeadshotFile(null);
     setHeadshotUploadState("idle");
     setHeadshotError(null);
+    setBackgroundlessPreview(null);
+    setBackgroundlessFile(null);
+    setBackgroundlessUploadState("idle");
+    setBackgroundlessError(null);
+  }
+
+  function selectBackgroundlessHeadshot(file?: File) {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setBackgroundlessError("Only JPG, PNG, and WEBP images are allowed.");
+      setBackgroundlessUploadState("error");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setBackgroundlessError("File must be under 2MB.");
+      setBackgroundlessUploadState("error");
+      return;
+    }
+    setBackgroundlessError(null);
+    setBackgroundlessUploadState("idle");
+    setBackgroundlessFile(file);
+    const reader = new FileReader();
+    reader.onload = (event) => setBackgroundlessPreview(event.target?.result as string);
+    reader.readAsDataURL(file);
   }
 
   const isTyler = (me as any)?.email === "tyler@savvy.realty";
@@ -501,7 +531,7 @@ export default function UsersPage() {
         )}
         {isEdit && (
           <div className="border-t pt-3 space-y-3">
-            <Label className="text-sm font-medium">Profile Photo</Label>
+            <Label className="text-sm font-medium">Headshot</Label>
             {/* Current photo preview */}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 ring-2 ring-border">
@@ -633,6 +663,93 @@ export default function UsersPage() {
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />{headshotError}
               </div>
             )}
+
+            <div className="border-t pt-4 space-y-3">
+              <div>
+                <Label className="text-sm font-medium">Backgroundless Headshot</Label>
+                <p className="mt-1 text-xs text-muted-foreground">Used in Automatic marketing graphics. Upload a JPG, PNG, or WEBP portrait with the background already removed.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12 ring-2 ring-border bg-muted">
+                  {(backgroundlessPreview ?? editTarget?.backgroundlessHeadshotUrl) && (
+                    <AvatarImage
+                      src={backgroundlessPreview ?? editTarget?.backgroundlessHeadshotUrl ?? ""}
+                      alt={`${editTarget?.name ?? "User"} backgroundless headshot`}
+                      className="object-contain"
+                    />
+                  )}
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">BG</AvatarFallback>
+                </Avatar>
+                <div className="text-xs text-muted-foreground">
+                  {editTarget?.backgroundlessHeadshotUrl && !backgroundlessPreview
+                    ? "Backgroundless headshot on file"
+                    : backgroundlessPreview
+                    ? "New image selected — click Save Backgroundless Headshot"
+                    : "No backgroundless headshot uploaded yet"}
+                </div>
+              </div>
+              <div
+                onClick={() => backgroundlessInputRef.current?.click()}
+                className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all border-border hover:border-primary/50 hover:bg-muted/30"
+              >
+                <input
+                  ref={backgroundlessInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(event) => selectBackgroundlessHeadshot(event.target.files?.[0])}
+                />
+                <Upload className="h-5 w-5 mx-auto mb-1.5 text-muted-foreground" />
+                <p className="text-xs font-medium text-foreground">Click to upload a backgroundless headshot</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">JPG, PNG, WEBP — max 2MB</p>
+              </div>
+              {backgroundlessFile && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    type="button"
+                    disabled={backgroundlessUploadState === "uploading"}
+                    onClick={async () => {
+                      if (!backgroundlessFile || !editTarget) return;
+                      setBackgroundlessUploadState("uploading");
+                      setBackgroundlessError(null);
+                      try {
+                        const formData = new FormData();
+                        formData.append("file", backgroundlessFile);
+                        formData.append("targetUserId", String(editTarget.id));
+                        const response = await fetch("/api/upload/backgroundless-headshot", { method: "POST", body: formData, credentials: "include" });
+                        if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error ?? "Upload failed"); }
+                        const { url } = await response.json();
+                        setBackgroundlessUploadState("success");
+                        setBackgroundlessFile(null);
+                        setEditTarget((previous) => previous ? { ...previous, backgroundlessHeadshotUrl: url } : previous);
+                        utils.users.listWithDocCounts.invalidate();
+                        utils.users.getCoreProfile.invalidate({ userId: editTarget.id });
+                        toast.success(`Backgroundless headshot updated for ${editTarget.name ?? "user"}`);
+                      } catch (error: any) {
+                        setBackgroundlessError(error.message ?? "Upload failed");
+                        setBackgroundlessUploadState("error");
+                      }
+                    }}
+                  >
+                    {backgroundlessUploadState === "uploading" ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</> : "Save Backgroundless Headshot"}
+                  </Button>
+                  <Button size="sm" variant="ghost" type="button" onClick={() => { setBackgroundlessFile(null); setBackgroundlessPreview(null); setBackgroundlessUploadState("idle"); }}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              {backgroundlessUploadState === "success" && (
+                <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Backgroundless headshot saved successfully.
+                </div>
+              )}
+              {backgroundlessUploadState === "error" && backgroundlessError && (
+                <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />{backgroundlessError}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

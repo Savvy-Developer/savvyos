@@ -65,6 +65,12 @@ function outputExtensionForMimeType(mimeType: string | null): "jpg" | "png" | "w
   return "jpg";
 }
 
+function formatDollarAmount(value: string | undefined): string {
+  const digits = value?.replace(/\D/g, "").replace(/^0+(?=\d)/, "") ?? "";
+  if (!digits) return "";
+  return `$${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+}
+
 export const marketingRequestsRouter = router({
   // Create a new marketing request (agents + admins)
   create: protectedProcedure
@@ -129,7 +135,7 @@ export const marketingRequestsRouter = router({
 
       const type = input.type as AutomaticMarketingType;
       const template = AUTOMATIC_MARKETING_TYPES[type];
-      const price = input.price?.trim();
+      const price = formatDollarAmount(input.price);
       if (template.requiresPrice && !price) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -140,15 +146,15 @@ export const marketingRequestsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const [profile] = await db
-        .select({ profilePhotoUrl: userProfiles.profilePhotoUrl })
+        .select({ backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl })
         .from(userProfiles)
         .where(eq(userProfiles.userId, ctx.user.id))
         .limit(1);
-      const agentImageUrl = profile?.profilePhotoUrl?.trim();
+      const agentImageUrl = profile?.backgroundlessHeadshotUrl?.trim();
       if (!agentImageUrl) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "Add a profile photo in My Profile before creating an automatic graphic.",
+          message: "A Backgroundless Headshot is required before creating an automatic graphic.",
         });
       }
 

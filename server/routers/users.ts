@@ -43,6 +43,7 @@ const coreProfileSchema = z.object({
   userId: z.number(),
   preferredName: z.string().optional().nullable(),
   profilePhotoUrl: z.string().optional().nullable(),
+  backgroundlessHeadshotUrl: z.string().optional().nullable(),
   dateOfBirth: z.string().optional().nullable(), // ISO date string
   personalEmail: z.string().optional().nullable(),
   primaryPhone: z.string().optional().nullable(),
@@ -273,15 +274,20 @@ export const usersRouter = router({
         .from(userDocuments)
         .groupBy(userDocuments.userId);
       const countMap = new Map(counts.map((c: any) => [c.userId, Number(c.count)]));
-      // Get profile photos
-      const photos = await db
-        .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
+      // Get profile photos used in the administrator user editor.
+      const profiles = await db
+        .select({
+          userId: userProfiles.userId,
+          profilePhotoUrl: userProfiles.profilePhotoUrl,
+          backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
+        })
         .from(userProfiles);
-      const photoMap = new Map(photos.map((p) => [p.userId, p.profilePhotoUrl]));
+      const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
       return (users as any[]).map((u: any) => ({
         ...u,
         documentCount: countMap.get(u.id) ?? 0,
-        profilePhotoUrl: photoMap.get(u.id) ?? null,
+        profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
+        backgroundlessHeadshotUrl: profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
       }));
     }),
 
@@ -852,11 +858,15 @@ export const usersRouter = router({
       const leaderGroupMap = new Map(
         leaderRows.filter((g) => g.leaderId != null).map((g) => [g.leaderId!, g.name])
       );
-      // Profile photo lookup
-      const photoRows = await db
-        .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
+      // Profile image lookup
+      const profileRows = await db
+        .select({
+          userId: userProfiles.userId,
+          profilePhotoUrl: userProfiles.profilePhotoUrl,
+          backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
+        })
         .from(userProfiles);
-      const photoMap = new Map(photoRows.map((r) => [r.userId, r.profilePhotoUrl]));
+      const profileMap = new Map(profileRows.map((profile) => [profile.userId, profile]));
       const responsibilityCounts = await db
         .select({ ownerId: rolesResponsibilities.ownerId, count: sql<number>`count(*)` })
         .from(rolesResponsibilities)
@@ -876,7 +886,8 @@ export const usersRouter = router({
         marketName: u.marketProfileId ? (mktMap.get(u.marketProfileId) ?? null) : null,
         groupName: groupMap.get(u.id) ?? leaderGroupMap.get(u.id) ?? null,
         openId: u.openId as string,
-        profilePhotoUrl: photoMap.get(u.id) ?? null,
+        profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
+        backgroundlessHeadshotUrl: profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
         activeResponsibilityCount: responsibilityCountMap.get(u.id) ?? 0,
       }));
     }),
@@ -1248,17 +1259,22 @@ export const usersRouter = router({
       const db = await getDb();
       if (!db) return [];
       const allUsers = await getAllUsers();
-      const photos = await db
-        .select({ userId: userProfiles.userId, profilePhotoUrl: userProfiles.profilePhotoUrl })
+      const profiles = await db
+        .select({
+          userId: userProfiles.userId,
+          profilePhotoUrl: userProfiles.profilePhotoUrl,
+          backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
+        })
         .from(userProfiles);
-      const photoMap = new Map(photos.map((p) => [p.userId, p.profilePhotoUrl]));
+      const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
       return (allUsers as any[]).map((u: any) => ({
         id: u.id,
         name: u.name,
         email: u.email,
         role: u.role,
         isActive: u.isActive,
-        profilePhotoUrl: photoMap.get(u.id) ?? null,
+        profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
+        backgroundlessHeadshotUrl: profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
       })).filter((u: any) => u.isActive);
     }),
 });

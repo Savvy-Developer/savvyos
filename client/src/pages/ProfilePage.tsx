@@ -54,8 +54,14 @@ export default function ProfilePage() {
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [backgroundlessPreview, setBackgroundlessPreview] = useState<string | null>(null);
+  const [backgroundlessFile, setBackgroundlessFile] = useState<File | null>(null);
+  const [backgroundlessUploadState, setBackgroundlessUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [backgroundlessError, setBackgroundlessError] = useState<string | null>(null);
+  const backgroundlessInputRef = useRef<HTMLInputElement>(null);
 
   const currentPhoto = preview ?? profileQuery.data?.profilePhotoUrl ?? null;
+  const currentBackgroundlessHeadshot = backgroundlessPreview ?? profileQuery.data?.backgroundlessHeadshotUrl ?? null;
   const hasEmailSignature = emailSignatureHtml
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/gi, " ")
@@ -152,6 +158,53 @@ export default function ProfilePage() {
     setUploadState("idle");
     setErrorMsg(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleBackgroundlessFile = (file: File) => {
+    const err = validateFile(file);
+    if (err) {
+      setBackgroundlessError(err);
+      setBackgroundlessUploadState("error");
+      return;
+    }
+    setBackgroundlessError(null);
+    setBackgroundlessUploadState("idle");
+    setBackgroundlessFile(file);
+    const reader = new FileReader();
+    reader.onload = (event) => setBackgroundlessPreview(event.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleBackgroundlessUpload = async () => {
+    if (!backgroundlessFile) return;
+    setBackgroundlessUploadState("uploading");
+    setBackgroundlessError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", backgroundlessFile);
+      const response = await fetch("/api/upload/backgroundless-headshot", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "Upload failed");
+      }
+      setBackgroundlessUploadState("success");
+      setBackgroundlessFile(null);
+      utils.users.getMyCoreProfile.invalidate();
+    } catch (error: any) {
+      setBackgroundlessError(error.message ?? "Upload failed. Please try again.");
+      setBackgroundlessUploadState("error");
+    }
+  };
+
+  const cancelBackgroundlessUpload = () => {
+    setBackgroundlessPreview(null);
+    setBackgroundlessFile(null);
+    setBackgroundlessUploadState("idle");
+    setBackgroundlessError(null);
+    if (backgroundlessInputRef.current) backgroundlessInputRef.current.value = "";
   };
 
   const handleSaveEmailSignature = async () => {
@@ -283,6 +336,75 @@ export default function ProfilePage() {
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {errorMsg}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Backgroundless Headshot Card */}
+      <Card id="backgroundless-headshot">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Camera className="h-4 w-4" />
+            Backgroundless Headshot
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm text-muted-foreground">
+            This photo is used only in Automatic marketing graphics. Upload a portrait with the background already removed.
+          </div>
+          <div className="flex items-center gap-4">
+            <Avatar className="h-20 w-20 ring-2 ring-border bg-muted">
+              {currentBackgroundlessHeadshot ? (
+                <AvatarImage src={currentBackgroundlessHeadshot} alt={user.name ?? "Backgroundless headshot"} className="object-contain" />
+              ) : null}
+              <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">BG</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-semibold text-foreground">{currentBackgroundlessHeadshot ? "Backgroundless headshot on file" : "No backgroundless headshot yet"}</p>
+              <p className="text-sm text-muted-foreground">Required before you can create Automatic marketing graphics.</p>
+            </div>
+          </div>
+          <div
+            onClick={() => backgroundlessInputRef.current?.click()}
+            className="relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all border-border hover:border-primary/50 hover:bg-muted/30"
+          >
+            <input
+              ref={backgroundlessInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(event) => { const file = event.target.files?.[0]; if (file) handleBackgroundlessFile(file); }}
+            />
+            <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-sm font-medium text-foreground">Click to upload a backgroundless headshot</p>
+            <p className="text-xs text-muted-foreground mt-1">JPG, PNG, or WEBP — max 2MB</p>
+          </div>
+          {backgroundlessFile && backgroundlessPreview && (
+            <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/40 border border-border">
+              <img src={backgroundlessPreview} alt="Backgroundless headshot preview" className="h-16 w-16 rounded-full object-contain ring-2 ring-border shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{backgroundlessFile.name}</p>
+                <p className="text-xs text-muted-foreground">{(backgroundlessFile.size / 1024).toFixed(0)} KB</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button size="sm" onClick={handleBackgroundlessUpload} disabled={backgroundlessUploadState === "uploading"}>
+                  {backgroundlessUploadState === "uploading" ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</> : "Save Headshot"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={cancelBackgroundlessUpload} disabled={backgroundlessUploadState === "uploading"}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+          {backgroundlessUploadState === "success" && (
+            <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />Backgroundless headshot updated successfully.
+            </div>
+          )}
+          {backgroundlessUploadState === "error" && backgroundlessError && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />{backgroundlessError}
             </div>
           )}
         </CardContent>

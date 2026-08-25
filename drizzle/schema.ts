@@ -1159,6 +1159,8 @@ export const userProfiles = mysqlTable("user_profiles", {
   // Identity
   preferredName: varchar("preferredName", { length: 128 }),
   profilePhotoUrl: text("profilePhotoUrl"),
+  // Transparent-background agent portrait used only in branded marketing graphics.
+  backgroundlessHeadshotUrl: text("backgroundlessHeadshotUrl"),
   dateOfBirth: timestamp("dateOfBirth"),
   personalEmail: varchar("personalEmail", { length: 320 }),
   // Rich HTML signature appended to outbound Pipeline email after the sender's message.

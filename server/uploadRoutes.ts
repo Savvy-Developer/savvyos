@@ -198,6 +198,51 @@ export function registerUploadRoutes(app: express.Application) {
     }
   });
 
+  // POST /api/upload/backgroundless-headshot — transparent-background portrait for automatic graphics.
+  // Optional body field: targetUserId (admin only) to upload on behalf of another user.
+  app.post("/api/upload/backgroundless-headshot", headshotUpload.single("file"), async (req: any, res: any) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+
+      let targetUserId = user.id;
+      if (req.body?.targetUserId) {
+        if (user.role !== "admin") return res.status(403).json({ error: "Only admins can upload on behalf of other users" });
+        targetUserId = Number(req.body.targetUserId);
+        if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+          return res.status(400).json({ error: "Invalid targetUserId" });
+        }
+      }
+
+      const ext = req.file.mimetype === "image/png" ? "png" : req.file.mimetype === "image/webp" ? "webp" : "jpg";
+      const fileKey = `backgroundless-headshots/${targetUserId}_${nanoid(8)}.${ext}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "Database unavailable" });
+      const existing = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, targetUserId))
+        .limit(1);
+      if (existing.length > 0) {
+        await db
+          .update(userProfiles)
+          .set({ backgroundlessHeadshotUrl: url })
+          .where(eq(userProfiles.userId, targetUserId));
+      } else {
+        await db.insert(userProfiles).values({ userId: targetUserId, backgroundlessHeadshotUrl: url });
+      }
+
+      return res.json({ url });
+    } catch (err: any) {
+      console.error("[BackgroundlessHeadshotUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/resume — public resume upload for job applicants (no auth)
   const resumeUpload = multer({
     storage: multer.memoryStorage(),

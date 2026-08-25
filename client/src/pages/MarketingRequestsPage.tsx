@@ -86,6 +86,12 @@ const AUTOMATIC_GRAPHIC_TYPES: Record<AutomaticGraphicType, { label: string; des
   },
 };
 
+function formatDollarAmount(value: string): string {
+  const digits = value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  if (!digits) return "";
+  return `$${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+}
+
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   graphic: "Graphic",
   image: "Image",
@@ -365,6 +371,7 @@ function AutomaticGraphicDialog({
   const [propertyImage, setPropertyImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [generated, setGenerated] = useState<{ imageUrl: string; fileName: string; label: string } | null>(null);
+  const profileQuery = trpc.users.getMyCoreProfile.useQuery();
   const generateMutation = trpc.marketingRequests.automaticGenerate.useMutation();
 
   const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -387,6 +394,15 @@ function AutomaticGraphicDialog({
 
   const handleGenerate = async () => {
     if (!type) return;
+    if (profileQuery.isLoading) {
+      toast.error("Checking your Backgroundless Headshot. Please try again in a moment.");
+      return;
+    }
+    if (!profileQuery.data?.backgroundlessHeadshotUrl) {
+      toast.error("A Backgroundless Headshot is required. Opening My Profile so you can upload it.");
+      window.setTimeout(() => window.location.assign("/profile#backgroundless-headshot"), 600);
+      return;
+    }
     if (!location.trim()) {
       toast.error("Enter the property location");
       return;
@@ -415,7 +431,13 @@ function AutomaticGraphicDialog({
       setGenerated(result);
       toast.success("Your graphic is ready");
     } catch (error: any) {
-      toast.error(error?.message || "We could not generate that graphic. Please try again.");
+      const message = error?.message || "We could not generate that graphic. Please try again.";
+      if (message.includes("Backgroundless Headshot")) {
+        toast.error("A Backgroundless Headshot is required. Opening My Profile so you can upload it.");
+        window.setTimeout(() => window.location.assign("/profile#backgroundless-headshot"), 800);
+        return;
+      }
+      toast.error(message);
     }
   };
 
@@ -495,13 +517,16 @@ function AutomaticGraphicDialog({
                   <Input
                     placeholder="e.g. $1,000,000"
                     value={price}
+                    inputMode="numeric"
                     maxLength={64}
-                    onChange={(event) => setPrice(event.target.value)}
+                    onChange={(event) => setPrice(formatDollarAmount(event.target.value))}
                   />
                 </div>
               )}
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
-                Your SavvyOS profile photo is automatically included as the agent headshot.
+                {profileQuery.data?.backgroundlessHeadshotUrl
+                  ? "Your Backgroundless Headshot from My Profile is automatically included as the agent headshot."
+                  : "A Backgroundless Headshot is required before generating. Add one in My Profile."}
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">Property Photo *</label>
