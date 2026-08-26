@@ -20,6 +20,10 @@ type PipelineStatus = "new_lead" | "attempted_contact" | "nurture" | "active_cli
 
 interface MetricTotals {
   newLeads: number;
+  r30Leads: number;
+  r30Appointments: number;
+  r90Leads: number;
+  r90Appointments: number;
   transactionsCreated: number;
   historicalTransactionsAdded: number;
   newUnderContract: number;
@@ -91,6 +95,10 @@ interface ContactRecord {
 function emptyTotals(): MetricTotals {
   return {
     newLeads: 0,
+    r30Leads: 0,
+    r30Appointments: 0,
+    r90Leads: 0,
+    r90Appointments: 0,
     transactionsCreated: 0,
     historicalTransactionsAdded: 0,
     newUnderContract: 0,
@@ -198,6 +206,10 @@ function createSourceRows(sources: SourceDefinition[]): Map<string, WeeklyLeadRe
 
 function addTotals(target: MetricTotals, source: MetricTotals): void {
   target.newLeads += source.newLeads;
+  target.r30Leads += source.r30Leads;
+  target.r30Appointments += source.r30Appointments;
+  target.r90Leads += source.r90Leads;
+  target.r90Appointments += source.r90Appointments;
   target.transactionsCreated += source.transactionsCreated;
   target.historicalTransactionsAdded += source.historicalTransactionsAdded;
   target.newUnderContract += source.newUnderContract;
@@ -234,7 +246,7 @@ function totalCohort(rows: WeeklyLeadReportSourceRow[]): CohortMetrics {
 
 function sourceMetricRows(rows: WeeklyLeadReportSourceRow[]): WeeklyLeadReportSourceRow[] {
   return rows
-    .filter((row) => row.newLeads || row.transactionsCreated || row.newUnderContract || row.closedTransactions || row.appointmentsSet || row.closedGci || row.cohort.leads || row.cohort.transactionsStarted || row.cohort.transactionsClosed)
+    .filter((row) => row.newLeads || row.r30Leads || row.r90Leads || row.transactionsCreated || row.newUnderContract || row.closedTransactions || row.appointmentsSet || row.closedGci || row.cohort.leads || row.cohort.transactionsStarted || row.cohort.transactionsClosed)
     .sort((a, b) => {
       const revenue = b.closedGci - a.closedGci;
       if (revenue !== 0) return revenue;
@@ -257,11 +269,21 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
 
   const { start, end, reportDateKey, cohortStart, cohortEnd } = weekWindow(asOf);
   const recentLeadStart = easternDateTimeToUtc(addEasternDays(reportDateKey, -29), 0);
-  const [sources, weeklyContacts, cohortContacts, weeklyConnections, weeklyAppointments, weeklyCommunications, createdTransactions, contractedTransactions, closedTransactions, cohortAppointments, cohortStartedTransactions, cohortClosedTransactions, activePipelineRows, qualityRows, overdueTaskRows] = await Promise.all([
+  const rolling30Start = recentLeadStart;
+  const rolling90Start = easternDateTimeToUtc(addEasternDays(reportDateKey, -89), 0);
+  const [sources, weeklyContacts, rolling30Contacts, rolling90Contacts, cohortContacts, weeklyConnections, weeklyAppointments, rolling30Appointments, rolling90Appointments, weeklyCommunications, createdTransactions, contractedTransactions, closedTransactions, cohortAppointments, cohortStartedTransactions, cohortClosedTransactions, activePipelineRows, qualityRows, overdueTaskRows] = await Promise.all([
     db.select({ id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId, isActive: leadSources.isActive }).from(leadSources),
     db.select({ id: contacts.id, leadSourceId: contacts.leadSourceId, createdAt: contacts.createdAt, assignedIsaId: contacts.assignedIsaId, isaStatus: contacts.isaStatus, doNotContact: contacts.doNotContact })
       .from(contacts)
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, start), lt(contacts.createdAt, end))),
+    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(*)` })
+      .from(contacts)
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling30Start), lt(contacts.createdAt, end)))
+      .groupBy(contacts.leadSourceId),
+    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(*)` })
+      .from(contacts)
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end)))
+      .groupBy(contacts.leadSourceId),
     db.select({ id: contacts.id, leadSourceId: contacts.leadSourceId, createdAt: contacts.createdAt })
       .from(contacts)
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd))),
@@ -273,6 +295,16 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
       .from(agentConnections)
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, start), lt(contacts.createdAt, end), eq(agentConnections.appointmentSet, true), lt(sql<Date>`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt})`, end)))
+      .groupBy(contacts.leadSourceId),
+    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})` })
+      .from(agentConnections)
+      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling30Start), lt(contacts.createdAt, end), eq(agentConnections.appointmentSet, true), lt(sql<Date>`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt})`, end)))
+      .groupBy(contacts.leadSourceId),
+    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})` })
+      .from(agentConnections)
+      .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end), eq(agentConnections.appointmentSet, true), lt(sql<Date>`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt})`, end)))
       .groupBy(contacts.leadSourceId),
     db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(*)` })
       .from(communications)
@@ -328,8 +360,12 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     row.newLeads += 1;
   }
   for (const contact of cohortContacts) rowFor(contact.leadSourceId).cohort.leads += 1;
+  for (const result of rolling30Contacts) rowFor(result.leadSourceId).r30Leads += numberValue(result.count);
+  for (const result of rolling90Contacts) rowFor(result.leadSourceId).r90Leads += numberValue(result.count);
   for (const connection of weeklyConnections) rowFor(connection.leadSourceId).newAgentConnections += 1;
   for (const appointment of weeklyAppointments) rowFor(appointment.leadSourceId).appointmentsSet += numberValue(appointment.count);
+  for (const result of rolling30Appointments) rowFor(result.leadSourceId).r30Appointments += numberValue(result.count);
+  for (const result of rolling90Appointments) rowFor(result.leadSourceId).r90Appointments += numberValue(result.count);
   for (const communication of weeklyCommunications) rowFor(communication.leadSourceId).communications += numberValue(communication.count);
   for (const transaction of createdTransactions) {
     const row = rowFor(transaction.leadSourceId);
@@ -415,9 +451,9 @@ function sectionHeading(title: string, detail?: string): string {
 function weeklyLeadTable(rows: WeeklyLeadReportSourceRow[]): string {
   const visibleRows = rows
     .filter((row) => row.newLeads > 0)
-    .sort((a, b) => b.newLeads - a.newLeads || b.appointmentsSet - a.appointmentsSet || a.sourceName.localeCompare(b.sourceName));
-  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;">${escapeHtml(row.sourceName)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newLeads)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.appointmentsSet)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.appointmentsSet, row.newLeads)}</td></tr>`).join("");
-  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:500px;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#0A0A0A;"><th style="padding:9px 8px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">LEAD SOURCE</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">NEW LEADS</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">LEADS WITH APPOINTMENT</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">APPOINTMENT RATE</th></tr>${tableRows || `<tr><td colspan="4" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No new leads were recorded this week.</td></tr>`}</table></div>`;
+    .sort((a, b) => b.newLeads - a.newLeads || b.r30Leads - a.r30Leads || a.sourceName.localeCompare(b.sourceName));
+  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;white-space:nowrap;">${escapeHtml(row.sourceName)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newLeads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.appointmentsSet)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.appointmentsSet, row.newLeads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r30Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r30Appointments)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.r30Appointments, row.r30Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r90Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r90Appointments)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.r90Appointments, row.r90Leads)}</td></tr>`).join("");
+  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:950px;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#111827;"><th rowspan="2" style="padding:9px 8px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">LEAD SOURCE</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">THIS WEEK</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R30</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R90</th></tr><tr style="background:#0A0A0A;"><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th></tr>${tableRows || `<tr><td colspan="10" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No new leads were recorded this week.</td></tr>`}</table></div>`;
 }
 
 function matureYieldTable(rows: WeeklyLeadReportSourceRow[]): string {
@@ -452,7 +488,7 @@ export function renderWeeklyLeadReport(report: WeeklyLeadReport): string {
   return `<div style="font-size:20px;font-weight:700;line-height:1.3;color:#111827;">Weekly Lead Report</div>
     <div style="margin:5px 0 20px;font-size:12px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.45px;">${escapeHtml(report.periodLabel)} · generated ${escapeHtml(report.asOfLabel)}</div>
     <div style="font-size:14px;color:#374151;line-height:1.6;">This report follows new leads through the early funnel, then separately measures the downstream value of source cohorts that have had time to mature.</div>
-    ${sectionHeading("1. This Week’s New Leads — Early Funnel", "Leads created during the reporting week. An appointment is counted once it is recorded for a lead in this cohort.")}
+    ${sectionHeading("1. This Week’s New Leads — Early Funnel", "R30 and R90 are rolling lead cohorts ending at the report cutoff. Each shows leads, leads with an appointment recorded, and appointment conversion for the same source cohort.")}
     <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 -5px;"><tr>${metricCard(formatInteger(totals.newLeads), "New leads", "#0891B2", "50%")}${metricCard(formatInteger(totals.appointmentsSet), "Leads with appointment", "#0F766E", "50%")}</tr><tr>${metricCard(formatPercent(totals.appointmentsSet, totals.newLeads), "Appointment rate", "#0F766E", "50%")}${metricCard(formatInteger(report.quality.unassignedNewLeads), "Unassigned new leads", report.quality.unassignedNewLeads ? "#DC2626" : "#059669", "50%")}</tr></table>
     ${weeklyLeadTable(report.rows)}
     ${sectionHeading("2. Mature Source Yield — 90-Day Cohort", "Leads created 90–179 days before the report cutoff. This is the fair source-quality view: each lead has had at least 90 days to develop.")}
@@ -483,7 +519,7 @@ export async function sendWeeklyLeadReportTest(asOf = new Date()): Promise<{ sen
     {
       allowTemplateOverride: false,
       bypassNotificationSetting: true,
-      idempotencyKey: `weekly-lead-report:test:cohort-funnel-v4:${report.reportDateKey}:${TEST_RECIPIENT_EMAIL}`,
+      idempotencyKey: `weekly-lead-report:test:cohort-funnel-r30-r90-v5:${report.reportDateKey}:${TEST_RECIPIENT_EMAIL}`,
     },
   );
   return { ...delivery, report };
