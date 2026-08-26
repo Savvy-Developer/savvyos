@@ -48,6 +48,7 @@ export interface WeeklyLeadReportSourceRow extends MetricTotals {
   sourceId: number | null;
   sourceName: string;
   parentSourceName: string | null;
+  r90Cohort: CohortMetrics;
   cohort: CohortMetrics;
 }
 
@@ -57,6 +58,7 @@ export interface WeeklyLeadReport {
   asOfLabel: string;
   rows: WeeklyLeadReportSourceRow[];
   totals: MetricTotals;
+  r90CohortTotals: CohortMetrics;
   cohortTotals: CohortMetrics;
   pipeline: Record<PipelineStatus, number>;
   dataEntry: {
@@ -192,6 +194,7 @@ function createSourceRows(sources: SourceDefinition[]): Map<string, WeeklyLeadRe
       sourceName,
       parentSourceName: parent?.name ?? null,
       ...emptyTotals(),
+      r90Cohort: emptyCohort(),
       cohort: emptyCohort(),
     };
     rows.set(key, row);
@@ -237,16 +240,16 @@ function totalRows(rows: WeeklyLeadReportSourceRow[]): MetricTotals {
   }, emptyTotals());
 }
 
-function totalCohort(rows: WeeklyLeadReportSourceRow[]): CohortMetrics {
+function totalCohort(rows: WeeklyLeadReportSourceRow[], cohortKey: "r90Cohort" | "cohort" = "cohort"): CohortMetrics {
   return rows.reduce((total, row) => {
-    addCohort(total, row.cohort);
+    addCohort(total, row[cohortKey]);
     return total;
   }, emptyCohort());
 }
 
 function sourceMetricRows(rows: WeeklyLeadReportSourceRow[]): WeeklyLeadReportSourceRow[] {
   return rows
-    .filter((row) => row.newLeads || row.r30Leads || row.r90Leads || row.transactionsCreated || row.newUnderContract || row.closedTransactions || row.appointmentsSet || row.closedGci || row.cohort.leads || row.cohort.transactionsStarted || row.cohort.transactionsClosed)
+    .filter((row) => row.newLeads || row.r30Leads || row.r90Leads || row.transactionsCreated || row.newUnderContract || row.closedTransactions || row.appointmentsSet || row.closedGci || row.r90Cohort.leads || row.r90Cohort.transactionsClosed || row.cohort.leads || row.cohort.transactionsStarted || row.cohort.transactionsClosed)
     .sort((a, b) => {
       const revenue = b.closedGci - a.closedGci;
       if (revenue !== 0) return revenue;
@@ -271,7 +274,7 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
   const recentLeadStart = easternDateTimeToUtc(addEasternDays(reportDateKey, -29), 0);
   const rolling30Start = recentLeadStart;
   const rolling90Start = easternDateTimeToUtc(addEasternDays(reportDateKey, -89), 0);
-  const [sources, weeklyContacts, rolling30Contacts, rolling90Contacts, cohortContacts, weeklyConnections, weeklyAppointments, rolling30Appointments, rolling90Appointments, weeklyCommunications, createdTransactions, contractedTransactions, closedTransactions, cohortAppointments, cohortStartedTransactions, cohortClosedTransactions, activePipelineRows, qualityRows, overdueTaskRows] = await Promise.all([
+  const [sources, weeklyContacts, rolling30Contacts, rolling90Contacts, r90CohortContacts, cohortContacts, weeklyConnections, weeklyAppointments, rolling30Appointments, rolling90Appointments, weeklyCommunications, createdTransactions, contractedTransactions, closedTransactions, r90CohortClosedTransactions, cohortAppointments, cohortStartedTransactions, cohortClosedTransactions, activePipelineRows, qualityRows, overdueTaskRows] = await Promise.all([
     db.select({ id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId, isActive: leadSources.isActive }).from(leadSources),
     db.select({ id: contacts.id, leadSourceId: contacts.leadSourceId, createdAt: contacts.createdAt, assignedIsaId: contacts.assignedIsaId, isaStatus: contacts.isaStatus, doNotContact: contacts.doNotContact })
       .from(contacts)
@@ -284,6 +287,9 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
       .from(contacts)
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end)))
       .groupBy(contacts.leadSourceId),
+    db.select({ id: contacts.id, leadSourceId: contacts.leadSourceId, createdAt: contacts.createdAt })
+      .from(contacts)
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end))),
     db.select({ id: contacts.id, leadSourceId: contacts.leadSourceId, createdAt: contacts.createdAt })
       .from(contacts)
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd))),
@@ -323,6 +329,11 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(eq(transactions.status, "closed"), isNotNull(transactions.closingDate), gte(transactions.closingDate, start), lt(transactions.closingDate, end))),
+    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, gci: sql<number>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)` })
+      .from(transactions)
+      .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end)))
+      .groupBy(contacts.leadSourceId),
     db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})` })
       .from(agentConnections)
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
@@ -359,6 +370,7 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     const row = rowFor(contact.leadSourceId);
     row.newLeads += 1;
   }
+  for (const contact of r90CohortContacts) rowFor(contact.leadSourceId).r90Cohort.leads += 1;
   for (const contact of cohortContacts) rowFor(contact.leadSourceId).cohort.leads += 1;
   for (const result of rolling30Contacts) rowFor(result.leadSourceId).r30Leads += numberValue(result.count);
   for (const result of rolling90Contacts) rowFor(result.leadSourceId).r90Leads += numberValue(result.count);
@@ -382,6 +394,11 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     row.closedTransactions += 1;
     row.closedVolume += numberValue(transaction.purchasePrice);
     row.closedGci += numberValue(transaction.grossCommissionIncome);
+  }
+  for (const result of r90CohortClosedTransactions) {
+    const row = rowFor(result.leadSourceId);
+    row.r90Cohort.transactionsClosed += numberValue(result.count);
+    row.r90Cohort.closedGci += numberValue(result.gci);
   }
   for (const result of cohortAppointments) rowFor(result.leadSourceId).cohort.appointments += numberValue(result.count);
   for (const result of cohortStartedTransactions) rowFor(result.leadSourceId).cohort.transactionsStarted += numberValue(result.count);
@@ -420,6 +437,7 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     asOfLabel,
     rows,
     totals: totalRows(rows),
+    r90CohortTotals: totalCohort(allRows, "r90Cohort"),
     cohortTotals: totalCohort(allRows),
     pipeline,
     dataEntry: {
@@ -452,16 +470,16 @@ function weeklyLeadTable(rows: WeeklyLeadReportSourceRow[]): string {
   const visibleRows = rows
     .filter((row) => row.newLeads > 0)
     .sort((a, b) => b.newLeads - a.newLeads || b.r30Leads - a.r30Leads || a.sourceName.localeCompare(b.sourceName));
-  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;white-space:nowrap;">${escapeHtml(row.sourceName)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newLeads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.appointmentsSet)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.appointmentsSet, row.newLeads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r30Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r30Appointments)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.r30Appointments, row.r30Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r90Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r90Appointments)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.r90Appointments, row.r90Leads)}</td></tr>`).join("");
-  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:950px;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#111827;"><th rowspan="2" style="padding:9px 8px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">LEAD SOURCE</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">THIS WEEK</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R30</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R90</th></tr><tr style="background:#0A0A0A;"><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th></tr>${tableRows || `<tr><td colspan="10" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No new leads were recorded this week.</td></tr>`}</table></div>`;
+  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td width="150" style="width:150px;max-width:150px;padding:8px 6px;border-bottom:1px solid #E5E7EB;font-size:10px;font-weight:600;color:#111827;line-height:1.3;white-space:normal;overflow-wrap:anywhere;">${escapeHtml(row.sourceName)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;color:#374151;">${formatInteger(row.newLeads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.appointmentsSet)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.appointmentsSet, row.newLeads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r30Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r30Appointments)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.r30Appointments, row.r30Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r90Leads)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.r90Appointments)}</td><td style="padding:10px 6px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.r90Appointments, row.r90Leads)}</td></tr>`).join("");
+  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:850px;table-layout:fixed;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#111827;"><th rowspan="2" width="150" style="width:150px;max-width:150px;padding:9px 6px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">LEAD SOURCE</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">THIS WEEK</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R30</th><th colspan="3" style="padding:9px 6px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R90</th></tr><tr style="background:#0A0A0A;"><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">APPTS</th><th style="padding:8px 6px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th></tr>${tableRows || `<tr><td colspan="10" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No new leads were recorded this week.</td></tr>`}</table></div>`;
 }
 
 function matureYieldTable(rows: WeeklyLeadReportSourceRow[]): string {
   const visibleRows = rows
-    .filter((row) => row.cohort.leads >= 10 || row.cohort.transactionsClosed > 0)
-    .sort((a, b) => b.cohort.closedGci - a.cohort.closedGci || b.cohort.transactionsClosed - a.cohort.transactionsClosed || b.cohort.leads - a.cohort.leads || a.sourceName.localeCompare(b.sourceName));
-  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;">${escapeHtml(row.sourceName)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.cohort.leads)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.cohort.transactionsClosed)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;font-weight:600;color:#111827;">${formatPercent(row.cohort.transactionsClosed, row.cohort.leads)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:12px;font-weight:600;color:#111827;white-space:nowrap;">${formatCurrency(row.cohort.closedGci)}</td></tr>`).join("");
-  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:570px;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#0A0A0A;"><th style="padding:9px 8px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">LEAD SOURCE</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">MATURE LEADS</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">LEADS CLOSED</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">CLOSE RATE</th><th style="padding:9px 7px;text-align:right;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">CLOSED GCI</th></tr>${tableRows || `<tr><td colspan="5" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No mature source cohort activity was recorded.</td></tr>`}</table></div>`;
+    .filter((row) => row.r90Cohort.leads >= 10 || row.r90Cohort.transactionsClosed > 0 || row.cohort.leads >= 10 || row.cohort.transactionsClosed > 0)
+    .sort((a, b) => (b.r90Cohort.closedGci + b.cohort.closedGci) - (a.r90Cohort.closedGci + a.cohort.closedGci) || (b.r90Cohort.transactionsClosed + b.cohort.transactionsClosed) - (a.r90Cohort.transactionsClosed + a.cohort.transactionsClosed) || b.r90Cohort.leads - a.r90Cohort.leads || a.sourceName.localeCompare(b.sourceName));
+  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td width="150" style="width:150px;max-width:150px;padding:8px 6px;border-bottom:1px solid #E5E7EB;font-size:10px;font-weight:600;color:#111827;line-height:1.3;white-space:normal;overflow-wrap:anywhere;">${escapeHtml(row.sourceName)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;color:#374151;">${formatInteger(row.r90Cohort.leads)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;color:#374151;">${formatInteger(row.r90Cohort.transactionsClosed)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;font-weight:600;color:#111827;">${formatPercent(row.r90Cohort.transactionsClosed, row.r90Cohort.leads)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:11px;font-weight:600;color:#111827;white-space:nowrap;">${formatCurrency(row.r90Cohort.closedGci)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;color:#374151;">${formatInteger(row.cohort.leads)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;color:#374151;">${formatInteger(row.cohort.transactionsClosed)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:11px;font-weight:600;color:#111827;">${formatPercent(row.cohort.transactionsClosed, row.cohort.leads)}</td><td style="padding:8px 4px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:11px;font-weight:600;color:#111827;white-space:nowrap;">${formatCurrency(row.cohort.closedGci)}</td></tr>`).join("");
+  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:810px;table-layout:fixed;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#111827;"><th rowspan="2" width="150" style="width:150px;max-width:150px;padding:9px 6px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">LEAD SOURCE</th><th colspan="4" style="padding:9px 4px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R90</th><th colspan="4" style="padding:9px 4px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;border-bottom:1px solid #374151;">R91–R179</th></tr><tr style="background:#0A0A0A;"><th style="padding:8px 4px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 4px;text-align:center;color:#FFFFFF;font-size:9px;">CLOSED</th><th style="padding:8px 4px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 4px;text-align:right;color:#FFFFFF;font-size:9px;">GCI</th><th style="padding:8px 4px;text-align:center;color:#FFFFFF;font-size:9px;">LEADS</th><th style="padding:8px 4px;text-align:center;color:#FFFFFF;font-size:9px;">CLOSED</th><th style="padding:8px 4px;text-align:center;color:#FFFFFF;font-size:9px;">RATE</th><th style="padding:8px 4px;text-align:right;color:#FFFFFF;font-size:9px;">GCI</th></tr>${tableRows || `<tr><td colspan="9" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No source cohort activity was recorded.</td></tr>`}</table></div>`;
 }
 
 function signalCard(title: string, body: string, color: string): string {
@@ -471,10 +489,10 @@ function signalCard(title: string, body: string, color: string): string {
 function signals(report: WeeklyLeadReport): string {
   const output: string[] = [];
   const largestSource = [...report.rows].filter((row) => row.newLeads > 0).sort((a, b) => b.newLeads - a.newLeads)[0];
-  const highestMatureYield = [...report.rows].filter((row) => row.cohort.closedGci > 0).sort((a, b) => b.cohort.closedGci - a.cohort.closedGci)[0];
+  const highestMatureYield = [...report.rows].filter((row) => row.r90Cohort.closedGci + row.cohort.closedGci > 0).sort((a, b) => (b.r90Cohort.closedGci + b.cohort.closedGci) - (a.r90Cohort.closedGci + a.cohort.closedGci))[0];
   const highVolumeNoAppointment = [...report.rows].filter((row) => row.newLeads >= 5 && row.appointmentsSet === 0).sort((a, b) => b.newLeads - a.newLeads)[0];
   if (largestSource) output.push(signalCard("Watch the largest weekly source:", `${largestSource.sourceName} delivered ${largestSource.newLeads} new leads; ${largestSource.appointmentsSet} have an appointment recorded (${formatPercent(largestSource.appointmentsSet, largestSource.newLeads)}).`, "#0891B2"));
-  if (highestMatureYield) output.push(signalCard("Mature source yield:", `${highestMatureYield.sourceName} generated ${formatCurrency(highestMatureYield.cohort.closedGci)} in closed GCI from its 90–179-day-old lead cohort.`, "#059669"));
+  if (highestMatureYield) output.push(signalCard("Source yield:", `${highestMatureYield.sourceName} generated ${formatCurrency(highestMatureYield.r90Cohort.closedGci + highestMatureYield.cohort.closedGci)} in closed GCI across its R90 and R91–R179 cohorts.`, "#059669"));
   if (highVolumeNoAppointment) output.push(signalCard("Follow up now:", `${highVolumeNoAppointment.sourceName} produced ${highVolumeNoAppointment.newLeads} new leads but no appointment is recorded yet. Confirm ownership and first contact.`, "#D97706"));
   else if (report.quality.unassignedNewLeads > 0) output.push(signalCard("Assign new leads:", `${report.quality.unassignedNewLeads} of this week’s new leads do not have an ISA assignment yet.`, "#DC2626"));
   return output.join("");
@@ -483,6 +501,7 @@ function signals(report: WeeklyLeadReport): string {
 /** Render the leadership-ready content placed inside the shared SavvyOS email template. */
 export function renderWeeklyLeadReport(report: WeeklyLeadReport): string {
   const totals = report.totals;
+  const r90Mature = report.r90CohortTotals;
   const mature = report.cohortTotals;
 
   return `<div style="font-size:20px;font-weight:700;line-height:1.3;color:#111827;">Weekly Lead Report</div>
@@ -491,8 +510,8 @@ export function renderWeeklyLeadReport(report: WeeklyLeadReport): string {
     ${sectionHeading("1. This Week’s New Leads — Early Funnel", "R30 and R90 are rolling lead cohorts ending at the report cutoff. Each shows leads, leads with an appointment recorded, and appointment conversion for the same source cohort.")}
     <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 -5px;"><tr>${metricCard(formatInteger(totals.newLeads), "New leads", "#0891B2", "50%")}${metricCard(formatInteger(totals.appointmentsSet), "Leads with appointment", "#0F766E", "50%")}</tr><tr>${metricCard(formatPercent(totals.appointmentsSet, totals.newLeads), "Appointment rate", "#0F766E", "50%")}${metricCard(formatInteger(report.quality.unassignedNewLeads), "Unassigned new leads", report.quality.unassignedNewLeads ? "#DC2626" : "#059669", "50%")}</tr></table>
     ${weeklyLeadTable(report.rows)}
-    ${sectionHeading("2. Mature Source Yield — 90-Day Cohort", "Leads created 90–179 days before the report cutoff. This is the fair source-quality view: each lead has had at least 90 days to develop.")}
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 -5px;"><tr>${metricCard(formatInteger(mature.leads), "Mature leads", "#374151", "50%")}${metricCard(formatInteger(mature.transactionsClosed), "Leads closed", "#059669", "50%")}</tr><tr>${metricCard(formatPercent(mature.transactionsClosed, mature.leads), "Close rate", "#059669", "50%")}${metricCard(formatCurrency(mature.closedGci), "Closed GCI", "#059669", "50%")}</tr></table>
+    ${sectionHeading("2. Source Yield — R90 vs R91–R179", "R90 is the most recent 90-day lead cohort. R91–R179 is the preceding mature cohort. Both compare lead-to-close conversion and closed GCI by source.")}
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 -5px;"><tr>${metricCard(formatInteger(r90Mature.leads), "R90 leads", "#374151", "25%")}${metricCard(formatPercent(r90Mature.transactionsClosed, r90Mature.leads), "R90 close rate", "#059669", "25%")}${metricCard(formatInteger(mature.leads), "R91–R179 leads", "#374151", "25%")}${metricCard(formatPercent(mature.transactionsClosed, mature.leads), "R91–R179 close rate", "#059669", "25%")}</tr></table>
     ${matureYieldTable(report.rows)}
     ${sectionHeading("This Week’s Actions")}
     ${signals(report)}
@@ -519,7 +538,7 @@ export async function sendWeeklyLeadReportTest(asOf = new Date()): Promise<{ sen
     {
       allowTemplateOverride: false,
       bypassNotificationSetting: true,
-      idempotencyKey: `weekly-lead-report:test:cohort-funnel-r30-r90-v5:${report.reportDateKey}:${TEST_RECIPIENT_EMAIL}`,
+      idempotencyKey: `weekly-lead-report:test:split-mature-cohorts-v6:${report.reportDateKey}:${TEST_RECIPIENT_EMAIL}`,
     },
   );
   return { ...delivery, report };
