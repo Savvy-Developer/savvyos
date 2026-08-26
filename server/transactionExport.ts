@@ -44,8 +44,10 @@ type ExportTransactionRow = {
 
 export type TransactionExportFilterLabels = {
   agentName?: string;
+  agentNames?: string[];
   marketName?: string;
   leadSourceName?: string;
+  leadSourceNames?: string[];
 };
 
 function formatDate(value: unknown, includeTime = false) {
@@ -121,9 +123,11 @@ export function buildTransactionExportFilterSummary(
   if (filters.search) parts.push(`Search: “${filters.search}”`);
   if (filters.status) parts.push(`Status: ${titleCase(filters.status)}`);
   if (filters.transactionType) parts.push(`Type: ${titleCase(filters.transactionType)}`);
-  if (filters.agentId) parts.push(`Agent: ${labels.agentName ?? `#${filters.agentId}`}`);
+  if (filters.agentIds?.length) parts.push(`Agents: ${(labels.agentNames?.length ? labels.agentNames.join(", ") : filters.agentIds.map((id) => `#${id}`).join(", "))}`);
+  else if (filters.agentId) parts.push(`Agent: ${labels.agentName ?? `#${filters.agentId}`}`);
   if (filters.marketId) parts.push(`Market: ${labels.marketName ?? `#${filters.marketId}`}`);
-  if (filters.leadSourceId) parts.push(`Lead source: ${labels.leadSourceName ?? `#${filters.leadSourceId}`}`);
+  if (filters.leadSourceIds?.length) parts.push(`Lead sources: ${(labels.leadSourceNames?.length ? labels.leadSourceNames.join(", ") : filters.leadSourceIds.map((id) => `#${id}`).join(", "))}`);
+  else if (filters.leadSourceId) parts.push(`Lead source: ${labels.leadSourceName ?? `#${filters.leadSourceId}`}`);
   if (filters.contractDateFrom || filters.contractDateTo) {
     parts.push(`Contract date: ${filters.contractDateFrom ?? "Any"} to ${filters.contractDateTo ?? "Any"}`);
   }

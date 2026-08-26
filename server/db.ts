@@ -837,12 +837,13 @@ export async function getPropertyOwnership(propertyId: number) {
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
-export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date", groupLeaderId?: number, includeLeaderStats?: boolean) {
+export async function getTransactions(agentId?: number, status?: string, search?: string, page = 1, limit = 25, marketId?: number, contractDateFrom?: string, contractDateTo?: string, closingDateFrom?: string, closingDateTo?: string, flagNoClosingDate?: boolean, flagPastClosingDate?: boolean, leadSourceId?: number, flagPayoutIntegrity?: boolean, transactionType?: string, sortOrder: "asc" | "desc" = "desc", sortBy: string = "closing_date", groupLeaderId?: number, includeLeaderStats?: boolean, agentIds?: number[], leadSourceIds?: number[]) {
   const offset = (page - 1) * limit;
   const db = await getDb();
-  if (!db) return { rows: [], total: 0, page, limit };
+  if (!db) return { rows: [], total: 0, totals: { purchasePrice: 0, grossCommission: 0 }, page, limit };
   const conditions = [];
-  if (agentId) conditions.push(eq(transactions.agentId, agentId));
+  if (agentIds?.length) conditions.push(inArray(transactions.agentId, agentIds));
+  else if (agentId) conditions.push(eq(transactions.agentId, agentId));
   if (status) conditions.push(eq(transactions.status, status as any));
   if (search) {
     const txSearch = search.replace(/\s+/g, " ").trim();
@@ -855,7 +856,8 @@ export async function getTransactions(agentId?: number, status?: string, search?
   if (flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
   if (flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
   if (flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
-  if (leadSourceId === -1) conditions.push(isNull(contacts.leadSourceId));
+  if (leadSourceIds?.length) conditions.push(inArray(contacts.leadSourceId, leadSourceIds));
+  else if (leadSourceId === -1) conditions.push(isNull(contacts.leadSourceId));
   else if (leadSourceId) conditions.push(eq(contacts.leadSourceId, leadSourceId));
   if (transactionType) conditions.push(eq(transactions.transactionType, transactionType as any));
   if (groupLeaderId) conditions.push(includeLeaderStats ? sql`(
@@ -889,7 +891,11 @@ export async function getTransactions(agentId?: number, status?: string, search?
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [countResult, rows] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(transactions).leftJoin(contacts, eq(transactions.primaryContactId, contacts.id)).leftJoin(properties, eq(transactions.propertyId, properties.id)).where(where),
+    db.select({
+      count: sql<number>`count(*)`,
+      totalPurchasePrice: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
+      totalGrossCommission: sql<string>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
+    }).from(transactions).leftJoin(contacts, eq(transactions.primaryContactId, contacts.id)).leftJoin(properties, eq(transactions.propertyId, properties.id)).where(where),
     (() => {
       const txParentLS = aliasedTable(leadSources, 'txParentLS');
       return db.select({
@@ -930,11 +936,21 @@ export async function getTransactions(agentId?: number, status?: string, search?
         .offset(offset);
     })(),
   ]);
-  return { rows, total: Number(countResult[0]?.count ?? 0), page, limit };
+  return {
+    rows,
+    total: Number(countResult[0]?.count ?? 0),
+    totals: {
+      purchasePrice: Number(countResult[0]?.totalPurchasePrice ?? 0),
+      grossCommission: Number(countResult[0]?.totalGrossCommission ?? 0),
+    },
+    page,
+    limit,
+  };
 }
 
 export type TransactionExportFilters = {
   agentId?: number;
+  agentIds?: number[];
   status?: string;
   transactionType?: string;
   search?: string;
@@ -949,6 +965,7 @@ export type TransactionExportFilters = {
   groupLeaderId?: number;
   includeLeaderStats?: boolean;
   leadSourceId?: number;
+  leadSourceIds?: number[];
   sortOrder?: "asc" | "desc";
   sortBy?: string;
 };
@@ -959,7 +976,8 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   if (!db) return [];
 
   const conditions = [];
-  if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
+  if (filters.agentIds?.length) conditions.push(inArray(transactions.agentId, filters.agentIds));
+  else if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
   if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
   if (filters.search) {
     const fSearch = filters.search.replace(/\s+/g, " ").trim();
@@ -979,7 +997,8 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   if (filters.flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
   if (filters.flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
-  if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
+  if (filters.leadSourceIds?.length) conditions.push(inArray(contacts.leadSourceId, filters.leadSourceIds));
+  else if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
   if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
     ${transactions.agentId} = ${filters.groupLeaderId}

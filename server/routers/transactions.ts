@@ -32,7 +32,7 @@ import { syncIsaOutcomeAttribution } from "../isaOutcomeAttribution";
 import { getDb } from "../db";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
-import { eq, and, sql, desc, aliasedTable, or } from "drizzle-orm";
+import { eq, and, sql, desc, aliasedTable, or, inArray } from "drizzle-orm";
 
 const wholePercentageSchema = z.coerce
   .number({ error: "Percentage must be a number from 0 to 100." })
@@ -79,6 +79,7 @@ async function triggerSmartPlansForTransactionStatus(
 
 const transactionExportFiltersSchema = z.object({
   agentId: z.number().optional(),
+  agentIds: z.array(z.number().int().positive()).min(1).optional(),
   status: z.enum(["under_contract", "closed", "terminated"]).optional(),
   transactionType: z.enum(["buyer", "seller", "dual"]).optional(),
   search: z.string().trim().max(200).optional(),
@@ -93,6 +94,7 @@ const transactionExportFiltersSchema = z.object({
   groupLeaderId: z.number().optional(),
   includeLeaderStats: z.boolean().optional(),
   leadSourceId: z.number().optional(),
+  leadSourceIds: z.array(z.number().int().positive()).min(1).optional(),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
   sortBy: z.enum(["contact", "property", "agent", "type", "price", "gci", "savvy_net", "lead_source", "status", "contract_date", "closing_date"]).default("closing_date"),
 });
@@ -101,6 +103,7 @@ export const transactionsRouter = router({
   list: protectedProcedure
     .input(z.object({
       agentId: z.number().optional(),
+      agentIds: z.array(z.number().int().positive()).min(1).optional(),
       status: z.string().optional(),
       transactionType: z.enum(["buyer","seller","dual"]).optional(),
       search: z.string().optional(),
@@ -115,14 +118,17 @@ export const transactionsRouter = router({
       groupLeaderId: z.number().optional(),
       includeLeaderStats: z.boolean().optional(),
       leadSourceId: z.number().optional(), // -1 = no source (NULL)
+      leadSourceIds: z.array(z.number().int().positive()).min(1).optional(),
       page: z.number().min(1).default(1),
       limit: z.number().min(1).max(100).default(25),
       sortOrder: z.enum(["asc", "desc"]).default("desc"),
       sortBy: z.string().optional(),
     }))
     .query(async ({ input, ctx }) => {
-      const agentId = ctx.user.role === "agent" ? ctx.user.id : input.agentId;
-      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date", input.groupLeaderId, input.includeLeaderStats);
+      const isAgentViewer = ctx.user.role === "agent";
+      const agentId = isAgentViewer ? ctx.user.id : input.agentId;
+      const agentIds = isAgentViewer ? undefined : input.agentIds;
+      return getTransactions(agentId, input.status, input.search, input.page, input.limit, input.marketId, input.contractDateFrom, input.contractDateTo, input.closingDateFrom, input.closingDateTo, input.flagNoClosingDate, input.flagPastClosingDate, input.leadSourceId, input.flagPayoutIntegrity, input.transactionType, input.sortOrder, input.sortBy ?? "closing_date", input.groupLeaderId, input.includeLeaderStats, agentIds, input.leadSourceIds);
     }),
 
   byContact: protectedProcedure
@@ -171,8 +177,12 @@ export const transactionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
-      const labels: { agentName?: string; marketName?: string; leadSourceName?: string } = {};
-      if (input.agentId) {
+      const labels: { agentName?: string; agentNames?: string[]; marketName?: string; leadSourceName?: string; leadSourceNames?: string[] } = {};
+      if (input.agentIds?.length) {
+        const selectedAgents = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, input.agentIds));
+        const namesById = new Map(selectedAgents.map((agent) => [agent.id, agent.name ?? `#${agent.id}`]));
+        labels.agentNames = input.agentIds.map((id) => namesById.get(id) ?? `#${id}`);
+      } else if (input.agentId) {
         const [agent] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.agentId)).limit(1);
         labels.agentName = agent?.name ?? undefined;
       }
@@ -180,7 +190,11 @@ export const transactionsRouter = router({
         const [market] = await db.select({ name: markets.name }).from(markets).where(eq(markets.id, input.marketId)).limit(1);
         labels.marketName = market?.name ?? undefined;
       }
-      if (input.leadSourceId) {
+      if (input.leadSourceIds?.length) {
+        const selectedLeadSources = await db.select({ id: leadSources.id, name: leadSources.name }).from(leadSources).where(inArray(leadSources.id, input.leadSourceIds));
+        const namesById = new Map(selectedLeadSources.map((source) => [source.id, source.name ?? `#${source.id}`]));
+        labels.leadSourceNames = input.leadSourceIds.map((id) => namesById.get(id) ?? `#${id}`);
+      } else if (input.leadSourceId) {
         const [leadSource] = await db.select({ name: leadSources.name }).from(leadSources).where(eq(leadSources.id, input.leadSourceId)).limit(1);
         labels.leadSourceName = leadSource?.name ?? undefined;
       }

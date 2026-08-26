@@ -6,6 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
@@ -16,6 +19,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -25,6 +29,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   Download,
   FileSpreadsheet,
   Filter,
@@ -63,6 +68,138 @@ function triggerCsvDownload(csv: string, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+type FilterOption = {
+  value: string;
+  label: string;
+  parentId?: string | null;
+};
+
+function ReportingMultiSelect({
+  options,
+  value,
+  onValueChange,
+  placeholder,
+  searchPlaceholder,
+  tree = false,
+}: {
+  options: FilterOption[];
+  value: string[];
+  onValueChange: (values: string[]) => void;
+  placeholder: string;
+  searchPlaceholder: string;
+  tree?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const selected = new Set(value);
+  const optionValues = new Set(options.map((option) => option.value));
+  const selectedOptions = options.filter((option) => selected.has(option.value));
+  const normalizedSelection = (next: Iterable<string>) => {
+    const nextSet = new Set(next);
+    onValueChange(options.filter((option) => nextSet.has(option.value)).map((option) => option.value));
+  };
+  const toggleOption = (optionValue: string) => {
+    const next = new Set(selected);
+    if (next.has(optionValue)) next.delete(optionValue);
+    else next.add(optionValue);
+    normalizedSelection(next);
+  };
+  const removeOption = (optionValue: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const next = new Set(selected);
+    next.delete(optionValue);
+    normalizedSelection(next);
+  };
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const matches = (option: FilterOption) => !normalizedSearch || option.label.toLowerCase().includes(normalizedSearch);
+  const rootOptions = tree
+    ? options.filter((option) => !option.parentId || !optionValues.has(option.parentId))
+    : [];
+  const childrenFor = (option: FilterOption) => options.filter((child) => child.parentId === option.value);
+  const visibleOptions = options.filter(matches);
+
+  const checkboxRow = (option: FilterOption, className = "", checked: boolean | "indeterminate" = selected.has(option.value), onCheckedChange?: (checked: boolean) => void) => (
+    <label key={option.value} className={cn("flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted/65", className)}>
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange ? onCheckedChange(next === true) : toggleOption(option.value)}
+        aria-label={option.label}
+      />
+      <span className="min-w-0 flex-1 break-words leading-snug">{option.label}</span>
+    </label>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={cn("min-h-10 h-auto w-full justify-between gap-2 px-3 py-1.5 text-left font-normal", selectedOptions.length === 0 && "text-muted-foreground")}
+        >
+          <span className="flex min-w-0 flex-1 flex-wrap gap-1">
+            {selectedOptions.length === 0 ? <span className="truncate">{placeholder}</span> : selectedOptions.map((option) => (
+              <Badge key={option.value} variant="secondary" className="max-w-[190px] gap-1 pr-1 text-xs font-normal">
+                <span className="truncate">{option.label}</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Remove ${option.label}`}
+                  className="cursor-pointer rounded-sm opacity-60 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+                  onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                  onClick={(event) => removeOption(option.value, event)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") removeOption(option.value, event as unknown as React.MouseEvent);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </span>
+              </Badge>
+            ))}
+          </span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(30rem,calc(100vw-2rem))] p-0">
+        <div className="border-b p-2">
+          <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={searchPlaceholder} className="h-8 text-sm" />
+        </div>
+        <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+          <span className="text-xs text-muted-foreground">{selectedOptions.length} selected</span>
+          <div className="flex items-center gap-1">
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => normalizedSelection(options.map((option) => option.value))}>Select All</Button>
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={selectedOptions.length === 0} onClick={() => onValueChange([])}>Clear All</Button>
+          </div>
+        </div>
+        <div className="max-h-72 overflow-y-auto p-1">
+          {!tree && (visibleOptions.length ? visibleOptions.map((option) => checkboxRow(option)) : <p className="px-3 py-8 text-center text-sm text-muted-foreground">No matches found.</p>)}
+          {tree && (() => {
+            const visibleRoots = rootOptions.filter((parent) => matches(parent) || childrenFor(parent).some(matches));
+            if (!visibleRoots.length) return <p className="px-3 py-8 text-center text-sm text-muted-foreground">No sources match your search.</p>;
+            return visibleRoots.map((parent) => {
+              const branch = [parent, ...childrenFor(parent)];
+              const matchedChildren = childrenFor(parent).filter((child) => matches(parent) || matches(child));
+              const selectedCount = branch.filter((option) => selected.has(option.value)).length;
+              const parentState: boolean | "indeterminate" = selectedCount === 0 ? false : selectedCount === branch.length ? true : "indeterminate";
+              return <div key={parent.value} className="border-b last:border-0">
+                {checkboxRow(parent, "font-medium", parentState, (checked) => {
+                  const next = new Set(selected);
+                  branch.forEach((option) => checked ? next.add(option.value) : next.delete(option.value));
+                  normalizedSelection(next);
+                })}
+                {matchedChildren.map((child) => checkboxRow(child, "ml-6 text-muted-foreground"))}
+              </div>;
+            });
+          })()}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function TransactionReportingPage() {
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
@@ -70,9 +207,9 @@ export default function TransactionReportingPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [agentFilter, setAgentFilter] = useState("all");
+  const [agentFilters, setAgentFilters] = useState<string[]>([]);
   const [marketFilter, setMarketFilter] = useState("all");
-  const [leadSourceFilter, setLeadSourceFilter] = useState("all");
+  const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>([]);
   const [contractDateFrom, setContractDateFrom] = useState("");
   const [contractDateTo, setContractDateTo] = useState("");
   const [closingDateFrom, setClosingDateFrom] = useState("");
@@ -95,9 +232,9 @@ export default function TransactionReportingPage() {
     search: search || undefined,
     status: statusFilter === "all" ? undefined : statusFilter,
     transactionType: typeFilter === "all" ? undefined : typeFilter,
-    agentId: agentFilter === "all" ? undefined : Number(agentFilter),
+    agentIds: agentFilters.length ? agentFilters.map(Number) : undefined,
     marketId: marketFilter === "all" ? undefined : Number(marketFilter),
-    leadSourceId: leadSourceFilter === "all" ? undefined : Number(leadSourceFilter),
+    leadSourceIds: leadSourceFilters.length ? leadSourceFilters.map(Number) : undefined,
     contractDateFrom: contractDateFrom || undefined,
     contractDateTo: contractDateTo || undefined,
     closingDateFrom: closingDateFrom || undefined,
@@ -107,12 +244,13 @@ export default function TransactionReportingPage() {
     flagPayoutIntegrity: flagPayoutIntegrity || undefined,
     sortOrder: "desc" as const,
     sortBy: "closing_date" as const,
-  }), [search, statusFilter, typeFilter, agentFilter, marketFilter, leadSourceFilter, contractDateFrom, contractDateTo, closingDateFrom, closingDateTo, flagNoClosingDate, flagPastClosingDate, flagPayoutIntegrity]);
+  }), [search, statusFilter, typeFilter, agentFilters, marketFilter, leadSourceFilters, contractDateFrom, contractDateTo, closingDateFrom, closingDateTo, flagNoClosingDate, flagPastClosingDate, flagPayoutIntegrity]);
 
   const queryInput = useMemo(() => ({ ...exportInput, page, limit }), [exportInput, page]);
   const { data: txData, isLoading } = trpc.transactions.list.useQuery(queryInput);
   const rows = txData?.rows ?? [];
   const total = txData?.total ?? 0;
+  const scopedTotals = txData?.totals ?? { purchasePrice: 0, grossCommission: 0 };
   const totalPages = Math.ceil(total / limit);
 
   const { data: historyData, isLoading: historyLoading } = trpc.transactions.exportHistory.useQuery({
@@ -132,8 +270,8 @@ export default function TransactionReportingPage() {
     onError: (error) => toast.error(error.message || "Transaction export failed"),
   });
 
-  const hasActiveFilters = statusFilter !== "all" || typeFilter !== "all" || agentFilter !== "all" ||
-    marketFilter !== "all" || leadSourceFilter !== "all" || Boolean(contractDateFrom) || Boolean(contractDateTo) ||
+  const hasActiveFilters = statusFilter !== "all" || typeFilter !== "all" || agentFilters.length > 0 ||
+    marketFilter !== "all" || leadSourceFilters.length > 0 || Boolean(contractDateFrom) || Boolean(contractDateTo) ||
     Boolean(closingDateFrom) || Boolean(closingDateTo) || flagNoClosingDate || flagPastClosingDate ||
     flagPayoutIntegrity || Boolean(search);
 
@@ -141,9 +279,9 @@ export default function TransactionReportingPage() {
     setSearch("");
     setStatusFilter("all");
     setTypeFilter("all");
-    setAgentFilter("all");
+    setAgentFilters([]);
     setMarketFilter("all");
-    setLeadSourceFilter("all");
+    setLeadSourceFilters([]);
     setContractDateFrom("");
     setContractDateTo("");
     setClosingDateFrom("");
@@ -236,14 +374,14 @@ export default function TransactionReportingPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Agent</Label>
-                      <Select value={agentFilter} onValueChange={(value) => { setAgentFilter(value); resetPage(); }}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All agents</SelectItem>
-                          {(agents as any[]).map((agent: any) => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <Label>Agents</Label>
+                      <ReportingMultiSelect
+                        options={(agents as any[]).map((agent: any) => ({ value: String(agent.id), label: agent.name }))}
+                        value={agentFilters}
+                        onValueChange={(values) => { setAgentFilters(values); resetPage(); }}
+                        placeholder="All agents"
+                        searchPlaceholder="Search agents…"
+                      />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Market</Label>
@@ -256,18 +394,15 @@ export default function TransactionReportingPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label>Lead source</Label>
-                      <Select value={leadSourceFilter} onValueChange={(value) => { setLeadSourceFilter(value); resetPage(); }}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All lead sources</SelectItem>
-                          {leadSources.map((source: any) => (
-                            <SelectItem key={source.id} value={String(source.id)}>
-                              {source.parentId ? `↳ ${source.name}` : source.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Label>Lead sources</Label>
+                      <ReportingMultiSelect
+                        options={leadSources.map((source: any) => ({ value: String(source.id), label: source.name, parentId: source.parentId ? String(source.parentId) : null }))}
+                        value={leadSourceFilters}
+                        onValueChange={(values) => { setLeadSourceFilters(values); resetPage(); }}
+                        placeholder="All lead sources"
+                        searchPlaceholder="Search lead sources…"
+                        tree
+                      />
                     </div>
                   </div>
 
@@ -391,6 +526,17 @@ export default function TransactionReportingPage() {
                       );
                     })}
                   </TableBody>
+                  {!isLoading && total > 0 && (
+                    <TableFooter>
+                      <TableRow className="bg-muted/40 font-semibold">
+                        <TableCell colSpan={6}>Total matching records ({total.toLocaleString()})</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(scopedTotals.purchasePrice)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(scopedTotals.grossCommission)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">All pages</TableCell>
+                        <TableCell>—</TableCell>
+                      </TableRow>
+                    </TableFooter>
+                  )}
                 </Table>
               </div>
               {totalPages > 1 && (
