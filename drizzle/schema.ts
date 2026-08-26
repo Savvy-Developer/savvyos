@@ -444,7 +444,121 @@ export const tasks = mysqlTable("tasks", {
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;
 
+// ─── Webinars ─────────────────────────────────────────────────────────────────
+// Webinar marketing templates provide a reusable, assigned run-of-show. When an
+// admin creates a webinar, each template task becomes a standard SavvyOS task
+// linked back to the webinar for accountability and reporting.
+export const webinarMarketingTemplates = mysqlTable("webinar_marketing_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WebinarMarketingTemplate = typeof webinarMarketingTemplates.$inferSelect;
+export type InsertWebinarMarketingTemplate = typeof webinarMarketingTemplates.$inferInsert;
+
+export const webinarMarketingTemplateTasks = mysqlTable("webinar_marketing_template_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  templateId: int("templateId").notNull().references(() => webinarMarketingTemplates.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 512 }).notNull(),
+  description: text("description"),
+  assignedToId: int("assignedToId").references(() => users.id, { onDelete: "set null" }),
+  // Relative to webinar start. A negative number schedules work before the event.
+  dueDaysOffset: int("dueDaysOffset").default(0).notNull(),
+  priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
+  taskType: mysqlEnum("taskType", [
+    "follow_up", "outreach", "document", "call", "email", "meeting", "review", "payout", "other",
+  ]).default("other").notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("webinar_marketing_template_tasks_template_idx").on(table.templateId, table.sortOrder)]);
+export type WebinarMarketingTemplateTask = typeof webinarMarketingTemplateTasks.$inferSelect;
+export type InsertWebinarMarketingTemplateTask = typeof webinarMarketingTemplateTasks.$inferInsert;
+
+export const webinars = mysqlTable("webinars", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  startTime: timestamp("startTime").notNull(),
+  durationMinutes: int("durationMinutes").default(60).notNull(),
+  timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
+  status: mysqlEnum("status", ["scheduled", "live", "ended", "cancelled"]).default("scheduled").notNull(),
+  registrationEnabled: boolean("registrationEnabled").default(true).notNull(),
+  registrationApproval: mysqlEnum("registrationApproval", ["automatically", "manually", "no_registration"]).default("automatically").notNull(),
+  marketingTemplateId: int("marketingTemplateId").references(() => webinarMarketingTemplates.id, { onDelete: "set null" }),
+  hostUserId: int("hostUserId").references(() => users.id, { onDelete: "set null" }),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  zoomWebinarId: varchar("zoomWebinarId", { length: 64 }).unique(),
+  zoomWebinarUuid: varchar("zoomWebinarUuid", { length: 255 }),
+  zoomJoinUrl: text("zoomJoinUrl"),
+  zoomRegistrationUrl: text("zoomRegistrationUrl"),
+  zoomStartUrl: text("zoomStartUrl"),
+  zoomCreatedAt: timestamp("zoomCreatedAt"),
+  lastZoomSyncAt: timestamp("lastZoomSyncAt"),
+  lastZoomSyncError: text("lastZoomSyncError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("webinars_upcoming_idx").on(table.status, table.startTime),
+  index("webinars_template_idx").on(table.marketingTemplateId),
+]);
+export type Webinar = typeof webinars.$inferSelect;
+export type InsertWebinar = typeof webinars.$inferInsert;
+
+export const webinarTaskLinks = mysqlTable("webinar_task_links", {
+  id: int("id").autoincrement().primaryKey(),
+  webinarId: int("webinarId").notNull().references(() => webinars.id, { onDelete: "cascade" }),
+  taskId: int("taskId").notNull().unique().references(() => tasks.id, { onDelete: "cascade" }),
+  templateTaskId: int("templateTaskId").references(() => webinarMarketingTemplateTasks.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("webinar_task_links_webinar_idx").on(table.webinarId)]);
+export type WebinarTaskLink = typeof webinarTaskLinks.$inferSelect;
+export type InsertWebinarTaskLink = typeof webinarTaskLinks.$inferInsert;
+
+export const webinarAttendees = mysqlTable("webinar_attendees", {
+  id: int("id").autoincrement().primaryKey(),
+  webinarId: int("webinarId").notNull().references(() => webinars.id, { onDelete: "cascade" }),
+  zoomRegistrantId: varchar("zoomRegistrantId", { length: 128 }),
+  zoomParticipantId: varchar("zoomParticipantId", { length: 128 }),
+  email: varchar("email", { length: 320 }),
+  firstName: varchar("firstName", { length: 255 }),
+  lastName: varchar("lastName", { length: 255 }),
+  status: mysqlEnum("status", ["registered", "approved", "cancelled", "denied", "attended", "no_show"]).default("registered").notNull(),
+  registeredAt: timestamp("registeredAt"),
+  joinedAt: timestamp("joinedAt"),
+  leftAt: timestamp("leftAt"),
+  attendanceMinutes: int("attendanceMinutes"),
+  providerData: json("providerData").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("webinar_attendees_registrant_unique").on(table.webinarId, table.zoomRegistrantId),
+  index("webinar_attendees_webinar_status_idx").on(table.webinarId, table.status),
+  index("webinar_attendees_webinar_email_idx").on(table.webinarId, table.email),
+]);
+export type WebinarAttendee = typeof webinarAttendees.$inferSelect;
+export type InsertWebinarAttendee = typeof webinarAttendees.$inferInsert;
+
+// Incoming events are retained and de-duplicated before attendee status updates.
+// Zoom webhooks are at-least-once, so this protects counts from duplicate delivery.
+export const zoomWebhookEvents = mysqlTable("zoom_webhook_events", {
+  id: int("id").autoincrement().primaryKey(),
+  eventKey: varchar("eventKey", { length: 128 }).notNull().unique(),
+  webinarId: int("webinarId").references(() => webinars.id, { onDelete: "set null" }),
+  eventType: varchar("eventType", { length: 128 }).notNull(),
+  eventTimestamp: timestamp("eventTimestamp"),
+  payload: json("payload").$type<Record<string, unknown>>().notNull(),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+}, (table) => [index("zoom_webhook_events_webinar_idx").on(table.webinarId, table.receivedAt)]);
+export type ZoomWebhookEvent = typeof zoomWebhookEvents.$inferSelect;
+export type InsertZoomWebhookEvent = typeof zoomWebhookEvents.$inferInsert;
+
 // ─── Documents ────────────────────────────────────────────────────────────────
+
 export const documents = mysqlTable("documents", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 512 }).notNull(),

@@ -29,6 +29,7 @@ import { scheduleTempGrantExpiry } from "../tempGrantExpiryScheduler";
 import { scheduleEmailBehaviorsSync } from "../emailBehaviorsSync";
 import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
+import { registerZoomWebhook } from "../zoomWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
@@ -95,6 +96,11 @@ async function startServer() {
       return res.status(500).json({ error: "Webhook processing failed" });
     }
   });
+
+  // Zoom signs the raw payload and also performs a challenge-response check.
+  // It must be registered before the global parser for signature verification.
+  app.post("/api/webhooks/zoom", express.raw({ type: "application/json" }));
+  registerZoomWebhook(app);
 
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));

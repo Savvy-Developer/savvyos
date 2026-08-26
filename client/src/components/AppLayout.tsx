@@ -66,6 +66,7 @@ import {
   Trophy,
   Sparkles,
   Wrench,
+  Video,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -339,6 +340,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: ClipboardList, label: "Roles & Responsibilities", path: "/roles-responsibilities" },
         { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
+        { icon: Video, label: "Webinars", path: "/webinars" },
         { icon: Wrench, label: "Tech Requests", path: "/tech-requests", badge: pendingTechRequests > 0 ? pendingTechRequests : undefined },
         { icon: Target, label: "Goals", path: "/goals" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },

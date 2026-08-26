@@ -124,6 +124,7 @@ import ReferralsPage from "./pages/ReferralsPage";
 import ResendInboxPage from "./pages/ResendInboxPage";
 import ReferralDetailPage from "./pages/ReferralDetailPage";
 import ReferralAgentDetailPage from "./pages/ReferralAgentDetailPage";
+import WebinarsAdminPage from "./pages/WebinarsAdminPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -327,6 +328,7 @@ function Router() {
           <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
+          <Route path="/webinars">{() => <AdminRoute><WebinarsAdminPage /></AdminRoute>}</Route>
           <Route path="/tech-requests" component={TechRequestsPage} />
           <Route path="/projects" component={ProjectsPage} />
           <Route path="/projects/:id" component={ProjectDetailPage} />
