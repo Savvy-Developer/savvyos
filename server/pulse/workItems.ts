@@ -8,6 +8,7 @@ import {
   pulseMeetingMembers,
   pulseMeetings,
   pulseRockMilestones,
+  pulseRockRaciAssignments,
   pulseWorkItemCommentMentions,
   pulseWorkItemComments,
   pulseWorkItemMoves,
@@ -29,6 +30,7 @@ const issueStatusSchema = z.enum(["open", "discussing", "solved", "dropped"]);
 const rockStatusSchema = z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]);
 const quarterSchema = z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.");
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date in YYYY-MM-DD format.");
+const raciRoleSchema = z.enum(["responsible", "accountable", "consulted", "informed"]);
 
 function uuid() {
   return crypto.randomUUID();
@@ -244,7 +246,7 @@ export const pulseWorkItemsRouter = router({
         ? await db.select({ name: users.name }).from(users).where(eq(users.id, item.ownerPersonId)).limit(1)
         : [];
       const [creator] = await db.select({ name: users.name }).from(users).where(eq(users.id, item.createdById)).limit(1);
-      const [milestones, notes, moves, comments, activity, members, rolloverPrompts] = await Promise.all([
+      const [milestones, notes, moves, comments, activity, members, rolloverPrompts, raci] = await Promise.all([
         item.type === "rock" ? milestonesFor(db, item.id) : Promise.resolve([]),
         db.select({
           id: pulseWorkItemStatusNotes.id,
@@ -294,6 +296,9 @@ export const pulseWorkItemsRouter = router({
           isNull(pulseWorkItemNotifications.actionedAt),
           isNull(pulseWorkItemNotifications.deletedAt),
         )),
+        item.type === "rock" ? db.select({ personId: pulseRockRaciAssignments.personId, role: pulseRockRaciAssignments.role, name: users.name, email: users.email })
+          .from(pulseRockRaciAssignments).leftJoin(users, eq(users.id, pulseRockRaciAssignments.personId))
+          .where(and(eq(pulseRockRaciAssignments.workItemId, item.id), isNull(pulseRockRaciAssignments.deletedAt))) : Promise.resolve([]),
       ]);
 
       const commentIds = comments.map((comment) => comment.id);
@@ -333,6 +338,7 @@ export const pulseWorkItemsRouter = router({
         activity,
         members,
         quarterRolloverPending: rolloverPrompts.length > 0,
+        raci: item.type === "rock" ? [{ personId: item.assigneeId, role: "responsible", name: assignee?.name ?? null }, ...raci] : [],
       };
     }),
 
@@ -344,14 +350,19 @@ export const pulseWorkItemsRouter = router({
       meetingId: z.string().uuid().nullable(),
       ownerPersonId: z.number().int().positive().nullable(),
       assigneeId: z.number().int().positive().optional(),
+      assigneeIds: z.array(z.number().int().positive()).min(1).max(50).optional(),
       dueDate: dateSchema.optional().nullable(),
       quarter: quarterSchema.optional().nullable(),
       percentComplete: z.number().int().min(0).max(100).optional(),
+      definitionOfDone: z.string().trim().min(1).max(8000).optional(),
+      raci: z.array(z.object({ personId: z.number().int().positive(), role: raciRoleSchema })).max(100).default([]),
     }).refine((input) => (input.meetingId === null) !== (input.ownerPersonId === null), {
       message: "Choose one place: a meeting or one person.",
     }).superRefine((input, context) => {
       if (input.type === "rock" && !input.quarter) context.addIssue({ code: z.ZodIssueCode.custom, path: ["quarter"], message: "Choose the rock's quarter." });
+      if (input.type === "rock" && !input.definitionOfDone?.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["definitionOfDone"], message: "Every Rock needs a definition of done." });
       if (input.type !== "rock" && input.quarter) context.addIssue({ code: z.ZodIssueCode.custom, path: ["quarter"], message: "Only rocks use a quarter." });
+      if (input.type !== "todo" && (input.assigneeIds?.length ?? 0) > 1) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assigneeIds"], message: "Only To-Dos can be assigned to multiple people." });
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -360,58 +371,55 @@ export const pulseWorkItemsRouter = router({
       if (input.meetingId) {
         const currentMeeting = await require_visible_meeting(db, ctx.user.id, input.meetingId);
         meeting = currentMeeting;
-        await requireMeetingMember(db, input.assigneeId ?? ctx.user.id, currentMeeting);
       } else if (input.ownerPersonId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Personal work can only belong to you." });
       }
 
-      const id = uuid();
-      const assigneeId = input.assigneeId ?? ctx.user.id;
+      const assigneeIds = Array.from(new Set(input.type === "todo" && input.assigneeIds?.length ? input.assigneeIds : [input.assigneeId ?? ctx.user.id]));
+      if (meeting) for (const assigneeId of assigneeIds) await requireMeetingMember(db, assigneeId, meeting);
       const dueDate = input.type === "todo" ? (input.dueDate ?? defaultDueDate()) : input.dueDate ?? null;
-      const assignmentPreference = assigneeId !== ctx.user.id
-        ? await getPulseNotificationPreference(db, assigneeId, "todo_assigned")
-        : null;
+      const assignmentGroupId = input.type === "todo" && assigneeIds.length > 1 ? uuid() : null;
+      const createdIds: string[] = [];
+      const preferences = new Map<number, { inApp: boolean; email: boolean }>();
+      for (const assigneeId of assigneeIds) if (assigneeId !== ctx.user.id) preferences.set(assigneeId, await getPulseNotificationPreference(db, assigneeId, "todo_assigned"));
       await db.transaction(async (tx: any) => {
-        await tx.insert(pulseWorkItems).values({
-          id,
-          type: input.type,
-          title: input.title,
-          description: input.description ?? null,
-          meetingId: input.meetingId,
-          ownerPersonId: input.ownerPersonId,
-          assigneeId,
-          createdById: ctx.user.id,
-          status: defaultStatus(input.type),
-          dueDate,
-          quarter: input.type === "rock" ? input.quarter : null,
-          percentComplete: input.type === "rock" ? input.percentComplete ?? 0 : 0,
-          percentSource: "manual",
-        });
-        await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, meetingId: input.meetingId, ownerPersonId: input.ownerPersonId });
-        if (assignmentPreference?.inApp) {
-          await tx.insert(pulseNotifications).values({
-            id: uuid(),
-            personId: assigneeId,
-            notificationType: "assignment",
-            requiresAction: true,
-            sourceType: "work_item",
-            sourceId: id,
+        for (const assigneeId of assigneeIds) {
+          const id = uuid();
+          createdIds.push(id);
+          await tx.insert(pulseWorkItems).values({
+            id,
+            type: input.type,
+            title: input.title,
+            description: input.description ?? null,
             meetingId: input.meetingId,
-            body: input.title,
+            ownerPersonId: input.ownerPersonId,
+            assigneeId,
+            createdById: ctx.user.id,
+            status: defaultStatus(input.type),
+            dueDate,
+            quarter: input.type === "rock" ? input.quarter : null,
+            definitionOfDone: input.type === "rock" ? input.definitionOfDone!.trim() : null,
+            assignmentGroupId,
+            percentComplete: input.type === "rock" ? input.percentComplete ?? 0 : 0,
+            percentSource: "manual",
+          });
+          if (input.type === "rock" && input.raci.length) {
+            const raci = input.raci.filter((assignment) => assignment.personId !== assigneeId || assignment.role !== "responsible");
+            if (raci.length) await tx.insert(pulseRockRaciAssignments).values(raci.map((assignment) => ({ id: uuid(), workItemId: id, personId: assignment.personId, role: assignment.role })));
+          }
+          await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, meetingId: input.meetingId, ownerPersonId: input.ownerPersonId, assigneeId, assignmentGroupId });
+          if (preferences.get(assigneeId)?.inApp) await tx.insert(pulseNotifications).values({
+            id: uuid(), personId: assigneeId, notificationType: "assignment", requiresAction: true, sourceType: "work_item", sourceId: id, meetingId: input.meetingId, body: input.title,
           });
         }
       });
-      if (assignmentPreference?.email && meeting) {
-        const [recipient] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, assigneeId)).limit(1);
-        if (recipient?.email) await sendTransactionalEmail("todo_assigned", {
-          recipientEmail: recipient.email,
-          recipientName: recipient.name ?? undefined,
-          pulseMeetingName: meeting.name,
-          pulseWorkItemTitle: input.title,
-          pulseItemUrl: "https://os.savvy-agents.com/pulse/work",
-        }, { idempotencyKey: `pulse-todo-assigned:${id}:${assigneeId}` });
+      if (meeting && input.type === "todo") {
+        const recipients = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, assigneeIds));
+        await Promise.all(recipients.filter((recipient) => recipient.email && preferences.get(recipient.id)?.email).map((recipient) => sendTransactionalEmail("todo_assigned", {
+          recipientEmail: recipient.email!, recipientName: recipient.name ?? undefined, pulseMeetingName: meeting!.name, pulseWorkItemTitle: input.title, pulseItemUrl: "https://os.savvy-agents.com/pulse/work",
+        }, { idempotencyKey: `pulse-todo-assigned:${assignmentGroupId ?? createdIds[0]}:${recipient.id}` })));
       }
-      return { id, dueDate };
+      return { id: createdIds[0], ids: createdIds, dueDate, assignmentGroupId };
     }),
 
   update: pulseProcedure
@@ -510,12 +518,13 @@ export const pulseWorkItemsRouter = router({
     }),
 
   setRockStatus: pulseProcedure
-    .input(z.object({ workItemId: z.string().uuid(), status: rockStatusSchema, note: z.string().trim().max(2000).optional().nullable() }))
+    .input(z.object({ workItemId: z.string().uuid(), status: rockStatusSchema, note: z.string().trim().max(2000).optional().nullable(), issue: z.object({ meetingId: z.string().uuid(), title: z.string().trim().min(1).max(500).optional() }).optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== "rock") throw new TRPCError({ code: "BAD_REQUEST", message: "This item is not a rock." });
+      if (input.status === "off_track" && !input.issue) throw new TRPCError({ code: "BAD_REQUEST", message: "An off-track Rock must be routed to an L10 Issue." });
       if (item.status === input.status) return { success: true, asksForNote: null };
       const shouldAsk = input.status === "at_risk" || input.status === "off_track"
         ? "What happened?"
@@ -527,6 +536,8 @@ export const pulseWorkItemsRouter = router({
       const rockDonePreferences = new Map<number, { inApp: boolean; email: boolean }>();
       for (const recipientId of rockDoneRecipientIds) rockDonePreferences.set(recipientId, await getPulseNotificationPreference(db, recipientId, "rock_completed"));
       const inAppRockDoneRecipientIds = rockDoneRecipientIds.filter((recipientId) => rockDonePreferences.get(recipientId)?.inApp);
+      const issueMeeting = input.issue ? await require_visible_meeting(db, ctx.user.id, input.issue.meetingId) : null;
+      let issueId: string | null = null;
       await db.transaction(async (tx: any) => {
         await tx.update(pulseWorkItems).set({
           status: input.status,
@@ -537,6 +548,11 @@ export const pulseWorkItemsRouter = router({
           await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note, personId: ctx.user.id });
         }
         if (inAppRockDoneRecipientIds.length) await tx.insert(pulseWorkItemNotifications).values(inAppRockDoneRecipientIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId: null, notificationType: "rock_done" as const })));
+        if (issueMeeting && input.issue) {
+          issueId = uuid();
+          await tx.insert(pulseWorkItems).values({ id: issueId, type: "issue", title: input.issue.title ?? `Off-track Rock: ${item.title}`, description: note ?? item.definitionOfDone ?? null, meetingId: issueMeeting.id, ownerPersonId: null, assigneeId: ctx.user.id, createdById: ctx.user.id, status: "open", dueDate: null, percentComplete: 0, percentSource: "manual" });
+          await writeActivity(tx, ctx.user.id, "work_item", issueId, "created_from_off_track_rock", undefined, undefined, { rockId: item.id, meetingId: issueMeeting.id });
+        }
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, input.status);
       });
       if (rockDoneRecipientIds.length && meeting) {
@@ -549,7 +565,24 @@ export const pulseWorkItemsRouter = router({
           pulseItemUrl: "https://os.savvy-agents.com/pulse/work",
         }, { idempotencyKey: `pulse-rock-completed:${item.id}:${recipient.id}` })));
       }
-      return { success: true, asksForNote: shouldAsk };
+      return { success: true, asksForNote: shouldAsk, issueId };
+    }),
+
+  setRockRaci: pulseProcedure
+    .input(z.object({ workItemId: z.string().uuid(), assignments: z.array(z.object({ personId: z.number().int().positive(), role: raciRoleSchema })).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "rock") throw new TRPCError({ code: "BAD_REQUEST", message: "Only Rocks use RACI." });
+      if (meeting) for (const assignment of input.assignments) await requireMeetingMember(db, assignment.personId, meeting);
+      const assignments = input.assignments.filter((assignment) => !(assignment.personId === item.assigneeId && assignment.role === "responsible"));
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseRockRaciAssignments).set({ deletedAt: new Date() }).where(and(eq(pulseRockRaciAssignments.workItemId, item.id), isNull(pulseRockRaciAssignments.deletedAt)));
+        if (assignments.length) await tx.insert(pulseRockRaciAssignments).values(assignments.map((assignment) => ({ id: uuid(), workItemId: item.id, personId: assignment.personId, role: assignment.role })));
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "raci_updated", "raci", undefined, assignments);
+      });
+      return { success: true };
     }),
 
   setManualRockPercent: pulseProcedure

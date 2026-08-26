@@ -1,12 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq, isNull } from "drizzle-orm";
-import { adminPermissions, pulseMeetingMembers, pulseMeetings } from "../../drizzle/schema";
+import { adminPermissions, pulseMeetingMembers, pulseMeetings, pulsePermissions } from "../../drizzle/schema";
 import { protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 
 const PROTECTED_EMAIL = "tyler@savvy.realty";
 const PULSE_UNAVAILABLE = "Pulse is not available. Ask a SavvyOS administrator to grant Pulse access.";
 const PULSE_SETTINGS_UNAVAILABLE = "Pulse settings are not available.";
+export const PULSE_CAPABILITIES = ["settings", "scorecard_history", "quarterly_rocks", "archive_reports", "email_matrix"] as const;
+export type PulseCapability = typeof PULSE_CAPABILITIES[number];
 
 type PulseUser = {
   id: number;
@@ -37,15 +39,35 @@ export async function canOpenPulse(db: any, user: PulseUser): Promise<boolean> {
  * Layer 2: Pulse Settings is a separate, default-off SavvyOS permission. It
  * controls Pulse-wide administration only and never grants meeting visibility.
  */
-export async function canOpenPulseSettings(db: any, user: PulseUser): Promise<boolean> {
+export async function hasPulseCapability(db: any, user: PulseUser, capability: PulseCapability): Promise<boolean> {
+  // The protected owner can never lose access through either permission system.
+  if (user.email?.toLowerCase() === PROTECTED_EMAIL) return true;
   if (user.role !== "admin") return false;
-  const [row] = await db
+  const [explicit] = await db.select({ allowed: pulsePermissions.allowed })
+    .from(pulsePermissions)
+    .where(and(eq(pulsePermissions.personId, user.id), eq(pulsePermissions.capability, capability)))
+    .limit(1);
+  return explicit?.allowed === true;
+}
+
+export async function canOpenPulseSettings(db: any, user: PulseUser): Promise<boolean> {
+  if (user.email?.toLowerCase() === PROTECTED_EMAIL) return true;
+  if (user.role !== "admin") return false;
+  const [mainPermission] = await db
     .select({ canViewPulseSettings: adminPermissions.canViewPulseSettings })
     .from(adminPermissions)
     .where(eq(adminPermissions.userId, user.id))
     .limit(1);
-  return row?.canViewPulseSettings === true;
+  if (mainPermission?.canViewPulseSettings !== true) return false;
+  const [configured] = await db.select({ id: pulsePermissions.id }).from(pulsePermissions)
+    .where(eq(pulsePermissions.capability, "settings")).limit(1);
+  // Preserve the current settings behavior until the dedicated Pulse matrix is configured.
+  return configured ? hasPulseCapability(db, user, "settings") : true;
 }
+
+export const canViewPulseScorecardHistory = (db: any, user: PulseUser) => hasPulseCapability(db, user, "scorecard_history");
+export const canViewPulseQuarterlyRocks = (db: any, user: PulseUser) => hasPulseCapability(db, user, "quarterly_rocks");
+export const canViewPulseArchiveReports = (db: any, user: PulseUser) => hasPulseCapability(db, user, "archive_reports");
 
 export async function requirePulseSettingsAccess(db: any, user: PulseUser): Promise<void> {
   if (!await canOpenPulseSettings(db, user)) throw unavailable(PULSE_SETTINGS_UNAVAILABLE);

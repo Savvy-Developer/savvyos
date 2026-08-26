@@ -9,7 +9,9 @@ import {
   pulseMeetingMembers,
   pulseMeetingRocks,
   pulseMeetingScorecardMetrics,
+  pulseMeetingTodos,
   pulseMeetings,
+  pulsePermissions,
   pulseMeetingsArchive,
   pulseWorkItems,
   rrScorecardMetrics,
@@ -18,7 +20,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { router } from "../_core/trpc";
-import { canOpenPulseSettings, requireMeetingConfigurationAccess, requirePulseSettingsAccess, pulseProcedure } from "./authorization";
+import { canOpenPulseSettings, PULSE_CAPABILITIES, requireMeetingConfigurationAccess, requirePulseSettingsAccess, pulseProcedure } from "./authorization";
 
 const id = () => crypto.randomUUID();
 const daySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -108,7 +110,7 @@ export const pulseSettingsRouter = router({
       await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
       const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
       if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists. Go to your meetings." });
-      const [members, metricMappings, goalMappings, rockMappings, archive, metricCandidates, goalCandidates, rockCandidates] = await Promise.all([
+      const [members, metricMappings, goalMappings, rockMappings, todoMappings, archive, metricCandidates, goalCandidates, rockCandidates, todoCandidates] = await Promise.all([
         meetingMembers(db, meeting.id),
         db.select({ id: pulseMeetingScorecardMetrics.id, metricId: rrScorecardMetrics.id, name: rrScorecardMetrics.name, ownerName: users.name, sortOrder: pulseMeetingScorecardMetrics.sortOrder })
           .from(pulseMeetingScorecardMetrics).leftJoin(rrScorecardMetrics, eq(rrScorecardMetrics.id, pulseMeetingScorecardMetrics.savvyosMetricId)).leftJoin(users, eq(users.id, rrScorecardMetrics.createdById))
@@ -119,17 +121,21 @@ export const pulseSettingsRouter = router({
         db.select({ id: pulseMeetingRocks.id, workItemId: pulseWorkItems.id, title: pulseWorkItems.title, ownerName: users.name, sortOrder: pulseMeetingRocks.sortOrder })
           .from(pulseMeetingRocks).innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseMeetingRocks.workItemId)).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
           .where(and(eq(pulseMeetingRocks.meetingId, meeting.id), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseMeetingRocks.sortOrder)),
+        db.select({ id: pulseMeetingTodos.id, workItemId: pulseWorkItems.id, title: pulseWorkItems.title, ownerName: users.name, sortOrder: pulseMeetingTodos.sortOrder })
+          .from(pulseMeetingTodos).innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseMeetingTodos.workItemId)).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
+          .where(and(eq(pulseMeetingTodos.meetingId, meeting.id), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseMeetingTodos.sortOrder)),
         db.select({ id: pulseMeetingsArchive.id, occurredAt: pulseMeetingsArchive.occurredAt, durationActualMinutes: pulseMeetingsArchive.durationActualMinutes, attendeeIds: pulseMeetingsArchive.attendeeIds, todosCreated: pulseMeetingsArchive.todosCreated, todosCompleted: pulseMeetingsArchive.todosCompleted, issuesResolved: pulseMeetingsArchive.issuesResolved, rating: pulseMeetingsArchive.rating, notes: pulseMeetingsArchive.notes })
           .from(pulseMeetingsArchive).where(and(eq(pulseMeetingsArchive.meetingId, meeting.id), isNull(pulseMeetingsArchive.deletedAt))).orderBy(asc(pulseMeetingsArchive.occurredAt)),
         db.select({ id: rrScorecardMetrics.id, title: rrScorecardMetrics.name, ownerName: users.name }).from(rrScorecardMetrics).innerJoin(rolesResponsibilities, eq(rolesResponsibilities.id, rrScorecardMetrics.responsibilityId)).innerJoin(users, eq(users.id, rolesResponsibilities.ownerId)).where(eq(rrScorecardMetrics.status, "active")).orderBy(asc(rrScorecardMetrics.name)),
         db.select({ id: companyGoals.id, title: companyGoals.title, ownerName: users.name }).from(companyGoals).leftJoin(users, eq(users.id, companyGoals.ownerId)).where(eq(companyGoals.status, "active")).orderBy(asc(companyGoals.title)),
         db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, ownerName: users.name }).from(pulseWorkItems).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId)).where(and(eq(pulseWorkItems.type, "rock"), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.title)),
+        db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, ownerName: users.name }).from(pulseWorkItems).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId)).where(and(eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.title)),
       ]);
-      return { meeting, members, metricMappings, goalMappings, rockMappings, archive, metricCandidates, goalCandidates, rockCandidates };
+      return { meeting, members, metricMappings, goalMappings, rockMappings, todoMappings, archive, metricCandidates, goalCandidates, rockCandidates, todoCandidates };
     }),
 
   setContentMapping: pulseProcedure
-    .input(z.object({ meetingId: meetingIdSchema, kind: z.enum(["metric", "goal", "rock"]), sourceId: z.union([z.number().int().positive(), z.string().uuid()]), selected: z.boolean() }))
+    .input(z.object({ meetingId: meetingIdSchema, kind: z.enum(["metric", "goal", "rock", "todo"]), sourceId: z.union([z.number().int().positive(), z.string().uuid()]), selected: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
       await requireMeetingConfigurationAccess(db, ctx.user, input.meetingId);
@@ -159,6 +165,15 @@ export const pulseSettingsRouter = router({
           const rows = await db.select({ sortOrder: pulseMeetingRocks.sortOrder }).from(pulseMeetingRocks).where(eq(pulseMeetingRocks.meetingId, input.meetingId));
           await db.insert(pulseMeetingRocks).values({ id: id(), meetingId: input.meetingId, workItemId, sortOrder: rows.length ? Math.max(...rows.map((row: any) => row.sortOrder)) + 1 : 0 }).onDuplicateKeyUpdate({ set: { workItemId } });
         } else await db.delete(pulseMeetingRocks).where(and(eq(pulseMeetingRocks.meetingId, input.meetingId), eq(pulseMeetingRocks.workItemId, workItemId)));
+      }
+      if (input.kind === "todo") {
+        const workItemId = String(input.sourceId);
+        if (input.selected) {
+          const [todo] = await db.select({ id: pulseWorkItems.id }).from(pulseWorkItems).where(and(eq(pulseWorkItems.id, workItemId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))).limit(1);
+          if (!todo) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active Pulse To-Do." });
+          const rows = await db.select({ sortOrder: pulseMeetingTodos.sortOrder }).from(pulseMeetingTodos).where(eq(pulseMeetingTodos.meetingId, input.meetingId));
+          await db.insert(pulseMeetingTodos).values({ id: id(), meetingId: input.meetingId, workItemId, sortOrder: rows.length ? Math.max(...rows.map((row: any) => row.sortOrder)) + 1 : 0, addedById: ctx.user.id }).onDuplicateKeyUpdate({ set: { workItemId } });
+        } else await db.delete(pulseMeetingTodos).where(and(eq(pulseMeetingTodos.meetingId, input.meetingId), eq(pulseMeetingTodos.workItemId, workItemId)));
       }
       return { success: true };
     }),
@@ -201,6 +216,9 @@ export const pulseSettingsRouter = router({
       cadence: cadenceSchema.optional(),
       reminderDay: daySchema.nullable().optional(),
       reminderTime: timeSchema.nullable().optional(),
+      segueResetDay: daySchema.nullable().optional(),
+      headlinesResetDay: daySchema.nullable().optional(),
+      notificationConfig: z.record(z.string(), z.object({ enabled: z.boolean().optional(), email: z.boolean().optional(), inApp: z.boolean().optional() })).nullable().optional(),
       sectionsEnabled: z.record(sectionKeySchema, z.boolean()).optional(),
       sectionOrder: z.array(sectionKeySchema).min(1).max(PULSE_SECTION_KEYS.length).optional(),
       sectionDurations: z.record(sectionKeySchema, z.number().int().min(0).max(240)).optional(),
@@ -215,6 +233,15 @@ export const pulseSettingsRouter = router({
       const { meetingId, ownerId, administratorId, ...changes } = input;
       if (changes.sectionOrder && changes.sectionsEnabled) {
         for (const section of PULSE_SECTION_KEYS) if (!(section in changes.sectionsEnabled)) changes.sectionsEnabled[section] = false;
+      }
+      const effectiveLabel = changes.label ?? meeting.label;
+      const effectiveOrder = changes.sectionOrder ?? meeting.sectionOrder;
+      const effectiveEnabled = changes.sectionsEnabled ?? meeting.sectionsEnabled;
+      if (effectiveLabel === "level_10") {
+        if (!effectiveOrder.includes("issues") || !effectiveOrder.includes("conclude") || !effectiveEnabled.issues || !effectiveEnabled.conclude) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every L10 requires IDS and Conclude." });
+        }
+        changes.cadence = "weekly";
       }
       if (Object.keys(changes).length) await db.update(pulseMeetings).set(changes).where(eq(pulseMeetings.id, meetingId));
       if (ownerId !== undefined || administratorId !== undefined) {
@@ -265,11 +292,16 @@ export const pulseSettingsRouter = router({
   createMeeting: pulseProcedure
     .input(z.object({
       name: z.string().trim().min(1).max(255), purpose: z.string().trim().min(1).max(500), label: labelSchema, ownerId: z.number().int().positive(), administratorId: z.number().int().positive(), memberIds: z.array(z.number().int().positive()).max(100).default([]),
-      dayOfWeek: daySchema.nullable().optional(), startTime: timeSchema.nullable().optional(), durationMinutes: z.number().int().min(5).max(480).default(90), timezone: z.string().trim().min(1).max(64).default("America/New_York"), cadence: cadenceSchema.default("weekly"), reminderDay: daySchema.nullable().optional(), reminderTime: timeSchema.nullable().optional(),
+      dayOfWeek: daySchema.nullable().optional(), startTime: timeSchema.nullable().optional(), durationMinutes: z.number().int().min(5).max(480).default(90), timezone: z.string().trim().min(1).max(64).default("America/New_York"), cadence: cadenceSchema.default("weekly"), reminderDay: daySchema.nullable().optional(), reminderTime: timeSchema.nullable().optional(), segueResetDay: daySchema.nullable().optional(), headlinesResetDay: daySchema.nullable().optional(), notificationConfig: z.record(z.string(), z.object({ enabled: z.boolean().optional(), email: z.boolean().optional(), inApp: z.boolean().optional() })).nullable().optional(),
       sectionsEnabled: z.record(sectionKeySchema, z.boolean()).optional(), sectionOrder: z.array(sectionKeySchema).min(1).max(PULSE_SECTION_KEYS.length).optional(), sectionDurations: z.record(sectionKeySchema, z.number().int().min(0).max(240)).optional(),
     }).superRefine((value, context) => {
       if (value.label === "one_on_one" && value.ownerId === value.administratorId) context.addIssue({ code: "custom", message: "A one-on-one requires a distinct owner and administrator." });
       if (value.label === "one_on_one" && value.memberIds.length) context.addIssue({ code: "custom", message: "A one-on-one includes only its owner and administrator." });
+      if (value.label === "level_10") {
+        const order = value.sectionOrder ?? PULSE_MEETING_PRESETS.level_10;
+        const enabled = value.sectionsEnabled ?? Object.fromEntries(PULSE_SECTION_KEYS.map((section) => [section, order.includes(section)]));
+        if (!order.includes("issues") || !order.includes("conclude") || !enabled.issues || !enabled.conclude) context.addIssue({ code: "custom", message: "Every L10 requires IDS and Conclude." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
@@ -281,7 +313,7 @@ export const pulseSettingsRouter = router({
       const sectionDurations = input.sectionDurations ?? defaultSectionDurations(sectionOrder);
       const memberIds = new Set([input.ownerId, input.administratorId, ...input.memberIds]);
       await db.transaction(async (tx: any) => {
-        await tx.insert(pulseMeetings).values({ id: meetingId, name: input.name, purpose: input.purpose, label: input.label, ownerId: input.ownerId, administratorId: input.administratorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: input.cadence, reminderDay: input.reminderDay ?? null, reminderTime: input.reminderTime ?? null, sectionsEnabled, sectionOrder, sectionDurations });
+        await tx.insert(pulseMeetings).values({ id: meetingId, name: input.name, purpose: input.purpose, label: input.label, ownerId: input.ownerId, administratorId: input.administratorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: input.label === "level_10" ? "weekly" : input.cadence, reminderDay: input.reminderDay ?? null, reminderTime: input.reminderTime ?? null, segueResetDay: input.segueResetDay ?? input.dayOfWeek ?? null, headlinesResetDay: input.headlinesResetDay ?? input.dayOfWeek ?? null, notificationConfig: input.notificationConfig ?? { submission_reminder: { enabled: true, email: true, inApp: true }, submission_confirmation: { enabled: true, email: true, inApp: false }, todo_assigned: { enabled: true, email: true, inApp: true }, recap: { enabled: true, email: true, inApp: true } }, sectionsEnabled, sectionOrder, sectionDurations });
         await tx.insert(pulseMeetingMembers).values(Array.from(memberIds).map((personId) => ({ id: id(), meetingId, personId, meetingRole: personId === input.ownerId ? "owner" as const : personId === input.administratorId ? "administrator" as const : "member" as const, addedById: ctx.user.id })));
       });
       return { id: meetingId };
@@ -342,13 +374,29 @@ export const pulseSettingsRouter = router({
   permissioning: pulseProcedure.query(async ({ ctx }) => {
     const db = await database();
     await requirePulseSettingsAccess(db, ctx.user);
-    const [people, meetings, memberships] = await Promise.all([
-      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)).orderBy(asc(users.name)),
-      db.select({ id: pulseMeetings.id, name: pulseMeetings.name, ownerId: pulseMeetings.ownerId, administratorId: pulseMeetings.administratorId }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name)),
-      db.select({ meetingId: pulseMeetingMembers.meetingId, personId: pulseMeetingMembers.personId, meetingRole: pulseMeetingMembers.meetingRole }).from(pulseMeetingMembers).where(and(isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))),
-    ]);
-    return { people, meetings, memberships };
+      const [people, meetings, memberships, capabilities] = await Promise.all([
+        db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)).orderBy(asc(users.name)),
+        db.select({ id: pulseMeetings.id, name: pulseMeetings.name, ownerId: pulseMeetings.ownerId, administratorId: pulseMeetings.administratorId, notificationConfig: pulseMeetings.notificationConfig }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name)),
+        db.select({ meetingId: pulseMeetingMembers.meetingId, personId: pulseMeetingMembers.personId, meetingRole: pulseMeetingMembers.meetingRole }).from(pulseMeetingMembers).where(and(isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))),
+        db.select({ personId: pulsePermissions.personId, capability: pulsePermissions.capability, allowed: pulsePermissions.allowed }).from(pulsePermissions),
+      ]);
+      return { people, meetings, memberships, capabilities, capabilityKeys: PULSE_CAPABILITIES };
   }),
+
+  setPulseCapability: pulseProcedure
+    .input(z.object({ personId: z.number().int().positive(), capability: z.enum(PULSE_CAPABILITIES), allowed: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await database();
+      await requirePulseSettingsAccess(db, ctx.user);
+      const [person] = await db.select({ email: users.email }).from(users).where(eq(users.id, input.personId)).limit(1);
+      if (person?.email?.toLowerCase() === "tyler@savvy.realty" && !input.allowed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Tyler retains every Pulse capability." });
+      }
+      await assertActivePerson(db, input.personId);
+      await db.insert(pulsePermissions).values({ id: id(), personId: input.personId, capability: input.capability, allowed: input.allowed, grantedById: ctx.user.id })
+        .onDuplicateKeyUpdate({ set: { allowed: input.allowed, grantedById: ctx.user.id } });
+      return { success: true };
+    }),
 
   setPermission: pulseProcedure
     .input(z.object({ meetingId: meetingIdSchema, personId: z.number().int().positive(), hasAccess: z.boolean() }))
@@ -357,6 +405,8 @@ export const pulseSettingsRouter = router({
       await requirePulseSettingsAccess(db, ctx.user);
       const [meeting] = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.id, input.meetingId), eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt))).limit(1);
       if (!meeting) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting no longer exists." });
+      const [person] = await db.select({ email: users.email }).from(users).where(eq(users.id, input.personId)).limit(1);
+      if (!input.hasAccess && person?.email?.toLowerCase() === "tyler@savvy.realty") throw new TRPCError({ code: "BAD_REQUEST", message: "Tyler retains access to every Pulse meeting." });
       if (!input.hasAccess && (input.personId === meeting.ownerId || input.personId === meeting.administratorId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a new owner or administrator before removing this person." });
       if (input.hasAccess) {
         await assertActivePerson(db, input.personId);

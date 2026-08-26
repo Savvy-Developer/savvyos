@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import {
+  pulseMeetingMembers,
   pulseMeetings,
   pulseNotifications,
   pulseWorkItemNotifications,
@@ -12,7 +13,9 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { getPulseNotificationPreference } from "./notifications";
 
 const OVERDUE_DIGEST_KEY = "pulse_overdue_digest";
+const PREP_REMINDER_KEY = "pulse_weekly_prep_reminder";
 let isDigestRunning = false;
+let isPrepReminderRunning = false;
 let isQuarterRolloverRunning = false;
 
 function easternDate() {
@@ -149,6 +152,49 @@ export async function sendPulseOverdueDigest(reportDate = easternDate()) {
   }
 }
 
+/** Sends configured, once-per-week preparation notices without requiring a separate worker service. */
+export async function sendPulseWeeklyPrepReminders() {
+  if (isPrepReminderRunning) return { status: "skipped", reason: "A Pulse preparation reminder scan is already running." };
+  isPrepReminderRunning = true;
+  try {
+    const db = await getDb();
+    if (!db) return { status: "skipped", reason: "Database unavailable." };
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+    const weekday = (parts.find((part) => part.type === "weekday")?.value ?? "monday").toLowerCase();
+    const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+    const nowMinutes = hour * 60 + minute;
+    const meetings = await db.select().from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), eq(pulseMeetings.label, "level_10"), eq(pulseMeetings.reminderDay, weekday as any), isNull(pulseMeetings.deletedAt)));
+    let recipients = 0;
+    for (const meeting of meetings) {
+      if (!meeting.reminderTime) continue;
+      const [configuredHour, configuredMinute] = meeting.reminderTime.split(":").map(Number);
+      if (nowMinutes < configuredHour * 60 + configuredMinute) continue;
+      const reportKey = `${PREP_REMINDER_KEY}:${meeting.id}`;
+      const reportDate = easternDate();
+      const [existing] = await db.select({ id: scheduledReportRuns.id }).from(scheduledReportRuns).where(and(eq(scheduledReportRuns.reportKey, reportKey), eq(scheduledReportRuns.reportDate, reportDate))).limit(1);
+      if (existing) continue;
+      try { await db.insert(scheduledReportRuns).values({ reportKey, reportDate, status: "running" }); } catch { continue; }
+      const config = (meeting.notificationConfig ?? {}) as Record<string, { enabled?: boolean; email?: boolean; inApp?: boolean }>;
+      const delivery = config.submission_reminder ?? { enabled: true, email: true, inApp: true };
+      if (delivery.enabled === false) { await db.update(scheduledReportRuns).set({ status: "sent", completedAt: new Date() }).where(eq(scheduledReportRuns.reportKey, reportKey)); continue; }
+      const members = await db.select({ id: users.id, name: users.name, email: users.email }).from(pulseMeetingMembers).innerJoin(users, eq(users.id, pulseMeetingMembers.personId)).where(and(eq(pulseMeetingMembers.meetingId, meeting.id), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)));
+      let sent = 0; let failed = 0;
+      for (const member of members) {
+        const preference = await getPulseNotificationPreference(db, member.id, "meeting_reminder");
+        try {
+          if (delivery.inApp !== false && preference.inApp) await db.insert(pulseNotifications).values({ id: crypto.randomUUID(), personId: member.id, notificationType: "reminder", requiresAction: true, sourceType: "weekly_prep", sourceId: `${meeting.id}:${reportDate}`, meetingId: meeting.id, body: `Weekly Prep is due for ${meeting.name}.` });
+          if (delivery.email !== false && preference.email && member.email) await sendTransactionalEmail("meeting_reminder", { recipientEmail: member.email, recipientName: member.name ?? undefined, pulseMeetingName: meeting.name, pulseActionUrl: "https://os.savvy-agents.com/pulse/weekly-prep" }, { idempotencyKey: `pulse-prep-reminder:${meeting.id}:${member.id}:${reportDate}` });
+          sent += 1;
+        } catch { failed += 1; }
+      }
+      recipients += sent;
+      await db.update(scheduledReportRuns).set({ status: failed ? (sent ? "partial" : "failed") : "sent", recipientCount: members.length, successfulRecipientCount: sent, errorMessage: failed ? `${failed} recipient(s) failed.` : null, completedAt: new Date() }).where(and(eq(scheduledReportRuns.reportKey, reportKey), eq(scheduledReportRuns.reportDate, reportDate)));
+    }
+    return { status: "sent", recipients };
+  } finally { isPrepReminderRunning = false; }
+}
+
 /** Creates one pending choice per unfinished rock after its quarter ends. */
 export async function createPulseQuarterRolloverPrompts(options: { workItemIds?: string[] } = {}) {
   if (isQuarterRolloverRunning) return { created: 0, skipped: true };
@@ -206,6 +252,7 @@ export function schedulePulseWorkItemAutomation() {
 
   const runWeeklyDigest = () => sendPulseOverdueDigest().catch((error) => console.error("[PulseAutomation] Overdue digest error:", error));
   const runQuarterPrompt = () => createPulseQuarterRolloverPrompts().catch((error) => console.error("[PulseAutomation] Quarter rollover error:", error));
+  const runPrepReminder = () => sendPulseWeeklyPrepReminders().catch((error) => console.error("[PulseAutomation] Weekly prep reminder error:", error));
   const digestDelay = millisecondsUntilEastern(8, 1); // Monday 8am Eastern
   console.log(`[PulseAutomation] Next weekly overdue digest scheduled in ${Math.round(digestDelay / 60000)} minutes.`);
   setTimeout(() => { runWeeklyDigest(); setInterval(runWeeklyDigest, 7 * 24 * 60 * 60 * 1000); }, digestDelay);
@@ -213,4 +260,8 @@ export function schedulePulseWorkItemAutomation() {
   const rolloverDelay = millisecondsUntilEastern(8);
   console.log(`[PulseAutomation] Next quarter-rollover check scheduled in ${Math.round(rolloverDelay / 60000)} minutes.`);
   setTimeout(() => { runQuarterPrompt(); setInterval(runQuarterPrompt, 24 * 60 * 60 * 1000); }, rolloverDelay);
+
+  // Scan every fifteen minutes; report-run keys make each weekly recipient batch idempotent.
+  setTimeout(runPrepReminder, 60_000);
+  setInterval(runPrepReminder, 15 * 60 * 1000);
 }

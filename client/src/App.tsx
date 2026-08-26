@@ -108,6 +108,8 @@ import PasswordsPage from "./pages/PasswordsPage";
 import RolesResponsibilitiesPage from "./pages/RolesResponsibilitiesPage";
 import RoleResponsibilityDetailPage from "./pages/RoleResponsibilityDetailPage";
 import PulseFoundationPage from "./pages/PulseFoundationPage";
+import PulseMyInputsPage from "./pages/PulseMyInputsPage";
+import PulseMyWorkPage from "./pages/PulseMyWorkPage";
 import PulseMissionControlPage from "./pages/PulseMissionControlPage";
 import PulseMissionControlAdminPage from "./pages/PulseMissionControlAdminPage";
 import PulseGlobalAttentionPage from "./pages/PulseGlobalAttentionPage";
@@ -326,8 +328,10 @@ function Router() {
           <Route path="/pulse/settings/notifications">{() => <PulseRoute><PulseNotificationPreferencesPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/permissioning">{() => <PulseRoute><PulsePermissioningPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/effectiveness">{() => <PulseRoute><PulseMeetingEffectivenessPage /></PulseRoute>}</Route>
-          <Route path="/pulse/work">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
-          <Route path="/pulse/inputs">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
+          <Route path="/pulse/dashboard">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/pulse/weekly-prep">{() => <PulseRoute><PulseMyInputsPage /></PulseRoute>}</Route>
+          <Route path="/pulse/work">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
+          <Route path="/pulse/inputs">{() => <PulseRoute><PulseMyInputsPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings">{() => <PulseRoute><PulseSettingsHubPage /></PulseRoute>}</Route>
           <Route path="/pulse">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />

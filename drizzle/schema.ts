@@ -3526,6 +3526,9 @@ export const pulseMeetings = mysqlTable("pulse_meetings", {
   timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
   reminderDay: mysqlEnum("reminderDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
   reminderTime: varchar("reminderTime", { length: 8 }),
+  segueResetDay: mysqlEnum("segueResetDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
+  headlinesResetDay: mysqlEnum("headlinesResetDay", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
+  notificationConfig: json("notificationConfig").$type<Record<string, { email?: boolean; inApp?: boolean; enabled?: boolean }>>(),
   sectionsEnabled: json("sectionsEnabled").$type<Record<string, boolean>>().notNull(),
   sectionOrder: json("sectionOrder").$type<string[]>().notNull(),
   sectionDurations: json("sectionDurations").$type<Record<string, number>>().notNull(),
@@ -3577,6 +3580,10 @@ export const pulseWorkItems = mysqlTable("pulse_work_items", {
   // issue can transition to solved; resulting to-dos are held in a FK-backed join table.
   priority: int("priority"),
   solvedNote: text("solvedNote"),
+  // Rocks require a durable, testable completion condition.
+  definitionOfDone: text("definitionOfDone"),
+  // Independent copies created for multiple To-Do owners retain a shared provenance key.
+  assignmentGroupId: varchar("assignmentGroupId", { length: 36 }),
   // Rocks use quarter and progress. Milestones, when present, own the percentage.
   quarter: varchar("quarter", { length: 16 }),
   percentComplete: int("percentComplete").default(0).notNull(),
@@ -3603,6 +3610,22 @@ export const pulseWorkItems = mysqlTable("pulse_work_items", {
   index("pulse_work_items_assignee_idx").on(table.assigneeId, table.status, table.deletedAt),
 ]);
 export type PulseWorkItem = typeof pulseWorkItems.$inferSelect;
+
+/** One accountable owner is held on the work item; this table records the remaining RACI collaborators. */
+export const pulseRockRaciAssignments = mysqlTable("pulse_rock_raci_assignments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: mysqlEnum("role", ["responsible", "accountable", "consulted", "informed"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+}, (table) => [
+  uniqueIndex("pulse_rock_raci_unique").on(table.workItemId, table.personId, table.role),
+  index("pulse_rock_raci_item_idx").on(table.workItemId, table.deletedAt),
+  index("pulse_rock_raci_person_idx").on(table.personId, table.deletedAt),
+]);
+export type PulseRockRaciAssignment = typeof pulseRockRaciAssignments.$inferSelect;
 
 export const pulseWorkItemMoves = mysqlTable("pulse_work_item_moves", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -3779,6 +3802,20 @@ export const pulseMeetingRocks = mysqlTable("meeting_rocks", {
 ]);
 export type PulseMeetingRock = typeof pulseMeetingRocks.$inferSelect;
 
+/** A To-Do may be intentionally surfaced in more than one meeting without changing its source meeting. */
+export const pulseMeetingTodos = mysqlTable("pulse_meeting_todos", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  addedById: int("addedById").notNull().references(() => users.id, { onDelete: "restrict" }),
+  addedAt: timestamp("addedAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_meeting_todo_unique").on(table.meetingId, table.workItemId),
+  index("pulse_meeting_todo_meeting_idx").on(table.meetingId, table.sortOrder),
+]);
+export type PulseMeetingTodo = typeof pulseMeetingTodos.$inferSelect;
+
 // Scheduled analytics may write observations only. A human may choose to turn
 // one into a proposed issue, accept it, or dismiss it with an optional reason.
 export const aiObservations = mysqlTable("ai_observations", {
@@ -3813,6 +3850,8 @@ export const pulseMeetingUpdates = mysqlTable("pulse_meeting_updates", {
   meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
   authorId: int("authorId").notNull().references(() => users.id, { onDelete: "cascade" }),
   updateType: mysqlEnum("updateType", ["segue", "headline"]).notNull(),
+  weekOf: date("weekOf"),
+  tone: mysqlEnum("tone", ["green", "amber", "red"]),
   body: text("body").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -3833,6 +3872,39 @@ export const pulsePersonalInputs = mysqlTable("pulse_personal_inputs", {
   deletedAt: timestamp("deletedAt"),
 }, (table) => [uniqueIndex("pulse_personal_input_week_unique").on(table.personId, table.meetingId, table.inputKey, table.weekOf), index("pulse_personal_input_person_idx").on(table.personId, table.weekOf, table.deletedAt)]);
 export type PulsePersonalInput = typeof pulsePersonalInputs.$inferSelect;
+
+/** A per-meeting weekly confirmation is the authoritative pre-meeting submission state. */
+export const pulseWeeklySubmissions = mysqlTable("pulse_weekly_submissions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  weekOf: date("weekOf").notNull(),
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  confirmationSummary: json("confirmationSummary").$type<Record<string, unknown>>(),
+  emailSentAt: timestamp("emailSentAt"),
+  withdrawnAt: timestamp("withdrawnAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_weekly_submission_unique").on(table.meetingId, table.personId, table.weekOf),
+  index("pulse_weekly_submission_person_idx").on(table.personId, table.weekOf, table.withdrawnAt),
+]);
+export type PulseWeeklySubmission = typeof pulseWeeklySubmissions.$inferSelect;
+
+/** Pulse-only controls. Meeting visibility remains normalized in pulse_meeting_members. */
+export const pulsePermissions = mysqlTable("pulse_permissions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  personId: int("personId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  capability: varchar("capability", { length: 64 }).notNull(),
+  allowed: boolean("allowed").default(false).notNull(),
+  grantedById: int("grantedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pulse_permission_unique").on(table.personId, table.capability),
+  index("pulse_permission_capability_idx").on(table.capability, table.allowed),
+]);
+export type PulsePermission = typeof pulsePermissions.$inferSelect;
 
 export const pulseCascadeDestinations = mysqlTable("pulse_cascade_destinations", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -3916,15 +3988,37 @@ export const pulseMeetingsArchive = mysqlTable("pulse_meetings_archive", {
 ]);
 export type PulseMeetingArchive = typeof pulseMeetingsArchive.$inferSelect;
 
+/** A shared, resumable L10 run. Only one active row per meeting is created by the Run Meeting command. */
+export const pulseMeetingRuns = mysqlTable("pulse_meeting_runs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  meetingId: varchar("meetingId", { length: 36 }).notNull().references(() => pulseMeetings.id, { onDelete: "cascade" }),
+  status: mysqlEnum("status", ["running", "paused", "concluded"]).default("running").notNull(),
+  activeSection: varchar("activeSection", { length: 64 }).notNull(),
+  startedById: int("startedById").notNull().references(() => users.id),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  pausedAt: timestamp("pausedAt"),
+  elapsedSeconds: int("elapsedSeconds").default(0).notNull(),
+  notes: text("notes"),
+  attendeeIds: json("attendeeIds").$type<number[]>().notNull(),
+  transcript: text("transcript"),
+  recapHtml: text("recapHtml"),
+  recapSentAt: timestamp("recapSentAt"),
+  concludedAt: timestamp("concludedAt"),
+  rating: int("rating"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pulse_meeting_run_active_idx").on(table.meetingId, table.status, table.startedAt),
+]);
+export type PulseMeetingRun = typeof pulseMeetingRuns.$inferSelect;
+
 export const PULSE_SECTION_KEYS = [
   "segue",
   "headlines",
   "scorecard",
-  "goals",
   "rocks",
   "todos",
   "issues",
-  "cascading",
   "conclude",
 ] as const;
 export type PulseSectionKey = typeof PULSE_SECTION_KEYS[number];
@@ -3936,7 +4030,7 @@ export const PULSE_GLOSSARY_SEEDS = [
 ] as const;
 
 export const PULSE_MEETING_PRESETS: Record<"level_10" | "one_on_one" | "other", PulseSectionKey[]> = {
-  level_10: ["segue", "headlines", "scorecard", "rocks", "todos", "issues", "cascading", "conclude"],
-  one_on_one: ["segue", "todos", "issues"],
-  other: ["todos", "issues"],
+  level_10: ["segue", "headlines", "scorecard", "rocks", "todos", "issues", "conclude"],
+  one_on_one: ["segue", "todos", "issues", "conclude"],
+  other: ["todos", "issues", "conclude"],
 };

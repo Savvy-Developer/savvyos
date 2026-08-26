@@ -86,6 +86,8 @@ export type EmailType =
   | "pulse_overdue_digest"
   | "pulse_rock_completed"
   | "meeting_reminder"
+  | "pulse_submission_confirmation"
+  | "pulse_meeting_recap"
   | "todo_assigned"
   | "cascade_sent"
   | "overdue_digest"
@@ -109,6 +111,8 @@ interface EmailContext {
   pulseCascadeAcknowledgment?: string;
   pulseCascadeBody?: string;
   pulseActionUrl?: string;
+  pulseSubmissionSummary?: string;
+  pulseRecapHtml?: string;
   // PM mention-specific
   mentionedByName?: string;
   projectTitle?: string;
@@ -567,6 +571,31 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${infoCard([`<strong style="color:${BLACK};">Meeting</strong>&nbsp;&nbsp; ${escapeHtml(ctx.pulseMeetingName ?? "Your Pulse meeting")}`])}
       ${ctaButton("Open Pulse", ctx.pulseActionUrl ?? APP_URL + "/pulse/meetings")}`,
       `Reminder for ${ctx.pulseMeetingName ?? "your Pulse meeting"}`
+    ),
+  }),
+
+  pulse_submission_confirmation: (ctx) => ({
+    subject: `Pulse weekly prep confirmed — ${ctx.pulseMeetingName ?? "Your L10"}`,
+    html: emailLayout(
+      `${heading("Your Pulse weekly prep is confirmed")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse L10")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Your current weekly preparation has been recorded. You can return to Pulse to revise it until the meeting starts.")}
+      ${ctx.pulseSubmissionSummary ? infoCard([ctx.pulseSubmissionSummary]) : ""}
+      ${ctaButton("Open Weekly Prep", ctx.pulseActionUrl ?? APP_URL + "/pulse/weekly-prep")}`,
+      `Weekly prep confirmed for ${ctx.pulseMeetingName ?? "your L10"}`
+    ),
+  }),
+
+  pulse_meeting_recap: (ctx) => ({
+    subject: `L10 recap — ${ctx.pulseMeetingName ?? "Pulse meeting"}`,
+    html: emailLayout(
+      `${heading("Level 10 meeting recap")}
+      ${subheading(ctx.pulseMeetingName ?? "Pulse L10")}
+      ${greeting(ctx.recipientName)}
+      ${ctx.pulseRecapHtml ?? bodyText("Your meeting recap is ready in Pulse.")}
+      ${ctaButton("Open Pulse", ctx.pulseActionUrl ?? APP_URL + "/pulse")}`,
+      `Recap for ${ctx.pulseMeetingName ?? "your Pulse meeting"}`
     ),
   }),
 

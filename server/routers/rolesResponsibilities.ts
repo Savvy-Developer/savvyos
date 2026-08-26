@@ -13,6 +13,8 @@ import {
   agentConnections,
   rrMetricAutoConfigs,
   rrMetricValues,
+  pulseMeetingScorecardMetrics,
+  pulseMeetings,
   rrResources,
   rrScorecardMetrics,
   rrSopSteps,
@@ -64,6 +66,7 @@ const metricInput = z.object({
   cumulativeReset: z.enum(["monthly", "quarterly", "annually", "never"]).nullable().optional(),
   status: z.enum(["active", "inactive"]),
   autoConfig: autoConfigInput.nullable().optional(),
+  l10MeetingIds: z.array(z.string().uuid()).max(50).optional(),
 }).superRefine((value, ctx) => {
   if (value.metricType === "automatic" && !value.autoConfig) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Automatic metrics require an automatic calculation configuration.", path: ["autoConfig"] });
@@ -298,7 +301,11 @@ async function detailedResponsibility(db: Db, responsibilityId: number) {
     db.select().from(rrSopSteps).where(inArray(rrSopSteps.sopId, sopIds)).orderBy(asc(rrSopSteps.sortOrder), asc(rrSopSteps.id)),
     db.select({ resource: rrResources, document: userDocuments }).from(rrResources).leftJoin(userDocuments, eq(rrResources.userDocumentId, userDocuments.id)).where(inArray(rrResources.sopId, sopIds)).orderBy(asc(rrResources.sortOrder)),
   ]) : [[], []] as const;
-  const metrics = await Promise.all(metricRows.map(async ({ metric, config }) => ({ ...(await performanceForMetric(db, metric)), autoConfig: config })));
+  const metricIds = metricRows.map((row) => row.metric.id);
+  const metricMappings = metricIds.length ? await db.select({ metricId: pulseMeetingScorecardMetrics.savvyosMetricId, meetingId: pulseMeetingScorecardMetrics.meetingId }).from(pulseMeetingScorecardMetrics).where(inArray(pulseMeetingScorecardMetrics.savvyosMetricId, metricIds)) : [];
+  const l10IdsByMetric = new Map<number, string[]>();
+  for (const mapping of metricMappings) if (mapping.metricId != null) l10IdsByMetric.set(mapping.metricId, [...(l10IdsByMetric.get(mapping.metricId) ?? []), mapping.meetingId]);
+  const metrics = await Promise.all(metricRows.map(async ({ metric, config }) => ({ ...(await performanceForMetric(db, metric)), autoConfig: config, l10MeetingIds: l10IdsByMetric.get(metric.id) ?? [] })));
   return {
     ...base.responsibility,
     owner: { id: base.owner.id, name: base.owner.name, email: base.owner.email, title: base.owner.title, department: base.ownerProfile?.adminType ?? null, reportsToId: base.owner.reportsToId },
@@ -541,17 +548,31 @@ export const rolesResponsibilitiesRouter = router({
 
   saveMetric: protectedProcedure.input(metricInput.safeExtend({ id: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer); await getResponsibilityOrThrow(db, input.responsibilityId); if (input.autoConfig) validateAutoConfig(input.autoConfig);
-    const { id, autoConfig, ...metricData } = input; const data = { ...metricData, targetValue: metricData.targetValue == null ? null : String(metricData.targetValue), cumulativeReset: metricData.isCumulative ? (metricData.cumulativeReset ?? null) : null, createdById: ctx.user.id } as any;
+    const { id, autoConfig, l10MeetingIds, ...metricData } = input; const data = { ...metricData, targetValue: metricData.targetValue == null ? null : String(metricData.targetValue), cumulativeReset: metricData.isCumulative ? (metricData.cumulativeReset ?? null) : null, createdById: ctx.user.id } as any;
     const metricId = await db.transaction(async (tx: any) => {
       let targetId = id;
       if (targetId) { const [existing] = await tx.select().from(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, targetId)).limit(1); if (!existing || existing.responsibilityId !== input.responsibilityId) throw new TRPCError({ code: "NOT_FOUND", message: "Metric not found." }); await tx.update(rrScorecardMetrics).set(data).where(eq(rrScorecardMetrics.id, targetId)); }
       else { const result = await tx.insert(rrScorecardMetrics).values(data); targetId = Number(result[0].insertId); }
       if (autoConfig) await tx.insert(rrMetricAutoConfigs).values({ metricId: targetId!, ...autoConfig, filters: autoConfig.filters ?? null, numeratorFilters: autoConfig.numeratorFilters ?? null, denominatorFilters: autoConfig.denominatorFilters ?? null, valueField: autoConfig.valueField ?? null }).onDuplicateKeyUpdate({ set: { ...autoConfig, filters: autoConfig.filters ?? null, numeratorFilters: autoConfig.numeratorFilters ?? null, denominatorFilters: autoConfig.denominatorFilters ?? null, valueField: autoConfig.valueField ?? null } });
       else await tx.delete(rrMetricAutoConfigs).where(eq(rrMetricAutoConfigs.metricId, targetId!));
+      if (l10MeetingIds !== undefined) {
+        const uniqueMeetingIds = Array.from(new Set(l10MeetingIds));
+        if (uniqueMeetingIds.length) {
+          const activeMeetings = await tx.select({ id: pulseMeetings.id }).from(pulseMeetings).where(and(inArray(pulseMeetings.id, uniqueMeetingIds), eq(pulseMeetings.isActive, true)));
+          if (activeMeetings.length !== uniqueMeetingIds.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose active L10 meetings." });
+        }
+        await tx.delete(pulseMeetingScorecardMetrics).where(eq(pulseMeetingScorecardMetrics.savvyosMetricId, targetId!));
+        if (uniqueMeetingIds.length) await tx.insert(pulseMeetingScorecardMetrics).values(uniqueMeetingIds.map((meetingId, index) => ({ id: crypto.randomUUID(), meetingId, savvyosMetricId: targetId!, sortOrder: index, addedById: ctx.user.id })));
+      }
       return targetId!;
     });
     if (input.metricType === "automatic") await refreshAutomaticMetric(db, metricId);
     return { id: metricId };
+  }),
+
+  pulseMeetingOptions: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb(); if (!db) return []; await requireRrAccess(db, ctx.user as Viewer);
+    return db.select({ id: pulseMeetings.id, name: pulseMeetings.name }).from(pulseMeetings).where(and(eq(pulseMeetings.isActive, true), eq(pulseMeetings.label, "level_10"))).orderBy(asc(pulseMeetings.name));
   }),
 
   deleteMetric: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" }); await requireRrAccess(db, ctx.user as Viewer); await db.delete(rrScorecardMetrics).where(eq(rrScorecardMetrics.id, input.id)); return { success: true }; }),

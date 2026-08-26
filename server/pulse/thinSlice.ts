@@ -228,9 +228,7 @@ export async function getVisibleSectionData(db: any, personId: number, meetingId
   if (section === "segue") return { section, enabled: true, data: { schedule, prompt: "Check in with the people in this meeting." } };
   if (section === "headlines") return { section, enabled: true, data: { meetingName: meeting.name, prompt: "Share the headlines that affect this meeting." } };
   if (section === "scorecard") return { section, enabled: true, data: { schedule, prompt: "Review the numbers this meeting tracks." } };
-  if (section === "goals") return { section, enabled: true, data: { cadence: meeting.cadence, prompt: "Review the goals owned in this meeting." } };
-  if (section === "cascading") return { section, enabled: true, data: { meetingId: meeting.id, prompt: "Capture what this meeting needs to pass on." } };
-  return { section, enabled: true, data: { schedule, prompt: "Close with decisions and the next clear step." } };
+  return { section, enabled: true, data: { schedule, prompt: "Close with decisions, commitments, and the next clear step." } };
 }
 export const getDashboardSectionData = getVisibleSectionData;
 export const getRunnerSectionData = getVisibleSectionData;
