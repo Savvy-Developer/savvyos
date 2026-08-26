@@ -113,8 +113,12 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(agentReport).toContain("Avg. purchase price");
     expect(agentReport).toContain("Avg. commission");
     expect(agentReport).toContain("Buyer ${money(buyerAverages.averagePurchasePrice, true)} · Seller ${money(sellerAverages.averagePurchasePrice, true)}");
+    expect(agentReport).toContain("Buyer ${percentage(buyerAverages.averageCommissionRate)} · Seller ${percentage(sellerAverages.averageCommissionRate)}");
+    expect(agentReport).toContain("value={percentage(averageCommissionRate)}");
     expect(service).toContain("representationAverages");
     expect(service).toContain("AVG(t.\\`purchasePrice\\`) AS averagePurchasePrice");
+    expect(service).toContain("AVG(CASE WHEN t.\\`commissionType\\` = 'percentage'");
+    expect(service).toContain("averageCommissionRate");
     expect(commandCenter).toContain('transactionScope(filters, { status: "closed" })');
     expect(commandCenter).toContain('transactionScope({ ...filters, transactionStatus: undefined }, { status: undefined })');
     expect(commandCenter).not.toContain("DATE_SUB(CURDATE(), INTERVAL 5 MONTH)");

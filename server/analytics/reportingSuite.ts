@@ -512,7 +512,9 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
         t.\`transactionType\` AS transactionType,
         COUNT(*) AS units,
         AVG(t.\`purchasePrice\`) AS averagePurchasePrice,
-        AVG(t.\`grossCommissionIncome\`) AS averageGci
+        AVG(t.\`grossCommissionIncome\`) AS averageGci,
+        SUM(CASE WHEN t.\`commissionType\` = 'percentage' AND t.\`commissionRate\` IS NOT NULL THEN 1 ELSE 0 END) AS commissionRateUnits,
+        AVG(CASE WHEN t.\`commissionType\` = 'percentage' AND t.\`commissionRate\` IS NOT NULL THEN t.\`commissionRate\` * 100 ELSE NULL END) AS averageCommissionRate
       FROM \`transactions\` t
       ${closedWhere}
       AND t.\`transactionType\` IN ('buyer', 'seller')
@@ -649,8 +651,8 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
   const production = toProduction(productionRows[0]);
   const prior = toProduction(priorRows[0]);
   const representationAverages = {
-    buyer: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null },
-    seller: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null },
+    buyer: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null, commissionRateUnits: 0, averageCommissionRate: null as number | null },
+    seller: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null, commissionRateUnits: 0, averageCommissionRate: null as number | null },
   };
   representationRows.forEach((row) => {
     const transactionType = String(row.transactionType ?? "");
@@ -659,8 +661,15 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       units: asNumber(row.units),
       averagePurchasePrice: asNullableNumber(row.averagePurchasePrice),
       averageGci: asNullableNumber(row.averageGci),
+      commissionRateUnits: asNumber(row.commissionRateUnits),
+      averageCommissionRate: asNullableNumber(row.averageCommissionRate),
     };
   });
+  const commissionRateUnits = representationAverages.buyer.commissionRateUnits + representationAverages.seller.commissionRateUnits;
+  const averageCommissionRate = commissionRateUnits
+    ? ((representationAverages.buyer.averageCommissionRate ?? 0) * representationAverages.buyer.commissionRateUnits
+      + (representationAverages.seller.averageCommissionRate ?? 0) * representationAverages.seller.commissionRateUnits) / commissionRateUnits
+    : null;
 
   return {
     filters: {
@@ -673,6 +682,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
     production,
     prior,
     representationAverages,
+    averageCommissionRate,
     change: {
       closings: change(production.closings, prior.closings),
       volume: change(production.volume, prior.volume),

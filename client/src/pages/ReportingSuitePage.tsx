@@ -170,6 +170,7 @@ function number(value: unknown): string {
 }
 
 function percentage(value: unknown, digits = 1): string {
+  if (value === null || value === undefined || value === "") return "—";
   const amount = Number(value);
   return Number.isFinite(amount) ? `${amount.toFixed(digits)}%` : "—";
 }
@@ -499,7 +500,7 @@ function SortableMetricHeader({ label, column, sortColumn, sortDirection, onSort
 }
 
 function AgentReport({ data }: { data: any }) {
-  const { production, representationAverages, change, flags, monthly, agents, flaggedTransactions, overdueTasks, filters } = data;
+  const { production, representationAverages, averageCommissionRate, change, flags, monthly, agents, flaggedTransactions, overdueTasks, filters } = data;
   const buyerAverages = representationAverages?.buyer ?? {};
   const sellerAverages = representationAverages?.seller ?? {};
   const [comparisonSort, setComparisonSort] = useState({ column: "grossCommission", direction: "desc" as "asc" | "desc" });
@@ -532,7 +533,7 @@ function AgentReport({ data }: { data: any }) {
         <MetricCard label="Closed units" value={number(production.closings)} description="Closed transactions in the selected period" delta={change.closings} icon={CheckCircle2} tone="text-emerald-700" />
         <MetricCard label="Closed volume" value={money(production.volume, true)} description="Closed purchase-price volume" delta={change.volume} icon={Landmark} tone="text-sky-700" />
         <MetricCard label="Avg. purchase price" value={money(production.averagePurchasePrice, true)} description={`Buyer ${money(buyerAverages.averagePurchasePrice, true)} · Seller ${money(sellerAverages.averagePurchasePrice, true)}`} icon={Landmark} tone="text-sky-700" />
-        <MetricCard label="Avg. commission" value={money(production.averageGci, true)} description={`Buyer ${money(buyerAverages.averageGci, true)} · Seller ${money(sellerAverages.averageGci, true)}`} delta={change.averageGci} icon={BarChart3} tone="text-violet-700" />
+        <MetricCard label="Avg. commission" value={percentage(averageCommissionRate)} description={`Buyer ${percentage(buyerAverages.averageCommissionRate)} · Seller ${percentage(sellerAverages.averageCommissionRate)}`} icon={BarChart3} tone="text-violet-700" />
         <MetricCard label="Gross commission" value={money(production.grossCommission, true)} description="Recorded transaction GCI" delta={change.grossCommission} icon={CircleDollarSign} tone="text-indigo-700" />
         <MetricCard label="Savvy net" value={money(production.savvyNet, true)} description="Recorded Savvy payout items" delta={change.savvyNet} icon={TrendingUp} tone="text-primary" />
       </div>
