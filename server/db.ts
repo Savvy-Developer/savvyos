@@ -235,14 +235,21 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
       ELSE 4
     END`);
   }
-  // Keep sorting on the database so it remains correct across paginated results.
+  // Keep sorting on the database so it remains correct across the complete,
+  // paginated result set. The explicitly correlated count is numeric and is
+  // evaluated before LIMIT/OFFSET, rather than sorting only the current page.
   // Each field is selected from an allowlisted expression rather than accepting SQL from the client.
+  const connectionCountSort = sql<number>`(
+    SELECT COUNT(*)
+    FROM agent_connections AS connection_count
+    WHERE connection_count.contactId = ${contacts.id}
+  )`;
   const sortField = {
     name: sql`CONCAT(${contacts.firstName}, ' ', ${contacts.lastName})`,
     email: contacts.email,
     phone: contacts.phone,
     leadSource: sql`COALESCE((SELECT name FROM lead_sources WHERE id = ${contacts.leadSourceId}), '')`,
-    connectionCount: sql`(SELECT COUNT(*) FROM agent_connections WHERE contactId = ${contacts.id})`,
+    connectionCount: connectionCountSort,
     isaStatus: contacts.isaStatus,
     assignedIsa: sql`COALESCE((SELECT name FROM users WHERE id = ${contacts.assignedIsaId}), '')`,
     lastContacted: sql`(SELECT MAX(communicatedAt) FROM communications WHERE relatedContactId = ${contacts.id})`,

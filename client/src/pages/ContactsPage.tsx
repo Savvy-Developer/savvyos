@@ -842,6 +842,7 @@ export default function ContactsPage() {
                 ) : (
                   contacts.map((row: any) => {
                     const { contact, agentConnectionId, agentName, agentId: rowAgentId } = row;
+                    const connectionCount = Number(row.connectionCount ?? 0);
                     return (
                       <tr
                         key={contact.id}
@@ -920,8 +921,8 @@ export default function ContactsPage() {
                         </td>
                         {user?.role === "admin" && (
                           <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                            {(contact as any).connectionCount > 0 ? (
-                              <AgentConnectionsPopover contactId={contact.id} count={Number((contact as any).connectionCount)} />
+                            {connectionCount > 0 ? (
+                              <AgentConnectionsPopover contactId={contact.id} count={connectionCount} />
                             ) : (
                               <span className="text-muted-foreground text-xs">—</span>
                             )}
