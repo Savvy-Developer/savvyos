@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import PageHeader from "@/components/PageHeader";
@@ -16,7 +16,7 @@ import { CreateReferralDialog } from "@/components/CreateReferralDialog";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake, ShieldCheck } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { openCommunicationsHub } from "@/components/CommunicationsHub";
 import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
@@ -424,6 +424,10 @@ export default function ContactDetail() {
   const [deleteContactOpen, setDeleteContactOpen] = useState(false);
   const [doNotContactOpen, setDoNotContactOpen] = useState(false);
   const [doNotContactReason, setDoNotContactReason] = useState("");
+  const [smsConsentOpen, setSmsConsentOpen] = useState(false);
+  const [smsConsentSource, setSmsConsentSource] = useState("");
+  const [smsOptOutOpen, setSmsOptOutOpen] = useState(false);
+  const [smsOptOutReason, setSmsOptOutReason] = useState("");
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [linkPropertyOpen, setLinkPropertyOpen] = useState(false);
   const [propertyLabel, setPropertyLabel] = useState("Primary home");
@@ -553,6 +557,18 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       refetch();
       utils.contacts.list.invalidate();
       utils.agentConnections.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const setSmsMarketingConsent = trpc.contacts.setSmsMarketingConsent.useMutation({
+    onSuccess: (_, variables) => {
+      toast.success(variables.consented ? "SMS marketing consent recorded" : "Marketing SMS opt-out recorded");
+      setSmsConsentOpen(false);
+      setSmsConsentSource("");
+      setSmsOptOutOpen(false);
+      setSmsOptOutReason("");
+      refetch();
+      utils.contacts.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -902,6 +918,22 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   >
                     <AlertTriangle className="h-4 w-4 mr-2" /> {(contact as any).doNotContact ? "Already Do Not Contact" : "Do Not Contact"}
                   </DropdownMenuItem>
+                  {isAdmin && <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={Boolean((contact as any).doNotContact)}
+                      onClick={() => { setSmsConsentSource((contact as any).smsMarketingConsentSource || ""); setSmsConsentOpen(true); }}
+                    >
+                      <ShieldCheck className="h-4 w-4 mr-2" /> Record SMS Marketing Consent
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      disabled={Boolean((contact as any).smsMarketingOptedOutAt)}
+                      onClick={() => { setSmsOptOutReason(""); setSmsOptOutOpen(true); }}
+                    >
+                      <MessageSquare className="h-4 w-4 mr-2" /> {(contact as any).smsMarketingOptedOutAt ? "SMS Marketing Opted Out" : "Opt Out of SMS Marketing"}
+                    </DropdownMenuItem>
+                  </>}
                   {isAdmin && <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setArchiveContactOpen(true)}>
@@ -1781,6 +1813,40 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       </Dialog>
 
       {/* ── Do Not Contact Dialog ── */}
+      <Dialog open={smsConsentOpen} onOpenChange={(open) => { setSmsConsentOpen(open); if (!open) setSmsConsentSource(""); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Record SMS Marketing Consent</DialogTitle>
+            <DialogDescription>Only record consent that the contact has actually provided. Smart Plan marketing texts will remain blocked until this is saved.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="sms-consent-source">Consent source</Label>
+            <Input id="sms-consent-source" value={smsConsentSource} onChange={(event) => setSmsConsentSource(event.target.value)} placeholder="e.g. Website form, signed form, verbal consent" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSmsConsentOpen(false)}>Cancel</Button>
+            <Button disabled={!smsConsentSource.trim() || setSmsMarketingConsent.isPending} onClick={() => setSmsMarketingConsent.mutate({ id: contactId, consented: true, source: smsConsentSource.trim() })}><ShieldCheck className="mr-1.5 h-4 w-4" /> {setSmsMarketingConsent.isPending ? "Saving..." : "Record Consent"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={smsOptOutOpen} onOpenChange={(open) => { setSmsOptOutOpen(open); if (!open) setSmsOptOutReason(""); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Opt Out of SMS Marketing</DialogTitle>
+            <DialogDescription>This blocks all future Smart Plan marketing texts and replies from the shared marketing number. It does not change the broader Do Not Contact preference.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="sms-opt-out-reason">Reason</Label>
+            <Input id="sms-opt-out-reason" value={smsOptOutReason} onChange={(event) => setSmsOptOutReason(event.target.value)} placeholder="e.g. Requested STOP by text" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSmsOptOutOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={!smsOptOutReason.trim() || setSmsMarketingConsent.isPending} onClick={() => setSmsMarketingConsent.mutate({ id: contactId, consented: false, optOutReason: smsOptOutReason.trim() })}><AlertTriangle className="mr-1.5 h-4 w-4" /> {setSmsMarketingConsent.isPending ? "Saving..." : "Record Opt-out"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={doNotContactOpen} onOpenChange={(open) => { setDoNotContactOpen(open); if (!open) setDoNotContactReason(""); }}>
         <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
           <DialogHeader>

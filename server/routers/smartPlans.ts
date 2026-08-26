@@ -13,6 +13,7 @@ import {
   oneTimeSendRecipients,
   oneTimeSendMessageEvents,
   users,
+  aircallIntegrationState,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, sql, inArray, isNotNull, or } from "drizzle-orm";
 import { sendAircallSMS } from "../_core/aircall";
@@ -78,6 +79,8 @@ type OneTimeExclusionReasons = {
   emailNotVerified: number;
   noEmailAddress: number;
   noPhoneAddress: number;
+  smsNoConsent: number;
+  smsOptedOut: number;
 };
 
 function oneTimeExclusionReason(contact: typeof contacts.$inferSelect, channel: "email" | "sms"): keyof OneTimeExclusionReasons | null {
@@ -88,6 +91,8 @@ function oneTimeExclusionReason(contact: typeof contacts.$inferSelect, channel: 
     if (contact.emailStatus !== "valid") return "emailNotVerified";
     return contactChannelAddresses(contact, channel).length ? null : "noEmailAddress";
   }
+  if (contact.smsMarketingOptedOutAt) return "smsOptedOut";
+  if (!contact.smsMarketingConsentAt) return "smsNoConsent";
   return contactChannelAddresses(contact, channel).length ? null : "noPhoneAddress";
 }
 
@@ -114,6 +119,8 @@ async function oneTimeAudience(db: any, contactIds: number[], channel: "email" |
     emailNotVerified: 0,
     noEmailAddress: 0,
     noPhoneAddress: 0,
+    smsNoConsent: 0,
+    smsOptedOut: 0,
   };
   let eligibleContactCount = 0;
   for (const contact of matchingContacts) {
@@ -127,6 +134,15 @@ async function oneTimeAudience(db: any, contactIds: number[], channel: "email" |
     recipientTargets.push(...addresses.map((recipientAddress) => ({ contactId: contact.id, recipientAddress })));
   }
   return { recipientTargets, eligibleContactCount, exclusionReasons };
+}
+
+async function selectedMarketingNumberId(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<number | null> {
+  const [state] = await db
+    .select({ marketingNumberId: aircallIntegrationState.marketingNumberId })
+    .from(aircallIntegrationState)
+    .where(eq(aircallIntegrationState.id, 1))
+    .limit(1);
+  return state?.marketingNumberId ?? null;
 }
 
 const testSendInput = z.object({
@@ -308,6 +324,12 @@ export const smartPlansRouter = router({
 
       const mergeContext = testMergeContext(ctx.user.name);
       const body = renderMergeTags(input.body, mergeContext);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const marketingNumberId = input.channel === "sms" ? await selectedMarketingNumberId(db) : null;
+      if (input.channel === "sms" && !marketingNumberId) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Select a dedicated Aircall marketing number before sending a text test." });
+      }
       const result = input.channel === "email"
         ? await sendSmartPlanEmail({
           to: input.recipientEmail!,
@@ -315,7 +337,7 @@ export const smartPlansRouter = router({
           body,
           isHtml: true,
         })
-        : await sendAircallSMS(input.recipientPhone!, `[TEST] ${body}`);
+        : await sendAircallSMS(input.recipientPhone!, `[TEST] ${body}`, marketingNumberId);
       if (!result.success) {
         throw new TRPCError({ code: "BAD_REQUEST", message: result.error || "Unable to send the test message." });
       }
@@ -377,6 +399,9 @@ export const smartPlansRouter = router({
         }
         if (input.triggerType === "lead_source" && !input.triggerLeadSourceIds?.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one lead source." });
+        }
+        if (input.channel === "sms" && !(await selectedMarketingNumberId(db))) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Select a dedicated Aircall marketing number before queueing a text campaign." });
         }
 
         const contactIds = await getCurrentContactIdsMatchingTrigger(input);

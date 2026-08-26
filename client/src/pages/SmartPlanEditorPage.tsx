@@ -297,7 +297,7 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
       {isSms && (
         <div className="flex gap-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950">
           <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-violet-700" />
-          <p><strong>Texting is staged, not live.</strong> This step and its reply analytics are ready for a future provider, but SavvyOS will not send texts until a provider and consent policy are connected.</p>
+          <p><strong>Marketing text delivery is protected.</strong> Messages send only from the dedicated Aircall marketing number to contacts with recorded SMS marketing consent. Opted-out and Do Not Contact records are automatically skipped; replies appear in the Marketing Text Inbox.</p>
         </div>
       )}
 
@@ -495,7 +495,7 @@ function AnalyticsPanel({ steps, totals }: { steps: Step[]; totals: Metrics }) {
         <MetricCard label="Spam complaints" value={totals.complained.toLocaleString()} detail={`${totals.suppressed.toLocaleString()} suppressed by Resend`} icon={Ban} tone="danger" />
       </div>
       <Card>
-        <CardHeader><CardTitle className="text-base">Step-by-step performance</CardTitle><CardDescription>Every step is tracked independently. Text reply metrics will populate once an SMS provider is connected.</CardDescription></CardHeader>
+          <CardHeader><CardTitle className="text-base">Step-by-step performance</CardTitle><CardDescription>Every step is tracked independently. Text replies are available in the dedicated Marketing Text Inbox.</CardDescription></CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full min-w-[940px] text-left text-sm">
             <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="pb-3 font-medium">Step</th><th className="pb-3 font-medium">Sent</th><th className="pb-3 font-medium">Delivered</th><th className="pb-3 font-medium">Opened</th><th className="pb-3 font-medium">Clicked</th><th className="pb-3 font-medium">Replies</th><th className="pb-3 font-medium">Bounced</th><th className="pb-3 font-medium">Spam</th><th className="pb-3 font-medium">Failed</th></tr></thead>

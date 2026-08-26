@@ -45,20 +45,37 @@ export async function aircallApiRequest(path: string, init: RequestInit = {}): P
   });
 }
 
-export async function sendAircallSMS(to: string, body: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
+export type AircallSmsSendResult = {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+  message?: Record<string, unknown>;
+};
+
+/**
+ * Send SMS into an Aircall native conversation. Native mode keeps the
+ * conversation available in Aircall while SavvyOS mirrors it through the
+ * message webhooks and immediate local persistence.
+ */
+export async function sendAircallSMS(
+  to: string,
+  body: string,
+  senderNumberId?: number | string | null,
+): Promise<AircallSmsSendResult> {
   const auth = getAircallAuth();
-  const numberId = process.env.AIRCALL_NUMBER_ID;
+  const numberId = senderNumberId ?? process.env.AIRCALL_NUMBER_ID;
 
   if (!auth || !numberId) {
-    console.warn("[Aircall] SMS not sent — AIRCALL_API_ID, AIRCALL_API_TOKEN, or AIRCALL_NUMBER_ID not configured.");
-    return { success: false, error: "Aircall not configured" };
+    console.warn("[Aircall] SMS not sent — Aircall credentials or sender number are not configured.");
+    return { success: false, error: "Aircall marketing sender is not configured" };
   }
 
-  // Normalize phone number to E.164 format if not already
+  // Normalize a U.S. local number to E.164 while leaving already-normalized
+  // international values intact for Aircall validation.
   const normalizedTo = to.startsWith("+") ? to : `+1${to.replace(/\D/g, "")}`;
 
   try {
-    const response = await fetch(`${AIRCALL_API_BASE}/numbers/${numberId}/messages/send`, {
+    const response = await fetch(`${AIRCALL_API_BASE}/numbers/${numberId}/messages/native/send`, {
       method: "POST",
       headers: {
         "Authorization": `Basic ${auth}`,
@@ -73,8 +90,8 @@ export async function sendAircallSMS(to: string, body: string): Promise<{ succes
       return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
-    const data = await response.json() as { id?: string };
-    return { success: true, messageId: data.id };
+    const data = await response.json() as Record<string, unknown>;
+    return { success: true, messageId: data.id ? String(data.id) : undefined, message: data };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[Aircall] SMS send error:", message);

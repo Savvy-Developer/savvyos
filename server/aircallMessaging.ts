@@ -1,8 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import {
+  aircallIntegrationState,
   aircallIsaAssignments,
   aircallMessages,
   communications,
+  contacts,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { findContactByPhoneDB, normalizePhone } from "./aircall";
@@ -60,6 +62,12 @@ function messageTitle(direction: "inbound" | "outbound"): string {
   return direction === "inbound"
     ? "Inbound text via Aircall"
     : "Outbound text via Aircall";
+}
+
+const SMS_MARKETING_OPT_OUT_PATTERN = /^(?:stop|unsubscribe|cancel|end|quit|revoke|opt\s*out)$/i;
+
+function isMarketingOptOut(body: string | null | undefined): boolean {
+  return !!body?.trim() && SMS_MARKETING_OPT_OUT_PATTERN.test(body.trim());
 }
 
 /**
@@ -157,6 +165,25 @@ export async function persistAircallMessage(
     rawPayload: payload as Record<string, unknown>,
   };
 
+  // Honor standard carrier-recognized opt-out keywords sent to the dedicated
+  // marketing line as soon as the inbound message is persisted.
+  if (direction === "inbound" && contactId && isMarketingOptOut(payload.body)) {
+    const [integration] = await db
+      .select({ marketingNumberId: aircallIntegrationState.marketingNumberId })
+      .from(aircallIntegrationState)
+      .where(eq(aircallIntegrationState.id, 1))
+      .limit(1);
+    if (integration?.marketingNumberId === payload.number.id) {
+      await db
+        .update(contacts)
+        .set({
+          smsMarketingOptedOutAt: new Date(),
+          smsMarketingOptOutReason: `Inbound SMS keyword: ${(payload.body ?? "OPT-OUT").trim().toUpperCase()}`,
+        })
+        .where(eq(contacts.id, contactId));
+    }
+  }
+
   if (existing) {
     await db
       .update(aircallMessages)
@@ -170,6 +197,41 @@ export async function persistAircallMessage(
   }
 
   return { contactId, communicationId };
+}
+
+/**
+ * Persists a successful native API send immediately. Aircall's later webhook is
+ * idempotent and enriches the same row with its final delivery status.
+ */
+export async function persistOutboundAircallSend(input: {
+  messageId: string;
+  body: string;
+  destination: string;
+  aircallNumberId: number;
+  aircallNumberName?: string | null;
+  aircallNumberDigits?: string | null;
+  responseMessage?: Record<string, unknown>;
+  contactId: number;
+  savvyUserId?: number | null;
+}): Promise<void> {
+  const response = input.responseMessage ?? {};
+  const responseNumber = response.number as { id?: number; name?: string | null; digits?: string | null } | undefined;
+  await persistAircallMessage({
+    ...response,
+    id: String(response.id ?? input.messageId),
+    direction: "outbound",
+    status: typeof response.status === "string" ? response.status : "pending",
+    body: typeof response.body === "string" ? response.body : input.body,
+    raw_digits: typeof response.raw_digits === "string" ? response.raw_digits : input.destination,
+    number: {
+      id: typeof responseNumber?.id === "number" ? responseNumber.id : input.aircallNumberId,
+      name: typeof responseNumber?.name === "string" ? responseNumber.name : input.aircallNumberName ?? null,
+      digits: typeof responseNumber?.digits === "string" ? responseNumber.digits : input.aircallNumberDigits ?? null,
+    },
+  }, {
+    contactId: input.contactId,
+    savvyUserId: input.savvyUserId ?? null,
+  });
 }
 
 export function isAircallMessageWebhook(

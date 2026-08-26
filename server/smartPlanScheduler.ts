@@ -17,12 +17,14 @@ import {
   listings,
   oneTimeSends,
   oneTimeSendRecipients,
+  aircallIntegrationState,
 } from "../drizzle/schema";
 import { and, eq, gte, inArray, lte, isNotNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { sendAircallSMS } from "./_core/aircall";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
+import { persistOutboundAircallSend } from "./aircallMessaging";
 import { refreshOneTimeSendMetrics } from "./oneTimeSendTracking";
 
 let isRunning = false;
@@ -87,6 +89,26 @@ export function contactChannelAddresses(contact: Pick<typeof contacts.$inferSele
     addresses.push(address);
   }
   return addresses;
+}
+
+/** Marketing SMS requires documented consent and honors an explicit opt-out. */
+export function smsMarketingEligibility(contact: Pick<typeof contacts.$inferSelect, "smsMarketingConsentAt" | "smsMarketingOptedOutAt">): { eligible: boolean; error?: string } {
+  if (contact.smsMarketingOptedOutAt) return { eligible: false, error: "Contact opted out of marketing texts" };
+  if (!contact.smsMarketingConsentAt) return { eligible: false, error: "Marketing SMS consent has not been recorded" };
+  return { eligible: true };
+}
+
+async function marketingSender(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<{ id: number; name: string | null; digits: string | null } | null> {
+  const [state] = await db
+    .select({
+      id: aircallIntegrationState.marketingNumberId,
+      name: aircallIntegrationState.marketingNumberName,
+      digits: aircallIntegrationState.marketingNumberDigits,
+    })
+    .from(aircallIntegrationState)
+    .where(eq(aircallIntegrationState.id, 1))
+    .limit(1);
+  return state?.id ? { id: state.id, name: state.name, digits: state.digits } : null;
 }
 
 // ─── Business Hours Helpers ───────────────────────────────────────────────────
@@ -267,8 +289,16 @@ async function processEnrollmentStep(
       errorMessage = failures.length ? failures.join("; ") : undefined;
     }
   } else if (step.channel === "sms") {
+    const eligibility = smsMarketingEligibility(contact);
+    const sender = await marketingSender(db);
     const addresses = contactChannelAddresses(contact, "sms");
-    if (!addresses.length) {
+    if (!eligibility.eligible) {
+      status = "skipped";
+      errorMessage = eligibility.error;
+    } else if (!sender) {
+      status = "failed";
+      errorMessage = "A dedicated Aircall marketing number has not been selected";
+    } else if (!addresses.length) {
       status = "skipped";
       errorMessage = "Contact has no phone number";
     } else {
@@ -281,10 +311,22 @@ async function processEnrollmentStep(
           continue;
         }
         await paceProvider("sms");
-        const result = await sendAircallSMS(address, renderedBody);
+        const result = await sendAircallSMS(address, renderedBody, sender.id);
         if (result.success) {
           sent++;
           providerMessageId = result.messageId ?? providerMessageId;
+          if (result.messageId) {
+            await persistOutboundAircallSend({
+              messageId: result.messageId,
+              body: renderedBody,
+              destination: address.startsWith("+") ? address : `+1${address.replace(/\D/g, "")}`,
+              aircallNumberId: sender.id,
+              aircallNumberName: sender.name,
+              aircallNumberDigits: sender.digits,
+              responseMessage: result.message,
+              contactId: contact.id,
+            });
+          }
         } else failures.push(`${address}: ${result.error ?? "send failed"}`);
       }
       status = sent > 0 ? "sent" : "failed";
@@ -606,16 +648,38 @@ async function deliverOneTimeRecipient(
         providerMessageId = result.messageId ?? null;
         errorMessage = result.error ?? null;
       }
-    } else if (!(await reserveSmsCapacity(db))) {
-      // Preserve this recipient as queued. The worker will resume it after the UTC daily reset.
-      return "deferred";
     } else {
-      provider = "aircall";
-      await paceProvider("sms");
-      const result = await sendAircallSMS(recipient.recipientAddress, body);
-      outcome = result.success ? "sent" : "failed";
-      providerMessageId = result.messageId ?? null;
-      errorMessage = result.error ?? null;
+      const eligibility = smsMarketingEligibility(contact);
+      const sender = await marketingSender(db);
+      if (!eligibility.eligible) {
+        outcome = "skipped";
+        errorMessage = eligibility.error ?? "Marketing SMS is not permitted";
+      } else if (!sender) {
+        outcome = "failed";
+        errorMessage = "A dedicated Aircall marketing number has not been selected";
+      } else if (!(await reserveSmsCapacity(db))) {
+        // Preserve this recipient as queued. The worker will resume it after the UTC daily reset.
+        return "deferred";
+      } else {
+        provider = "aircall";
+        await paceProvider("sms");
+        const result = await sendAircallSMS(recipient.recipientAddress, body, sender.id);
+        outcome = result.success ? "sent" : "failed";
+        providerMessageId = result.messageId ?? null;
+        errorMessage = result.error ?? null;
+        if (result.success && result.messageId) {
+          await persistOutboundAircallSend({
+            messageId: result.messageId,
+            body,
+            destination: recipient.recipientAddress.startsWith("+") ? recipient.recipientAddress : `+1${recipient.recipientAddress.replace(/\D/g, "")}`,
+            aircallNumberId: sender.id,
+            aircallNumberName: sender.name,
+            aircallNumberDigits: sender.digits,
+            responseMessage: result.message,
+            contactId: contact.id,
+          });
+        }
+      }
     }
   }
 

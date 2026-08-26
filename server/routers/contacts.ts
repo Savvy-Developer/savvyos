@@ -302,6 +302,49 @@ export const contactsRouter = router({
       return { success: true };
     }),
 
+  setSmsMarketingConsent: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      consented: z.boolean(),
+      source: z.string().trim().min(1).max(255).optional(),
+      optOutReason: z.string().trim().min(1).max(255).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN", message: "Agents cannot change marketing SMS preferences directly." });
+      const existing = await getContactById(input.id);
+      const contact = (existing as any)?.contact ?? existing;
+      if (!contact) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      const changedAt = new Date();
+      if (input.consented) {
+        if (!input.source) throw new TRPCError({ code: "BAD_REQUEST", message: "Record the source of the contact's SMS marketing consent." });
+        await updateContact(input.id, {
+          smsMarketingConsentAt: changedAt,
+          smsMarketingConsentSource: input.source,
+          smsMarketingOptedOutAt: null,
+          smsMarketingOptOutReason: null,
+        } as any);
+      } else {
+        await updateContact(input.id, {
+          smsMarketingOptedOutAt: changedAt,
+          smsMarketingOptOutReason: input.optOutReason ?? "Marketing SMS opt-out recorded in SavvyOS",
+        } as any);
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: input.consented ? "contact_sms_marketing_consent_recorded" : "contact_sms_marketing_opt_out_recorded",
+        entityType: "contact",
+        entityId: input.id,
+        relatedContactId: input.id,
+        details: {
+          contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown Contact",
+          source: input.consented ? input.source : null,
+          reason: input.consented ? null : input.optOutReason ?? "Marketing SMS opt-out recorded in SavvyOS",
+          changedAt: changedAt.toISOString(),
+        },
+      });
+      return { success: true };
+    }),
+
   getCommunications: protectedProcedure
     .input(z.object({ contactId: z.number() }))
     .query(async ({ input, ctx }) => {

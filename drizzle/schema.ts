@@ -165,6 +165,12 @@ export const contacts = mysqlTable("contacts", {
   emailStatus: mysqlEnum("emailStatus", ["valid", "bounced", "unsubscribed"]).default("valid").notNull(),
   emailBouncedAt: timestamp("emailBouncedAt"),
   emailUnsubscribedAt: timestamp("emailUnsubscribedAt"),
+  // Marketing SMS compliance. Smart Plans may send campaign texts only after
+  // consent is recorded; an opt-out always overrides an earlier consent.
+  smsMarketingConsentAt: timestamp("smsMarketingConsentAt"),
+  smsMarketingConsentSource: varchar("smsMarketingConsentSource", { length: 255 }),
+  smsMarketingOptedOutAt: timestamp("smsMarketingOptedOutAt"),
+  smsMarketingOptOutReason: varchar("smsMarketingOptOutReason", { length: 255 }),
   archivedAt: timestamp("archived_at"),
   // Time zone
   timezone: varchar("timezone", { length: 64 }),
@@ -2705,6 +2711,12 @@ export const aircallIntegrationState = mysqlTable("aircall_integration_state", {
   lastWebhookRepairAt: timestamp("lastWebhookRepairAt"),
   historicalBackfillCursorAt: timestamp("historicalBackfillCursorAt"),
   historicalBackfillCompletedAt: timestamp("historicalBackfillCompletedAt"),
+  // A dedicated, shared line for Smart Plan marketing messages. Personal ISA
+  // lines remain exclusively mapped through aircall_isa_assignments.
+  marketingNumberId: int("marketingNumberId"),
+  marketingNumberName: varchar("marketingNumberName", { length: 255 }),
+  marketingNumberDigits: varchar("marketingNumberDigits", { length: 32 }),
+  marketingNumberConfiguredAt: timestamp("marketingNumberConfiguredAt"),
   lastUnmatchedReconcileAt: timestamp("lastUnmatchedReconcileAt"),
   unmatchedRematchCursorId: int("unmatchedRematchCursorId"),
   lastAlertAt: timestamp("lastAlertAt"),

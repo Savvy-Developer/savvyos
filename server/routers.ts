@@ -50,6 +50,7 @@ import { emailBehaviorsRouter } from "./routers/emailBehaviors";
 import { aircallRouter } from "./routers/aircall";
 import { aircallCallingRouter } from "./routers/aircallCalling";
 import { aircallCommunicationsRouter } from "./routers/aircallCommunications";
+import { marketingTextInboxRouter } from "./routers/marketingTextInbox";
 import { jobBoardRouter } from "./routers/jobBoard";
 import { talentProfileRouter } from "./routers/talentProfile";
 import { coachingRouter } from "./routers/coaching";
@@ -259,6 +260,7 @@ export const appRouter = router({
   aircall: aircallRouter,
   aircallCalling: aircallCallingRouter,
   aircallCommunications: aircallCommunicationsRouter,
+  marketingTextInbox: marketingTextInboxRouter,
   jobBoard: jobBoardRouter,
   talentProfile: talentProfileRouter,
   coaching: coachingRouter,

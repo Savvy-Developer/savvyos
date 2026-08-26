@@ -347,6 +347,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
         { icon: Inbox, label: "Resend Inbox", path: "/resend-inbox", badge: resendInboxUnread > 0 ? resendInboxUnread : undefined },
+        { icon: MessageSquare, label: "Marketing Text Inbox", path: "/marketing-text-inbox" },
         { icon: Lock, label: "Passwords", path: "/passwords" },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
       ],
