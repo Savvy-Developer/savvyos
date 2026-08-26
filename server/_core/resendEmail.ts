@@ -92,7 +92,8 @@ export type EmailType =
   | "mention"
   | "rock_completed"
   | "welcome"
-  | "password_reset";
+  | "password_reset"
+  | "webinar_marketing_request";
 
 interface EmailContext {
   recipientName?: string;
@@ -175,6 +176,42 @@ interface EmailContext {
   listingId?: string;
   connectionId?: string;
   contactId?: string;
+  // Webinar marketing handoff-specific fields
+  webinarTitle?: string;
+  webinarDescription?: string;
+  webinarStartTime?: string;
+  webinarDuration?: string;
+  webinarRegistrationUrl?: string;
+  webinarCreatorName?: string;
+  webinarCreatorEmail?: string;
+}
+
+const WEBINAR_TEMPLATE_BODY_START = "<!--WEBINAR_TEMPLATE_BODY_START-->";
+const WEBINAR_TEMPLATE_BODY_END = "<!--WEBINAR_TEMPLATE_BODY_END-->";
+
+function replaceWebinarTemplateTokens(value: string, ctx: EmailContext): string {
+  const variables: Record<string, string> = {
+    webinar_title: ctx.webinarTitle ?? "",
+    webinar_description: ctx.webinarDescription ?? "",
+    webinar_start_time: ctx.webinarStartTime ?? "",
+    webinar_duration: ctx.webinarDuration ?? "",
+    webinar_registration_url: ctx.webinarRegistrationUrl ?? "",
+    webinar_creator_name: ctx.webinarCreatorName ?? "",
+    webinar_creator_email: ctx.webinarCreatorEmail ?? "",
+  };
+  return value.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (_match, name) => variables[name.toLowerCase()] ?? "");
+}
+
+function webinarTemplateBody(text: string, ctx: EmailContext): string {
+  const formatted = escapeHtml(replaceWebinarTemplateTokens(text, ctx)).replace(/\n/g, "<br />");
+  return `${WEBINAR_TEMPLATE_BODY_START}<p style="margin:0 0 20px;font-size:15px;color:#374151;line-height:1.6;">${formatted}</p>${WEBINAR_TEMPLATE_BODY_END}`;
+}
+
+function replaceWebinarTemplateBody(html: string, text: string, ctx: EmailContext): string {
+  const start = html.indexOf(WEBINAR_TEMPLATE_BODY_START);
+  const end = html.indexOf(WEBINAR_TEMPLATE_BODY_END);
+  if (start === -1 || end === -1) return html;
+  return `${html.slice(0, start)}${webinarTemplateBody(text, ctx)}${html.slice(end + WEBINAR_TEMPLATE_BODY_END.length)}`;
 }
 
 // ─── Shared Layout Wrapper ────────────────────────────────────────────────────
@@ -737,6 +774,26 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
+  webinar_marketing_request: (ctx) => ({
+    subject: `New Webinar Marketing Request: ${ctx.webinarTitle ?? "Webinar"}`,
+    html: emailLayout(
+      `${heading("New Webinar Marketing Request", CYAN)}
+      ${subheading("SavvyOS Event Operations")}
+      ${greeting(ctx.recipientName ?? "Marketing Team")}
+      ${webinarTemplateBody("A new webinar has been created in SavvyOS. Please coordinate the promotional plan with {{webinar_creator_name}} and use the registration link below in approved marketing.", ctx)}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Webinar</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarTitle ?? "—")}`,
+        ...(ctx.webinarStartTime ? [`<strong style="color:${BLACK};">Start</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarStartTime)}`] : []),
+        ...(ctx.webinarDuration ? [`<strong style="color:${BLACK};">Duration</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarDuration)}`] : []),
+        ...(ctx.webinarCreatorName ? [`<strong style="color:${BLACK};">Created by</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarCreatorName)}${ctx.webinarCreatorEmail ? ` (${escapeHtml(ctx.webinarCreatorEmail)})` : ""}`] : []),
+      ])}
+      ${ctx.webinarDescription ? `<p style="margin:20px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Webinar description</p><p style="margin:0;font-size:14px;color:#374151;line-height:1.6;background:#F9FAFB;border-radius:6px;padding:12px 16px;">${escapeHtml(ctx.webinarDescription)}</p>` : ""}
+      ${ctx.webinarRegistrationUrl ? ctaButton("Open Registration Link", ctx.webinarRegistrationUrl) : ""}
+      ${bodyText("Reply all to coordinate the marketing plan and any promotion requirements.")}`,
+      `New webinar marketing request — ${ctx.webinarTitle ?? "Webinar"}`
+    ),
+  }),
+
   partner_lead_confirmation: (ctx) => ({
     subject: `Lead Received: ${ctx.contactName ?? "Your Client"} — Savvy STR Agents`,
     html: emailLayout(
@@ -905,12 +962,17 @@ export async function sendTransactionalEmail(
         if (db) {
           const [override] = await db.select().from(emailTemplates).where(eq(emailTemplates.emailType, type)).limit(1);
           if (override) {
-            subject = override.subject;
-            const escapedBody = override.bodyText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-            html = hardcoded.html.replace(
-              /<p style="[^"]*color:[^"]*#6B7280[^"]*">[^<]*<\/p>/,
-              `<p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 20px;">${escapedBody}</p>`,
-            );
+            if (type === "webinar_marketing_request") {
+              subject = replaceWebinarTemplateTokens(override.subject, ctx);
+              html = replaceWebinarTemplateBody(hardcoded.html, override.bodyText, ctx);
+            } else {
+              subject = override.subject;
+              const escapedBody = override.bodyText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+              html = hardcoded.html.replace(
+                /<p style="[^"]*color:[^"]*#6B7280[^"]*">[^<]*<\/p>/,
+                `<p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 20px;">${escapedBody}</p>`,
+              );
+            }
           }
         }
       } catch (dbErr) {
