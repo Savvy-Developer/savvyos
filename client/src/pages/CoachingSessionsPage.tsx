@@ -50,14 +50,22 @@ export default function CoachingSessionsPage() {
   const [page, setPage] = useState(1);
   const [defaultFilterApplied, setDefaultFilterApplied] = useState(false);
   const pageSize = 20;
-  const { data: sessionFilterDefault } = trpc.coaching.getSessionFilterDefault.useQuery();
+  const { data: sessionFilterDefault, isError: isSessionFilterDefaultError } = trpc.coaching.getSessionFilterDefault.useQuery();
 
   useEffect(() => {
-    if (!sessionFilterDefault || defaultFilterApplied) return;
-    setCoachFilter(sessionFilterDefault.coachId ? String(sessionFilterDefault.coachId) : "all");
-    setPage(1);
-    setDefaultFilterApplied(true);
-  }, [sessionFilterDefault, defaultFilterApplied]);
+    if (defaultFilterApplied) return;
+    if (sessionFilterDefault) {
+      setCoachFilter(sessionFilterDefault.coachId ? String(sessionFilterDefault.coachId) : "all");
+      setPage(1);
+      setDefaultFilterApplied(true);
+      return;
+    }
+    if (isSessionFilterDefaultError) {
+      // A filter preference should never block access to the Sessions workspace.
+      setCoachFilter("all");
+      setDefaultFilterApplied(true);
+    }
+  }, [sessionFilterDefault, isSessionFilterDefaultError, defaultFilterApplied]);
 
   const { data, isLoading } = trpc.coaching.listSessions.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,

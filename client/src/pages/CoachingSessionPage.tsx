@@ -53,8 +53,9 @@ type Diagnosis = "Commitment" | "Capability" | "Cadence" | "Capacity";
 
 function getStageFromSession(session: any): Stage {
   if (!session) return "Prepare";
-  if (session.status === "Completed" && session.isSummaryApproved) return "Schedule Next";
+  // Commitment review remains visible even after the narrative summary is approved.
   if (session.status === "Completed" && session.aiSummary && session.aiRecommendedCommitments) return "Commit";
+  if (session.status === "Completed" && session.isSummaryApproved) return "Schedule Next";
   if (session.status === "Completed" && session.aiSummary) return "Review";
   if (session.aiProcessingStatus === "Completed") return "Review";
   if (session.aiProcessingStatus === "Processing" || session.aiProcessingStatus === "Failed") return "AI Process";
