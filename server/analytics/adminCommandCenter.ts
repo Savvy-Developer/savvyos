@@ -285,8 +285,8 @@ export async function getAdminCommandCenter(input: {
           COALESCE(SUM(CASE WHEN t.status = 'under_contract' THEN t.purchasePrice ELSE 0 END), 0) AS underContractVolume,
           COALESCE(SUM(CASE WHEN t.status = 'under_contract' THEN t.grossCommissionIncome ELSE 0 END), 0) AS underContractGci
         FROM transactions t LEFT JOIN users owner ON owner.id = t.agentId LEFT JOIN contacts contact ON contact.id = t.primaryContactId
-        WHERE t.status IN ('closed', 'under_contract') AND t.closingDate >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
-          AND ${transactionScope({ ...filters, transactionStatus: undefined, dateFrom: new Date(0), dateTo: new Date(8640000000000000) }, { status: undefined, applyDate: false })}
+        WHERE t.status IN ('closed', 'under_contract')
+          AND ${transactionScope({ ...filters, transactionStatus: undefined }, { status: undefined })}
         GROUP BY DATE_FORMAT(t.closingDate, '%Y-%m') ORDER BY period`),
     ])
     : Promise.resolve(null);

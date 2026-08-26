@@ -114,6 +114,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("representationAverages");
     expect(service).toContain("AVG(t.\\`purchasePrice\\`) AS averagePurchasePrice");
     expect(commandCenter).toContain('transactionScope(filters, { status: "closed" })');
+    expect(commandCenter).toContain('transactionScope({ ...filters, transactionStatus: undefined }, { status: undefined })');
+    expect(commandCenter).not.toContain("DATE_SUB(CURDATE(), INTERVAL 5 MONTH)");
     expect(commandCenter).not.toContain("const selectedProductionStatus");
     expect(transactions).toContain('if (s === "closed" && !closingDateFrom && !closingDateTo && !contractDateFrom && !contractDateTo)');
     expect(transactions).toContain('setClosingDateFrom(`${today.slice(0, 4)}-01-01`)');
