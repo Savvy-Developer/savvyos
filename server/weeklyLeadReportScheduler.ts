@@ -7,13 +7,23 @@ import {
   leadSources,
   tasks,
   transactions,
+  scheduledReportRuns,
 } from "../drizzle/schema";
 import { sendTransactionalEmail } from "./_core/resendEmail";
-import { addEasternDays, easternDateKey, easternDateTimeToUtc, getEasternTimeParts } from "./agentProductionReportScheduler";
+import { addEasternDays, easternDateKey, easternDateTimeToUtc, getEasternTimeParts, getNextFridayAt6PmEastern } from "./agentProductionReportScheduler";
 
 const EASTERN_TIME_ZONE = "America/New_York";
 const APP_URL = "https://os.savvy-agents.com";
 const TEST_RECIPIENT_EMAIL = "tyler@savvy.realty";
+const REPORT_KEY = "weekly_lead_report";
+const STALE_RUN_MS = 60 * 60 * 1000;
+const LIVE_RECIPIENTS = [
+  { name: "Marcus", email: "marcusclay@savvy.realty" },
+  { name: "Amy Rollins", email: "amyrollins@savvy.realty" },
+  { name: "Elana", email: "elana@savvy.realty" },
+  { name: "Dyl", email: "dyl@savvy.realty" },
+  { name: "Tyler", email: "tyler@savvy.realty" },
+] as const;
 
 type SourceKey = number | null;
 type PipelineStatus = "new_lead" | "attempted_contact" | "nurture" | "active_client" | "under_contract" | "closed" | "dead" | "do_not_contact";
@@ -544,4 +554,159 @@ export async function sendWeeklyLeadReportTest(asOf = new Date()): Promise<{ sen
     },
   );
   return { ...delivery, report };
+}
+
+async function claimWeeklyLeadReportRun(reportDate: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available for Lead Report run tracking.");
+
+  const [run] = await db
+    .select()
+    .from(scheduledReportRuns)
+    .where(and(eq(scheduledReportRuns.reportKey, REPORT_KEY), eq(scheduledReportRuns.reportDate, reportDate)))
+    .limit(1);
+
+  if (run?.status === "sent") {
+    console.info(`[WeeklyLeadReport] ${reportDate} already delivered — skipping duplicate run.`);
+    return false;
+  }
+  if (run?.status === "running" && Date.now() - run.startedAt.getTime() < STALE_RUN_MS) {
+    console.info(`[WeeklyLeadReport] ${reportDate} is already running — skipping overlap.`);
+    return false;
+  }
+
+  if (run) {
+    await db.update(scheduledReportRuns).set({
+      status: "running",
+      startedAt: new Date(),
+      completedAt: null,
+      recipientCount: 0,
+      successfulRecipientCount: 0,
+      errorMessage: null,
+    }).where(eq(scheduledReportRuns.id, run.id));
+  } else {
+    try {
+      await db.insert(scheduledReportRuns).values({
+        reportKey: REPORT_KEY,
+        reportDate,
+        status: "running",
+        startedAt: new Date(),
+      });
+    } catch (error) {
+      console.warn("[WeeklyLeadReport] Could not claim report run:", error);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function finalizeWeeklyLeadReportRun(
+  reportDate: string,
+  status: "sent" | "partial" | "failed" | "skipped",
+  recipientCount: number,
+  successfulRecipientCount: number,
+  errorMessage?: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(scheduledReportRuns).set({
+    status,
+    recipientCount,
+    successfulRecipientCount,
+    errorMessage: errorMessage ?? null,
+    completedAt: new Date(),
+  }).where(and(eq(scheduledReportRuns.reportKey, REPORT_KEY), eq(scheduledReportRuns.reportDate, reportDate)));
+}
+
+/** Deliver the approved Weekly Lead Report to the leadership recipient group. */
+export async function sendWeeklyLeadReport(asOf = new Date()): Promise<void> {
+  const report = await buildWeeklyLeadReport(asOf);
+  if (!(await claimWeeklyLeadReportRun(report.reportDateKey))) return;
+
+  try {
+    let successfulRecipientCount = 0;
+    const failures: string[] = [];
+    const reportHtml = renderWeeklyLeadReport(report);
+
+    for (const recipient of LIVE_RECIPIENTS) {
+      const delivery = await sendTransactionalEmail(
+        "weekly_lead_report",
+        {
+          recipientName: recipient.name,
+          recipientEmail: recipient.email,
+          weeklyLeadReportDate: report.periodLabel,
+          weeklyLeadReportHtml: reportHtml,
+          weeklyLeadReportSubject: `Weekly Lead Report | ${report.periodLabel}`,
+        },
+        {
+          allowTemplateOverride: false,
+          idempotencyKey: `${REPORT_KEY}:${report.reportDateKey}:${recipient.email}`,
+        },
+      );
+
+      if (delivery.sent) {
+        successfulRecipientCount += 1;
+      } else if (delivery.skipped) {
+        console.info(`[WeeklyLeadReport] Delivery to ${recipient.email} was skipped: ${delivery.reason ?? "notification disabled"}.`);
+      } else {
+        failures.push(`${recipient.email}: ${delivery.reason ?? "email delivery failed"}`);
+      }
+    }
+
+    const status = successfulRecipientCount === LIVE_RECIPIENTS.length
+      ? "sent"
+      : successfulRecipientCount > 0
+        ? "partial"
+        : failures.length > 0
+          ? "failed"
+          : "skipped";
+    await finalizeWeeklyLeadReportRun(
+      report.reportDateKey,
+      status,
+      LIVE_RECIPIENTS.length,
+      successfulRecipientCount,
+      failures.length ? failures.join(" | ") : undefined,
+    );
+    console.info(`[WeeklyLeadReport] ${status}: ${successfulRecipientCount}/${LIVE_RECIPIENTS.length} delivery attempt(s) completed for ${report.reportDateKey}.`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    await finalizeWeeklyLeadReportRun(report.reportDateKey, "failed", 0, 0, message);
+    console.error("[WeeklyLeadReport] Weekly report failed:", error);
+  }
+}
+
+let weeklyLeadReportTimer: NodeJS.Timeout | undefined;
+let weeklyLeadReportRecoveryTimer: NodeJS.Timeout | undefined;
+
+function scheduleNextWeeklyLeadReport(): void {
+  if (weeklyLeadReportTimer) clearTimeout(weeklyLeadReportTimer);
+  const nextRun = getNextFridayAt6PmEastern();
+  const delay = Math.max(nextRun.getTime() - Date.now(), 1_000);
+  console.info(`[WeeklyLeadReport] Next Friday report scheduled for ${nextRun.toLocaleString("en-US", { timeZone: EASTERN_TIME_ZONE })}.`);
+
+  weeklyLeadReportTimer = setTimeout(async () => {
+    await sendWeeklyLeadReport();
+    scheduleNextWeeklyLeadReport();
+  }, delay);
+}
+
+/**
+ * Schedule the live Lead Report for 6:00 PM every Friday in America/New_York.
+ * The recovery check covers a same-Friday service restart after the send time;
+ * scheduled report runs make repeated process starts safe.
+ */
+export function scheduleWeeklyLeadReport(): void {
+  scheduleNextWeeklyLeadReport();
+
+  if (weeklyLeadReportRecoveryTimer) clearTimeout(weeklyLeadReportRecoveryTimer);
+  weeklyLeadReportRecoveryTimer = setTimeout(() => {
+    const eastern = getEasternTimeParts();
+    if (eastern.weekday === "Fri" && eastern.hour >= 18) {
+      sendWeeklyLeadReport().catch((error) =>
+        console.error("[WeeklyLeadReport] Startup recovery failed:", error),
+      );
+    }
+  }, 30_000);
 }

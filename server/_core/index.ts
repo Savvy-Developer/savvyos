@@ -16,6 +16,7 @@ import { processOneTimeSmartPlanSends, processSmartPlanSteps } from "../smartPla
 import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
+import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
@@ -245,6 +246,8 @@ async function startServer() {
 
   // Agent production report: Friday at 6:00 PM Eastern
   scheduleAgentProductionReport();
+  // Lead source funnel report: Friday at 6:00 PM Eastern
+  scheduleWeeklyLeadReport();
 
   // Personalized agent operating digest: daily at 6:00 PM Eastern
   scheduleDailyAgentReports();
