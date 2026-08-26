@@ -417,6 +417,42 @@ function buildLiveCallGuide({
   };
 }
 
+// ─── Session-summary fallback — preserve coaching continuity during provider outages ──
+function buildSessionSummaryFallback({ content, agentName, profile }: { content: string; agentName: string; profile: any }) {
+  const normalizedContent = content.replace(/\r/g, "").trim();
+  const lines = normalizedContent
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean);
+  const commitmentPatterns = /\b(will|commit(?:s|ted)? to|follow up|call|email|send|schedule|complete|review|reach out|contact|update)\b/i;
+  const commitments = lines
+    .filter((line) => line.length >= 12 && line.length <= 300 && commitmentPatterns.test(line))
+    .slice(0, 5)
+    .map((description) => ({
+      description,
+      owner: "agent",
+      dueDate: null,
+      expectedResult: "Coach to verify completion at the next session.",
+      relatedMetric: null,
+      confidence: "medium",
+    }));
+  const excerpt = normalizedContent.length > 2200
+    ? `${normalizedContent.slice(0, 2200).trim()}…`
+    : normalizedContent;
+  const primaryDiagnosis = profile?.currentPrimaryDiagnosis ?? null;
+  const secondaryDiagnosis = profile?.secondaryDiagnosis ?? null;
+
+  return {
+    summary: `Session record prepared from the coach's saved notes for ${agentName}.\n\n${excerpt}\n\nThis summary was saved without an external AI response so the coach can continue the workflow. Review the narrative and proposed commitments before approving the session record.`,
+    primaryDiagnosis,
+    secondaryDiagnosis,
+    diagnosisEvidence: primaryDiagnosis
+      ? `The current coaching profile identifies ${primaryDiagnosis} as the primary diagnosis. Confirm or update it during review.`
+      : "No diagnosis was inferred automatically. Select the most appropriate Four-C diagnosis during review.",
+    commitments,
+  };
+}
+
 // ─── Coaching Router ──────────────────────────────────────────────────────────
 export const coachingRouter = router({
 
@@ -2982,15 +3018,16 @@ Open Commitments:\n${openCommitments || "None"}`,
 
       await db.update(coachingSessions).set({ aiProcessingStatus: "Processing" }).where(eq(coachingSessions.id, input.sessionId));
 
+      const content = session.session.transcript || session.session.sourceNotes || "";
+      const agentName = session.agentName ?? "the agent";
+      const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, session.session.agentId));
+      const goalsData = await getAgentGoalsWithProgress(db, session.session.agentId);
+      const fallback = buildSessionSummaryFallback({ content, agentName, profile });
+      let parsed: any = fallback;
+      let source: "ai" | "fallback" = "fallback";
+
       try {
-        const content = session.session.transcript || session.session.sourceNotes || "";
-        const agentName = session.agentName ?? "the agent";
-
-        // Get agent context for better AI analysis
-        const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, session.session.agentId));
-        const goalsData = await getAgentGoalsWithProgress(db, session.session.agentId);
-
-        const systemPrompt = `You are an expert real estate coaching analyst for Savvy STR Agents. 
+        const systemPrompt = `You are an expert real estate coaching analyst for Savvy STR Agents.
 You specialize in the Four-C coaching framework: Commitment, Capability, Cadence, and Capacity.
 Your role is to analyze coaching session notes and produce structured, actionable summaries.
 
@@ -3006,78 +3043,85 @@ Output JSON with this exact structure:
   "primaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
   "secondaryDiagnosis": "Commitment|Capability|Cadence|Capacity|null",
   "diagnosisEvidence": "1-2 sentences explaining why this diagnosis was selected",
-  "keyThemes": ["theme1", "theme2"],
-  "commitments": [
-    {
-      "description": "Specific action item",
-      "owner": "agent|coach",
-      "dueDate": "YYYY-MM-DD or null",
-      "expectedResult": "What success looks like",
-      "relatedMetric": "GCI|Closings|Pipeline|Activity|null",
-      "confidence": "high|medium|low"
-    }
-  ],
-  "recommendedNextSessionFocus": "Brief description of what to cover next session",
-  "coachingStyleNote": "Any observations about how to best coach this agent",
-  "riskFlags": ["Any concerning patterns or red flags observed"],
-  "wins": ["Any wins or positive progress to acknowledge"]
+  "commitments": [{"description":"Specific action item","owner":"agent|coach","dueDate":"YYYY-MM-DD or null","expectedResult":"What success looks like","relatedMetric":"GCI|Closings|Pipeline|Activity|null","confidence":"high|medium|low"}]
 }`;
-
         const response = await invokeLLM({
           model: "gpt-5-mini",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `Agent: ${agentName}\nCurrent Status: ${profile?.performanceStatus ?? 'Unknown'}\nAnnual Goal: ${goalsData.annualGoal?.closingsTarget ?? 'Not set'} closings\n\nSession Notes/Transcript:\n${content}` },
+            { role: "user", content: `Agent: ${agentName}\nCurrent Status: ${profile?.performanceStatus ?? "Unknown"}\nAnnual Goal: ${goalsData.annualGoal?.closingsTarget ?? "Not set"} closings\n\nSession Notes/Transcript:\n${content}` },
           ],
           response_format: { type: "json_object" },
         });
-
         const rawContent = response.choices[0]?.message?.content;
-        const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
+        const candidate = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
+        if (!candidate?.summary || typeof candidate.summary !== "string") {
+          throw new Error("AI summary response did not include a usable summary");
+        }
+        parsed = candidate;
+        source = "ai";
+      } catch (error) {
+        // Preserve the coach's workflow and make the saved source material reviewable
+        // when a provider credential, quota, response, or network problem occurs.
+        console.error("Session AI summary unavailable; using note-based fallback", error);
+      }
 
-        await db.update(coachingSessions).set({
-          aiSummary: parsed.summary ?? null,
-          primaryDiagnosis: (["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.primaryDiagnosis)) ? parsed.primaryDiagnosis : null,
-          secondaryDiagnosis: (["Commitment", "Capability", "Cadence", "Capacity"].includes(parsed.secondaryDiagnosis)) ? parsed.secondaryDiagnosis : null,
-          diagnosisEvidence: parsed.diagnosisEvidence ?? null,
-          aiRecommendedCommitments: JSON.stringify(parsed.commitments ?? []),
-          aiProcessingStatus: "Completed",
-          updatedAt: sql`NOW()`,
-        }).where(eq(coachingSessions.id, input.sessionId));
+      const validDiagnosis = (value: unknown): "Commitment" | "Capability" | "Cadence" | "Capacity" | null =>
+        ["Commitment", "Capability", "Cadence", "Capacity"].includes(String(value))
+          ? value as "Commitment" | "Capability" | "Cadence" | "Capacity"
+          : null;
+      const suggestedCommitments = Array.isArray(parsed.commitments) ? parsed.commitments : [];
+      await db.update(coachingSessions).set({
+        aiSummary: parsed.summary ?? fallback.summary,
+        primaryDiagnosis: validDiagnosis(parsed.primaryDiagnosis),
+        secondaryDiagnosis: validDiagnosis(parsed.secondaryDiagnosis),
+        diagnosisEvidence: parsed.diagnosisEvidence ?? fallback.diagnosisEvidence,
+        aiRecommendedCommitments: JSON.stringify(suggestedCommitments),
+        aiProcessingStatus: "Completed",
+        updatedAt: sql`NOW()`,
+      }).where(eq(coachingSessions.id, input.sessionId));
 
-        // Auto-create AI-suggested commitments
-        if (parsed.commitments && parsed.commitments.length > 0) {
-          await db.insert(coachingCommitments).values(
-            parsed.commitments.map((c: any) => ({
+      // Regeneration replaces previous suggestions rather than duplicating them.
+      await db.delete(coachingCommitments).where(and(
+        eq(coachingCommitments.sessionId, input.sessionId),
+        eq(coachingCommitments.status, "AI Suggested"),
+      ));
+      if (suggestedCommitments.length > 0) {
+        await db.insert(coachingCommitments).values(
+          suggestedCommitments
+            .filter((commitment: any) => typeof commitment?.description === "string" && commitment.description.trim().length > 0)
+            .map((commitment: any) => ({
               agentId: session.session.agentId,
               sessionId: input.sessionId,
-              description: c.description,
-              ownerId: c.owner === "coach" ? (session.session.scheduledCoachId ?? session.session.agentId) : session.session.agentId,
+              description: commitment.description.trim(),
+              ownerId: commitment.owner === "coach" ? (session.session.scheduledCoachId ?? session.session.agentId) : session.session.agentId,
               createdById: ctx.user.id,
-              dueDate: c.dueDate ? new Date(c.dueDate) : null,
-              expectedResult: c.expectedResult ?? null,
-              relatedMetric: c.relatedMetric ?? null,
+              dueDate: commitment.dueDate ? new Date(commitment.dueDate) : null,
+              expectedResult: commitment.expectedResult ?? null,
+              relatedMetric: commitment.relatedMetric ?? null,
               status: "AI Suggested" as const,
-              isAiExtracted: true,
-              aiConfidence: c.confidence ?? "medium",
+              isAiExtracted: source === "ai",
+              aiConfidence: commitment.confidence ?? (source === "ai" ? "medium" : "review"),
               visibilityLabel: "Agent Visible" as const,
             }))
-          );
-        }
-        await logCoachingActivity({
-          userId: ctx.user.id,
-          action: "coaching_session_summary_generated",
-          entityType: "coaching_session",
-          entityId: input.sessionId,
-          agentId: session.session.agentId,
-          details: { suggestedCommitmentCount: parsed.commitments?.length ?? 0 },
-        });
-
-        return { success: true, summary: parsed.summary, commitmentCount: parsed.commitments?.length ?? 0, parsed };
-      } catch (err) {
-        await db.update(coachingSessions).set({ aiProcessingStatus: "Failed" }).where(eq(coachingSessions.id, input.sessionId));
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI processing failed. Please try again." });
+        );
       }
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_session_summary_generated",
+        entityType: "coaching_session",
+        entityId: input.sessionId,
+        agentId: session.session.agentId,
+        details: { suggestedCommitmentCount: suggestedCommitments.length, source },
+      });
+
+      return {
+        success: true,
+        summary: parsed.summary ?? fallback.summary,
+        commitmentCount: suggestedCommitments.length,
+        parsed,
+        source,
+      };
     }),
 
   /** Generate AI summary for an assessment */
