@@ -497,7 +497,9 @@ function SortableMetricHeader({ label, column, sortColumn, sortDirection, onSort
 }
 
 function AgentReport({ data }: { data: any }) {
-  const { production, scheduledUnderContract, scheduledProduction, change, flags, monthly, agents, flaggedTransactions, overdueTasks, filters } = data;
+  const { production, representationAverages, change, flags, monthly, agents, flaggedTransactions, overdueTasks, filters } = data;
+  const buyerAverages = representationAverages?.buyer ?? {};
+  const sellerAverages = representationAverages?.seller ?? {};
   const [comparisonSort, setComparisonSort] = useState({ column: "grossCommission", direction: "desc" as "asc" | "desc" });
   const [showZeroOnlyAgents, setShowZeroOnlyAgents] = useState(false);
   const totals = agents.reduce((sum: { closings: number; volume: number; grossCommission: number; savvyNet: number; underContract: number; overdueTasks: number; flags: number }, agent: any) => {
@@ -523,15 +525,14 @@ function AgentReport({ data }: { data: any }) {
 
   return <div className="space-y-7">
     <section className="space-y-3">
-      <SectionHeader title="Performance pulse" description="Closed actuals in the selected closing-date range, plus a separately labeled scheduled-production total for current under-contract transactions expected to close in that period." />
+      <SectionHeader title="Performance pulse" description="Closed production in the selected closing-date range, with buyer-versus-seller averages to show how representation mix affects deal economics." />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard label="Closed units" value={number(production.closings)} description="Closed transactions in the selected period" delta={change.closings} icon={CheckCircle2} tone="text-emerald-700" />
         <MetricCard label="Closed volume" value={money(production.volume, true)} description="Closed purchase-price volume" delta={change.volume} icon={Landmark} tone="text-sky-700" />
-        <MetricCard label="Scheduled UC" value={money(scheduledUnderContract.volume, true)} description={`${number(scheduledUnderContract.units)} current under-contract transaction${scheduledUnderContract.units === 1 ? "" : "s"} expected to close in the selected period`} icon={CalendarClock} tone="text-violet-700" />
-        <MetricCard label="Scheduled production" value={money(scheduledProduction.volume, true)} description="Closed actual volume plus scheduled under-contract volume" icon={TrendingUp} tone="text-primary" />
+        <MetricCard label="Avg. purchase price" value={money(production.averagePurchasePrice, true)} description={`Buyer ${money(buyerAverages.averagePurchasePrice, true)} · Seller ${money(sellerAverages.averagePurchasePrice, true)}`} icon={Landmark} tone="text-sky-700" />
+        <MetricCard label="Avg. commission" value={money(production.averageGci, true)} description={`Buyer ${money(buyerAverages.averageGci, true)} · Seller ${money(sellerAverages.averageGci, true)}`} delta={change.averageGci} icon={BarChart3} tone="text-violet-700" />
         <MetricCard label="Gross commission" value={money(production.grossCommission, true)} description="Recorded transaction GCI" delta={change.grossCommission} icon={CircleDollarSign} tone="text-indigo-700" />
         <MetricCard label="Savvy net" value={money(production.savvyNet, true)} description="Recorded Savvy payout items" delta={change.savvyNet} icon={TrendingUp} tone="text-primary" />
-        <MetricCard label="Avg. GCI" value={money(production.averageGci, true)} description="Per closed transaction" delta={change.averageGci} icon={BarChart3} tone="text-violet-700" />
       </div>
     </section>
 
@@ -597,7 +598,7 @@ function GroupLeaderReport({ data, selectedLeaderId }: { data: any; selectedLead
 }
 
 function TransactionReport({ data, update }: { data: any; update: (patch: QueryPatch) => void }) {
-  const { summary, scheduledProduction, flags, statuses, pipeline, representationByStatus = [], transactionTypes, monthly, agentOutcomes = [], evidence, pagination, filters } = data;
+  const { summary, flags, statuses, pipeline, representationByStatus = [], transactionTypes, monthly, agentOutcomes = [], evidence, pagination, filters } = data;
   const [outcomesSort, setOutcomesSort] = useState({ column: "grossCommission", direction: "desc" as "asc" | "desc" });
   const [showZeroOnlyOutcomeAgents, setShowZeroOnlyOutcomeAgents] = useState(false);
   const contributionTotal = representationByStatus.reduce((total: number, row: any) => total + Number(row.grossCommission ?? 0), 0);
@@ -635,7 +636,6 @@ function TransactionReport({ data, update }: { data: any; update: (patch: QueryP
         <MetricCard label="Period units" value={number(summary.units)} description="Transactions matching the selected status and date basis" delta={summary.change?.units} icon={BriefcaseBusiness} tone="text-sky-700" />
         <MetricCard label="Closed" value={number(summary.closedUnits)} description="Closed transactions in the selected period" delta={summary.change?.closings} icon={CheckCircle2} tone="text-emerald-700" />
         <MetricCard label="Selected-status volume" value={money(summary.volume, true)} description="Purchase volume matching the selected status and date basis" delta={summary.change?.volume} icon={Landmark} tone="text-sky-700" />
-        <MetricCard label="Scheduled production" value={money(scheduledProduction.total.volume, true)} description={`${number(scheduledProduction.closedActual.units)} closed actual${scheduledProduction.closedActual.units === 1 ? "" : "s"} + ${number(scheduledProduction.underContract.units)} scheduled UC in the selected closing period`} icon={TrendingUp} tone="text-primary" />
         <MetricCard label="Gross commission" value={money(summary.grossCommission, true)} description="Recorded transaction GCI" delta={summary.change?.grossCommission} icon={CircleDollarSign} tone="text-indigo-700" />
         <MetricCard label="Savvy net" value={money(summary.savvyNet, true)} description="Recorded Savvy payout items" delta={summary.change?.savvyNet} icon={TrendingUp} tone="text-primary" />
         <MetricCard label="Avg. GCI" value={money(summary.averageGci, true)} description="Per selected-period transaction" delta={summary.change?.averageGci} icon={BarChart3} tone="text-violet-700" />

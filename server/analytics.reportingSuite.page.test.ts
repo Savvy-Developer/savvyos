@@ -11,6 +11,8 @@ const pipelineReportView = () => readFileSync("client/src/pages/PipelineReport.t
 const financialService = () => readFileSync("server/db-analytics.ts", "utf-8");
 const financialView = () => readFileSync("client/src/pages/analytics/FinancialPerformanceTab.tsx", "utf-8");
 const commandCenterService = () => readFileSync("server/analytics/adminCommandCenter.ts", "utf-8");
+const transactionsPage = () => readFileSync("client/src/pages/TransactionsPage.tsx", "utf-8");
+const adminDashboard = () => readFileSync("client/src/pages/admin/AdminDashboard.tsx", "utf-8");
 
 describe("Reporting suite — stable decision and evidence contract", () => {
   it("keeps the Agent Performance report centered on production, financial contribution, and operational attention", () => {
@@ -65,8 +67,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Representation contribution");
     expect(content).toContain("Transaction evidence");
     expect(content).toContain("summary.closedUnits");
-    expect(content).toContain("scheduledProduction.total.volume");
     expect(content).toContain("Selected-status volume");
+    expect(content).not.toContain("scheduledProduction.total.volume");
     expect(content).toContain("summary.change?.grossCommission");
     expect(content).toContain("Under Contract GCI");
     expect(content).toContain("Under Contract Savvy net");
@@ -83,8 +85,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("setSearch(serialized ? `?${serialized}` : \"\")");
     expect(service).toContain("terminationRate");
     expect(service).toContain("underContractMonthlyRows");
-    expect(service).toContain("scheduledUnderContractScope");
-    expect(service).toContain("scheduledProduction: {");
+    expect(service).not.toContain("scheduledUnderContractScope");
+    expect(service).not.toContain("scheduledProduction: {");
     expect(service).toContain("monthlyPerformanceScope");
     expect(service).toContain("monthlyPerformanceStatus");
     expect(service).toContain("periodOutcomeScope");
@@ -93,21 +95,30 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
   });
 
-  it("keeps closed actuals, selected-period scheduled UC, and live UC inventory distinct across reporting", () => {
-    const service = financialService();
+  it("keeps closed actuals and live UC inventory distinct while prioritizing actionable representation averages", () => {
+    const financial = financialService();
     const view = financialView();
     const commandCenter = commandCenterService();
+    const transactions = transactionsPage();
+    const agentReport = reportPage();
+    const service = reportService();
 
-    expect(service).toContain("const ucScheduledWhere");
-    expect(service).toContain("scheduledCount: Number(ucScheduledRow.count)");
-    expect(service).toContain("scheduledVolume: Number(ucScheduledRow.totalVolume)");
+    expect(financial).not.toContain("const ucScheduledWhere");
     expect(view).toContain('label="Closed Actuals"');
-    expect(view).toContain('label="Scheduled UC"');
     expect(view).toContain('label="Live UC Inventory"');
-    expect(view).toContain("Closed Actuals vs Scheduled Under-Contract Volume");
-    expect(reportPage()).toContain("Closed actual volume plus scheduled under-contract volume");
+    expect(view).not.toContain('label="Scheduled UC"');
+    expect(view).toContain("Closed Actuals vs Live Under-Contract Inventory");
+    expect(agentReport).toContain("Avg. purchase price");
+    expect(agentReport).toContain("Avg. commission");
+    expect(agentReport).toContain("Buyer ${money(buyerAverages.averagePurchasePrice, true)} · Seller ${money(sellerAverages.averagePurchasePrice, true)}");
+    expect(service).toContain("representationAverages");
+    expect(service).toContain("AVG(t.\\`purchasePrice\\`) AS averagePurchasePrice");
     expect(commandCenter).toContain('transactionScope(filters, { status: "closed" })');
     expect(commandCenter).not.toContain("const selectedProductionStatus");
+    expect(transactions).toContain('if (s === "closed" && !closingDateFrom && !closingDateTo && !contractDateFrom && !contractDateTo)');
+    expect(transactions).toContain('setClosingDateFrom(`${today.slice(0, 4)}-01-01`)');
+    expect(adminDashboard()).toContain("const closedTransactionsQuery = new URLSearchParams");
+    expect(adminDashboard()).toContain("navigate(`/transactions?${closedTransactionsQuery}`)");
   });
 
   it("keeps the five expansion reports decision-ready, filterable, and backed by bounded evidence", () => {

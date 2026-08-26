@@ -997,7 +997,19 @@ export default function TransactionsPage() {
         {["all","under_contract","closed","terminated"].map((s) => (
           <button
             key={s}
-            onClick={() => { setStatusFilter(s); setTxPage(1); }}
+            onClick={() => {
+              setStatusFilter(s);
+              // A closed-production view defaults to the same YTD closing-date
+              // scope as the Admin Dashboard. Explicit date filters are never
+              // overwritten, so users retain control of historical research.
+              if (s === "closed" && !closingDateFrom && !closingDateTo && !contractDateFrom && !contractDateTo) {
+                const today = new Date().toISOString().slice(0, 10);
+                setClosingDateFrom(`${today.slice(0, 4)}-01-01`);
+                setClosingDateTo(today);
+                setShowDateFilters(true);
+              }
+              setTxPage(1);
+            }}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${statusFilter === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
           >
             {s === "all" ? "All" : s.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}

@@ -79,7 +79,7 @@ export default function FinancialPerformanceTab() {
     if (!summary) return [];
     return [
       { name: "Closed actual", count: summary.closed.count, volume: summary.closed.totalVolume },
-      { name: "Scheduled UC", count: summary.underContract.scheduledCount, volume: summary.underContract.scheduledVolume },
+      { name: "Live UC inventory", count: summary.underContract.count, volume: summary.underContract.totalVolume },
     ];
   }, [summary]);
 
@@ -166,19 +166,13 @@ export default function FinancialPerformanceTab() {
             {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiCard
               label="Closed Actuals"
               value={fmtNum(summary?.closed.count ?? 0)}
               sub={`${fmt$(summary?.closed.totalVolume ?? 0)} closing-date volume`}
               icon={<Building2 className="h-5 w-5" />}
               highlight
-            />
-            <KpiCard
-              label="Scheduled UC"
-              value={fmtNum(summary?.underContract.scheduledCount ?? 0)}
-              sub={`${fmt$(summary?.underContract.scheduledVolume ?? 0)} expected to close in period`}
-              icon={<TrendingUp className="h-5 w-5" />}
             />
             <KpiCard
               label="Live UC Inventory"
@@ -276,7 +270,7 @@ export default function FinancialPerformanceTab() {
         {/* Volume Comparison Bar */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Closed Actuals vs Scheduled Under-Contract Volume</CardTitle>
+            <CardTitle className="text-sm font-semibold">Closed Actuals vs Live Under-Contract Inventory</CardTitle>
           </CardHeader>
           <CardContent>
             {volumeComparisonData.every((d) => d.volume === 0) ? <EmptyState /> : (

@@ -269,6 +269,12 @@ export default function AdminDashboard() {
     setFilters((previous) => ({ ...previous, [key]: value === EMPTY_VALUE ? undefined : Number(value) }));
   };
   const actionQuery = new URLSearchParams({ dateFrom: filters.dateFrom, dateTo: filters.dateTo }).toString();
+  const closedTransactionsQuery = new URLSearchParams({
+    analytics: "1",
+    status: "closed",
+    closingDateFrom: filters.dateFrom,
+    closingDateTo: filters.dateTo,
+  }).toString();
   const executive = data?.executive as any;
   const forecast = data?.forecast as any;
   const queue = (data?.actionQueue?.items ?? []) as any[];
@@ -320,9 +326,9 @@ export default function AdminDashboard() {
           {executive && access?.financial ? <section>
             <SectionHeading title="Executive performance snapshot" detail={`Closed production from ${dateLabel(filters.dateFrom)} through ${dateLabel(filters.dateTo)}. Goal pace is prorated against the selected calendar-year target.`} action={<Button variant="outline" size="sm" onClick={openGoalSettings}><Settings2 className="mr-1.5 h-4 w-4" />Goal settings</Button>} />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard title="Closed GCI" value={currency(executive.closed.gci)} goal={executive.goalProgress.gci.goal ? `${percent(executive.goalProgress.gci.percent)} of pace goal` : "Goal not configured"} change={executive.changes.gci} status={executive.goalProgress.gci.status} description="Gross commission income from transactions with a closing date in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedGci }))} icon={DollarSign} onClick={() => navigate(`/transaction-reporting?${actionQuery}&status=closed`)} />
-              <MetricCard title="Closed volume" value={currency(executive.closed.volume, true)} goal={executive.goalProgress.volume.goal ? `${percent(executive.goalProgress.volume.percent)} of pace goal` : "Goal not configured"} change={executive.changes.volume} status={executive.goalProgress.volume.status} description="Purchase price volume on closed transactions dated in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedVolume }))} icon={LineChartIcon} onClick={() => navigate(`/transaction-reporting?${actionQuery}&status=closed`)} />
-              <MetricCard title="Closed units" value={integer(executive.closed.units)} goal={executive.goalProgress.units.goal ? `${percent(executive.goalProgress.units.percent)} of pace goal` : "Goal not configured"} change={executive.changes.units} status={executive.goalProgress.units.status} description="Count of closed transactions with a closing date in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedUnits }))} icon={Target} onClick={() => navigate(`/transaction-reporting?${actionQuery}&status=closed`)} />
+              <MetricCard title="Closed GCI" value={currency(executive.closed.gci)} goal={executive.goalProgress.gci.goal ? `${percent(executive.goalProgress.gci.percent)} of pace goal` : "Goal not configured"} change={executive.changes.gci} status={executive.goalProgress.gci.status} description="Gross commission income from transactions with a closing date in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedGci }))} icon={DollarSign} onClick={() => navigate(`/transactions?${closedTransactionsQuery}`)} />
+              <MetricCard title="Closed volume" value={currency(executive.closed.volume, true)} goal={executive.goalProgress.volume.goal ? `${percent(executive.goalProgress.volume.percent)} of pace goal` : "Goal not configured"} change={executive.changes.volume} status={executive.goalProgress.volume.status} description="Purchase price volume on closed transactions dated in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedVolume }))} icon={LineChartIcon} onClick={() => navigate(`/transactions?${closedTransactionsQuery}`)} />
+              <MetricCard title="Closed units" value={integer(executive.closed.units)} goal={executive.goalProgress.units.goal ? `${percent(executive.goalProgress.units.percent)} of pace goal` : "Goal not configured"} change={executive.changes.units} status={executive.goalProgress.units.status} description="Count of closed transactions with a closing date in the selected period." trend={trend.map((row) => ({ ...row, gci: row.closedUnits }))} icon={Target} onClick={() => navigate(`/transactions?${closedTransactionsQuery}`)} />
               <MetricCard title="Active under contract" value={currency(executive.activeContracts.volume, true)} goal={`${integer(executive.activeContracts.units)} units`} description="Current under-contract sales volume, regardless of selected date, limited by the active dashboard filters." icon={Gauge} onClick={() => navigate(`/transaction-reporting?${actionQuery}&status=under_contract`)} />
             </div>
           </section> : <RestrictedSection title="Executive performance snapshot" message="Financial production is hidden because the simulated or current administrator does not have both Transactions and Commission & Payouts access." />}

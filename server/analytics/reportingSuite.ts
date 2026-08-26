@@ -359,13 +359,21 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
   const priorWhere = priorFilters ? transactionScope(priorFilters, { forceStatus: "closed" }) : null;
   const periodDate = dateColumn(closedFilters);
   const underContractScope = transactionScope({ ...filters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
-  // This period-scoped subset is the comparable scheduled-production component:
-  // live UC records whose expected closing date falls in the selected period.
-  const underContractPeriodScope = transactionScope({ ...filters, status: "under_contract", dateBasis: "closing" }, { forceStatus: "under_contract" });
 
-  const [productionRows, priorRows, flagSummary, monthlyRows, underContractMonthlyRows, underContractPeriodRows, agentRows, flaggedTransactions, overdueTasks] = await Promise.all([
+  const [productionRows, priorRows, representationRows, flagSummary, monthlyRows, underContractMonthlyRows, agentRows, flaggedTransactions, overdueTasks] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${closedWhere}`),
     priorWhere ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorWhere}`) : Promise.resolve([]),
+    runRows<Row>(sql`
+      SELECT
+        t.\`transactionType\` AS transactionType,
+        COUNT(*) AS units,
+        AVG(t.\`purchasePrice\`) AS averagePurchasePrice,
+        AVG(t.\`grossCommissionIncome\`) AS averageGci
+      FROM \`transactions\` t
+      ${closedWhere}
+      AND t.\`transactionType\` IN ('buyer', 'seller')
+      GROUP BY t.\`transactionType\`
+    `),
     getOperationalFlags(filters),
     runRows<Row>(sql`
       SELECT
@@ -393,7 +401,6 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
       GROUP BY DATE_FORMAT(COALESCE(t.\`closingDate\`, t.\`contractDate\`, t.\`createdAt\`), '%Y-%m')
       ORDER BY month ASC
     `),
-    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${underContractPeriodScope}`),
     runRows<Row>(sql`
       SELECT
         u.\`id\` AS agentId,
@@ -497,7 +504,19 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
 
   const production = toProduction(productionRows[0]);
   const prior = toProduction(priorRows[0]);
-  const scheduledUnderContract = toProduction(underContractPeriodRows[0]);
+  const representationAverages = {
+    buyer: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null },
+    seller: { units: 0, averagePurchasePrice: null as number | null, averageGci: null as number | null },
+  };
+  representationRows.forEach((row) => {
+    const transactionType = String(row.transactionType ?? "");
+    if (transactionType !== "buyer" && transactionType !== "seller") return;
+    representationAverages[transactionType] = {
+      units: asNumber(row.units),
+      averagePurchasePrice: asNullableNumber(row.averagePurchasePrice),
+      averageGci: asNullableNumber(row.averageGci),
+    };
+  });
 
   return {
     filters: {
@@ -509,18 +528,7 @@ export async function getAgentReport(filters: ReportingFilters = {}) {
     },
     production,
     prior,
-    scheduledUnderContract: {
-      units: scheduledUnderContract.units,
-      volume: scheduledUnderContract.volume,
-      grossCommission: scheduledUnderContract.grossCommission,
-      savvyNet: scheduledUnderContract.savvyNet,
-    },
-    scheduledProduction: {
-      units: production.units + scheduledUnderContract.units,
-      volume: production.volume + scheduledUnderContract.volume,
-      grossCommission: production.grossCommission + scheduledUnderContract.grossCommission,
-      savvyNet: production.savvyNet + scheduledUnderContract.savvyNet,
-    },
+    representationAverages,
     change: {
       closings: change(production.closings, prior.closings),
       volume: change(production.volume, prior.volume),
@@ -647,10 +655,6 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   // by the report's historical closing/contract date range.
   const periodOutcomeScope = withCondition(scope, sql`t.\`status\` IN ('closed', 'terminated')`);
   const pipelineScope = transactionScope({ ...resolvedFilters, status: "under_contract" }, { applyDate: false, forceStatus: "under_contract" });
-  // Reconciled scheduled production always uses expected closing date: closed
-  // actuals plus current UC transactions expected to close in the same period.
-  const closedActualScope = transactionScope({ ...resolvedFilters, status: "closed", dateBasis: "closing" }, { forceStatus: "closed" });
-  const scheduledUnderContractScope = transactionScope({ ...resolvedFilters, status: "under_contract", dateBasis: "closing" }, { forceStatus: "under_contract" });
   const monthlyPerformanceStatus = resolvedFilters.status === "terminated" ? "terminated" : "closed";
   const monthlyPerformanceScope = transactionScope({ ...resolvedFilters, status: monthlyPerformanceStatus }, { forceStatus: monthlyPerformanceStatus });
   const priorFilters = previousPeriod(resolvedFilters);
@@ -660,7 +664,7 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   const limit = Math.min(100, Math.max(10, filters.limit ?? 25));
   const offset = (page - 1) * limit;
 
-  const [summaryRows, priorRows, statusRows, pipelineRows, closedActualRows, scheduledUnderContractRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, underContractMonthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
+  const [summaryRows, priorRows, statusRows, pipelineRows, periodRepresentationRows, pipelineRepresentationRows, typeRows, monthlyRows, underContractMonthlyRows, agentOutcomeRows, flagsRows, evidenceRows, countRows] = await Promise.all([
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${scope}`),
     priorScope ? runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${priorScope}`) : Promise.resolve([]),
     runRows<Row>(sql`
@@ -675,8 +679,6 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
       ORDER BY FIELD(t.\`status\`, 'closed', 'terminated')
     `),
     runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${pipelineScope}`),
-    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${closedActualScope}`),
-    runRows<Row>(sql`SELECT ${productionSelect()} FROM \`transactions\` t ${PAYOUT_JOIN} ${scheduledUnderContractScope}`),
     runRows<Row>(sql`
       SELECT t.\`status\` AS status, t.\`transactionType\` AS transactionType, COUNT(*) AS units,
         COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS grossCommission,
@@ -787,8 +789,6 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
   const summary = toProduction(summaryRows[0]);
   const prior = toProduction(priorRows[0]);
   const pipeline = toProduction(pipelineRows[0]);
-  const closedActual = toProduction(closedActualRows[0]);
-  const scheduledUnderContract = toProduction(scheduledUnderContractRows[0]);
   const statuses = statusRows.map((row) => ({
     status: String(row.status ?? ""),
     units: asNumber(row.units),
@@ -822,26 +822,6 @@ export async function getTransactionStatisticsReport(filters: ReportingFilters =
         savvyNet: change(summary.savvyNet, prior.savvyNet),
         averageGci: change(Number(summary.averageGci ?? 0), Number(prior.averageGci ?? 0)),
         averageDaysToClose: change(Number(summary.averageDaysToClose ?? 0), Number(prior.averageDaysToClose ?? 0)),
-      },
-    },
-    scheduledProduction: {
-      closedActual: {
-        units: closedActual.units,
-        volume: closedActual.volume,
-        grossCommission: closedActual.grossCommission,
-        savvyNet: closedActual.savvyNet,
-      },
-      underContract: {
-        units: scheduledUnderContract.units,
-        volume: scheduledUnderContract.volume,
-        grossCommission: scheduledUnderContract.grossCommission,
-        savvyNet: scheduledUnderContract.savvyNet,
-      },
-      total: {
-        units: closedActual.units + scheduledUnderContract.units,
-        volume: closedActual.volume + scheduledUnderContract.volume,
-        grossCommission: closedActual.grossCommission + scheduledUnderContract.grossCommission,
-        savvyNet: closedActual.savvyNet + scheduledUnderContract.savvyNet,
       },
     },
     flags: flagsRows,
