@@ -848,7 +848,10 @@ export async function getTransactions(agentId?: number, status?: string, search?
   const offset = (page - 1) * limit;
   const db = await getDb();
   if (!db) return { rows: [], total: 0, totals: { purchasePrice: 0, grossCommission: 0 }, page, limit };
-  const conditions = [];
+  const conditions: any[] = [sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+    SELECT 1 FROM \`referral_transaction_links\` rtl
+    WHERE rtl.\`transactionId\` = ${transactions.id}
+  )`];
   if (agentIds?.length) conditions.push(inArray(transactions.agentId, agentIds));
   else if (agentId) conditions.push(eq(transactions.agentId, agentId));
   if (status) conditions.push(eq(transactions.status, status as any));
@@ -982,7 +985,10 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   const db = await getDb();
   if (!db) return [];
 
-  const conditions = [];
+  const conditions: any[] = [sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+    SELECT 1 FROM \`referral_transaction_links\` rtl
+    WHERE rtl.\`transactionId\` = ${transactions.id}
+  )`];
   if (filters.agentIds?.length) conditions.push(inArray(transactions.agentId, filters.agentIds));
   else if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
   if (filters.status) conditions.push(eq(transactions.status, filters.status as any));

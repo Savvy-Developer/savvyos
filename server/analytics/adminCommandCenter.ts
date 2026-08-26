@@ -70,7 +70,9 @@ function transactionScope(
   filters: CommandCenterFilters,
   options: { status?: "under_contract" | "closed" | "terminated"; applyDate?: boolean } = {},
 ): SQL {
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [sql`t.referralId IS NULL AND NOT EXISTS (
+    SELECT 1 FROM referral_transaction_links rtl WHERE rtl.transactionId = t.id
+  )`];
   const scopedStatus = options.status ?? filters.transactionStatus;
   if (scopedStatus) conditions.push(sql`t.status = ${scopedStatus}`);
   if (filters.agentId) conditions.push(sql`t.agentId = ${filters.agentId}`);

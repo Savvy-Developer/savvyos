@@ -263,6 +263,10 @@ async function resolveScope(viewer: AnalyticsViewer, requested: AnalyticsFilters
 
 function transactionScopeClauses(filters: AnalyticsFilters, scope: AnalyticsScope): Array<SQL | undefined> {
   return [
+    sql`${quoteColumn("t", "referralId")} IS NULL AND NOT EXISTS (
+      SELECT 1 FROM \`referral_transaction_links\` rtl
+      WHERE rtl.\`transactionId\` = ${quoteColumn("t", "id")}
+    )`,
     numericListClause("t", "agentId", scope.agentIds),
     scope.isaId ? sql`${quoteColumn("c", "assignedIsaId")} = ${scope.isaId}` : undefined,
     filters.marketProfileId ? sql`${quoteColumn("u", "marketProfileId")} = ${filters.marketProfileId}` : undefined,

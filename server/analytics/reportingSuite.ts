@@ -107,6 +107,10 @@ function transactionScope(
   const status = options.forceStatus ?? filters.status;
   const date = dateColumn(filters);
   return where([
+    sql` t.\`referralId\` IS NULL AND NOT EXISTS (
+      SELECT 1 FROM \`referral_transaction_links\` rtl
+      WHERE rtl.\`transactionId\` = t.\`id\`
+    ) `,
     (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? (filters.includeLeaderStats ? sql`(
       t.\`agentId\` = ${filters.groupLeaderId}
@@ -348,6 +352,146 @@ export async function getReportingFilters() {
       name: String(row.name ?? "Unknown source"),
       campaignType: String(row.campaignType ?? "general"),
       parentId: asNullableNumber(row.parentId),
+    })),
+  };
+}
+
+function referralScope(
+  filters: ReportingFilters,
+  options: { dateColumn?: SQL; applyDate?: boolean } = {},
+): SQL {
+  const date = options.dateColumn ?? sql`r.\`referralSentAt\``;
+  return where([
+    filters.agentId ? sql`r.\`relationshipOwnerId\` = ${filters.agentId}` : undefined,
+    filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined,
+    options.applyDate === false ? undefined : sql`${date} IS NOT NULL`,
+    options.applyDate === false || !filters.dateFrom ? undefined : sql`DATE(${date}) >= ${filters.dateFrom}`,
+    options.applyDate === false || !filters.dateTo ? undefined : sql`DATE(${date}) <= ${filters.dateTo}`,
+  ]);
+}
+
+export async function getReferralReport(filters: ReportingFilters = {}) {
+  const sentScope = referralScope(filters);
+  const closedScope = referralScope(filters, { dateColumn: sql`r.\`closedAt\`` });
+  const liveScope = referralScope(filters, { applyDate: false });
+  const paymentScope = referralScope(filters, { applyDate: false });
+
+  const [sentRows, closedRows, liveRows, paymentRows, statusRows, evidenceRows] = await Promise.all([
+    runRows<Row>(sql`
+      SELECT
+        COUNT(*) AS sent,
+        SUM(CASE WHEN r.\`statusCategory\` = 'active' THEN 1 ELSE 0 END) AS activeFromPeriod,
+        SUM(CASE WHEN r.\`statusCategory\` = 'closed' THEN 1 ELSE 0 END) AS closedFromPeriod,
+        SUM(CASE WHEN r.\`statusCategory\` = 'lost' THEN 1 ELSE 0 END) AS lostFromPeriod
+      FROM \`referrals\` r
+      LEFT JOIN \`contacts\` c ON c.\`id\` = r.\`contactId\`
+      ${sentScope}
+    `),
+    runRows<Row>(sql`
+      SELECT
+        COUNT(*) AS closed,
+        COALESCE(SUM(CASE WHEN r.\`referralType\` = 'buyer' THEN 1 ELSE 0 END), 0) AS buyerClosings,
+        COALESCE(SUM(CASE WHEN r.\`referralType\` = 'seller' THEN 1 ELSE 0 END), 0) AS sellerClosings
+      FROM \`referrals\` r
+      LEFT JOIN \`contacts\` c ON c.\`id\` = r.\`contactId\`
+      ${closedScope} ${hasWhere(closedScope) ? sql`AND` : sql`WHERE`} r.\`statusCategory\` = 'closed'
+    `),
+    runRows<Row>(sql`
+      SELECT
+        COUNT(*) AS active,
+        SUM(CASE WHEN r.\`statusKey\` = 'under_contract' THEN 1 ELSE 0 END) AS underContract,
+        SUM(CASE WHEN r.\`statusCategory\` = 'on_hold' THEN 1 ELSE 0 END) AS onHold
+      FROM \`referrals\` r
+      LEFT JOIN \`contacts\` c ON c.\`id\` = r.\`contactId\`
+      ${liveScope} ${hasWhere(liveScope) ? sql`AND` : sql`WHERE`} r.\`statusCategory\` = 'active'
+    `),
+    runRows<Row>(sql`
+      SELECT
+        COALESCE(SUM(COALESCE(rp.\`referralFeeOwed\`, 0)), 0) AS expectedFee,
+        COALESCE(SUM(CASE WHEN rp.\`paymentStatus\` = 'paid' AND rp.\`paidAt\` IS NOT NULL
+          ${filters.dateFrom ? sql`AND DATE(rp.\`paidAt\`) >= ${filters.dateFrom}` : sql``}
+          ${filters.dateTo ? sql`AND DATE(rp.\`paidAt\`) <= ${filters.dateTo}` : sql``}
+          THEN COALESCE(rp.\`referralFeeOwed\`, 0) ELSE 0 END), 0) AS paidFee,
+        COALESCE(SUM(CASE WHEN rp.\`paymentStatus\` NOT IN ('paid', 'written_off') THEN COALESCE(rp.\`referralFeeOwed\`, 0) ELSE 0 END), 0) AS outstandingFee
+      FROM \`referral_payments\` rp
+      INNER JOIN \`referrals\` r ON r.\`id\` = rp.\`referralId\`
+      LEFT JOIN \`contacts\` c ON c.\`id\` = r.\`contactId\`
+      ${paymentScope}
+    `),
+    runRows<Row>(sql`
+      SELECT
+        r.\`statusCategory\` AS statusCategory,
+        r.\`statusKey\` AS statusKey,
+        COALESCE(so.\`name\`, r.\`statusKey\`) AS statusName,
+        COUNT(*) AS count
+      FROM \`referrals\` r
+      LEFT JOIN \`contacts\` c ON c.\`id\` = r.\`contactId\`
+      LEFT JOIN \`referral_status_options\` so ON so.\`key\` = r.\`statusKey\`
+      ${liveScope}
+      GROUP BY r.\`statusCategory\`, r.\`statusKey\`, so.\`name\`
+      ORDER BY FIELD(r.\`statusCategory\`, 'active', 'on_hold', 'closed', 'lost'), r.\`statusKey\`
+    `),
+    runRows<Row>(sql`
+      SELECT
+        r.\`id\` AS referralId,
+        CONCAT_WS(' ', c.\`firstName\`, c.\`lastName\`) AS contactName,
+        ra.\`name\` AS referralAgentName,
+        ra.\`brokerage\` AS brokerage,
+        r.\`referralType\` AS referralType,
+        r.\`statusCategory\` AS statusCategory,
+        r.\`statusKey\` AS statusKey,
+        COALESCE(so.\`name\`, r.\`statusKey\`) AS statusName,
+        r.\`market\` AS market,
+        r.\`state\` AS state,
+        r.\`referralSentAt\` AS referralSentAt,
+        r.\`underContractAt\` AS underContractAt,
+        r.\`closedAt\` AS closedAt,
+        COALESCE(pay.expectedFee, 0) AS expectedFee,
+        COALESCE(pay.paidFee, 0) AS paidFee,
+        COALESCE(pay.outstandingFee, 0) AS outstandingFee
+      FROM \`referrals\` r
+      INNER JOIN \`contacts\` c ON c.\`id\` = r.\`contactId\`
+      INNER JOIN \`referral_agents\` ra ON ra.\`id\` = r.\`referralAgentId\`
+      LEFT JOIN \`referral_status_options\` so ON so.\`key\` = r.\`statusKey\`
+      LEFT JOIN (
+        SELECT
+          rp.\`referralId\` AS referralId,
+          SUM(COALESCE(rp.\`referralFeeOwed\`, 0)) AS expectedFee,
+          SUM(CASE WHEN rp.\`paymentStatus\` = 'paid' THEN COALESCE(rp.\`referralFeeOwed\`, 0) ELSE 0 END) AS paidFee,
+          SUM(CASE WHEN rp.\`paymentStatus\` NOT IN ('paid', 'written_off') THEN COALESCE(rp.\`referralFeeOwed\`, 0) ELSE 0 END) AS outstandingFee
+        FROM \`referral_payments\` rp
+        GROUP BY rp.\`referralId\`
+      ) pay ON pay.referralId = r.\`id\`
+      ${sentScope}
+      ORDER BY r.\`referralSentAt\` DESC, r.\`updatedAt\` DESC
+      LIMIT 100
+    `),
+  ]);
+
+  const sent = sentRows[0] ?? {};
+  const closed = closedRows[0] ?? {};
+  const live = liveRows[0] ?? {};
+  const payments = paymentRows[0] ?? {};
+  const resolved = asNumber(closed.closed) + asNumber(sent.lostFromPeriod);
+
+  return {
+    filters: { dateFrom: filters.dateFrom ?? null, dateTo: filters.dateTo ?? null, agentId: filters.agentId ?? null, leadSourceId: filters.leadSourceId ?? null },
+    summary: {
+      sent: asNumber(sent.sent),
+      closed: asNumber(closed.closed),
+      active: asNumber(live.active),
+      underContract: asNumber(live.underContract),
+      onHold: asNumber(live.onHold),
+      expectedFee: asNumber(payments.expectedFee),
+      paidFee: asNumber(payments.paidFee),
+      outstandingFee: asNumber(payments.outstandingFee),
+      closeRate: resolved ? (asNumber(closed.closed) / resolved) * 100 : null,
+      buyerClosings: asNumber(closed.buyerClosings),
+      sellerClosings: asNumber(closed.sellerClosings),
+    },
+    statuses: statusRows.map((row) => ({ statusCategory: String(row.statusCategory ?? 'active'), statusKey: String(row.statusKey ?? ''), statusName: String(row.statusName ?? 'Unknown'), count: asNumber(row.count) })),
+    referrals: evidenceRows.map((row) => ({
+      referralId: asNumber(row.referralId), contactName: String(row.contactName ?? 'Unknown contact'), referralAgentName: String(row.referralAgentName ?? 'Unassigned'), brokerage: String(row.brokerage ?? ''), referralType: String(row.referralType ?? 'other'), statusCategory: String(row.statusCategory ?? 'active'), statusKey: String(row.statusKey ?? ''), statusName: String(row.statusName ?? 'Unknown'), market: String(row.market ?? ''), state: String(row.state ?? ''), referralSentAt: asDay(row.referralSentAt), underContractAt: asDay(row.underContractAt), closedAt: asDay(row.closedAt), expectedFee: asNumber(row.expectedFee), paidFee: asNumber(row.paidFee), outstandingFee: asNumber(row.outstandingFee),
     })),
   };
 }

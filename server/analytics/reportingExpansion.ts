@@ -225,6 +225,10 @@ function agentRosterScope(filters: ExpansionFilters): SQL {
 function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolean; applyDate?: boolean } = {}): SQL {
   const status = opts.closedOnly ? "closed" : filters.status;
   return where([
+    sql`t.\`referralId\` IS NULL AND NOT EXISTS (
+      SELECT 1 FROM \`referral_transaction_links\` rtl
+      WHERE rtl.\`transactionId\` = t.\`id\`
+    )`,
     (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
@@ -367,7 +371,13 @@ export async function getAgentOnboardingReportingData(filters: ExpansionFilters 
 
 export async function getMarketAnalyticsReportingData(filters: ExpansionFilters = {}) {
   const transactionWhere = transactionScope(filters, { closedOnly: true });
-  const pipelineWhere = where([sql`t.\`status\` = 'under_contract'`]);
+  const pipelineWhere = where([
+    sql`t.\`referralId\` IS NULL AND NOT EXISTS (
+      SELECT 1 FROM \`referral_transaction_links\` rtl
+      WHERE rtl.\`transactionId\` = t.\`id\`
+    )`,
+    sql`t.\`status\` = 'under_contract'`,
+  ]);
   const futureTrendWhere = transactionScope({ ...filters, status: "under_contract" }, { applyDate: false });
   const marketScope = where([
     filters.marketProfileId ? sql`mp.id = ${filters.marketProfileId}` : undefined,

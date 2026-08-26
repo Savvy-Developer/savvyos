@@ -63,6 +63,13 @@ type LeaderboardMilestone = {
   date?: string;
 };
 
+function excludeReferralTransactions() {
+  return sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+    SELECT 1 FROM \`referral_transaction_links\` rtl
+    WHERE rtl.\`transactionId\` = ${transactions.id}
+  )`;
+}
+
 function utcDate(year: number, month: number, day: number, endOfDay = false) {
   return new Date(Date.UTC(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
 }
@@ -167,6 +174,7 @@ export async function getBusinessOverviewKpis(opts?: {
   const { dateFrom, dateTo } = opts ?? {};
 
   const txWhere = and(
+    excludeReferralTransactions(),
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
@@ -185,7 +193,7 @@ export async function getBusinessOverviewKpis(opts?: {
   const [pipelineRow] = await db
     .select({ active: sql<number>`COUNT(*)` })
     .from(transactions)
-    .where(eq(transactions.status, "under_contract"));
+    .where(and(excludeReferralTransactions(), eq(transactions.status, "under_contract")));
 
   const [agentRow] = await db
     .select({ total: sql<number>`COUNT(*)` })
@@ -228,6 +236,7 @@ export async function getAgentPerformanceReport(opts?: {
   const agentIds = await resolveAgentIds(opts ?? {});
 
   const txWhere = and(
+    excludeReferralTransactions(),
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
@@ -303,11 +312,12 @@ export async function getAgentLeaderboard(opts: {
   // a live pipeline view, so date controls never hide active deals.
   const transactionWhere = isClosed
     ? and(
+        excludeReferralTransactions(),
         eq(transactions.status, "closed"),
         dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
         dateTo ? lte(transactions.closingDate, dateTo) : undefined,
       )
-    : eq(transactions.status, "under_contract");
+    : and(excludeReferralTransactions(), eq(transactions.status, "under_contract"));
 
   const activeAgents = await db
     .select({
@@ -432,6 +442,7 @@ export async function getAgentLeaderboard(opts: {
       .innerJoin(users, eq(users.id, transactions.agentId))
       .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
       .where(and(
+        excludeReferralTransactions(),
         eq(transactions.status, "closed"),
         gte(transactions.closingDate, utcDate(powerMonthYear, 0, 1)),
         lte(transactions.closingDate, utcDate(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), true)),
@@ -546,12 +557,14 @@ export async function getGroupPerformanceReport(opts?: {
       }
 
        const txWhere = and(
+        excludeReferralTransactions(),
         eq(transactions.status, "closed"),
         inArray(transactions.agentId, memberIds),
         dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
         dateTo ? lte(transactions.closingDate, dateTo) : undefined,
       );
       const ucWhere = and(
+        excludeReferralTransactions(),
         eq(transactions.status, "under_contract" as any),
         inArray(transactions.agentId, memberIds),
       );
@@ -656,6 +669,7 @@ export async function getMarketPerformanceReport(opts?: {
       }
 
       const txWhere = and(
+        excludeReferralTransactions(),
         eq(transactions.status, "closed"),
         inArray(transactions.agentId, agentIds),
         dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
@@ -714,6 +728,7 @@ export async function getCommissionSummaryReport(opts?: {
   const { dateFrom, dateTo, agentId } = opts ?? {};
 
   const txWhere = and(
+    excludeReferralTransactions(),
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
@@ -1022,6 +1037,7 @@ export async function getLeadSourceAnalyticsReport(opts?: {
     .from(transactions)
     .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
     .where(and(
+      excludeReferralTransactions(),
       eq(transactions.status, "closed"),
       dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
       dateTo ? lte(transactions.closingDate, dateTo) : undefined,
@@ -1294,6 +1310,7 @@ export async function getMonthlyGciTrendExtended(opts?: {
     })
     .from(transactions)
     .where(and(
+      excludeReferralTransactions(),
       eq(transactions.status, "closed"),
       gte(transactions.closingDate, cutoff),
       agentIds ? inArray(transactions.agentId, agentIds) : undefined,
@@ -1323,6 +1340,7 @@ export async function getFinancialPerformanceSummary(opts?: {
   const agentIds = await resolveAgentIds(opts ?? {});
 
   const closedWhere = and(
+    excludeReferralTransactions(),
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
@@ -1332,6 +1350,7 @@ export async function getFinancialPerformanceSummary(opts?: {
   // Live under-contract inventory is a present-state snapshot and intentionally
   // ignores the selected reporting period.
   const ucWhere = and(
+    excludeReferralTransactions(),
     eq(transactions.status, "under_contract"),
     agentIds ? inArray(transactions.agentId, agentIds) : undefined,
   );
@@ -1418,6 +1437,7 @@ export async function getMasterMetrics(opts?: {
     : sql`${transactions.status} IN ('closed', 'under_contract')`;
 
   const txWhere = and(
+    excludeReferralTransactions(),
     statusFilter,
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,

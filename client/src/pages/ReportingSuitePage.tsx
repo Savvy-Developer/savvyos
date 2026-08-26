@@ -27,6 +27,7 @@ import {
   PhoneCall,
   Workflow,
   BrainCircuit,
+  Handshake,
 } from "lucide-react";
 import {
   Bar,
@@ -67,7 +68,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type ReportKind = "agents" | "pipelines" | "leaders" | "transactions" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "adoption" | "business_insights";
+type ReportKind = "agents" | "pipelines" | "leaders" | "transactions" | "referrals" | "onboarding" | "markets" | "tasks" | "isa" | "sources" | "adoption" | "business_insights";
 
 type QueryPatch = Record<string, string | null | undefined>;
 
@@ -76,6 +77,7 @@ const reportTabs: Array<{ id: ReportKind; label: string; description: string; ic
   { id: "pipelines", label: "Pipeline Report", description: "Live pipeline inventory, follow-up coverage, activity freshness, and risk by agent.", icon: Workflow },
   { id: "leaders", label: "Group Leader Review", description: "Coaching priorities and team health for group-leader conversations.", icon: UserRound },
   { id: "transactions", label: "Transaction Statistics", description: "Production mix, conversion outcomes, commissions, and transaction quality.", icon: BriefcaseBusiness },
+  { id: "referrals", label: "Referral Report", description: "Referral lifecycle, outside-agent outcomes, expected fees, collections, and open receivables.", icon: Handshake },
   { id: "onboarding", label: "Agent Onboarding", description: "Progression, completion time, and early-adoption risk across agent onboarding plans.", icon: UserPlus },
   { id: "markets", label: "Market Analytics", description: "Geographic production, capacity, coverage, and market-level financial contribution.", icon: MapPinned },
   { id: "tasks", label: "Task Execution", description: "Workload flow, completion, aging, ownership, and overdue operational work.", icon: ListChecks },
@@ -335,7 +337,7 @@ function ReportingFilters({
   const isTransaction = activeReport === "transactions";
   const isIsa = activeReport === "isa";
   const isSource = activeReport === "sources";
-  const showAgent = activeReport !== "leaders" && activeReport !== "markets";
+  const showAgent = activeReport !== "leaders" && activeReport !== "markets" && activeReport !== "referrals";
   const showLeader = activeReport === "leaders";
   const leadSources = filters?.leadSources ?? [];
   const parents = new Map(leadSources.filter((source: any) => !source.parentId).map((source: any) => [source.id, source.name]));
@@ -702,6 +704,35 @@ function TransactionReport({ data, update }: { data: any; update: (patch: QueryP
   </div>;
 }
 
+function ReferralReport({ data }: { data: any }) {
+  const { summary, statuses = [], referrals = [] } = data;
+  const [, navigate] = useLocation();
+  const statusTotal = statuses.reduce((total: number, row: any) => total + Number(row.count ?? 0), 0);
+  return <div className="space-y-7">
+    <section className="space-y-3">
+      <SectionHeader title="Referral performance" description="Referral activity is tracked independently from transaction reporting. Selected-period metrics use referral sent, closed, and paid dates as labeled; active inventory is a current snapshot." />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Referrals sent" value={number(summary.sent)} description="Sent in the selected period" icon={Handshake} tone="text-sky-700" />
+        <MetricCard label="Closed referrals" value={number(summary.closed)} description={`Buyer ${number(summary.buyerClosings)} · Seller ${number(summary.sellerClosings)}`} icon={CheckCircle2} tone="text-emerald-700" />
+        <MetricCard label="Active referrals" value={number(summary.active)} description={`${number(summary.underContract)} under contract · ${number(summary.onHold)} on hold`} icon={Workflow} tone="text-violet-700" />
+        <MetricCard label="Referral fees paid" value={money(summary.paidFee, true)} description="Paid in the selected period" icon={CircleDollarSign} tone="text-emerald-700" />
+        <MetricCard label="Open referral fees" value={money(summary.outstandingFee, true)} description={`${money(summary.expectedFee, true)} expected across linked payments`} icon={Landmark} tone="text-amber-700" />
+      </div>
+    </section>
+
+    <section className="grid gap-5 xl:grid-cols-[0.85fr_1.5fr]">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Referral status mix</CardTitle><CardDescription>Current referral pipeline by configured status.</CardDescription></CardHeader>
+        <CardContent>{statuses.length ? <div className="space-y-3">{statuses.map((status: any) => <div key={`${status.statusCategory}-${status.statusKey}`} className="space-y-1.5"><div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium">{status.statusName}</span><span className="text-muted-foreground">{number(status.count)} · {statusTotal ? percentage((Number(status.count) / statusTotal) * 100) : "0%"}</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${statusTotal ? (Number(status.count) / statusTotal) * 100 : 0}%` }} /></div></div>)}</div> : <ChartEmpty label="referral status data" />}</CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Referral evidence</CardTitle><CardDescription>Referrals sent in the selected period, including their lifecycle and fee collection position.</CardDescription></CardHeader>
+        <CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[980px] text-sm"><thead className="border-b bg-muted/40 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-3">Client / Outside agent</th><th className="px-4 py-3">Type / Status</th><th className="px-4 py-3">Sent / Closed</th><th className="px-4 py-3 text-right">Expected</th><th className="px-4 py-3 text-right">Paid</th><th className="px-4 py-3 text-right">Open</th></tr></thead><tbody>{referrals.length ? referrals.map((referral: any) => <tr key={referral.referralId} className="border-b last:border-0 hover:bg-muted/30"><td className="px-4 py-3"><button type="button" onClick={() => navigate(`/referrals/${referral.referralId}`)} className="font-semibold text-primary hover:underline">{referral.contactName}</button><p className="mt-0.5 text-xs text-muted-foreground">{referral.referralAgentName}{referral.brokerage ? ` · ${referral.brokerage}` : ""}</p></td><td className="px-4 py-3"><Badge variant="outline">{titleCase(referral.referralType)}</Badge><p className="mt-1 text-xs text-muted-foreground">{referral.statusName}</p></td><td className="px-4 py-3 text-muted-foreground"><p>{referral.referralSentAt ?? "—"}</p><p className="mt-1 text-xs">Closed: {referral.closedAt ?? "—"}</p></td><td className="px-4 py-3 text-right">{money(referral.expectedFee, true)}</td><td className="px-4 py-3 text-right text-emerald-700">{money(referral.paidFee, true)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{money(referral.outstandingFee, true)}</td></tr>) : <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No referrals were sent in the selected period.</td></tr>}</tbody></table></div></CardContent>
+      </Card>
+    </section>
+  </div>;
+}
+
 function LoadingReport() {
   return <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-32" />)}</div><div className="grid gap-5 xl:grid-cols-2"><Skeleton className="h-[360px]" /><Skeleton className="h-[360px]" /></div><Skeleton className="h-[420px]" /></div>;
 }
@@ -742,6 +773,7 @@ export default function ReportingSuitePage() {
   const pipelineQuery = trpc.analytics.pipelineReport.useQuery(baseFilters, { enabled: activeReport === "pipelines", staleTime: 20_000 });
   const groupQuery = trpc.analytics.groupLeaderReport.useQuery(groupFilters, { enabled: activeReport === "leaders", staleTime: 20_000 });
   const transactionQuery = trpc.analytics.transactionStatisticsReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "transactions", staleTime: 20_000 });
+  const referralQuery = trpc.analytics.referralReport.useQuery(baseFilters, { enabled: activeReport === "referrals", staleTime: 20_000 });
   const onboardingQuery = trpc.analytics.agentOnboardingReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "onboarding", staleTime: 20_000 });
   const marketQuery = trpc.analytics.marketAnalyticsReport.useQuery(marketFilters, { enabled: activeReport === "markets", staleTime: 20_000 });
   const tasksQuery = trpc.analytics.tasksReport.useQuery({ ...baseFilters, page, limit: 25 }, { enabled: activeReport === "tasks", staleTime: 20_000 });
@@ -772,6 +804,7 @@ export default function ReportingSuitePage() {
     pipelines: pipelineQuery,
     leaders: groupQuery,
     transactions: transactionQuery,
+    referrals: referralQuery,
     onboarding: onboardingQuery,
     markets: marketQuery,
     tasks: tasksQuery,
@@ -785,5 +818,5 @@ export default function ReportingSuitePage() {
 
   const reportNeedsFilters = activeReport !== "business_insights" && activeReport !== "adoption";
 
-  return <div className="space-y-4 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for production, agent adoption, operational follow-through, and company-wide intelligence." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="flex flex-wrap gap-1.5">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isActive ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background text-muted-foreground hover:border-primary/35 hover:bg-muted/25 hover:text-foreground"}`}><Icon className="h-3.5 w-3.5 shrink-0" />{tab.label}</button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{(reportNeedsFilters && filtersQuery.isLoading) || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : activeReport === "business_insights" ? <BusinessInsightsReport data={businessInsightsQuery.data as any} isRefreshing={refreshBusinessInsights.isPending} refreshError={refreshBusinessInsights.error?.message} onRefresh={() => refreshBusinessInsights.mutate()} canRefresh={user?.role === "admin"} /> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "pipelines" && <PipelineReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}{activeReport === "adoption" && <SavvyOsAdoptionReport data={reportData} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
+  return <div className="space-y-4 pb-8"><PageHeader title="Reporting" subtitle="A decision-ready suite for production, agent adoption, operational follow-through, and company-wide intelligence." actions={<Badge variant="secondary" className="h-7 gap-1"><BarChart3 className="h-3.5 w-3.5" /> Reporting suite</Badge>} /><div className="flex flex-wrap gap-1.5">{reportTabs.map((tab) => { const Icon = tab.icon; const isActive = tab.id === activeReport; return <button key={tab.id} type="button" onClick={() => selectReport(tab.id)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isActive ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background text-muted-foreground hover:border-primary/35 hover:bg-muted/25 hover:text-foreground"}`}><Icon className="h-3.5 w-3.5 shrink-0" />{tab.label}</button>; })}</div><ReportingFilters activeReport={activeReport} params={params} filters={filtersQuery.data} update={update} />{(reportNeedsFilters && filtersQuery.isLoading) || activeQuery.isLoading ? <LoadingReport /> : activeQuery.error ? <Card className="border-rose-200"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><AlertTriangle className="h-7 w-7 text-rose-600" /><div><p className="font-semibold">Unable to load {activeConfig.label}</p><p className="mt-1 text-sm text-muted-foreground">{activeQuery.error.message}</p></div><Button variant="outline" onClick={() => activeQuery.refetch()}>Try again</Button></CardContent></Card> : activeReport === "business_insights" ? <BusinessInsightsReport data={businessInsightsQuery.data as any} isRefreshing={refreshBusinessInsights.isPending} refreshError={refreshBusinessInsights.error?.message} onRefresh={() => refreshBusinessInsights.mutate()} canRefresh={user?.role === "admin"} /> : reportData ? <>{activeReport === "agents" && <AgentReport data={reportData} />}{activeReport === "pipelines" && <PipelineReport data={reportData} />}{activeReport === "leaders" && <GroupLeaderReport data={reportData} selectedLeaderId={params.get("groupLeaderId") ?? "all"} />}{activeReport === "transactions" && <TransactionReport data={reportData} update={update} />}{activeReport === "referrals" && <ReferralReport data={reportData} />}{activeReport === "onboarding" && <OnboardingReport data={reportData} update={update} />}{activeReport === "markets" && <MarketAnalyticsReport data={reportData} />}{activeReport === "tasks" && <TasksReport data={reportData} update={update} />}{activeReport === "isa" && <IsaActivitiesReport data={reportData} update={update} />}{activeReport === "sources" && <LeadSourcesReport data={reportData} update={update} />}{activeReport === "adoption" && <SavvyOsAdoptionReport data={reportData} />}</> : <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No report data is available for this scope.</CardContent></Card>}</div>;
 }
