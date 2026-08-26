@@ -247,6 +247,63 @@ async function getAgentProductionStats(db: any, agentId: number) {
   };
 }
 
+// ─── Helper: monthly closed-production trend for the live coaching workspace ──
+// Referral transactions are intentionally excluded from all transaction reporting.
+async function getAgentMonthlyPerformanceTrend(db: any, agentId: number) {
+  const now = new Date();
+  const firstMonth = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const rows = await db
+    .select({
+      month: sql<string>`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`,
+      transactions: sql<number>`COUNT(DISTINCT ${transactions.id})`,
+      volume: sql<number>`COALESCE(SUM(CAST(${transactions.purchasePrice} AS DECIMAL(15,2))), 0)`,
+      revenue: sql<number>`COALESCE(SUM(CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2))), 0)`,
+      avgPurchasePrice: sql<number>`COALESCE(AVG(CAST(${transactions.purchasePrice} AS DECIMAL(15,2))), 0)`,
+      avgCommissionRate: sql<number>`COALESCE(AVG(CASE WHEN ${transactions.commissionType} = 'percentage' AND ${transactions.commissionRate} > 0 AND ${transactions.commissionRate} < 0.10 THEN CAST(${transactions.commissionRate} AS DECIMAL(5,4)) * 100 END), 0)`,
+    })
+    .from(transactions)
+    .where(and(
+      eq(transactions.agentId, agentId),
+      eq(transactions.status, "closed"),
+      gte(transactions.closingDate, firstMonth),
+      lt(transactions.closingDate, nextMonth),
+      eq(transactions.isOutsideReferral, false),
+      isNull(transactions.referralId),
+      isNull(transactions.referralSourceName),
+    ))
+    .groupBy(sql`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`)
+    .orderBy(sql`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`);
+
+  const rowByMonth = new Map(rows.map((row: any) => [row.month, row]));
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - 11 + index, 1);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const row: any = rowByMonth.get(key);
+    const transactionCount = Number(row?.transactions ?? 0);
+    const revenue = Number(row?.revenue ?? 0);
+    return {
+      month: key,
+      label: date.toLocaleString("en-US", { month: "short" }),
+      transactions: transactionCount,
+      volume: Math.round(Number(row?.volume ?? 0)),
+      revenue: Math.round(revenue),
+      revenuePerTransaction: transactionCount > 0 ? Math.round(revenue / transactionCount) : 0,
+      avgPurchasePrice: Math.round(Number(row?.avgPurchasePrice ?? 0)),
+      avgCommissionRate: Math.round(Number(row?.avgCommissionRate ?? 0) * 100) / 100,
+    };
+  });
+
+  return {
+    months,
+    totals: {
+      transactions: months.reduce((sum, month) => sum + month.transactions, 0),
+      volume: months.reduce((sum, month) => sum + month.volume, 0),
+      revenue: months.reduce((sum, month) => sum + month.revenue, 0),
+    },
+  };
+}
+
 // ─── Helper: get agent goals with progress ──────────────────────────────────
 async function getAgentGoalsWithProgress(db: any, agentId: number) {
   const now = new Date();
@@ -1777,7 +1834,7 @@ Please provide your comprehensive coaching analysis.`,
       const agentId = (row as any).agent.id;
 
       // Get commitments for this session and the agent's open commitments from prior sessions.
-      const [commitments, priorCommitments, profileRows, productionStats, goalsData, pipelineData, history] = await Promise.all([
+      const [commitments, priorCommitments, profileRows, productionStats, goalsData, pipelineData, history, performanceTrend] = await Promise.all([
         db.select()
           .from(coachingCommitments)
           .where(eq(coachingCommitments.sessionId, input.sessionId))
@@ -1798,6 +1855,7 @@ Please provide your comprehensive coaching analysis.`,
         getAgentGoalsWithProgress(db, agentId),
         getAgentPipelineData(db, agentId),
         getCoachingHistoryForAI(db, agentId, 6),
+        getAgentMonthlyPerformanceTrend(db, agentId),
       ]);
 
       const profile = profileRows[0] ?? null;
@@ -1823,6 +1881,7 @@ Please provide your comprehensive coaching analysis.`,
         goalsData,
         pipelineData,
         previousSessions,
+        performanceTrend,
         liveCallGuide,
       };
     }),

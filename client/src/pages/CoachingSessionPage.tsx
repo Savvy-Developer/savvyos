@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 import { toast } from "sonner";
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const STATUS_COLORS: Record<string, string> = {
   Scheduled: "bg-blue-100 text-blue-700",
@@ -108,6 +109,75 @@ function GuideList({ items, ordered = false, emptyText = "No guidance available 
     <Tag className={`${ordered ? "list-decimal" : "list-disc"} ml-4 space-y-1.5 text-xs leading-relaxed`}>
       {items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
     </Tag>
+  );
+}
+
+type TrendMetric = "volume" | "revenue" | "revenuePerTransaction" | "avgPurchasePrice" | "avgCommissionRate" | "transactions";
+
+const TREND_METRICS: Record<TrendMetric, { label: string; color: string; formatter: (value: number) => string; isCount?: boolean }> = {
+  volume: { label: "Sales Volume", color: "#0891b2", formatter: (value) => `$${(value / 1000000).toFixed(value >= 1000000 ? 1 : 2)}M` },
+  revenue: { label: "Commission Revenue", color: "#16a34a", formatter: (value) => `$${(value / 1000).toFixed(0)}K` },
+  revenuePerTransaction: { label: "Revenue / Transaction", color: "#7c3aed", formatter: (value) => `$${(value / 1000).toFixed(0)}K` },
+  avgPurchasePrice: { label: "Average Purchase Price", color: "#ea580c", formatter: (value) => `$${(value / 1000).toFixed(0)}K` },
+  avgCommissionRate: { label: "Average Commission Rate", color: "#db2777", formatter: (value) => `${value.toFixed(2)}%` },
+  transactions: { label: "Closed Transactions", color: "#2563eb", formatter: (value) => `${value}`, isCount: true },
+};
+
+function AgentPerformanceTrend({ performanceTrend }: { performanceTrend?: any }) {
+  const [metric, setMetric] = useState<TrendMetric>("volume");
+  const months = performanceTrend?.months ?? [];
+  const totals = performanceTrend?.totals ?? { transactions: 0, volume: 0, revenue: 0 };
+  const config = TREND_METRICS[metric];
+  const weightedRate = totals.transactions > 0
+    ? months.reduce((sum: number, month: any) => sum + (Number(month.avgCommissionRate) * Number(month.transactions)), 0) / totals.transactions
+    : 0;
+  const averagePrice = totals.transactions > 0 ? totals.volume / totals.transactions : 0;
+  const revenuePerTransaction = totals.transactions > 0 ? totals.revenue / totals.transactions : 0;
+  const hasProduction = months.some((month: any) => Number(month.transactions) > 0);
+
+  return (
+    <Card>
+      <CardHeader className="gap-3 pb-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-sm"><BarChart3 className="h-4 w-4" />12-Month Agent Performance</CardTitle>
+            <CardDescription>Closed transactions only. Referrals are excluded from this coaching view.</CardDescription>
+          </div>
+          <Badge variant="secondary" className="w-fit text-[10px]">Monthly production trend</Badge>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(TREND_METRICS) as TrendMetric[]).map((key) => (
+            <Button key={key} size="sm" variant={metric === key ? "default" : "outline"} className="h-7 px-2 text-[10px]" onClick={() => setMetric(key)}>
+              {TREND_METRICS[key].label}
+            </Button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {hasProduction ? (
+          <div className="h-[270px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={months} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis tickLine={false} axisLine={false} width={54} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={config.formatter} allowDecimals={metric === "avgCommissionRate"} />
+                <Tooltip cursor={{ fill: "hsl(var(--muted) / 0.35)" }} formatter={(value: number) => [config.formatter(Number(value)), config.label]} labelFormatter={(label) => `${label} closed production`} contentStyle={{ borderRadius: 8, borderColor: "hsl(var(--border))", fontSize: 12 }} />
+                {config.isCount
+                  ? <Bar dataKey={metric} name={config.label} fill={config.color} radius={[5, 5, 0, 0]} maxBarSize={42} />
+                  : <><Bar dataKey={metric} name={config.label} fill={config.color} fillOpacity={0.22} radius={[5, 5, 0, 0]} maxBarSize={42} /><Line type="monotone" dataKey={metric} stroke={config.color} strokeWidth={2.5} dot={{ r: 3, fill: config.color }} activeDot={{ r: 5 }} /></>}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        ) : <div className="flex h-[270px] flex-col items-center justify-center rounded-lg border border-dashed text-center"><BarChart3 className="mb-2 h-8 w-8 text-muted-foreground/35" /><p className="text-sm font-medium">No closed transaction history yet</p><p className="mt-1 max-w-sm text-xs text-muted-foreground">The graph will populate as eligible closed transactions are recorded for this agent.</p></div>}
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <MetricCard label="Closed Deals" value={formatCount(totals.transactions)} detail="Last 12 months" tone={totals.transactions > 0 ? "success" : "default"} />
+          <MetricCard label="Sales Volume" value={formatCurrency(totals.volume)} detail="Last 12 months" />
+          <MetricCard label="Commission Revenue" value={formatCurrency(totals.revenue)} detail="Gross commission income" />
+          <MetricCard label="Revenue / Deal" value={formatCurrency(revenuePerTransaction)} detail="Commission per transaction" />
+          <MetricCard label="Rate / Avg. Price" value={`${weightedRate.toFixed(2)}%`} detail={averagePrice ? `${formatCurrency(averagePrice)} avg. price` : "No closed deal price yet"} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -196,7 +266,7 @@ export default function CoachingSessionPage() {
     );
   }
 
-  const { session, agent, scheduledCoach, actualCoach, commitments, priorCommitments, profile, productionStats, goalsData, pipelineData, previousSessions, liveCallGuide } = data as any;
+  const { session, agent, scheduledCoach, actualCoach, commitments, priorCommitments, profile, productionStats, goalsData, pipelineData, previousSessions, performanceTrend, liveCallGuide } = data as any;
   const storedBrief = parseJson(session.aiRecommendedAgenda);
   const storedQuestions = parseJson(session.aiRecommendedQuestions);
   const brief = storedBrief && !Array.isArray(storedBrief) ? storedBrief : liveCallGuide;
@@ -423,6 +493,8 @@ export default function CoachingSessionPage() {
               <CardContent className="pt-0"><p className="text-[11px] text-muted-foreground">Pipeline mix: {Object.entries(pipelineData?.pipelineByStatus ?? {}).map(([stage, count]) => `${String(stage).replaceAll("_", " ")}: ${count}`).join(" • ") || "No pipeline stages recorded"}</p></CardContent>
             </Card>
           </div>
+
+          <AgentPerformanceTrend performanceTrend={performanceTrend} />
 
           <div className="grid gap-4 xl:grid-cols-12">
             <div className="space-y-4 xl:col-span-4">
