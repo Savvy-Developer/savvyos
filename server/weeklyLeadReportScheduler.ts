@@ -21,6 +21,7 @@ type PipelineStatus = "new_lead" | "attempted_contact" | "nurture" | "active_cli
 interface MetricTotals {
   newLeads: number;
   transactionsCreated: number;
+  historicalTransactionsAdded: number;
   newUnderContract: number;
   closedTransactions: number;
   contractVolume: number;
@@ -54,6 +55,13 @@ export interface WeeklyLeadReport {
   totals: MetricTotals;
   cohortTotals: CohortMetrics;
   pipeline: Record<PipelineStatus, number>;
+  dataEntry: {
+    transactionRecordsAdded: number;
+    historicalTransactionsAdded: number;
+    historicalUnderContractAdded: number;
+    historicalClosedAdded: number;
+    historicalTerminatedAdded: number;
+  };
   quality: {
     unattributedNewLeads: number;
     unattributedTransactions: number;
@@ -84,6 +92,7 @@ function emptyTotals(): MetricTotals {
   return {
     newLeads: 0,
     transactionsCreated: 0,
+    historicalTransactionsAdded: 0,
     newUnderContract: 0,
     closedTransactions: 0,
     contractVolume: 0,
@@ -187,6 +196,7 @@ function createSourceRows(sources: SourceDefinition[]): Map<string, WeeklyLeadRe
 function addTotals(target: MetricTotals, source: MetricTotals): void {
   target.newLeads += source.newLeads;
   target.transactionsCreated += source.transactionsCreated;
+  target.historicalTransactionsAdded += source.historicalTransactionsAdded;
   target.newUnderContract += source.newUnderContract;
   target.closedTransactions += source.closedTransactions;
   target.contractVolume += source.contractVolume;
@@ -265,7 +275,7 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
       .innerJoin(contacts, eq(communications.relatedContactId, contacts.id))
       .where(and(gte(communications.communicatedAt, start), lt(communications.communicatedAt, end)))
       .groupBy(contacts.leadSourceId),
-    db.select({ leadSourceId: contacts.leadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome })
+    db.select({ leadSourceId: contacts.leadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome, contractDate: transactions.contractDate, status: transactions.status })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(gte(transactions.createdAt, start), lt(transactions.createdAt, end))),
@@ -317,7 +327,11 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
   for (const connection of weeklyConnections) rowFor(connection.leadSourceId).newAgentConnections += 1;
   for (const appointment of weeklyAppointments) rowFor(appointment.leadSourceId).appointmentsSet += 1;
   for (const communication of weeklyCommunications) rowFor(communication.leadSourceId).communications += numberValue(communication.count);
-  for (const transaction of createdTransactions) rowFor(transaction.leadSourceId).transactionsCreated += 1;
+  for (const transaction of createdTransactions) {
+    const row = rowFor(transaction.leadSourceId);
+    row.transactionsCreated += 1;
+    if (transaction.contractDate && transaction.contractDate < start) row.historicalTransactionsAdded += 1;
+  }
   for (const transaction of contractedTransactions) {
     const row = rowFor(transaction.leadSourceId);
     row.newUnderContract += 1;
@@ -353,6 +367,10 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     + contractedTransactions.filter((item) => item.leadSourceId === null).length
     + closedTransactions.filter((item) => item.leadSourceId === null).length;
   const quality = qualityRows[0];
+  const historicalTransactionRecords = createdTransactions.filter((transaction) => transaction.contractDate && transaction.contractDate < start);
+  const historicalUnderContractAdded = historicalTransactionRecords.filter((transaction) => transaction.status === "under_contract").length;
+  const historicalClosedAdded = historicalTransactionRecords.filter((transaction) => transaction.status === "closed").length;
+  const historicalTerminatedAdded = historicalTransactionRecords.filter((transaction) => transaction.status === "terminated").length;
   const dateLabel = new Intl.DateTimeFormat("en-US", { timeZone: EASTERN_TIME_ZONE, month: "long", day: "numeric", year: "numeric" }).format(asOf);
   const asOfLabel = new Intl.DateTimeFormat("en-US", { timeZone: EASTERN_TIME_ZONE, weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(asOf);
 
@@ -364,6 +382,13 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     totals: totalRows(rows),
     cohortTotals: totalCohort(allRows),
     pipeline,
+    dataEntry: {
+      transactionRecordsAdded: createdTransactions.length,
+      historicalTransactionsAdded: historicalTransactionRecords.length,
+      historicalUnderContractAdded,
+      historicalClosedAdded,
+      historicalTerminatedAdded,
+    },
     quality: {
       unattributedNewLeads: numberValue(quality?.unattributedNewLeads),
       unattributedTransactions: weeklyAttributedTransactions ? unattributedTransactions : 0,
@@ -375,8 +400,8 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
   };
 }
 
-function metricCard(value: string, label: string, color = "#111827"): string {
-  return `<td width="33.333%" style="padding:5px;vertical-align:top;"><div style="border:1px solid #E5E7EB;border-radius:8px;padding:13px;background:#FFFFFF;"><div style="font-size:22px;font-weight:700;color:${color};line-height:1.1;">${escapeHtml(value)}</div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6B7280;margin-top:5px;line-height:1.35;">${escapeHtml(label)}</div></div></td>`;
+function metricCard(value: string, label: string, color = "#111827", width = "33.333%"): string {
+  return `<td width="${width}" style="padding:5px;vertical-align:top;"><div style="border:1px solid #E5E7EB;border-radius:8px;padding:13px;background:#FFFFFF;"><div style="font-size:22px;font-weight:700;color:${color};line-height:1.1;">${escapeHtml(value)}</div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6B7280;margin-top:5px;line-height:1.35;">${escapeHtml(label)}</div></div></td>`;
 }
 
 function sectionHeading(title: string, detail?: string): string {
@@ -385,10 +410,10 @@ function sectionHeading(title: string, detail?: string): string {
 
 function sourceTable(rows: WeeklyLeadReportSourceRow[]): string {
   const visibleRows = rows
-    .filter((row) => row.newLeads || row.transactionsCreated || row.newUnderContract || row.closedTransactions)
-    .sort((a, b) => b.newLeads - a.newLeads || b.transactionsCreated - a.transactionsCreated || b.closedTransactions - a.closedTransactions || a.sourceName.localeCompare(b.sourceName));
-  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;">${escapeHtml(row.sourceName)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newLeads)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.transactionsCreated)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newUnderContract)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.closedTransactions)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:12px;font-weight:600;color:#111827;white-space:nowrap;">${formatCurrency(row.closedGci)}</td></tr>`).join("");
-  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:620px;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#0A0A0A;"><th style="padding:9px 8px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">LEAD SOURCE</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">NEW LEADS</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">NEW TXNS</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">NEW UNDER CONTRACT</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">CLOSED</th><th style="padding:9px 7px;text-align:right;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">CLOSED GCI</th></tr>${tableRows || `<tr><td colspan="6" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No lead-source activity was recorded this week.</td></tr>`}</table></div>`;
+    .filter((row) => row.newLeads || row.newUnderContract || row.closedTransactions || row.historicalTransactionsAdded)
+    .sort((a, b) => b.newLeads - a.newLeads || b.newUnderContract - a.newUnderContract || b.closedTransactions - a.closedTransactions || b.historicalTransactionsAdded - a.historicalTransactionsAdded || a.sourceName.localeCompare(b.sourceName));
+  const tableRows = visibleRows.map((row, index) => `<tr style="background:${index % 2 ? "#F9FAFB" : "#FFFFFF"};"><td style="padding:10px 8px;border-bottom:1px solid #E5E7EB;font-size:12px;font-weight:600;color:#111827;">${escapeHtml(row.sourceName)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newLeads)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.newUnderContract)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.closedTransactions)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:#374151;">${formatInteger(row.historicalTransactionsAdded)}</td><td style="padding:10px 7px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:12px;font-weight:600;color:#111827;white-space:nowrap;">${formatCurrency(row.closedGci)}</td></tr>`).join("");
+  return `<div style="overflow-x:auto;margin:0 -12px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="min-width:650px;border:1px solid #D1D5DB;border-collapse:collapse;"><tr style="background:#0A0A0A;"><th style="padding:9px 8px;text-align:left;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">LEAD SOURCE</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">NEW LEADS</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">DEALS SIGNED THIS WEEK</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">DEALS CLOSED THIS WEEK</th><th style="padding:9px 7px;text-align:center;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">HISTORICAL DEALS ADDED</th><th style="padding:9px 7px;text-align:right;color:#FFFFFF;font-size:10px;letter-spacing:.3px;">CLOSED GCI</th></tr>${tableRows || `<tr><td colspan="6" style="padding:18px;text-align:center;color:#6B7280;font-size:12px;">No lead-source activity was recorded this week.</td></tr>`}</table></div>`;
 }
 
 function signalCard(title: string, body: string, color: string): string {
@@ -411,13 +436,22 @@ function signals(report: WeeklyLeadReport): string {
 /** Render the leadership-ready content placed inside the shared SavvyOS email template. */
 export function renderWeeklyLeadReport(report: WeeklyLeadReport): string {
   const totals = report.totals;
-  const assignedNewLeads = Math.max(totals.newLeads - report.quality.unassignedNewLeads, 0);
+  const dataEntry = report.dataEntry;
+  const historicalStatusDetail = [
+    dataEntry.historicalUnderContractAdded ? `${dataEntry.historicalUnderContractAdded} under contract` : "",
+    dataEntry.historicalClosedAdded ? `${dataEntry.historicalClosedAdded} closed` : "",
+    dataEntry.historicalTerminatedAdded ? `${dataEntry.historicalTerminatedAdded} terminated` : "",
+  ].filter(Boolean).join(", ");
 
   return `<div style="font-size:20px;font-weight:700;line-height:1.3;color:#111827;">Weekly Lead Report</div>
     <div style="margin:5px 0 20px;font-size:12px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.45px;">${escapeHtml(report.periodLabel)} · generated ${escapeHtml(report.asOfLabel)}</div>
-    <div style="font-size:14px;color:#374151;line-height:1.6;">A simple source-by-source view of what entered the funnel and what moved forward this week. Every value in the scorecard below uses the same weekly period.</div>
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:17px -5px 0;"><tr>${metricCard(formatInteger(totals.newLeads), "New leads", "#0891B2")}${metricCard(formatInteger(assignedNewLeads), "Assigned to an ISA", "#0F766E")}${metricCard(formatInteger(totals.transactionsCreated), "New transactions")}</tr><tr>${metricCard(formatInteger(totals.newUnderContract), "New under contract", "#0F766E")}${metricCard(formatInteger(totals.closedTransactions), "Closed transactions", "#059669")}${metricCard(formatCurrency(totals.closedGci), "Closed GCI", "#059669")}</tr></table>
-    ${sectionHeading("Lead Source Results", "Only sources with a lead or transaction movement this week are shown. “New Transactions” means records created this week.")}
+    <div style="font-size:14px;color:#374151;line-height:1.6;">This report separates what happened in the business this week from older deals that were added to SavvyOS this week.</div>
+    ${sectionHeading("Production That Happened This Week", "These figures are based on the deal’s contract or closing date during the reporting week.")}
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 -5px;"><tr>${metricCard(formatInteger(totals.newLeads), "New leads", "#0891B2", "50%")}${metricCard(formatInteger(totals.newUnderContract), "New deals signed", "#0F766E", "50%")}</tr><tr>${metricCard(formatInteger(totals.closedTransactions), "Deals closed", "#059669", "50%")}${metricCard(formatCurrency(totals.closedGci), "Closed GCI", "#059669", "50%")}</tr></table>
+    ${sectionHeading("Transactions Added to SavvyOS", "These are data-entry and CRM-completeness metrics, not new production.")}
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 -5px;"><tr>${metricCard(formatInteger(dataEntry.transactionRecordsAdded), "Transaction records added", "#374151", "50%")}${metricCard(formatInteger(dataEntry.historicalTransactionsAdded), "Historical deals added", "#7C3AED", "50%")}</tr></table>
+    <div style="margin:10px 0 0;font-size:12px;line-height:1.55;color:#4B5563;background:#F9FAFB;border-left:3px solid #7C3AED;border-radius:6px;padding:10px 12px;">Of the ${formatInteger(dataEntry.transactionRecordsAdded)} transaction records added this week, ${formatInteger(totals.newUnderContract)} have a contract date in this week and are already included in production above. The remaining ${formatInteger(dataEntry.historicalTransactionsAdded)} are historical deals newly captured in SavvyOS (${escapeHtml(historicalStatusDetail || "status unavailable")}).</div>
+    ${sectionHeading("Lead Source Results", "Each source row uses the same weekly window. Historical Deals Added means an older deal entered into SavvyOS during this week.")}
     ${sourceTable(report.rows)}
     ${sectionHeading("This Week’s Actions")}
     ${signals(report)}
@@ -443,7 +477,7 @@ export async function sendWeeklyLeadReportTest(asOf = new Date()): Promise<{ sen
     {
       allowTemplateOverride: false,
       bypassNotificationSetting: true,
-      idempotencyKey: `weekly-lead-report:test:simple-v2:${report.reportDateKey}:${TEST_RECIPIENT_EMAIL}`,
+      idempotencyKey: `weekly-lead-report:test:production-and-history-v3:${report.reportDateKey}:${TEST_RECIPIENT_EMAIL}`,
     },
   );
   return { ...delivery, report };
