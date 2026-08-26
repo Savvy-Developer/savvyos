@@ -225,6 +225,8 @@ async function getAgentProductionStats(db: any, agentId: number) {
     // Leads (field names match frontend expectations)
     totalLeads: Number(leadStats?.totalLeads ?? 0),
     activeLeads: Number(leadStats?.activeLeads ?? 0),
+    newLeads30d: Number(leadStats?.newLeads30d ?? 0),
+    staleLeads: Number(leadStats?.staleLeads ?? 0),
     avgLeadAge: Number(leadStats?.avgLeadAge ?? 0),
     leads0to7: Number(leadStats?.leads0to7 ?? 0),
     leads8to30: Number(leadStats?.leads8to30 ?? 0),
@@ -321,6 +323,98 @@ async function getCoachingHistoryForAI(db: any, agentId: number, limit = 10) {
     .limit(30);
 
   return { sessions, commitments };
+}
+
+// ─── Live call guide — a dependable coaching baseline from current SavvyOS data ──
+function buildLiveCallGuide({
+  agentName,
+  profile,
+  productionStats,
+  goalsData,
+  pipelineData,
+  priorCommitments,
+  previousSessions,
+}: any) {
+  const overdueCommitments = (priorCommitments ?? []).filter((commitment: any) =>
+    commitment.dueDate && new Date(commitment.dueDate).getTime() < Date.now()
+  );
+  const openCommitmentCount = (priorCommitments ?? []).length;
+  const pipeline = pipelineData?.pipelineByStatus ?? {};
+  const activePipeline = Number(productionStats?.activeLeads ?? 0);
+  const staleLeads = Number(productionStats?.staleLeads ?? 0);
+  const newLeads = Number(productionStats?.newLeads30d ?? 0);
+  const closedUnits = Number(productionStats?.closedUnits ?? 0);
+  const underContractUnits = Number(productionStats?.ucUnits ?? 0);
+  const activeListings = Number(productionStats?.activeListings ?? 0);
+  const ytdClosings = Number(goalsData?.ytdActuals?.ytdClosings ?? 0);
+  const closingTarget = goalsData?.annualGoal?.closingsTarget;
+  const lastSession = (previousSessions ?? [])[0];
+  const lastSessionRecap = lastSession?.aiSummary || lastSession?.sourceNotes || "No completed coaching session is on file yet.";
+
+  const dataHighlights = [
+    `${closedUnits} closings in the trailing 90 days and ${underContractUnits} under contract.`,
+    `${activeListings} active listings; ${activePipeline} active pipeline contacts (${newLeads} new in the last 30 days).`,
+    `${staleLeads} active lead${staleLeads === 1 ? " is" : "s are"} stale (no recent pipeline movement).`,
+    closingTarget ? `${ytdClosings} YTD closings against a ${closingTarget}-closing annual goal.` : `${ytdClosings} YTD closings; no annual closing goal is set.`,
+  ];
+
+  const suggestedAgenda = [
+    `Open with wins and the outcome the agent wants from today's ${profile?.currentDevelopmentPriority ? `conversation about ${profile.currentDevelopmentPriority}` : "coaching conversation"}.`,
+    overdueCommitments.length > 0
+      ? `Review ${overdueCommitments.length} overdue commitment${overdueCommitments.length === 1 ? "" : "s"}; agree on a specific completion date or close the loop.`
+      : openCommitmentCount > 0
+        ? `Review the ${openCommitmentCount} open commitment${openCommitmentCount === 1 ? "" : "s"} and verify observable progress.`
+        : "Set one measurable commitment with a clear owner, evidence of completion, and due date.",
+    `Inspect pipeline health: ${activePipeline} active contacts, ${newLeads} new leads, and ${staleLeads} stale leads needing a next action.`,
+    `Connect activity to production: ${closedUnits} recent closings, ${underContractUnits} under contract, and ${activeListings} active listings.`,
+    "Close by confirming the diagnosis, next priority, commitments, and next coaching date.",
+  ];
+
+  const suggestedQuestions = [
+    overdueCommitments.length > 0
+      ? "Which overdue commitment did you complete, partially complete, or choose not to complete—and what specifically got in the way?"
+      : "What commitment from the last session produced the strongest result, and what evidence do we have?",
+    staleLeads > 0
+      ? `Which ${Math.min(staleLeads, 5)} stale leads will receive a specific next action today, and when will it happen?`
+      : "What is your next follow-up standard for active leads so the pipeline stays current?",
+    "Which current opportunity is closest to a decisive next step, and what support or skill is needed to move it?",
+    "What single weekly behavior, if executed consistently, would most improve your next 30 days?",
+  ];
+
+  const talkTracks = [
+    ...(overdueCommitments.length > 0 ? ["Be direct and nonjudgmental: ask for evidence, identify the real obstacle, then reset or close each overdue promise."] : []),
+    ...(staleLeads > 0 ? ["Name the stale-lead count plainly and have the agent choose concrete next actions—not vague intentions—for the highest-value contacts."] : []),
+    ...(underContractUnits === 0 && activePipeline > 0 ? ["Explore the conversion gap: the pipeline exists, so focus on qualification, follow-up cadence, and the next appointment or offer." ] : []),
+    ...(activeListings === 0 ? ["Ask what listing-generation activity is scheduled this week and how it will be measured." ] : []),
+    ...(profile?.retentionRiskStatus === "Elevated" || profile?.retentionRiskStatus === "Critical" ? ["Create space for an explicit retention conversation: surface friction, capacity constraints, and the support the agent needs now."] : []),
+    "End by restating the one priority, exact commitments, proof of completion, and the date you will inspect progress together.",
+  ];
+
+  const watchFor = [
+    ...(overdueCommitments.length > 0 ? [`${overdueCommitments.length} overdue commitment${overdueCommitments.length === 1 ? "" : "s"} need${overdueCommitments.length === 1 ? "s" : ""} a clear disposition.`] : []),
+    ...(staleLeads > 0 ? [`${staleLeads} stale active lead${staleLeads === 1 ? "" : "s"} may indicate a follow-up cadence gap.`] : []),
+    ...(Number(productionStats?.overdueTasks ?? 0) > 0 ? [`${productionStats.overdueTasks} overdue task${productionStats.overdueTasks === 1 ? "" : "s"} require prioritization.`] : []),
+    ...(profile?.retentionRiskStatus && profile.retentionRiskStatus !== "Low" ? [`Retention risk is marked ${profile.retentionRiskStatus}; listen for disengagement, capacity concerns, or a need for support.`] : []),
+  ];
+
+  return {
+    agentSnapshot: `${agentName ?? "This agent"} is currently ${profile?.performanceStatus ?? "unclassified"}${profile?.currentPrimaryDiagnosis ? ` with a ${profile.currentPrimaryDiagnosis} coaching diagnosis` : ""}. The live dashboard shows ${closedUnits} recent closings, ${underContractUnits} under contract, and ${activePipeline} active pipeline contacts.`,
+    lastSessionRecap: String(lastSessionRecap).slice(0, 600),
+    openCommitmentsReview: openCommitmentCount > 0
+      ? `${openCommitmentCount} open commitment${openCommitmentCount === 1 ? "" : "s"}, including ${overdueCommitments.length} overdue.`
+      : "No open commitments from prior sessions.",
+    suggestedAgenda,
+    suggestedQuestions,
+    talkTracks,
+    watchFor,
+    celebrateIf: [
+      ...(closedUnits > 0 ? [`Acknowledge the ${closedUnits} recent closing${closedUnits === 1 ? "" : "s"} and identify the repeatable behavior behind them.`] : []),
+      ...(newLeads > 0 ? [`Recognize the ${newLeads} new lead${newLeads === 1 ? "" : "s"} added in the last 30 days, then make sure follow-up keeps pace.`] : []),
+      "Call out specific evidence of kept commitments, consistent activity, or a meaningful pipeline advance.",
+    ],
+    dataHighlights,
+    pipelineBreakdown: pipeline,
+  };
 }
 
 // ─── Coaching Router ──────────────────────────────────────────────────────────
@@ -1420,6 +1514,7 @@ Please provide your comprehensive coaching analysis.`,
       marketProtectionStatus: z.string().optional(),
       retentionRiskStatus: z.enum(["Low", "Watch", "Elevated", "Critical"]).optional(),
       currentPrimaryDiagnosis: z.enum(["Commitment", "Capability", "Cadence", "Capacity"]).nullable().optional(),
+      secondaryDiagnosis: z.enum(["Commitment", "Capability", "Cadence", "Capacity"]).nullable().optional(),
       currentDevelopmentPriority: z.string().nullable().optional(),
       nextSessionCoachId: z.number().nullable().optional(),
       nextSessionDate: z.string().nullable().optional(),
@@ -1510,6 +1605,28 @@ Please provide your comprehensive coaching analysis.`,
 
       return { rows, total: Number(countRows[0]?.count ?? 0) };
     }),
+
+  /** Determine whether the signed-in coach should be the default Sessions filter. */
+  getSessionFilterDefault: protectedProcedure.query(async ({ ctx }) => {
+    requireAdminOrCoach(ctx.user.role);
+    const db = await getDb();
+    if (!db) return { coachId: null, hasUpcomingSessions: false };
+
+    const [result] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(coachingSessions)
+      .where(and(
+        eq(coachingSessions.status, "Scheduled"),
+        gte(coachingSessions.sessionDate, new Date()),
+        eq(coachingSessions.scheduledCoachId, ctx.user.id),
+      ));
+    const hasUpcomingSessions = Number(result?.count ?? 0) > 0;
+
+    return {
+      coachId: hasUpcomingSessions ? ctx.user.id : null,
+      hasUpcomingSessions,
+    };
+  }),
 
   /** Filterable audit trail for all coaching work, including the agent opened by a coach. */
   listActivities: protectedProcedure
@@ -1621,32 +1738,57 @@ Please provide your comprehensive coaching analysis.`,
 
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Get commitments for this session
-      const commitments = await db
-        .select()
-        .from(coachingCommitments)
-        .where(eq(coachingCommitments.sessionId, input.sessionId))
-        .orderBy(coachingCommitments.createdAt);
+      const agentId = (row as any).agent.id;
 
-      // Get agent's open commitments from prior sessions (for review)
-      const priorCommitments = await db
-        .select()
-        .from(coachingCommitments)
-        .where(and(
-          eq(coachingCommitments.agentId, (row as any).agent.id),
-          ne(coachingCommitments.sessionId, input.sessionId),
-          inArray(coachingCommitments.status, ["Not Started", "In Progress", "Submitted for Verification"]),
-        ))
-        .orderBy(coachingCommitments.dueDate)
-        .limit(15);
+      // Get commitments for this session and the agent's open commitments from prior sessions.
+      const [commitments, priorCommitments, profileRows, productionStats, goalsData, pipelineData, history] = await Promise.all([
+        db.select()
+          .from(coachingCommitments)
+          .where(eq(coachingCommitments.sessionId, input.sessionId))
+          .orderBy(coachingCommitments.createdAt),
+        db.select()
+          .from(coachingCommitments)
+          .where(and(
+            eq(coachingCommitments.agentId, agentId),
+            ne(coachingCommitments.sessionId, input.sessionId),
+            inArray(coachingCommitments.status, ["Not Started", "In Progress", "Submitted for Verification"]),
+          ))
+          .orderBy(coachingCommitments.dueDate)
+          .limit(15),
+        db.select()
+          .from(coachingProfiles)
+          .where(eq(coachingProfiles.agentId, agentId)),
+        getAgentProductionStats(db, agentId),
+        getAgentGoalsWithProgress(db, agentId),
+        getAgentPipelineData(db, agentId),
+        getCoachingHistoryForAI(db, agentId, 6),
+      ]);
 
-      // Get agent's coaching profile for context
-      const [profile] = await db
-        .select()
-        .from(coachingProfiles)
-        .where(eq(coachingProfiles.agentId, (row as any).agent.id));
+      const profile = profileRows[0] ?? null;
+      const previousSessions = history.sessions
+        .filter((session: any) => session.id !== input.sessionId)
+        .slice(0, 5);
+      const liveCallGuide = buildLiveCallGuide({
+        agentName: (row as any).agent?.name,
+        profile,
+        productionStats,
+        goalsData,
+        pipelineData,
+        priorCommitments,
+        previousSessions,
+      });
 
-      return { ...row, commitments, priorCommitments, profile: profile ?? null };
+      return {
+        ...row,
+        commitments,
+        priorCommitments,
+        profile,
+        productionStats,
+        goalsData,
+        pipelineData,
+        previousSessions,
+        liveCallGuide,
+      };
     }),
 
   /** Generate pre-session brief (AI-powered preparation) */
@@ -1666,53 +1808,67 @@ Please provide your comprehensive coaching analysis.`,
 
       const agentId = session.agentId;
       const [agentRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, agentId));
-      const prodStats = await getAgentProductionStats(db, agentId);
-      const goalsData = await getAgentGoalsWithProgress(db, agentId);
-      const history = await getCoachingHistoryForAI(db, agentId, 5);
-      const [profile] = await db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, agentId));
-
+      const [prodStats, goalsData, pipelineData, history, profileRows] = await Promise.all([
+        getAgentProductionStats(db, agentId),
+        getAgentGoalsWithProgress(db, agentId),
+        getAgentPipelineData(db, agentId),
+        getCoachingHistoryForAI(db, agentId, 6),
+        db.select().from(coachingProfiles).where(eq(coachingProfiles.agentId, agentId)),
+      ]);
+      const profile = profileRows[0] ?? null;
+      const priorCommitments = history.commitments.filter((commitment: any) =>
+        ["Not Started", "In Progress", "Submitted for Verification"].includes(commitment.status)
+      );
+      const previousSessions = history.sessions.filter((previousSession: any) => previousSession.id !== input.sessionId).slice(0, 5);
+      const liveCallGuide = buildLiveCallGuide({
+        agentName: agentRow?.name,
+        profile,
+        productionStats: prodStats,
+        goalsData,
+        pipelineData,
+        priorCommitments,
+        previousSessions,
+      });
       const lastSessionSummary = history.sessions[0]?.aiSummary || history.sessions[0]?.sourceNotes || "No prior session data";
-      const openCommitments = history.commitments
-        .filter((c: any) => ["Not Started", "In Progress"].includes(c.status))
-        .map((c: any) => `- [${c.status}] ${c.description} (Due: ${c.dueDate ? new Date(c.dueDate).toLocaleDateString() : 'N/A'})`)
+      const openCommitments = priorCommitments
+        .map((commitment: any) => `- [${commitment.status}] ${commitment.description} (Due: ${commitment.dueDate ? new Date(commitment.dueDate).toLocaleDateString() : "N/A"})`)
         .join("\n");
 
-      const response = await invokeLLM({
-        model: "gpt-5-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are preparing a coaching session brief for a coach at Savvy STR Agents. Generate a concise, actionable pre-session brief that helps the coach walk in prepared. Use the Four-C framework. Output JSON:
-{
-  "agentSnapshot": "2-3 sentence current state summary",
-  "lastSessionRecap": "Key takeaways from last session",
-  "openCommitmentsReview": "Status of outstanding commitments",
-  "suggestedAgenda": ["Item 1", "Item 2", "Item 3", "Item 4"],
-  "suggestedQuestions": ["Question 1", "Question 2", "Question 3"],
-  "watchFor": ["Warning sign 1", "Warning sign 2"],
-  "celebrateIf": ["Win to acknowledge 1", "Win to acknowledge 2"],
-  "dataHighlights": ["Key data point 1", "Key data point 2"]
-}`,
-          },
-          {
-            role: "user",
-            content: `Agent: ${agentRow?.name ?? 'Unknown'} | Status: ${profile?.performanceStatus ?? 'Unknown'} | Session Type: ${session.sessionType}
-Production: ${prodStats.closedUnits} closings (90d), ${prodStats.ucUnits} under contract, ${prodStats.overdueTasks} overdue tasks
-Goals: Annual=${goalsData.annualGoal?.closingsTarget ?? 'Not set'} closings, YTD=${goalsData.ytdActuals.ytdClosings} closings
+      let brief = liveCallGuide;
+      let source: "ai" | "live_data" = "live_data";
+      try {
+        const response = await invokeLLM({
+          model: "gpt-5-mini",
+          messages: [
+            {
+              role: "system",
+              content: `You are preparing a coaching session brief for a coach at Savvy STR Agents. Generate a concise, actionable pre-session brief that helps the coach conduct the session. Use the Four-C framework. Output JSON with agentSnapshot, lastSessionRecap, openCommitmentsReview, suggestedAgenda, suggestedQuestions, talkTracks, watchFor, celebrateIf, and dataHighlights. The talkTracks must tell the coach exactly how to address overdue commitments, business volume, and pipeline health when relevant.`,
+            },
+            {
+              role: "user",
+              content: `Agent: ${agentRow?.name ?? "Unknown"} | Status: ${profile?.performanceStatus ?? "Unknown"} | Session Type: ${session.sessionType}
+Production: ${prodStats.closedUnits} closings (90d), ${prodStats.ucUnits} under contract, ${prodStats.activeListings} active listings, ${prodStats.overdueTasks} overdue tasks
+Pipeline: ${prodStats.activeLeads} active leads, ${prodStats.newLeads30d} new leads (30d), ${prodStats.staleLeads} stale active leads
+Goals: Annual=${goalsData.annualGoal?.closingsTarget ?? "Not set"} closings, YTD=${goalsData.ytdActuals.ytdClosings} closings
 Last Session: ${lastSessionSummary.substring(0, 500)}
 Open Commitments:\n${openCommitments || "None"}`,
-          },
-        ],
-        response_format: { type: "json_object" },
-      });
+            },
+          ],
+          response_format: { type: "json_object" },
+        });
+        const rawContent = response.choices[0]?.message?.content;
+        const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
+        brief = { ...liveCallGuide, ...parsed };
+        source = "ai";
+      } catch (error) {
+        // A coach must never lose the live call guide due to a provider/billing outage.
+        console.error("Pre-session AI brief unavailable; using live-data guide", error);
+      }
 
-      const rawContent = response.choices[0]?.message?.content;
-      const parsed = JSON.parse(typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? "{}"));
-
-      // Store the brief on the session
+      // Store the complete brief, while preserving legacy question storage for existing screens.
       await db.update(coachingSessions).set({
-        aiRecommendedAgenda: JSON.stringify(parsed.suggestedAgenda ?? []),
-        aiRecommendedQuestions: JSON.stringify(parsed.suggestedQuestions ?? []),
+        aiRecommendedAgenda: JSON.stringify(brief),
+        aiRecommendedQuestions: JSON.stringify(brief.suggestedQuestions ?? []),
         preparationStatus: "Ready",
         updatedAt: sql`NOW()`,
       }).where(eq(coachingSessions.id, input.sessionId));
@@ -1723,9 +1879,10 @@ Open Commitments:\n${openCommitments || "None"}`,
         entityType: "coaching_session",
         entityId: input.sessionId,
         agentId,
+        details: { source },
       });
 
-      return { brief: parsed, generatedAt: new Date().toISOString() };
+      return { brief, source, generatedAt: new Date().toISOString() };
     }),
 
   /** Create a new coaching session */
@@ -1870,6 +2027,84 @@ Open Commitments:\n${openCommitments || "None"}`,
       });
 
       return { success: true };
+    }),
+
+  /** Save post-session scheduling decisions and create one follow-up session when requested. */
+  scheduleNextSession: protectedProcedure
+    .input(z.object({
+      sessionId: z.number(),
+      nextSessionCoachId: z.number().nullable().optional(),
+      nextSessionDate: z.string().nullable().optional(),
+      nextSessionType: z.string().nullable().optional(),
+      noNextSessionReason: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      requireAdminOrCoach(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [session] = await db
+        .select({ agentId: coachingSessions.agentId, coachOfRecordId: coachingSessions.coachOfRecordId })
+        .from(coachingSessions)
+        .where(eq(coachingSessions.id, input.sessionId));
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!input.nextSessionDate && !input.noNextSessionReason) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Schedule a next session or provide a reason for not scheduling one." });
+      }
+
+      const nextSessionDate = input.nextSessionDate ? new Date(input.nextSessionDate) : null;
+      const nextSessionCoachId = input.nextSessionCoachId ?? session.coachOfRecordId ?? null;
+      await db.update(coachingSessions).set({
+        nextSessionCoachId,
+        nextSessionDate,
+        nextSessionType: input.nextSessionType ?? null,
+        noNextSessionReason: input.noNextSessionReason ?? null,
+        updatedAt: sql`NOW()`,
+      }).where(eq(coachingSessions.id, input.sessionId));
+      await db.update(coachingProfiles).set({
+        nextSessionCoachId,
+        nextSessionDate,
+        updatedAt: sql`NOW()`,
+      }).where(eq(coachingProfiles.agentId, session.agentId));
+
+      let nextSessionId: number | null = null;
+      if (nextSessionDate) {
+        const existingConditions: any[] = [
+          eq(coachingSessions.agentId, session.agentId),
+          eq(coachingSessions.sessionDate, nextSessionDate),
+          eq(coachingSessions.status, "Scheduled"),
+        ];
+        existingConditions.push(nextSessionCoachId === null
+          ? isNull(coachingSessions.scheduledCoachId)
+          : eq(coachingSessions.scheduledCoachId, nextSessionCoachId));
+        const [existing] = await db
+          .select({ id: coachingSessions.id })
+          .from(coachingSessions)
+          .where(and(...existingConditions));
+        if (existing) {
+          nextSessionId = existing.id;
+        } else {
+          const [created] = await db.insert(coachingSessions).values({
+            agentId: session.agentId,
+            coachOfRecordId: session.coachOfRecordId,
+            scheduledCoachId: nextSessionCoachId,
+            sessionDate: nextSessionDate,
+            sessionType: input.nextSessionType ?? "Standard COACH Session",
+            status: "Scheduled",
+          });
+          nextSessionId = Number((created as any).insertId);
+        }
+      }
+
+      await logCoachingActivity({
+        userId: ctx.user.id,
+        action: "coaching_next_session_scheduled",
+        entityType: "coaching_session",
+        entityId: input.sessionId,
+        agentId: session.agentId,
+        details: { nextSessionId, noNextSessionReason: input.noNextSessionReason ?? null },
+      });
+      return { success: true, nextSessionId };
     }),
 
   /** Update a coaching session */

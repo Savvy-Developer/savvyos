@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -48,14 +48,23 @@ export default function CoachingSessionsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [coachFilter, setCoachFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const [defaultFilterApplied, setDefaultFilterApplied] = useState(false);
   const pageSize = 20;
+  const { data: sessionFilterDefault } = trpc.coaching.getSessionFilterDefault.useQuery();
+
+  useEffect(() => {
+    if (!sessionFilterDefault || defaultFilterApplied) return;
+    setCoachFilter(sessionFilterDefault.coachId ? String(sessionFilterDefault.coachId) : "all");
+    setPage(1);
+    setDefaultFilterApplied(true);
+  }, [sessionFilterDefault, defaultFilterApplied]);
 
   const { data, isLoading } = trpc.coaching.listSessions.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     coachId: coachFilter !== "all" ? Number(coachFilter) : undefined,
     limit: pageSize,
     offset: (page - 1) * pageSize,
-  });
+  }, { enabled: defaultFilterApplied });
 
   const { data: coaches } = trpc.coaching.listCoaches.useQuery();
 
@@ -83,9 +92,13 @@ export default function CoachingSessionsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <CalendarDays className="h-6 w-6 text-primary" />
-              All Coaching Sessions
+              Coaching Sessions
             </h1>
-            <p className="text-sm text-muted-foreground">{total} sessions total</p>
+            <p className="text-sm text-muted-foreground">
+              {defaultFilterApplied
+                ? `${total} session${total === 1 ? "" : "s"}${sessionFilterDefault?.hasUpcomingSessions && coachFilter !== "all" ? " in your coaching schedule" : " total"}`
+                : "Loading your coaching schedule..."}
+            </p>
           </div>
         </div>
       </div>
@@ -144,7 +157,7 @@ export default function CoachingSessionsPage() {
       {/* Sessions Table */}
       <Card>
         <CardContent className="p-0 overflow-x-auto">
-          {isLoading ? (
+          {isLoading || !defaultFilterApplied ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>

@@ -214,21 +214,24 @@ const normalizeToolChoice = (
 };
 
 const resolveApiUrl = () => {
-  if (!ENV.forgeApiUrl || ENV.forgeApiUrl.trim().length === 0) {
-    return "https://api.openai.com/v1/chat/completions";
-  }
+  // Never silently fall back to api.openai.com. SavvyOS is configured to use
+  // the Manus OpenAI-compatible proxy, which keeps application AI usage on
+  // the intended provider and avoids a separate OpenAI billing dependency.
+  const configuredBase = ENV.forgeApiUrl || process.env.OPENAI_API_BASE || "https://api.manus.im/api/llm-proxy/v1";
   // Forge deployments conventionally provide the service root, whereas standard
   // OpenAI-compatible environment variables commonly already end in `/v1`.
   // Support both forms without generating a `/v1/v1/...` request URL.
-  const base = ENV.forgeApiUrl.replace(/\/$/, "");
+  const base = configuredBase.replace(/\/$/, "");
   return base.endsWith("/v1")
     ? `${base}/chat/completions`
     : `${base}/v1/chat/completions`;
 };
 
+const getApiKey = () => ENV.forgeApiKey || ENV.openaiApiKey;
+
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!getApiKey()) {
+    throw new Error("AI proxy credentials are not configured");
   }
 };
 
@@ -380,7 +383,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${ENV.forgeApiKey}`,
+          authorization: `Bearer ${getApiKey()}`,
         },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
