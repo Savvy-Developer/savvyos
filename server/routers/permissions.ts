@@ -2,8 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { adminPermissions, users } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { adminPermissions, adminProfiles, users } from "../../drizzle/schema";
+import { and, eq, isNull, or } from "drizzle-orm";
 
 // ── Who can manage admin permissions ─────────────────────────────────────────
 const PERMISSION_MANAGERS = [
@@ -14,6 +14,32 @@ const PERMISSION_MANAGERS = [
 
 // ── Tyler's email — her permissions can never be edited ───────────────────────
 const PROTECTED_EMAIL = "tyler@savvy.realty";
+
+/**
+ * Active eligibility is centralized here so inactive, on-leave, and offboarded
+ * administrators cannot be listed, selected, or assigned permissions. Legacy
+ * admins without a profile remain eligible until they receive an explicit status.
+ */
+const activeAdminEligibility = (userId?: number) => and(
+  ...(userId === undefined ? [] : [eq(users.id, userId)]),
+  eq(users.role, "admin"),
+  eq(users.isActive, true),
+  or(eq(adminProfiles.adminStatus, "active"), isNull(adminProfiles.userId)),
+);
+
+export function isActivePermissionAdmin(user: { isActive: boolean; adminStatus: string | null }): boolean {
+  return user.isActive && (user.adminStatus === "active" || user.adminStatus === null);
+}
+
+async function findActiveAdmin(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, userId: number) {
+  const rows = await db
+    .select({ id: users.id, email: users.email, role: users.role, isActive: users.isActive, adminStatus: adminProfiles.adminStatus })
+    .from(users)
+    .leftJoin(adminProfiles, eq(adminProfiles.userId, users.id))
+    .where(activeAdminEligibility(userId))
+    .limit(1);
+  return rows.find(isActivePermissionAdmin);
+}
 
 // ── All permission keys with their labels and group ───────────────────────────
 export const ADMIN_NAV_PERMISSIONS = [
@@ -121,11 +147,9 @@ export const permissionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Look up target user to verify they're an admin
-      const targetUsers = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
-      const targetUser = targetUsers[0];
-      if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      if (targetUser.role !== "admin") throw new TRPCError({ code: "BAD_REQUEST", message: "Permissions only apply to admin users" });
+      // Only active administrators may be viewed or selected for permission management.
+      const targetUser = await findActiveAdmin(db, input.userId);
+      if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Active admin not found" });
 
       // Tyler always has full access — return synthetic all-true object
       if (targetUser.email === PROTECTED_EMAIL) {
@@ -204,11 +228,9 @@ export const permissionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Look up target user
-      const targetUsers = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
-      const targetUser = targetUsers[0];
-      if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      if (targetUser.role !== "admin") throw new TRPCError({ code: "BAD_REQUEST", message: "Permissions only apply to admin users" });
+      // Permission assignments are restricted to active administrators.
+      const targetUser = await findActiveAdmin(db, input.userId);
+      if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Active admin not found" });
 
       // Cannot edit Tyler's permissions
       if (targetUser.email === PROTECTED_EMAIL) {
@@ -265,12 +287,14 @@ export const permissionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Get all active admin users
+      // Return only active administrators. Existing permission and audit rows remain untouched.
       const adminUsers = await db
-        .select({ id: users.id, name: users.name, email: users.email })
+        .select({ id: users.id, name: users.name, email: users.email, isActive: users.isActive, adminStatus: adminProfiles.adminStatus })
         .from(users)
-        .where(eq(users.role, "admin"))
+        .leftJoin(adminProfiles, eq(adminProfiles.userId, users.id))
+        .where(activeAdminEligibility())
         .orderBy(users.name);
+      const activeAdminUsers = adminUsers.filter(isActivePermissionAdmin);
 
       // Get all existing permissions rows
       const permRows = await db.select().from(adminPermissions);
@@ -278,7 +302,7 @@ export const permissionsRouter = router({
       for (const row of permRows) permMap.set(row.userId, row);
 
       // Build result: for each admin, return their permissions (defaulting to true for missing rows)
-      const result = adminUsers.map((u) => {
+      const result = activeAdminUsers.map((u) => {
         const row = permMap.get(u.id);
         const perms: Record<string, boolean> = {};
         if (u.email === PROTECTED_EMAIL) {
@@ -334,11 +358,9 @@ export const permissionsRouter = router({
       const validKeys = new Set(ADMIN_NAV_PERMISSIONS.map((p) => p.key));
 
       for (const item of input) {
-        // Look up user to ensure they're admin and not Tyler
-        const targetUsers = await db.select({ email: users.email, role: users.role, id: users.id }).from(users).where(eq(users.id, item.userId)).limit(1);
-        const targetUser = targetUsers[0];
-        if (!targetUser || targetUser.role !== "admin") continue;
-        if (targetUser.email === PROTECTED_EMAIL) continue; // skip Tyler
+        // Stale clients cannot assign permissions after an admin is deactivated.
+        const targetUser = await findActiveAdmin(db, item.userId);
+        if (!targetUser || targetUser.email === PROTECTED_EMAIL) continue;
 
         const updateData: Record<string, boolean> = {};
         for (const [key, val] of Object.entries(item.permissions)) {

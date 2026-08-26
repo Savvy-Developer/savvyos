@@ -470,8 +470,17 @@ export default function SuperPermissionsPage() {
         position:sticky on the first column cells. Because this div is
         the direct scroll ancestor, sticky works correctly in all browsers.
       */}
-      <div className="flex-1 overflow-auto">
-        <table className="border-collapse" style={{ tableLayout: "fixed", minWidth: "max-content" }}>
+      {allAdmins.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+          <ShieldCheck className="h-10 w-10 opacity-35" />
+          <div>
+            <p className="font-medium text-foreground">No active administrators</p>
+            <p className="mt-1 text-sm">Active admins will appear here once their admin profile status is set to active.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <table className="border-collapse" style={{ tableLayout: "fixed", minWidth: "max-content" }}>
 
           {/* ── Column header row ── */}
           <thead>
@@ -632,8 +641,9 @@ export default function SuperPermissionsPage() {
               ];
             })}
           </tbody>
-        </table>
-      </div>
+          </table>
+        </div>
+      )}
 
       {/* ── Sticky footer bar ── */}
       {dirty && (

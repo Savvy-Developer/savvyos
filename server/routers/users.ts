@@ -395,12 +395,13 @@ export const usersRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can create admin users" });
       }
       const id = await createUser(input);
-      // Auto-create permissions row for new admin users (formerly-hidden pages default OFF)
+      // Auto-create permission and lifecycle rows for new admin users.
       if (input.role === "admin") {
         try {
           const db = await getDb();
           if (db) {
             await db.insert(adminPermissions).values({ userId: id }).onDuplicateKeyUpdate({ set: { userId: id } });
+            await db.insert(adminProfiles).values({ userId: id, adminStatus: "active" }).onDuplicateKeyUpdate({ set: { userId: id } });
           }
         } catch (_e) { /* non-fatal */ }
       }

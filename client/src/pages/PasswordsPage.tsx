@@ -171,9 +171,9 @@ export default function PasswordsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Lists sidebar */}
-        <div className="lg:col-span-1 space-y-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[fit-content(28rem)_minmax(0,1fr)]">
+        {/* Lists expand to the longest label within a bounded desktop column and stack on smaller screens. */}
+        <div className="min-w-0 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground px-1 mb-2">
             Lists
           </p>
@@ -184,7 +184,7 @@ export default function PasswordsPage() {
               <button
                 key={list.id}
                 onClick={() => { setSelectedListId(list.id); setIsSearching(false); setSearchQuery(""); }}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                className={`w-full flex items-start gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
                   selectedListId === list.id && !isSearching
                     ? "bg-primary/10 text-primary font-medium"
                     : "hover:bg-muted"
@@ -192,8 +192,8 @@ export default function PasswordsPage() {
               >
                 <FolderOpen className="h-4 w-4 shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <span className="block truncate">{list.name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">Owner: {list.ownerName}</span>
+                  <span className="block break-words leading-5">{list.name}</span>
+                  <span className="block break-words text-[11px] leading-4 text-muted-foreground">Owner: {list.ownerName}</span>
                 </div>
                 {list.canManage && (
                   <div className="flex items-center gap-1 shrink-0">
@@ -219,7 +219,7 @@ export default function PasswordsPage() {
         </div>
 
         {/* Entries main area */}
-        <div className="lg:col-span-3">
+        <div className="min-w-0">
           {!selectedListId && !isSearching ? (
             <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
               <List className="h-12 w-12 mb-4 opacity-40" />

@@ -553,9 +553,9 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 flex min-h-0">
-        {/* Sidebar: Categories */}
-        <aside className="w-64 border-r flex flex-col shrink-0 overflow-y-auto">
+      <div className="flex-1 flex min-h-0 flex-col sm:flex-row">
+        {/* Categories grow to their readable content width on desktop and stack above articles on small screens. */}
+        <aside className="w-full max-h-[40vh] border-b flex flex-col overflow-y-auto sm:w-fit sm:min-w-64 sm:max-w-[28rem] sm:max-h-none sm:shrink-0 sm:border-b-0 sm:border-r">
           <div className="p-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-2 mb-2">Categories</p>
             {catsLoading ? (
@@ -573,16 +573,16 @@ export default function KnowledgeBasePage() {
                 {categories.map((cat) => (
                   <div
                     key={cat.id}
-                    className={`group flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer transition-colors ${
+                    className={`group flex items-start justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer transition-colors ${
                       selectedCategoryId === cat.id
                         ? "bg-primary/10 text-primary"
                         : "hover:bg-muted"
                     }`}
                     onClick={() => { setSelectedCategoryId(cat.id); setSelectedArticleId(null); setSearchQuery(""); }}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex flex-1 items-center gap-2 min-w-0">
                       <FolderOpen className="h-4 w-4 shrink-0" />
-                      <span className="text-sm truncate">{cat.name}</span>
+                      <span className="min-w-0 flex-1 break-words text-sm leading-5">{cat.name}</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${TYPE_COLORS[cat.type]}`}>
