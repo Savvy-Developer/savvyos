@@ -387,6 +387,10 @@ Administrators have the broadest SavvyOS access and are responsible for keeping 
 
 Use **Users** to confirm the role, then use **Super Permissions** only for the granular capabilities that role actually needs. Confirm the user can see the correct navigation after the change, and document any nonstandard access in the appropriate workflow.
 
+### When a new administrator left-navigation item is added
+
+Every new left-sidebar admin navigation item must be added to the **Super Permissions** definition and matrix, stored in the administrator-permission model, mapped to the sidebar permission filter, and enforced by both its direct route and server API. Do not ship a new admin navigation item until these permission checks are complete and verified.
+
 ### When a data-quality issue is found
 
 Open the relevant source record—contact, pipeline, transaction, listing, property, or task—before correcting it. Use **Duplicate Contacts** for duplicate analysis and avoid creating parallel records or off-system corrections that make reporting unreliable.

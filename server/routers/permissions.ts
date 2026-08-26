@@ -42,6 +42,8 @@ async function findActiveAdmin(db: NonNullable<Awaited<ReturnType<typeof getDb>>
 }
 
 // ── All permission keys with their labels and group ───────────────────────────
+// Required convention: every left-sidebar admin link must be registered here, mapped in
+// AppLayout's PERM_PATH_MAP, persisted in admin_permissions, and enforced by its feature route/API.
 export const ADMIN_NAV_PERMISSIONS = [
   // Overview
   { key: "canViewDashboard",          label: "Admin Dashboard",          group: "Overview" },
@@ -88,6 +90,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewRolesResponsibilities", label: "Roles & Responsibilities", group: "Admin" },
   { key: "canViewFeedback",           label: "Feedback & Requests",     group: "Admin" },
   { key: "canViewMarketingAdmin",     label: "Marketing Requests",       group: "Admin" },
+  { key: "canViewWebinars",           label: "Webinars",                 group: "Admin" },
   { key: "canViewTechRequests",       label: "Tech Requests",            group: "Admin" },
   { key: "canViewGoals",              label: "Goals",                    group: "Admin" },
   { key: "canViewJobBoard",           label: "Job Board",                 group: "Admin" },

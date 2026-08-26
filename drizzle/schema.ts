@@ -2318,6 +2318,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities").default(true).notNull(),
   canViewFeedback: boolean("canViewFeedback").default(true).notNull(),
   canViewMarketingAdmin: boolean("canViewMarketingAdmin").default(true).notNull(),
+  // Every admin sidebar entry must have a matching Super Permissions flag.
+  canViewWebinars: boolean("canViewWebinars").default(true).notNull(),
   canViewTechRequests: boolean("canViewTechRequests").default(true).notNull(),
   canViewGoals: boolean("canViewGoals").default(true).notNull(),
   canViewJobBoard: boolean("canViewJobBoard").default(true).notNull(),

@@ -10,6 +10,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb, logActivity } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { canAdminUsePermission } from "./permissions";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import {
   createZoomWebinar,
@@ -30,8 +31,11 @@ const DEFAULT_MARKETING_EMAIL_TEMPLATE = {
   bodyText: "A new webinar has been created in SavvyOS. Please coordinate the promotional plan with {{webinar_creator_name}} and use the registration link below in approved marketing.",
 };
 
-function requireAdmin(role: string) {
-  if (role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access is required." });
+async function requireWebinarAccess(user: { id: number; role: string; email?: string | null }) {
+  if (user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access is required." });
+  if (!await canAdminUsePermission(user, "canViewWebinars")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Webinar access has not been granted in Super Permissions." });
+  }
 }
 
 async function getDatabase() {
@@ -109,13 +113,13 @@ async function syncAttendeesFromZoom(webinarId: number) {
 }
 
 export const webinarsRouter = router({
-  configuration: protectedProcedure.query(({ ctx }) => {
-    requireAdmin(ctx.user.role);
+  configuration: protectedProcedure.query(async ({ ctx }) => {
+    await requireWebinarAccess(ctx.user);
     return getZoomConfigurationStatus();
   }),
 
   getMarketingEmailTemplate: protectedProcedure.query(async ({ ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     const [override] = await db.select({ subject: emailTemplates.subject, bodyText: emailTemplates.bodyText, updatedAt: emailTemplates.updatedAt })
       .from(emailTemplates)
@@ -128,7 +132,7 @@ export const webinarsRouter = router({
     subject: z.string().trim().min(3).max(255),
     bodyText: z.string().trim().min(10).max(6000),
   })).mutation(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     await db.insert(emailTemplates).values({
       emailType: WEBINAR_MARKETING_EMAIL_TYPE,
@@ -140,14 +144,14 @@ export const webinarsRouter = router({
   }),
 
   resetMarketingEmailTemplate: protectedProcedure.mutation(async ({ ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     await db.delete(emailTemplates).where(eq(emailTemplates.emailType, WEBINAR_MARKETING_EMAIL_TYPE));
     return { success: true };
   }),
 
   list: protectedProcedure.input(z.object({ includePast: z.boolean().default(false) }).optional()).query(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     const values = await db.select({
       webinar: webinars,
@@ -170,7 +174,7 @@ export const webinarsRouter = router({
   }),
 
   getById: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     const [value] = await db.select({ webinar: webinars, creatorName: users.name, creatorEmail: users.email })
       .from(webinars)
@@ -195,7 +199,7 @@ export const webinarsRouter = router({
     timezone: z.string().trim().min(1).max(64).default("America/New_York"),
     registrationApproval: approvalSchema.default("automatically"),
   })).mutation(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     const startTime = parseDateTime(input.startTime);
     const configuration = getZoomConfigurationStatus();
@@ -269,7 +273,7 @@ export const webinarsRouter = router({
       registrationApproval: approvalSchema.optional(),
     }),
   })).mutation(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     const [current] = await db.select().from(webinars).where(eq(webinars.id, input.id));
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Webinar not found." });
@@ -288,7 +292,7 @@ export const webinarsRouter = router({
   }),
 
   cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     const [current] = await db.select().from(webinars).where(eq(webinars.id, input.id));
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Webinar not found." });
@@ -300,13 +304,13 @@ export const webinarsRouter = router({
   }),
 
   listAttendees: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const db = await getDatabase();
     return db.select().from(webinarAttendees).where(eq(webinarAttendees.webinarId, input.id)).orderBy(desc(webinarAttendees.registeredAt), asc(webinarAttendees.email));
   }),
 
   syncAttendees: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireWebinarAccess(ctx.user);
     const result = await syncAttendeesFromZoom(input.id);
     await logActivity({ userId: ctx.user.id, action: "webinar_attendees_synced", entityType: "webinar", entityId: input.id, details: { synchronized: result.synchronized } });
     return result;
