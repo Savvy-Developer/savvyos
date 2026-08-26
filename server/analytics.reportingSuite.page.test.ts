@@ -8,6 +8,9 @@ const expansionService = () => readFileSync("server/analytics/reportingExpansion
 const expansionViews = () => readFileSync("client/src/pages/ReportingExpansionViews.tsx", "utf-8");
 const appRoutes = () => readFileSync("client/src/App.tsx", "utf-8");
 const pipelineReportView = () => readFileSync("client/src/pages/PipelineReport.tsx", "utf-8");
+const financialService = () => readFileSync("server/db-analytics.ts", "utf-8");
+const financialView = () => readFileSync("client/src/pages/analytics/FinancialPerformanceTab.tsx", "utf-8");
+const commandCenterService = () => readFileSync("server/analytics/adminCommandCenter.ts", "utf-8");
 
 describe("Reporting suite — stable decision and evidence contract", () => {
   it("keeps the Agent Performance report centered on production, financial contribution, and operational attention", () => {
@@ -62,6 +65,8 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("Representation contribution");
     expect(content).toContain("Transaction evidence");
     expect(content).toContain("summary.closedUnits");
+    expect(content).toContain("scheduledProduction.total.volume");
+    expect(content).toContain("Selected-status volume");
     expect(content).toContain("summary.change?.grossCommission");
     expect(content).toContain("Under Contract GCI");
     expect(content).toContain("Under Contract Savvy net");
@@ -78,12 +83,31 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(content).toContain("setSearch(serialized ? `?${serialized}` : \"\")");
     expect(service).toContain("terminationRate");
     expect(service).toContain("underContractMonthlyRows");
+    expect(service).toContain("scheduledUnderContractScope");
+    expect(service).toContain("scheduledProduction: {");
     expect(service).toContain("monthlyPerformanceScope");
     expect(service).toContain("monthlyPerformanceStatus");
     expect(service).toContain("periodOutcomeScope");
     expect(service).toContain("closedUnits: closed");
     expect(service).toContain("priorScope");
     expect(service).toContain("LIMIT ${limit} OFFSET ${offset}");
+  });
+
+  it("keeps closed actuals, selected-period scheduled UC, and live UC inventory distinct across reporting", () => {
+    const service = financialService();
+    const view = financialView();
+    const commandCenter = commandCenterService();
+
+    expect(service).toContain("const ucScheduledWhere");
+    expect(service).toContain("scheduledCount: Number(ucScheduledRow.count)");
+    expect(service).toContain("scheduledVolume: Number(ucScheduledRow.totalVolume)");
+    expect(view).toContain('label="Closed Actuals"');
+    expect(view).toContain('label="Scheduled UC"');
+    expect(view).toContain('label="Live UC Inventory"');
+    expect(view).toContain("Closed Actuals vs Scheduled Under-Contract Volume");
+    expect(reportPage()).toContain("Closed actual volume plus scheduled under-contract volume");
+    expect(commandCenter).toContain('transactionScope(filters, { status: "closed" })');
+    expect(commandCenter).not.toContain("const selectedProductionStatus");
   });
 
   it("keeps the five expansion reports decision-ready, filterable, and backed by bounded evidence", () => {

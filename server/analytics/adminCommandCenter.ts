@@ -243,10 +243,12 @@ export async function getAdminCommandCenter(input: {
 
   const { filters, access } = input;
   const priorRange = previousEquivalentRange(filters);
-  const selectedProductionStatus = filters.transactionStatus ?? "closed";
-  const currentClosedScope = transactionScope(filters, { status: selectedProductionStatus });
+  // Executive production cards always represent closed actuals. A dashboard
+  // transaction-status filter must never silently turn a card labeled “Closed”
+  // into under-contract or terminated volume.
+  const currentClosedScope = transactionScope(filters, { status: "closed" });
   const priorFilters = { ...filters, dateFrom: priorRange.dateFrom, dateTo: priorRange.dateTo };
-  const priorClosedScope = transactionScope(priorFilters, { status: selectedProductionStatus });
+  const priorClosedScope = transactionScope(priorFilters, { status: "closed" });
   const connectionCurrentScope = connectionScope(filters, { applyDate: false });
   const connectionCohortScope = connectionScope(filters, { applyDate: true, includeTerminal: true });
   const allConnectionScope = connectionScope(filters, { applyDate: false, includeTerminal: true });

@@ -1329,8 +1329,17 @@ export async function getFinancialPerformanceSummary(opts?: {
     agentIds ? inArray(transactions.agentId, agentIds) : undefined,
   );
 
+  // Live under-contract inventory is a present-state snapshot and intentionally
+  // ignores the selected reporting period. The companion scheduled scope is the
+  // comparable projected-close subset for the selected period.
   const ucWhere = and(
     eq(transactions.status, "under_contract"),
+    agentIds ? inArray(transactions.agentId, agentIds) : undefined,
+  );
+  const ucScheduledWhere = and(
+    eq(transactions.status, "under_contract"),
+    dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
+    dateTo ? lte(transactions.closingDate, dateTo) : undefined,
     agentIds ? inArray(transactions.agentId, agentIds) : undefined,
   );
 
@@ -1345,13 +1354,24 @@ export async function getFinancialPerformanceSummary(opts?: {
     .where(closedWhere);
 
   // Under-contract aggregates
-  const [ucRow] = await db
-    .select({
-      count: sql<number>`COUNT(*)`,
-      totalVolume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
-    })
-    .from(transactions)
-    .where(ucWhere);
+  const [ucRows, ucScheduledRows] = await Promise.all([
+    db
+      .select({
+        count: sql<number>`COUNT(*)`,
+        totalVolume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
+      })
+      .from(transactions)
+      .where(ucWhere),
+    db
+      .select({
+        count: sql<number>`COUNT(*)`,
+        totalVolume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
+      })
+      .from(transactions)
+      .where(ucScheduledWhere),
+  ]);
+  const ucRow = ucRows[0] ?? { count: 0, totalVolume: "0" };
+  const ucScheduledRow = ucScheduledRows[0] ?? { count: 0, totalVolume: "0" };
 
   // Payout aggregates by type (closed only)
   const payoutRows = await db
@@ -1382,8 +1402,14 @@ export async function getFinancialPerformanceSummary(opts?: {
       totalVolume: Number(closedRow.totalVolume),
     },
     underContract: {
+      // Current inventory, regardless of expected close date.
       count: Number(ucRow.count),
       totalVolume: Number(ucRow.totalVolume),
+      // Current under-contract records with an expected close in the selected
+      // period. This is the only UC value that can be added to closed actuals
+      // for a period-specific scheduled-production total.
+      scheduledCount: Number(ucScheduledRow.count),
+      scheduledVolume: Number(ucScheduledRow.totalVolume),
     },
     totalGci,
     grossCommission,

@@ -78,8 +78,8 @@ export default function FinancialPerformanceTab() {
   const volumeComparisonData = useMemo(() => {
     if (!summary) return [];
     return [
-      { name: "Closed", count: summary.closed.count, volume: summary.closed.totalVolume },
-      { name: "Under Contract", count: summary.underContract.count, volume: summary.underContract.totalVolume },
+      { name: "Closed actual", count: summary.closed.count, volume: summary.closed.totalVolume },
+      { name: "Scheduled UC", count: summary.underContract.scheduledCount, volume: summary.underContract.scheduledVolume },
     ];
   }, [summary]);
 
@@ -166,31 +166,37 @@ export default function FinancialPerformanceTab() {
             {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
             <KpiCard
-              label="Closed Transactions"
+              label="Closed Actuals"
               value={fmtNum(summary?.closed.count ?? 0)}
-              sub={`${fmt$(summary?.closed.totalVolume ?? 0)} volume`}
+              sub={`${fmt$(summary?.closed.totalVolume ?? 0)} closing-date volume`}
               icon={<Building2 className="h-5 w-5" />}
               highlight
             />
             <KpiCard
-              label="Under Contract (UC)"
+              label="Scheduled UC"
+              value={fmtNum(summary?.underContract.scheduledCount ?? 0)}
+              sub={`${fmt$(summary?.underContract.scheduledVolume ?? 0)} expected to close in period`}
+              icon={<TrendingUp className="h-5 w-5" />}
+            />
+            <KpiCard
+              label="Live UC Inventory"
               value={fmtNum(summary?.underContract.count ?? 0)}
-              sub={`${fmt$(summary?.underContract.totalVolume ?? 0)} volume`}
+              sub={`${fmt$(summary?.underContract.totalVolume ?? 0)} current, not date-filtered`}
               icon={<TrendingUp className="h-5 w-5" />}
             />
             <KpiCard
               label="Total GCI"
               value={fmt$(summary?.totalGci ?? 0)}
-              sub="gross commission income"
+              sub="closed actuals only"
               icon={<DollarSign className="h-5 w-5" />}
               highlight
             />
             <KpiCard
               label="Company Dollars"
               value={fmt$(summary?.companyDollars ?? 0)}
-              sub="Savvy's retained share"
+              sub="closed actuals only"
               icon={<Building2 className="h-5 w-5" />}
             />
           </div>
@@ -270,7 +276,7 @@ export default function FinancialPerformanceTab() {
         {/* Volume Comparison Bar */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Closed vs Under Contract Volume</CardTitle>
+            <CardTitle className="text-sm font-semibold">Closed Actuals vs Scheduled Under-Contract Volume</CardTitle>
           </CardHeader>
           <CardContent>
             {volumeComparisonData.every((d) => d.volume === 0) ? <EmptyState /> : (
@@ -279,7 +285,7 @@ export default function FinancialPerformanceTab() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={(v) => fmt$(v)} tick={{ fontSize: 11 }} width={60} />
-                  <Tooltip formatter={(v: number, name: string) => [name === "volume" ? fmtFull(v) : fmtNum(v), name === "volume" ? "Volume" : "Count"]} />
+                  <Tooltip formatter={(v: number, name: string) => [name === "volume" ? fmtFull(v) : fmtNum(v), name === "volume" ? "Purchase-price volume" : "Count"]} />
                   <Bar dataKey="volume" name="Volume" fill={CHART_COLORS[1]} radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
