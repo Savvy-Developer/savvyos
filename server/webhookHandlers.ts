@@ -360,34 +360,47 @@ interface SavvyWebEventSpec {
   action: string;
   /** Create the contact when the email matches nothing? */
   createsContact: boolean;
+  /**
+   * When agentId is present in the payload, create an agent connection for this
+   * event. Only deliberate lead-intent actions should set this — passive signals
+   * like page views and favourites must not trigger a connection.
+   */
+  createsAgentConnection: boolean;
   /** Human label used in the webhook response body. */
   label: string;
 }
 
 export const SAVVY_WEB_EVENTS: Record<string, SavvyWebEventSpec> = {
   "property.viewed": {
-    action: "property_viewed", createsContact: false, label: "Property view",
+    action: "property_viewed", createsContact: false, createsAgentConnection: false, label: "Property view",
   },
   "activity.favorite": {
-    action: "property_favorited", createsContact: true, label: "Property favorite",
+    action: "property_favorited", createsContact: true, createsAgentConnection: false, label: "Property favorite",
   },
   "activity.contact": {
-    action: "property_contact_requested", createsContact: true, label: "Contact request",
+    // "Message Agent" button — visitor has sent a message to the agent
+    action: "property_contact_requested", createsContact: true, createsAgentConnection: true, label: "Contact request",
   },
   "activity.search": {
-    action: "market_searched", createsContact: true, label: "Market search",
+    action: "market_searched", createsContact: true, createsAgentConnection: false, label: "Market search",
   },
   "activity.share": {
-    action: "property_shared", createsContact: true, label: "Property share",
+    action: "property_shared", createsContact: true, createsAgentConnection: false, label: "Property share",
   },
   "user.registered": {
-    action: "user_registered", createsContact: true, label: "User registration",
+    action: "user_registered", createsContact: true, createsAgentConnection: false, label: "User registration",
+  },
+  "lead.created": {
+    // General lead capture — covers "Message Agent" (sendAgentMessage) and "Financing" button
+    action: "lead_created", createsContact: true, createsAgentConnection: true, label: "Lead created",
   },
   "lead.analysis_requested": {
-    action: "analysis_requested", createsContact: true, label: "Analysis request",
+    // "Request Deeper Analysis" button
+    action: "analysis_requested", createsContact: true, createsAgentConnection: true, label: "Analysis request",
   },
   "lead.showing_requested": {
-    action: "showing_requested", createsContact: true, label: "Showing request",
+    // "Book a Showing" button
+    action: "showing_requested", createsContact: true, createsAgentConnection: true, label: "Showing request",
   },
 };
 
@@ -580,10 +593,80 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
     },
   });
 
+  // ── Agent Connection ────────────────────────────────────────────────────────
+  // For deliberate lead-intent events (Message Agent, Book a Showing, Request
+  // Deeper Analysis, Financing), automatically add the agent shown on the
+  // property page as an agent connection in SavvyOS so it appears in the
+  // "Agent Connections" section on the contact's detail page.
+  //
+  // The webhook payload from notification.service.ts always includes agentEmail
+  // (resolved from the lead's agentId before firing). We use this email to look
+  // up the matching SavvyOS users record — email is the shared identifier
+  // between the two systems. If no match is found the step is silently skipped
+  // so the rest of the webhook delivery is never blocked.
+  let agentConnectionCreated = false;
+  if (spec.createsAgentConnection) {
+    const agentEmail = pickField(data, rawPayload, ["agentEmail", "agent_email"]);
+    if (agentEmail) {
+      try {
+        const db = await getDb();
+        const { users } = await import("../drizzle/schema");
+
+        // Resolve the SavvyOS numeric user ID from the agent's email address.
+        const [agentRow] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.email, agentEmail), eq(users.role, "agent")))
+          .limit(1);
+
+        const agentId = agentRow?.id ?? null;
+
+        if (agentId) {
+          // Prevent duplicate connections for the same agent + contact pair.
+          const [existing] = await db
+            .select({ id: agentConnections.id })
+            .from(agentConnections)
+            .where(and(
+              eq(agentConnections.agentId, agentId),
+              eq(agentConnections.contactId, contactId),
+            ))
+            .limit(1);
+
+          if (!existing) {
+            await db.insert(agentConnections).values({
+              agentId,
+              contactId,
+              pipelineStatus: "new_lead",
+              agingUpdatedAt: new Date(),
+            });
+
+            await logActivity({
+              userId: null,
+              action: "agent_connection_created",
+              entityType: "agent_connection",
+              entityId: contactId,
+              details: {
+                agentId,
+                contactId,
+                via: "savvy-web",
+                trigger: event,
+              },
+            });
+
+            agentConnectionCreated = true;
+          }
+        }
+      } catch (err) {
+        // Never let a failed agent-connection write block the webhook response.
+        console.error("[savvyWebEventHandler] Failed to create agent connection:", err);
+      }
+    }
+  }
+
   return {
     contactId,
     action: createdContact ? "created" : "logged",
-    message: `${spec.label} logged for contact ${contactId}${createdContact ? " (contact created)" : ""}`,
+    message: `${spec.label} logged for contact ${contactId}${createdContact ? " (contact created)" : ""}${agentConnectionCreated ? " (agent connection created)" : ""}`,
   };
 };
 
