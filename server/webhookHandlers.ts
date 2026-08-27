@@ -170,8 +170,22 @@ async function resolveAgentId(
 
 // ─── Handler: lead_ingest ─────────────────────────────────────────────────────
 // Creates a new contact (or updates by email/phone) and assigns a lead source.
+//
+// When the incoming payload is a savvy-web event envelope ({ event, data })
+// the handler delegates to savvyWebEventHandler so the correct activity action
+// (e.g. "lead_created", "analysis_requested") and agent connection are recorded
+// instead of a generic "contact_updated".
 
 const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
+  // ── Savvy-web envelope detection ───────────────────────────────────────────
+  // savvy-web sends: { event: "lead.created", timestamp, data: { email, agentEmail, … } }
+  // The normalisePayload below only reads top-level keys, so fields inside `data`
+  // would be lost.  Detect the envelope here and delegate to the rich handler
+  // that knows about this format before any flat-payload processing begins.
+  if (typeof rawPayload.event === "string" && rawPayload.event && SAVVY_WEB_EVENTS[rawPayload.event]) {
+    return savvyWebEventHandler(rawPayload, endpoint);
+  }
+
   const db = await getDb();
 
   const p = normalisePayload(rawPayload);
@@ -654,12 +668,27 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
             });
 
             agentConnectionCreated = true;
+          } else {
+            console.log(`[savvyWebEventHandler] Agent connection already exists: agentId=${agentId} contactId=${contactId}`);
           }
+        } else {
+          // Log clearly so it's easy to spot in Railway logs when the email
+          // doesn't match any SavvyOS agent account (e.g. email mismatch).
+          console.warn(
+            `[savvyWebEventHandler] No SavvyOS agent found for email "${agentEmail}" ` +
+            `(event=${event}, contactId=${contactId}). Agent connection NOT created. ` +
+            `Verify the agent's email matches their SavvyOS user record.`
+          );
         }
       } catch (err) {
         // Never let a failed agent-connection write block the webhook response.
         console.error("[savvyWebEventHandler] Failed to create agent connection:", err);
       }
+    } else {
+      console.log(
+        `[savvyWebEventHandler] No agentEmail in payload for event "${event}" ` +
+        `(contactId=${contactId}). Agent connection skipped.`
+      );
     }
   }
 

@@ -514,6 +514,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     "user_registered",
     "analysis_requested",
     "showing_requested",
+    "lead_created",   // Message Agent / Financing / Book a Showing via savvy-web
   ]);
   const filteredActivityEntries = activityTypeFilter === "all"
     ? activityEntries

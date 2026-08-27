@@ -630,7 +630,7 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       break;
 
     case "user_registered":
-      title = "Registered on Savvy-Agents";
+      title = "Contact Created";
       lines = [
         ...(details.propertyAddress ? [details.propertyAddress as string] : []),
         ...formatWebhookDetailLines(details),
@@ -648,7 +648,7 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       break;
 
     case "property_contact_requested":
-      title = "Requested Contact";
+      title = "Contacted Agent";
       lines = [
         ...(details.propertyAddress ? [details.propertyAddress as string] : []),
         ...formatWebhookDetailLines(details),
@@ -674,7 +674,27 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "alert";
       break;
 
-    // ── Smart Plans ──────────────────────────────────────────────────────────
+    case "lead_created": {
+      // Fired by the savvy-web "lead.created" event (Message Agent, Financing buttons).
+      // The source field inside webhookData indicates which CTA was clicked.
+      const webhookPayload = (details.webhookData ?? {}) as Record<string, unknown>;
+      const leadSource = (webhookPayload.source as string | undefined) ?? "";
+      const sourceLabel =
+        leadSource === "deeper_analysis" ? "Request Analysis" :
+        leadSource === "financing"        ? "Financing" :
+        leadSource === "showing"          ? "Book a Showing" :
+        leadSource === "contact"          ? "Message Agent" :
+        "";
+      title = sourceLabel ? `Contact Created — ${sourceLabel}` : "Contact Created";
+      lines = [
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...formatWebhookDetailLines(details),
+      ];
+      icon = "alert";
+      break;
+    }
+
+    // ── Smart Plans ──────────────────────────────────────────────
     case "smart_plan_created":
       title = "Smart Plan created";
       lines = details.name ? [`Plan: "${details.name}"`] : [];
