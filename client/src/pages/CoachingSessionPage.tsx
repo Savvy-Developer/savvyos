@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 import { toast } from "sonner";
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const STATUS_COLORS: Record<string, string> = {
   Scheduled: "bg-blue-100 text-blue-700",
@@ -157,15 +157,13 @@ function AgentPerformanceTrend({ performanceTrend }: { performanceTrend?: any })
         {hasProduction ? (
           <div className="h-[270px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={months} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
+              <BarChart key={metric} data={months} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                 <YAxis tickLine={false} axisLine={false} width={54} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={config.formatter} allowDecimals={metric === "avgCommissionRate"} />
                 <Tooltip cursor={{ fill: "hsl(var(--muted) / 0.35)" }} formatter={(value: number) => [config.formatter(Number(value)), config.label]} labelFormatter={(label) => `${label} closed production`} contentStyle={{ borderRadius: 8, borderColor: "hsl(var(--border))", fontSize: 12 }} />
-                {config.isCount
-                  ? <Bar dataKey={metric} name={config.label} fill={config.color} radius={[5, 5, 0, 0]} maxBarSize={42} />
-                  : <><Bar dataKey={metric} name={config.label} fill={config.color} fillOpacity={0.22} radius={[5, 5, 0, 0]} maxBarSize={42} /><Line type="monotone" dataKey={metric} stroke={config.color} strokeWidth={2.5} dot={{ r: 3, fill: config.color }} activeDot={{ r: 5 }} /></>}
-              </ComposedChart>
+                <Bar key={metric} dataKey={metric} name={config.label} fill={config.color} radius={[5, 5, 0, 0]} maxBarSize={42} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         ) : <div className="flex h-[270px] flex-col items-center justify-center rounded-lg border border-dashed text-center"><BarChart3 className="mb-2 h-8 w-8 text-muted-foreground/35" /><p className="text-sm font-medium">No closed transaction history yet</p><p className="mt-1 max-w-sm text-xs text-muted-foreground">The graph will populate as eligible closed transactions are recorded for this agent.</p></div>}
