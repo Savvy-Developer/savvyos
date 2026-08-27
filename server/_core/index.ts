@@ -35,6 +35,7 @@ import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { ENV } from "./env";
+import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -58,6 +59,20 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // `home.savvy-agents.com` serves only public Landing Pages. The SPA still
+  // serves public documents on that host, while all protected/admin API calls
+  // are rejected before they can reach authentication or application routers.
+  const landingHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  app.use((req, res, next) => {
+    const host = (req.hostname || req.headers.host || "").split(":")[0].toLowerCase();
+    if (host !== landingHost) return next();
+    if (!req.path.startsWith("/api/")) return next();
+    if (!req.path.startsWith("/api/trpc/")) return res.status(404).json({ error: "Not found." });
+    const procedures = req.path.slice("/api/trpc/".length).split(",").filter(Boolean);
+    if (procedures.length && procedures.every((procedure) => LANDING_PAGE_PUBLIC_TRPC_PATHS.has(procedure))) return next();
+    return res.status(404).json({ error: "Not found." });
+  });
 
   // ── Resend webhook MUST be registered BEFORE the global JSON body parser ──
   // Resend (via Svix) signs the raw request body. If express.json() parses it

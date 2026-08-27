@@ -7,11 +7,22 @@ import { documents, userProfiles } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { invokeLLM } from "./_core/llm";
+import { canAdminUsePermission } from "./routers/permissions";
 import pdfParse from "./lib/pdf-parse-safe";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
 // Headshot upload: 2MB limit, images only
+const landingPageImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG, PNG, and WEBP images are allowed"));
+  },
+});
+
 const headshotUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 },
@@ -26,6 +37,23 @@ const headshotUpload = multer({
 });
 
 export function registerUploadRoutes(app: express.Application) {
+  // POST /api/upload/landing-page-image — optimized public-page media stored in S3.
+  app.post("/api/upload/landing-page-image", landingPageImageUpload.single("file"), async (req: any, res: any) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user || !(await canAdminUsePermission(user, "canEditLandingPages"))) return res.status(403).json({ error: "Landing Pages edit permission is required" });
+      if (!req.file) return res.status(400).json({ error: "No image provided" });
+      const ext = req.file.mimetype === "image/png" ? "png" : req.file.mimetype === "image/webp" ? "webp" : "jpg";
+      const fileKey = `landing-pages/${user.id}/${nanoid(12)}.${ext}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      return res.json({ url, fileKey, mimeType: req.file.mimetype, fileSize: req.file.size });
+    } catch (err: any) {
+      console.error("[LandingPageImageUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/documents/upload — multipart file upload
   app.post("/api/documents/upload", upload.single("file"), async (req: any, res: any) => {
     try {

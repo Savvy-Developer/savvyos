@@ -2146,6 +2146,105 @@ export const savvyosFeatureUpdates = mysqlTable("savvyos_feature_updates", {
 export type SavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferSelect;
 export type InsertSavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferInsert;
 
+// ─── Landing Pages ────────────────────────────────────────────────────────────
+// The published page document stays self-contained in JSON while submissions,
+// sessions, events, and SMS consent records are relational for reliable CRM linkage
+// and lightweight reporting.
+export const landingPages = mysqlTable("landing_pages", {
+  id: int("id").autoincrement().primaryKey(),
+  internalName: varchar("internalName", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 120 }).notNull().unique(),
+  status: mysqlEnum("status", ["draft", "published", "unpublished", "archived"]).default("draft").notNull(),
+  primaryConversionType: mysqlEnum("primaryConversionType", ["form", "calendly"]).default("form").notNull(),
+  leadSourceId: int("leadSourceId").notNull().references(() => leadSources.id),
+  smartPlanId: int("smartPlanId").references(() => smartPlans.id),
+  pageTitle: varchar("pageTitle", { length: 255 }).notNull(),
+  metaDescription: varchar("metaDescription", { length: 500 }),
+  socialImageUrl: text("socialImageUrl"),
+  noindex: boolean("noindex").default(false).notNull(),
+  postSubmitType: mysqlEnum("postSubmitType", ["inline", "landing_page", "external"]).default("inline").notNull(),
+  postSubmitMessage: text("postSubmitMessage"),
+  postSubmitUrl: text("postSubmitUrl"),
+  pageSettings: json("pageSettings").$type<Record<string, unknown>>(),
+  blocks: json("blocks").$type<Array<Record<string, unknown>>>().notNull(),
+  createdById: int("createdById").references(() => users.id),
+  lastEditedById: int("lastEditedById").references(() => users.id),
+  publishedAt: timestamp("publishedAt"),
+  archivedAt: timestamp("archivedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("landing_pages_status_updated_idx").on(table.status, table.updatedAt),
+  index("landing_pages_lead_source_idx").on(table.leadSourceId),
+]);
+export type LandingPage = typeof landingPages.$inferSelect;
+export type InsertLandingPage = typeof landingPages.$inferInsert;
+
+export const landingPageSessions = mysqlTable("landing_page_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  landingPageId: int("landingPageId").notNull().references(() => landingPages.id, { onDelete: "cascade" }),
+  sessionId: varchar("sessionId", { length: 96 }).notNull(),
+  landingUrl: text("landingUrl").notNull(),
+  referrerUrl: text("referrerUrl"),
+  firstTouch: json("firstTouch").$type<Record<string, unknown>>(),
+  lastTouch: json("lastTouch").$type<Record<string, unknown>>(),
+  deviceCategory: varchar("deviceCategory", { length: 24 }),
+  firstViewedAt: timestamp("firstViewedAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("landing_page_session_unique").on(table.landingPageId, table.sessionId),
+  index("landing_page_sessions_page_first_viewed_idx").on(table.landingPageId, table.firstViewedAt),
+]);
+export type LandingPageSession = typeof landingPageSessions.$inferSelect;
+
+export const landingPageSubmissions = mysqlTable("landing_page_submissions", {
+  id: int("id").autoincrement().primaryKey(),
+  landingPageId: int("landingPageId").notNull().references(() => landingPages.id, { onDelete: "cascade" }),
+  sessionId: varchar("sessionId", { length: 96 }).notNull(),
+  contactId: int("contactId").references(() => contacts.id),
+  conversionType: mysqlEnum("conversionType", ["form", "calendly"]).notNull(),
+  appliedLeadSourceId: int("appliedLeadSourceId").references(() => leadSources.id),
+  formAnswers: json("formAnswers").$type<Record<string, unknown>>(),
+  rawPayload: json("rawPayload").$type<Record<string, unknown>>(),
+  attribution: json("attribution").$type<Record<string, unknown>>(),
+  calendlyEventUri: text("calendlyEventUri"),
+  calendlyInviteeUri: text("calendlyInviteeUri"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("landing_page_submissions_page_created_idx").on(table.landingPageId, table.createdAt),
+  index("landing_page_submissions_contact_idx").on(table.contactId, table.createdAt),
+  index("landing_page_submissions_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type LandingPageSubmission = typeof landingPageSubmissions.$inferSelect;
+
+export const landingPageEvents = mysqlTable("landing_page_events", {
+  id: int("id").autoincrement().primaryKey(),
+  landingPageId: int("landingPageId").notNull().references(() => landingPages.id, { onDelete: "cascade" }),
+  sessionId: varchar("sessionId", { length: 96 }),
+  submissionId: int("submissionId").references(() => landingPageSubmissions.id, { onDelete: "set null" }),
+  contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+  eventType: mysqlEnum("eventType", ["page_viewed", "form_submitted", "calendly_booking_created"]).notNull(),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+}, (table) => [
+  index("landing_page_events_page_type_occurred_idx").on(table.landingPageId, table.eventType, table.occurredAt),
+]);
+export type LandingPageEvent = typeof landingPageEvents.$inferSelect;
+
+export const landingPageSmsConsents = mysqlTable("landing_page_sms_consents", {
+  id: int("id").autoincrement().primaryKey(),
+  landingPageId: int("landingPageId").notNull().references(() => landingPages.id, { onDelete: "cascade" }),
+  submissionId: int("submissionId").notNull().references(() => landingPageSubmissions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id),
+  consented: boolean("consented").notNull(),
+  consentLanguage: text("consentLanguage").notNull(),
+  landingUrl: text("landingUrl").notNull(),
+  consentedAt: timestamp("consentedAt").defaultNow().notNull(),
+}, (table) => [
+  index("landing_page_sms_consents_contact_idx").on(table.contactId, table.consentedAt),
+]);
+export type LandingPageSmsConsent = typeof landingPageSmsConsents.$inferSelect;
+
 // ─── Admin Command Center Settings & Alert State ──────────────────────────────
 // Calendar-year company targets and configurable operational thresholds. These
 // are separate from agent goals so company pacing is never inferred from partial
@@ -2330,6 +2429,12 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewGoals: boolean("canViewGoals").default(true).notNull(),
   canViewJobBoard: boolean("canViewJobBoard").default(true).notNull(),
   canViewTalentProfile: boolean("canViewTalentProfile").default(true).notNull(),
+  // Landing Pages — access is intentionally granular so page publishing remains controlled.
+  canViewLandingPages: boolean("canViewLandingPages").default(false).notNull(),
+  canCreateLandingPages: boolean("canCreateLandingPages").default(false).notNull(),
+  canEditLandingPages: boolean("canEditLandingPages").default(false).notNull(),
+  canPublishLandingPages: boolean("canPublishLandingPages").default(false).notNull(),
+  canArchiveLandingPages: boolean("canArchiveLandingPages").default(false).notNull(),
   // Dev Tools
   canViewWebhooks: boolean("canViewWebhooks").default(true).notNull(),
   canViewDuplicates: boolean("canViewDuplicates").default(true).notNull(),

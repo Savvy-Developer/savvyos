@@ -128,6 +128,8 @@ import MarketingTextInboxPage from "./pages/MarketingTextInboxPage";
 import ReferralDetailPage from "./pages/ReferralDetailPage";
 import ReferralAgentDetailPage from "./pages/ReferralAgentDetailPage";
 import WebinarsAdminPage from "./pages/WebinarsAdminPage";
+import PublicLandingPage from "./pages/PublicLandingPage";
+import LandingPagesPage from "./pages/LandingPagesPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -228,6 +230,16 @@ function CustomReportsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewCustomReports) return <NotFound />;
+  return <>{children}</>;
+}
+
+function LandingPagesRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewLandingPages) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -344,6 +356,7 @@ function Router() {
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
           <Route path="/webinars">{() => <WebinarRoute><WebinarsAdminPage /></WebinarRoute>}</Route>
+          <Route path="/landing-pages">{() => <LandingPagesRoute><LandingPagesPage /></LandingPagesRoute>}</Route>
           <Route path="/tech-requests" component={TechRequestsPage} />
           <Route path="/projects" component={ProjectsPage} />
           <Route path="/projects/:id" component={ProjectDetailPage} />
@@ -383,13 +396,14 @@ function Router() {
 }
 
 function App() {
+  const isPublicLandingHost = typeof window !== "undefined" && window.location.hostname.toLowerCase() === (import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
           {/* Public routes — no auth required */}
-          <Switch>
+          {isPublicLandingHost ? <PublicLandingPage /> : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
             <Route path="/careers" component={CareersPage} />
             <Route path="/talent-profile" component={TalentProfilePage} />
@@ -397,7 +411,7 @@ function App() {
             <Route path="/forgot-password" component={ForgotPasswordPage} />
             <Route path="/reset-password" component={ResetPasswordPage} />
             <Route>{() => <Router />}</Route>
-          </Switch>
+          </Switch>}
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

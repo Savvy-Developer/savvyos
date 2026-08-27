@@ -63,6 +63,7 @@ import { customReportsRouter } from "./routers/customReports";
 import { pulseRouter } from "./routers/pulse";
 import { resendInboxRouter } from "./routers/resendInbox";
 import { webinarsRouter } from "./routers/webinars";
+import { landingPagesRouter } from "./routers/landingPages";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -272,6 +273,7 @@ export const appRouter = router({
   pulse: pulseRouter,
   resendInbox: resendInboxRouter,
   webinars: webinarsRouter,
+  landingPages: landingPagesRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
