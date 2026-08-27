@@ -161,7 +161,7 @@ async function resolveAgentId(
     const [row] = await db
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.email, agentEmailRaw), eq(users.role, "agent")))
+      .where(eq(users.email, agentEmailRaw))
       .limit(1);
     if (row) return row.id;
   }
@@ -627,10 +627,13 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
         const { users } = await import("../drizzle/schema");
 
         // Resolve the SavvyOS numeric user ID from the agent's email address.
+        // Note: we match by email only — not by role — because Savvy team members
+        // may have role "admin" in SavvyOS while appearing as agents on savvy-web.
+        // Email is the shared identifier between the two systems.
         const [agentRow] = await db
           .select({ id: users.id })
           .from(users)
-          .where(and(eq(users.email, agentEmail), eq(users.role, "agent")))
+          .where(eq(users.email, agentEmail))
           .limit(1);
 
         const agentId = agentRow?.id ?? null;
