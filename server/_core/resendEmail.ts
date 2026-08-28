@@ -88,6 +88,8 @@ export type EmailType =
   | "daily_isa_activities"
   | "coaching_weekly_accountability"
   | "coaching_tips_for_today"
+  | "coaching_feedback_invitation"
+  | "coaching_feedback_weekly_summary"
   | "pulse_overdue_digest"
   | "pulse_rock_completed"
   | "meeting_reminder"
@@ -188,6 +190,9 @@ interface EmailContext {
   coachingTipsDate?: string;
   coachingTipsHtml?: string;
   coachingTipsSubject?: string;
+  // Anonymous coaching feedback-specific fields
+  coachFeedbackHtml?: string;
+  coachFeedbackSubject?: string;
   // Deep-link entity IDs (numeric DB IDs for direct navigation)
   transactionId?: string;
   taskId?: string;
@@ -860,6 +865,24 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     html: emailLayout(
       `${ctx.coachingTipsHtml ?? bodyText("The daily coaching briefing could not be generated. Please open SavvyOS Coaching Hub to review current opportunities.")}`,
       `Coaching Tips For Today — ${ctx.coachingTipsDate ?? "today"}`,
+      760,
+    ),
+  }),
+
+  coaching_feedback_invitation: (ctx) => ({
+    subject: ctx.coachFeedbackSubject ?? "Share anonymous feedback about your coaching session",
+    html: emailLayout(
+      `${ctx.coachFeedbackHtml ?? bodyText("Your anonymous coaching feedback link is ready.")}`,
+      "A private, anonymous coaching feedback request",
+      640,
+    ),
+  }),
+
+  coaching_feedback_weekly_summary: (ctx) => ({
+    subject: ctx.coachFeedbackSubject ?? "Your anonymous coaching feedback — weekly aggregate",
+    html: emailLayout(
+      `${ctx.coachFeedbackHtml ?? bodyText("Your anonymous coaching feedback aggregate could not be generated.")}`,
+      "Anonymous coaching feedback — weekly aggregate",
       760,
     ),
   }),

@@ -2492,6 +2492,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
   canViewCoachingHub: boolean("canViewCoachingHub").default(true).notNull(),
+  // Sensitive aggregate-only feedback area. Explicitly granted to designated leadership.
+  canViewCoachFeedback: boolean("canViewCoachFeedback").default(false).notNull(),
   canViewLeadershipDashboard: boolean("canViewLeadershipDashboard").default(true).notNull(),
   canViewActivityLog: boolean("canViewActivityLog").default(true).notNull(),
   // Admin
@@ -3123,6 +3125,59 @@ export const coachingSessions = mysqlTable("coaching_sessions", {
 ]);
 export type CoachingSession = typeof coachingSessions.$inferSelect;
 export type InsertCoachingSession = typeof coachingSessions.$inferInsert;
+
+// Private delivery ledger for coaching-feedback invitations. This table is deliberately
+// never joined to feedback responses: it holds identity only to deliver a one-time email
+// and prevent duplicate submissions. Leadership and coaches never access this table.
+export const coachingFeedbackInvitations = mysqlTable("coaching_feedback_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().unique().references(() => coachingSessions.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coachId: int("coachId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  sentAt: timestamp("sentAt"),
+  submittedAt: timestamp("submittedAt"),
+  isTest: boolean("isTest").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("coaching_feedback_invitation_due_idx").on(table.sentAt, table.submittedAt),
+]);
+export type CoachingFeedbackInvitation = typeof coachingFeedbackInvitations.$inferSelect;
+export type InsertCoachingFeedbackInvitation = typeof coachingFeedbackInvitations.$inferInsert;
+
+// Strictly anonymous coaching feedback. No agent, invitation, session, email, IP, or
+// response timestamp is stored here; records cannot be joined back to a respondent.
+export const coachingFeedbackResponses = mysqlTable("coaching_feedback_responses", {
+  id: int("id").autoincrement().primaryKey(),
+  coachId: int("coachId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sessionWeekStart: date("sessionWeekStart").notNull(),
+  overallRating: int("overallRating").notNull(),
+  prioritiesRating: int("prioritiesRating").notNull(),
+  clarityRating: int("clarityRating").notNull(),
+  supportRating: int("supportRating").notNull(),
+  helpfulComment: text("helpfulComment"),
+  improvementComment: text("improvementComment"),
+  additionalComment: text("additionalComment"),
+  isTest: boolean("isTest").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("coaching_feedback_response_coach_week_idx").on(table.coachId, table.sessionWeekStart),
+  index("coaching_feedback_response_test_idx").on(table.isTest),
+]);
+export type CoachingFeedbackResponse = typeof coachingFeedbackResponses.$inferSelect;
+export type InsertCoachingFeedbackResponse = typeof coachingFeedbackResponses.$inferInsert;
+
+// One-row configuration that establishes the prospective go-live boundary. The first
+// scheduler run records activation time so historic sessions never receive new survey mail.
+export const coachingFeedbackSettings = mysqlTable("coaching_feedback_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  automationStartedAt: timestamp("automationStartedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CoachingFeedbackSettings = typeof coachingFeedbackSettings.$inferSelect;
 
 // Coaching commitments — action items from sessions.
 export const coachingCommitments = mysqlTable("coaching_commitments", {

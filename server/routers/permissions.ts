@@ -81,6 +81,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },
   { key: "canViewCoachingHub",        label: "Coaching Hub",             group: "Operations" },
+  { key: "canViewCoachFeedback",      label: "Coach feedback",           group: "Operations" },
   { key: "canViewLeadershipDashboard",label: "Leadership Dashboard",     group: "Operations" },
   { key: "canViewActivityLog",        label: "Activity Log",             group: "Operations" },
   // Admin
@@ -328,6 +329,7 @@ export const permissionsRouter = router({
             "canViewSuperPermissions",
             "canViewResendInbox",
             "canViewPulseSettings",
+            "canViewCoachFeedback",
             "canViewLandingPages",
             "canCreateLandingPages",
             "canEditLandingPages",

@@ -132,6 +132,8 @@ import PublicLandingPage from "./pages/PublicLandingPage";
 import LandingPagesPage from "./pages/LandingPagesPage";
 import ReviewsPage from "./pages/ReviewsPage";
 import PublicReviewPage from "./pages/PublicReviewPage";
+import CoachFeedbackPage from "./pages/CoachFeedbackPage";
+import PublicCoachFeedbackPage from "./pages/PublicCoachFeedbackPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -255,6 +257,16 @@ function WebinarRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function CoachFeedbackRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewCoachFeedback) return <NotFound />;
+  return <>{children}</>;
+}
+
 function ReviewsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const role = (user as any)?.role;
@@ -294,6 +306,7 @@ function Router() {
           <Route path="/transactions" component={TransactionsPage} />
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>
+          <Route path="/coach-feedback">{() => <CoachFeedbackRoute><CoachFeedbackPage /></CoachFeedbackRoute>}</Route>
           <Route path="/properties" component={PropertiesPage} />
           <Route path="/properties/:id" component={PropertyDetail} />
           <Route path="/properties/:id/proforma" component={ProformaPage} />
@@ -421,6 +434,7 @@ function App() {
           {isPublicLandingHost ? <PublicLandingPage /> : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
             <Route path="/review" component={PublicReviewPage} />
+            <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />
             <Route path="/careers" component={CareersPage} />
             <Route path="/talent-profile" component={TalentProfilePage} />
             <Route path="/login" component={LoginPage} />

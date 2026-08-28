@@ -65,6 +65,7 @@ import { resendInboxRouter } from "./routers/resendInbox";
 import { webinarsRouter } from "./routers/webinars";
 import { landingPagesRouter } from "./routers/landingPages";
 import { reviewsRouter } from "./routers/reviews";
+import { coachFeedbackRouter } from "./routers/coachFeedback";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -278,6 +279,7 @@ export const appRouter = router({
   webinars: webinarsRouter,
   landingPages: landingPagesRouter,
   reviews: reviewsRouter,
+  coachFeedback: coachFeedbackRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
@@ -292,6 +294,7 @@ export const appRouter = router({
         "payout_integrity_fail", "listing_created", "listing_expiration_reminder",
         "onboarding_overdue", "commission_exception_warning", "market_match_intro",
         "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report", "coaching_weekly_accountability",
+        "coaching_feedback_invitation", "coaching_feedback_weekly_summary",
       ];
       // Seed any missing rows
       const existing = await db2.select().from(emailNotificationSettings);

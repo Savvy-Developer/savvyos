@@ -21,6 +21,7 @@ import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
 import { scheduleDailyCoachingTips } from "../dailyCoachingTipsScheduler";
+import { scheduleCoachFeedback } from "../coachingFeedback";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
@@ -279,6 +280,9 @@ async function startServer() {
   scheduleWeeklyCoachingAccountabilityReport();
   // Coaching Tips For Today: shared leadership email at 8:00 AM Eastern on weekdays.
   scheduleDailyCoachingTips();
+  // Anonymous coach feedback: session invitations begin one hour after scheduled calls;
+  // coaches and designated leadership receive only Friday 8:00 PM Eastern aggregates.
+  scheduleCoachFeedback();
 
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.
