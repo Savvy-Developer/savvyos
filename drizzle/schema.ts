@@ -3148,7 +3148,8 @@ export type CoachingFeedbackInvitation = typeof coachingFeedbackInvitations.$inf
 export type InsertCoachingFeedbackInvitation = typeof coachingFeedbackInvitations.$inferInsert;
 
 // Strictly anonymous coaching feedback. No agent, invitation, session, email, IP, or
-// response timestamp is stored here; records cannot be joined back to a respondent.
+// invitation identifier is stored here. `submittedAt` is visible only in the restricted
+// Coach feedback admin area at Tyler's direction; it is never sent in coach weekly emails.
 export const coachingFeedbackResponses = mysqlTable("coaching_feedback_responses", {
   id: int("id").autoincrement().primaryKey(),
   coachId: int("coachId").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -3161,9 +3162,12 @@ export const coachingFeedbackResponses = mysqlTable("coaching_feedback_responses
   improvementComment: text("improvementComment"),
   additionalComment: text("additionalComment"),
   isTest: boolean("isTest").default(false).notNull(),
+  // Intentionally restricted to the Coach feedback admin UI; never sent to coaches.
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
 }, (table) => [
   index("coaching_feedback_response_coach_week_idx").on(table.coachId, table.sessionWeekStart),
   index("coaching_feedback_response_test_idx").on(table.isTest),
+  index("coaching_feedback_response_submitted_idx").on(table.submittedAt),
 ]);
 export type CoachingFeedbackResponse = typeof coachingFeedbackResponses.$inferSelect;
 export type InsertCoachingFeedbackResponse = typeof coachingFeedbackResponses.$inferInsert;

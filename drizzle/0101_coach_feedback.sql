@@ -37,11 +37,13 @@ CREATE TABLE `coaching_feedback_responses` (
   `improvementComment` text,
   `additionalComment` text,
   `isTest` boolean NOT NULL DEFAULT false,
+  `submittedAt` timestamp NOT NULL DEFAULT (now()),
   CONSTRAINT `coaching_feedback_responses_id` PRIMARY KEY(`id`),
   CONSTRAINT `coaching_feedback_responses_coachId_users_id_fk` FOREIGN KEY (`coachId`) REFERENCES `users`(`id`) ON DELETE cascade
 );
 CREATE INDEX `coaching_feedback_response_coach_week_idx` ON `coaching_feedback_responses` (`coachId`,`sessionWeekStart`);
 CREATE INDEX `coaching_feedback_response_test_idx` ON `coaching_feedback_responses` (`isTest`);
+CREATE INDEX `coaching_feedback_response_submitted_idx` ON `coaching_feedback_responses` (`submittedAt`);
 
 CREATE TABLE `coaching_feedback_settings` (
   `id` int AUTO_INCREMENT NOT NULL,

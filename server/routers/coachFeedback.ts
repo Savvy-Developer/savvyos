@@ -3,13 +3,19 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
 import {
   assertCoachFeedbackDashboardAccess,
-  buildWeeklyCoachFeedbackReport,
   checkPublicCoachFeedbackSubmissionRateLimit,
   coachFeedbackPublicTokenMinLength,
   getCoachFeedbackRequestIp,
   getPublicCoachFeedback,
   submitPublicCoachFeedback,
 } from "../coachingFeedback";
+import { buildCoachFeedbackDashboard, listCoachFeedbackHistory } from "../coachFeedbackDashboard";
+
+const dashboardFilterInput = z.object({
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  includeTest: z.boolean().optional(),
+});
 
 const feedbackInput = z.object({
   token: z.string().min(coachFeedbackPublicTokenMinLength).max(128),
@@ -24,11 +30,18 @@ const feedbackInput = z.object({
 });
 
 export const coachFeedbackRouter = router({
-  /** Leadership-only aggregate view. The response shape intentionally has no invitation, session, agent, or timestamp fields. */
-  getDashboard: protectedProcedure.query(async ({ ctx }) => {
+  /** Leadership-only aggregate view with an authorized date range and optional test submissions. */
+  getDashboard: protectedProcedure.input(dashboardFilterInput.optional()).query(async ({ ctx, input }) => {
     const allowed = await canAdminUsePermission(ctx.user, "canViewCoachFeedback");
     assertCoachFeedbackDashboardAccess(ctx.user, allowed);
-    return buildWeeklyCoachFeedbackReport();
+    return buildCoachFeedbackDashboard(input);
+  }),
+
+  /** Detailed anonymous responses, visible only within the same designated leadership permission. */
+  getHistory: protectedProcedure.input(dashboardFilterInput.optional()).query(async ({ ctx, input }) => {
+    const allowed = await canAdminUsePermission(ctx.user, "canViewCoachFeedback");
+    assertCoachFeedbackDashboardAccess(ctx.user, allowed);
+    return listCoachFeedbackHistory(input);
   }),
 
   /** Public one-time survey view. No authenticated SavvyOS session is required. */

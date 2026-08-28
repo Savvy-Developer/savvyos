@@ -410,7 +410,8 @@ export async function submitPublicCoachFeedback(input: {
       throw new TRPCError({ code: "CONFLICT", message: "This feedback link has already been used." });
     }
 
-    // This insert intentionally carries no invitation, session, agent, email, IP, or response-time field.
+    // This insert intentionally carries no invitation, session, agent, email, IP, or invitation identifier.
+    // `submittedAt` is restricted to the authorized Coach feedback admin history at Tyler's request.
     await tx.insert(coachingFeedbackResponses).values({
       coachId: invitation.coachId,
       sessionWeekStart: easternDateTimeToUtc(easternWeekStartForSession(sessionDate), 0, 0, 0),
@@ -422,6 +423,7 @@ export async function submitPublicCoachFeedback(input: {
       improvementComment: input.improvementComment?.trim() || null,
       additionalComment: input.additionalComment?.trim() || null,
       isTest: invitation.isTest,
+      submittedAt: now,
     });
   });
 

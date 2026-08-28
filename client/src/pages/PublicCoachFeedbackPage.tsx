@@ -10,7 +10,7 @@ const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcx
 
 function UnavailableSurvey({ submitted = false, isTest = false }: { submitted?: boolean; isTest?: boolean }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-slate-50 to-white px-5 py-12 flex items-center justify-center">
+    <div className="h-[100dvh] overflow-y-auto overscroll-contain bg-gradient-to-br from-cyan-50 via-slate-50 to-white px-5 py-12 flex items-center justify-center">
       <main className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl ring-1 ring-slate-200">
         <img src={LOGO_URL} alt="Savvy STR Agents" className="mx-auto h-8 w-auto" />
         <div className={`mx-auto mt-7 flex h-14 w-14 items-center justify-center rounded-full ${submitted ? "bg-emerald-100" : "bg-slate-100"}`}>
@@ -116,7 +116,7 @@ export default function PublicCoachFeedbackPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-slate-50 to-white px-5 py-10 md:py-14">
+    <div className="h-[100dvh] overflow-y-auto overscroll-contain bg-gradient-to-br from-cyan-50 via-slate-50 to-white px-5 py-10 pb-safe md:py-14">
       <main className="mx-auto w-full max-w-xl">
         <header className="text-center">
           <img src={LOGO_URL} alt="Savvy STR Agents" className="mx-auto h-9 w-auto" />
