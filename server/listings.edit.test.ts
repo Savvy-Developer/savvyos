@@ -156,7 +156,7 @@ describe("listings.update — edit parity", () => {
     });
     expect(result).toEqual({ success: true });
     expect(mockUpdateListing).toHaveBeenCalledWith(42, expect.objectContaining({
-      terminationDate: new Date("2024-06-15"),
+      terminationDate: "2024-06-15",
     }));
   });
 

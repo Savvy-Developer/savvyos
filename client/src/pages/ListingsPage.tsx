@@ -98,6 +98,7 @@ export default function ListingsPage() {
   const [newContactForm, setNewContactForm] = useState(EMPTY_CONTACT_FORM);
   const [showNewProperty, setShowNewProperty] = useState(false);
   const [newPropertyForm, setNewPropertyForm] = useState(EMPTY_PROPERTY_FORM);
+  const [duplicateProperty, setDuplicateProperty] = useState<{ id: number; address: string } | null>(null);
 
   // Date filter state
   const [filterAgentId, setFilterAgentId] = usePersistentState("listings.filterAgentId", "");
@@ -156,7 +157,16 @@ export default function ListingsPage() {
     onError: (e) => toast.error(e.message),
   });
   const createProperty = trpc.properties.create.useMutation({
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.type === "DUPLICATE_PROPERTY") {
+          setDuplicateProperty({ id: parsed.existingId, address: parsed.existingAddress });
+          return;
+        }
+      } catch {}
+      toast.error(e.message);
+    },
   });
   const create = trpc.listings.create.useMutation({
     onSuccess: () => {
@@ -167,6 +177,7 @@ export default function ListingsPage() {
       setNewContactForm(EMPTY_CONTACT_FORM);
       setShowNewProperty(false);
       setNewPropertyForm(EMPTY_PROPERTY_FORM);
+      setDuplicateProperty(null);
       utils.listings.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -209,20 +220,17 @@ export default function ListingsPage() {
 
   async function handleCreate() {
     if (!form.agentId && isAdmin) { toast.error("Please select an agent"); return; }
-    // Required fields: list price, list date, expiration date
     if (!form.listPrice) { toast.error("List price is required"); return; }
     if (!form.listDate) { toast.error("List date is required"); return; }
     if (!form.expirationDate) { toast.error("Expiration date is required"); return; }
-    // A listing must always have a seller contact
     if (!form.contactId && !showNewContact) {
       toast.error("A seller contact is required for every listing");
       return;
     }
-
-    let contactId = form.contactId ? Number(form.contactId) : null;
-    let propertyId = form.propertyId ? Number(form.propertyId) : null;
-
-    // Create new contact if needed
+    if (showNewProperty && (!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip)) {
+      toast.error("Address, City, State, and ZIP are all required");
+      return;
+    }
     if (showNewContact) {
       if (!newContactForm.firstName || !newContactForm.lastName) {
         toast.error("Contact first and last name are required");
@@ -240,21 +248,15 @@ export default function ListingsPage() {
         toast.error("Please enter a valid phone number (9+ digits)");
         return;
       }
-      try {
-        const result = await createContact.mutateAsync({
-          firstName: newContactForm.firstName,
-          lastName: newContactForm.lastName,
-          email: newContactForm.email || undefined,
-          phone: newContactForm.phone || undefined,
-          leadSourceId: newContactForm.leadSourceId,
-        });
-        contactId = result.id;
-      } catch { return; }
     }
 
-    // Create new property if needed
+    let contactId = form.contactId ? Number(form.contactId) : null;
+    let propertyId = form.propertyId ? Number(form.propertyId) : null;
+
+    // Resolve a new property first so a duplicate can be attached without
+    // creating an orphan contact before the user makes that choice.
     if (showNewProperty) {
-      if (!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip) { toast.error("Address, City, State, and ZIP are all required"); return; }
+      setDuplicateProperty(null);
       try {
         const result = await createProperty.mutateAsync({
           address: newPropertyForm.address,
@@ -264,6 +266,19 @@ export default function ListingsPage() {
           propertyType: newPropertyForm.propertyType as any,
         });
         propertyId = result.id;
+      } catch { return; }
+    }
+
+    if (showNewContact) {
+      try {
+        const result = await createContact.mutateAsync({
+          firstName: newContactForm.firstName,
+          lastName: newContactForm.lastName,
+          email: newContactForm.email || undefined,
+          phone: newContactForm.phone || undefined,
+          leadSourceId: newContactForm.leadSourceId,
+        });
+        contactId = result.id;
       } catch { return; }
     }
 
@@ -760,7 +775,11 @@ export default function ListingsPage() {
                 <button
                   type="button"
                   className="text-xs text-primary hover:underline"
-                  onClick={() => { setShowNewProperty(!showNewProperty); setForm({ ...form, propertyId: "", propertySearch: "" }); }}
+                  onClick={() => {
+                    setShowNewProperty(!showNewProperty);
+                    setDuplicateProperty(null);
+                    setForm({ ...form, propertyId: "", propertySearch: "" });
+                  }}
                 >
                   {showNewProperty ? "Search existing" : "+ New property"}
                 </button>
@@ -771,23 +790,23 @@ export default function ListingsPage() {
                     <Label className="text-xs">Address *</Label>
                     <Input className="mt-0.5 h-8 text-sm" placeholder="123 Main St"
                       value={newPropertyForm.address}
-                      onChange={(e) => setNewPropertyForm({ ...newPropertyForm, address: e.target.value })} />
+                      onChange={(e) => { setDuplicateProperty(null); setNewPropertyForm({ ...newPropertyForm, address: e.target.value }); }} />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
                       <Label className="text-xs">City *</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.city}
-                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, city: e.target.value })} placeholder="e.g. Glendale" />
+                        onChange={(e) => { setDuplicateProperty(null); setNewPropertyForm({ ...newPropertyForm, city: e.target.value }); }} placeholder="e.g. Glendale" />
                     </div>
                     <div>
                       <Label className="text-xs">State *</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.state}
-                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, state: e.target.value })} placeholder="e.g. UT" maxLength={2} />
+                        onChange={(e) => { setDuplicateProperty(null); setNewPropertyForm({ ...newPropertyForm, state: e.target.value }); }} placeholder="e.g. UT" maxLength={2} />
                     </div>
                     <div>
                       <Label className="text-xs">ZIP *</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newPropertyForm.zip}
-                        onChange={(e) => setNewPropertyForm({ ...newPropertyForm, zip: e.target.value })} placeholder="e.g. 84729" />
+                        onChange={(e) => { setDuplicateProperty(null); setNewPropertyForm({ ...newPropertyForm, zip: e.target.value }); }} placeholder="e.g. 84729" />
                     </div>
                   </div>
                   <div>
@@ -804,6 +823,34 @@ export default function ListingsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {duplicateProperty && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-amber-800">This property already exists</p>
+                          <p className="text-xs text-amber-700 mt-0.5">{duplicateProperty.address}</p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full border-amber-300 text-amber-800 hover:bg-amber-100"
+                        onClick={() => {
+                          setForm({
+                            ...form,
+                            propertyId: String(duplicateProperty.id),
+                            propertySearch: duplicateProperty.address,
+                          });
+                          setShowNewProperty(false);
+                          setDuplicateProperty(null);
+                        }}
+                      >
+                        Use existing property for this listing
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div>
