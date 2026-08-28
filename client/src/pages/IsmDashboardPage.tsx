@@ -57,6 +57,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import IsmAppointmentsTab from "./ism/IsmAppointmentsTab";
 import IsmCallsTab from "./ism/IsmCallsTab";
 import IsmActivitiesTab from "./ism/IsmActivitiesTab";
 import IsmTasksTab from "./ism/IsmTasksTab";
@@ -483,7 +484,7 @@ export default function IsmDashboardPage() {
   const [selectedIsaIds, setSelectedIsaIds] = useState<string[]>([]);
   const [leadSourceId, setLeadSourceId] = useState("all");
   const [selectedQueue, setSelectedQueue] = useState<QueueKey | null>(null);
-  const [activeTab, setActiveTab] = useState<"operations" | "tasks" | "performance" | "calls" | "activities">("operations");
+  const [activeTab, setActiveTab] = useState<"operations" | "tasks" | "performance" | "appointments" | "calls" | "activities">("operations");
   const [sort, setSort] = useState<SortState>({
     key: "staleSevenDays",
     direction: "desc",
@@ -693,11 +694,12 @@ export default function IsmDashboardPage() {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as "operations" | "tasks" | "performance" | "calls" | "activities")}>
+      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as "operations" | "tasks" | "performance" | "appointments" | "calls" | "activities")}>
         <TabsList>
           <TabsTrigger value="operations">Operations</TabsTrigger>
           <TabsTrigger value="tasks"><ClipboardCheck className="h-4 w-4" />ISA Tasks</TabsTrigger>
           <TabsTrigger value="performance"><TrendingUp className="h-4 w-4" />ISA Performance</TabsTrigger>
+          <TabsTrigger value="appointments"><CalendarDays className="h-4 w-4" />ISA Appts</TabsTrigger>
           <TabsTrigger value="activities"><Activity className="h-4 w-4" />Activities</TabsTrigger>
           <TabsTrigger value="calls"><PhoneCall className="h-4 w-4" />Calls</TabsTrigger>
         </TabsList>
@@ -707,6 +709,8 @@ export default function IsmDashboardPage() {
         <IsmTasksTab />
       ) : activeTab === "performance" ? (
         <IsaStatsPage />
+      ) : activeTab === "appointments" ? (
+        <IsmAppointmentsTab />
       ) : activeTab === "activities" ? (
         <IsmActivitiesTab />
       ) : activeTab === "calls" ? (

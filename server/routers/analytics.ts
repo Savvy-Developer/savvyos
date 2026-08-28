@@ -96,6 +96,7 @@ import {
 } from "../analytics/reportingSuite";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 import { getIsmDashboard } from "../analytics/ismDashboard";
+import { getIsmAppointmentActivity } from "../analytics/ismAppointments";
 import { getIsmTaskBoard } from "../analytics/ismTasks";
 import {
   getAdminCommandCenter,
@@ -154,6 +155,15 @@ const ismActivityLogInput = z.object({
   actions: z.array(z.string().min(1).max(255)).max(20).optional(),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+const ismAppointmentActivityInput = z.object({
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(100).default(50),
+  isaIds: z.array(z.number().int().positive()).max(25).optional(),
+  eventType: z.enum(["all", "appointments", "connections"]).default("all"),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  search: z.string().trim().max(160).optional(),
 });
 const ismTaskBoardInput = z.object({
   page: z.number().int().min(1).default(1),
@@ -412,6 +422,44 @@ export const analyticsRouter = router({
         actions: input.actions,
         dateFrom,
         dateTo,
+      });
+    }),
+
+  /** Live, audit-backed ISA appointments and agent connections for ISM review. */
+  ismAppointmentActivity: protectedProcedure
+    .input(ismAppointmentActivityInput)
+    .query(async ({ ctx, input }) => {
+      const allowed =
+        ctx.user.role === "admin" &&
+        (await canAdminUsePermission(ctx.user, "canViewIsmDashboard"));
+      if (!allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ISM Dashboard access is required.",
+        });
+      }
+
+      const dateFrom = input.dateFrom
+        ? new Date(`${input.dateFrom}T00:00:00.000Z`)
+        : undefined;
+      const dateTo = input.dateTo
+        ? new Date(`${input.dateTo}T23:59:59.999Z`)
+        : undefined;
+      if (dateFrom && dateTo && dateFrom > dateTo) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The start date must be on or before the end date.",
+        });
+      }
+
+      return getIsmAppointmentActivity({
+        page: input.page,
+        limit: input.limit,
+        isaIds: input.isaIds,
+        eventType: input.eventType,
+        dateFrom,
+        dateTo,
+        search: input.search,
       });
     }),
 
