@@ -191,7 +191,8 @@ export const listingsRouter = router({
       // Notify agent of new listing
       if (agentId) {
         await sendEmailAlert("listing_created", agentId, {
-          listingAddress: input.address ? [input.address, input.city, input.state].filter(Boolean).join(", ") : undefined,
+          contactName: lstContactName !== "Unknown Contact" ? lstContactName : undefined,
+          listingAddress: lstPropertyAddress !== "Unknown Property" ? lstPropertyAddress : undefined,
           listPrice: input.listPrice ? `$${Number(input.listPrice).toLocaleString()}` : undefined,
           listingDate: input.listDate ? new Date(input.listDate).toLocaleDateString() : undefined,
           expirationDate: input.expirationDate ? new Date(input.expirationDate).toLocaleDateString() : undefined,

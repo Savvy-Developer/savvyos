@@ -523,15 +523,15 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
   }),
 
   listing_created: (ctx) => ({
-    subject: `New Listing Created${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`,
+    subject: `New Listing Created${ctx.contactName ? ` — ${ctx.contactName}` : ""}${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`,
     html: emailLayout(
       `${heading("New Listing Created")}
       ${subheading("Listing Notification")}
       ${greeting(ctx.recipientName)}
       ${bodyText("A new listing has been created and assigned to you in SavvyOS.")}
       ${infoCard([
-        ...(ctx.listingAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${ctx.listingAddress}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Seller</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
+        ...(ctx.listingAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.listingAddress)}`] : []),
+        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Seller</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`] : []),
         ...(ctx.listPrice ? [`<strong style="color:${BLACK};">List Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${ctx.listPrice}</span>`] : []),
         ...(ctx.listingDate ? [`<strong style="color:${BLACK};">Listed</strong>&nbsp;&nbsp; ${ctx.listingDate}`] : []),
         ...(ctx.expirationDate ? [`<strong style="color:${BLACK};">Expires</strong>&nbsp;&nbsp; ${ctx.expirationDate}`] : []),
