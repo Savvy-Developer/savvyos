@@ -83,7 +83,7 @@ function WebinarCreateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   }
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-w-2xl">
+    <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-5xl sm:rounded-xl">
       <DialogHeader>
         <DialogTitle>Create Webinar</DialogTitle>
         <DialogDescription>Publishing creates the Zoom webinar, returns a shareable registration link, and emails the marketing handoff to {MARKETING_EMAIL} with you copied.</DialogDescription>
@@ -121,7 +121,7 @@ function MarketingEmailTemplateDialog({ open, onOpenChange }: { open: boolean; o
   });
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+    <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-6xl sm:rounded-xl">
       <DialogHeader><DialogTitle>Marketing Handoff Email</DialogTitle><DialogDescription>When a webinar is created, SavvyOS sends this email to {MARKETING_EMAIL} and copies the person who created the webinar.</DialogDescription></DialogHeader>
       {templateQuery.isLoading ? <div className="flex h-40 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : <div className="space-y-4 py-2">
         <div className="space-y-2"><Label htmlFor="marketing-email-subject">Subject</Label><Input id="marketing-email-subject" value={subject} onChange={(event) => setSubject(event.target.value)} /></div>
@@ -142,7 +142,7 @@ function WebinarDetailDialog({ webinarId, open, onOpenChange }: { webinarId: num
   const detail = detailQuery.data;
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+    <DialogContent className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-7xl sm:rounded-xl">
       {detailQuery.isLoading || !detail ? <div className="flex h-48 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <>
         <DialogHeader><div className="flex flex-wrap items-center gap-2"><DialogTitle>{detail.webinar.title}</DialogTitle>{statusBadge(detail.webinar.status)}</div><DialogDescription>{format(new Date(detail.webinar.startTime), "EEEE, MMMM d, yyyy · h:mm a")} ET · {detail.webinar.durationMinutes} minutes</DialogDescription></DialogHeader>
         <div className="grid gap-4 md:grid-cols-3">
