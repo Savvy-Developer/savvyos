@@ -2867,7 +2867,9 @@ export const aircallWebhookEvents = mysqlTable(
     aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
     eventType: varchar("eventType", { length: 96 }).notNull(),
     payload: json("payload").notNull(),
-    status: mysqlEnum("status", ["pending", "processing", "retrying", "completed"]).notNull().default("pending"),
+    // Failed is a terminal, inspectable state used when an event reaches its
+    // bounded durable retry limit. A subsequent Aircall redelivery may reopen it.
+    status: mysqlEnum("status", ["pending", "processing", "retrying", "completed", "failed"]).notNull().default("pending"),
     attempts: int("attempts").notNull().default(0),
     nextAttemptAt: timestamp("nextAttemptAt"),
     leaseExpiresAt: timestamp("leaseExpiresAt"),

@@ -30,7 +30,11 @@ const INVENTORY_INTERVAL_MS = 30 * 60_000;
 const WEBHOOK_VERIFY_INTERVAL_MS = 6 * 60 * 60_000;
 const EVENT_LEASE_MS = 5 * 60_000;
 const MAX_WORKER_BATCH = 25;
-const ALERT_AFTER_ATTEMPTS = 10;
+// Recording URLs are normally available shortly after a call ends. Ten durable
+// attempts span roughly six hours under the capped backoff, after which repeated
+// retries only create noise and cannot recover an expired Aircall asset.
+const MAX_DURABLE_ATTEMPTS = 10;
+const TRANSCRIPTION_ALERT_AFTER_ATTEMPTS = 10;
 const ALERT_COOLDOWN_MS = 6 * 60 * 60_000;
 const INVENTORY_LOOKBACK_SECONDS = 48 * 60 * 60;
 const HISTORICAL_START_AT = new Date(process.env.AIRCALL_HISTORY_START_AT || "2020-01-01T00:00:00.000Z");
@@ -179,9 +183,12 @@ export async function persistAircallWebhook(
   }).onDuplicateKeyUpdate({
     set: {
       payload: payload as any,
-      // A redelivery may contain the asset link that was absent on an earlier
-      // delivery. Re-queue it unless it is already being safely processed.
+      // A later redelivery may contain the asset link that was absent when the
+      // event reached its terminal retry limit. Re-open it unless a worker
+      // currently holds the processing lease.
+      status: sql`CASE WHEN ${aircallWebhookEvents.status} = 'processing' THEN 'processing' ELSE 'pending' END`,
       nextAttemptAt: now,
+      leaseExpiresAt: null,
       updatedAt: now,
     },
   });
@@ -268,14 +275,39 @@ export async function processDueAircallWebhookEvents(): Promise<void> {
     const db = await getDb();
     if (!db) return;
     const now = new Date();
+    // Retire any historic events that predate the retry cap, as well as expired
+    // processing leases that had already reached it. A new Aircall redelivery
+    // can still reopen a failed event through persistAircallWebhook above.
+    await db.update(aircallWebhookEvents).set({
+      status: "failed",
+      nextAttemptAt: null,
+      leaseExpiresAt: null,
+      processedAt: now,
+      lastError: sql`COALESCE(${aircallWebhookEvents.lastError}, 'Aircall recovery stopped after maximum durable attempts')`,
+    }).where(and(
+      sql`${aircallWebhookEvents.attempts} >= ${MAX_DURABLE_ATTEMPTS}`,
+      or(
+        inArray(aircallWebhookEvents.status, ["pending", "retrying"]),
+        and(eq(aircallWebhookEvents.status, "processing"), lte(aircallWebhookEvents.leaseExpiresAt, now)),
+      ),
+    ));
+
     const rows = await db.select({ id: aircallWebhookEvents.id })
       .from(aircallWebhookEvents)
       .where(or(
-        and(inArray(aircallWebhookEvents.status, ["pending", "retrying"]), or(
-          isNull(aircallWebhookEvents.nextAttemptAt),
-          lte(aircallWebhookEvents.nextAttemptAt, now),
-        )),
-        and(eq(aircallWebhookEvents.status, "processing"), lte(aircallWebhookEvents.leaseExpiresAt, now)),
+        and(
+          inArray(aircallWebhookEvents.status, ["pending", "retrying"]),
+          sql`${aircallWebhookEvents.attempts} < ${MAX_DURABLE_ATTEMPTS}`,
+          or(
+            isNull(aircallWebhookEvents.nextAttemptAt),
+            lte(aircallWebhookEvents.nextAttemptAt, now),
+          ),
+        ),
+        and(
+          eq(aircallWebhookEvents.status, "processing"),
+          sql`${aircallWebhookEvents.attempts} < ${MAX_DURABLE_ATTEMPTS}`,
+          lte(aircallWebhookEvents.leaseExpiresAt, now),
+        ),
       ))
       .orderBy(aircallWebhookEvents.createdAt)
       .limit(MAX_WORKER_BATCH);
@@ -303,18 +335,22 @@ export async function processDueAircallWebhookEvents(): Promise<void> {
           .from(aircallWebhookEvents).where(eq(aircallWebhookEvents.id, row.id)).limit(1);
         const attempts = current?.attempts ?? 1;
         const message = error instanceof Error ? error.message : String(error);
+        const reachedLimit = attempts >= MAX_DURABLE_ATTEMPTS;
         await db.update(aircallWebhookEvents).set({
-          status: "retrying",
-          nextAttemptAt: new Date(Date.now() + retryDelayMs(attempts)),
+          status: reachedLimit ? "failed" : "retrying",
+          nextAttemptAt: reachedLimit ? null : new Date(Date.now() + retryDelayMs(attempts)),
           leaseExpiresAt: null,
+          processedAt: reachedLimit ? new Date() : null,
           lastError: message.slice(0, 512),
         }).where(eq(aircallWebhookEvents.id, row.id));
-        console.error(`[AircallReliability] Event ${row.id} retry ${attempts}: ${message}`);
-        if (attempts >= ALERT_AFTER_ATTEMPTS) {
+        if (reachedLimit) {
+          console.error(`[AircallReliability] Event ${row.id} stopped after ${attempts} durable attempts: ${message}`);
           await alertAircallFailure(
-            "SavvyOS Aircall recovery needs attention",
-            `Call ${current?.aircallCallId ?? "unknown"} is still retrying after ${attempts} durable attempts. ${message}`,
+            "SavvyOS Aircall recovery stopped after retry limit",
+            `Call ${current?.aircallCallId ?? "unknown"} could not retrieve its recording after ${attempts} durable attempts and has been stopped. ${message}`,
           );
+        } else {
+          console.error(`[AircallReliability] Event ${row.id} retry ${attempts}: ${message}`);
         }
       }
     }
@@ -400,7 +436,7 @@ export async function processDueAircallTranscriptions(): Promise<void> {
         transcriptionRecoveryLastError: message.slice(0, 512),
       }).where(eq(aircallCalls.id, candidate.callId));
       console.error(`[AircallReliability] Transcription retry ${attempts} for call ${candidate.aircallCallId}: ${message}`);
-      if (attempts >= ALERT_AFTER_ATTEMPTS) {
+      if (attempts >= TRANSCRIPTION_ALERT_AFTER_ATTEMPTS) {
         await alertAircallFailure(
           "SavvyOS Aircall transcription recovery needs attention",
           `Call ${candidate.aircallCallId} remains queued after ${attempts} controlled transcription attempts. ${message}`,
