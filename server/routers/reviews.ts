@@ -90,11 +90,12 @@ async function createAndSendReviewRequest(params: {
   agentEmail: string | null;
   transactionNumber: string | null;
   propertyAddress?: string;
-}): Promise<boolean> {
+}): Promise<{ sent: boolean; reviewUrl: string }> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
 
   const token = createPublicToken();
+  const reviewUrl = `${APP_URL}/review?token=${token}`;
   const expiresAt = new Date(Date.now() + REVIEW_LINK_TTL_MS);
   const [result] = await db.insert(reviewRequests).values({
     transactionId: params.transactionId,
@@ -122,11 +123,11 @@ async function createAndSendReviewRequest(params: {
 
   if (!sent) {
     await db.delete(reviewRequests).where(eq(reviewRequests.id, requestId));
-    return false;
+    return { sent: false, reviewUrl };
   }
 
   await db.update(reviewRequests).set({ sentAt: new Date() }).where(eq(reviewRequests.id, requestId));
-  return true;
+  return { sent: true, reviewUrl };
 }
 
 /**
@@ -204,7 +205,7 @@ export async function sendReviewRequestsForClosedTransaction(transactionId: numb
     }
     usedEmails.add(normalizedEmail);
     try {
-      const delivered = await createAndSendReviewRequest({
+      const delivery = await createAndSendReviewRequest({
         transactionId,
         agentId: row.agent.id,
         contactId: candidate.contactId,
@@ -216,7 +217,7 @@ export async function sendReviewRequestsForClosedTransaction(transactionId: numb
         transactionNumber: row.transaction.transactionNumber,
         propertyAddress,
       });
-      if (delivered) sent += 1;
+      if (delivery.sent) sent += 1;
       else skipped += 1;
     } catch (error) {
       console.error("[Reviews] Could not send client review request", { transactionId, recipient: candidate.recipientEmail, error });
@@ -387,7 +388,7 @@ export const reviewsRouter = router({
         .limit(1);
       if (existing) throw new TRPCError({ code: "CONFLICT", message: "A review link has already been created for this recipient and transaction." });
 
-      const sent = await createAndSendReviewRequest({
+      const delivery = await createAndSendReviewRequest({
         transactionId: input.transactionId,
         agentId: row.agent.id,
         recipientName: "Tyler",
@@ -399,7 +400,7 @@ export const reviewsRouter = router({
         transactionNumber: row.transaction.transactionNumber,
         propertyAddress: formatPropertyAddress(row.property),
       });
-      if (!sent) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The test email could not be delivered." });
-      return { sent: true };
+      if (!delivery.sent) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The test email could not be delivered." });
+      return { sent: true, reviewUrl: delivery.reviewUrl };
     }),
 });
