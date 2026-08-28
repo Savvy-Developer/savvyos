@@ -1,7 +1,75 @@
 import express from "express";
 import { sdk } from "./_core/sdk";
 
+const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
 const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
+
+export class ZillowLookupInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ZillowLookupInputError";
+  }
+}
+
+export function buildZillowLookupUrl(input: { zillowUrl?: string; address?: string }): string {
+  const zillowUrl = input.zillowUrl?.trim();
+  if (zillowUrl) {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(zillowUrl);
+    } catch {
+      throw new ZillowLookupInputError("Enter a valid Zillow listing URL.");
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (hostname !== "zillow.com" && !hostname.endsWith(".zillow.com")) {
+      throw new ZillowLookupInputError("Enter a Zillow listing URL.");
+    }
+
+    const zpidMatch = parsedUrl.pathname.match(/\/(\d+)_zpid(?:\/|$)/i);
+    if (zpidMatch) {
+      return `https://${RAPIDAPI_HOST}/pro/byzpid?zpid=${encodeURIComponent(zpidMatch[1])}`;
+    }
+    return `https://${RAPIDAPI_HOST}/pro/byurl?url=${encodeURIComponent(zillowUrl)}`;
+  }
+
+  const address = input.address?.trim();
+  if (!address) throw new ZillowLookupInputError("Paste a Zillow listing URL or provide a property address.");
+  return `https://${RAPIDAPI_HOST}/pro/byaddress?propertyaddress=${encodeURIComponent(address)}`;
+}
+
+export function mapZillowPropertyResponse(data: any) {
+  const pd = data?.propertyDetails;
+  if (!pd || typeof pd !== "object" || Array.isArray(pd) || Object.keys(pd).length === 0) return null;
+
+  const photoUrl = pd.hiResImageLink ?? pd.imgSrc ?? pd.originalPhotos?.[0]?.mixedSources?.jpeg?.[1]?.url ?? pd.originalPhotos?.[0]?.mixedSources?.jpeg?.[0]?.url ?? data?.imgSrc ?? null;
+  const hasUsableProformaData = Boolean(pd.price ?? photoUrl ?? pd.description ?? pd.annualHomeownersInsurance ?? pd.taxHistory?.[0]?.taxPaid);
+  if (!hasUsableProformaData) return null;
+
+  return {
+    source: "zillow",
+    zillowUrl: data?.zillowURL ?? null,
+    price: pd.price ?? null,
+    zestimate: pd.zestimate ?? null,
+    bedrooms: pd.bedrooms ?? null,
+    bathrooms: pd.bathrooms ?? null,
+    sqft: pd.livingArea ?? null,
+    yearBuilt: pd.yearBuilt ?? null,
+    propertyType: pd.homeType ?? null,
+    lotSize: pd.lotAreaValue ?? null,
+    lotSizeUnit: pd.lotAreaUnits ?? pd.lotAreaUnit ?? "acres",
+    description: pd.description ?? null,
+    photoUrl,
+    address: pd.address ?? null,
+    latitude: pd.latitude ?? null,
+    longitude: pd.longitude ?? null,
+    county: pd.county ?? null,
+    taxRate: pd.propertyTaxRate ?? null,
+    taxHistory: pd.taxHistory?.[0] ?? null,
+    annualInsurance: pd.annualHomeownersInsurance ?? null,
+    homeStatus: pd.homeStatus ?? null,
+  };
+}
 
 export function registerExternalApiRoutes(app: express.Application) {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -12,16 +80,26 @@ export function registerExternalApiRoutes(app: express.Application) {
       let user: any;
       try { user = await sdk.authenticateRequest(req); } catch { return res.status(401).json({ error: "Unauthorized" }); }
 
-      const { address } = req.body;
-      if (!address) return res.status(400).json({ error: "Address is required" });
+      const { address, zillowUrl } = req.body;
+      let url: string;
+      try {
+        url = buildZillowLookupUrl({ address, zillowUrl });
+      } catch (err: any) {
+        if (err instanceof ZillowLookupInputError) return res.status(400).json({ error: err.message });
+        throw err;
+      }
 
-      const url = `https://private-zillow.p.rapidapi.com/pro/byaddress?propertyaddress=${encodeURIComponent(address)}`;
+      const rapidApiKey = process.env.RAPIDAPI_KEY;
+      if (!rapidApiKey) {
+        console.error("[ZillowLookup] RAPIDAPI_KEY is not configured");
+        return res.status(503).json({ error: "Zillow import is temporarily unavailable. Please try again later." });
+      }
       const response = await fetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "x-rapidapi-host": "private-zillow.p.rapidapi.com",
-          "x-rapidapi-key": RAPIDAPI_KEY,
+          "x-rapidapi-host": RAPIDAPI_HOST,
+          "x-rapidapi-key": rapidApiKey,
         },
       });
 
@@ -30,32 +108,12 @@ export function registerExternalApiRoutes(app: express.Application) {
       }
 
       const data = await response.json();
-      const pd = data?.propertyDetails || {};
-
-      // Extract the fields we care about
-      const result = {
-        source: "zillow",
-        zillowUrl: data?.zillowURL || null,
-        price: pd.price || null,
-        zestimate: pd.zestimate || null,
-        bedrooms: pd.bedrooms || null,
-        bathrooms: pd.bathrooms || null,
-        sqft: pd.livingArea || null,
-        yearBuilt: pd.yearBuilt || null,
-        propertyType: pd.homeType || null,
-        lotSize: pd.lotAreaValue || null,
-        lotSizeUnit: pd.lotAreaUnit || "acres",
-        description: pd.description || null,
-        photoUrl: pd.hiResImageLink || pd.imgSrc || (pd.originalPhotos?.[0]?.mixedSources?.jpeg?.[1]?.url) || (pd.originalPhotos?.[0]?.mixedSources?.jpeg?.[0]?.url) || data?.imgSrc || null,
-        address: pd.address || null,
-        latitude: pd.latitude || null,
-        longitude: pd.longitude || null,
-        county: pd.county || null,
-        taxRate: pd.propertyTaxRate || null,
-        taxHistory: pd.taxHistory?.[0] || null,
-        annualInsurance: pd.annualHomeownersInsurance || null,
-        homeStatus: pd.homeStatus || null,
-      };
+      const result = mapZillowPropertyResponse(data);
+      if (!result) {
+        const providerMessage = typeof data?.message === "string" ? data.message : "No usable property details were returned.";
+        console.warn("[ZillowLookup] Provider returned no usable property details", { providerMessage });
+        return res.status(404).json({ error: "Zillow could not find usable details for this listing. Check the Zillow link and try again." });
+      }
 
       return res.json({ success: true, data: result });
     } catch (err: any) {

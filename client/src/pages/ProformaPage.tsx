@@ -270,6 +270,7 @@ export default function ProformaPage() {
 
   const createMutation = trpc.properties.createProforma.useMutation({ onSuccess: () => { refetch(); } });
   const updateMutation = trpc.properties.updateProforma.useMutation({ onSuccess: () => { refetch(); } });
+  const updatePropertyMutation = trpc.properties.update.useMutation({ onSuccess: () => { utils.properties.get.invalidate({ id: propertyId }); } });
   const deleteMutation = trpc.properties.deleteProforma.useMutation({ onSuccess: () => { refetch(); } });
 
   // ─── AUTO-SAVE (debounced 2s after any field change) ─────────────────────────
@@ -791,17 +792,31 @@ export default function ProformaPage() {
   const handleImportZillow = async () => {
     if (!property) return;
     const address = [property.address, property.city, property.state, property.zip].filter(Boolean).join(", ");
-    if (!address) { alert("No property address available to look up."); return; }
+    const zillowUrl = form.propertyLink.trim();
+    if (!zillowUrl && !address) { alert("Paste a Zillow listing URL or add a property address before importing."); return; }
     setImportingZillow(true);
     try {
       const response = await fetch("/api/external/zillow-lookup", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
+        body: JSON.stringify({ zillowUrl: zillowUrl || undefined, address }),
       });
       if (!response.ok) throw new Error(await response.text());
       const { data } = await response.json();
       if (!data) throw new Error("No data returned from Zillow");
+      const propertyTypeMap: Record<string, "single_family" | "multi_family" | "condo" | "townhouse" | "cabin" | "vacation_rental" | "commercial" | "land" | "other"> = {
+        SINGLE_FAMILY: "single_family", MULTI_FAMILY: "multi_family", CONDO: "condo", TOWNHOUSE: "townhouse", CABIN: "cabin", VACATION_RENTAL: "vacation_rental", COMMERCIAL: "commercial", LAND: "land",
+      };
+      const propertyUpdates: Record<string, string | number | null> = {};
+      if (!property.beds && data.bedrooms != null) propertyUpdates.beds = String(data.bedrooms);
+      if (!property.baths && data.bathrooms != null) propertyUpdates.baths = String(data.bathrooms);
+      if (!property.sqft && data.sqft != null) propertyUpdates.sqft = data.sqft;
+      if (!property.yearBuilt && data.yearBuilt != null) propertyUpdates.yearBuilt = data.yearBuilt;
+      if (!property.listPrice && data.price != null) propertyUpdates.listPrice = String(data.price);
+      if (!property.propertyType && data.propertyType) propertyUpdates.propertyType = propertyTypeMap[data.propertyType] || "other";
+      if (Object.keys(propertyUpdates).length > 0) {
+        await updatePropertyMutation.mutateAsync({ id: propertyId, data: propertyUpdates as any });
+      }
       // Auto-fill fields from Zillow data
       const updates: Partial<ProformaForm> = {};
       if (data.price && !form.purchasePrice) updates.purchasePrice = String(data.price);
@@ -814,7 +829,7 @@ export default function ProformaPage() {
         hasDirtyChanges.current = true;
         setForm(prev => ({ ...prev, ...updates }));
       }
-      alert(`Imported from Zillow:\n• Price: $${data.price?.toLocaleString() || "N/A"}\n• ${data.bedrooms || "?"} beds / ${data.bathrooms || "?"} baths / ${data.sqft?.toLocaleString() || "?"} sqft\n• Year Built: ${data.yearBuilt || "N/A"}\n• Photo: ${data.photoUrl ? "Yes" : "No"}\n• Insurance: $${data.annualInsurance?.toLocaleString() || "N/A"}/yr\n• Tax: $${data.taxHistory?.taxPaid?.toLocaleString() || "N/A"}/yr`);
+      alert(`Imported Zillow details:\n• Price: $${data.price?.toLocaleString() || "N/A"}\n• ${data.bedrooms || "?"} beds / ${data.bathrooms || "?"} baths / ${data.sqft?.toLocaleString() || "?"} sqft\n• Year Built: ${data.yearBuilt || "N/A"}\n• Photo: ${data.photoUrl ? "Yes" : "No"}\n• Insurance: $${data.annualInsurance?.toLocaleString() || "N/A"}/yr\n• Tax: $${data.taxHistory?.taxPaid?.toLocaleString() || "N/A"}/yr`);
     } catch (e: any) { alert(`Zillow import failed: ${e.message}`); }
     setImportingZillow(false);
   };
@@ -940,7 +955,7 @@ export default function ProformaPage() {
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <p className="text-sm font-medium">Import Details from Zillow</p>
-                  <p className="text-xs text-slate-500">Auto-fills price, photo, insurance, and tax from Zillow listing data</p>
+                  <p className="text-xs text-slate-500">Paste a Zillow listing URL to auto-fill property details, price, photo, insurance, and tax</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
