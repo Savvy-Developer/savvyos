@@ -37,7 +37,6 @@ CREATE TABLE `coaching_feedback_responses` (
   `improvementComment` text,
   `additionalComment` text,
   `isTest` boolean NOT NULL DEFAULT false,
-  `createdAt` timestamp NOT NULL DEFAULT (now()),
   CONSTRAINT `coaching_feedback_responses_id` PRIMARY KEY(`id`),
   CONSTRAINT `coaching_feedback_responses_coachId_users_id_fk` FOREIGN KEY (`coachId`) REFERENCES `users`(`id`) ON DELETE cascade
 );

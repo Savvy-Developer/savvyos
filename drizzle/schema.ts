@@ -3161,7 +3161,6 @@ export const coachingFeedbackResponses = mysqlTable("coaching_feedback_responses
   improvementComment: text("improvementComment"),
   additionalComment: text("additionalComment"),
   isTest: boolean("isTest").default(false).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
   index("coaching_feedback_response_coach_week_idx").on(table.coachId, table.sessionWeekStart),
   index("coaching_feedback_response_test_idx").on(table.isTest),
