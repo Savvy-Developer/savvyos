@@ -20,6 +20,7 @@ import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
+import { scheduleDailyCoachingTips } from "../dailyCoachingTipsScheduler";
 import { refreshDueAnalyticsInsights, scheduleAnalyticsInsightRefresh } from "../analytics/workspace";
 import { refreshDueBusinessInsights, scheduleBusinessInsightRefresh } from "../analytics/businessInsights";
 import { handleResendWebhook, verifyResendWebhookSignature } from "./resendWebhook";
@@ -276,6 +277,8 @@ async function startServer() {
   scheduleDailyIsaActivitiesReport();
   // Shared coaching leadership accountability report: Fridays at 12:00 PM Eastern
   scheduleWeeklyCoachingAccountabilityReport();
+  // Coaching Tips For Today: shared leadership email at 8:00 AM Eastern on weekdays.
+  scheduleDailyCoachingTips();
 
   // Analytics insight cache: poll daily and refresh each previously generated
   // authorized scope once its seven-day TTL expires.

@@ -86,6 +86,7 @@ export type EmailType =
   | "daily_agent_report"
   | "daily_isa_activities"
   | "coaching_weekly_accountability"
+  | "coaching_tips_for_today"
   | "pulse_overdue_digest"
   | "pulse_rock_completed"
   | "meeting_reminder"
@@ -179,6 +180,10 @@ interface EmailContext {
   coachingReportDate?: string;
   coachingReportHtml?: string;
   coachingReportSubject?: string;
+  // Daily Coaching Tips report-specific fields
+  coachingTipsDate?: string;
+  coachingTipsHtml?: string;
+  coachingTipsSubject?: string;
   // Deep-link entity IDs (numeric DB IDs for direct navigation)
   transactionId?: string;
   taskId?: string;
@@ -823,6 +828,15 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       `${ctx.coachingReportHtml ?? bodyText("The Coaching Hub accountability report could not be generated. Please open SavvyOS to review the live Coaching Hub.")}`,
       `Coaching Hub weekly accountability — ${ctx.coachingReportDate ?? "current week"}`,
       680,
+    ),
+  }),
+
+  coaching_tips_for_today: (ctx) => ({
+    subject: ctx.coachingTipsSubject ?? `Coaching Tips For Today | ${ctx.coachingTipsDate ?? "Today"}`,
+    html: emailLayout(
+      `${ctx.coachingTipsHtml ?? bodyText("The daily coaching briefing could not be generated. Please open SavvyOS Coaching Hub to review current opportunities.")}`,
+      `Coaching Tips For Today — ${ctx.coachingTipsDate ?? "today"}`,
+      760,
     ),
   }),
 

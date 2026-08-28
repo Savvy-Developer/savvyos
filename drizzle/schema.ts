@@ -2177,6 +2177,32 @@ export const dailyAgentReports = mysqlTable(
 export type DailyAgentReport = typeof dailyAgentReports.$inferSelect;
 export type InsertDailyAgentReport = typeof dailyAgentReports.$inferInsert;
 
+// ─── Daily Coaching Briefings ─────────────────────────────────────────────────
+// A shared leadership briefing is retained with its rotation metadata so recurring
+// emails can deliberately vary themes, named-agent callouts, training plays, and
+// market context across weekdays while keeping each delivery auditable.
+export const dailyCoachingBriefings = mysqlTable(
+  "daily_coaching_briefings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    reportDate: varchar("reportDate", { length: 10 }).notNull(), // YYYY-MM-DD in America/New_York
+    snapshot: json("snapshot").$type<Record<string, unknown>>().notNull(),
+    rotation: json("rotation").$type<Record<string, unknown>>().notNull(),
+    content: json("content").$type<Record<string, unknown>>().notNull(),
+    aiModel: varchar("aiModel", { length: 128 }),
+    generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+    sentAt: timestamp("sentAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_coaching_briefings_date_unique").on(table.reportDate),
+    index("daily_coaching_briefings_generated_idx").on(table.generatedAt),
+  ],
+);
+export type DailyCoachingBriefing = typeof dailyCoachingBriefings.$inferSelect;
+export type InsertDailyCoachingBriefing = typeof dailyCoachingBriefings.$inferInsert;
+
 // ─── SavvyOS Feature Updates ─────────────────────────────────────────────────
 // Admin-managed, agent-facing release notes. The daily report only includes
 // published updates, keeping operational emails free from draft work.
