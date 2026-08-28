@@ -155,6 +155,21 @@ describe("Reporting suite — stable decision and evidence contract", () => {
     expect(transactionSource).toContain("transactions.referralId} IS NULL AND NOT EXISTS");
   });
 
+  it("reports source closings from closed transactions rather than ISA contact status", () => {
+    const service = expansionService();
+    const views = expansionViews();
+
+    expect(service).toContain("COUNT(DISTINCT t.id) AS closings");
+    expect(service).toContain("closed: revenue.closings");
+    expect(service).toContain("const closed = asNumber(revenue?.closings)");
+    expect(service).toContain("const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows, closedMonthlyRows]");
+    expect(service).toContain("COUNT(DISTINCT t.id) AS closed");
+    expect(service).toContain("t.\\`referralId\\` IS NULL AND NOT EXISTS");
+    expect(views).toContain('Metric label="Closed txns"');
+    expect(views).toContain('SortHeader label="Closed txns"');
+    expect(views).toContain("Closed transactions in scope");
+  });
+
   it("keeps the five expansion reports decision-ready, filterable, and backed by bounded evidence", () => {
     const page = reportPage();
     const service = expansionService();

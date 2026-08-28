@@ -821,6 +821,10 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
   const closedTransactionsWhere = transactionScope(filters, { closedOnly: true });
   // Under-contract transactions scope (no closedOnly restriction, just UC status)
   const ucTransactionsWhere = where([
+    sql`t.\`referralId\` IS NULL AND NOT EXISTS (
+      SELECT 1 FROM \`referral_transaction_links\` rtl
+      WHERE rtl.\`transactionId\` = t.\`id\`
+    )`,
     (filters.agentIds?.length ? sql`t.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})` : filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined),
     filters.groupLeaderId ? sql`EXISTS (
       SELECT 1
@@ -841,13 +845,12 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     )` : undefined),
     sql`t.\`status\` = 'under_contract'`,
   ]);
-  const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows] = await Promise.all([
+  const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows, closedMonthlyRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT
         COUNT(*) AS leads,
         SUM(CASE WHEN c.\`leadSourceId\` IS NULL THEN 1 ELSE 0 END) AS unclassified,
-        SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients,
-        SUM(CASE WHEN c.\`isa_status\` = 'closed' THEN 1 ELSE 0 END) AS closed
+        SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients
       FROM \`contacts\` c
       ${contactsWhere}
     `),
@@ -859,8 +862,7 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
         ls.\`clickCount\` AS clickCount,
         ls.\`submissionCount\` AS submissionCount,
         COUNT(*) AS leads,
-        SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients,
-        SUM(CASE WHEN c.\`isa_status\` = 'closed' THEN 1 ELSE 0 END) AS closed
+        SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients
       FROM \`contacts\` c
       LEFT JOIN \`lead_sources\` ls ON ls.id = c.\`leadSourceId\`
       ${contactsWhere}
@@ -870,15 +872,18 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     runRows<Row>(sql`
       SELECT
         COALESCE(c.\`leadSourceId\`, 0) AS sourceId,
+        COALESCE(ls.\`name\`, 'Unknown / No source') AS sourceName,
+        COALESCE(ls.\`campaignType\`, 'unclassified') AS campaignType,
         COUNT(DISTINCT t.id) AS closings,
         COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS volume,
         COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS grossCommission,
         COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
       FROM \`transactions\` t
       INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
+      LEFT JOIN \`lead_sources\` ls ON ls.id = c.\`leadSourceId\`
       ${PAYOUT_JOIN}
       ${closedTransactionsWhere}
-      GROUP BY c.\`leadSourceId\`
+      GROUP BY c.\`leadSourceId\`, ls.\`name\`, ls.\`campaignType\`
     `),
     runRows<Row>(sql`
       SELECT
@@ -902,30 +907,47 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       SELECT
         DATE_FORMAT(c.\`createdAt\`, '%Y-%m') AS month,
         COUNT(*) AS leads,
-        SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients,
-        SUM(CASE WHEN c.\`isa_status\` = 'closed' THEN 1 ELSE 0 END) AS closed
+        SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients
       FROM \`contacts\` c
       ${contactsWhere}
       GROUP BY DATE_FORMAT(c.\`createdAt\`, '%Y-%m')
       ORDER BY month ASC
     `),
+    runRows<Row>(sql`
+      SELECT
+        DATE_FORMAT(t.\`closingDate\`, '%Y-%m') AS month,
+        COUNT(DISTINCT t.id) AS closed
+      FROM \`transactions\` t
+      INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
+      ${closedTransactionsWhere}
+      GROUP BY DATE_FORMAT(t.\`closingDate\`, '%Y-%m')
+      ORDER BY month ASC
+    `),
   ]);
   const revenueBySource = new Map(revenueRows.map((row) => [asNumber(row.sourceId), row]));
+  const sourcesById = new Map(sourceRows.map((row) => [asNumber(row.sourceId), row]));
   const ucBySource = new Map(ucRows.map((row) => [asNumber(row.sourceId), asNumber(row.underContract)]));
   const appointmentsBySource = new Map(appointmentRows.map((row) => [asNumber(row.sourceId), asNumber(row.appointmentsSet)]));
-  const sources = sourceRows.map((row) => {
-    const sourceId = asNumber(row.sourceId);
+  // Include sources with closed production even when their leads were acquired
+  // outside the selected contact-created range. This keeps the source rows and
+  // the closed-production summary reconciled for every report scope.
+  const sourceIds = Array.from(new Set([
+    ...sourceRows.map((row) => asNumber(row.sourceId)),
+    ...revenueRows.map((row) => asNumber(row.sourceId)),
+  ]));
+  const sources = sourceIds.map((sourceId) => {
+    const row = sourcesById.get(sourceId);
     const revenue = revenueBySource.get(sourceId);
-    const leads = asNumber(row.leads);
-    const closed = asNumber(row.closed);
+    const leads = asNumber(row?.leads);
+    const closed = asNumber(revenue?.closings);
     return {
       sourceId,
-      sourceName: String(row.sourceName ?? "Unknown / No source"),
-      campaignType: String(row.campaignType ?? "unclassified"),
-      clickCount: asNumber(row.clickCount),
-      submissionCount: asNumber(row.submissionCount),
+      sourceName: String(row?.sourceName ?? revenue?.sourceName ?? "Unknown / No source"),
+      campaignType: String(row?.campaignType ?? revenue?.campaignType ?? "unclassified"),
+      clickCount: asNumber(row?.clickCount),
+      submissionCount: asNumber(row?.submissionCount),
       leads,
-      activeClients: asNumber(row.activeClients),
+      activeClients: asNumber(row?.activeClients),
       closed,
       closeRate: leads ? (closed / leads) * 100 : null,
       underContract: ucBySource.get(sourceId) ?? 0,
@@ -939,7 +961,6 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
   });
   const summaryRow = summaryRows[0] ?? {};
   const leads = asNumber(summaryRow.leads);
-  const closed = asNumber(summaryRow.closed);
   const revenue = revenueRows.reduce<{ closings: number; volume: number; grossCommission: number; savvyNet: number }>(
     (result, row) => ({
       closings: result.closings + asNumber(row.closings),
@@ -949,18 +970,35 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     }),
     { closings: 0, volume: 0, grossCommission: 0, savvyNet: 0 },
   );
+  const monthlyByMonth = new Map<string, { month: string; leads: number; activeClients: number; closed: number }>();
+  for (const row of monthlyRows) {
+    const month = String(row.month ?? "");
+    monthlyByMonth.set(month, {
+      month,
+      leads: asNumber(row.leads),
+      activeClients: asNumber(row.activeClients),
+      closed: 0,
+    });
+  }
+  for (const row of closedMonthlyRows) {
+    const month = String(row.month ?? "");
+    const current = monthlyByMonth.get(month) ?? { month, leads: 0, activeClients: 0, closed: 0 };
+    current.closed = asNumber(row.closed);
+    monthlyByMonth.set(month, current);
+  }
+  const monthly = Array.from(monthlyByMonth.values()).sort((a, b) => a.month.localeCompare(b.month));
   return {
     summary: {
       leads,
       activeClients: asNumber(summaryRow.activeClients),
-      closed,
+      closed: revenue.closings,
       unclassified: asNumber(summaryRow.unclassified),
-      closeRate: leads ? (closed / leads) * 100 : null,
+      closeRate: leads ? (revenue.closings / leads) * 100 : null,
       sourceCount: sources.filter((source) => source.sourceId !== 0).length,
-      lowConversionSources: sources.filter((source) => source.leads >= 5 && source.closed === 0).length,
+      lowConversionSources: sources.filter((source) => source.leads >= 5 && source.closings === 0).length,
       ...revenue,
     },
-    monthly: monthlyRows.map((row) => ({ month: String(row.month ?? ""), leads: asNumber(row.leads), activeClients: asNumber(row.activeClients), closed: asNumber(row.closed) })),
+    monthly,
     sources,
   };
 }
