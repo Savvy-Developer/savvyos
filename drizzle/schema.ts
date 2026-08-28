@@ -230,7 +230,9 @@ export const agentConnections = mysqlTable("agent_connections", {
   appointmentSetByUserId: int("appointmentSetByUserId").references(() => users.id),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  agentContactUniqueIdx: uniqueIndex("agent_connections_agent_contact_uidx").on(table.agentId, table.contactId),
+}));
 
 export type AgentConnection = typeof agentConnections.$inferSelect;
 export type InsertAgentConnection = typeof agentConnections.$inferInsert;

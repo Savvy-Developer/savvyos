@@ -675,6 +675,96 @@ export async function createAgentConnection(data: typeof agentConnections.$infer
   return (result as any).insertId as number;
 }
 
+type TeamAgentConnectionPipelineStatus = "active_client" | "under_contract" | "closed";
+
+function pipelineStatusForDealRecord(status: string | null | undefined): TeamAgentConnectionPipelineStatus {
+  if (status === "under_contract") return "under_contract";
+  if (status === "closed") return "closed";
+  return "active_client";
+}
+
+/**
+ * Ensures that an active Savvy agent can see a client tied to one of their
+ * listings or transactions in their own pipeline. Existing connections are
+ * intentionally left untouched so the agent's selected pipeline stage and
+ * notes are never overwritten by a later deal-record edit.
+ */
+export async function ensureTeamAgentConnection(input: {
+  agentId: number | null | undefined;
+  contactId: number | null | undefined;
+  pipelineStatus: TeamAgentConnectionPipelineStatus;
+  db?: any;
+}): Promise<{ created: boolean; connectionId?: number }> {
+  if (!input.agentId || !input.contactId) return { created: false };
+
+  const db = input.db ?? await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // A transaction or listing can be assigned to an admin, ISA, or former
+  // agent. Only active users in the Agent role have an agent pipeline.
+  const [agent] = await db
+    .select({ role: users.role, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, input.agentId))
+    .limit(1);
+  if (agent?.role !== "agent" || !agent.isActive) return { created: false };
+
+  const [existing] = await db
+    .select({ id: agentConnections.id })
+    .from(agentConnections)
+    .where(and(
+      eq(agentConnections.agentId, input.agentId),
+      eq(agentConnections.contactId, input.contactId),
+    ))
+    .limit(1);
+  if (existing) return { created: false, connectionId: existing.id };
+
+  try {
+    const [result] = await db.insert(agentConnections).values({
+      agentId: input.agentId,
+      contactId: input.contactId,
+      pipelineStatus: input.pipelineStatus,
+      agingUpdatedAt: new Date(),
+    });
+    return { created: true, connectionId: (result as any).insertId as number };
+  } catch (error: any) {
+    // The unique index protects against concurrent listing/transaction writes.
+    // Treat a concurrent insert as a successful no-op rather than failing the
+    // originating business record.
+    if (error?.code === "ER_DUP_ENTRY") {
+      const [concurrent] = await db
+        .select({ id: agentConnections.id })
+        .from(agentConnections)
+        .where(and(
+          eq(agentConnections.agentId, input.agentId),
+          eq(agentConnections.contactId, input.contactId),
+        ))
+        .limit(1);
+      return { created: false, connectionId: concurrent?.id };
+    }
+    throw error;
+  }
+}
+
+/** Ensures one pipeline connection for every distinct client on a deal record. */
+export async function ensureTeamAgentConnections(input: {
+  agentId: number | null | undefined;
+  contactIds: Array<number | null | undefined>;
+  recordStatus: string | null | undefined;
+  db?: any;
+}): Promise<void> {
+  const contactIds = Array.from(new Set(input.contactIds.filter((id): id is number => typeof id === "number" && id > 0)));
+  const pipelineStatus = pipelineStatusForDealRecord(input.recordStatus);
+  for (const contactId of contactIds) {
+    await ensureTeamAgentConnection({
+      agentId: input.agentId,
+      contactId,
+      pipelineStatus,
+      db: input.db,
+    });
+  }
+}
+
 export async function updateAgentConnection(id: number, data: Partial<typeof agentConnections.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -1121,13 +1211,37 @@ export async function createTransaction(data: typeof transactions.$inferInsert) 
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const [result] = await db.insert(transactions).values(data);
-  return (result as any).insertId as number;
+  const transactionId = (result as any).insertId as number;
+  await ensureTeamAgentConnections({
+    agentId: data.agentId,
+    contactIds: [data.primaryContactId, data.sellerContactId, data.buyerContactId],
+    recordStatus: data.status ?? "under_contract",
+  });
+  return transactionId;
 }
 
 export async function updateTransaction(id: number, data: Partial<typeof transactions.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(transactions).set(data).where(eq(transactions.id, id));
+  const [transaction] = await db
+    .select({
+      agentId: transactions.agentId,
+      primaryContactId: transactions.primaryContactId,
+      sellerContactId: transactions.sellerContactId,
+      buyerContactId: transactions.buyerContactId,
+      status: transactions.status,
+    })
+    .from(transactions)
+    .where(eq(transactions.id, id))
+    .limit(1);
+  if (transaction) {
+    await ensureTeamAgentConnections({
+      agentId: transaction.agentId,
+      contactIds: [transaction.primaryContactId, transaction.sellerContactId, transaction.buyerContactId],
+      recordStatus: transaction.status,
+    });
+  }
 }
 
 // ─── Transaction Payout Items ─────────────────────────────────────────────────
@@ -1867,13 +1981,35 @@ export async function createListing(data: typeof listings.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const [result] = await db.insert(listings).values(data);
-  return (result as any).insertId as number;
+  const listingId = (result as any).insertId as number;
+  await ensureTeamAgentConnections({
+    agentId: data.agentId,
+    contactIds: [data.contactId],
+    recordStatus: data.listingStatus ?? "active",
+  });
+  return listingId;
 }
 
 export async function updateListing(id: number, data: Partial<typeof listings.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(listings).set(data).where(eq(listings.id, id));
+  const [listing] = await db
+    .select({
+      agentId: listings.agentId,
+      contactId: listings.contactId,
+      listingStatus: listings.listingStatus,
+    })
+    .from(listings)
+    .where(eq(listings.id, id))
+    .limit(1);
+  if (listing) {
+    await ensureTeamAgentConnections({
+      agentId: listing.agentId,
+      contactIds: [listing.contactId],
+      recordStatus: listing.listingStatus,
+    });
+  }
 }
 
 export async function deleteListing(id: number) {
