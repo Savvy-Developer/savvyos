@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, isNull, lte, aliasedTable } from "drizzle-orm";
 import { z } from "zod";
-import { coachingProfiles, contacts, properties, reviewRequests, reviews, transactions, users } from "../../drizzle/schema";
+import { coachingProfiles, contacts, marketingRequests, properties, reviewRequests, reviews, transactions, users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendTransactionalEmail } from "../_core/resendEmail";
@@ -287,6 +287,36 @@ async function sendReviewReceivedNotifications(params: {
   }));
 }
 
+function nextDayDueDate(): Date {
+  const dueDate = new Date();
+  dueDate.setUTCDate(dueDate.getUTCDate() + 1);
+  dueDate.setUTCHours(12, 0, 0, 0);
+  return dueDate;
+}
+
+function fiveStarReviewMarketingDescription(params: {
+  agentName: string | null;
+  reviewerName: string;
+  comment: string | null;
+  transactionNumber: string | null;
+  propertyAddress?: string;
+}): string {
+  const context = [
+    `${params.agentName ?? "This agent"} has a new 5 star review!`,
+    "",
+    "Review here: https://os.savvy-agents.com/reviews",
+    "",
+    `Reviewer: ${params.reviewerName}`,
+    "Rating: 5 / 5 stars",
+    ...(params.transactionNumber ? [`Transaction: #${params.transactionNumber}`] : []),
+    ...(params.propertyAddress ? [`Property: ${params.propertyAddress}`] : []),
+    "",
+    "Client feedback:",
+    params.comment || "No written feedback was provided.",
+  ];
+  return context.join("\n");
+}
+
 function parseDateStart(value?: string): Date | undefined {
   return value ? new Date(`${value}T00:00:00.000Z`) : undefined;
 }
@@ -396,6 +426,17 @@ export const reviewsRouter = router({
         .limit(1);
       if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "This review link is invalid, expired, or has already been used." });
 
+      const [transactionContext] = await db.select({
+        transactionNumber: transactions.transactionNumber,
+        agentName: users.name,
+        property: { address: properties.address, city: properties.city, state: properties.state },
+      })
+        .from(transactions)
+        .innerJoin(users, eq(transactions.agentId, users.id))
+        .leftJoin(properties, eq(transactions.propertyId, properties.id))
+        .where(and(eq(transactions.id, request.transactionId), eq(transactions.agentId, request.agentId)))
+        .limit(1);
+
       let reviewId = 0;
       await db.transaction(async (tx) => {
         const updateResult = await tx.update(reviewRequests)
@@ -418,6 +459,24 @@ export const reviewsRouter = router({
           submittedAt: now,
         });
         reviewId = Number((insertedReview as any).insertId);
+
+        if (input.rating === 5 && !request.isTest && transactionContext) {
+          await tx.insert(marketingRequests).values({
+            agentId: request.agentId,
+            title: "Review Graphic",
+            description: fiveStarReviewMarketingDescription({
+              agentName: transactionContext.agentName,
+              reviewerName: request.recipientName,
+              comment: input.comment?.trim() || null,
+              transactionNumber: transactionContext.transactionNumber,
+              propertyAddress: formatPropertyAddress(transactionContext.property),
+            }),
+            requestType: "graphic",
+            priority: "normal",
+            dueDate: nextDayDueDate(),
+            status: "new",
+          });
+        }
       });
 
       await sendReviewReceivedNotifications({
