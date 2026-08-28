@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import EmailMessagePreviewDialog from "@/components/EmailMessagePreviewDialog";
 import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
+import LeadSourceTriggerPicker, { formatLeadSourcePath } from "@/components/LeadSourceTriggerPicker";
 import { toast } from "sonner";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Mail, MessageSquare, Send, Users, X } from "lucide-react";
 
@@ -109,7 +110,7 @@ export default function OneTimeSmartPlanSendDialog({ onClose }: { onClose: () =>
           <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
             <div><Label>Audience trigger</Label><p className="mt-1 text-xs text-muted-foreground">Choose the same current-contact audience used by Smart Plans.</p></div>
             <Select value={triggerType} onValueChange={(value) => { setTriggerType(value as TriggerType); resetReview(); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{TRIGGERS.map((trigger) => <SelectItem key={trigger.value} value={trigger.value}>{trigger.label}</SelectItem>)}</SelectContent></Select>
-            {isLeadSourceTrigger && <div className="space-y-2 pt-1"><Label>Lead sources</Label><Select value="" onValueChange={(value) => { const id = Number(value); if (id && !triggerLeadSourceIds.includes(id)) { setTriggerLeadSourceIds((current) => [...current, id]); resetReview(); } }}><SelectTrigger><SelectValue placeholder="Add a lead source..." /></SelectTrigger><SelectContent>{leadSources.filter((source) => !triggerLeadSourceIds.includes(source.id)).map((source) => <SelectItem key={source.id} value={String(source.id)}>{source.parentId ? `    ${source.name}` : source.name}</SelectItem>)}</SelectContent></Select><div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1">{source.name}<button type="button" aria-label={`Remove ${source.name}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => { setTriggerLeadSourceIds((current) => current.filter((id) => id !== source.id)); resetReview(); }}><X className="h-3 w-3" /></button></Badge>)}</div></div>}
+            {isLeadSourceTrigger && <div className="space-y-2 pt-1"><Label>Lead sources</Label><LeadSourceTriggerPicker sources={leadSources} selectedIds={triggerLeadSourceIds} onAdd={(id) => { setTriggerLeadSourceIds((current) => current.includes(id) ? current : [...current, id]); resetReview(); }} /><div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1">{formatLeadSourcePath(source, leadSources)}<button type="button" aria-label={`Remove ${formatLeadSourcePath(source, leadSources)}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => { setTriggerLeadSourceIds((current) => current.filter((id) => id !== source.id)); resetReview(); }}><X className="h-3 w-3" /></button></Badge>)}</div></div>}
             <p className="text-xs text-muted-foreground">This blast will target {selectedTrigger.audienceLabel}.</p>
           </div>
 

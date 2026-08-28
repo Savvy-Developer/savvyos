@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import EmailMessagePreviewDialog from "@/components/EmailMessagePreviewDialog";
 import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
+import LeadSourceTriggerPicker, { formatLeadSourcePath } from "@/components/LeadSourceTriggerPicker";
 import { toast } from "sonner";
 import {
   ArrowLeft, BarChart3, Check, ChevronDown, ChevronUp, Clock, Eye, FileText,
@@ -449,15 +450,13 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
           </div>
 
           {isLeadSourceTrigger && <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
-            <div><Label>Lead sources</Label><p className="mt-1 text-xs text-muted-foreground">Add every lead source that should start this plan.</p></div>
-            <Select value="" onValueChange={(value) => {
-              const id = Number(value);
-              if (id && !form.triggerLeadSourceIds.includes(id)) setForm((current) => ({ ...current, triggerLeadSourceIds: [...current.triggerLeadSourceIds, id] }));
-            }}>
-              <SelectTrigger><SelectValue placeholder="Add a lead source..." /></SelectTrigger>
-              <SelectContent>{leadSources.filter((source) => !form.triggerLeadSourceIds.includes(source.id)).map((source) => <SelectItem key={source.id} value={String(source.id)}>{source.parentId ? `    ${source.name}` : source.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{source.name}<button type="button" aria-label={`Remove ${source.name}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
+            <div><Label>Lead sources</Label><p className="mt-1 text-xs text-muted-foreground">Choose a source first, then select one of its nested sub-sources when applicable.</p></div>
+            <LeadSourceTriggerPicker
+              sources={leadSources}
+              selectedIds={form.triggerLeadSourceIds}
+              onAdd={(id) => setForm((current) => current.triggerLeadSourceIds.includes(id) ? current : ({ ...current, triggerLeadSourceIds: [...current.triggerLeadSourceIds, id] }))}
+            />
+            <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{formatLeadSourcePath(source, leadSources)}<button type="button" aria-label={`Remove ${formatLeadSourcePath(source, leadSources)}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
           </div>}
 
           <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">

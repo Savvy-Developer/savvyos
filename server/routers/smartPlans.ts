@@ -175,8 +175,8 @@ export const smartPlansRouter = router({
       .orderBy(asc(smartPlans.name));
 
     // Fetch all lead sources once for multi-source lookup
-    const allLeadSources = await db.select({ id: leadSources.id, name: leadSources.name }).from(leadSources);
-    const lsMap = new Map(allLeadSources.map((ls) => [ls.id, ls.name]));
+    const allLeadSources = await db.select({ id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId }).from(leadSources);
+    const lsMap = new Map(allLeadSources.map((ls) => [ls.id, ls]));
 
     // Attach step count and enrollment count
     const result = await Promise.all(
@@ -194,7 +194,15 @@ export const smartPlansRouter = router({
           ));
         // Build triggerLeadSources array for multi-source plans
         const ids = (row.plan.triggerLeadSourceIds as number[] | null) ?? (row.plan.triggerLeadSourceId ? [row.plan.triggerLeadSourceId] : []);
-        const triggerLeadSources = ids.map((id) => ({ id, name: lsMap.get(id) ?? `#${id}` }));
+        const triggerLeadSources = ids.map((id) => {
+          const source = lsMap.get(id);
+          const parent = source?.parentId ? lsMap.get(source.parentId) : null;
+          return {
+            id,
+            name: source?.name ?? `#${id}`,
+            parentName: parent?.name ?? null,
+          };
+        });
         return {
           ...row,
           triggerLeadSources,

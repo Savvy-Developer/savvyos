@@ -21,6 +21,7 @@ import { useLocation } from "wouter";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import OneTimeSmartPlanSendDialog from "@/components/OneTimeSmartPlanSendDialog";
 import OneTimeSmartPlanSendHistory from "@/components/OneTimeSmartPlanSendHistory";
+import LeadSourceTriggerPicker, { formatLeadSourcePath } from "@/components/LeadSourceTriggerPicker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PlanRow = {
@@ -489,7 +490,6 @@ function PlanWizard({
     parentId: row.ls?.parentId ?? row.parentId ?? null,
   })) as LeadSourceRow[];
 
-  const childSources = leadSourcesList.filter((ls) => ls.parentId !== null);
   const steps = ((planData as any)?.steps ?? []) as Step[];
   const plan = (planData as any)?.plan;
 
@@ -593,29 +593,12 @@ function PlanWizard({
           {/* Trigger Lead Sources */}
           <div>
             <Label>Trigger Lead Sources <span className="text-muted-foreground text-xs">(optional)</span></Label>
-            <p className="text-xs text-muted-foreground mt-0.5 mb-2">Contacts added with any of these lead sources will be automatically enrolled in this plan.</p>
-            <Select
-              value=""
-              onValueChange={(val) => {
-                const id = Number(val);
-                if (!detailsForm.triggerLeadSourceIds.includes(id)) {
-                  setDetailsForm({ ...detailsForm, triggerLeadSourceIds: [...detailsForm.triggerLeadSourceIds, id] });
-                }
-              }}
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue placeholder="Add a lead source trigger..." />
-              </SelectTrigger>
-              <SelectContent>
-                {leadSourcesList
-                  .filter((ls) => !detailsForm.triggerLeadSourceIds.includes(ls.id))
-                  .map((ls) => (
-                    <SelectItem key={ls.id} value={String(ls.id)}>
-                      {ls.parentId ? `\u00a0\u00a0\u00a0${ls.name}` : ls.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-2">Contacts added with any of these lead sources will be automatically enrolled in this plan. Choose a source first, then a nested sub-source when applicable.</p>
+            <LeadSourceTriggerPicker
+              sources={leadSourcesList}
+              selectedIds={detailsForm.triggerLeadSourceIds}
+              onAdd={(id) => setDetailsForm((current) => current.triggerLeadSourceIds.includes(id) ? current : ({ ...current, triggerLeadSourceIds: [...current.triggerLeadSourceIds, id] }))}
+            />
             {detailsForm.triggerLeadSourceIds.length > 0 ? (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {detailsForm.triggerLeadSourceIds.map((id) => {
@@ -623,7 +606,7 @@ function PlanWizard({
                   return (
                     <span key={id} className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
                       <Zap className="h-3 w-3" />
-                      {src?.name ?? `Source #${id}`}
+                      {src ? formatLeadSourcePath(src, leadSourcesList) : `Source #${id}`}
                       <button
                         type="button"
                         className="ml-0.5 hover:text-destructive transition-colors"
@@ -1180,7 +1163,7 @@ function PlanCard({
   onDelete: () => void;
 }) {
   const { plan, stepCount, activeEnrollments } = row;
-  const triggerLeadSources = (row as any).triggerLeadSources as { id: number; name: string }[] | undefined;
+  const triggerLeadSources = (row as any).triggerLeadSources as { id: number; name: string; parentName: string | null }[] | undefined;
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -1192,7 +1175,7 @@ function PlanCard({
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 flex-wrap">
                 <Zap className="h-3 w-3 shrink-0" />
                 Triggers on: {triggerLeadSources.map((ls, i) => (
-                  <span key={ls.id}>{i > 0 ? ", " : ""}<strong>{ls.name}</strong></span>
+                  <span key={ls.id}>{i > 0 ? ", " : ""}<strong>{ls.parentName ? `${ls.parentName} › ${ls.name}` : ls.name}</strong></span>
                 ))}
               </p>
             )}
