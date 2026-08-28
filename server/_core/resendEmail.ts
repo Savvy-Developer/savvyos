@@ -102,7 +102,10 @@ export type EmailType =
   | "rock_completed"
   | "welcome"
   | "password_reset"
-  | "webinar_marketing_request";
+  | "webinar_marketing_request"
+  | "website_deeper_analysis_request"
+  | "website_financing_request"
+  | "website_showing_request";
 
 interface EmailContext {
   recipientName?: string;
@@ -340,8 +343,65 @@ function ctaButton(label: string, url: string, color = CYAN): string {
     </table>`;
 }
 
+type WebsiteLeadRequestKind = "deeper_analysis" | "financing" | "showing";
+
+/** Shared handoff layout for deliberate property requests from savvy-agents.com. */
+function websiteLeadHandoffTemplate(
+  ctx: EmailContext,
+  kind: WebsiteLeadRequestKind,
+): { subject: string; html: string } {
+  const agentName = escapeHtml(ctx.agentName ?? "Agent");
+  const clientName = escapeHtml(ctx.contactName ?? "A client");
+  const propertyAddress = escapeHtml(ctx.propertyAddress ?? "the requested property");
+  const copy = {
+    deeper_analysis: {
+      heading: "Deeper Analysis Requested",
+      subject: `Deeper Analysis Requested — ${ctx.propertyAddress ?? "Property Request"}`,
+      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> has asked for a deeper analysis of <strong>${propertyAddress}</strong>. Please connect with them soon!`,
+      preview: `${ctx.contactName ?? "A client"} requested a deeper analysis of ${ctx.propertyAddress ?? "a property"}.`,
+      cta: "Schedule a Call",
+    },
+    financing: {
+      heading: "Financing Information Requested",
+      subject: `Financing Information Requested — ${ctx.propertyAddress ?? "Property Request"}`,
+      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> was looking for information regarding financing for this property: <strong>${propertyAddress}</strong>. We will let you take it from here!`,
+      preview: `${ctx.contactName ?? "A client"} requested financing information for ${ctx.propertyAddress ?? "a property"}.`,
+      cta: "Schedule a Call",
+    },
+    showing: {
+      heading: "Showing Requested",
+      subject: `Showing Requested — ${ctx.propertyAddress ?? "Property Request"}`,
+      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> just asked to book a showing for <strong>${propertyAddress}</strong>. Please reach out to them ASAP to get that scheduled!`,
+      preview: `${ctx.contactName ?? "A client"} requested a showing for ${ctx.propertyAddress ?? "a property"}.`,
+      cta: "Schedule a Showing Call",
+    },
+  }[kind];
+
+  return {
+    subject: copy.subject,
+    html: emailLayout(
+      `${heading(copy.heading, "#0891B2")}
+      ${subheading("Savvy STR Agents · Website Lead Handoff")}
+      ${bodyText(copy.message)}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${clientName}`,
+        `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${propertyAddress}`,
+      ], "#0891B2")}
+      ${ctx.agentBookingLink ? ctaButton(copy.cta, ctx.agentBookingLink, "#0891B2") : ""}
+      ${bodyText("Reply all to continue the conversation with your client.")}`,
+      copy.preview,
+    ),
+  };
+}
+
 // ─── Email Templates ──────────────────────────────────────────────────────────
 const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; html: string }> = {
+
+  website_deeper_analysis_request: (ctx) => websiteLeadHandoffTemplate(ctx, "deeper_analysis"),
+
+  website_financing_request: (ctx) => websiteLeadHandoffTemplate(ctx, "financing"),
+
+  website_showing_request: (ctx) => websiteLeadHandoffTemplate(ctx, "showing"),
 
   market_match_intro: (ctx) => ({
     subject: `Introduction: ${ctx.investorFirstName ?? "An Investor"} × ${ctx.marketName ?? "Your Market"} — STR Opportunity`,

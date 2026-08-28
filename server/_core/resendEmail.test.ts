@@ -18,7 +18,7 @@ vi.mock("resend", () => ({
   },
 }));
 
-import { sendTransactionalEmail } from "./resendEmail";
+import { getEmailPreview, sendTransactionalEmail } from "./resendEmail";
 
 describe("listing created email", () => {
   beforeEach(() => {
@@ -59,5 +59,55 @@ describe("listing created email", () => {
 
     expect(mockSend.mock.calls[0][0].html).toContain("Jamie &amp; Jordan");
     expect(mockSend.mock.calls[0][0].html).toContain("15 &lt;Main&gt; St");
+  });
+});
+
+describe("website property request handoff emails", () => {
+  const context = {
+    recipientEmail: "agent@example.com",
+    recipientName: "Avery Agent",
+    agentName: "Avery Agent",
+    contactName: "Casey Client",
+    propertyAddress: "123 Main St, Asheville, NC 28801",
+    agentBookingLink: "https://calendly.com/avery-agent",
+  };
+
+  it.each([
+    [
+      "website_deeper_analysis_request",
+      "Deeper Analysis Requested — 123 Main St, Asheville, NC 28801",
+      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> has asked for a deeper analysis of <strong>123 Main St, Asheville, NC 28801</strong>. Please connect with them soon!",
+      "Schedule a Call",
+    ],
+    [
+      "website_financing_request",
+      "Financing Information Requested — 123 Main St, Asheville, NC 28801",
+      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> was looking for information regarding financing for this property: <strong>123 Main St, Asheville, NC 28801</strong>. We will let you take it from here!",
+      "Schedule a Call",
+    ],
+    [
+      "website_showing_request",
+      "Showing Requested — 123 Main St, Asheville, NC 28801",
+      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> just asked to book a showing for <strong>123 Main St, Asheville, NC 28801</strong>. Please reach out to them ASAP to get that scheduled!",
+      "Schedule a Showing Call",
+    ],
+  ] as const)("renders the requested %s copy and booking CTA", (emailType, subject, message, cta) => {
+    const preview = getEmailPreview(emailType, context);
+
+    expect(preview.subject).toBe(subject);
+    expect(preview.html).toContain(message);
+    expect(preview.html).toContain(`href="https://calendly.com/avery-agent"`);
+    expect(preview.html).toContain(`>${cta}</a>`);
+  });
+
+  it("escapes client and property values before rendering the shared email", () => {
+    const preview = getEmailPreview("website_deeper_analysis_request", {
+      ...context,
+      contactName: "Casey & Jordan",
+      propertyAddress: "15 <Main> St",
+    });
+
+    expect(preview.html).toContain("Casey &amp; Jordan");
+    expect(preview.html).toContain("15 &lt;Main&gt; St");
   });
 });

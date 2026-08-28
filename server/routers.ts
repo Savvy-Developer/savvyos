@@ -295,6 +295,7 @@ export const appRouter = router({
         "onboarding_overdue", "commission_exception_warning", "market_match_intro",
         "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report", "coaching_weekly_accountability",
         "coaching_feedback_invitation", "coaching_feedback_weekly_summary",
+        "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
       ];
       // Seed any missing rows
       const existing = await db2.select().from(emailNotificationSettings);

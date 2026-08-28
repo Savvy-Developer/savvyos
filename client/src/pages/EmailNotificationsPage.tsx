@@ -21,7 +21,7 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Mentioned User";
+type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Mentioned User";
 type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Recognition" | "Reporting";
 type TriggerType = "Event" | "Scheduled";
 
@@ -42,6 +42,9 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "lead_assigned", name: "Lead Assigned to Agent", description: "Sent to the agent when a contact is connected to them via the pipeline.", trigger: "Agent connection created (admin or ISA assigns a contact to an agent)", triggerType: "Event", recipient: "Agent", category: "Leads & CRM" },
   { id: "connection_request_approved", name: "Connection Request Approved", description: "Sent to the agent when their connection request for an existing contact is approved.", trigger: "Admin or ISA approves a connection request", triggerType: "Event", recipient: "Agent", category: "Leads & CRM" },
   { id: "client_intro", name: "Client Introduction Email", description: "Sent to the investor/client to introduce them to their assigned agent.", trigger: "Agent connection created and client intro is triggered", triggerType: "Event", recipient: "Agent", category: "Leads & CRM" },
+  { id: "website_deeper_analysis_request", name: "Website Deeper Analysis Handoff", description: "Shares a branded email with the client and listing agent, including the agent's call link.", trigger: "An investor requests deeper analysis from a savvy-agents.com property page", triggerType: "Event", recipient: "Agent + Client", category: "Leads & CRM" },
+  { id: "website_financing_request", name: "Website Financing Handoff", description: "Shares a branded email with the client and listing agent, including the agent's call link.", trigger: "An investor requests financing information from a savvy-agents.com property page", triggerType: "Event", recipient: "Agent + Client", category: "Leads & CRM" },
+  { id: "website_showing_request", name: "Website Showing Handoff", description: "Shares a branded email with the client and listing agent, including the agent's call link.", trigger: "An investor requests a showing from a savvy-agents.com property page", triggerType: "Event", recipient: "Agent + Client", category: "Leads & CRM" },
   // ── Transactions ──────────────────────────────────────────────────────────
   { id: "transaction_created", name: "Transaction Created", description: "Notifies the agent when a new transaction is created and linked to them.", trigger: "New transaction created with an assigned agent", triggerType: "Event", recipient: "Agent", category: "Transactions" },
   { id: "transaction_status_changed", name: "Transaction Status Changed", description: "Notifies the agent when the status of one of their transactions changes.", trigger: "Transaction status updated", triggerType: "Event", recipient: "Agent", category: "Transactions" },
@@ -87,6 +90,7 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Admin": "bg-red-100 text-red-700",
   "ISA": "bg-violet-100 text-violet-700",
   "Agent + Admin": "bg-orange-100 text-orange-700",
+  "Agent + Client": "bg-cyan-100 text-cyan-700",
   "Mentioned User": "bg-teal-100 text-teal-700",
 };
 

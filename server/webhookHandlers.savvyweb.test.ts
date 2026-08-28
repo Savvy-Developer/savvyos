@@ -130,7 +130,7 @@ beforeEach(() => {
 // ─── Event routing ────────────────────────────────────────────────────────────
 
 describe("customHandler event routing", () => {
-  it("routes every one of the five supported events to the savvy-web handler", async () => {
+  it("routes every supported event to the savvy-web handler", async () => {
     state.__mock.contactsByEmail["lead@example.com"] = 501;
 
     for (const event of Object.keys(SAVVY_WEB_EVENTS)) {

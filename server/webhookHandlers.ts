@@ -18,10 +18,17 @@ async function getDb() {
   if (!db) throw new Error("Database not available");
   return db;
 }
-import { contacts, leadSources, agentConnections } from "../drizzle/schema";
+import { contacts, leadSources, agentConnections, users } from "../drizzle/schema";
 import { eq, and, or, isNull } from "drizzle-orm";
 import type { WebhookEndpoint } from "../drizzle/schema";
 import { normalizeOptionalUsPhone } from "@shared/phone";
+import { sendTransactionalEmail } from "./_core/resendEmail";
+
+// The public savvy-agents.com client already uses this publishable key for
+// property reads. Website lead events contain a property UUID, but older event
+// payloads often omit the display address, so the receiver resolves it here.
+const SAVVY_WEB_PROPERTY_API_URL = "https://wvgbegmtbvkcfdzvvfnk.supabase.co/rest/v1/properties";
+const SAVVY_WEB_PUBLISHABLE_KEY = "sb_publishable_BzWpmP0LyamnjjjMA9m_QQ_Mv-byg9k";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -408,6 +415,11 @@ export const SAVVY_WEB_EVENTS: Record<string, SavvyWebEventSpec> = {
     // General lead capture — covers "Message Agent" (sendAgentMessage) and "Financing" button
     action: "lead_created", createsContact: true, createsAgentConnection: true, label: "Lead created",
   },
+  "lead.financing_requested": {
+    // Supported for a future dedicated Financing event; the current website
+    // sends lead.created with source="financing".
+    action: "financing_requested", createsContact: true, createsAgentConnection: true, label: "Financing request",
+  },
   "lead.analysis_requested": {
     // "Request Deeper Analysis" button
     action: "analysis_requested", createsContact: true, createsAgentConnection: true, label: "Analysis request",
@@ -479,6 +491,137 @@ export function resolveContactName(
   return deriveNameFromEmail(email);
 }
 
+type WebsiteLeadHandoffType =
+  | "website_deeper_analysis_request"
+  | "website_financing_request"
+  | "website_showing_request";
+
+type SavvyWebAgent = {
+  id: number;
+  name: string | null;
+  email: string | null;
+  callBookingLink: string | null;
+};
+
+function normalizeIdentity(value: string | null | undefined): string {
+  return (value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeBookingLink(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function getWebsiteLeadHandoffType(
+  event: string,
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): WebsiteLeadHandoffType | null {
+  if (event === "lead.analysis_requested") return "website_deeper_analysis_request";
+  if (event === "lead.showing_requested") return "website_showing_request";
+  if (event === "lead.financing_requested") return "website_financing_request";
+
+  // The website currently identifies financing requests as a lead.created
+  // event with a source field. Do not send this handoff for Message Agent or
+  // ordinary website-signup leads, which share the same event name.
+  const source = normalizeIdentity(pickField(data, raw, ["source", "leadSource", "lead_source"]));
+  if (event === "lead.created" && source.includes("financ")) {
+    return "website_financing_request";
+  }
+  return null;
+}
+
+async function resolveSavvyWebAgent(
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): Promise<SavvyWebAgent | null> {
+  const agentEmail = normalizeIdentity(pickField(data, raw, ["agentEmail", "agent_email"]));
+  const agentName = normalizeIdentity(pickField(data, raw, ["agentName", "agent_name"]));
+  if (!agentEmail && !agentName) return null;
+
+  const db = await getDb();
+  const activeUsers = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      callBookingLink: users.callBookingLink,
+      role: users.role,
+    })
+    .from(users)
+    .where(eq(users.isActive, true));
+
+  const eligibleUsers = activeUsers.filter((user) => user.role === "agent" || user.role === "admin");
+  const exactEmailMatch = agentEmail
+    ? eligibleUsers.find((user) => normalizeIdentity(user.email) === agentEmail)
+    : undefined;
+  if (exactEmailMatch) return exactEmailMatch;
+
+  // A few legacy website agent records use a different delivery email. A
+  // unique active-name match preserves the intended handoff without risking a
+  // guess where multiple SavvyOS users share the name.
+  const nameMatches = agentName
+    ? eligibleUsers.filter((user) => normalizeIdentity(user.name) === agentName)
+    : [];
+  if (nameMatches.length === 1) return nameMatches[0];
+
+  // Some website directory records contain a full married or public-facing name
+  // while SavvyOS has a short or legal profile name. A first-name fallback is
+  // safe only when the website supplied a full name and exactly one active
+  // agent/admin has that first token; it is never used for an ambiguous name.
+  const [websiteFirstName, ...websiteRemainingName] = agentName.split(" ");
+  const firstNameMatches = websiteFirstName && websiteRemainingName.length > 0
+    ? eligibleUsers.filter((user) => normalizeIdentity(user.name).split(" ")[0] === websiteFirstName)
+    : [];
+  return firstNameMatches.length === 1 ? firstNameMatches[0] : null;
+}
+
+async function resolveSavvyWebPropertyAddress(
+  suppliedAddress: string | null,
+  propertyId: unknown,
+): Promise<string> {
+  if (suppliedAddress) return suppliedAddress;
+  if (typeof propertyId !== "string" || !propertyId.trim()) return "the requested property";
+
+  try {
+    const url = new URL(SAVVY_WEB_PROPERTY_API_URL);
+    url.searchParams.set("id", `eq.${propertyId.trim()}`);
+    url.searchParams.set("select", "address,city,state,zip_code,title");
+    const response = await fetch(url, {
+      headers: {
+        apikey: SAVVY_WEB_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${SAVVY_WEB_PUBLISHABLE_KEY}`,
+      },
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const rows = await response.json() as Array<{
+      address?: string | null;
+      city?: string | null;
+      state?: string | null;
+      zip_code?: string | null;
+      title?: string | null;
+    }>;
+    const property = rows[0];
+    const street = property?.address?.trim() || property?.title?.trim();
+    const locality = [property?.city?.trim(), [property?.state?.trim(), property?.zip_code?.trim()].filter(Boolean).join(" ")]
+      .filter(Boolean)
+      .join(", ");
+    return [street, locality].filter(Boolean).join(", ") || "the requested property";
+  } catch (error) {
+    console.warn(`[savvyWebEventHandler] Could not resolve property ${propertyId} for website handoff:`, error);
+    return "the requested property";
+  }
+}
+
 /**
  * Create a contact from a savvy-web event. Mirrors the lead_ingest create path:
  * always attributed to a lead source, always leaves a `contact_created` row on
@@ -544,6 +687,10 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
   const propertyAddress = [streetAddress, locality].filter(Boolean).join(", ") || null;
   const propertyId = data.propertyId ?? rawPayload.propertyId ?? null;
   const leadId = data.leadId ?? rawPayload.leadId ?? null;
+  const websiteLeadHandoffType = getWebsiteLeadHandoffType(event, data, rawPayload);
+  const handoffPropertyAddress = websiteLeadHandoffType
+    ? await resolveSavvyWebPropertyAddress(propertyAddress, propertyId)
+    : propertyAddress;
   const webhookData = Object.fromEntries(
     Object.entries({ ...rawPayload, ...data }).filter(([key]) => ![
       "data", "event", "token", "signature", "authorization", "leadEmail", "email",
@@ -607,51 +754,38 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
     },
   });
 
-  // ── Agent Connection ────────────────────────────────────────────────────────
-  // For deliberate lead-intent events (Message Agent, Book a Showing, Request
-  // Deeper Analysis, Financing), automatically add the agent shown on the
-  // property page as an agent connection in SavvyOS so it appears in the
-  // "Agent Connections" section on the contact's detail page.
-  //
-  // The webhook payload from notification.service.ts always includes agentEmail
-  // (resolved from the lead's agentId before firing). We use this email to look
-  // up the matching SavvyOS users record — email is the shared identifier
-  // between the two systems. If no match is found the step is silently skipped
-  // so the rest of the webhook delivery is never blocked.
+  // ── Agent Connection + co-branded email ──────────────────────────────────────
+  // Deliberate property-intent events connect the website visitor and listing
+  // agent in SavvyOS. The three direct requests also receive one shared branded
+  // email: the agent is the primary recipient and the client is CC'd so either
+  // party can reply all and continue the conversation.
   let agentConnectionCreated = false;
-  if (spec.createsAgentConnection) {
-    const agentEmail = pickField(data, rawPayload, ["agentEmail", "agent_email"]);
-    if (agentEmail) {
-      try {
+  let handoffEmailSent = false;
+  if (spec.createsAgentConnection || websiteLeadHandoffType) {
+    try {
+      const agent = await resolveSavvyWebAgent(data, rawPayload);
+      if (!agent) {
+        const agentEmail = pickField(data, rawPayload, ["agentEmail", "agent_email"]);
+        console.warn(
+          `[savvyWebEventHandler] No SavvyOS agent resolved for "${agentEmail ?? "(no agent email)"}" ` +
+          `(event=${event}, contactId=${contactId}). Agent connection and website handoff skipped.`,
+        );
+      } else {
         const db = await getDb();
-        const { users } = await import("../drizzle/schema");
-
-        // Resolve the SavvyOS numeric user ID from the agent's email address.
-        // Note: we match by email only — not by role — because Savvy team members
-        // may have role "admin" in SavvyOS while appearing as agents on savvy-web.
-        // Email is the shared identifier between the two systems.
-        const [agentRow] = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.email, agentEmail))
-          .limit(1);
-
-        const agentId = agentRow?.id ?? null;
-
-        if (agentId) {
+        if (spec.createsAgentConnection) {
           // Prevent duplicate connections for the same agent + contact pair.
           const [existing] = await db
             .select({ id: agentConnections.id })
             .from(agentConnections)
             .where(and(
-              eq(agentConnections.agentId, agentId),
+              eq(agentConnections.agentId, agent.id),
               eq(agentConnections.contactId, contactId),
             ))
             .limit(1);
 
           if (!existing) {
             await db.insert(agentConnections).values({
-              agentId,
+              agentId: agent.id,
               contactId,
               pipelineStatus: "new_lead",
               agingUpdatedAt: new Date(),
@@ -663,7 +797,7 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
               entityType: "agent_connection",
               entityId: contactId,
               details: {
-                agentId,
+                agentId: agent.id,
                 contactId,
                 via: "savvy-web",
                 trigger: event,
@@ -672,33 +806,50 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
 
             agentConnectionCreated = true;
           } else {
-            console.log(`[savvyWebEventHandler] Agent connection already exists: agentId=${agentId} contactId=${contactId}`);
+            console.log(`[savvyWebEventHandler] Agent connection already exists: agentId=${agent.id} contactId=${contactId}`);
           }
-        } else {
-          // Log clearly so it's easy to spot in Railway logs when the email
-          // doesn't match any SavvyOS agent account (e.g. email mismatch).
-          console.warn(
-            `[savvyWebEventHandler] No SavvyOS agent found for email "${agentEmail}" ` +
-            `(event=${event}, contactId=${contactId}). Agent connection NOT created. ` +
-            `Verify the agent's email matches their SavvyOS user record.`
-          );
         }
-      } catch (err) {
-        // Never let a failed agent-connection write block the webhook response.
-        console.error("[savvyWebEventHandler] Failed to create agent connection:", err);
+
+        if (websiteLeadHandoffType && agent.email) {
+          const { firstName, lastName } = resolveContactName(data, rawPayload, email);
+          const contactName = [firstName, lastName].filter(Boolean).join(" ");
+          const normalizedAgentEmail = normalizeIdentity(agent.email);
+          const normalizedContactEmail = normalizeIdentity(email);
+          const delivery = await sendTransactionalEmail(websiteLeadHandoffType, {
+            recipientEmail: agent.email,
+            recipientName: agent.name ?? undefined,
+            ccEmails: normalizedAgentEmail !== normalizedContactEmail ? [email] : undefined,
+            agentName: agent.name ?? pickField(data, rawPayload, ["agentName", "agent_name"]),
+            contactName,
+            propertyAddress: handoffPropertyAddress ?? "the requested property",
+            agentBookingLink: normalizeBookingLink(agent.callBookingLink) ?? undefined,
+          }, {
+            // This email has two recipients, so never turn a SavvyOS deep link
+            // into a token owned by only one of them.
+            injectMagicLinks: false,
+            // Preserve the request-specific copy and calendar CTA above.
+            allowTemplateOverride: false,
+            idempotencyKey: `savvy-web-handoff:${websiteLeadHandoffType}:${String(leadId ?? contactId)}:${String(propertyId ?? handoffPropertyAddress ?? "property")}:${agent.id}`,
+          });
+          handoffEmailSent = delivery.sent;
+          if (!delivery.sent) {
+            console.warn(`[savvyWebEventHandler] Website handoff email was not sent (event=${event}, contactId=${contactId}): ${delivery.reason ?? "unknown reason"}`);
+          }
+          if (!normalizeBookingLink(agent.callBookingLink)) {
+            console.warn(`[savvyWebEventHandler] Agent ${agent.id} has no valid call booking link; website handoff email sent without a calendar CTA.`);
+          }
+        }
       }
-    } else {
-      console.log(
-        `[savvyWebEventHandler] No agentEmail in payload for event "${event}" ` +
-        `(contactId=${contactId}). Agent connection skipped.`
-      );
+    } catch (err) {
+      // Never let an agent-connection or email failure block the webhook response.
+      console.error("[savvyWebEventHandler] Failed to process agent connection or website handoff:", err);
     }
   }
 
   return {
     contactId,
     action: createdContact ? "created" : "logged",
-    message: `${spec.label} logged for contact ${contactId}${createdContact ? " (contact created)" : ""}${agentConnectionCreated ? " (agent connection created)" : ""}`,
+    message: `${spec.label} logged for contact ${contactId}${createdContact ? " (contact created)" : ""}${agentConnectionCreated ? " (agent connection created)" : ""}${handoffEmailSent ? " (handoff email sent)" : ""}`,
   };
 };
 
