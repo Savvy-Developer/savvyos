@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { pulseProcedure } from "./authorization";
+import { pulseMemberProcedure } from "./authorization";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { pulseCascadingMessages, pulseMeetingMembers, pulseMeetingRuns, pulseMeetingUpdates, pulseMeetingsArchive, pulseWorkItems, users } from "../../drizzle/schema";
@@ -22,9 +22,26 @@ async function dashboardPayload(db: any, viewerId: number, id: string) {
   const { meeting, sections } = await getMeetingSectionPayloads(db, viewerId, id);
   const isManager = await is_visible_meeting_manager(db, viewerId, id);
   const scorecard = sections.find((section: any) => section.section === "scorecard");
+  const members = await db.select({ id: users.id, name: users.name, email: users.email, meetingRole: pulseMeetingMembers.meetingRole })
+    .from(pulseMeetingMembers)
+    .innerJoin(users, eq(users.id, pulseMeetingMembers.personId))
+    .where(and(eq(pulseMeetingMembers.meetingId, meeting.id), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt)));
   return {
     viewerId,
-    meeting: { id: meeting.id, name: meeting.name, dayOfWeek: meeting.dayOfWeek, startTime: meeting.startTime, cadence: meeting.cadence, durationMinutes: meeting.durationMinutes, sectionsEnabled: meeting.sectionsEnabled, sectionOrder: meeting.sectionOrder },
+    meeting: {
+      id: meeting.id,
+      name: meeting.name,
+      ownerId: meeting.ownerId,
+      facilitatorId: meeting.ownerId,
+      administratorId: meeting.administratorId,
+      dayOfWeek: meeting.dayOfWeek,
+      startTime: meeting.startTime,
+      cadence: meeting.cadence,
+      durationMinutes: meeting.durationMinutes,
+      sectionsEnabled: meeting.sectionsEnabled,
+      sectionOrder: meeting.sectionOrder,
+    },
+    members,
     sections,
     sectionFunctions: PULSE_SECTION_FUNCTIONS,
     ...(isManager ? { manager: { canRun: true }, attention: scorecardAttention(scorecard?.items ?? [], meeting.id, meeting.name) } : {}),
@@ -38,7 +55,7 @@ async function activeRun(db: any, meetingIdValue: string) {
 
 async function canManageRecap(db: any, user: { id: number; email?: string | null }, meetingIdValue: string) {
   const meeting = await require_visible_meeting(db, user.id, meetingIdValue);
-  return meeting.administratorId === user.id || user.email?.toLowerCase() === "tyler@savvy.realty";
+  return meeting.administratorId === user.id;
 }
 
 async function attendeeIdsForMeeting(db: any, meetingIdValue: string) {
@@ -62,12 +79,12 @@ async function buildRecap(transcript: string, meetingName: string) {
 }
 
 export const pulseMeetingViewsRouter = router({
-  dashboard: pulseProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
+  dashboard: pulseMemberProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     return dashboardPayload(db, ctx.user.id, input.meetingId);
   }),
 
-  run: pulseProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
+  run: pulseMemberProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     if (!await is_visible_meeting_manager(db, ctx.user.id, input.meetingId)) throw new TRPCError({ code: "NOT_FOUND", message: "This meeting is not available to run." });
     const payload = await dashboardPayload(db, ctx.user.id, input.meetingId);
@@ -77,20 +94,20 @@ export const pulseMeetingViewsRouter = router({
     return { ...payload, members, run: { sectionDurations: meeting.sectionDurations, current: await activeRun(db, input.meetingId) } };
   }),
 
-  addUpdate: pulseProcedure.input(z.object({ meetingId, updateType: z.enum(["segue", "headline"]), body: z.string().trim().min(1).max(4000), tone: z.enum(["green", "amber", "red"]).optional(), weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })).mutation(async ({ ctx, input }) => {
+  addUpdate: pulseMemberProcedure.input(z.object({ meetingId, updateType: z.enum(["segue", "headline"]), body: z.string().trim().min(1).max(4000), tone: z.enum(["green", "amber", "red"]).optional(), weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     await require_visible_meeting(db, ctx.user.id, input.meetingId);
     await db.insert(pulseMeetingUpdates).values({ id: uuid(), meetingId: input.meetingId, authorId: ctx.user.id, updateType: input.updateType, tone: input.updateType === "headline" ? input.tone ?? "green" : null, weekOf: input.weekOf ? new Date(`${input.weekOf}T00:00:00.000Z`) : null, body: input.body });
     return { success: true };
   }),
 
-  observeRun: pulseProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
+  observeRun: pulseMemberProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     await require_visible_meeting(db, ctx.user.id, input.meetingId);
     return activeRun(db, input.meetingId);
   }),
 
-  start: pulseProcedure.input(z.object({ meetingId })).mutation(async ({ ctx, input }) => {
+  start: pulseMemberProcedure.input(z.object({ meetingId })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     if (!await is_visible_meeting_manager(db, ctx.user.id, input.meetingId)) throw new TRPCError({ code: "FORBIDDEN", message: "Only the facilitator or administrator can run this L10." });
     const existing = await activeRun(db, input.meetingId); if (existing) return { run: existing, resumed: true };
@@ -101,7 +118,7 @@ export const pulseMeetingViewsRouter = router({
     return { run, resumed: false };
   }),
 
-  updateRun: pulseProcedure.input(z.object({ meetingId, runId: z.string().uuid(), status: z.enum(["running", "paused"]).optional(), activeSection: z.string().min(1).max(64).optional(), elapsedSeconds: z.number().int().min(0).max(86_400).optional(), notes: z.string().max(16_000).nullable().optional(), attendeeIds: z.array(z.number().int().positive()).max(100).optional() })).mutation(async ({ ctx, input }) => {
+  updateRun: pulseMemberProcedure.input(z.object({ meetingId, runId: z.string().uuid(), status: z.enum(["running", "paused"]).optional(), activeSection: z.string().min(1).max(64).optional(), elapsedSeconds: z.number().int().min(0).max(86_400).optional(), notes: z.string().max(16_000).nullable().optional(), attendeeIds: z.array(z.number().int().positive()).max(100).optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     if (!await is_visible_meeting_manager(db, ctx.user.id, input.meetingId)) throw new TRPCError({ code: "FORBIDDEN", message: "Only the facilitator or administrator can update this L10." });
     const [run] = await db.select().from(pulseMeetingRuns).where(and(eq(pulseMeetingRuns.id, input.runId), eq(pulseMeetingRuns.meetingId, input.meetingId), inArray(pulseMeetingRuns.status, ["running", "paused"]))).limit(1);
@@ -115,7 +132,7 @@ export const pulseMeetingViewsRouter = router({
     return { success: true };
   }),
 
-  conclude: pulseProcedure.input(z.object({ meetingId, runId: z.string().uuid().optional(), rating: z.number().int().min(1).max(10), durationActualMinutes: z.number().int().min(0).max(1440), attendeeIds: z.array(z.number().int().positive()).max(100), notes: z.string().trim().max(16_000).optional(), transcript: z.string().trim().max(MAX_TRANSCRIPT_LENGTH).optional() })).mutation(async ({ ctx, input }) => {
+  conclude: pulseMemberProcedure.input(z.object({ meetingId, runId: z.string().uuid().optional(), rating: z.number().int().min(1).max(10), durationActualMinutes: z.number().int().min(0).max(1440), attendeeIds: z.array(z.number().int().positive()).max(100), notes: z.string().trim().max(16_000).optional(), transcript: z.string().trim().max(MAX_TRANSCRIPT_LENGTH).optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     if (!await is_visible_meeting_manager(db, ctx.user.id, input.meetingId)) throw new TRPCError({ code: "FORBIDDEN", message: "Only the facilitator or administrator can conclude this L10." });
     const run = input.runId ? await db.select().from(pulseMeetingRuns).where(and(eq(pulseMeetingRuns.id, input.runId), eq(pulseMeetingRuns.meetingId, input.meetingId))).then((rows: any[]) => rows[0] ?? null) : await activeRun(db, input.meetingId);
@@ -133,7 +150,7 @@ export const pulseMeetingViewsRouter = router({
     return { success: true, archiveId, runId: run?.id ?? null, recapRequired: true };
   }),
 
-  generateRecap: pulseProcedure.input(z.object({ meetingId, runId: z.string().uuid(), transcript: z.string().trim().min(50).max(MAX_TRANSCRIPT_LENGTH).optional() })).mutation(async ({ ctx, input }) => {
+  generateRecap: pulseMemberProcedure.input(z.object({ meetingId, runId: z.string().uuid(), transcript: z.string().trim().min(50).max(MAX_TRANSCRIPT_LENGTH).optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     if (!await canManageRecap(db, ctx.user, input.meetingId)) throw new TRPCError({ code: "FORBIDDEN", message: "Only this L10’s administrator can generate its recap." });
     const [run] = await db.select().from(pulseMeetingRuns).where(and(eq(pulseMeetingRuns.id, input.runId), eq(pulseMeetingRuns.meetingId, input.meetingId), eq(pulseMeetingRuns.status, "concluded"))).limit(1);
@@ -154,7 +171,7 @@ export const pulseMeetingViewsRouter = router({
     return { success: true, recipients: sent, recap: summary };
   }),
 
-  acknowledgeCascade: pulseProcedure.input(z.object({ messageId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+  acknowledgeCascade: pulseMemberProcedure.input(z.object({ messageId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const db = await getDb(); if (!db) throw unavailable();
     const [message] = await db.select().from(pulseCascadingMessages).where(and(eq(pulseCascadingMessages.id, input.messageId), isNull(pulseCascadingMessages.deletedAt))).limit(1);
     if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "That message is no longer available." }); await require_visible_meeting(db, ctx.user.id, message.toMeetingId);

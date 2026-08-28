@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { pulseProcedure } from "./authorization";
+import { pulseMemberProcedure } from "./authorization";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -222,7 +222,7 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
 }
 
 export const pulseWorkItemsRouter = router({
-  list: pulseProcedure
+  list: pulseMemberProcedure
     .input(z.object({
       type: workItemTypeSchema.optional(),
       meetingId: z.string().uuid().nullable().optional(),
@@ -235,7 +235,7 @@ export const pulseWorkItemsRouter = router({
       return listAccessibleItems(db, ctx.user.id, input ?? {});
     }),
 
-  detail: pulseProcedure
+  detail: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -342,7 +342,7 @@ export const pulseWorkItemsRouter = router({
       };
     }),
 
-  create: pulseProcedure
+  create: pulseMemberProcedure
     .input(z.object({
       type: workItemTypeSchema,
       title: z.string().trim().min(1).max(500),
@@ -422,7 +422,7 @@ export const pulseWorkItemsRouter = router({
       return { id: createdIds[0], ids: createdIds, dueDate, assignmentGroupId };
     }),
 
-  update: pulseProcedure
+  update: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       title: z.string().trim().min(1).max(500).optional(),
@@ -448,7 +448,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  setTodoStatus: pulseProcedure
+  setTodoStatus: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), status: todoStatusSchema }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -468,7 +468,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  setIssueStatus: pulseProcedure
+  setIssueStatus: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       status: issueStatusSchema,
@@ -517,7 +517,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true, todoId };
     }),
 
-  setRockStatus: pulseProcedure
+  setRockStatus: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), status: rockStatusSchema, note: z.string().trim().max(2000).optional().nullable(), issue: z.object({ meetingId: z.string().uuid(), title: z.string().trim().min(1).max(500).optional() }).optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -568,7 +568,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true, asksForNote: shouldAsk, issueId };
     }),
 
-  setRockRaci: pulseProcedure
+  setRockRaci: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), assignments: z.array(z.object({ personId: z.number().int().positive(), role: raciRoleSchema })).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -585,7 +585,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  setManualRockPercent: pulseProcedure
+  setManualRockPercent: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), percentComplete: z.number().int().min(0).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -601,7 +601,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  addMilestone: pulseProcedure
+  addMilestone: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), title: z.string().trim().min(1).max(500), dueDate: dateSchema, sortOrder: z.number().int().min(0).optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -618,7 +618,7 @@ export const pulseWorkItemsRouter = router({
       return { id };
     }),
 
-  setMilestoneComplete: pulseProcedure
+  setMilestoneComplete: pulseMemberProcedure
     .input(z.object({ milestoneId: z.string().uuid(), isComplete: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -639,7 +639,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  reorderIssues: pulseProcedure
+  reorderIssues: pulseMemberProcedure
     .input(z.object({ meetingId: z.string().uuid(), issueIds: z.array(z.string().uuid()).min(1).max(500) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -659,7 +659,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  move: pulseProcedure
+  move: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       toMeetingId: z.string().uuid().nullable(),
@@ -686,7 +686,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  addComment: pulseProcedure
+  addComment: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), body: z.string().trim().min(1).max(8000), mentionedPersonIds: z.array(z.number().int().positive()).max(50).default([]) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -733,7 +733,7 @@ export const pulseWorkItemsRouter = router({
       return { id: commentId };
     }),
 
-  resolveQuarterRollover: pulseProcedure
+  resolveQuarterRollover: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       action: z.enum(["carry", "done", "drop"]),
@@ -772,7 +772,7 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
-  assignees: pulseProcedure.query(async ({ ctx }) => {
+  assignees: pulseMemberProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw unavailable();
     const visibleIds = await visible_meeting_ids(db, ctx.user.id);
@@ -788,7 +788,7 @@ export const pulseWorkItemsRouter = router({
     return Array.from(unique.values());
   }),
 
-  validStatuses: pulseProcedure.query(() => ({
+  validStatuses: pulseMemberProcedure.query(() => ({
     todo: todoStatusSchema.options,
     issue: issueStatusSchema.options,
     rock: rockStatusSchema.options,

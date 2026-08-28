@@ -21,16 +21,17 @@ function unavailableMeetingError() {
  * Platform roles, assignment, mentions, and SavvyOS groups never grant access.
  */
 export async function visible_meeting_ids(db: any, personId: number): Promise<string[]> {
-  if (await isProtectedPulseUser(db, personId)) {
-    const meetings = await db.select({ id: pulseMeetings.id }).from(pulseMeetings)
-      .where(and(eq(pulseMeetings.isActive, true), isNull(pulseMeetings.deletedAt)));
-    return meetings.map((meeting: { id: string }) => meeting.id);
-  }
+  // Even the protected Pulse user must be explicitly added to a meeting.
+  // Tyler's immutable protection applies to Pulse capabilities, not meeting
+  // membership or meeting-specific visibility.
   const rows = await db
     .select({ meetingId: pulseMeetingMembers.meetingId })
     .from(pulseMeetingMembers)
+    .innerJoin(pulseMeetings, eq(pulseMeetings.id, pulseMeetingMembers.meetingId))
     .where(and(
       eq(pulseMeetingMembers.personId, personId),
+      eq(pulseMeetings.isActive, true),
+      isNull(pulseMeetings.deletedAt),
       isNull(pulseMeetingMembers.removedAt),
       isNull(pulseMeetingMembers.deletedAt),
     ));
@@ -64,18 +65,21 @@ export async function require_visible_meeting(db: any, personId: number, meeting
  * Management capability is checked only after meeting visibility. A platform
  * administrator who is not a member receives the same not-found response.
  */
+export function can_run_meeting_for_member(meeting: { ownerId: number; administratorId: number }, personId: number, activeMemberIds: number[]) {
+  return activeMemberIds.includes(personId) && (meeting.ownerId === personId || meeting.administratorId === personId);
+}
+
 export async function is_visible_meeting_manager(db: any, personId: number, meetingId: string) {
-  await require_visible_meeting(db, personId, meetingId);
-  if (await isProtectedPulseUser(db, personId)) return true;
-  const [membership] = await db
-    .select({ meetingRole: pulseMeetingMembers.meetingRole })
+  const meeting = await require_visible_meeting(db, personId, meetingId);
+  // ownerId is the existing Pulse schema field for the meeting facilitator.
+  // The configured IDs, active membership, and no other Pulse capability are
+  // authoritative for Run Meeting control.
+  const members = await db.select({ personId: pulseMeetingMembers.personId })
     .from(pulseMeetingMembers)
     .where(and(
       eq(pulseMeetingMembers.meetingId, meetingId),
-      eq(pulseMeetingMembers.personId, personId),
       isNull(pulseMeetingMembers.removedAt),
       isNull(pulseMeetingMembers.deletedAt),
     ));
-
-  return membership?.meetingRole === "owner" || membership?.meetingRole === "administrator";
+  return can_run_meeting_for_member(meeting, personId, members.map((member: { personId: number }) => member.personId));
 }

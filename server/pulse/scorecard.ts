@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { canOpenPulseSettings, pulseProcedure } from "./authorization";
+import { canOpenPulseSettings, pulseMemberProcedure, pulseProcedure } from "./authorization";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -238,7 +238,7 @@ export const pulseScorecardRouter = router({
     const attention = (await Promise.all(meetings.map(async (meeting) => scorecardAttention((await getMeetingScorecard(db, ctx.user.id, meeting.id, true)).items, meeting.id, meeting.name)))).flat();
     return attention.sort((left: any, right: any) => right.severity - left.severity || left.name.localeCompare(right.name)).slice(0, 5);
   }),
-  saveCurrentValue: pulseProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive(), actualValue: z.number().finite(), note: z.string().max(5000).nullable().optional() })).mutation(async ({ ctx, input }) => {
+  saveCurrentValue: pulseMemberProcedure.input(z.object({ meetingId: z.string().uuid(), metricId: z.number().int().positive(), actualValue: z.number().finite(), note: z.string().max(5000).nullable().optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
     return saveCurrentScorecardValue(db, ctx.user.id, input);
   }),

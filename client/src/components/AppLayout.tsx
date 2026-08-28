@@ -548,6 +548,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const role = (user as any)?.role as "admin" | "agent" | "isa" | "agent_support" | undefined;
   const isPulsePath = currentPath === "/pulse" || currentPath.startsWith("/pulse/");
+  const isPulseMeetingPath = currentPath === "/pulse/meetings" || currentPath.startsWith("/pulse/meetings/");
 
   // Pulse navigation is membership-aware and intentionally replaces the broader
   // SavvyOS nav while someone is working inside Pulse.
@@ -699,7 +700,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
-  const canUsePulseLayout = isPulsePath && role === "admin" && !!(adminPerms as Record<string, boolean> | undefined)?.canViewPulse;
+  const canUsePulseLayout = isPulseMeetingPath
+    ? Boolean(pulseShell)
+    : isPulsePath && role === "admin" && !!(adminPerms as Record<string, boolean> | undefined)?.canViewPulse;
   const baseNavGroups = canUsePulseLayout ? buildPulseNav(pulseShell as PulseNavShell | undefined) : standardNavGroups;
   // For admin users, filter nav by their permissions, then apply password-list visibility.
   const permissionFilteredNavGroups: NavGroup[] = role === "admin"

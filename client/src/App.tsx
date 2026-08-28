@@ -289,6 +289,20 @@ function PulseRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Meeting views are member-facing Pulse surfaces. The server-side meeting
+ * payload remains the final authority, so a direct URL for a non-member still
+ * returns the same unavailable-meeting state without exposing data.
+ */
+function PulseMemberRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, { enabled: !!user });
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (error) return <NotFound />;
+  if (!data) return <NotFound />;
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <AuthGuard>
@@ -357,11 +371,11 @@ function Router() {
           <Route path="/agent-directory" component={AgentDirectoryPage} />
           <Route path="/roles-responsibilities">{() => <AdminRoute><RolesResponsibilitiesPage /></AdminRoute>}</Route>
           <Route path="/roles-responsibilities/:id">{() => <AdminRoute><RoleResponsibilityDetailPage /></AdminRoute>}</Route>
-          <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseRoute><PulseMeetingRunPage meetingId={id} /></PulseRoute>}</Route>
+          <Route path="/pulse/meetings/:id/run">{({ id }: any) => <PulseMemberRoute><PulseMeetingRunPage meetingId={id} /></PulseMemberRoute>}</Route>
           <Route path="/pulse/settings/meetings/:id">{({ id }: any) => <PulseRoute><PulseMeetingSettingsPage meetingId={id} /></PulseRoute>}</Route>
           <Route path="/pulse/settings/create">{() => <PulseRoute><PulseCreateMeetingPage /></PulseRoute>}</Route>
-          <Route path="/pulse/meetings/:id">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
-          <Route path="/pulse/meetings">{() => <PulseRoute><PulseFoundationPage /></PulseRoute>}</Route>
+          <Route path="/pulse/meetings/:id">{() => <PulseMemberRoute><PulseFoundationPage /></PulseMemberRoute>}</Route>
+          <Route path="/pulse/meetings">{() => <PulseMemberRoute><PulseFoundationPage /></PulseMemberRoute>}</Route>
           <Route path="/pulse/mission">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/outstanding">{() => <PulseRoute><PulseMissionControlAdminPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/attention">{() => <PulseRoute><PulseGlobalAttentionPage /></PulseRoute>}</Route>

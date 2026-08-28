@@ -119,3 +119,16 @@ export const pulseProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   if (!await canOpenPulse(db, ctx.user)) throw unavailable(PULSE_UNAVAILABLE);
   return next({ ctx: { ...ctx, pulseDb: db } });
 });
+
+/**
+ * Member-facing Pulse procedures deliberately do not require the global
+ * admin-only Pulse flag. Each member procedure must enforce explicit meeting
+ * membership at its own input boundary through require_visible_meeting().
+ * This keeps ordinary meeting attendees inside Pulse without widening any
+ * Pulse administration procedure.
+ */
+export const pulseMemberProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pulse is not available right now. Please try again." });
+  return next({ ctx: { ...ctx, pulseDb: db } });
+});

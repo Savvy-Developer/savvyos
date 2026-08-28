@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { pulseProcedure } from "./authorization";
+import { pulseMemberProcedure, pulseProcedure } from "./authorization";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -158,7 +158,7 @@ export const pulseCascadesRouter = router({
       };
     }),
 
-  acknowledge: pulseProcedure
+  acknowledge: pulseMemberProcedure
     .input(z.object({ messageId: z.string().uuid(), from: z.string().max(64).default("pulse") }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();

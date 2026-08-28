@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { canOpenPulseSettings, pulseProcedure } from "../pulse/authorization";
+import { canOpenPulseSettings, pulseMemberProcedure, pulseProcedure } from "../pulse/authorization";
 import { and, asc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -164,7 +164,7 @@ export const pulseRouter = router({
   settings: pulseSettingsRouter,
 
   /** Used by the shell. This payload is built from membership, never platform role. */
-  shell: pulseProcedure.query(async ({ ctx }) => {
+  shell: pulseMemberProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw serviceUnavailable();
     await ensureGlossary(db);
@@ -189,7 +189,7 @@ export const pulseRouter = router({
     };
   }),
 
-  glossary: pulseProcedure.query(async () => {
+  glossary: pulseMemberProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw serviceUnavailable();
     await ensureGlossary(db);
@@ -199,13 +199,13 @@ export const pulseRouter = router({
       .orderBy(asc(pulseGlossary.term));
   }),
 
-  visibleMeetingIds: pulseProcedure.query(async ({ ctx }) => {
+  visibleMeetingIds: pulseMemberProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw serviceUnavailable();
     return visible_meeting_ids(db, ctx.user.id);
   }),
 
-  list: pulseProcedure
+  list: pulseMemberProcedure
     .input(z.object({ search: z.string().trim().max(100).optional() }).optional())
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -215,7 +215,7 @@ export const pulseRouter = router({
       return query ? meetings.filter((meeting: any) => meeting.name.toLocaleLowerCase().includes(query)) : meetings;
     }),
 
-  get: pulseProcedure
+  get: pulseMemberProcedure
     .input(z.object({ meetingId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -247,7 +247,7 @@ export const pulseRouter = router({
       };
     }),
 
-  sectionWorkItems: pulseProcedure
+  sectionWorkItems: pulseMemberProcedure
     .input(z.object({ meetingId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -255,7 +255,7 @@ export const pulseRouter = router({
       return getVisibleMeetingWorkItems(db, ctx.user.id, input.meetingId);
     }),
 
-  search: pulseProcedure
+  search: pulseMemberProcedure
     .input(z.object({ query: z.string().trim().min(1).max(100) }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
