@@ -64,6 +64,7 @@ import { pulseRouter } from "./routers/pulse";
 import { resendInboxRouter } from "./routers/resendInbox";
 import { webinarsRouter } from "./routers/webinars";
 import { landingPagesRouter } from "./routers/landingPages";
+import { reviewsRouter } from "./routers/reviews";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -72,6 +73,7 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
     ["transaction_created", { ...ctx2, transactionNumber: "TXN-TEST-001", transactionType: "buyer", contactName: "Jane Smith", propertyAddress: "123 Mountain View Dr, Asheville, NC", amount: "$525,000" }],
     ["transaction_status_changed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", status: "Under Contract" }],
     ["transaction_closed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", amount: "$525,000" }],
+    ["transaction_review_request", { ...ctx2, agentName: "Sarah Mitchell", transactionNumber: "TXN-TEST-001", propertyAddress: "123 Mountain View Dr, Asheville, NC", reviewUrl: "https://os.savvy-agents.com/review?token=preview-link" }],
     ["commission_calculated", { ...ctx2, transactionNumber: "TXN-TEST-001", percentage: "80", amount: "$12,600" }],
     ["task_assigned", { ...ctx2, taskTitle: "Follow up with Jane Smith re: buy box", dueDate: "Mar 25, 2026", contactName: "Jane Smith" }],
     ["task_due", { ...ctx2, taskTitle: "Follow up with Jane Smith re: buy box", dueDate: "Today" }],
@@ -274,6 +276,7 @@ export const appRouter = router({
   resendInbox: resendInboxRouter,
   webinars: webinarsRouter,
   landingPages: landingPagesRouter,
+  reviews: reviewsRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
@@ -284,7 +287,7 @@ export const appRouter = router({
       if (!db2) return [];
       const EMAIL_TYPES = [
         "lead_assigned", "transaction_created", "transaction_status_changed",
-        "transaction_closed", "commission_calculated", "task_assigned", "task_due",
+        "transaction_closed", "transaction_review_request", "commission_calculated", "task_assigned", "task_due",
         "payout_integrity_fail", "listing_created", "listing_expiration_reminder",
         "onboarding_overdue", "commission_exception_warning", "market_match_intro",
         "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report", "coaching_weekly_accountability",

@@ -33,6 +33,7 @@ async function sendViaResendHttpFallback(params: {
   subject: string;
   html: string;
   idempotencyKey?: string;
+  replyTo?: string;
 }): Promise<{ sent: boolean; reason?: string }> {
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -47,6 +48,7 @@ async function sendViaResendHttpFallback(params: {
         from: FROM_ADDRESS,
         to: [params.to],
         ...(params.cc?.length ? { cc: params.cc } : {}),
+        ...(params.replyTo ? { reply_to: params.replyTo } : {}),
         subject: params.subject,
         html: params.html,
       }),
@@ -65,6 +67,7 @@ export type EmailType =
   | "transaction_created"
   | "transaction_status_changed"
   | "transaction_closed"
+  | "transaction_review_request"
   | "commission_calculated"
   | "task_assigned"
   | "task_due"
@@ -125,6 +128,8 @@ interface EmailContext {
   transactionNumber?: string;
   transactionType?: string;
   propertyAddress?: string;
+  reviewUrl?: string;
+  replyToEmail?: string;
   status?: string;
   taskTitle?: string;
   dueDate?: string;
@@ -393,6 +398,24 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ], "#059669")}
       ${ctaButton("View Payout Details", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"), "#059669")}`,
       `Transaction closed${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
+    ),
+  }),
+
+  transaction_review_request: (ctx) => ({
+    subject: `How was your experience with ${ctx.agentName ?? "Savvy STR Agents"}?`,
+    html: emailLayout(
+      `${heading("We'd Love Your Feedback", "#0891B2")}
+      ${subheading("A note from Savvy STR Agents")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`Thank you for trusting ${escapeHtml(ctx.agentName ?? "your Savvy STR Agents representative")} with your recent real estate transaction. Your feedback helps us recognize great service and continue improving the client experience.`)}
+      ${infoCard([
+        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
+        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${escapeHtml(ctx.transactionNumber)}`] : []),
+      ], "#0891B2")}
+      ${bodyText("Please take a moment to share your experience. It only takes about a minute.")}
+      ${ctaButton("Leave a Review", ctx.reviewUrl ?? APP_URL, "#0891B2")}
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This personalized link is for one review and expires in 30 days. If you have a question about your transaction, simply reply to this email.</p>`,
+      `Please share your experience with ${ctx.agentName ?? "Savvy STR Agents"}.`
     ),
   }),
 
@@ -1024,6 +1047,7 @@ export async function sendTransactionalEmail(
       subject,
       html,
       ...(ctx.ccEmails?.length ? { cc: ctx.ccEmails } : ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
+      ...(ctx.replyToEmail ? { replyTo: ctx.replyToEmail } : {}),
     };
     const result = await resend.emails.send(
       sendOptions,
@@ -1035,6 +1059,7 @@ export async function sendTransactionalEmail(
       const fallback = await sendViaResendHttpFallback({
         to: ctx.recipientEmail,
         ...(ctx.ccEmails?.length ? { cc: ctx.ccEmails } : ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
+        ...(ctx.replyToEmail ? { replyTo: ctx.replyToEmail } : {}),
         subject,
         html,
         idempotencyKey: options.idempotencyKey,

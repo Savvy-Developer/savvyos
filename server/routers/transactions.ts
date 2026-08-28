@@ -29,6 +29,7 @@ import { generateAutoPayouts } from "../autoPayouts";
 import { syncReferralPaymentForTransaction } from "./referrals";
 import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
 import { syncIsaOutcomeAttribution } from "../isaOutcomeAttribution";
+import { sendReviewRequestsForClosedTransaction } from "./reviews";
 import { getDb } from "../db";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
@@ -441,7 +442,8 @@ export const transactionsRouter = router({
         await triggerSmartPlansForTransactionStatus(txForEmail.transaction, input.data.status);
       }
 
-      // Automation: transaction closed → check payout integrity
+      // Automation: transaction closed → check payout integrity and request client feedback.
+      // Only the first transition to Closed sends review requests; further edits do not resend them.
       if (input.data.status === "closed" && txForEmail) {
         // Check if payout items exist first
         const payouts = await getPayoutItems(input.id);
@@ -463,6 +465,12 @@ export const transactionsRouter = router({
         try {
           await sendEmailAlert("transaction_closed", txForEmail.transaction.agentId, txContext);
         } catch (_) {}
+
+        if (statusChanged) {
+          await sendReviewRequestsForClosedTransaction(input.id).catch((error) => {
+            console.error("[Reviews] Failed to send review requests for closed transaction", { transactionId: input.id, error });
+          });
+        }
       }
 
       // Auto-resolve: if this transaction already has a payoutIntegrityFlag set and is closed,

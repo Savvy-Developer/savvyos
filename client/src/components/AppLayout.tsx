@@ -67,6 +67,7 @@ import {
   Sparkles,
   Wrench,
   Video,
+  Star,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -84,6 +85,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
     { icon: Building2, label: "Listings", path: "/listings" },
     { icon: Building2, label: "Properties", path: "/properties" },
     { icon: Wallet, label: "My Commission", path: "/commission" },
+    { icon: Star, label: "Reviews", path: "/reviews" },
   ];
   if (isGroupLeader) {
     dealsItems.push({ icon: LayoutDashboard, label: "Team Dashboard", path: "/group-leader-dashboard" });
@@ -231,6 +233,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewListings: "/listings",
   canViewProperties: "/properties",
   canViewCommission: "/commission",
+  canViewReviews: "/reviews",
   canViewReferrals: "/referrals",
   canViewPulse: "/pulse",
   canViewTasks: "/tasks",
@@ -312,6 +315,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Building2, label: "Listings", path: "/listings" },
         { icon: Building2, label: "Properties", path: "/properties" },
         { icon: DollarSign, label: "Commission & Payouts", path: "/commission", badge: (unpaidPayouts > 0 || flaggedTx > 0 || pendingExceptions > 0) ? (unpaidPayouts + flaggedTx + pendingExceptions) : undefined },
+        { icon: Star, label: "Reviews", path: "/reviews" },
         { icon: Handshake, label: "Referrals", path: "/referrals" },
       ],
     },

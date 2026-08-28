@@ -334,6 +334,53 @@ export const transactions = mysqlTable("transactions", {
 export type Transaction = typeof transactions.$inferSelect;
 export type InsertTransaction = typeof transactions.$inferInsert;
 
+// ─── Client Transaction Reviews ────────────────────────────────────────────────
+// Each recipient gets an individual, expiring link. The token itself is never stored.
+export const reviewRequests = mysqlTable("review_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  transactionId: int("transactionId").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id),
+  contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+  recipientName: varchar("recipientName", { length: 256 }).notNull(),
+  recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+  recipientType: mysqlEnum("recipientType", ["client", "spouse", "test"]).notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  sentAt: timestamp("sentAt"),
+  submittedAt: timestamp("submittedAt"),
+  isTest: boolean("isTest").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  transactionRecipientIdx: uniqueIndex("review_requests_transaction_recipient_uidx").on(table.transactionId, table.recipientEmail),
+  agentIdx: index("review_requests_agent_idx").on(table.agentId),
+  submittedIdx: index("review_requests_submitted_idx").on(table.submittedAt),
+}));
+
+export type ReviewRequest = typeof reviewRequests.$inferSelect;
+export type InsertReviewRequest = typeof reviewRequests.$inferInsert;
+
+export const reviews = mysqlTable("reviews", {
+  id: int("id").autoincrement().primaryKey(),
+  requestId: int("requestId").notNull().unique().references(() => reviewRequests.id, { onDelete: "cascade" }),
+  transactionId: int("transactionId").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id),
+  contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+  reviewerName: varchar("reviewerName", { length: 256 }).notNull(),
+  reviewerEmail: varchar("reviewerEmail", { length: 320 }).notNull(),
+  reviewerType: mysqlEnum("reviewerType", ["client", "spouse", "test"]).notNull(),
+  rating: int("rating").notNull(),
+  comment: text("comment"),
+  isTest: boolean("isTest").default(false).notNull(),
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  agentSubmittedIdx: index("reviews_agent_submitted_idx").on(table.agentId, table.submittedAt),
+  transactionIdx: index("reviews_transaction_idx").on(table.transactionId),
+}));
+
+export type Review = typeof reviews.$inferSelect;
+export type InsertReview = typeof reviews.$inferInsert;
+
 // ─── ISA Transaction Outcome Attribution ──────────────────────────────────────
 // Snapshots the ISA who receives downstream transaction credit. This is kept
 // separate from activity metrics so contact reassignment and date filters cannot
@@ -2400,6 +2447,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewListings: boolean("canViewListings").default(true).notNull(),
   canViewProperties: boolean("canViewProperties").default(true).notNull(),
   canViewCommission: boolean("canViewCommission").default(true).notNull(),
+  canViewReviews: boolean("canViewReviews").default(true).notNull(),
   // Outbound Referrals
   canViewReferrals: boolean("canViewReferrals").default(true).notNull(),
   canCreateReferrals: boolean("canCreateReferrals").default(true).notNull(),

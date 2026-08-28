@@ -33,6 +33,10 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> =
     subject: "Transaction Closed — #{{transactionNumber}}",
     bodyText: "Congratulations! Your transaction has been successfully closed. Thank you for your hard work on this deal.",
   },
+  transaction_review_request: {
+    subject: "How was your experience with {{agentName}}?",
+    bodyText: "Thank you for trusting your Savvy STR Agents representative with your recent real estate transaction. Please take a moment to share your experience using your personalized review link.",
+  },
   commission_calculated: {
     subject: "Commission Calculated — #{{transactionNumber}}",
     bodyText: "Your commission payout has been calculated for a recently closed transaction. Please review the details below.",
@@ -109,6 +113,13 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
     { key: "transactionNumber", description: "Transaction ID" },
     { key: "contactName", description: "Client name" },
     { key: "amount", description: "Closed transaction amount" },
+  ],
+  transaction_review_request: [
+    { key: "recipientName", description: "Client or spouse/partner name" },
+    { key: "agentName", description: "Transaction agent's name" },
+    { key: "transactionNumber", description: "Transaction ID" },
+    { key: "propertyAddress", description: "Property address" },
+    { key: "reviewUrl", description: "One-time public review link" },
   ],
   commission_calculated: [
     { key: "recipientName", description: "Recipient's name" },
@@ -194,6 +205,7 @@ const EMAIL_TYPES = [
   { key: "transaction_created", label: "Transaction Created", description: "Sent when a new transaction is created for an agent" },
   { key: "transaction_status_changed", label: "Transaction Status Changed", description: "Sent when a transaction status is updated" },
   { key: "transaction_closed", label: "Transaction Closed", description: "Sent when a transaction is marked as closed" },
+  { key: "transaction_review_request", label: "Client Review Request", description: "Sent to clients and spouses/partners when a transaction first closes" },
   { key: "commission_calculated", label: "Commission Calculated", description: "Sent when a commission payout is added for an agent" },
   { key: "task_assigned", label: "Task Assigned", description: "Sent when a task is assigned to a user" },
   { key: "task_due", label: "Task Due Soon", description: "Sent as a reminder when a task is due" },

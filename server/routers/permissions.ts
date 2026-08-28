@@ -63,6 +63,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewListings",           label: "Listings",                 group: "Transactions" },
   { key: "canViewProperties",         label: "Properties",               group: "Transactions" },
   { key: "canViewCommission",         label: "Commission & Payouts",     group: "Transactions" },
+  { key: "canViewReviews",            label: "Client Reviews",           group: "Transactions" },
   // Outbound Referrals
   { key: "canViewReferrals",           label: "View Referrals",           group: "Outbound Referrals" },
   { key: "canCreateReferrals",         label: "Create Referrals",         group: "Outbound Referrals" },
