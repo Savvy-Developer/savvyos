@@ -1,17 +1,20 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  contacts,
   emailTemplates,
+  leadSources,
   users,
   webinarAttendees,
   webinars,
   zoomWebhookEvents,
 } from "../../drizzle/schema";
-import { getDb, logActivity } from "../db";
+import { createCommunication, createContact, getDb, logActivity } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
 import { sendTransactionalEmail } from "../_core/resendEmail";
+import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import {
   createZoomWebinar,
   deleteZoomWebinar,
@@ -54,19 +57,111 @@ function webinarRegistrationEnabled(approval: "automatically" | "manually" | "no
   return approval !== "no_registration";
 }
 
+function registrantName(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 128) : fallback;
+}
+
+async function syncRegistrantContact(input: {
+  attendeeId: number;
+  webinar: typeof webinars.$inferSelect;
+  email: string | null;
+  firstName: string;
+  lastName: string;
+  registeredAt: Date | null;
+}) {
+  if (!input.email) return;
+  const db = await getDatabase();
+  const [attendee] = await db.select({
+    contactId: webinarAttendees.contactId,
+    contactRegistrationNotedAt: webinarAttendees.contactRegistrationNotedAt,
+  }).from(webinarAttendees).where(eq(webinarAttendees.id, input.attendeeId)).limit(1);
+  if (!attendee) return;
+
+  let contactId = attendee.contactId;
+  let createdContact = false;
+  if (!contactId) {
+    const [existingContact] = await db.select({ id: contacts.id })
+      .from(contacts)
+      .where(or(
+        sql`LOWER(${contacts.email}) = ${input.email}`,
+        sql`LOWER(${contacts.secondaryEmail}) = ${input.email}`,
+        sql`LOWER(${contacts.spouseEmail}) = ${input.email}`,
+      ))
+      .limit(1);
+    if (existingContact) {
+      contactId = existingContact.id;
+    } else {
+      const [zoomWebinarSource] = await db.select({ id: leadSources.id })
+        .from(leadSources)
+        .where(eq(leadSources.name, "Zoom Webinar"))
+        .limit(1);
+      if (!zoomWebinarSource) {
+        throw new Error('The "Zoom Webinar" lead source is required before registrants can be created as contacts.');
+      }
+      contactId = await createContact({
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email,
+        leadSourceId: zoomWebinarSource.id,
+        isaStatus: "new_lead",
+      });
+      createdContact = true;
+      triggerSmartPlansForContact(contactId, zoomWebinarSource.id).catch((error) =>
+        console.error("[Webinar] Smart Plan trigger failed for webinar registrant", contactId, error),
+      );
+      await logActivity({
+        userId: input.webinar.createdById,
+        action: "contact_created_from_webinar_registration",
+        entityType: "contact",
+        entityId: contactId,
+        relatedContactId: contactId,
+        details: { webinarId: input.webinar.id, webinarTitle: input.webinar.title, leadSource: "Zoom Webinar" },
+      });
+    }
+    await db.update(webinarAttendees).set({ contactId }).where(eq(webinarAttendees.id, input.attendeeId));
+  }
+
+  if (!contactId || attendee.contactRegistrationNotedAt) return;
+  const registrationTime = input.registeredAt ?? new Date();
+  const registrationLabel = registrationTime.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: input.webinar.timezone || "America/New_York" });
+  const noteId = await createCommunication({
+    type: "note",
+    subject: `Registered for Zoom webinar: ${input.webinar.title}`,
+    body: `Registered for the Zoom webinar “${input.webinar.title}” on ${registrationLabel}.`,
+    direction: "internal",
+    authorId: input.webinar.createdById,
+    relatedContactId: contactId,
+  });
+  await db.update(webinarAttendees).set({ contactId, contactRegistrationNotedAt: new Date() }).where(eq(webinarAttendees.id, input.attendeeId));
+  await logActivity({
+    userId: input.webinar.createdById,
+    action: "webinar_registration_recorded_on_contact",
+    entityType: "communication",
+    entityId: noteId,
+    relatedContactId: contactId,
+    details: { webinarId: input.webinar.id, webinarTitle: input.webinar.title, contactCreated: createdContact },
+  });
+}
+
 async function upsertZoomAttendee(webinarId: number, registrant: ZoomRegistrant, statusOverride?: ReturnType<typeof normalizeZoomRegistrantStatus>) {
   const db = await getDatabase();
+  const [webinar] = await db.select().from(webinars).where(eq(webinars.id, webinarId)).limit(1);
+  if (!webinar) throw new Error("Webinar not found while synchronizing a Zoom registrant.");
+
   const registrantId = String(registrant.registrant_id ?? registrant.id ?? "").trim() || null;
   const email = typeof registrant.email === "string" ? registrant.email.trim().toLowerCase() : null;
+  const firstName = registrantName(registrant.first_name, "Zoom");
+  const lastName = registrantName(registrant.last_name, "Webinar Registrant");
+  const registeredAt = parseZoomDate(registrant.create_time);
   const status = statusOverride ?? normalizeZoomRegistrantStatus(registrant.status);
   const data = {
     zoomRegistrantId: registrantId,
     zoomParticipantId: typeof registrant.participant_user_id === "string" ? registrant.participant_user_id : null,
     email,
-    firstName: typeof registrant.first_name === "string" ? registrant.first_name : null,
-    lastName: typeof registrant.last_name === "string" ? registrant.last_name : null,
+    firstName,
+    lastName,
     status,
-    registeredAt: parseZoomDate(registrant.create_time),
+    registeredAt,
     joinedAt: parseZoomDate(registrant.join_time),
     leftAt: parseZoomDate(registrant.leave_time),
     attendanceMinutes: typeof registrant.duration === "number" ? Math.round(registrant.duration) : null,
@@ -87,10 +182,22 @@ async function upsertZoomAttendee(webinarId: number, registrant: ZoomRegistrant,
       .limit(1);
   }
 
-  if (existing) {
-    await db.update(webinarAttendees).set(data).where(eq(webinarAttendees.id, existing.id));
-  } else {
-    await db.insert(webinarAttendees).values({ webinarId, ...data });
+  const attendeeId = existing
+    ? existing.id
+    : Number((await db.insert(webinarAttendees).values({ webinarId, ...data }))[0].insertId);
+  if (existing) await db.update(webinarAttendees).set(data).where(eq(webinarAttendees.id, attendeeId));
+
+  try {
+    await syncRegistrantContact({ attendeeId, webinar, email, firstName, lastName, registeredAt });
+  } catch (error) {
+    console.error("[Webinar] Contact synchronization failed for registrant", { webinarId, email, error });
+    await logActivity({
+      userId: webinar.createdById,
+      action: "webinar_registration_contact_sync_failed",
+      entityType: "webinar",
+      entityId: webinarId,
+      details: { email, error: error instanceof Error ? error.message : String(error) },
+    });
   }
 }
 

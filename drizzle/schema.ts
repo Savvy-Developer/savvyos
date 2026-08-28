@@ -528,6 +528,10 @@ export type InsertWebinarTaskLink = typeof webinarTaskLinks.$inferInsert;
 export const webinarAttendees = mysqlTable("webinar_attendees", {
   id: int("id").autoincrement().primaryKey(),
   webinarId: int("webinarId").notNull().references(() => webinars.id, { onDelete: "cascade" }),
+  // Contact created or matched from this registrant. Existing contact attribution is never changed.
+  contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+  // Prevents duplicate history notes when Zoom retries or SavvyOS reconciles registrants.
+  contactRegistrationNotedAt: timestamp("contactRegistrationNotedAt"),
   zoomRegistrantId: varchar("zoomRegistrantId", { length: 128 }),
   zoomParticipantId: varchar("zoomParticipantId", { length: 128 }),
   email: varchar("email", { length: 320 }),
@@ -545,6 +549,7 @@ export const webinarAttendees = mysqlTable("webinar_attendees", {
   uniqueIndex("webinar_attendees_registrant_unique").on(table.webinarId, table.zoomRegistrantId),
   index("webinar_attendees_webinar_status_idx").on(table.webinarId, table.status),
   index("webinar_attendees_webinar_email_idx").on(table.webinarId, table.email),
+  index("webinar_attendees_contact_idx").on(table.contactId),
 ]);
 export type WebinarAttendee = typeof webinarAttendees.$inferSelect;
 export type InsertWebinarAttendee = typeof webinarAttendees.$inferInsert;
