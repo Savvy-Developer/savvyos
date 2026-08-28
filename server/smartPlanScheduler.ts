@@ -26,6 +26,14 @@ import { sendAircallSMS } from "./_core/aircall";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
 import { persistOutboundAircallSend } from "./aircallMessaging";
 import { refreshOneTimeSendMetrics } from "./oneTimeSendTracking";
+import { extractOfferSheetReferralPropertyAddress, OFFER_SHEET_REFERRAL_SOURCE_NAME } from "./smartPlanPropertyContext";
+import {
+  isValidSmartPlanSendWindow,
+  isWithinSmartPlanSendWindow,
+  LEGACY_BUSINESS_HOURS_WINDOW,
+  nextSmartPlanSendWindowStart,
+  normaliseSmartPlanSendWindow,
+} from "./smartPlanScheduling";
 
 let isRunning = false;
 
@@ -111,45 +119,6 @@ async function marketingSender(db: NonNullable<Awaited<ReturnType<typeof getDb>>
   return state?.id ? { id: state.id, name: state.name, digits: state.digits } : null;
 }
 
-// ─── Business Hours Helpers ───────────────────────────────────────────────────
-
-/**
- * Check whether a given UTC Date falls within business hours
- * (Mon–Fri, 9:00am–6:00pm) in the specified IANA timezone.
- */
-function isBusinessHours(date: Date, timezone: string): boolean {
-  try {
-    // Get the weekday (0=Sun, 1=Mon, ..., 6=Sat) and hour in the target timezone
-    const weekdayStr = date.toLocaleString("en-US", { timeZone: timezone, weekday: "short" });
-    const hourStr = date.toLocaleString("en-US", { timeZone: timezone, hour: "numeric", hour12: false });
-    const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayStr);
-    const hour = parseInt(hourStr, 10);
-    // Mon–Fri = 1–5, 9:00 (hour 9) to before 18:00 (hour 18)
-    return weekday >= 1 && weekday <= 5 && hour >= 9 && hour < 18;
-  } catch {
-    return true; // Fallback: allow send if timezone parsing fails
-  }
-}
-
-/**
- * Given a UTC Date that falls outside business hours, return the next
- * Mon–Fri 9:00am moment in the given timezone as a UTC Date.
- */
-function nextBusinessHoursStart(from: Date, timezone: string): Date {
-  // Advance minute-by-minute until we're in business hours (max 7 days)
-  const candidate = new Date(from);
-  candidate.setSeconds(0, 0);
-  // Round up to next hour boundary for cleaner scheduling
-  candidate.setMinutes(0);
-  candidate.setHours(candidate.getHours() + 1);
-
-  for (let i = 0; i < 7 * 24; i++) {
-    if (isBusinessHours(candidate, timezone)) return candidate;
-    candidate.setHours(candidate.getHours() + 1);
-  }
-  return candidate; // Fallback
-}
-
 export async function processSmartPlanSteps(): Promise<void> {
   if (isRunning) return; // Prevent overlapping runs
   isRunning = true;
@@ -196,6 +165,27 @@ async function processEnrollmentStep(
   plan: typeof smartPlans.$inferSelect,
   contact: typeof contacts.$inferSelect
 ): Promise<void> {
+  // Provider reply processing pauses plans immediately. This query is a durable
+  // guard against a provider retry or a transient error between recording a reply
+  // and changing enrollment state.
+  if (plan.pauseOnReply) {
+    const reply = await db
+      .select({ id: smartPlanExecutions.id })
+      .from(smartPlanExecutions)
+      .where(and(
+        eq(smartPlanExecutions.enrollmentId, enrollment.id),
+        isNotNull(smartPlanExecutions.repliedAt),
+      ))
+      .limit(1);
+    if (reply[0]) {
+      await db
+        .update(smartPlanEnrollments)
+        .set({ status: "paused", nextStepAt: null })
+        .where(eq(smartPlanEnrollments.id, enrollment.id));
+      return;
+    }
+  }
+
   // Get all steps for this plan ordered by stepOrder
   const steps = await db
     .select()
@@ -215,17 +205,27 @@ async function processEnrollmentStep(
 
   const step = steps[stepIndex];
 
-  // ── Business-hours check: if the step requires business hours and we're outside, defer ──
-  if (step.businessHoursOnly) {
-    const tz = step.timezone || "America/New_York";
-    if (!isBusinessHours(new Date(), tz)) {
-      // Defer nextStepAt to the next business-hours window (keep currentStepIndex unchanged)
-      const deferredAt = nextBusinessHoursStart(new Date(), tz);
+  // ── Configurable send-window check ────────────────────────────────────────
+  // Retain legacy business-hours behavior for any rows awaiting migration.
+  const configuredWindow = step.sendWindowEnabled
+    ? normaliseSmartPlanSendWindow({
+      days: step.sendDays,
+      startHour: step.sendStartHour,
+      endHour: step.sendEndHour,
+      timezone: step.timezone,
+    })
+    : step.businessHoursOnly
+      ? { ...LEGACY_BUSINESS_HOURS_WINDOW, timezone: step.timezone || LEGACY_BUSINESS_HOURS_WINDOW.timezone }
+      : null;
+  if (configuredWindow && isValidSmartPlanSendWindow(configuredWindow)) {
+    if (!isWithinSmartPlanSendWindow(new Date(), configuredWindow)) {
+      // Keep the current step untouched; it will run at the opening of the next window.
+      const deferredAt = nextSmartPlanSendWindowStart(new Date(), configuredWindow);
       await db
         .update(smartPlanEnrollments)
         .set({ nextStepAt: deferredAt })
         .where(eq(smartPlanEnrollments.id, enrollment.id));
-      return; // Will be retried at deferredAt
+      return;
     }
   }
 
@@ -240,9 +240,19 @@ async function processEnrollmentStep(
     lastName: contact.lastName,
     agentName: null, // Not used — admin-only sends
     leadSource: leadSourceName,
+    propertyAddress: plan.propertyAddressFromNotes && leadSourceName === OFFER_SHEET_REFERRAL_SOURCE_NAME
+      ? extractOfferSheetReferralPropertyAddress(contact.notes)
+      : null,
   };
 
-  const renderedBody = renderMergeTags(step.body, mergeCtx);
+  const propertyFallbackRequired = plan.propertyAddressFromNotes
+    && leadSourceName === OFFER_SHEET_REFERRAL_SOURCE_NAME
+    && !mergeCtx.propertyAddress
+    && Boolean(plan.propertyAddressFallbackText);
+  const bodyTemplate = propertyFallbackRequired
+    ? plan.propertyAddressFallbackText!
+    : step.body;
+  const renderedBody = renderMergeTags(bodyTemplate, mergeCtx);
   const renderedSubject = step.subject ? renderMergeTags(step.subject, mergeCtx) : "";
 
   let status: "sent" | "failed" | "skipped" = "sent";

@@ -804,6 +804,11 @@ export const smartPlans = mysqlTable("smart_plans", {
   ]).default("lead_source").notNull(),
   // Scope: new_only = only future matching contacts; existing_and_new = immediately enroll matching current contacts as well; manual = no auto-trigger
   triggerScope: mysqlEnum("triggerScope", ["new_only", "existing_and_new", "manual"]).default("new_only").notNull(),
+  // Stops future steps when the contact replies to a Smart Plan email or text.
+  pauseOnReply: boolean("pauseOnReply").default(false).notNull(),
+  // Optional, plan-scoped property-address merge behavior for specialized intake flows.
+  propertyAddressFromNotes: boolean("propertyAddressFromNotes").default(false).notNull(),
+  propertyAddressFallbackText: text("propertyAddressFallbackText"),
   status: mysqlEnum("status", ["active", "paused", "draft"]).default("draft").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -920,6 +925,12 @@ export const smartPlanSteps = mysqlTable("smart_plan_steps", {
   body: text("body").notNull(),
   // Business-hours scheduling: if true, defer send to next Mon-Fri 9am-6pm window
   businessHoursOnly: boolean("businessHoursOnly").default(false).notNull(),
+  // Explicit delivery schedule. The old business-hours flag remains for backward
+  // compatibility and is migrated into the matching weekday/time configuration.
+  sendWindowEnabled: boolean("sendWindowEnabled").default(false).notNull(),
+  sendDays: json("sendDays").$type<number[]>(),
+  sendStartHour: int("sendStartHour").default(9).notNull(),
+  sendEndHour: int("sendEndHour").default(18).notNull(),
   timezone: varchar("timezone", { length: 64 }).default("America/New_York").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -8,6 +8,7 @@ import {
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { findContactByPhoneDB, normalizePhone } from "./aircall";
+import { pauseSmartPlansForSmsReply } from "./smartPlanReplyHandling";
 
 export type AircallMessageData = {
   id: string;
@@ -194,6 +195,10 @@ export async function persistAircallMessage(
       aircallMessageId: String(payload.id),
       ...values,
     });
+  }
+
+  if (direction === "inbound" && contactId) {
+    await pauseSmartPlansForSmsReply(contactId, receivedAt ?? new Date());
   }
 
   return { contactId, communicationId };

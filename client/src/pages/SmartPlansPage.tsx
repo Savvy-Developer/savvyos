@@ -878,10 +878,14 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed" | "cancelled">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "completed" | "cancelled">("all");
 
   const cancelMutation = trpc.smartPlans.enrollments.cancel.useMutation({
     onSuccess: () => { utils.smartPlans.enrollments.list.invalidate(); toast.success("Enrollment cancelled"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const resumeMutation = trpc.smartPlans.enrollments.resume.useMutation({
+    onSuccess: () => { utils.smartPlans.enrollments.list.invalidate(); toast.success("Enrollment resumed"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -922,6 +926,7 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="paused">Paused</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
@@ -962,6 +967,16 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
                     row.enrollment.status === "completed" ? "text-blue-600" : "text-muted-foreground"
                   }`}>{row.enrollment.status}</span>
                 </div>
+                {row.enrollment.status === "paused" && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="h-7 text-xs shrink-0"
+                    onClick={() => resumeMutation.mutate({ enrollmentId: row.enrollment.id })}
+                    disabled={resumeMutation.isPending}
+                  >
+                    <Play className="h-3 w-3 mr-1" /> Resume
+                  </Button>
+                )}
                 {row.enrollment.status === "active" && (
                   <Button
                     variant="ghost" size="sm"

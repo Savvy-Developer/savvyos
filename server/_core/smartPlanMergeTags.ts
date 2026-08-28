@@ -1,6 +1,7 @@
 /**
  * Merge tag renderer for Smart Plan email/SMS templates.
- * Supported tags: {{first_name}}, {{last_name}}, {{full_name}}, {{agent_name}}, {{lead_source}}
+ * Supported tags: {{first_name}}/{{firstname}}, {{last_name}}, {{full_name}},
+ * {{agent_name}}, {{lead_source}}, and {{property}}.
  */
 
 export type MergeTagContext = {
@@ -8,14 +9,16 @@ export type MergeTagContext = {
   lastName?: string | null;
   agentName?: string | null;
   leadSource?: string | null;
+  propertyAddress?: string | null;
 };
 
 export function renderMergeTags(template: string, ctx: MergeTagContext): string {
   const fullName = [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || "there";
   return template
-    .replace(/\{\{first_name\}\}/gi, ctx.firstName || "there")
+    .replace(/\{\{(?:first_name|firstname)\}\}/gi, ctx.firstName || "there")
     .replace(/\{\{last_name\}\}/gi, ctx.lastName || "")
     .replace(/\{\{full_name\}\}/gi, fullName)
     .replace(/\{\{agent_name\}\}/gi, ctx.agentName || "Your Agent")
-    .replace(/\{\{lead_source\}\}/gi, ctx.leadSource || "");
+    .replace(/\{\{lead_source\}\}/gi, ctx.leadSource || "")
+    .replace(/\{\{property\}\}/gi, ctx.propertyAddress || "");
 }

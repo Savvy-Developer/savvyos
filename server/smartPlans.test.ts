@@ -26,6 +26,18 @@ describe("renderMergeTags", () => {
     expect(renderMergeTags("Source: {{lead_source}}", { leadSource: "Zillow" })).toBe("Source: Zillow");
   });
 
+  it("replaces {{property}}", () => {
+    expect(renderMergeTags("Property: {{property}}", { propertyAddress: "184 Hyland Dr, East Stroudsburg, PA" })).toBe("Property: 184 Hyland Dr, East Stroudsburg, PA");
+  });
+
+  it("supports {{firstname}} as a first-name alias", () => {
+    expect(renderMergeTags("Hi {{firstname}}!", { firstName: "Tyler" })).toBe("Hi Tyler!");
+  });
+
+  it("clears {{property}} when a plan has no supplied property", () => {
+    expect(renderMergeTags("Property: {{property}}", {})).toBe("Property: ");
+  });
+
   it("uses fallback 'there' when first_name is null", () => {
     expect(renderMergeTags("Hi {{first_name}}!", { firstName: null })).toBe("Hi there!");
   });

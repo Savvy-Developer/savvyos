@@ -48,6 +48,10 @@ type Step = {
   subject: string | null;
   body: string;
   businessHoursOnly: boolean;
+  sendWindowEnabled: boolean;
+  sendDays: number[] | null;
+  sendStartHour: number;
+  sendEndHour: number;
   timezone: string;
   metrics: Metrics;
 };
@@ -59,6 +63,10 @@ type StepForm = {
   subject: string;
   body: string;
   businessHoursOnly: boolean;
+  sendWindowEnabled: boolean;
+  sendDays: number[];
+  sendStartHour: number;
+  sendEndHour: number;
   timezone: string;
 };
 
@@ -76,6 +84,10 @@ const EMPTY_STEP: StepForm = {
   subject: "",
   body: "",
   businessHoursOnly: false,
+  sendWindowEnabled: false,
+  sendDays: [1, 2, 3, 4, 5],
+  sendStartHour: 9,
+  sendEndHour: 18,
   timezone: "America/New_York",
 };
 
@@ -88,6 +100,22 @@ const TIMEZONES = [
   ["America/Anchorage", "Alaska (AKT)"],
   ["Pacific/Honolulu", "Hawaii (HST)"],
 ] as const;
+
+const DAYS_OF_WEEK = [
+  { value: 0, label: "Sun" },
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+];
+
+function hourLabel(hour: number) {
+  if (hour === 0 || hour === 24) return hour === 0 ? "12:00 AM" : "12:00 AM (next day)";
+  const suffix = hour >= 12 ? "PM" : "AM";
+  return `${hour > 12 ? hour - 12 : hour}:00 ${suffix}`;
+}
 
 function stripHtml(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -204,12 +232,13 @@ function NewPlanPage() {
   );
 }
 
-function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
+function StepComposer({ planId, step, onSaved, onDelete, onMove, propertyAddressFromNotes = false }: {
   planId: number;
   step: Step | null;
   onSaved: (stepId?: number) => void;
   onDelete: () => void;
   onMove: (direction: "up" | "down") => void;
+  propertyAddressFromNotes?: boolean;
 }) {
   const [form, setForm] = useState<StepForm>(EMPTY_STEP);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -228,6 +257,10 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
       subject: step.subject ?? "",
       body: step.body,
       businessHoursOnly: step.businessHoursOnly,
+      sendWindowEnabled: step.sendWindowEnabled ?? step.businessHoursOnly ?? false,
+      sendDays: step.sendDays?.length ? step.sendDays : [1, 2, 3, 4, 5],
+      sendStartHour: step.sendStartHour ?? 9,
+      sendEndHour: step.sendEndHour ?? 18,
       timezone: step.timezone || "America/New_York",
     });
   }, [step?.id]);
@@ -244,6 +277,8 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
   const save = () => {
     if (!form.body.trim()) return toast.error("Message content is required");
     if (form.channel === "email" && !form.subject.trim()) return toast.error("An email subject is required");
+    if (form.sendWindowEnabled && form.sendDays.length === 0) return toast.error("Choose at least one delivery day");
+    if (form.sendWindowEnabled && form.sendStartHour >= form.sendEndHour) return toast.error("The window must end after it begins");
     const payload = {
       channel: form.channel,
       delayDays: form.delayDays,
@@ -251,6 +286,10 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
       subject: form.channel === "email" ? form.subject.trim() : null,
       body: form.body,
       businessHoursOnly: form.businessHoursOnly,
+      sendWindowEnabled: form.sendWindowEnabled,
+      sendDays: form.sendDays,
+      sendStartHour: form.sendStartHour,
+      sendEndHour: form.sendEndHour,
       timezone: form.timezone,
     };
     if (step) updateStep.mutate({ stepId: step.id, ...payload });
@@ -302,6 +341,12 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
         </div>
       )}
 
+      {isSms && propertyAddressFromNotes && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+          <strong>Offer Sheet referral property text.</strong> <code className="rounded bg-white/80 px-1 py-0.5">{"{{property}}"}</code> is filled from “Address of Interested Property” in this referral’s contact note. If no exact address is found, SavvyOS sends the configured Offer Sheet fallback text instead.
+        </div>
+      )}
+
       {form.channel === "email" ? (
         <div className="space-y-2">
           <Label>Email subject <span className="text-destructive">*</span></Label>
@@ -342,20 +387,29 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove }: {
       <div className="rounded-lg border bg-slate-50/70 p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium">Business hours only</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Send Monday–Friday, 9:00 AM–6:00 PM in the selected timezone.</p>
+            <p className="text-sm font-medium">Limit delivery to a schedule</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Choose the days and hours when this step is allowed to send.</p>
           </div>
-          <button type="button" role="switch" aria-checked={form.businessHoursOnly} onClick={() => setForm((current) => ({ ...current, businessHoursOnly: !current.businessHoursOnly }))} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${form.businessHoursOnly ? "bg-primary" : "bg-slate-200"}`}>
-            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${form.businessHoursOnly ? "translate-x-6" : "translate-x-1"}`} />
+          <button type="button" role="switch" aria-checked={form.sendWindowEnabled} onClick={() => setForm((current) => ({ ...current, sendWindowEnabled: !current.sendWindowEnabled, businessHoursOnly: false }))} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${form.sendWindowEnabled ? "bg-primary" : "bg-slate-200"}`}>
+            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${form.sendWindowEnabled ? "translate-x-6" : "translate-x-1"}`} />
           </button>
         </div>
-        {form.businessHoursOnly && (
-          <div className="mt-4 max-w-sm space-y-2">
-            <Label>Timezone</Label>
-            <Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{TIMEZONES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
-            </Select>
+        {form.sendWindowEnabled && (
+          <div className="mt-4 space-y-4 border-t pt-4">
+            <div className="space-y-2">
+              <Label>Allowed days</Label>
+              <div className="flex flex-wrap gap-2">
+                {DAYS_OF_WEEK.map((day) => {
+                  const selected = form.sendDays.includes(day.value);
+                  return <Button key={day.value} type="button" size="sm" variant={selected ? "default" : "outline"} className="h-8 min-w-12" onClick={() => setForm((current) => ({ ...current, sendDays: selected ? current.sendDays.filter((value) => value !== day.value) : [...current.sendDays, day.value].sort((a, b) => a - b) }))}>{day.label}</Button>;
+                })}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-2"><Label>Start time</Label><Select value={String(form.sendStartHour)} onValueChange={(value) => setForm((current) => ({ ...current, sendStartHour: Number(value) }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, hour) => <SelectItem key={hour} value={String(hour)}>{hourLabel(hour)}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>End time</Label><Select value={String(form.sendEndHour)} onValueChange={(value) => setForm((current) => ({ ...current, sendEndHour: Number(value) }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => <SelectItem key={hour} value={String(hour)}>{hourLabel(hour)}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Timezone</Label><Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{TIMEZONES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+            </div>
           </div>
         )}
       </div>
@@ -388,6 +442,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
     triggerType: "lead_source" as TriggerType,
     triggerLeadSourceIds: [] as number[],
     includeExistingContacts: false,
+    pauseOnReply: false,
   });
   useEffect(() => {
     if (!plan) return;
@@ -397,6 +452,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
       triggerType: (plan.triggerType || "lead_source") as TriggerType,
       triggerLeadSourceIds: plan.triggerLeadSourceIds || (plan.triggerLeadSourceId ? [plan.triggerLeadSourceId] : []),
       includeExistingContacts: plan.triggerScope === "existing_and_new",
+      pauseOnReply: plan.pauseOnReply ?? false,
     });
   }, [plan?.id, plan?.updatedAt]);
 
@@ -428,6 +484,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
         triggerLeadSourceIds: isLeadSourceTrigger && form.triggerLeadSourceIds.length ? form.triggerLeadSourceIds : null,
         triggerScope: form.includeExistingContacts ? "existing_and_new" : "new_only",
         includeExistingContacts: form.includeExistingContacts,
+        pauseOnReply: form.pauseOnReply,
       },
     });
   };
@@ -458,6 +515,16 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
             />
             <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{formatLeadSourcePath(source, leadSources)}<button type="button" aria-label={`Remove ${formatLeadSourcePath(source, leadSources)}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
           </div>}
+
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Label htmlFor="pause-on-reply" className="cursor-pointer text-sm font-medium">Pause plan when a reply is received</Label>
+                <p className="mt-1 text-xs text-muted-foreground">When a contact replies to a Smart Plan text or email, their enrollment pauses before the next step. You can review and resume the enrollment when ready.</p>
+              </div>
+              <Checkbox id="pause-on-reply" checked={form.pauseOnReply} onCheckedChange={(checked) => setForm((current) => ({ ...current, pauseOnReply: checked === true }))} />
+            </div>
+          </div>
 
           <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
             <div className="flex items-start gap-3">
@@ -573,7 +640,7 @@ function PlanWorkspace({ planId }: { planId: number }) {
           </div>
           <div className="grid grid-cols-2 gap-2 border-t p-3"><Button size="sm" variant={selectedStepId === "new" ? "default" : "outline"} onClick={() => { setSelectedStepId("new"); setTab("workflow"); }}><Mail className="mr-1 h-3.5 w-3.5" />Email</Button><Button size="sm" variant="outline" className="border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800" onClick={() => { setSelectedStepId("new"); setTab("workflow"); }}><MessageSquare className="mr-1 h-3.5 w-3.5" />Text</Button></div>
         </aside>
-        <div className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"><StepComposer key={selectedStep?.id ?? "new"} planId={planId} step={selectedStep} onSaved={(id) => { refresh(); if (id) setSelectedStepId(id); }} onDelete={() => selectedStep && deleteStep.mutate({ stepId: selectedStep.id, planId })} onMove={(direction) => selectedStep && reorderStep.mutate({ planId, stepId: selectedStep.id, direction })} /></div>
+        <div className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"><StepComposer key={selectedStep?.id ?? "new"} planId={planId} step={selectedStep} propertyAddressFromNotes={plan.propertyAddressFromNotes === true} onSaved={(id) => { refresh(); if (id) setSelectedStepId(id); }} onDelete={() => selectedStep && deleteStep.mutate({ stepId: selectedStep.id, planId })} onMove={(direction) => selectedStep && reorderStep.mutate({ planId, stepId: selectedStep.id, direction })} /></div>
       </div>}
 
       {tab === "analytics" && <AnalyticsPanel steps={steps} totals={totals} />}

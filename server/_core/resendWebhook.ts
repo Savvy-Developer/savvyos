@@ -14,10 +14,11 @@ import {
   oneTimeSendRecipients,
   oneTimeSendMessageEvents,
 } from "../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
 import { createHmac } from "crypto";
 import { ingestResendReceivedEmail } from "../resendInbox";
+import { pauseSmartPlanForEmailReply, pauseSmartPlansForEmailReply } from "../smartPlanReplyHandling";
 
 export function verifyResendWebhookSignature(
   payload: string,
@@ -79,6 +80,13 @@ function eventTimestamp(event: ResendWebhookEvent): Date {
   const candidate = event.created_at ?? event.data.created_at;
   const parsed = candidate ? new Date(candidate) : new Date();
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function inboundSenderEmail(value: string | undefined): string | null {
+  if (!value) return null;
+  const bracketedAddress = value.match(/<([^>]+)>/)?.[1] ?? value;
+  const email = bracketedAddress.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
 async function recordOneTimeSendEvent(
@@ -267,6 +275,10 @@ async function recordSmartPlanEvent(
     });
   });
 
+  if (event.type === "email.received") {
+    await pauseSmartPlanForEmailReply(execution.enrollmentId, occurredAt);
+  }
+
   return { executionId: execution.id };
 }
 
@@ -295,6 +307,26 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
 
   const db = await getDb();
   if (!db) return { handled: false, reason: "db_unavailable" };
+
+  // A reply address with an sp- token is matched to its exact email execution
+  // above. For normal inbound email, match the sender to a contact and pause only
+  // a reply-sensitive plan that has actually sent that contact an email.
+  if (type === "email.received" && !smartPlanResult.executionId) {
+    const senderEmail = inboundSenderEmail(data.from);
+    if (senderEmail) {
+      const matchingContacts = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(or(
+          eq(contacts.email, senderEmail),
+          eq(contacts.secondaryEmail, senderEmail),
+          eq(contacts.spouseEmail, senderEmail),
+        ));
+      await Promise.all(matchingContacts.map((contact) =>
+        pauseSmartPlansForEmailReply(contact.id, eventTimestamp(event))
+      ));
+    }
+  }
 
   if (type === "email.bounced") {
     if (recipientEmail) {

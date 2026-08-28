@@ -31,6 +31,7 @@ import {
   contactChannelAddresses,
   bulkEnrollExistingContacts,
 } from "../smartPlanScheduler";
+import { isValidSmartPlanSendWindow, normaliseSmartPlanSendWindow } from "../smartPlanScheduling";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
@@ -42,6 +43,7 @@ const planInput = z.object({
   triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
   triggerType: smartPlanTriggerSchema.optional(),
   triggerScope: z.enum(["new_only", "existing_and_new", "manual"]).optional(),
+  pauseOnReply: z.boolean().optional(),
   status: z.enum(["active", "paused", "draft"]).optional(),
 });
 
@@ -694,12 +696,24 @@ export const smartPlansRouter = router({
         subject: z.string().optional().nullable(),
         body: z.string().min(1),
         businessHoursOnly: z.boolean().default(false),
+        sendWindowEnabled: z.boolean().default(false),
+        sendDays: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5]),
+        sendStartHour: z.number().int().min(0).max(23).default(9),
+        sendEndHour: z.number().int().min(1).max(24).default(18),
         timezone: z.string().default("America/New_York"),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.sendWindowEnabled && (input.sendDays.length === 0 || !isValidSmartPlanSendWindow(normaliseSmartPlanSendWindow({
+          days: input.sendDays,
+          startHour: input.sendStartHour,
+          endHour: input.sendEndHour,
+          timezone: input.timezone,
+        })))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one day and an end time after the start time." });
+        }
         // Get current max stepOrder
         const existing = await db
           .select({ stepOrder: smartPlanSteps.stepOrder })
@@ -717,6 +731,10 @@ export const smartPlansRouter = router({
           subject: input.subject ?? null,
           body: input.body,
           businessHoursOnly: input.businessHoursOnly,
+          sendWindowEnabled: input.sendWindowEnabled,
+          sendDays: input.sendDays,
+          sendStartHour: input.sendStartHour,
+          sendEndHour: input.sendEndHour,
           timezone: input.timezone,
         });
         return { id: (result as any).insertId as number, stepOrder: nextOrder };
@@ -732,6 +750,10 @@ export const smartPlansRouter = router({
         subject: z.string().optional().nullable(),
         body: z.string().min(1).optional(),
         businessHoursOnly: z.boolean().optional(),
+        sendWindowEnabled: z.boolean().optional(),
+        sendDays: z.array(z.number().int().min(0).max(6)).optional(),
+        sendStartHour: z.number().int().min(0).max(23).optional(),
+        sendEndHour: z.number().int().min(1).max(24).optional(),
         timezone: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -739,6 +761,18 @@ export const smartPlansRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         const { stepId, ...data } = input;
+        if (data.sendWindowEnabled) {
+          const [existing] = await db.select().from(smartPlanSteps).where(eq(smartPlanSteps.id, stepId)).limit(1);
+          if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+          if (data.sendDays?.length === 0 || !isValidSmartPlanSendWindow(normaliseSmartPlanSendWindow({
+            days: data.sendDays ?? existing.sendDays,
+            startHour: data.sendStartHour ?? existing.sendStartHour,
+            endHour: data.sendEndHour ?? existing.sendEndHour,
+            timezone: data.timezone ?? existing.timezone,
+          }))) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one day and an end time after the start time." });
+          }
+        }
         await db.update(smartPlanSteps).set(data).where(eq(smartPlanSteps.id, stepId));
         return { success: true };
       }),
@@ -901,6 +935,22 @@ export const smartPlansRouter = router({
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         await enrollContactInPlan(input.contactId, input.planId);
+        return { success: true };
+      }),
+
+    resume: protectedProcedure
+      .input(z.object({ enrollmentId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db
+          .update(smartPlanEnrollments)
+          .set({ status: "active", nextStepAt: new Date() })
+          .where(and(
+            eq(smartPlanEnrollments.id, input.enrollmentId),
+            eq(smartPlanEnrollments.status, "paused"),
+          ));
         return { success: true };
       }),
 
