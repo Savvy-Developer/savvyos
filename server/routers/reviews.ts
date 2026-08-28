@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, isNull, lte, aliasedTable } from "drizzle-orm";
 import { z } from "zod";
-import { contacts, properties, reviewRequests, reviews, transactions, users } from "../../drizzle/schema";
+import { coachingProfiles, contacts, properties, reviewRequests, reviews, transactions, users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendTransactionalEmail } from "../_core/resendEmail";
@@ -228,6 +228,65 @@ export async function sendReviewRequestsForClosedTransaction(transactionId: numb
   return { sent, skipped };
 }
 
+async function sendReviewReceivedNotifications(params: {
+  reviewId: number;
+  transactionId: number;
+  agentId: number;
+  reviewerName: string;
+  rating: number;
+  comment: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const [transactionRow] = await db.select({
+    transactionNumber: transactions.transactionNumber,
+    agentId: users.id,
+    agentName: users.name,
+    agentEmail: users.email,
+    property: { address: properties.address, city: properties.city, state: properties.state },
+  })
+    .from(transactions)
+    .innerJoin(users, eq(transactions.agentId, users.id))
+    .leftJoin(properties, eq(transactions.propertyId, properties.id))
+    .where(and(eq(transactions.id, params.transactionId), eq(transactions.agentId, params.agentId)))
+    .limit(1);
+  if (!transactionRow) return;
+
+  const [coachingProfile] = await db.select({ coachOfRecordId: coachingProfiles.coachOfRecordId })
+    .from(coachingProfiles)
+    .where(eq(coachingProfiles.agentId, params.agentId))
+    .limit(1);
+  const [coach] = coachingProfile?.coachOfRecordId
+    ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, coachingProfile.coachOfRecordId)).limit(1)
+    : [];
+
+  const recipients: Array<{ id: number; name: string; email: string }> = [];
+  if (transactionRow.agentEmail) {
+    recipients.push({ id: transactionRow.agentId, name: transactionRow.agentName ?? "Agent", email: transactionRow.agentEmail });
+  }
+  if (coach?.email && coach.id !== transactionRow.agentId) {
+    recipients.push({ id: coach.id, name: coach.name ?? "Coach", email: coach.email });
+  }
+
+  const propertyAddress = formatPropertyAddress(transactionRow.property);
+  await Promise.all(recipients.map(async (recipient) => {
+    const delivery = await sendTransactionalEmail("transaction_review_received", {
+      recipientEmail: recipient.email,
+      recipientName: recipient.name,
+      agentName: transactionRow.agentName ?? "Transaction agent",
+      transactionNumber: transactionRow.transactionNumber ?? undefined,
+      propertyAddress,
+      reviewerName: params.reviewerName,
+      reviewRating: String(params.rating),
+      reviewComment: params.comment ?? undefined,
+    }, { idempotencyKey: `review-notification-${params.reviewId}-${recipient.id}` });
+    if (!delivery.sent) {
+      console.error("[Reviews] Review notification was not delivered", { reviewId: params.reviewId, recipientId: recipient.id, reason: delivery.reason });
+    }
+  }));
+}
+
 function parseDateStart(value?: string): Date | undefined {
   return value ? new Date(`${value}T00:00:00.000Z`) : undefined;
 }
@@ -337,6 +396,7 @@ export const reviewsRouter = router({
         .limit(1);
       if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "This review link is invalid, expired, or has already been used." });
 
+      let reviewId = 0;
       await db.transaction(async (tx) => {
         const updateResult = await tx.update(reviewRequests)
           .set({ submittedAt: now })
@@ -344,7 +404,7 @@ export const reviewsRouter = router({
         if (Number((updateResult as any)[0]?.affectedRows ?? (updateResult as any).affectedRows ?? 0) !== 1) {
           throw new TRPCError({ code: "CONFLICT", message: "This review has already been submitted." });
         }
-        await tx.insert(reviews).values({
+        const [insertedReview] = await tx.insert(reviews).values({
           requestId: request.id,
           transactionId: request.transactionId,
           agentId: request.agentId,
@@ -357,7 +417,17 @@ export const reviewsRouter = router({
           isTest: request.isTest,
           submittedAt: now,
         });
+        reviewId = Number((insertedReview as any).insertId);
       });
+
+      await sendReviewReceivedNotifications({
+        reviewId,
+        transactionId: request.transactionId,
+        agentId: request.agentId,
+        reviewerName: request.recipientName,
+        rating: input.rating,
+        comment: input.comment?.trim() || null,
+      }).catch((error) => console.error("[Reviews] Failed to send review-received notifications", { reviewId, error }));
 
       return { status: "submitted" as const };
     }),

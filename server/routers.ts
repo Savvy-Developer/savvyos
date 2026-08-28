@@ -74,6 +74,7 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
     ["transaction_status_changed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", status: "Under Contract" }],
     ["transaction_closed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", amount: "$525,000" }],
     ["transaction_review_request", { ...ctx2, agentName: "Sarah Mitchell", transactionNumber: "TXN-TEST-001", propertyAddress: "123 Mountain View Dr, Asheville, NC", reviewUrl: "https://os.savvy-agents.com/review?token=preview-link" }],
+    ["transaction_review_received", { ...ctx2, agentName: "Sarah Mitchell", reviewerName: "Jane Smith", reviewRating: "5", reviewComment: "Sarah made the process clear, responsive, and enjoyable from start to finish.", transactionNumber: "TXN-TEST-001", propertyAddress: "123 Mountain View Dr, Asheville, NC" }],
     ["commission_calculated", { ...ctx2, transactionNumber: "TXN-TEST-001", percentage: "80", amount: "$12,600" }],
     ["task_assigned", { ...ctx2, taskTitle: "Follow up with Jane Smith re: buy box", dueDate: "Mar 25, 2026", contactName: "Jane Smith" }],
     ["task_due", { ...ctx2, taskTitle: "Follow up with Jane Smith re: buy box", dueDate: "Today" }],
@@ -287,7 +288,7 @@ export const appRouter = router({
       if (!db2) return [];
       const EMAIL_TYPES = [
         "lead_assigned", "transaction_created", "transaction_status_changed",
-        "transaction_closed", "transaction_review_request", "commission_calculated", "task_assigned", "task_due",
+        "transaction_closed", "transaction_review_request", "transaction_review_received", "commission_calculated", "task_assigned", "task_due",
         "payout_integrity_fail", "listing_created", "listing_expiration_reminder",
         "onboarding_overdue", "commission_exception_warning", "market_match_intro",
         "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report", "coaching_weekly_accountability",

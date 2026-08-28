@@ -68,6 +68,7 @@ export type EmailType =
   | "transaction_status_changed"
   | "transaction_closed"
   | "transaction_review_request"
+  | "transaction_review_received"
   | "commission_calculated"
   | "task_assigned"
   | "task_due"
@@ -130,6 +131,9 @@ interface EmailContext {
   transactionType?: string;
   propertyAddress?: string;
   reviewUrl?: string;
+  reviewRating?: string;
+  reviewComment?: string;
+  reviewerName?: string;
   replyToEmail?: string;
   status?: string;
   taskTitle?: string;
@@ -421,6 +425,26 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${ctaButton("Leave a Review", ctx.reviewUrl ?? APP_URL, "#0891B2")}
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This personalized link is for one review and expires in 30 days. If you have a question about your transaction, simply reply to this email.</p>`,
       `Please share your experience with ${ctx.agentName ?? "Savvy STR Agents"}.`
+    ),
+  }),
+
+  transaction_review_received: (ctx) => ({
+    subject: `New ${ctx.reviewRating ?? ""}-Star Client Review${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`,
+    html: emailLayout(
+      `${heading("New Client Review", "#0891B2")}
+      ${subheading("Client Feedback")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("A client has submitted feedback about their transaction experience.")}
+      ${infoCard([
+        ...(ctx.reviewerName ? [`<strong style="color:${BLACK};">Reviewer</strong>&nbsp;&nbsp; ${escapeHtml(ctx.reviewerName)}`] : []),
+        ...(ctx.reviewRating ? [`<strong style="color:${BLACK};">Rating</strong>&nbsp;&nbsp; <span style="font-weight:700;color:#D97706;">${escapeHtml(ctx.reviewRating)} / 5 stars</span>`] : []),
+        ...(ctx.agentName ? [`<strong style="color:${BLACK};">Agent</strong>&nbsp;&nbsp; ${escapeHtml(ctx.agentName)}`] : []),
+        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
+        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${escapeHtml(ctx.transactionNumber)}`] : []),
+      ], "#0891B2")}
+      ${ctx.reviewComment ? `<p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Client comments</p><div style="background:#F9FAFB;border-radius:8px;border-left:3px solid #0FC0DF;padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(ctx.reviewComment)}</div>` : `${bodyText("The client submitted a rating without written comments.")}`}
+      ${ctaButton("View Reviews", APP_URL + "/reviews", "#0891B2")}`,
+      `New client review${ctx.reviewRating ? `: ${ctx.reviewRating}/5 stars` : ""}`
     ),
   }),
 
