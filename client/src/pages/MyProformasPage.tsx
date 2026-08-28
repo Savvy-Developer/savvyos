@@ -6,9 +6,10 @@ import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, Building2, Calendar, ChevronRight, FileText, Loader2, Search, User } from "lucide-react";
+import { AlertTriangle, BarChart3, Building2, Calendar, ChevronRight, FileText, Loader2, Search, User } from "lucide-react";
 
 type ProformaListItem = {
   id: number;
@@ -57,10 +58,24 @@ export default function MyProformasPage() {
   );
   const { data, isLoading, isError, error, refetch } = trpc.properties.listAllProformas.useQuery(listInput);
   const { data: agents = [] } = trpc.users.list.useQuery({ role: "agent" }, { enabled: isAdmin });
-  const { data: proformaCounts = [] } = trpc.properties.listProformaCountsByAgent.useQuery(undefined, { enabled: isAdmin });
+  const { data: proformaCounts = [], isLoading: isProformaCountsLoading } = trpc.properties.listProformaCountsByAgent.useQuery(undefined, { enabled: isAdmin });
   const agentCountById = useMemo(
     () => new Map(proformaCounts.map((item: any) => [item.agentId, Number(item.count)])),
     [proformaCounts],
+  );
+  const agentStats = useMemo(
+    () => (agents as any[])
+      .map((agent) => ({
+        id: agent.id as number,
+        name: agent.name || agent.email || `Agent #${agent.id}`,
+        count: agentCountById.get(agent.id) ?? 0,
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+    [agents, agentCountById],
+  );
+  const totalAgentProformas = useMemo(
+    () => agentStats.reduce((total, agent) => total + agent.count, 0),
+    [agentStats],
   );
 
   const proformas = useMemo(() => {
@@ -98,6 +113,56 @@ export default function MyProformasPage() {
           ) : undefined
         }
       />
+
+      {isAdmin && (
+        <Accordion type="single" collapsible className="mb-4">
+          <AccordionItem value="proforma-stats" className="rounded-lg border bg-card px-4">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="flex items-center gap-3 text-left">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <BarChart3 className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-medium">Stats</p>
+                  <p className="text-xs font-normal text-muted-foreground">Saved pro-formas by agent</p>
+                </div>
+              </div>
+              {!isProformaCountsLoading && (
+                <span className="mr-2 text-xs font-normal text-muted-foreground">
+                  {totalAgentProformas} total
+                </span>
+              )}
+            </AccordionTrigger>
+            <AccordionContent className="pb-4">
+              {isProformaCountsLoading ? (
+                <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading agent statistics…
+                </div>
+              ) : agentStats.length === 0 ? (
+                <p className="py-3 text-sm text-muted-foreground">No agents are available to report on yet.</p>
+              ) : (
+                <div className="overflow-hidden rounded-md border">
+                  <div className="divide-y">
+                    {agentStats.map((agent) => (
+                      <div key={agent.id} className="flex items-center justify-between gap-4 px-3 py-2.5 text-sm">
+                        <span className="truncate font-medium">{agent.name}</span>
+                        <Badge variant="secondary" className="shrink-0">
+                          {agent.count} {agent.count === 1 ? "pro-forma" : "pro-formas"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between bg-muted/40 px-3 py-2.5 text-sm font-medium">
+                    <span>Agent-created total</span>
+                    <span>{totalAgentProformas} {totalAgentProformas === 1 ? "pro-forma" : "pro-formas"}</span>
+                  </div>
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
 
       <div className="relative mb-4 max-w-xl">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

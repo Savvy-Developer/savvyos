@@ -127,7 +127,7 @@ interface ProformaForm {
   expAccounting: string;
   expPermits: string;
   customFixedExpenses: CustomExpense[];
-  // Variable Expenses
+  // Variable Expenses (percentages of gross revenue)
   propertyMgmtPct: string;
   cleaningCostPerTurn: string;
   capExReservePct: string;
@@ -449,8 +449,8 @@ export default function ProformaPage() {
       parseNum(form.expAccounting) + parseNum(form.expPermits) + customFixedTotal;
     const fixedAnnual = fixedMonthly * 12;
 
-    // Custom variable expenses (monthly)
-    const customVariableMonthly = (form.customVariableExpenses || []).reduce((sum, e) => sum + parseNum(e.amount), 0);
+    // Custom variable expenses are percentages of gross revenue, not fixed dollar amounts.
+    const customVariablePct = (form.customVariableExpenses || []).reduce((sum, e) => sum + parsePct(e.amount), 0);
 
     const calcScenario = (adrStr: string, occStr: string, nightsStr: string, cleaningRevStr: string, cleaningExpStr: string, ancillaryStr: string) => {
       const adr = parseNum(adrStr);
@@ -479,7 +479,7 @@ export default function ProformaPage() {
       const mgmtExpense = netRevenue * mgmtPct;
       const cleaningExpense = cleaningFeeExpenseTotal;
       const capExReserve = grossRevenue * parsePct(form.capExReservePct);
-      const customVarAnnual = customVariableMonthly * 12;
+      const customVarAnnual = grossRevenue * customVariablePct;
       const totalVariableAnnual = mgmtExpense + cleaningExpense + capExReserve + customVarAnnual;
 
       const totalExpensesAnnual = fixedAnnual + totalVariableAnnual;
@@ -494,8 +494,8 @@ export default function ProformaPage() {
       const noiMargin = netRevenue > 0 ? noi / netRevenue : 0;
 
       const breakEvenOcc = adr > 0 ? (() => {
-        const target = fixedAnnual + annualDebtService + customVarAnnual;
-        const perNight = adr * (1 - blendedFeeRate) * (1 - mgmtPct) - (parseNum(form.cleaningCostPerTurn)) / avgLOS - adr * parsePct(form.capExReservePct);
+        const target = fixedAnnual + annualDebtService;
+        const perNight = adr * (1 - blendedFeeRate) * (1 - mgmtPct) - (parseNum(form.cleaningCostPerTurn)) / avgLOS - adr * (parsePct(form.capExReservePct) + customVariablePct);
         return perNight > 0 ? target / (perNight * availNights) : 1;
       })() : 0;
 
@@ -1581,25 +1581,28 @@ export default function ProformaPage() {
                   </div>
                   {calc.s2.capExReserve > 0 && <p className="text-xs text-emerald-600 font-medium">= {fmtDollar(calc.s2.capExReserve)}/yr</p>}
                 </div>
-                {/* Custom variable expenses */}
-                {(form.customVariableExpenses || []).map((exp, i) => (
-                  <div key={`cv-${i}`} className="flex items-center gap-2">
-                    <Input className="h-7 text-xs flex-1 border-dashed" value={exp.label} placeholder="Expense name" onChange={e => {
-                      const c = [...(form.customVariableExpenses || [])]; c[i] = { ...c[i], label: e.target.value }; setField("customVariableExpenses", c);
-                    }} />
-                    <div className="relative w-24">
-                      <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                      <Input className="pl-5 h-7 text-xs" value={formatCurrencyInput(exp.amount)} onChange={e => {
-                        const c = [...(form.customVariableExpenses || [])]; c[i] = { ...c[i], amount: e.target.value.replace(/[^0-9]/g, "") }; setField("customVariableExpenses", c);
+                {/* Custom variable expenses are percentages of gross revenue. */}
+                {(form.customVariableExpenses || []).map((exp, i) => {
+                  const baseCaseAnnual = calc.s2.grossRevenue * parsePct(exp.amount);
+                  return (
+                    <div key={`cv-${i}`} className="flex items-center gap-2">
+                      <Input className="h-7 text-xs flex-1 border-dashed" value={exp.label} placeholder="Expense name" onChange={e => {
+                        const c = [...(form.customVariableExpenses || [])]; c[i] = { ...c[i], label: e.target.value }; setField("customVariableExpenses", c);
                       }} />
+                      <div className="relative w-20">
+                        <Input aria-label={`${exp.label || "Custom variable expense"} percentage of gross revenue`} className="h-7 pr-5 text-xs" inputMode="decimal" value={exp.amount} onChange={e => {
+                          const c = [...(form.customVariableExpenses || [])]; c[i] = { ...c[i], amount: e.target.value.replace(/[^0-9.]/g, "") }; setField("customVariableExpenses", c);
+                        }} />
+                        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+                      </div>
+                      <span className="whitespace-nowrap text-xs text-slate-400">of gross rev.</span>
+                      <span className="whitespace-nowrap text-xs text-slate-500">{fmtDollar(baseCaseAnnual)}/yr</span>
+                      <Button variant="ghost" size="sm" className="h-5 w-5 shrink-0 p-0" onClick={() => {
+                        const c = [...(form.customVariableExpenses || [])]; c.splice(i, 1); setField("customVariableExpenses", c);
+                      }}><Trash2 className="h-3 w-3 text-red-400" /></Button>
                     </div>
-                    <span className="text-xs text-slate-400">/mo</span>
-                    <span className="text-xs text-slate-500 w-16 text-right">{fmtDollar(parseNum(exp.amount) * 12)}/yr</span>
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => {
-                      const c = [...(form.customVariableExpenses || [])]; c.splice(i, 1); setField("customVariableExpenses", c);
-                    }}><Trash2 className="h-3 w-3 text-red-400" /></Button>
-                  </div>
-                ))}
+                  );
+                })}
                 <div className="border-t-2 pt-2 mt-2">
                   <div className="flex justify-between font-bold text-sm">
                     <span>Total Variable (Base Case)</span>
@@ -2168,7 +2171,10 @@ export default function ProformaPage() {
             { label: "Property management", amount: calc.s2.mgmtExpense },
             { label: "Cleaning", amount: calc.s2.cleaningExpense },
             { label: "CapEx reserve", amount: calc.s2.capExReserve },
-            ...(form.customVariableExpenses || []).map(expense => ({ label: expense.label || "Custom variable expense", amount: parseNum(expense.amount) * 12 })),
+            ...(form.customVariableExpenses || []).map(expense => ({
+              label: `${expense.label || "Custom variable expense"} (${expense.amount || "0"}% of gross revenue)`,
+              amount: calc.s2.grossRevenue * parsePct(expense.amount),
+            })),
           ],
         }}
       />

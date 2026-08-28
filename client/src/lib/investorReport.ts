@@ -196,7 +196,10 @@ export function buildReportHTML(data: ReportData, headshotB64: string, photoB64:
     ["Property management", numeric(s2.mgmtExpense)],
     ["Cleaning", numeric(s2.cleaningExpense)],
     ["CapEx reserve", numeric(s2.capExReserve)],
-    ...(Array.isArray(form.customVariableExpenses) ? form.customVariableExpenses.map((expense: any) => [expense.label || "Custom variable expense", annualFromMonthly(expense.amount)]) : []),
+    ...(Array.isArray(form.customVariableExpenses) ? form.customVariableExpenses.map((expense: any) => [
+      `${expense.label || "Custom variable expense"} (${expense.amount || "0"}% of gross revenue)`,
+      numeric(s2.grossRevenue) * (numeric(expense.amount) / 100),
+    ]) : []),
   ].filter(([, value]) => numeric(value) > 0) as Array<[string, number]>;
 
   const expenseRows = (entries: Array<[string, number]>) => entries.length
