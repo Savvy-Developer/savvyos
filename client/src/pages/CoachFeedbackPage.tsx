@@ -38,7 +38,9 @@ function formatSubmittedAt(value: string | Date | null | undefined) {
 
 function formatWeek(value: string | Date | null | undefined) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("en-US", { timeZone: EASTERN_TIME_ZONE, month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+  // `sessionWeekStart` is a calendar date rather than a moment in time, so format
+  // it in UTC to avoid displaying the preceding day for Eastern-time viewers.
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 function RatingValue({ value }: { value: number | null | undefined }) {
