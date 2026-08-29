@@ -341,7 +341,11 @@ export const appRouter = router({
      * selection restores the notification's normal dynamic recipient behavior.
      */
     setRecipients: protectedProcedure
-      .input(z.object({ notificationKey: z.string().min(1).max(128), recipientUserIds: z.array(z.number().int().positive()).max(250) }))
+      .input(z.object({
+        notificationKey: z.string().min(1).max(128),
+        recipientUserIds: z.array(z.number().int().positive()).max(250),
+        includeFutureUsers: z.boolean().default(false),
+      }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
@@ -360,11 +364,21 @@ export const appRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "Selected recipients must be active users with an email address." });
           }
         }
+        const [existing] = await db2
+          .select({ includeFutureUsers: emailNotificationSettings.includeFutureUsers, futureUsersAfter: emailNotificationSettings.futureUsersAfter })
+          .from(emailNotificationSettings)
+          .where(eq(emailNotificationSettings.notificationKey, input.notificationKey))
+          .limit(1);
+        // Preserve the original cutoff whenever the future-user option remains
+        // enabled, so users added while it was on continue to be included.
+        const futureUsersAfter = input.includeFutureUsers
+          ? (existing?.includeFutureUsers && existing.futureUsersAfter ? existing.futureUsersAfter : new Date())
+          : null;
         await db2
           .insert(emailNotificationSettings)
-          .values({ notificationKey: input.notificationKey, isEnabled: true, recipientUserIds: recipientUserIds.length ? recipientUserIds : null, updatedBy: ctx.user.id })
-          .onDuplicateKeyUpdate({ set: { recipientUserIds: recipientUserIds.length ? recipientUserIds : null, updatedBy: ctx.user.id } });
-        return { success: true, recipientUserIds };
+          .values({ notificationKey: input.notificationKey, isEnabled: true, recipientUserIds: recipientUserIds.length ? recipientUserIds : null, includeFutureUsers: input.includeFutureUsers, futureUsersAfter, updatedBy: ctx.user.id })
+          .onDuplicateKeyUpdate({ set: { recipientUserIds: recipientUserIds.length ? recipientUserIds : null, includeFutureUsers: input.includeFutureUsers, futureUsersAfter, updatedBy: ctx.user.id } });
+        return { success: true, recipientUserIds, includeFutureUsers: input.includeFutureUsers };
       }),
   }),
 

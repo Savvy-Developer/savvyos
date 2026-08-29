@@ -30,9 +30,10 @@ interface NotificationRecipientsDialogProps {
   notification: NotificationTarget | null;
   users: NotificationUser[];
   selectedUserIds: number[];
+  includeFutureUsers: boolean;
   isSaving: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (recipientUserIds: number[]) => void;
+  onSave: (recipientUserIds: number[], includeFutureUsers: boolean) => void;
 }
 
 function roleLabel(role: string) {
@@ -45,17 +46,20 @@ export default function NotificationRecipientsDialog({
   notification,
   users,
   selectedUserIds,
+  includeFutureUsers,
   isSaving,
   onOpenChange,
   onSave,
 }: NotificationRecipientsDialogProps) {
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<number[]>(selectedUserIds);
+  const [addFutureUsers, setAddFutureUsers] = useState(includeFutureUsers);
 
   useEffect(() => {
     setSearch("");
     setSelection(selectedUserIds);
-  }, [notification?.id, selectedUserIds]);
+    setAddFutureUsers(includeFutureUsers);
+  }, [notification?.id, selectedUserIds, includeFutureUsers]);
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -106,8 +110,29 @@ export default function NotificationRecipientsDialog({
 
         <div className="rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
           Selected users receive individual copies of this email. Clearing all
-          selections and saving restores the normal recipient logic for this
-          notification.
+          selections and turning off future users restores the normal recipient
+          logic for this notification.
+        </div>
+
+        <div className="flex items-start gap-3 rounded-lg border p-3">
+          <Checkbox
+            id="notification-recipient-add-future-users"
+            checked={addFutureUsers}
+            onCheckedChange={checked => setAddFutureUsers(checked === true)}
+            aria-label="Add all future users"
+          />
+          <div className="space-y-1">
+            <Label
+              htmlFor="notification-recipient-add-future-users"
+              className="cursor-pointer text-sm font-medium"
+            >
+              Add all future users
+            </Label>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Automatically include active SavvyOS users with an email address
+              who are added after this setting is saved.
+            </p>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -190,14 +215,14 @@ export default function NotificationRecipientsDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onSave([])}
-            disabled={isSaving || selection.length === 0}
+            onClick={() => onSave([], false)}
+            disabled={isSaving || (selection.length === 0 && !addFutureUsers)}
           >
             Restore defaults
           </Button>
           <Button
             type="button"
-            onClick={() => onSave(selection)}
+            onClick={() => onSave(selection, addFutureUsers)}
             disabled={isSaving}
           >
             {isSaving ? (

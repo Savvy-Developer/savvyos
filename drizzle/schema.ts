@@ -2165,6 +2165,10 @@ export const emailNotificationSettings = mysqlTable("email_notification_settings
   // A populated list replaces the event's normal recipient(s); null preserves
   // the existing event-specific recipient behavior.
   recipientUserIds: json("recipientUserIds").$type<number[]>(),
+  // When enabled, include active email-enabled users created after the saved
+  // cutoff in addition to the specifically selected recipients.
+  includeFutureUsers: boolean("includeFutureUsers").notNull().default(false),
+  futureUsersAfter: timestamp("futureUsersAfter"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: int("updatedBy").references(() => users.id, { onDelete: "set null" }),
 });

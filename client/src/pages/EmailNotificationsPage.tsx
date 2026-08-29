@@ -140,6 +140,9 @@ export default function EmailNotificationsPage() {
   const recipientOverrideMap = new Map<string, number[]>(
     settings.map((s: { notificationKey: string; recipientUserIds?: number[] | null }) => [s.notificationKey, s.recipientUserIds ?? []])
   );
+  const futureUsersMap = new Map<string, boolean>(
+    settings.map((s: { notificationKey: string; includeFutureUsers?: boolean }) => [s.notificationKey, s.includeFutureUsers ?? false])
+  );
 
   const customNotificationMeta: NotifMeta[] = customNotifications.map((notification) => ({
     id: notification.notificationKey,
@@ -172,9 +175,9 @@ export default function EmailNotificationsPage() {
     createCustomNotificationMutation.mutate(values);
   }
 
-  function handleRecipientSave(recipientUserIds: number[]) {
+  function handleRecipientSave(recipientUserIds: number[], includeFutureUsers: boolean) {
     if (!recipientEditor) return;
-    setRecipientsMutation.mutate({ notificationKey: recipientEditor.id, recipientUserIds });
+    setRecipientsMutation.mutate({ notificationKey: recipientEditor.id, recipientUserIds, includeFutureUsers });
   }
 
   const filtered = notificationItems.filter((n) => {
@@ -336,10 +339,13 @@ export default function EmailNotificationsPage() {
                         <Zap className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/60" />
                         <span><span className="font-medium text-foreground/70">Trigger:</span> {n.trigger}</span>
                       </div>
-                      {n.customId === undefined && recipientOverrideMap.get(n.id)?.length ? (
+                      {n.customId === undefined && (recipientOverrideMap.get(n.id)?.length || futureUsersMap.get(n.id)) ? (
                         <div className="mt-1.5 flex items-center gap-1.5 text-xs text-primary">
                           <UsersRound className="h-3 w-3" />
-                          <span>{recipientOverrideMap.get(n.id)!.length} selected recipient{recipientOverrideMap.get(n.id)!.length === 1 ? "" : "s"} override the default audience</span>
+                          <span>
+                            {recipientOverrideMap.get(n.id)?.length ? `${recipientOverrideMap.get(n.id)!.length} selected recipient${recipientOverrideMap.get(n.id)!.length === 1 ? "" : "s"}` : "No current users selected"}
+                            {futureUsersMap.get(n.id) ? `${recipientOverrideMap.get(n.id)?.length ? " + " : ""}all future users` : ""}
+                          </span>
                         </div>
                       ) : null}
                     </div>
@@ -405,6 +411,7 @@ export default function EmailNotificationsPage() {
         notification={recipientEditor ? { id: recipientEditor.id, name: recipientEditor.name, recipient: recipientEditor.recipient } : null}
         users={recipientUsers}
         selectedUserIds={recipientEditor ? recipientOverrideMap.get(recipientEditor.id) ?? [] : []}
+        includeFutureUsers={recipientEditor ? futureUsersMap.get(recipientEditor.id) ?? false : false}
         isSaving={setRecipientsMutation.isPending}
         onOpenChange={(open) => { if (!open) setRecipientEditor(null); }}
         onSave={handleRecipientSave}

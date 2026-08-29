@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { ENV } from "./env";
 import { getDb } from "../db";
 import { emailTemplates, emailNotificationSettings, magicLinkTokens, users } from "../../drizzle/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 
 const FROM_ADDRESS = "Savvy STR Agents <notifications@savvy-agents.com>";
 const APP_URL = "https://os.savvy-agents.com";
@@ -1038,7 +1038,12 @@ async function notificationRecipientOverride(type: EmailType): Promise<{
   if (!db) return { disabled: false, recipients: null };
 
   const [setting] = await db
-    .select({ isEnabled: emailNotificationSettings.isEnabled, recipientUserIds: emailNotificationSettings.recipientUserIds })
+    .select({
+      isEnabled: emailNotificationSettings.isEnabled,
+      recipientUserIds: emailNotificationSettings.recipientUserIds,
+      includeFutureUsers: emailNotificationSettings.includeFutureUsers,
+      futureUsersAfter: emailNotificationSettings.futureUsersAfter,
+    })
     .from(emailNotificationSettings)
     .where(eq(emailNotificationSettings.notificationKey, type))
     .limit(1);
@@ -1046,12 +1051,25 @@ async function notificationRecipientOverride(type: EmailType): Promise<{
   if (!setting.isEnabled) return { disabled: true, recipients: null };
 
   const recipientUserIds = Array.from(new Set((setting.recipientUserIds ?? []).filter((id): id is number => Number.isInteger(id) && id > 0)));
-  if (!recipientUserIds.length) return { disabled: false, recipients: null };
+  const includeFutureUsers = setting.includeFutureUsers && Boolean(setting.futureUsersAfter);
+  if (!recipientUserIds.length && !includeFutureUsers) return { disabled: false, recipients: null };
 
+  const recipientConditions = [eq(users.isActive, true), isNotNull(users.email)];
+  if (recipientUserIds.length && includeFutureUsers) {
+    const selectedOrFuture = or(
+      inArray(users.id, recipientUserIds),
+      gt(users.createdAt, setting.futureUsersAfter!)
+    );
+    if (selectedOrFuture) recipientConditions.push(selectedOrFuture);
+  } else if (recipientUserIds.length) {
+    recipientConditions.push(inArray(users.id, recipientUserIds));
+  } else {
+    recipientConditions.push(gt(users.createdAt, setting.futureUsersAfter!));
+  }
   const recipients = await db
     .select({ id: users.id, name: users.name, email: users.email })
     .from(users)
-    .where(and(eq(users.isActive, true), inArray(users.id, recipientUserIds)));
+    .where(and(...recipientConditions));
   return { disabled: false, recipients };
 }
 

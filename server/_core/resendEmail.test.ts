@@ -96,6 +96,44 @@ describe("configured notification recipients", () => {
     ]);
     expect(mockSend.mock.calls.every(([, options]) => String(options?.idempotencyKey).startsWith("recipient-override:listing_created:"))).toBe(true);
   });
+
+  it("includes eligible users added after future-user enrollment is enabled", async () => {
+    mockSend.mockClear();
+    const settingsQuery = {
+      from: () => ({
+        where: () => ({
+          limit: async () => [{
+            isEnabled: true,
+            recipientUserIds: [7],
+            includeFutureUsers: true,
+            futureUsersAfter: new Date("2026-08-29T20:00:00.000Z"),
+          }],
+        }),
+      }),
+    };
+    const recipientsQuery = {
+      from: () => ({
+        where: async () => [
+          { id: 7, name: "Selected Admin", email: "selected@example.com" },
+          { id: 12, name: "New Agent", email: "new-user@example.com" },
+        ],
+      }),
+    };
+    mockGetDb.mockResolvedValue({
+      select: vi.fn().mockReturnValueOnce(settingsQuery).mockReturnValueOnce(recipientsQuery),
+    });
+
+    await sendTransactionalEmail(
+      "listing_created",
+      { recipientEmail: "default-agent@example.com", listingAddress: "123 Main St" },
+      { allowTemplateOverride: false, injectMagicLinks: false }
+    );
+
+    expect(mockSend.mock.calls.map(([message]) => message.to).sort()).toEqual([
+      "new-user@example.com",
+      "selected@example.com",
+    ]);
+  });
 });
 
 describe("website property request handoff emails", () => {
