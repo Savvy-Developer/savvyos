@@ -183,7 +183,7 @@ function AgentOnlyRoute({ children }: { children: React.ReactNode }) {
 function ShortLinksRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const role = user?.role;
-  if (role && role !== "admin" && role !== "agent") return <NotFound />;
+  if (role && role !== "admin") return <NotFound />;
   return <>{children}</>;
 }
 

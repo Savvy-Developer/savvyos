@@ -84,10 +84,10 @@ const updateInput = createInput;
 type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 function requireShortLinkAccess(role: string) {
-  if (role !== "admin" && role !== "agent") {
+  if (role !== "admin") {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Short Links are available to agent and administrator accounts.",
+      message: "Administrator access is required for Short Links.",
     });
   }
 }

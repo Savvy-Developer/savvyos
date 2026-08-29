@@ -138,7 +138,6 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
       label: "Resources",
       items: [
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
-        { icon: Link2, label: "Short Links", path: "/short-links" },
         { icon: Link2, label: "Savvy-Agents.com", path: "https://www.savvy-agents.com/admin/properties", external: true },
       ],
     },
