@@ -136,6 +136,19 @@ function formatPeriodLabel(weekStart: string): string {
   return `${startLabel}–${endLabel}`;
 }
 
+/**
+ * MySQL stores `sessionWeekStart` as a calendar DATE. Bind each boundary as
+ * UTC midnight for that calendar date rather than Eastern midnight, whose UTC
+ * offset can exclude the intended DATE value.
+ */
+export function getCoachFeedbackWeekDateRange(weekStart: string): { start: Date; endExclusive: Date } {
+  const toUtcCalendarDate = (dateKey: string) => new Date(`${dateKey}T00:00:00.000Z`);
+  return {
+    start: toUtcCalendarDate(weekStart),
+    endExclusive: toUtcCalendarDate(addEasternDays(weekStart, 7)),
+  };
+}
+
 function formatSessionDate(sessionDate: Date | null): string {
   if (!sessionDate) return "your recent coaching session";
   return new Intl.DateTimeFormat("en-US", {
@@ -462,7 +475,7 @@ async function getCoachRosterForWeek(weekStart: string, endExclusive: Date): Pro
 async function getAggregatesForWeek(weekStart: string, roster: Array<{ id: number; name: string; email: string | null }>): Promise<CoachFeedbackAggregate[]> {
   const db = await getDb();
   if (!db) return [];
-  const weekStartDate = easternDateTimeToUtc(weekStart, 0, 0, 0);
+  const { start, endExclusive } = getCoachFeedbackWeekDateRange(weekStart);
   const grouped = await db.select({
     coachId: coachingFeedbackResponses.coachId,
     responseCount: sql<number>`COUNT(*)`,
@@ -472,7 +485,11 @@ async function getAggregatesForWeek(weekStart: string, roster: Array<{ id: numbe
     supportAverage: sql<number>`AVG(${coachingFeedbackResponses.supportRating})`,
   })
     .from(coachingFeedbackResponses)
-    .where(and(eq(coachingFeedbackResponses.sessionWeekStart, weekStartDate), eq(coachingFeedbackResponses.isTest, false)))
+    .where(and(
+      gte(coachingFeedbackResponses.sessionWeekStart, start),
+      lt(coachingFeedbackResponses.sessionWeekStart, endExclusive),
+      eq(coachingFeedbackResponses.isTest, false),
+    ))
     .groupBy(coachingFeedbackResponses.coachId);
 
   const comments = await db.select({
@@ -482,7 +499,11 @@ async function getAggregatesForWeek(weekStart: string, roster: Array<{ id: numbe
     additional: coachingFeedbackResponses.additionalComment,
   })
     .from(coachingFeedbackResponses)
-    .where(and(eq(coachingFeedbackResponses.sessionWeekStart, weekStartDate), eq(coachingFeedbackResponses.isTest, false)))
+    .where(and(
+      gte(coachingFeedbackResponses.sessionWeekStart, start),
+      lt(coachingFeedbackResponses.sessionWeekStart, endExclusive),
+      eq(coachingFeedbackResponses.isTest, false),
+    ))
     .orderBy(desc(coachingFeedbackResponses.id));
 
   const responseByCoach = new Map(grouped.map((row) => [row.coachId, row]));
@@ -581,10 +602,13 @@ async function finalizeReportRun(status: "sent" | "partial" | "failed" | "skippe
 }
 
 /** Sends each active coach their own weekly aggregate and the named leaders the company-wide aggregate. */
-export async function sendWeeklyCoachFeedbackReport(asOf = new Date()): Promise<{ sent: number; skipped: boolean; report: WeeklyCoachFeedbackReport }> {
+export async function sendWeeklyCoachFeedbackReport(
+  asOf = new Date(),
+  options: { correction?: boolean } = {},
+): Promise<{ sent: number; skipped: boolean; report: WeeklyCoachFeedbackReport }> {
   const report = await buildWeeklyCoachFeedbackReport(asOf);
   const reportDate = easternDateKey(getEasternTimeParts(asOf));
-  if (!(await claimReportRun(reportDate))) return { sent: 0, skipped: true, report };
+  if (!options.correction && !(await claimReportRun(reportDate))) return { sent: 0, skipped: true, report };
 
   const deliveries: Array<Promise<{ sent: boolean; reason?: string }>> = [];
   for (const aggregate of report.aggregates) {
@@ -592,24 +616,24 @@ export async function sendWeeklyCoachFeedbackReport(asOf = new Date()): Promise<
     deliveries.push(sendTransactionalEmail("coaching_feedback_weekly_summary", {
       recipientEmail: aggregate.coachEmail,
       recipientName: aggregate.coachName,
-      coachFeedbackSubject: `Your anonymous coaching feedback | ${report.periodLabel}`,
+      coachFeedbackSubject: `${options.correction ? "CORRECTED — " : ""}Your anonymous coaching feedback | ${report.periodLabel}`,
       coachFeedbackHtml: renderCoachWeeklyEmail(aggregate, report),
     }, {
       allowTemplateOverride: false,
       injectMagicLinks: false,
-      idempotencyKey: `${LIVE_REPORT_KEY}:${reportDate}:coach:${aggregate.coachId}`,
+      idempotencyKey: `${LIVE_REPORT_KEY}:${reportDate}:${options.correction ? "correction:" : ""}coach:${aggregate.coachId}`,
     }));
   }
   for (const leader of report.leadershipRecipients) {
     deliveries.push(sendTransactionalEmail("coaching_feedback_weekly_summary", {
       recipientEmail: leader.email,
       recipientName: leader.name,
-      coachFeedbackSubject: `Coach feedback — weekly aggregate | ${report.periodLabel}`,
+      coachFeedbackSubject: `${options.correction ? "CORRECTED — " : ""}Coach feedback — weekly aggregate | ${report.periodLabel}`,
       coachFeedbackHtml: renderLeadershipWeeklyEmail(report),
     }, {
       allowTemplateOverride: false,
       injectMagicLinks: false,
-      idempotencyKey: `${LIVE_REPORT_KEY}:${reportDate}:leadership:${leader.id}`,
+      idempotencyKey: `${LIVE_REPORT_KEY}:${reportDate}:${options.correction ? "correction:" : ""}leadership:${leader.id}`,
     }));
   }
 
@@ -617,7 +641,9 @@ export async function sendWeeklyCoachFeedbackReport(asOf = new Date()): Promise<
   const sent = results.filter((result) => result.sent).length;
   const failed = results.filter((result) => !result.sent);
   const recipientCount = results.length;
-  await finalizeReportRun(failed.length ? (sent ? "partial" : "failed") : "sent", recipientCount, sent, failed.map((result) => result.reason).filter(Boolean).join("; ") || undefined);
+  if (!options.correction) {
+    await finalizeReportRun(failed.length ? (sent ? "partial" : "failed") : "sent", recipientCount, sent, failed.map((result) => result.reason).filter(Boolean).join("; ") || undefined);
+  }
   return { sent, skipped: false, report };
 }
 
