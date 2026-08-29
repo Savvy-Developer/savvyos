@@ -947,6 +947,7 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
           ) : paged.map((row: any) => {
             const nextSendDate = row.enrollment.nextStepAt ? new Date(row.enrollment.nextStepAt) : null;
             const isOverdue = nextSendDate && nextSendDate < new Date() && row.enrollment.status === "active";
+            const awaitingSmsConsent = row.enrollment.pauseReason === "Waiting for documented SMS marketing consent";
             const stepLabel = row.currentStep
               ? `Step ${row.enrollment.currentStepIndex + 1}/${row.totalSteps} · ${row.currentStep.channel === "email" ? "✉" : "💬"} ${row.currentStep.subject ?? row.currentStep.body?.slice(0, 40) ?? "(no subject)"}`
               : row.enrollment.status === "completed" ? `Completed all ${row.totalSteps} steps` : `Step ${row.enrollment.currentStepIndex + 1}`;
@@ -962,12 +963,17 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
                       {nextSendDate.toLocaleString()}
                     </p>
                   )}
+                  {awaitingSmsConsent && (
+                    <p className="text-xs mt-0.5 text-amber-700">
+                      SMS marketing consent required · <a className="font-medium underline" href={`/contacts/${row.contact.id}`}>Open contact to record consent</a>
+                    </p>
+                  )}
                   <span className={`text-xs capitalize font-medium ${
                     row.enrollment.status === "active" ? "text-green-600" :
                     row.enrollment.status === "completed" ? "text-blue-600" : "text-muted-foreground"
-                  }`}>{row.enrollment.status}</span>
+                  }`}>{awaitingSmsConsent ? "Waiting for SMS consent" : row.enrollment.status}</span>
                 </div>
-                {row.enrollment.status === "paused" && (
+                {row.enrollment.status === "paused" && !awaitingSmsConsent && (
                   <Button
                     variant="outline" size="sm"
                     className="h-7 text-xs shrink-0"

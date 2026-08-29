@@ -39,7 +39,9 @@ let isRunning = false;
 
 const EMAIL_SEND_INTERVAL_MS = 125; // 8/s, below Resend's default 10/s team limit.
 const SMS_SEND_INTERVAL_MS = 10_000; // 6/min, keeping under Aircall's 10,000/day US/Canada number limit.
-const SMART_PLAN_DUE_BATCH_SIZE = 2; // Up to six distinct contact channels per five-minute scheduler pass.
+// A successful SMS is paced at six per minute, so 25 due rows can clear in
+// under five minutes while skipped or paused rows clear immediately.
+const SMART_PLAN_DUE_BATCH_SIZE = 25;
 let nextEmailSendAt = 0;
 let nextSmsSendAt = 0;
 const SMS_DAILY_SEND_LIMIT = Math.max(1, Number(process.env.SAVVY_SMS_DAILY_LIMIT ?? 1_000));
@@ -358,6 +360,21 @@ async function processEnrollmentStep(
     errorMessage: errorMessage ?? null,
   });
 
+  // Consent is not a failed delivery and must never let a text plan advance
+  // without sending. Hold the enrollment at its current step until an admin
+  // records documented marketing consent for the contact.
+  if (status === "skipped" && errorMessage === "Marketing SMS consent has not been recorded") {
+    await db
+      .update(smartPlanEnrollments)
+      .set({
+        status: "paused",
+        pauseReason: "Waiting for documented SMS marketing consent",
+        nextStepAt: null,
+      })
+      .where(eq(smartPlanEnrollments.id, enrollment.id));
+    return;
+  }
+
   // Advance to next step
   const nextIndex = stepIndex + 1;
   if (nextIndex >= steps.length) {
@@ -532,6 +549,20 @@ export async function triggerSmartPlansForContact(contactId: number, leadSourceI
       await enrollContactInPlan(contactId, plan.id);
     }
   }
+}
+
+/** Resume consent-paused text plans from the original unsent step. */
+export async function resumeSmartPlansAwaitingSmsConsent(contactId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(smartPlanEnrollments)
+    .set({ status: "active", pauseReason: null, nextStepAt: new Date() })
+    .where(and(
+      eq(smartPlanEnrollments.contactId, contactId),
+      eq(smartPlanEnrollments.status, "paused"),
+      eq(smartPlanEnrollments.pauseReason, "Waiting for documented SMS marketing consent"),
+    ));
 }
 
 /**

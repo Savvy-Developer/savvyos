@@ -969,6 +969,8 @@ export const smartPlanEnrollments = mysqlTable("smart_plan_enrollments", {
   // When the next step should fire (UTC)
   nextStepAt: timestamp("nextStepAt"),
   status: mysqlEnum("status", ["active", "paused", "completed", "cancelled"]).default("active").notNull(),
+  // Provides an actionable explanation when automation pauses an enrollment.
+  pauseReason: varchar("pauseReason", { length: 255 }),
   completedAt: timestamp("completedAt"),
 }, (table) => [
   // One contact can only enter a given plan once, even when a webhook is retried

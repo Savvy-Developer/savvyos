@@ -946,7 +946,7 @@ export const smartPlansRouter = router({
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await db
           .update(smartPlanEnrollments)
-          .set({ status: "active", nextStepAt: new Date() })
+          .set({ status: "active", pauseReason: null, nextStepAt: new Date() })
           .where(and(
             eq(smartPlanEnrollments.id, input.enrollmentId),
             eq(smartPlanEnrollments.status, "paused"),

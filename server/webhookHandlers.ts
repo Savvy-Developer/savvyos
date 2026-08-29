@@ -12,7 +12,7 @@
 
 import { getDb as _getDb, logActivity, scheduleAircallPhoneRematch } from "./db";
 import { triggerGhlContactSync } from "./_core/ghlSync";
-import { triggerSmartPlansForContact } from "./smartPlanScheduler";
+import { resumeSmartPlansAwaitingSmsConsent, triggerSmartPlansForContact } from "./smartPlanScheduler";
 
 async function getDb() {
   const db = await _getDb();
@@ -92,6 +92,21 @@ function normalisePayload(raw: Record<string, unknown>): Record<string, unknown>
     }
   }
   return out;
+}
+
+/** Only a positive, explicit source-provided value can authorize marketing SMS. */
+function hasExplicitSmsMarketingConsent(...payloads: Record<string, unknown>[]): boolean {
+  const consentKeys = [
+    "smsMarketingConsent", "sms_marketing_consent", "smsConsent", "sms_consent",
+    "marketingSmsConsent", "marketing_sms_consent", "consentToSms", "consent_to_sms",
+    "consentToReceiveSms", "consent_to_receive_sms", "tcpAConsent", "tcpa_consent",
+  ];
+  return payloads.some((payload) => consentKeys.some((key) => {
+    const value = payload[key];
+    if (value === true || value === 1) return true;
+    if (typeof value !== "string") return false;
+    return ["true", "yes", "1", "on", "opted_in", "opt-in"].includes(value.trim().toLowerCase());
+  }));
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -218,6 +233,7 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
   const phone = normalizeOptionalUsPhone(p.phone == null ? undefined : String(p.phone));
   const secondaryPhone = normalizeOptionalUsPhone(p.secondaryPhone == null ? undefined : String(p.secondaryPhone));
   const spousePhone = normalizeOptionalUsPhone(p.spousePhone == null ? undefined : String(p.spousePhone));
+  const smsMarketingConsentProvided = hasExplicitSmsMarketingConsent(rawPayload, p);
 
   // Resolve lead source
   const leadSourceId = await resolveLeadSourceId(
@@ -245,9 +261,18 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     if (p.state) updates.state = p.state as string;
     if (p.zip) updates.zip = p.zip as string;
     if (p.notes) updates.notes = p.notes as string;
+    if (smsMarketingConsentProvided) {
+      updates.smsMarketingConsentAt = new Date();
+      updates.smsMarketingConsentSource = `Webhook: ${endpoint.name}`;
+      updates.smsMarketingOptedOutAt = null;
+      updates.smsMarketingOptOutReason = null;
+    }
 
     if (Object.keys(updates).length > 0) {
       await db.update(contacts).set(updates).where(eq(contacts.id, existingId));
+    }
+    if (smsMarketingConsentProvided) {
+      await resumeSmartPlansAwaitingSmsConsent(existingId);
     }
     contactId = existingId;
     action = "updated";
@@ -271,6 +296,10 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
       spouseLastName: (p.spouseLastName as string) || null,
       spouseEmail: (p.spouseEmail as string) || null,
       spousePhone,
+      ...(smsMarketingConsentProvided ? {
+        smsMarketingConsentAt: new Date(),
+        smsMarketingConsentSource: `Webhook: ${endpoint.name}`,
+      } : {}),
     });
     contactId = (result as any).insertId;
     action = "created";
@@ -740,6 +769,7 @@ async function createContactFromEvent(
   const db = await getDb();
   const { firstName, lastName } = resolveContactName(data, raw, email);
   const phone = normalizeOptionalUsPhone(pickField(data, raw, ["phone", "mobile", "cell"]));
+  const smsMarketingConsentProvided = hasExplicitSmsMarketingConsent(data, raw);
 
   const leadSourceId =
     (await resolveLeadSourceId(undefined, endpoint.defaultLeadSourceId)) ??
@@ -751,6 +781,10 @@ async function createContactFromEvent(
     email,
     phone,
     leadSourceId,
+    ...(smsMarketingConsentProvided ? {
+      smsMarketingConsentAt: new Date(),
+      smsMarketingConsentSource: `Webhook: ${endpoint.name}`,
+    } : {}),
   });
     const contactId = (result as any).insertId as number;
   scheduleAircallPhoneRematch(contactId, { phone });

@@ -62,6 +62,7 @@ vi.mock("./_core/ghlSync", () => ({
 
 vi.mock("./smartPlanScheduler", () => ({
   triggerSmartPlansForContact: vi.fn().mockResolvedValue(1),
+  resumeSmartPlansAwaitingSmsConsent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./_core/resendEmail", () => ({

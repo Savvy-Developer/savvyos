@@ -73,6 +73,7 @@ vi.mock("./_core/ghlSync", () => ({
 const mockTriggerSmartPlansForContact = vi.hoisted(() => vi.fn().mockResolvedValue(1));
 vi.mock("./smartPlanScheduler", () => ({
   triggerSmartPlansForContact: mockTriggerSmartPlansForContact,
+  resumeSmartPlansAwaitingSmsConsent: vi.fn().mockResolvedValue(undefined),
 }));
 
 // drizzle's `eq` is where the handler hands us the email it is looking up.
@@ -277,6 +278,23 @@ describe("unmatched email", () => {
       endpoint
     );
     expect(state.__mock.inserted[0].leadSourceId).toBe(42);
+  });
+
+  it("records only an explicit SMS marketing consent from a new website lead", async () => {
+    await savvyWebEventHandler(
+      envelope("lead.created", {
+        leadEmail: "consented@example.com",
+        firstName: "Consented",
+        lastName: "Lead",
+        smsMarketingConsent: true,
+      }),
+      endpoint
+    );
+
+    expect(state.__mock.inserted[0]).toMatchObject({
+      smsMarketingConsentSource: "Webhook: Property Views",
+    });
+    expect(state.__mock.inserted[0].smsMarketingConsentAt).toBeInstanceOf(Date);
   });
 
   it("syncs a newly created contact outbound to GHL", async () => {
