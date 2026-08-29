@@ -20,7 +20,7 @@ import {
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { publicProcedure, router } from "../_core/trpc";
 
-const REFERRAL_PARTNER_PARENT_NAME = "Referral Partner (Leads in)";
+const PARTNER_PORTAL_PARENT_NAMES = ["Referral Partner (Leads in)", "Affiliate Referral"] as const;
 const REQUEST_LIMIT = 4;
 const REQUEST_WINDOW_MS = 15 * 60 * 1000;
 const loginRequests = new Map<string, { count: number; startedAt: number }>();
@@ -49,18 +49,18 @@ async function getConfiguredSources(email: string) {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
 
-  const [parent] = await db
+  const parents = await db
     .select({ id: leadSources.id })
     .from(leadSources)
-    .where(eq(leadSources.name, REFERRAL_PARTNER_PARENT_NAME))
-    .limit(1);
-  if (!parent) return [];
+    .where(inArray(leadSources.name, [...PARTNER_PORTAL_PARENT_NAMES]));
+  if (!parents.length) return [];
+  const parentIds = parents.map((parent) => parent.id);
 
   return db
     .select({ id: leadSources.id, name: leadSources.name })
     .from(leadSources)
     .where(and(
-      eq(leadSources.parentId, parent.id),
+      inArray(leadSources.parentId, parentIds),
       eq(leadSources.isActive, true),
       eq(leadSources.allowPartnerPortal, true),
       sql`LOWER(${leadSources.partnerPortalEmail}) = ${normalizePartnerPortalEmail(email)}`,

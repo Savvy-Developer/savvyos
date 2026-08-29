@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { normalizePartnerPortalEmail, sendPartnerPortalInvitation } from "../_core/partnerPortalAuth";
 
-const REFERRAL_PARTNER_PARENT_NAME = "Referral Partner (Leads in)";
+const PARTNER_PORTAL_PARENT_NAMES = ["Referral Partner (Leads in)", "Affiliate Referral"] as const;
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ async function resolvePartnerPortalConfiguration(input: {
     throw new TRPCError({ code: "BAD_REQUEST", message: "A partner email is required when Partner Portal access is enabled." });
   }
   if (!input.parentId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Partner Portal access is only available to a Referral Partner (Leads in) sub-source." });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Partner Portal access is only available to a Referral Partner (Leads in) or Affiliate Referral sub-source." });
   }
 
   const db = await getDb();
@@ -70,8 +70,8 @@ async function resolvePartnerPortalConfiguration(input: {
     .from(leadSources)
     .where(eq(leadSources.id, input.parentId))
     .limit(1);
-  if (parent?.name !== REFERRAL_PARTNER_PARENT_NAME) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Partner Portal access is only available to a Referral Partner (Leads in) sub-source." });
+  if (!parent || !PARTNER_PORTAL_PARENT_NAMES.includes(parent.name as typeof PARTNER_PORTAL_PARENT_NAMES[number])) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Partner Portal access is only available to a Referral Partner (Leads in) or Affiliate Referral sub-source." });
   }
   return { allowPartnerPortal: true, partnerPortalEmail: email };
 }

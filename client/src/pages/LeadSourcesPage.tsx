@@ -238,11 +238,18 @@ export default function LeadSourcesPage() {
   const parents = sources.filter(s => s.ls.parentId === null);
   const childrenOf = (parentId: number) => sources.filter(s => s.ls.parentId === parentId);
 
-  // Partner Portal access is limited to direct children of this lead-in category.
+  // Referral fee settings apply only to direct children of the lead-in category.
   function isReferralPartnerCategory(parentId: string | number | null): boolean {
     if (!parentId) return false;
     const parent = sources.find(s => s.ls.id === Number(parentId));
     return parent?.ls.name === "Referral Partner (Leads in)";
+  }
+
+  // Partner Portal access is available to direct children of either eligible category.
+  function isPartnerPortalCategory(parentId: string | number | null): boolean {
+    if (!parentId) return false;
+    const parent = sources.find(s => s.ls.id === Number(parentId));
+    return parent?.ls.name === "Referral Partner (Leads in)" || parent?.ls.name === "Affiliate Referral";
   }
 
   function openCreate(parentId?: number) {
@@ -301,9 +308,9 @@ export default function LeadSourcesPage() {
       payload.referralPercent = null;
     }
     if (!payload.name) { toast.error("Name is required"); return; }
-    const isPartnerPortalSource = isReferralPartnerCategory(form.parentId);
+    const isPartnerPortalSource = isPartnerPortalCategory(form.parentId);
     if (form.allowPartnerPortal && !isPartnerPortalSource) {
-      toast.error("Partner Portal access is only available to Referral Partner (Leads in) sub-sources.");
+      toast.error("Partner Portal access is only available to Referral Partner (Leads in) or Affiliate Referral sub-sources.");
       return;
     }
     if (form.allowPartnerPortal && !form.partnerPortalEmail.trim()) {
@@ -357,7 +364,7 @@ export default function LeadSourcesPage() {
     const editing = sources.find(s => s.ls.id === editingId);
     return editing?.ls.parentId ? isReferralPartnerCategory(editing.ls.parentId) : false;
   })());
-  const showPartnerPortalSettings = isReferralPartnerCategory(form.parentId);
+  const showPartnerPortalSettings = isPartnerPortalCategory(form.parentId);
 
   return (
     <div>
