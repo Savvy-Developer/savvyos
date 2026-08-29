@@ -134,6 +134,7 @@ import ReviewsPage from "./pages/ReviewsPage";
 import PublicReviewPage from "./pages/PublicReviewPage";
 import CoachFeedbackPage from "./pages/CoachFeedbackPage";
 import PublicCoachFeedbackPage from "./pages/PublicCoachFeedbackPage";
+import ShortLinksPage from "./pages/ShortLinksPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -176,6 +177,13 @@ function AgentOnlyRoute({ children }: { children: React.ReactNode }) {
     navigate("/");
     return null;
   }
+  return <>{children}</>;
+}
+
+function ShortLinksRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const role = user?.role;
+  if (role && role !== "admin" && role !== "agent") return <NotFound />;
   return <>{children}</>;
 }
 
@@ -399,6 +407,7 @@ function Router() {
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
           <Route path="/webinars">{() => <WebinarRoute><WebinarsAdminPage /></WebinarRoute>}</Route>
           <Route path="/landing-pages">{() => <LandingPagesRoute><LandingPagesPage /></LandingPagesRoute>}</Route>
+          <Route path="/short-links">{() => <ShortLinksRoute><ShortLinksPage /></ShortLinksRoute>}</Route>
           <Route path="/tech-requests" component={TechRequestsPage} />
           <Route path="/projects" component={ProjectsPage} />
           <Route path="/projects/:id" component={ProjectDetailPage} />

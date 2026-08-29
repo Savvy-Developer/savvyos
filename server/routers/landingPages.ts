@@ -11,6 +11,7 @@ import {
   landingPageSubmissions,
   landingPages,
   leadSources,
+  shortLinks,
   smartPlans,
   users,
 } from "../../drizzle/schema";
@@ -111,6 +112,11 @@ async function assertActiveSmartPlan(db: NonNullable<Awaited<ReturnType<typeof g
   if (!smartPlanId) return;
   const [plan] = await db.select({ id: smartPlans.id }).from(smartPlans).where(and(eq(smartPlans.id, smartPlanId), eq(smartPlans.status, "active"))).limit(1);
   if (!plan) throw new TRPCError({ code: "BAD_REQUEST", message: "Select an active Smart Plan or leave this setting blank." });
+}
+
+async function assertShortLinkSlugAvailable(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, slug: string) {
+  const [link] = await db.select({ id: shortLinks.id }).from(shortLinks).where(eq(shortLinks.slug, slug)).limit(1);
+  if (link) throw new TRPCError({ code: "CONFLICT", message: "That public slug is already reserved by a Short Link." });
 }
 
 function formFields(blocks: Array<Record<string, unknown>>) {
@@ -370,6 +376,7 @@ export const landingPagesRouter = router({
     const slug = input.slug || `landing-page-${Date.now().toString(36)}`;
     const [existing] = await db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, slug)).limit(1);
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "That public slug is already in use." });
+    await assertShortLinkSlugAvailable(db, slug);
     const [result] = await db.insert(landingPages).values({
       internalName: input.internalName,
       slug,
@@ -404,6 +411,7 @@ export const landingPagesRouter = router({
     if (input.data.slug && input.data.slug !== existing.slug) {
       const [collision] = await db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, input.data.slug)).limit(1);
       if (collision) throw new TRPCError({ code: "CONFLICT", message: "That public slug is already in use." });
+      await assertShortLinkSlugAvailable(db, input.data.slug);
     }
     const data = { ...input.data, lastEditedById: ctx.user.id } as Record<string, unknown>;
     await db.update(landingPages).set(data).where(eq(landingPages.id, input.id));
@@ -418,7 +426,10 @@ export const landingPagesRouter = router({
     if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Landing page not found." });
     let slug = `${existing.slug}-copy`;
     let suffix = 2;
-    while ((await db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, slug)).limit(1))[0]) slug = `${existing.slug}-copy-${suffix++}`;
+    while (
+      (await db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, slug)).limit(1))[0]
+      || (await db.select({ id: shortLinks.id }).from(shortLinks).where(eq(shortLinks.slug, slug)).limit(1))[0]
+    ) slug = `${existing.slug}-copy-${suffix++}`;
     const [result] = await db.insert(landingPages).values({ ...existing, id: undefined, internalName: `${existing.internalName} (Copy)`, slug, status: "draft", publishedAt: null, archivedAt: null, createdById: ctx.user.id, lastEditedById: ctx.user.id, createdAt: undefined, updatedAt: undefined });
     const id = Number((result as any).insertId);
     await logActivity({ userId: ctx.user.id, action: "landing_page_duplicated", entityType: "landing_page", entityId: id, details: { duplicatedFromId: existing.id, slug } });

@@ -38,6 +38,7 @@ import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { ENV } from "./env";
 import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
+import { registerShortLinkRedirects } from "../shortLinkRedirects";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -129,6 +130,9 @@ async function startServer() {
   app.get("/healthz", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
+  // Public short links are checked before the SPA fallback so links shared from
+  // home.savvy-agents.com redirect without showing the SavvyOS hostname.
+  registerShortLinkRedirects(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // Magic link auth — auto-login from email links

@@ -66,6 +66,7 @@ import { webinarsRouter } from "./routers/webinars";
 import { landingPagesRouter } from "./routers/landingPages";
 import { reviewsRouter } from "./routers/reviews";
 import { coachFeedbackRouter } from "./routers/coachFeedback";
+import { shortLinksRouter } from "./routers/shortLinks";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -278,6 +279,7 @@ export const appRouter = router({
   resendInbox: resendInboxRouter,
   webinars: webinarsRouter,
   landingPages: landingPagesRouter,
+  shortLinks: shortLinksRouter,
   reviews: reviewsRouter,
   coachFeedback: coachFeedbackRouter,
 

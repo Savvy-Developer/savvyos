@@ -2237,6 +2237,40 @@ export const savvyosFeatureUpdates = mysqlTable("savvyos_feature_updates", {
 export type SavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferSelect;
 export type InsertSavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferInsert;
 
+// ─── Short Links ─────────────────────────────────────────────────────────────
+// Public redirects run only on home.savvy-agents.com. Click rows retain useful
+// attribution while the aggregate keeps the management list fast.
+export const shortLinks = mysqlTable("short_links", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 120 }).notNull().unique(),
+  destinationUrl: text("destinationUrl").notNull(),
+  status: mysqlEnum("status", ["active", "disabled", "archived"]).default("active").notNull(),
+  preserveQueryParams: boolean("preserveQueryParams").default(true).notNull(),
+  clickCount: int("clickCount").default(0).notNull(),
+  lastClickedAt: timestamp("lastClickedAt"),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("short_links_status_updated_idx").on(table.status, table.updatedAt),
+  index("short_links_created_by_idx").on(table.createdById, table.updatedAt),
+]);
+export type ShortLink = typeof shortLinks.$inferSelect;
+export type InsertShortLink = typeof shortLinks.$inferInsert;
+
+export const shortLinkClicks = mysqlTable("short_link_clicks", {
+  id: int("id").autoincrement().primaryKey(),
+  shortLinkId: int("shortLinkId").notNull().references(() => shortLinks.id, { onDelete: "cascade" }),
+  referrerUrl: text("referrerUrl"),
+  deviceCategory: varchar("deviceCategory", { length: 24 }),
+  clickedAt: timestamp("clickedAt").defaultNow().notNull(),
+}, (table) => [
+  index("short_link_clicks_link_clicked_idx").on(table.shortLinkId, table.clickedAt),
+]);
+export type ShortLinkClick = typeof shortLinkClicks.$inferSelect;
+export type InsertShortLinkClick = typeof shortLinkClicks.$inferInsert;
+
 // ─── Landing Pages ────────────────────────────────────────────────────────────
 // The published page document stays self-contained in JSON while submissions,
 // sessions, events, and SMS consent records are relational for reliable CRM linkage
