@@ -44,6 +44,11 @@ vi.mock("./db", () => ({
         return [{ insertId: 1 }];
       },
     }),
+    update: () => ({
+      set: () => ({
+        where: async () => undefined,
+      }),
+    }),
   }),
   logActivity: vi.fn(async (entry: Record<string, unknown>) => {
     mockState.activities.push(entry);
@@ -94,7 +99,7 @@ vi.mock("../drizzle/schema", () => ({
   },
 }));
 
-import { savvyWebEventHandler } from "./webhookHandlers";
+import { HANDLERS, savvyWebEventHandler } from "./webhookHandlers";
 import type { WebhookEndpoint } from "../drizzle/schema";
 
 const endpoint = {
@@ -104,6 +109,14 @@ const endpoint = {
   handlerType: "custom",
   defaultLeadSourceId: 42,
   defaultAgentId: null,
+} as unknown as WebhookEndpoint;
+
+const legacyLeadEndpoint = {
+  ...endpoint,
+  id: 16,
+  name: "Savvy Website Leads",
+  slug: "savvy-website-leads",
+  handlerType: "lead_ingest",
 } as unknown as WebhookEndpoint;
 
 function envelope(event: string, data: Record<string, unknown>) {
@@ -138,6 +151,37 @@ afterEach(() => {
 });
 
 describe("Savvy website request handoffs", () => {
+  it("sends the financing handoff for the legacy website conversion payload", async () => {
+    const result = await HANDLERS.lead_ingest({
+      name: "Josh Harvey",
+      email: "client@example.com",
+      phone: "(916) 267-8311",
+      agent_email: "agent@example.com",
+      lead_source: "Website",
+      notes: "Website conversion: financing | Property: 2407 Fawnwood Ln | Requested financing for property: 2407 Fawnwood Ln\nURL: https://www.savvy-agents.com/properties/2407-fawnwood-ln-spring-i6ibka\nMarket: Galveston",
+    }, legacyLeadEndpoint);
+
+    expect(result.message).toContain("assigned to agent 99");
+    expect(result.message).toContain("handoff email sent");
+    expect(mockSendTransactionalEmail).toHaveBeenCalledWith(
+      "website_financing_request",
+      expect.objectContaining({
+        recipientEmail: "agent@example.com",
+        ccEmails: ["client@example.com"],
+        agentName: "Avery Agent",
+        contactName: "Josh Harvey",
+        propertyAddress: "2407 Fawnwood Ln",
+        propertyUrl: "https://www.savvy-agents.com/properties/2407-fawnwood-ln-spring-i6ibka",
+        agentBookingLink: "https://calendly.com/avery-agent",
+      }),
+      expect.objectContaining({
+        injectMagicLinks: false,
+        allowTemplateOverride: false,
+        idempotencyKey: expect.stringContaining("savvy-web-legacy-handoff:website_financing_request"),
+      }),
+    );
+  });
+
   it.each([
     [
       "lead.analysis_requested",

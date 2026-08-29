@@ -178,6 +178,11 @@ async function resolveAgentId(
 // ─── Handler: lead_ingest ─────────────────────────────────────────────────────
 // Creates a new contact (or updates by email/phone) and assigns a lead source.
 //
+// The original Savvy website conversion endpoint still posts flat lead payloads
+// to the `savvy-website-leads` endpoint. Its property-request intent lives in
+// the notes text rather than in an event envelope, so these declarations are
+// defined below the shared website handoff helpers and used by this handler.
+//
 // When the incoming payload is a savvy-web event envelope ({ event, data })
 // the handler delegates to savvyWebEventHandler so the correct activity action
 // (e.g. "lead_created", "analysis_requested") and agent connection are recorded
@@ -196,6 +201,7 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
   const db = await getDb();
 
   const p = normalisePayload(rawPayload);
+  const legacyWebsiteHandoff = getLegacyWebsiteHandoff(p.notes);
 
   // Resolve full name split
   let firstName = (p.firstName as string) || "";
@@ -312,10 +318,50 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     }
   }
 
+  // Legacy savvy-agents.com property conversions are delivered here as a flat
+  // lead payload. They need the same shared client handoff as the new event
+  // envelope, while retaining the normal lead-ingest attribution and update
+  // behavior above.
+  let handoffEmailSent = false;
+  if (legacyWebsiteHandoff && email) {
+    try {
+      const agent = await resolveSavvyWebAgent(
+        { agentEmail: p._agentEmail as string | undefined },
+        {},
+      );
+      if (!agent?.email) {
+        console.warn(`[leadIngestHandler] No SavvyOS agent resolved for legacy website handoff (contactId=${contactId}).`);
+      } else {
+        const contactName = [firstName, lastName].filter(Boolean).join(" ") || "A client";
+        const delivery = await sendTransactionalEmail(legacyWebsiteHandoff.type, {
+          recipientEmail: agent.email,
+          recipientName: agent.name ?? undefined,
+          ccEmails: normalizeIdentity(agent.email) !== normalizeIdentity(email) ? [email] : undefined,
+          agentName: agent.name ?? undefined,
+          contactName,
+          propertyAddress: legacyWebsiteHandoff.propertyAddress,
+          propertyUrl: legacyWebsiteHandoff.propertyUrl,
+          agentBookingLink: normalizeBookingLink(agent.callBookingLink) ?? undefined,
+        }, {
+          injectMagicLinks: false,
+          allowTemplateOverride: false,
+          idempotencyKey: `savvy-web-legacy-handoff:${legacyWebsiteHandoff.type}:${email}:${legacyWebsiteHandoff.propertyUrl ?? legacyWebsiteHandoff.propertyAddress}:${agent.id}`,
+        });
+        handoffEmailSent = delivery.sent;
+        if (!delivery.sent) {
+          console.warn(`[leadIngestHandler] Legacy website handoff email was not sent (contactId=${contactId}): ${delivery.reason ?? "unknown reason"}`);
+        }
+      }
+    } catch (error) {
+      // Preserve contact intake even if the optional client handoff cannot send.
+      console.error("[leadIngestHandler] Failed to process legacy website handoff:", error);
+    }
+  }
+
   return {
     contactId,
     action,
-    message: `Contact ${action}: id=${contactId}${agentId ? `, assigned to agent ${agentId}` : ""}`,
+    message: `Contact ${action}: id=${contactId}${agentId ? `, assigned to agent ${agentId}` : ""}${handoffEmailSent ? " (handoff email sent)" : ""}`,
   };
 };
 
@@ -529,6 +575,53 @@ function getWebsiteLeadHandoffType(
     return "website_financing_request";
   }
   return null;
+}
+
+type LegacyWebsiteHandoff = {
+  type: WebsiteLeadHandoffType;
+  propertyAddress: string;
+  propertyUrl?: string;
+};
+
+/**
+ * The older website conversion webhook posts a flat lead payload to
+ * `savvy-website-leads`. It provides the conversion type and property fields in
+ * `notes`, not in the newer `{ event, data }` envelope. Parse only the exact
+ * website conversion convention so ordinary CRM notes can never trigger a
+ * client handoff email.
+ */
+function getLegacyWebsiteHandoff(notes: unknown): LegacyWebsiteHandoff | null {
+  if (typeof notes !== "string") return null;
+  const conversion = notes.match(/(?:^|\n)\s*Website conversion:\s*([^|\n]+)/i)?.[1] ?? "";
+  const normalizedConversion = normalizeIdentity(conversion);
+  const type: WebsiteLeadHandoffType | null = normalizedConversion.includes("financ")
+    ? "website_financing_request"
+    : normalizedConversion.includes("deeper analysis")
+      ? "website_deeper_analysis_request"
+      : normalizedConversion.includes("show")
+        ? "website_showing_request"
+        : null;
+  if (!type) return null;
+
+  const propertyAddress = notes.match(/(?:^|\|)\s*Property:\s*([^|\n]+)/i)?.[1]?.trim();
+  const rawPropertyUrl = notes.match(/(?:^|\n)\s*URL:\s*(https?:\/\/[^\s]+)/i)?.[1];
+  let propertyUrl: string | undefined;
+  if (rawPropertyUrl) {
+    try {
+      const url = new URL(rawPropertyUrl);
+      if (url.protocol === "https:" && (url.hostname === "savvy-agents.com" || url.hostname === "www.savvy-agents.com")) {
+        propertyUrl = url.toString();
+      }
+    } catch {
+      // An invalid source link simply omits the optional property anchor.
+    }
+  }
+
+  return {
+    type,
+    propertyAddress: propertyAddress || "the requested property",
+    ...(propertyUrl ? { propertyUrl } : {}),
+  };
 }
 
 async function resolveSavvyWebAgent(
