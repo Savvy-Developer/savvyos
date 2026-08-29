@@ -137,6 +137,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
     {
       label: "Resources",
       items: [
+        { icon: Wrench, label: "Vendor List", path: "/vendors" },
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
         { icon: Link2, label: "Savvy-Agents.com", path: "https://www.savvy-agents.com/admin/properties", external: true },
       ],
@@ -356,6 +357,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
         { icon: LayoutDashboard, label: "Landing Pages", path: "/landing-pages" },
         { icon: Link2, label: "Short Links", path: "/short-links" },
+        { icon: Wrench, label: "Vendors", path: "/admin/vendors" },
         { icon: Inbox, label: "Resend Inbox", path: "/resend-inbox", badge: resendInboxUnread > 0 ? resendInboxUnread : undefined },
         { icon: MessageSquare, label: "Marketing Text Inbox", path: "/marketing-text-inbox" },
         { icon: Lock, label: "Passwords", path: "/passwords" },

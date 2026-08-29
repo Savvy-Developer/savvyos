@@ -68,6 +68,7 @@ import { reviewsRouter } from "./routers/reviews";
 import { coachFeedbackRouter } from "./routers/coachFeedback";
 import { shortLinksRouter } from "./routers/shortLinks";
 import { partnerPortalRouter } from "./routers/partnerPortal";
+import { vendorsRouter } from "./routers/vendors";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -284,6 +285,7 @@ export const appRouter = router({
   reviews: reviewsRouter,
   coachFeedback: coachFeedbackRouter,
   partnerPortal: partnerPortalRouter,
+  vendors: vendorsRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

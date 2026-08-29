@@ -136,6 +136,9 @@ import PublicReviewPage from "./pages/PublicReviewPage";
 import CoachFeedbackPage from "./pages/CoachFeedbackPage";
 import PublicCoachFeedbackPage from "./pages/PublicCoachFeedbackPage";
 import ShortLinksPage from "./pages/ShortLinksPage";
+import VendorListManagementPage from "./pages/VendorListManagementPage";
+import VendorListsAdminPage from "./pages/VendorListsAdminPage";
+import PublicVendorListPage from "./pages/PublicVendorListPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -333,6 +336,7 @@ function Router() {
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>
           <Route path="/coach-feedback">{() => <CoachFeedbackRoute><CoachFeedbackPage /></CoachFeedbackRoute>}</Route>
+          <Route path="/vendors">{() => <AgentOnlyRoute><VendorListManagementPage /></AgentOnlyRoute>}</Route>
           <Route path="/properties" component={PropertiesPage} />
           <Route path="/properties/:id" component={PropertyDetail} />
           <Route path="/properties/:id/proforma" component={ProformaPage} />
@@ -422,6 +426,7 @@ function Router() {
           <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
           <Route path="/daily-report-updates">{() => <AdminRoute><DailyReportFeatureUpdatesPage /></AdminRoute>}</Route>
+          <Route path="/admin/vendors">{() => <AdminRoute><VendorListsAdminPage /></AdminRoute>}</Route>
           <Route path="/resend-inbox">{() => <AdminRoute><ResendInboxPage /></AdminRoute>}</Route>
           <Route path="/marketing-text-inbox">{() => <AdminRoute><MarketingTextInboxPage /></AdminRoute>}</Route>
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
@@ -463,6 +468,7 @@ function App() {
             <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />
             <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />
+            <Route path="/vendors/:slug" component={PublicVendorListPage} />
             <Route path="/careers" component={CareersPage} />
             <Route path="/talent-profile" component={TalentProfilePage} />
             <Route path="/login" component={LoginPage} />

@@ -2292,6 +2292,62 @@ export const shortLinkClicks = mysqlTable("short_link_clicks", {
 export type ShortLinkClick = typeof shortLinkClicks.$inferSelect;
 export type InsertShortLinkClick = typeof shortLinkClicks.$inferInsert;
 
+// ─── Agent Vendor Lists ─────────────────────────────────────────────────────
+// Each agent owns one client-facing Vendor List. Categories and vendors are
+// fully scoped to that list so agents' recommendations never intermingle.
+export const vendorLists = mysqlTable("vendor_lists", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  displayName: varchar("displayName", { length: 160 }).notNull(),
+  headline: varchar("headline", { length: 255 }),
+  intro: text("intro"),
+  publicSlug: varchar("publicSlug", { length: 120 }).notNull().unique(),
+  isPublished: boolean("isPublished").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("vendor_lists_published_updated_idx").on(table.isPublished, table.updatedAt),
+]);
+export type VendorList = typeof vendorLists.$inferSelect;
+export type InsertVendorList = typeof vendorLists.$inferInsert;
+
+export const vendorCategories = mysqlTable("vendor_categories", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorListId: int("vendorListId").notNull().references(() => vendorLists.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  isVisible: boolean("isVisible").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("vendor_categories_list_sort_idx").on(table.vendorListId, table.sortOrder),
+]);
+export type VendorCategory = typeof vendorCategories.$inferSelect;
+export type InsertVendorCategory = typeof vendorCategories.$inferInsert;
+
+export const vendors = mysqlTable("vendors", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorCategoryId: int("vendorCategoryId").notNull().references(() => vendorCategories.id, { onDelete: "cascade" }),
+  businessName: varchar("businessName", { length: 255 }).notNull(),
+  contactName: varchar("contactName", { length: 160 }),
+  phone: varchar("phone", { length: 64 }),
+  email: varchar("email", { length: 320 }),
+  website: varchar("website", { length: 512 }),
+  address: text("address"),
+  serviceArea: varchar("serviceArea", { length: 255 }),
+  description: text("description"),
+  isFeatured: boolean("isFeatured").default(false).notNull(),
+  isVisible: boolean("isVisible").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("vendors_category_sort_idx").on(table.vendorCategoryId, table.sortOrder),
+]);
+export type Vendor = typeof vendors.$inferSelect;
+export type InsertVendor = typeof vendors.$inferInsert;
+
 // ─── Landing Pages ────────────────────────────────────────────────────────────
 // The published page document stays self-contained in JSON while submissions,
 // sessions, events, and SMS consent records are relational for reliable CRM linkage

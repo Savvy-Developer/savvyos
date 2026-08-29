@@ -1,0 +1,467 @@
+import { TRPCError } from "@trpc/server";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { z } from "zod";
+import { users, vendorCategories, vendorLists, vendors } from "../../drizzle/schema";
+import { getDb } from "../db";
+import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+
+const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
+const optionalUrl = z.string().trim().max(512).nullable().optional().refine((value) => {
+  if (!value) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}, "Enter a complete http:// or https:// URL.");
+
+const listSettingsInput = z.object({
+  agentId: z.number().int().positive().optional(),
+  displayName: z.string().trim().min(2).max(160),
+  headline: optionalText(255),
+  intro: optionalText(6000),
+  publicSlug: z.string().trim().toLowerCase().min(3).max(120).regex(slugPattern, "Use lowercase letters, numbers, and single hyphens only."),
+  isPublished: z.boolean(),
+});
+
+const categoryInput = z.object({
+  agentId: z.number().int().positive().optional(),
+  name: z.string().trim().min(2).max(120),
+  description: optionalText(1500),
+  isVisible: z.boolean().default(true),
+});
+
+const vendorInput = z.object({
+  agentId: z.number().int().positive().optional(),
+  vendorCategoryId: z.number().int().positive(),
+  businessName: z.string().trim().min(2).max(255),
+  contactName: optionalText(160),
+  phone: optionalText(64),
+  email: z.string().trim().email().max(320).nullable().optional().or(z.literal("")),
+  website: optionalUrl,
+  address: optionalText(3000),
+  serviceArea: optionalText(255),
+  description: optionalText(6000),
+  isFeatured: z.boolean().default(false),
+  isVisible: z.boolean().default(true),
+});
+
+type RouterContext = { user: { id: number; role: string; name?: string | null } };
+
+function requireVendorManager(ctx: RouterContext, requestedAgentId?: number): number {
+  if (ctx.user.role === "agent") {
+    if (requestedAgentId && requestedAgentId !== ctx.user.id) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "You can only manage your own Vendor List." });
+    }
+    return ctx.user.id;
+  }
+  if (ctx.user.role === "admin") {
+    if (!requestedAgentId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Select an agent Vendor List to manage." });
+    }
+    return requestedAgentId;
+  }
+  throw new TRPCError({ code: "FORBIDDEN", message: "Vendor Lists are available to agents and administrators." });
+}
+
+function nullable(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function defaultDisplayName(name?: string | null): string {
+  const firstName = name?.trim().split(/\s+/)[0];
+  return firstName ? `${firstName}'s Vendor List` : "My Vendor List";
+}
+
+function defaultSlug(agentId: number): string {
+  return `vendors-${agentId}`;
+}
+
+async function assertAgent(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, agentId: number) {
+  const [agent] = await db.select({ id: users.id, name: users.name, role: users.role })
+    .from(users)
+    .where(eq(users.id, agentId))
+    .limit(1);
+  if (!agent || agent.role !== "agent") {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found." });
+  }
+  return agent;
+}
+
+async function uniqueSlug(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, raw: string, exceptListId?: number): Promise<string> {
+  const base = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 110) || "vendors";
+  let candidate = base;
+  let suffix = 2;
+  while (true) {
+    const [existing] = await db.select({ id: vendorLists.id })
+      .from(vendorLists)
+      .where(eq(vendorLists.publicSlug, candidate))
+      .limit(1);
+    if (!existing || existing.id === exceptListId) return candidate;
+    candidate = `${base.slice(0, 110)}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+async function getListPayload(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, agentId: number) {
+  const [list] = await db.select().from(vendorLists).where(eq(vendorLists.agentId, agentId)).limit(1);
+  if (!list) return null;
+
+  const categories = await db.select()
+    .from(vendorCategories)
+    .where(eq(vendorCategories.vendorListId, list.id))
+    .orderBy(asc(vendorCategories.sortOrder), asc(vendorCategories.name));
+  const categoryIds = categories.map((category) => category.id);
+  const vendorRows = categoryIds.length
+    ? await db.select().from(vendors)
+      .where(inArray(vendors.vendorCategoryId, categoryIds))
+      .orderBy(asc(vendors.sortOrder), asc(vendors.businessName))
+    : [];
+  const vendorsByCategory = new Map<number, typeof vendorRows>();
+  for (const vendor of vendorRows) {
+    const collection = vendorsByCategory.get(vendor.vendorCategoryId) ?? [];
+    collection.push(vendor);
+    vendorsByCategory.set(vendor.vendorCategoryId, collection);
+  }
+
+  return {
+    ...list,
+    categories: categories.map((category) => ({
+      ...category,
+      vendors: vendorsByCategory.get(category.id) ?? [],
+    })),
+  };
+}
+
+async function assertList(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, agentId: number) {
+  const [list] = await db.select().from(vendorLists).where(eq(vendorLists.agentId, agentId)).limit(1);
+  if (!list) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "This agent has not created a Vendor List yet." });
+  }
+  return list;
+}
+
+async function assertCategoryInList(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, categoryId: number, listId: number) {
+  const [category] = await db.select().from(vendorCategories)
+    .where(and(eq(vendorCategories.id, categoryId), eq(vendorCategories.vendorListId, listId)))
+    .limit(1);
+  if (!category) throw new TRPCError({ code: "NOT_FOUND", message: "Vendor category not found." });
+  return category;
+}
+
+async function assertVendorInList(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, vendorId: number, listId: number) {
+  const [row] = await db.select({ vendor: vendors, vendorListId: vendorCategories.vendorListId })
+    .from(vendors)
+    .innerJoin(vendorCategories, eq(vendors.vendorCategoryId, vendorCategories.id))
+    .where(eq(vendors.id, vendorId))
+    .limit(1);
+  if (!row || row.vendorListId !== listId) throw new TRPCError({ code: "NOT_FOUND", message: "Vendor not found." });
+  return row.vendor;
+}
+
+async function nextSortOrder(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, table: "categories" | "vendors", parentId: number): Promise<number> {
+  const field = table === "categories" ? vendorCategories.sortOrder : vendors.sortOrder;
+  const parentField = table === "categories" ? vendorCategories.vendorListId : vendors.vendorCategoryId;
+  const source = table === "categories" ? vendorCategories : vendors;
+  const [result] = await db.select({ highest: sql<number>`coalesce(max(${field}), -1)` })
+    .from(source)
+    .where(eq(parentField, parentId));
+  return Number(result?.highest ?? -1) + 1;
+}
+
+export const vendorsRouter = router({
+  /** Agent's own editable list, or an administrator's selected agent list. */
+  getManageableList: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input?.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const agent = await assertAgent(db, agentId);
+      const list = await getListPayload(db, agentId);
+      return list ? { ...list, agentName: agent.name } : null;
+    }),
+
+  /** Creates a starter list for the agent. Admins may create a list on an agent's behalf. */
+  createList: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input?.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const agent = await assertAgent(db, agentId);
+      const [existing] = await db.select({ id: vendorLists.id }).from(vendorLists).where(eq(vendorLists.agentId, agentId)).limit(1);
+      if (existing) throw new TRPCError({ code: "CONFLICT", message: "This agent already has a Vendor List." });
+      const publicSlug = await uniqueSlug(db, defaultSlug(agentId));
+      await db.insert(vendorLists).values({
+        agentId,
+        displayName: defaultDisplayName(agent.name),
+        publicSlug,
+        isPublished: false,
+      });
+      return { success: true };
+    }),
+
+  updateList: protectedProcedure
+    .input(listSettingsInput)
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      const publicSlug = await uniqueSlug(db, input.publicSlug, list.id);
+      await db.update(vendorLists).set({
+        displayName: input.displayName,
+        headline: nullable(input.headline),
+        intro: nullable(input.intro),
+        publicSlug,
+        isPublished: input.isPublished,
+      }).where(eq(vendorLists.id, list.id));
+      return { success: true, publicSlug };
+    }),
+
+  createCategory: protectedProcedure
+    .input(categoryInput)
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      const sortOrder = await nextSortOrder(db, "categories", list.id);
+      const result = await db.insert(vendorCategories).values({
+        vendorListId: list.id,
+        name: input.name,
+        description: nullable(input.description),
+        isVisible: input.isVisible,
+        sortOrder,
+      });
+      return { id: Number(result[0].insertId) };
+    }),
+
+  updateCategory: protectedProcedure
+    .input(categoryInput.extend({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      await assertCategoryInList(db, input.id, list.id);
+      await db.update(vendorCategories).set({
+        name: input.name,
+        description: nullable(input.description),
+        isVisible: input.isVisible,
+      }).where(eq(vendorCategories.id, input.id));
+      return { success: true };
+    }),
+
+  deleteCategory: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional(), id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      await assertCategoryInList(db, input.id, list.id);
+      await db.delete(vendorCategories).where(eq(vendorCategories.id, input.id));
+      return { success: true };
+    }),
+
+  reorderCategories: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional(), orderedIds: z.array(z.number().int().positive()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      const categories = await db.select({ id: vendorCategories.id }).from(vendorCategories).where(eq(vendorCategories.vendorListId, list.id));
+      const actualIds = categories.map((category) => category.id).sort((a, b) => a - b);
+      const orderedIds = Array.from(new Set(input.orderedIds)).sort((a, b) => a - b);
+      if (actualIds.length !== orderedIds.length || actualIds.some((id, index) => id !== orderedIds[index])) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The category order must include every category in this Vendor List." });
+      }
+      await Promise.all(input.orderedIds.map((id, index) => db.update(vendorCategories).set({ sortOrder: index }).where(eq(vendorCategories.id, id))));
+      return { success: true };
+    }),
+
+  createVendor: protectedProcedure
+    .input(vendorInput)
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      await assertCategoryInList(db, input.vendorCategoryId, list.id);
+      const sortOrder = await nextSortOrder(db, "vendors", input.vendorCategoryId);
+      const result = await db.insert(vendors).values({
+        vendorCategoryId: input.vendorCategoryId,
+        businessName: input.businessName,
+        contactName: nullable(input.contactName),
+        phone: nullable(input.phone),
+        email: nullable(input.email),
+        website: nullable(input.website),
+        address: nullable(input.address),
+        serviceArea: nullable(input.serviceArea),
+        description: nullable(input.description),
+        isFeatured: input.isFeatured,
+        isVisible: input.isVisible,
+        sortOrder,
+      });
+      return { id: Number(result[0].insertId) };
+    }),
+
+  updateVendor: protectedProcedure
+    .input(vendorInput.extend({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      await assertVendorInList(db, input.id, list.id);
+      await assertCategoryInList(db, input.vendorCategoryId, list.id);
+      await db.update(vendors).set({
+        vendorCategoryId: input.vendorCategoryId,
+        businessName: input.businessName,
+        contactName: nullable(input.contactName),
+        phone: nullable(input.phone),
+        email: nullable(input.email),
+        website: nullable(input.website),
+        address: nullable(input.address),
+        serviceArea: nullable(input.serviceArea),
+        description: nullable(input.description),
+        isFeatured: input.isFeatured,
+        isVisible: input.isVisible,
+      }).where(eq(vendors.id, input.id));
+      return { success: true };
+    }),
+
+  deleteVendor: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional(), id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      await assertVendorInList(db, input.id, list.id);
+      await db.delete(vendors).where(eq(vendors.id, input.id));
+      return { success: true };
+    }),
+
+  reorderVendors: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive().optional(), vendorCategoryId: z.number().int().positive(), orderedIds: z.array(z.number().int().positive()).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const list = await assertList(db, agentId);
+      await assertCategoryInList(db, input.vendorCategoryId, list.id);
+      const currentVendors = await db.select({ id: vendors.id })
+        .from(vendors)
+        .where(eq(vendors.vendorCategoryId, input.vendorCategoryId));
+      const actualIds = currentVendors.map((vendor) => vendor.id).sort((a, b) => a - b);
+      const orderedIds = Array.from(new Set(input.orderedIds)).sort((a, b) => a - b);
+      if (actualIds.length !== orderedIds.length || actualIds.some((id, index) => id !== orderedIds[index])) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The vendor order must include every vendor in this category." });
+      }
+      await Promise.all(input.orderedIds.map((id, index) => db.update(vendors).set({ sortOrder: index }).where(eq(vendors.id, id))));
+      return { success: true };
+    }),
+
+  /** Admin overview intentionally contains only agents who have made a list. */
+  adminList: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    return db.select({
+      id: vendorLists.id,
+      agentId: vendorLists.agentId,
+      agentName: users.name,
+      agentEmail: users.email,
+      displayName: vendorLists.displayName,
+      publicSlug: vendorLists.publicSlug,
+      isPublished: vendorLists.isPublished,
+      updatedAt: vendorLists.updatedAt,
+      categoryCount: sql<number>`count(distinct ${vendorCategories.id})`,
+      vendorCount: sql<number>`count(distinct ${vendors.id})`,
+    }).from(vendorLists)
+      .innerJoin(users, eq(vendorLists.agentId, users.id))
+      .leftJoin(vendorCategories, eq(vendorCategories.vendorListId, vendorLists.id))
+      .leftJoin(vendors, eq(vendors.vendorCategoryId, vendorCategories.id))
+      .groupBy(
+        vendorLists.id,
+        vendorLists.agentId,
+        users.name,
+        users.email,
+        vendorLists.displayName,
+        vendorLists.publicSlug,
+        vendorLists.isPublished,
+        vendorLists.updatedAt,
+      )
+      .orderBy(desc(vendorLists.updatedAt));
+  }),
+
+  /** Public payload deliberately excludes draft, hidden categories, and hidden vendors. */
+  getPublic: publicProcedure
+    .input(z.object({ slug: z.string().trim().toLowerCase().min(3).max(120).regex(slugPattern) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const [list] = await db.select({
+        displayName: vendorLists.displayName,
+        headline: vendorLists.headline,
+        intro: vendorLists.intro,
+        publicSlug: vendorLists.publicSlug,
+        agentName: users.name,
+      }).from(vendorLists)
+        .innerJoin(users, eq(vendorLists.agentId, users.id))
+        .where(and(eq(vendorLists.publicSlug, input.slug), eq(vendorLists.isPublished, true)))
+        .limit(1);
+      if (!list) return null;
+
+      const [listId] = await db.select({ id: vendorLists.id }).from(vendorLists).where(eq(vendorLists.publicSlug, input.slug)).limit(1);
+      if (!listId) return null;
+      const categories = await db.select()
+        .from(vendorCategories)
+        .where(and(eq(vendorCategories.vendorListId, listId.id), eq(vendorCategories.isVisible, true)))
+        .orderBy(asc(vendorCategories.sortOrder), asc(vendorCategories.name));
+      const categoryIds = categories.map((category) => category.id);
+      const vendorRows = categoryIds.length
+        ? await db.select().from(vendors)
+          .where(and(inArray(vendors.vendorCategoryId, categoryIds), eq(vendors.isVisible, true)))
+          .orderBy(desc(vendors.isFeatured), asc(vendors.sortOrder), asc(vendors.businessName))
+        : [];
+      const vendorsByCategory = new Map<number, typeof vendorRows>();
+      for (const vendor of vendorRows) {
+        const collection = vendorsByCategory.get(vendor.vendorCategoryId) ?? [];
+        collection.push(vendor);
+        vendorsByCategory.set(vendor.vendorCategoryId, collection);
+      }
+      return {
+        ...list,
+        categories: categories.map((category) => ({
+          id: category.id,
+          name: category.name,
+          description: category.description,
+          vendors: (vendorsByCategory.get(category.id) ?? []).map((vendor) => ({
+            id: vendor.id,
+            businessName: vendor.businessName,
+            contactName: vendor.contactName,
+            phone: vendor.phone,
+            email: vendor.email,
+            website: vendor.website,
+            address: vendor.address,
+            serviceArea: vendor.serviceArea,
+            description: vendor.description,
+            isFeatured: vendor.isFeatured,
+          })),
+        })),
+      };
+    }),
+});
