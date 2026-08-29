@@ -49,7 +49,7 @@ function PortalLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-cyan-50 px-4 py-10">
+    <div className="h-[100dvh] overflow-y-auto overscroll-y-contain bg-gradient-to-br from-slate-50 via-white to-cyan-50 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
           <img src={LOGO_URL} alt="Savvy STR Agents" className="h-10 object-contain" />
@@ -139,7 +139,7 @@ export default function PartnerPortalPage() {
   const closedTransactions = transactions.filter((transaction) => transaction.status === "Closed").length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="h-[100dvh] overflow-y-auto overscroll-y-contain bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
