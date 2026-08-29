@@ -1,22 +1,27 @@
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { users, vendorCategories, vendorLists, vendors } from "../../drizzle/schema";
+import { userProfiles, users, vendorCategories, vendorLists, vendors } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "../../shared/phone";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
-const optionalUrl = z.string().trim().max(512).nullable().optional().refine((value) => {
-  if (!value) return true;
+function normalizeWebsite(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   try {
-    const parsed = new URL(value);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
+    const parsed = new URL(withProtocol);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
   } catch {
-    return false;
+    return null;
   }
-}, "Enter a complete http:// or https:// URL.");
+}
+
+const optionalUrl = z.string().trim().max(512).nullable().optional().transform(normalizeWebsite).refine((value) => value === null || value.length <= 512, "Website address is too long.");
 
 const listSettingsInput = z.object({
   agentId: z.number().int().positive().optional(),
@@ -39,7 +44,7 @@ const vendorInput = z.object({
   vendorCategoryId: z.number().int().positive(),
   businessName: z.string().trim().min(2).max(255),
   contactName: optionalText(160),
-  phone: optionalText(64),
+  phone: optionalText(64).refine(isValidOptionalUsPhone, "Phone number must contain exactly 10 digits."),
   email: z.string().trim().email().max(320).nullable().optional().or(z.literal("")),
   website: optionalUrl,
   address: optionalText(3000),
@@ -304,7 +309,7 @@ export const vendorsRouter = router({
         vendorCategoryId: input.vendorCategoryId,
         businessName: input.businessName,
         contactName: nullable(input.contactName),
-        phone: nullable(input.phone),
+        phone: normalizeOptionalUsPhone(input.phone),
         email: nullable(input.email),
         website: nullable(input.website),
         address: nullable(input.address),
@@ -330,7 +335,7 @@ export const vendorsRouter = router({
         vendorCategoryId: input.vendorCategoryId,
         businessName: input.businessName,
         contactName: nullable(input.contactName),
-        phone: nullable(input.phone),
+        phone: normalizeOptionalUsPhone(input.phone),
         email: nullable(input.email),
         website: nullable(input.website),
         address: nullable(input.address),
@@ -414,22 +419,28 @@ export const vendorsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
       const [list] = await db.select({
+        id: vendorLists.id,
         displayName: vendorLists.displayName,
         headline: vendorLists.headline,
         intro: vendorLists.intro,
         publicSlug: vendorLists.publicSlug,
         agentName: users.name,
+        agentTitle: users.title,
+        agentEmail: users.email,
+        agentPhone: users.phone,
+        agentCallBookingLink: users.callBookingLink,
+        agentProfilePhone: userProfiles.primaryPhone,
+        agentProfilePhotoUrl: userProfiles.profilePhotoUrl,
       }).from(vendorLists)
         .innerJoin(users, eq(vendorLists.agentId, users.id))
+        .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
         .where(and(eq(vendorLists.publicSlug, input.slug), eq(vendorLists.isPublished, true)))
         .limit(1);
       if (!list) return null;
 
-      const [listId] = await db.select({ id: vendorLists.id }).from(vendorLists).where(eq(vendorLists.publicSlug, input.slug)).limit(1);
-      if (!listId) return null;
       const categories = await db.select()
         .from(vendorCategories)
-        .where(and(eq(vendorCategories.vendorListId, listId.id), eq(vendorCategories.isVisible, true)))
+        .where(and(eq(vendorCategories.vendorListId, list.id), eq(vendorCategories.isVisible, true)))
         .orderBy(asc(vendorCategories.sortOrder), asc(vendorCategories.name));
       const categoryIds = categories.map((category) => category.id);
       const vendorRows = categoryIds.length
@@ -444,7 +455,16 @@ export const vendorsRouter = router({
         vendorsByCategory.set(vendor.vendorCategoryId, collection);
       }
       return {
-        ...list,
+        displayName: list.displayName,
+        headline: list.headline,
+        intro: list.intro,
+        publicSlug: list.publicSlug,
+        agentName: list.agentName,
+        agentTitle: list.agentTitle,
+        agentEmail: list.agentEmail,
+        agentPhone: list.agentPhone ?? list.agentProfilePhone,
+        agentCallBookingLink: normalizeWebsite(list.agentCallBookingLink),
+        agentProfilePhotoUrl: list.agentProfilePhotoUrl,
         categories: categories.map((category) => ({
           id: category.id,
           name: category.name,

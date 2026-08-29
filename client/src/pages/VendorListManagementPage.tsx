@@ -1,5 +1,5 @@
-import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { formatPhone } from "@/lib/inputFormatters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +22,6 @@ import {
   Loader2,
   Mail,
   MapPin,
-  MoreHorizontal,
   Pencil,
   Phone,
   Plus,
@@ -103,15 +102,21 @@ function getPublicUrl(slug: string): string {
   return `${window.location.origin}/vendors/${slug}`;
 }
 
+function formatWebsite(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function cleanVendorForm(form: VendorForm, agentId?: number) {
   return {
     ...(agentId ? { agentId } : {}),
     vendorCategoryId: Number(form.vendorCategoryId),
     businessName: form.businessName.trim(),
     contactName: form.contactName.trim() || null,
-    phone: form.phone.trim() || null,
+    phone: formatPhone(form.phone) || null,
     email: form.email.trim() || null,
-    website: form.website.trim() || null,
+    website: formatWebsite(form.website) || null,
     address: form.address.trim() || null,
     serviceArea: form.serviceArea.trim() || null,
     description: form.description.trim() || null,
@@ -177,9 +182,9 @@ function VendorFormFields({ form, setForm, categories }: { form: VendorForm; set
       </div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-business">Business name <span className="text-rose-600">*</span></Label><Input id="vendor-business" value={form.businessName} maxLength={255} onChange={(event) => set("businessName", event.target.value)} placeholder="Blue Ridge Turnover Co." /></div>
       <div className="space-y-2"><Label htmlFor="vendor-contact">Contact name</Label><Input id="vendor-contact" value={form.contactName} maxLength={160} onChange={(event) => set("contactName", event.target.value)} placeholder="Jordan Smith" /></div>
-      <div className="space-y-2"><Label htmlFor="vendor-phone">Phone</Label><Input id="vendor-phone" value={form.phone} maxLength={64} onChange={(event) => set("phone", event.target.value)} placeholder="(555) 555-5555" /></div>
+      <div className="space-y-2"><Label htmlFor="vendor-phone">Phone</Label><Input id="vendor-phone" value={form.phone} inputMode="tel" maxLength={14} onChange={(event) => set("phone", formatPhone(event.target.value))} placeholder="(555) 555-5555" /></div>
       <div className="space-y-2"><Label htmlFor="vendor-email">Email</Label><Input id="vendor-email" type="email" value={form.email} maxLength={320} onChange={(event) => set("email", event.target.value)} placeholder="hello@example.com" /></div>
-      <div className="space-y-2"><Label htmlFor="vendor-website">Website</Label><Input id="vendor-website" type="url" value={form.website} maxLength={512} onChange={(event) => set("website", event.target.value)} placeholder="https://example.com" /></div>
+      <div className="space-y-2"><Label htmlFor="vendor-website">Website</Label><Input id="vendor-website" type="text" inputMode="url" autoCapitalize="none" value={form.website} maxLength={512} onChange={(event) => set("website", event.target.value)} onBlur={(event) => set("website", formatWebsite(event.target.value))} placeholder="example.com" /></div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-area">Service area</Label><Input id="vendor-area" value={form.serviceArea} maxLength={255} onChange={(event) => set("serviceArea", event.target.value)} placeholder="Asheville, Black Mountain & Weaverville" /></div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-address">Address</Label><Textarea id="vendor-address" value={form.address} maxLength={3000} onChange={(event) => set("address", event.target.value)} placeholder="Optional business address" rows={2} /></div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-description">Recommendation note</Label><Textarea id="vendor-description" value={form.description} maxLength={6000} onChange={(event) => set("description", event.target.value)} placeholder="What service do they provide, and why do you recommend them?" rows={4} /></div>
@@ -190,7 +195,6 @@ function VendorFormFields({ form, setForm, categories }: { form: VendorForm; set
 }
 
 export default function VendorListManagementPage({ agentId }: { agentId?: number }) {
-  const { user } = useAuth();
   const isAdminEditor = Boolean(agentId);
   const targetAgentId = agentId;
   const utils = trpc.useUtils();
