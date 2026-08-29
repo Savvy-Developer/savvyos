@@ -79,8 +79,7 @@ export async function mergeContacts(opts: MergeOptions): Promise<MergeResult> {
     "email", "phone", "secondaryEmail", "secondaryPhone",
     "address", "city", "state", "zip",
     "spouseFirstName", "spouseLastName", "spouseEmail", "spousePhone",
-    "leadSourceId", "assignedIsaId", "isaStatus",
-    "campaignSource", "partnershipName",
+    "assignedIsaId", "isaStatus",
   ];
 
   const updates: Record<string, unknown> = {};

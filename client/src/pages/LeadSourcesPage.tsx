@@ -33,6 +33,8 @@ type SourceRow = {
     agreementUrl: string | null;
     agreementKey: string | null;
     requireAgreementForSubSources: boolean;
+    allowPartnerPortal: boolean;
+    partnerPortalEmail: string | null;
   };
   contactCount: number;
 };
@@ -46,11 +48,14 @@ type FormData = {
   agreementUrl: string;
   agreementKey: string;
   requireAgreementForSubSources: boolean;
+  allowPartnerPortal: boolean;
+  partnerPortalEmail: string;
 };
 
 const emptyForm: FormData = {
   name: "", campaignType: "none", parentId: "", referralPercent: "", description: "",
   agreementUrl: "", agreementKey: "", requireAgreementForSubSources: false,
+  allowPartnerPortal: false, partnerPortalEmail: "",
 };
 
 // ─── Partner Links Sub-Component ─────────────────────────────────────────────────────
@@ -233,11 +238,11 @@ export default function LeadSourcesPage() {
   const parents = sources.filter(s => s.ls.parentId === null);
   const childrenOf = (parentId: number) => sources.filter(s => s.ls.parentId === parentId);
 
-  // Check if a parent is the "Referral Partner" category
+  // Partner Portal access is limited to direct children of this lead-in category.
   function isReferralPartnerCategory(parentId: string | number | null): boolean {
     if (!parentId) return false;
     const parent = sources.find(s => s.ls.id === Number(parentId));
-    return parent?.ls.name?.toLowerCase().includes("referral partner") ?? false;
+    return parent?.ls.name === "Referral Partner (Leads in)";
   }
 
   function openCreate(parentId?: number) {
@@ -259,6 +264,8 @@ export default function LeadSourcesPage() {
       agreementUrl: row.ls.agreementUrl ?? "",
       agreementKey: row.ls.agreementKey ?? "",
       requireAgreementForSubSources: row.ls.requireAgreementForSubSources ?? false,
+      allowPartnerPortal: row.ls.allowPartnerPortal ?? false,
+      partnerPortalEmail: row.ls.partnerPortalEmail ?? "",
     });
     setAgreementFile(null);
     setAgreementError(null);
@@ -294,6 +301,15 @@ export default function LeadSourcesPage() {
       payload.referralPercent = null;
     }
     if (!payload.name) { toast.error("Name is required"); return; }
+    const isPartnerPortalSource = isReferralPartnerCategory(form.parentId);
+    if (form.allowPartnerPortal && !isPartnerPortalSource) {
+      toast.error("Partner Portal access is only available to Referral Partner (Leads in) sub-sources.");
+      return;
+    }
+    if (form.allowPartnerPortal && !form.partnerPortalEmail.trim()) {
+      toast.error("Enter the partner's email to enable Partner Portal access.");
+      return;
+    }
 
     let agreementUrl = form.agreementUrl || null;
     let agreementKey = form.agreementKey || null;
@@ -314,6 +330,8 @@ export default function LeadSourcesPage() {
     } else {
       payload.requireAgreementForSubSources = form.requireAgreementForSubSources;
     }
+    payload.allowPartnerPortal = isPartnerPortalSource && form.allowPartnerPortal;
+    payload.partnerPortalEmail = isPartnerPortalSource && form.allowPartnerPortal ? form.partnerPortalEmail.trim() : null;
 
     if (editingId) {
       updateMutation.mutate({ id: editingId, ...payload });
@@ -339,6 +357,7 @@ export default function LeadSourcesPage() {
     const editing = sources.find(s => s.ls.id === editingId);
     return editing?.ls.parentId ? isReferralPartnerCategory(editing.ls.parentId) : false;
   })());
+  const showPartnerPortalSettings = isReferralPartnerCategory(form.parentId);
 
   return (
     <div>
@@ -512,9 +531,17 @@ export default function LeadSourcesPage() {
                                 <Percent className="h-2.5 w-2.5" /> {child.ls.referralPercent}% Referral Fee
                               </Badge>
                             )}
+                            {child.ls.allowPartnerPortal && (
+                              <Badge variant="outline" className="text-xs border-cyan-200 bg-cyan-50 text-cyan-700">
+                                Partner Portal enabled
+                              </Badge>
+                            )}
                             {!child.ls.isActive && <Badge variant="outline" className="text-xs text-muted-foreground">Inactive</Badge>}
                           </div>
                           {child.ls.description && <p className="text-xs text-muted-foreground mt-0.5">{child.ls.description}</p>}
+                          {child.ls.allowPartnerPortal && child.ls.partnerPortalEmail && (
+                            <p className="text-xs text-muted-foreground mt-0.5">Portal email: {child.ls.partnerPortalEmail}</p>
+                          )}
                           {child.contactCount > 0 && (
                             <p className="text-xs text-muted-foreground mt-0.5">{child.contactCount} contact{child.contactCount !== 1 ? "s" : ""}</p>
                           )}
@@ -640,6 +667,44 @@ export default function LeadSourcesPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {showPartnerPortalSettings && (
+              <div className="space-y-3 rounded-md border border-cyan-200 bg-cyan-50/40 p-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="allow-partner-portal" className="cursor-pointer">
+                      Allow Partner Portal
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Give this partner passwordless access to lead progress and transaction milestones.
+                    </p>
+                  </div>
+                  <Switch
+                    id="allow-partner-portal"
+                    checked={form.allowPartnerPortal}
+                    onCheckedChange={checked => setForm(current => ({ ...current, allowPartnerPortal: checked }))}
+                    aria-label="Allow Partner Portal"
+                  />
+                </div>
+                {form.allowPartnerPortal && (
+                  <div>
+                    <Label htmlFor="partner-portal-email">Partner email <span className="text-destructive">*</span></Label>
+                    <Input
+                      id="partner-portal-email"
+                      className="mt-1 bg-white"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="partner@example.com"
+                      value={form.partnerPortalEmail}
+                      onChange={event => setForm(current => ({ ...current, partnerPortalEmail: event.target.value }))}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      A secure Partner Portal invitation is emailed when access is first enabled or this address changes.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

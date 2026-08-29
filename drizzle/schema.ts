@@ -102,6 +102,11 @@ export const leadSources = mysqlTable("lead_sources", {
   agreementKey: varchar("agreementKey", { length: 500 }),
   // Whether new sub-sources in this top-level category must include an agreement document
   requireAgreementForSubSources: boolean("requireAgreementForSubSources").default(false).notNull(),
+  // Partner portal access is only available to sub-sources in the
+  // "Referral Partner (Leads in)" category. The email is the partner's
+  // passwordless sign-in identity and may be associated with more than one source.
+  allowPartnerPortal: boolean("allowPartnerPortal").default(false).notNull(),
+  partnerPortalEmail: varchar("partnerPortalEmail", { length: 320 }),
   isActive: boolean("isActive").default(true).notNull(),
   clickCount: int("clickCount").default(0).notNull(),
   submissionCount: int("submissionCount").default(0).notNull(),
@@ -111,6 +116,22 @@ export const leadSources = mysqlTable("lead_sources", {
 
 export type LeadSource = typeof leadSources.$inferSelect;
 export type InsertLeadSource = typeof leadSources.$inferInsert;
+
+// ─── Partner Portal Magic Links ─────────────────────────────────────────────
+// Partners are not SavvyOS users. Their short-lived, single-use login links and
+// session are isolated from the employee user/session system.
+export const partnerPortalMagicLinks = mysqlTable("partner_portal_magic_links", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+}, (table) => [
+  index("partner_portal_magic_links_email_requested_idx").on(table.email, table.requestedAt),
+]);
+export type PartnerPortalMagicLink = typeof partnerPortalMagicLinks.$inferSelect;
+export type InsertPartnerPortalMagicLink = typeof partnerPortalMagicLinks.$inferInsert;
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
 export const contacts = mysqlTable("contacts", {

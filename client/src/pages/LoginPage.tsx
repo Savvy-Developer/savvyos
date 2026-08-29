@@ -132,6 +132,12 @@ export default function LoginPage() {
               Need access?{" "}
               <span className="text-slate-500">Contact your administrator.</span>
             </p>
+            <p className="mt-3 text-center text-xs text-slate-500">
+              Looking for Partner Portal?{" "}
+              <Link href="/partner-portal" className="font-medium text-cyan-600 hover:text-cyan-500 transition-colors">
+                Click Here
+              </Link>
+            </p>
           </CardContent>
         </Card>
 

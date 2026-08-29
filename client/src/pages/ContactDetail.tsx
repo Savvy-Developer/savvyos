@@ -13,7 +13,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import PageHeader from "@/components/PageHeader";
 import { CreateReferralDialog } from "@/components/CreateReferralDialog";
-import LeadSourcePicker from "@/components/LeadSourcePicker";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
 import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake, ShieldCheck } from "lucide-react";
@@ -466,7 +465,6 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     assignedToId: user?.id ? String(user.id) : "",
   });
   const [editForm, setEditForm] = useState<any>(null);
-  const [editLeadSourceId, setEditLeadSourceId] = useState<number | null>(null);
   const [editIsaId, setEditIsaId] = useState<string>("");
   const [editIsaStatus, setEditIsaStatus] = useState<string>("none");
 
@@ -615,7 +613,6 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
         spouseEmail: editForm.spouseEmail || null,
         spousePhone: editForm.spousePhone || null,
         notes: editForm.notes || null,
-        leadSourceId: editLeadSourceId,
         assignedIsaId: editIsaId ? Number(editIsaId) : null,
         isaStatus: (editIsaId && editIsaStatus && editIsaStatus !== "none") ? editIsaStatus as any : null,
         timezone: editForm.timezone || null,
@@ -765,7 +762,6 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       notes: contact.notes ?? "",
       timezone: (contact as any).timezone ?? "",
     });
-    setEditLeadSourceId((contact as any).leadSourceId ?? null);
     setEditIsaId(String((contact as any).assignedIsaId ?? ""));
     setEditIsaStatus((contact as any).isaStatus ?? "none");
     setEditOpen(true);
@@ -1680,7 +1676,9 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               <TabsContent value="details" className="space-y-4">
                 <div>
                   <Label>Lead Source</Label>
-                  <LeadSourcePicker className="mt-1" value={editLeadSourceId} onChange={setEditLeadSourceId} />
+                  <p className="mt-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    Lead source attribution is locked when a contact is created.
+                  </p>
                 </div>
                 <div>
                   <Label>Notes</Label>

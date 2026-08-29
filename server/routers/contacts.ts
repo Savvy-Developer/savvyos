@@ -148,6 +148,18 @@ export const contactsRouter = router({
       const oldContact = await getContactById(input.id);
       const oldData = (oldContact as any)?.contact ?? oldContact ?? {};
 
+      if (
+        (input.data.leadSourceId !== undefined && input.data.leadSourceId !== oldData.leadSourceId) ||
+        (input.data.leadSourceType !== undefined && input.data.leadSourceType !== oldData.leadSourceType) ||
+        (input.data.campaignSource !== undefined && input.data.campaignSource !== oldData.campaignSource) ||
+        (input.data.partnershipName !== undefined && input.data.partnershipName !== oldData.partnershipName)
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Lead source attribution is locked when a contact is created and cannot be changed.",
+        });
+      }
+
       // Auto-set isaStatus to 'new_lead' when an ISA is first assigned and no status is set
       const updateData = { ...input.data } as any;
       if (

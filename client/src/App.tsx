@@ -79,6 +79,7 @@ import WebhooksPage from "./pages/WebhooksPage";
 import EmailNotificationsPage from "./pages/EmailNotificationsPage";
 import PartnerLeadForm from "./pages/PartnerLeadForm";
 import PartnerLinksPage from "./pages/PartnerLinksPage";
+import PartnerPortalPage from "./pages/PartnerPortalPage";
 import GoalsPage from "./pages/GoalsPage";
 import StatsPage from "./pages/StatsPage";
 import AgentLeaderboardPage from "./pages/AgentLeaderboardPage";
@@ -459,6 +460,7 @@ function App() {
           {/* Public routes — no auth required */}
           {isPublicLandingHost ? <PublicLandingPage /> : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
+            <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />
             <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />
             <Route path="/careers" component={CareersPage} />

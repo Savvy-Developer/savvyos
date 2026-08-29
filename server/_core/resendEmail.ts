@@ -82,6 +82,7 @@ export type EmailType =
   | "connection_request_approved"
   | "pm_mention"
   | "partner_lead_confirmation"
+  | "partner_portal_access"
   | "agent_production_report"
   | "weekly_lead_report"
   | "daily_agent_report"
@@ -171,6 +172,7 @@ interface EmailContext {
   // Partner-specific fields
   partnerName?: string;
   partnerEmail?: string;
+  partnerPortalUrl?: string;
   // Agent production report-specific fields
   reportDate?: string;
   reportAsOf?: string;
@@ -986,6 +988,23 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${bodyText("If you have any questions or need to update this submission, please reply to this email.")}
       ${ctaButton("Visit Savvy STR Agents", APP_URL)}`,
       `Your lead has been received — we'll follow up soon`
+    ),
+  }),
+
+  partner_portal_access: (ctx) => ({
+    subject: "Your Savvy Partner Portal is ready",
+    html: emailLayout(
+      `${heading("Your Partner Portal Is Ready", "#0891B2")}
+      ${subheading("Savvy STR Agents Partner Portal")}
+      ${greeting(ctx.recipientName ?? ctx.partnerName)}
+      ${bodyText("You now have secure access to the Savvy Partner Portal, where you can follow the progress of the leads you have introduced to Savvy STR Agents.")}
+      ${infoCard([
+        "<strong style=\"color:#0A0A0A;\">What you can view</strong>&nbsp;&nbsp; Lead status, agent connection status, assigned agents, and transaction milestones",
+      ], "#0891B2")}
+      ${bodyText("Use the secure link below to sign in. The link expires in 15 minutes and can only be used once. You can always request a new sign-in link from the Partner Portal page.")}
+      ${ctx.partnerPortalUrl ? ctaButton("Open Partner Portal", escapeHtml(ctx.partnerPortalUrl), "#0891B2") : ""}
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">If you were not expecting this invitation, you can safely ignore this email.</p>`,
+      "Your secure Savvy Partner Portal access is ready."
     ),
   }),
 };

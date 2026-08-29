@@ -436,7 +436,12 @@ export async function createContact(data: typeof contacts.$inferInsert) {
 export async function updateContact(id: number, data: Partial<typeof contacts.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const normalizedData = normalizePhoneFields(data, ["phone", "secondaryPhone", "spousePhone"]);
+  const immutableAttributionFields = ["leadSourceId", "leadSourceType", "campaignSource", "partnershipName"] as const;
+  const mutableData = { ...data } as Record<string, unknown>;
+  // Attribution belongs to the original lead creation. Callers cannot rewrite
+  // it while updating a contact through this shared helper.
+  for (const field of immutableAttributionFields) delete mutableData[field];
+  const normalizedData = normalizePhoneFields(mutableData as Partial<typeof contacts.$inferInsert>, ["phone", "secondaryPhone", "spousePhone"]);
   await db.update(contacts).set(normalizedData).where(eq(contacts.id, id));
   scheduleAircallPhoneRematch(id, normalizedData);
 }

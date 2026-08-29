@@ -353,7 +353,6 @@ export const webhooksRouter = router({
         if (input.email) updates.email = input.email;
         if (phone) updates.phone = phone;
         if (input.notes) updates.notes = input.notes;
-        if (leadSourceId) updates.leadSourceId = leadSourceId;
         if (Object.keys(updates).length > 0) {
           await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
         }

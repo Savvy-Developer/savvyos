@@ -84,6 +84,7 @@ describe("leadSources agreement requirement", () => {
   it("enforces the requirement when moving a sub-source into a category", async () => {
     mockDb.limit
       .mockResolvedValueOnce([{ parentId: 3, agreementUrl: null }])
+      .mockResolvedValueOnce([{ parentId: null }])
       .mockResolvedValueOnce([{ requireAgreementForSubSources: true }]);
     const caller = leadSourcesRouter.createCaller(adminContext);
 

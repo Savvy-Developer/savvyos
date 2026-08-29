@@ -320,7 +320,6 @@ async function intakeLandingLead(input: {
     if (lastName) updates.lastName = lastName;
     if (values.email) updates.email = values.email;
     if (values.phone) updates.phone = values.phone;
-    if (!contact.leadSourceId) updates.leadSourceId = page.leadSourceId;
     if (!contact.campaignSource && cleanText(input.attribution.utm_campaign, 255)) updates.campaignSource = cleanText(input.attribution.utm_campaign, 255);
     if (Object.keys(updates).length) await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
   } else {

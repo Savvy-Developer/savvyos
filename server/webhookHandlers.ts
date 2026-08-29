@@ -238,7 +238,6 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     if (p.state) updates.state = p.state as string;
     if (p.zip) updates.zip = p.zip as string;
     if (p.notes) updates.notes = p.notes as string;
-    if (leadSourceId) updates.leadSourceId = leadSourceId;
 
     if (Object.keys(updates).length > 0) {
       await db.update(contacts).set(updates).where(eq(contacts.id, existingId));
@@ -350,12 +349,6 @@ const contactUpdateHandler: HandlerFn = async (rawPayload, endpoint) => {
   if (p.state) updates.state = p.state;
   if (p.zip) updates.zip = p.zip;
   if (p.notes) updates.notes = p.notes;
-
-  const leadSourceId = await resolveLeadSourceId(
-    (p._leadSourceName as string) || (p.leadSourceId as number),
-    endpoint.defaultLeadSourceId
-  );
-  if (leadSourceId) updates.leadSourceId = leadSourceId;
 
   if (Object.keys(updates).length > 0) {
     await db.update(contacts).set(updates).where(eq(contacts.id, existingId));

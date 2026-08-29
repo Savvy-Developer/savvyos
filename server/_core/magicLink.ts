@@ -5,6 +5,11 @@ import { magicLinkTokens, users } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
+import {
+  consumePartnerPortalMagicLink,
+  PARTNER_PORTAL_PATH,
+  setPartnerPortalSessionCookie,
+} from "./partnerPortalAuth";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -12,6 +17,30 @@ function getQueryParam(req: Request, key: string): string | undefined {
 }
 
 export function registerMagicLinkRoutes(app: Express) {
+  /**
+   * GET /api/auth/partner-portal?token=xxx
+   *
+   * Partners are separate from SavvyOS employees. Their single-use link creates
+   * an isolated, short-lived partner portal session and never authenticates a
+   * user account.
+   */
+  app.get("/api/auth/partner-portal", async (req: Request, res: Response) => {
+    const token = getQueryParam(req, "token");
+    if (!token) return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=invalid_link`);
+
+    try {
+      const email = await consumePartnerPortalMagicLink(token);
+      if (!email) return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=invalid_link`);
+
+      const cookie = await setPartnerPortalSessionCookie(req, email);
+      res.cookie(cookie.name, cookie.value, cookie.options);
+      return res.redirect(302, PARTNER_PORTAL_PATH);
+    } catch (error) {
+      console.error("[PartnerPortal] Error processing magic link:", error);
+      return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=server_error`);
+    }
+  });
+
   /**
    * GET /api/auth/magic-link?token=xxx
    *
