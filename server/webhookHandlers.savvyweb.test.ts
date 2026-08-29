@@ -70,6 +70,11 @@ vi.mock("./_core/ghlSync", () => ({
   }),
 }));
 
+const mockTriggerSmartPlansForContact = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+vi.mock("./smartPlanScheduler", () => ({
+  triggerSmartPlansForContact: mockTriggerSmartPlansForContact,
+}));
+
 // drizzle's `eq` is where the handler hands us the email it is looking up.
 // Capturing it lets the mocked select() answer realistically.
 vi.mock("drizzle-orm", () => ({
@@ -125,6 +130,7 @@ beforeEach(() => {
   state.__mock.ghlSynced = [];
   state.__mock.nextInsertId = 900;
   (globalThis as any).__lastLookupEmail = undefined;
+  mockTriggerSmartPlansForContact.mockClear();
 });
 
 // ─── Event routing ────────────────────────────────────────────────────────────
@@ -282,6 +288,17 @@ describe("unmatched email", () => {
       endpoint
     );
     expect(state.__mock.ghlSynced).toEqual([900]);
+  });
+
+  it("enrolls a newly created contact in matching source Smart Plans", async () => {
+    await savvyWebEventHandler(
+      envelope("activity.contact", {
+        leadEmail: "smart-plan@example.com",
+        name: "Smart Plan",
+      }),
+      endpoint,
+    );
+    expect(mockTriggerSmartPlansForContact).toHaveBeenCalledWith(900, 42);
   });
 
   it("does not create or sync when the contact already exists", async () => {

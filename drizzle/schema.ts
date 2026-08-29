@@ -970,7 +970,11 @@ export const smartPlanEnrollments = mysqlTable("smart_plan_enrollments", {
   nextStepAt: timestamp("nextStepAt"),
   status: mysqlEnum("status", ["active", "paused", "completed", "cancelled"]).default("active").notNull(),
   completedAt: timestamp("completedAt"),
-});
+}, (table) => [
+  // One contact can only enter a given plan once, even when a webhook is retried
+  // or multiple intake events arrive at the same time.
+  uniqueIndex("smart_plan_enrollments_plan_contact_unique").on(table.planId, table.contactId),
+]);
 export type SmartPlanEnrollment = typeof smartPlanEnrollments.$inferSelect;
 export type InsertSmartPlanEnrollment = typeof smartPlanEnrollments.$inferInsert;
 
@@ -2158,6 +2162,9 @@ export const emailNotificationSettings = mysqlTable("email_notification_settings
   id: int("id").autoincrement().primaryKey(),
   notificationKey: varchar("notificationKey", { length: 128 }).notNull().unique(),
   isEnabled: boolean("isEnabled").notNull().default(true),
+  // A populated list replaces the event's normal recipient(s); null preserves
+  // the existing event-specific recipient behavior.
+  recipientUserIds: json("recipientUserIds").$type<number[]>(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: int("updatedBy").references(() => users.id, { onDelete: "set null" }),
 });

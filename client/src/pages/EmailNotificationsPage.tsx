@@ -11,13 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus } from "lucide-react";
+import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus, Settings2, UsersRound } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EmailTestPage from "./EmailTestPage";
 import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } from "@/components/EmailNotificationBuilderDialog";
+import NotificationRecipientsDialog from "@/components/NotificationRecipientsDialog";
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
@@ -99,11 +100,13 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
 export default function EmailNotificationsPage() {
   const [search, setSearch] = useState("");
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [recipientEditor, setRecipientEditor] = useState<NotifMeta | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [triggerFilter, setTriggerFilter] = useState<string>("all");
 
   // Live settings from DB
   const { data: settings = [], isLoading, refetch } = trpc.emailNotifications.list.useQuery();
+  const { data: recipientUsers = [] } = trpc.emailNotifications.recipientUsers.useQuery();
   const toggleMutation = trpc.emailNotifications.toggle.useMutation({
     onSuccess: () => { refetch(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetch(); },
@@ -121,10 +124,21 @@ export default function EmailNotificationsPage() {
     onSuccess: () => { refetchCustomNotifications(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetchCustomNotifications(); },
   });
+  const setRecipientsMutation = trpc.emailNotifications.setRecipients.useMutation({
+    onSuccess: () => {
+      toast.success("Notification recipients saved.");
+      setRecipientEditor(null);
+      refetch();
+    },
+    onError: (err) => toast.error(`Failed to save recipients: ${err.message}`),
+  });
 
   // Build a quick lookup map: notificationKey → isEnabled
   const enabledMap = new Map<string, boolean>(
     settings.map((s: { notificationKey: string; isEnabled: boolean }) => [s.notificationKey, s.isEnabled])
+  );
+  const recipientOverrideMap = new Map<string, number[]>(
+    settings.map((s: { notificationKey: string; recipientUserIds?: number[] | null }) => [s.notificationKey, s.recipientUserIds ?? []])
   );
 
   const customNotificationMeta: NotifMeta[] = customNotifications.map((notification) => ({
@@ -156,6 +170,11 @@ export default function EmailNotificationsPage() {
 
   function handleCreateCustomNotification(values: CustomNotificationFormValues) {
     createCustomNotificationMutation.mutate(values);
+  }
+
+  function handleRecipientSave(recipientUserIds: number[]) {
+    if (!recipientEditor) return;
+    setRecipientsMutation.mutate({ notificationKey: recipientEditor.id, recipientUserIds });
   }
 
   const filtered = notificationItems.filter((n) => {
@@ -317,10 +336,40 @@ export default function EmailNotificationsPage() {
                         <Zap className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/60" />
                         <span><span className="font-medium text-foreground/70">Trigger:</span> {n.trigger}</span>
                       </div>
+                      {n.customId === undefined && recipientOverrideMap.get(n.id)?.length ? (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-primary">
+                          <UsersRound className="h-3 w-3" />
+                          <span>{recipientOverrideMap.get(n.id)!.length} selected recipient{recipientOverrideMap.get(n.id)!.length === 1 ? "" : "s"} override the default audience</span>
+                        </div>
+                      ) : null}
                     </div>
 
-                    {/* Toggle */}
-                    <div className="shrink-0 flex flex-col items-center gap-1.5">
+                    {/* Controls */}
+                    <div className="shrink-0 flex items-center gap-3">
+                      {n.customId === undefined && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="hidden sm:flex"
+                          onClick={() => setRecipientEditor(n)}
+                        >
+                          <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Recipients
+                        </Button>
+                      )}
+                      {n.customId === undefined && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="sm:hidden"
+                          onClick={() => setRecipientEditor(n)}
+                          aria-label={`Configure recipients for ${n.name}`}
+                        >
+                          <Settings2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <div className="flex flex-col items-center gap-1.5">
                       <Switch
                         checked={enabled}
                         onCheckedChange={(val) => handleToggle(n, val)}
@@ -330,6 +379,7 @@ export default function EmailNotificationsPage() {
                       <span className={`text-[10px] font-medium ${enabled ? "text-emerald-600" : "text-muted-foreground"}`}>
                         {enabled ? "On" : "Off"}
                       </span>
+                      </div>
                     </div>
                   </div>
                 </CardContent>
@@ -350,6 +400,14 @@ export default function EmailNotificationsPage() {
         onOpenChange={setBuilderOpen}
         onCreate={handleCreateCustomNotification}
         isSaving={createCustomNotificationMutation.isPending}
+      />
+      <NotificationRecipientsDialog
+        notification={recipientEditor ? { id: recipientEditor.id, name: recipientEditor.name, recipient: recipientEditor.recipient } : null}
+        users={recipientUsers}
+        selectedUserIds={recipientEditor ? recipientOverrideMap.get(recipientEditor.id) ?? [] : []}
+        isSaving={setRecipientsMutation.isPending}
+        onOpenChange={(open) => { if (!open) setRecipientEditor(null); }}
+        onSave={handleRecipientSave}
       />
     </div>
   );

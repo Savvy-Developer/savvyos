@@ -429,6 +429,15 @@ export async function createContact(data: typeof contacts.$inferInsert) {
       ),
     );
   }
+  // Every path using the shared contact creator—including CSV imports—must
+  // register a new lead with matching source-triggered Smart Plans.
+  try {
+    const { triggerSmartPlansForContact } = await import("./smartPlanScheduler");
+    await triggerSmartPlansForContact(insertId, normalizedData.leadSourceId ?? null);
+  } catch (error) {
+    // A plan configuration failure must not roll back the newly-created CRM lead.
+    console.error("[SmartPlan] Contact enrollment failed for contact", insertId, error);
+  }
   scheduleAircallPhoneRematch(insertId, normalizedData);
   return insertId;
 }

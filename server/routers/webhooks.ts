@@ -11,6 +11,7 @@ import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { notifyOwner } from "../_core/notification";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { triggerGhlContactSync } from "../_core/ghlSync";
+import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { getDb, scheduleAircallPhoneRematch } from "../db";
 import { webhookEndpoints, webhookLogs, users, leadSources, contacts } from "../../drizzle/schema";
 import { eq, desc, and, like, isNull, or, count, sql } from "drizzle-orm";
@@ -370,6 +371,9 @@ export const webhooksRouter = router({
         // mirroring the inbound webhook chokepoint, so partner re-submits for
         // an existing contact don't rewrite tags.
         triggerGhlContactSync(contactId);
+        await triggerSmartPlansForContact(contactId, leadSourceId).catch((error) =>
+          console.error("[SmartPlan] Partner intake enrollment failed for contact", contactId, error),
+        );
       }
 
       scheduleAircallPhoneRematch(contactId, { phone });

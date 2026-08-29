@@ -11,8 +11,8 @@ import { sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
-import { customEmailNotifications, emailTemplates, emailNotificationSettings } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { customEmailNotifications, emailTemplates, emailNotificationSettings, users } from "../drizzle/schema";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
 import { propertiesRouter } from "./routers/properties";
@@ -324,6 +324,47 @@ export const appRouter = router({
           .values({ notificationKey: input.notificationKey, isEnabled: input.isEnabled, updatedBy: ctx.user.id })
           .onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, updatedBy: ctx.user.id } });
         return { success: true };
+      }),
+    /** Active SavvyOS users eligible for an explicit notification recipient override. */
+    recipientUsers: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db2 = await db.getDb();
+      if (!db2) return [];
+      return db2
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .from(users)
+        .where(and(eq(users.isActive, true), isNotNull(users.email)))
+        .orderBy(users.name);
+    }),
+    /**
+     * Sets the optional explicit audience for a notification. Clearing every
+     * selection restores the notification's normal dynamic recipient behavior.
+     */
+    setRecipients: protectedProcedure
+      .input(z.object({ notificationKey: z.string().min(1).max(128), recipientUserIds: z.array(z.number().int().positive()).max(250) }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db2 = await db.getDb();
+        if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const recipientUserIds = Array.from(new Set(input.recipientUserIds));
+        if (recipientUserIds.length > 0) {
+          const validUsers = await db2
+            .select({ id: users.id })
+            .from(users)
+            .where(and(
+              eq(users.isActive, true),
+              isNotNull(users.email),
+              inArray(users.id, recipientUserIds),
+            ));
+          if (validUsers.length !== recipientUserIds.length) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Selected recipients must be active users with an email address." });
+          }
+        }
+        await db2
+          .insert(emailNotificationSettings)
+          .values({ notificationKey: input.notificationKey, isEnabled: true, recipientUserIds: recipientUserIds.length ? recipientUserIds : null, updatedBy: ctx.user.id })
+          .onDuplicateKeyUpdate({ set: { recipientUserIds: recipientUserIds.length ? recipientUserIds : null, updatedBy: ctx.user.id } });
+        return { success: true, recipientUserIds };
       }),
   }),
 

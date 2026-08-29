@@ -500,15 +500,22 @@ export async function enrollContactInPlan(contactId: number, planId: number): Pr
     nextStepAt.setHours(nextStepAt.getHours() + firstSteps[0].delayHours);
   }
 
-  await db.insert(smartPlanEnrollments).values({
-    planId,
-    contactId,
-    currentStepIndex: 0,
-    enrolledAt: new Date(),
-    nextStepAt,
-    status: "active",
-  });
-  return true;
+  try {
+    await db.insert(smartPlanEnrollments).values({
+      planId,
+      contactId,
+      currentStepIndex: 0,
+      enrolledAt: new Date(),
+      nextStepAt,
+      status: "active",
+    });
+    return true;
+  } catch (error: any) {
+    // The database constraint is the final guard when concurrent webhook
+    // retries pass the pre-insert lookup at the same time.
+    if (error?.code === "ER_DUP_ENTRY") return false;
+    throw error;
+  }
 }
 
 /**

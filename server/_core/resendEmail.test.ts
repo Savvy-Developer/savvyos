@@ -62,6 +62,42 @@ describe("listing created email", () => {
   });
 });
 
+describe("configured notification recipients", () => {
+  it("replaces the default audience with the selected active users", async () => {
+    mockSend.mockClear();
+    const settingsQuery = {
+      from: () => ({
+        where: () => ({ limit: async () => [{ isEnabled: true, recipientUserIds: [7, 8] }] }),
+      }),
+    };
+    const recipientsQuery = {
+      from: () => ({
+        where: async () => [
+          { id: 7, name: "Taylor Admin", email: "taylor@example.com" },
+          { id: 8, name: "Jordan ISA", email: "jordan@example.com" },
+        ],
+      }),
+    };
+    mockGetDb.mockResolvedValue({
+      select: vi.fn().mockReturnValueOnce(settingsQuery).mockReturnValueOnce(recipientsQuery),
+    });
+
+    await sendTransactionalEmail("listing_created", {
+      recipientEmail: "default-agent@example.com",
+      recipientName: "Default Agent",
+      contactName: "Jamie Seller",
+      listingAddress: "123 Main St",
+    }, { allowTemplateOverride: false, injectMagicLinks: false });
+
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend.mock.calls.map(([message]) => message.to).sort()).toEqual([
+      "jordan@example.com",
+      "taylor@example.com",
+    ]);
+    expect(mockSend.mock.calls.every(([, options]) => String(options?.idempotencyKey).startsWith("recipient-override:listing_created:"))).toBe(true);
+  });
+});
+
 describe("website property request handoff emails", () => {
   const context = {
     recipientEmail: "agent@example.com",

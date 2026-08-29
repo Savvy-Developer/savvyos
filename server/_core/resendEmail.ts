@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { ENV } from "./env";
 import { getDb } from "../db";
 import { emailTemplates, emailNotificationSettings, magicLinkTokens, users } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 const FROM_ADDRESS = "Savvy STR Agents <notifications@savvy-agents.com>";
 const APP_URL = "https://os.savvy-agents.com";
@@ -1018,12 +1018,50 @@ export interface EmailDeliveryOptions {
   injectMagicLinks?: boolean;
   /** An explicitly requested template test may send even when the normal administrative sender toggle is off. */
   bypassNotificationSetting?: boolean;
+  /** Internal recursion guard after an explicit notification audience has been resolved. */
+  bypassRecipientOverride?: boolean;
 }
 
 export interface EmailDeliveryResult {
   sent: boolean;
   skipped: boolean;
   reason?: string;
+}
+
+type NotificationRecipient = { id: number; name: string | null; email: string | null };
+
+async function notificationRecipientOverride(type: EmailType): Promise<{
+  disabled: boolean;
+  recipients: NotificationRecipient[] | null;
+}> {
+  const db = await getDb();
+  if (!db) return { disabled: false, recipients: null };
+
+  const [setting] = await db
+    .select({ isEnabled: emailNotificationSettings.isEnabled, recipientUserIds: emailNotificationSettings.recipientUserIds })
+    .from(emailNotificationSettings)
+    .where(eq(emailNotificationSettings.notificationKey, type))
+    .limit(1);
+  if (!setting) return { disabled: false, recipients: null };
+  if (!setting.isEnabled) return { disabled: true, recipients: null };
+
+  const recipientUserIds = Array.from(new Set((setting.recipientUserIds ?? []).filter((id): id is number => Number.isInteger(id) && id > 0)));
+  if (!recipientUserIds.length) return { disabled: false, recipients: null };
+
+  const recipients = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(and(eq(users.isActive, true), inArray(users.id, recipientUserIds)));
+  return { disabled: false, recipients };
+}
+
+function recipientOverrideIdempotencyKey(type: EmailType, ctx: EmailContext, recipientId: number): string {
+  // The legacy sender may loop across recipients. Excluding recipient fields
+  // keeps that behavior from producing duplicate copies for a selected audience.
+  const { recipientEmail: _email, recipientName: _name, ccEmail: _ccEmail, ccEmails: _ccEmails, ...eventContext } = ctx;
+  const contextFingerprint = JSON.stringify(Object.entries(eventContext).sort(([a], [b]) => a.localeCompare(b)));
+  const day = new Date().toISOString().slice(0, 10);
+  return `recipient-override:${type}:${crypto.createHash("sha256").update(`${day}:${contextFingerprint}`).digest("hex")}:${recipientId}`;
 }
 
 /**
@@ -1127,24 +1165,36 @@ export async function sendTransactionalEmail(
     return { sent: false, skipped: true, reason: "Resend API key is not configured" };
   }
 
-  // Check if this notification type is disabled via the admin Email Notifications toggle.
-  // An explicit settings-page test is the only allowed bypass; it never affects normal sends.
-  if (!options.bypassNotificationSetting) try {
-    const settingDb = await getDb();
-    if (settingDb) {
-      const [setting] = await settingDb
-        .select({ isEnabled: emailNotificationSettings.isEnabled })
-        .from(emailNotificationSettings)
-        .where(eq(emailNotificationSettings.notificationKey, type))
-        .limit(1);
-      if (setting && !setting.isEnabled) {
-        console.info(`[Resend] Email type "${type}" is disabled via admin settings — skipping`);
-        return { sent: false, skipped: true, reason: "Email notification is disabled" };
+  // An explicit settings-page test is the only permitted bypass. Normal sends
+  // honor both the enable toggle and any selected user audience.
+  if (!options.bypassNotificationSetting && !options.bypassRecipientOverride) try {
+    const override = await notificationRecipientOverride(type);
+    if (override.disabled) {
+      console.info(`[Resend] Email type "${type}" is disabled via admin settings — skipping`);
+      return { sent: false, skipped: true, reason: "Email notification is disabled" };
+    }
+    if (override.recipients !== null) {
+      if (!override.recipients.length) {
+        console.warn(`[Resend] Email type "${type}" has no active configured recipients — skipping`);
+        return { sent: false, skipped: true, reason: "No active configured recipients" };
       }
+      const deliveries = await Promise.all(override.recipients
+        .filter((recipient): recipient is NotificationRecipient & { email: string } => Boolean(recipient.email))
+        .map((recipient) => sendTransactionalEmail(
+          type,
+          { ...ctx, recipientEmail: recipient.email, recipientName: recipient.name ?? undefined, ccEmail: undefined, ccEmails: undefined },
+          { ...options, bypassRecipientOverride: true, idempotencyKey: recipientOverrideIdempotencyKey(type, ctx, recipient.id) },
+        )));
+      const sent = deliveries.some((delivery) => delivery.sent);
+      return {
+        sent,
+        skipped: !sent && deliveries.every((delivery) => delivery.skipped),
+        ...(sent ? {} : { reason: deliveries.map((delivery) => delivery.reason).filter(Boolean).join("; ") || "No configured recipient received the email" }),
+      };
     }
   } catch (settingErr) {
-    // Non-fatal: if we can't read the setting, default to sending.
-    console.warn("[Resend] Could not check notification setting:", settingErr);
+    // Fail open: a transient settings read must not block a system notification.
+    console.warn("[Resend] Could not resolve notification settings:", settingErr);
   }
 
   try {

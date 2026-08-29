@@ -16,7 +16,6 @@ import {
 import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable } from "../../drizzle/schema";
 import { eq, or, and, desc, like, isNull, aliasedTable, notInArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
-import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { invokeLLM } from "../_core/llm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
@@ -127,10 +126,6 @@ export const contactsRouter = router({
         relatedContactId: id,
         details: { name: `${input.firstName} ${input.lastName}` },
       });
-      // Trigger source-specific and All Lead Sources Smart Plans (fire-and-forget).
-      triggerSmartPlansForContact(id, input.leadSourceId ?? null).catch((err) =>
-        console.error("[SmartPlan] Trigger error for contact", id, err)
-      );
       return { id };
     }),
 

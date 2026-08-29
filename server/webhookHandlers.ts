@@ -12,6 +12,7 @@
 
 import { getDb as _getDb, logActivity, scheduleAircallPhoneRematch } from "./db";
 import { triggerGhlContactSync } from "./_core/ghlSync";
+import { triggerSmartPlansForContact } from "./smartPlanScheduler";
 
 async function getDb() {
   const db = await _getDb();
@@ -279,6 +280,11 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
     // flow + a re-upsert for an updated contact would just rewrite the same
     // tag — preserving the "no behavior change on existing webhook" promise.
     triggerGhlContactSync(contactId);
+    // Source-triggered Smart Plans are part of the new-contact intake contract.
+    // Await and log an enrollment failure without rejecting the source webhook.
+    await triggerSmartPlansForContact(contactId, newLeadSourceId).catch((error) =>
+      console.error("[SmartPlan] Webhook enrollment failed for contact", contactId, error),
+    );
   }
 
   scheduleAircallPhoneRematch(contactId, {
@@ -757,6 +763,9 @@ async function createContactFromEvent(
   });
 
   triggerGhlContactSync(contactId);
+  await triggerSmartPlansForContact(contactId, leadSourceId).catch((error) =>
+    console.error("[SmartPlan] Savvy-web enrollment failed for contact", contactId, error),
+  );
   return contactId;
 }
 

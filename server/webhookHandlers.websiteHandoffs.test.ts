@@ -60,6 +60,10 @@ vi.mock("./_core/ghlSync", () => ({
   triggerGhlContactSync: vi.fn(),
 }));
 
+vi.mock("./smartPlanScheduler", () => ({
+  triggerSmartPlansForContact: vi.fn().mockResolvedValue(1),
+}));
+
 vi.mock("./_core/resendEmail", () => ({
   sendTransactionalEmail: mockSendTransactionalEmail,
 }));
