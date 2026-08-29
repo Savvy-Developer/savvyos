@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -6,10 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building2, CheckCircle2, ExternalLink, Link2, Loader2, LogOut, Mail, ShieldCheck, Users } from "lucide-react";
+import { ArrowDownUp, Building2, CheckCircle2, ExternalLink, Filter, Link2, Loader2, LogOut, Mail, RotateCcw, ShieldCheck, Users } from "lucide-react";
 
 const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
+
+type LeadSort = "newest" | "oldest" | "name" | "connection";
+type TransactionSort = "recent-contract" | "closing-soon" | "closing-latest" | "price-high";
 
 function date(value: Date | string | null | undefined) {
   if (!value) return "—";
@@ -19,6 +23,12 @@ function date(value: Date | string | null | undefined) {
 function money(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(value));
+}
+
+function time(value: Date | string | null | undefined) {
+  if (!value) return 0;
+  const result = new Date(value).getTime();
+  return Number.isNaN(result) ? 0 : result;
 }
 
 function statusClass(status: string) {
@@ -125,18 +135,79 @@ export default function PartnerPortalPage() {
     },
   });
 
-  if (me.isLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="h-7 w-7 animate-spin text-cyan-500" /></div>;
-  }
-  if (me.error || !me.data) return <PortalLogin />;
+  const [leadSourceFilter, setLeadSourceFilter] = useState("all");
+  const [leadConnectionFilter, setLeadConnectionFilter] = useState("all");
+  const [leadPipelineFilter, setLeadPipelineFilter] = useState("all");
+  const [leadDateFilter, setLeadDateFilter] = useState("all");
+  const [leadSort, setLeadSort] = useState<LeadSort>("newest");
+  const [transactionStatusFilter, setTransactionStatusFilter] = useState("all");
+  const [transactionSort, setTransactionSort] = useState<TransactionSort>("recent-contract");
 
   const leads = dashboard.data?.leads ?? [];
   const transactions = dashboard.data?.transactions ?? [];
-  const sources = dashboard.data?.sources ?? me.data.sources;
+  const sources = dashboard.data?.sources ?? me.data?.sources ?? [];
   const connectedLeads = leads.filter((lead) => lead.connections.length > 0).length;
   const unassignedLeads = leads.length - connectedLeads;
   const underContractTransactions = transactions.filter((transaction) => transaction.status === "Under Contract").length;
   const closedTransactions = transactions.filter((transaction) => transaction.status === "Closed").length;
+
+  const sourceOptions = useMemo(() => Array.from(new Set(leads.map((lead) => lead.sourceName))).sort(), [leads]);
+  const pipelineOptions = useMemo(() => Array.from(new Set(leads.flatMap((lead) => lead.connections.map((connection) => connection.status)))).sort(), [leads]);
+  const transactionStatusOptions = useMemo(() => Array.from(new Set(transactions.map((transaction) => transaction.status))).sort(), [transactions]);
+
+  const filteredLeads = useMemo(() => {
+    const cutoff = new Date();
+    if (leadDateFilter === "30d") cutoff.setDate(cutoff.getDate() - 30);
+    if (leadDateFilter === "90d") cutoff.setDate(cutoff.getDate() - 90);
+    if (leadDateFilter === "year") cutoff.setMonth(0, 1);
+
+    const filtered = leads.filter((lead) => {
+      if (leadSourceFilter !== "all" && lead.sourceName !== leadSourceFilter) return false;
+      if (leadConnectionFilter === "connected" && lead.connections.length === 0) return false;
+      if (leadConnectionFilter === "unassigned" && lead.connections.length > 0) return false;
+      if (leadPipelineFilter !== "all" && !lead.connections.some((connection) => connection.status === leadPipelineFilter)) return false;
+      if (leadDateFilter !== "all" && time(lead.submittedAt) < cutoff.getTime()) return false;
+      return true;
+    });
+
+    return filtered.sort((a, b) => {
+      if (leadSort === "oldest") return time(a.submittedAt) - time(b.submittedAt);
+      if (leadSort === "name") return a.leadName.localeCompare(b.leadName);
+      if (leadSort === "connection") return b.connections.length - a.connections.length || time(b.submittedAt) - time(a.submittedAt);
+      return time(b.submittedAt) - time(a.submittedAt);
+    });
+  }, [leads, leadSourceFilter, leadConnectionFilter, leadPipelineFilter, leadDateFilter, leadSort]);
+
+  const filteredTransactions = useMemo(() => {
+    const filtered = transactions.filter((transaction) => transactionStatusFilter === "all" || transaction.status === transactionStatusFilter);
+    return filtered.sort((a, b) => {
+      if (transactionSort === "closing-soon") return (time(a.closingDate) || Number.MAX_SAFE_INTEGER) - (time(b.closingDate) || Number.MAX_SAFE_INTEGER);
+      if (transactionSort === "closing-latest") return time(b.closingDate) - time(a.closingDate);
+      if (transactionSort === "price-high") return Number(b.salesPrice ?? 0) - Number(a.salesPrice ?? 0);
+      return time(b.underContractDate) - time(a.underContractDate);
+    });
+  }, [transactions, transactionStatusFilter, transactionSort]);
+
+  const hasLeadFilters = leadSourceFilter !== "all" || leadConnectionFilter !== "all" || leadPipelineFilter !== "all" || leadDateFilter !== "all" || leadSort !== "newest";
+  const hasTransactionFilters = transactionStatusFilter !== "all" || transactionSort !== "recent-contract";
+
+  const resetLeadFilters = () => {
+    setLeadSourceFilter("all");
+    setLeadConnectionFilter("all");
+    setLeadPipelineFilter("all");
+    setLeadDateFilter("all");
+    setLeadSort("newest");
+  };
+
+  const resetTransactionFilters = () => {
+    setTransactionStatusFilter("all");
+    setTransactionSort("recent-contract");
+  };
+
+  if (me.isLoading) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="h-7 w-7 animate-spin text-cyan-500" /></div>;
+  }
+  if (me.error || !me.data) return <PortalLogin />;
 
   return (
     <div className="h-[100dvh] overflow-y-auto overscroll-y-contain bg-slate-50 text-slate-900">
@@ -186,20 +257,44 @@ export default function PartnerPortalPage() {
             </section>
 
             <Tabs defaultValue="leads" className="space-y-4">
-              <TabsList className="bg-white"><TabsTrigger value="leads">Leads ({leads.length})</TabsTrigger><TabsTrigger value="transactions">Transactions ({transactions.length})</TabsTrigger></TabsList>
+              <TabsList className="bg-white"><TabsTrigger value="leads">Leads ({filteredLeads.length}{filteredLeads.length !== leads.length ? ` of ${leads.length}` : ""})</TabsTrigger><TabsTrigger value="transactions">Transactions ({filteredTransactions.length}{filteredTransactions.length !== transactions.length ? ` of ${transactions.length}` : ""})</TabsTrigger></TabsList>
               <TabsContent value="leads">
                 <Card>
-                  <CardHeader className="pb-3"><CardTitle className="text-base">Lead progress</CardTitle><CardDescription>See when a Savvy agent is connected and their current pipeline status for each lead.</CardDescription></CardHeader>
+                  <CardHeader className="space-y-4 pb-4">
+                    <div>
+                      <CardTitle className="text-base">Lead progress</CardTitle>
+                      <CardDescription className="mt-1">See when a Savvy agent is connected and their current pipeline status for each lead.</CardDescription>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3"><p className="flex items-center gap-1.5 text-sm font-medium text-slate-700"><Filter className="h-4 w-4 text-cyan-600" />Filter leads</p>{hasLeadFilters && <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-600" onClick={resetLeadFilters}><RotateCcw className="mr-1 h-3.5 w-3.5" />Reset</Button>}</div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                        <Select value={leadSourceFilter} onValueChange={setLeadSourceFilter}><SelectTrigger aria-label="Filter leads by source" className="w-full bg-white"><SelectValue placeholder="All sources" /></SelectTrigger><SelectContent><SelectItem value="all">All sources</SelectItem>{sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}</SelectContent></Select>
+                        <Select value={leadConnectionFilter} onValueChange={setLeadConnectionFilter}><SelectTrigger aria-label="Filter leads by agent connection" className="w-full bg-white"><SelectValue placeholder="All connections" /></SelectTrigger><SelectContent><SelectItem value="all">All connections</SelectItem><SelectItem value="connected">Connected to agent</SelectItem><SelectItem value="unassigned">Awaiting connection</SelectItem></SelectContent></Select>
+                        <Select value={leadPipelineFilter} onValueChange={setLeadPipelineFilter}><SelectTrigger aria-label="Filter leads by pipeline status" className="w-full bg-white"><SelectValue placeholder="All pipeline stages" /></SelectTrigger><SelectContent><SelectItem value="all">All pipeline stages</SelectItem>{pipelineOptions.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select>
+                        <Select value={leadDateFilter} onValueChange={setLeadDateFilter}><SelectTrigger aria-label="Filter leads by submitted date" className="w-full bg-white"><SelectValue placeholder="Any submitted date" /></SelectTrigger><SelectContent><SelectItem value="all">Any submitted date</SelectItem><SelectItem value="30d">Last 30 days</SelectItem><SelectItem value="90d">Last 90 days</SelectItem><SelectItem value="year">This year</SelectItem></SelectContent></Select>
+                        <Select value={leadSort} onValueChange={(value) => setLeadSort(value as LeadSort)}><SelectTrigger aria-label="Sort leads" className="w-full bg-white"><ArrowDownUp className="mr-1.5 h-3.5 w-3.5 text-slate-400" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="newest">Newest submitted</SelectItem><SelectItem value="oldest">Oldest submitted</SelectItem><SelectItem value="name">Lead name A–Z</SelectItem><SelectItem value="connection">Agent connected first</SelectItem></SelectContent></Select>
+                      </div>
+                    </div>
+                  </CardHeader>
                   <CardContent className="p-0">
-                    {leads.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No submitted leads are available yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Submitted</th><th className="px-6 py-3">Agent connection</th></tr></thead><tbody className="divide-y divide-slate-100">{leads.map((lead) => <tr key={lead.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{lead.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{lead.sourceName}</p></td><td className="px-4 py-4 text-slate-600">{date(lead.submittedAt)}</td><td className="px-6 py-4">{lead.connections.length ? <div className="space-y-2">{lead.connections.map((connection, index) => <div key={`${connection.agentName}-${index}`} className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-700">{connection.agentName}</span><Badge variant="outline" className={statusClass(connection.status)}>{connection.status}</Badge></div>)}</div> : <span className="text-slate-400">Not assigned yet</span>}</td></tr>)}</tbody></table></div>}
+                    {leads.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No submitted leads are available yet.</div> : filteredLeads.length === 0 ? <div className="px-6 py-14 text-center"><p className="text-sm font-medium text-slate-700">No leads match these filters.</p><Button variant="link" className="mt-1 h-auto p-0 text-cyan-700" onClick={resetLeadFilters}>Clear lead filters</Button></div> : <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Submitted</th><th className="px-6 py-3">Agent connection</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLeads.map((lead) => <tr key={lead.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{lead.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{lead.sourceName}</p></td><td className="px-4 py-4 text-slate-600">{date(lead.submittedAt)}</td><td className="px-6 py-4">{lead.connections.length ? <div className="space-y-2">{lead.connections.map((connection, index) => <div key={`${connection.agentName}-${index}`} className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-700">{connection.agentName}</span><Badge variant="outline" className={statusClass(connection.status)}>{connection.status}</Badge></div>)}</div> : <span className="text-slate-400">Not assigned yet</span>}</td></tr>)}</tbody></table></div>}
                   </CardContent>
                 </Card>
               </TabsContent>
               <TabsContent value="transactions">
                 <Card>
-                  <CardHeader className="pb-3"><CardTitle className="text-base">Transaction milestones</CardTitle><CardDescription>High-level deal status for your introduced leads.</CardDescription></CardHeader>
+                  <CardHeader className="space-y-4 pb-4">
+                    <div><CardTitle className="text-base">Transaction milestones</CardTitle><CardDescription className="mt-1">High-level deal status for your introduced leads.</CardDescription></div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3"><p className="flex items-center gap-1.5 text-sm font-medium text-slate-700"><Filter className="h-4 w-4 text-cyan-600" />Filter transactions</p>{hasTransactionFilters && <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-600" onClick={resetTransactionFilters}><RotateCcw className="mr-1 h-3.5 w-3.5" />Reset</Button>}</div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Select value={transactionStatusFilter} onValueChange={setTransactionStatusFilter}><SelectTrigger aria-label="Filter transactions by status" className="w-full bg-white"><SelectValue placeholder="All transaction statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All transaction statuses</SelectItem>{transactionStatusOptions.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select>
+                        <Select value={transactionSort} onValueChange={(value) => setTransactionSort(value as TransactionSort)}><SelectTrigger aria-label="Sort transactions" className="w-full bg-white"><ArrowDownUp className="mr-1.5 h-3.5 w-3.5 text-slate-400" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="recent-contract">Most recently under contract</SelectItem><SelectItem value="closing-soon">Closing date: soonest</SelectItem><SelectItem value="closing-latest">Closing date: latest</SelectItem><SelectItem value="price-high">Sales price: highest</SelectItem></SelectContent></Select>
+                      </div>
+                    </div>
+                  </CardHeader>
                   <CardContent className="p-0">
-                    {transactions.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No transactions are associated with your leads yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Savvy agent</th><th className="px-4 py-3">Under contract</th><th className="px-4 py-3">Closing date</th><th className="px-4 py-3">Sales price</th><th className="px-6 py-3">Address</th></tr></thead><tbody className="divide-y divide-slate-100">{transactions.map((transaction) => <tr key={transaction.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{transaction.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.transactionType}{transaction.transactionNumber ? ` · ${transaction.transactionNumber}` : ""}</p></td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(transaction.status)}>{transaction.status}</Badge></td><td className="px-4 py-4 font-medium text-slate-700">{transaction.agentName}</td><td className="px-4 py-4 text-slate-600">{date(transaction.underContractDate)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.closingDate)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.salesPrice)}</td><td className="px-6 py-4 text-slate-600">{transaction.address}</td></tr>)}</tbody></table></div>}
+                    {transactions.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No transactions are associated with your leads yet.</div> : filteredTransactions.length === 0 ? <div className="px-6 py-14 text-center"><p className="text-sm font-medium text-slate-700">No transactions match this status.</p><Button variant="link" className="mt-1 h-auto p-0 text-cyan-700" onClick={resetTransactionFilters}>Clear transaction filters</Button></div> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Savvy agent</th><th className="px-4 py-3">Under contract</th><th className="px-4 py-3">Closing date</th><th className="px-4 py-3">Sales price</th><th className="px-6 py-3">Address</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTransactions.map((transaction) => <tr key={transaction.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{transaction.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.transactionType}{transaction.transactionNumber ? ` · ${transaction.transactionNumber}` : ""}</p></td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(transaction.status)}>{transaction.status}</Badge></td><td className="px-4 py-4 font-medium text-slate-700">{transaction.agentName}</td><td className="px-4 py-4 text-slate-600">{date(transaction.underContractDate)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.closingDate)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.salesPrice)}</td><td className="px-6 py-4 text-slate-600">{transaction.address}</td></tr>)}</tbody></table></div>}
                   </CardContent>
                 </Card>
               </TabsContent>
