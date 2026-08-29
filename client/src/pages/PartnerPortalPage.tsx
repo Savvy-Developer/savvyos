@@ -15,6 +15,8 @@ const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcx
 type LeadSort = "newest" | "oldest" | "name" | "connection";
 type TransactionSort = "recent-contract" | "closing-soon" | "closing-latest" | "price-high";
 
+const LEADS_PER_PAGE = 12;
+
 function date(value: Date | string | null | undefined) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
@@ -140,6 +142,7 @@ export default function PartnerPortalPage() {
   const [leadPipelineFilter, setLeadPipelineFilter] = useState("all");
   const [leadDateFilter, setLeadDateFilter] = useState("all");
   const [leadSort, setLeadSort] = useState<LeadSort>("newest");
+  const [leadPage, setLeadPage] = useState(1);
   const [transactionStatusFilter, setTransactionStatusFilter] = useState("all");
   const [transactionSort, setTransactionSort] = useState<TransactionSort>("recent-contract");
 
@@ -188,6 +191,10 @@ export default function PartnerPortalPage() {
     });
   }, [transactions, transactionStatusFilter, transactionSort]);
 
+  const leadPageCount = Math.max(1, Math.ceil(filteredLeads.length / LEADS_PER_PAGE));
+  const currentLeadPage = Math.min(leadPage, leadPageCount);
+  const pagedLeads = filteredLeads.slice((currentLeadPage - 1) * LEADS_PER_PAGE, currentLeadPage * LEADS_PER_PAGE);
+
   const hasLeadFilters = leadSourceFilter !== "all" || leadConnectionFilter !== "all" || leadPipelineFilter !== "all" || leadDateFilter !== "all" || leadSort !== "newest";
   const hasTransactionFilters = transactionStatusFilter !== "all" || transactionSort !== "recent-contract";
 
@@ -197,6 +204,7 @@ export default function PartnerPortalPage() {
     setLeadPipelineFilter("all");
     setLeadDateFilter("all");
     setLeadSort("newest");
+    setLeadPage(1);
   };
 
   const resetTransactionFilters = () => {
@@ -268,16 +276,59 @@ export default function PartnerPortalPage() {
                     <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
                       <div className="mb-3 flex items-center justify-between gap-3"><p className="flex items-center gap-1.5 text-sm font-medium text-slate-700"><Filter className="h-4 w-4 text-cyan-600" />Filter leads</p>{hasLeadFilters && <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-600" onClick={resetLeadFilters}><RotateCcw className="mr-1 h-3.5 w-3.5" />Reset</Button>}</div>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                        <Select value={leadSourceFilter} onValueChange={setLeadSourceFilter}><SelectTrigger aria-label="Filter leads by source" className="w-full bg-white"><SelectValue placeholder="All sources" /></SelectTrigger><SelectContent><SelectItem value="all">All sources</SelectItem>{sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}</SelectContent></Select>
-                        <Select value={leadConnectionFilter} onValueChange={setLeadConnectionFilter}><SelectTrigger aria-label="Filter leads by agent connection" className="w-full bg-white"><SelectValue placeholder="All connections" /></SelectTrigger><SelectContent><SelectItem value="all">All connections</SelectItem><SelectItem value="connected">Connected to agent</SelectItem><SelectItem value="unassigned">Awaiting connection</SelectItem></SelectContent></Select>
-                        <Select value={leadPipelineFilter} onValueChange={setLeadPipelineFilter}><SelectTrigger aria-label="Filter leads by pipeline status" className="w-full bg-white"><SelectValue placeholder="All pipeline stages" /></SelectTrigger><SelectContent><SelectItem value="all">All pipeline stages</SelectItem>{pipelineOptions.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select>
-                        <Select value={leadDateFilter} onValueChange={setLeadDateFilter}><SelectTrigger aria-label="Filter leads by submitted date" className="w-full bg-white"><SelectValue placeholder="Any submitted date" /></SelectTrigger><SelectContent><SelectItem value="all">Any submitted date</SelectItem><SelectItem value="30d">Last 30 days</SelectItem><SelectItem value="90d">Last 90 days</SelectItem><SelectItem value="year">This year</SelectItem></SelectContent></Select>
-                        <Select value={leadSort} onValueChange={(value) => setLeadSort(value as LeadSort)}><SelectTrigger aria-label="Sort leads" className="w-full bg-white"><ArrowDownUp className="mr-1.5 h-3.5 w-3.5 text-slate-400" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="newest">Newest submitted</SelectItem><SelectItem value="oldest">Oldest submitted</SelectItem><SelectItem value="name">Lead name A–Z</SelectItem><SelectItem value="connection">Agent connected first</SelectItem></SelectContent></Select>
+                        <Select value={leadSourceFilter} onValueChange={(value) => { setLeadSourceFilter(value); setLeadPage(1); }}><SelectTrigger aria-label="Filter leads by source" className="w-full bg-white"><SelectValue placeholder="All sources" /></SelectTrigger><SelectContent><SelectItem value="all">All sources</SelectItem>{sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}</SelectContent></Select>
+                        <Select value={leadConnectionFilter} onValueChange={(value) => { setLeadConnectionFilter(value); setLeadPage(1); }}><SelectTrigger aria-label="Filter leads by agent connection" className="w-full bg-white"><SelectValue placeholder="All connections" /></SelectTrigger><SelectContent><SelectItem value="all">All connections</SelectItem><SelectItem value="connected">Connected to agent</SelectItem><SelectItem value="unassigned">Awaiting connection</SelectItem></SelectContent></Select>
+                        <Select value={leadPipelineFilter} onValueChange={(value) => { setLeadPipelineFilter(value); setLeadPage(1); }}><SelectTrigger aria-label="Filter leads by pipeline status" className="w-full bg-white"><SelectValue placeholder="All pipeline stages" /></SelectTrigger><SelectContent><SelectItem value="all">All pipeline stages</SelectItem>{pipelineOptions.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select>
+                        <Select value={leadDateFilter} onValueChange={(value) => { setLeadDateFilter(value); setLeadPage(1); }}><SelectTrigger aria-label="Filter leads by submitted date" className="w-full bg-white"><SelectValue placeholder="Any submitted date" /></SelectTrigger><SelectContent><SelectItem value="all">Any submitted date</SelectItem><SelectItem value="30d">Last 30 days</SelectItem><SelectItem value="90d">Last 90 days</SelectItem><SelectItem value="year">This year</SelectItem></SelectContent></Select>
+                        <Select value={leadSort} onValueChange={(value) => { setLeadSort(value as LeadSort); setLeadPage(1); }}><SelectTrigger aria-label="Sort leads" className="w-full bg-white"><ArrowDownUp className="mr-1.5 h-3.5 w-3.5 text-slate-400" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="newest">Newest submitted</SelectItem><SelectItem value="oldest">Oldest submitted</SelectItem><SelectItem value="name">Lead name A–Z</SelectItem><SelectItem value="connection">Agent connected first</SelectItem></SelectContent></Select>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
-                    {leads.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No submitted leads are available yet.</div> : filteredLeads.length === 0 ? <div className="px-6 py-14 text-center"><p className="text-sm font-medium text-slate-700">No leads match these filters.</p><Button variant="link" className="mt-1 h-auto p-0 text-cyan-700" onClick={resetLeadFilters}>Clear lead filters</Button></div> : <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Submitted</th><th className="px-6 py-3">Agent connection</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLeads.map((lead) => <tr key={lead.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{lead.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{lead.sourceName}</p></td><td className="px-4 py-4 text-slate-600">{date(lead.submittedAt)}</td><td className="px-6 py-4">{lead.connections.length ? <div className="space-y-2">{lead.connections.map((connection, index) => <div key={`${connection.agentName}-${index}`} className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-700">{connection.agentName}</span><Badge variant="outline" className={statusClass(connection.status)}>{connection.status}</Badge></div>)}</div> : <span className="text-slate-400">Not assigned yet</span>}</td></tr>)}</tbody></table></div>}
+                    {leads.length === 0 ? (
+                      <div className="px-6 py-14 text-center text-sm text-slate-500">No submitted leads are available yet.</div>
+                    ) : filteredLeads.length === 0 ? (
+                      <div className="px-6 py-14 text-center"><p className="text-sm font-medium text-slate-700">No leads match these filters.</p><Button variant="link" className="mt-1 h-auto p-0 text-cyan-700" onClick={resetLeadFilters}>Clear lead filters</Button></div>
+                    ) : (
+                      <div className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                          {pagedLeads.map((lead) => (
+                            <article key={lead.id} className="rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm transition-colors hover:border-cyan-200 hover:bg-cyan-50/20">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-slate-800">{lead.leadName}</p>
+                                  <p className="mt-0.5 truncate text-xs text-slate-500">{lead.sourceName}</p>
+                                </div>
+                                <span className="shrink-0 text-xs text-slate-400">{date(lead.submittedAt)}</span>
+                              </div>
+                              <div className="mt-3 border-t border-slate-100 pt-3">
+                                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">Agent connection</p>
+                                {lead.connections.length ? (
+                                  <div className="space-y-1.5">
+                                    {lead.connections.map((connection, index) => (
+                                      <div key={`${connection.agentName}-${index}`} className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="text-sm font-medium text-slate-700">{connection.agentName}</span>
+                                        <Badge variant="outline" className={statusClass(connection.status)}>{connection.status}</Badge>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : <span className="text-sm text-slate-400">Not assigned yet</span>}
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                        {leadPageCount > 1 && (
+                          <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-4 sm:flex-row">
+                            <p className="text-xs text-slate-500">Showing {(currentLeadPage - 1) * LEADS_PER_PAGE + 1}–{Math.min(currentLeadPage * LEADS_PER_PAGE, filteredLeads.length)} of {filteredLeads.length} leads</p>
+                            <div className="flex items-center gap-2">
+                              <Button variant="outline" size="sm" disabled={currentLeadPage === 1} onClick={() => setLeadPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                              <span className="text-xs font-medium text-slate-600">Page {currentLeadPage} of {leadPageCount}</span>
+                              <Button variant="outline" size="sm" disabled={currentLeadPage === leadPageCount} onClick={() => setLeadPage((page) => Math.min(leadPageCount, page + 1))}>Next</Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
