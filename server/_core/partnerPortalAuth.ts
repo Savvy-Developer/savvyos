@@ -13,6 +13,7 @@ export const PARTNER_PORTAL_PATH = "/partner-portal";
 const APP_URL = "https://os.savvy-agents.com";
 const MAGIC_LINK_LIFETIME_MS = 15 * 60 * 1000;
 const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
+const ADMIN_PREVIEW_LIFETIME_MS = 5 * 60 * 1000;
 
 function signingKey() {
   if (!ENV.cookieSecret) throw new Error("JWT_SECRET is not configured");
@@ -92,14 +93,42 @@ export async function consumePartnerPortalMagicLink(token: string): Promise<stri
   return normalizePartnerPortalEmail(record.email);
 }
 
-export async function createPartnerPortalSession(email: string): Promise<string> {
+export async function createPartnerPortalSession(email: string, expiresInMs = SESSION_LIFETIME_MS): Promise<string> {
   return new SignJWT({ partnerPortal: true, email: normalizePartnerPortalEmail(email) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(normalizePartnerPortalEmail(email))
     .setAudience("savvy-partner-portal")
     .setIssuedAt()
-    .setExpirationTime(Math.floor((Date.now() + SESSION_LIFETIME_MS) / 1000))
+    .setExpirationTime(Math.floor((Date.now() + expiresInMs) / 1000))
     .sign(signingKey());
+}
+
+/** Creates a short-lived, administrator-issued URL to preview one configured partner's portal. */
+export async function createPartnerPortalPreviewUrl(sourceId: number): Promise<string> {
+  const token = await new SignJWT({ partnerPortalPreview: true, sourceId })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setAudience("savvy-partner-portal-preview")
+    .setIssuedAt()
+    .setExpirationTime(Math.floor((Date.now() + ADMIN_PREVIEW_LIFETIME_MS) / 1000))
+    .sign(signingKey());
+
+  return `${APP_URL}/api/auth/partner-portal-preview?token=${encodeURIComponent(token)}`;
+}
+
+/** Verifies an administrator-issued preview token and returns its configured source ID. */
+export async function getPartnerPortalPreviewSourceId(token: string): Promise<number | null> {
+  try {
+    const { payload } = await jwtVerify(token, signingKey(), {
+      algorithms: ["HS256"],
+      audience: "savvy-partner-portal-preview",
+    });
+    if (payload.partnerPortalPreview !== true || typeof payload.sourceId !== "number" || !Number.isInteger(payload.sourceId)) {
+      return null;
+    }
+    return payload.sourceId;
+  } catch {
+    return null;
+  }
 }
 
 export async function getPartnerPortalEmailFromRequest(req: Request): Promise<string | null> {
@@ -120,12 +149,17 @@ export async function getPartnerPortalEmailFromRequest(req: Request): Promise<st
   }
 }
 
-export async function setPartnerPortalSessionCookie(req: Request, email: string) {
+export async function setPartnerPortalSessionCookie(req: Request, email: string, expiresInMs = SESSION_LIFETIME_MS) {
   return {
     name: PARTNER_PORTAL_COOKIE,
-    value: await createPartnerPortalSession(email),
-    options: { ...getSessionCookieOptions(req), maxAge: SESSION_LIFETIME_MS },
+    value: await createPartnerPortalSession(email, expiresInMs),
+    options: { ...getSessionCookieOptions(req), maxAge: expiresInMs },
   };
+}
+
+/** Keeps an administrator's source-specific preview isolated to a five-minute portal session. */
+export async function setPartnerPortalPreviewSessionCookie(req: Request, email: string) {
+  return setPartnerPortalSessionCookie(req, email, ADMIN_PREVIEW_LIFETIME_MS);
 }
 
 export function partnerPortalCookieOptions(req: Request) {

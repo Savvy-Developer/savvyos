@@ -1,13 +1,15 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import { getDb } from "../db";
-import { magicLinkTokens, users } from "../../drizzle/schema";
+import { leadSources, magicLinkTokens, users } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 import {
   consumePartnerPortalMagicLink,
+  getPartnerPortalPreviewSourceId,
   PARTNER_PORTAL_PATH,
+  setPartnerPortalPreviewSessionCookie,
   setPartnerPortalSessionCookie,
 } from "./partnerPortalAuth";
 
@@ -17,6 +19,44 @@ function getQueryParam(req: Request, key: string): string | undefined {
 }
 
 export function registerMagicLinkRoutes(app: Express) {
+  /**
+   * GET /api/auth/partner-portal-preview?token=xxx
+   *
+   * An authenticated administrator may use a short-lived preview URL issued by
+   * Lead Sources. This intentionally creates only the separate Partner Portal
+   * cookie, never changes the administrator's SavvyOS session.
+   */
+  app.get("/api/auth/partner-portal-preview", async (req: Request, res: Response) => {
+    const token = getQueryParam(req, "token");
+    if (!token) return res.redirect(302, "/login?error=invalid_preview");
+
+    try {
+      const admin = await sdk.authenticateRequest(req);
+      if (!admin || admin.role !== "admin") return res.redirect(302, "/login?error=admin_required");
+
+      const sourceId = await getPartnerPortalPreviewSourceId(token);
+      if (!sourceId) return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=invalid_preview`);
+
+      const db = await getDb();
+      if (!db) return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=server_error`);
+      const [source] = await db
+        .select({ email: leadSources.partnerPortalEmail, enabled: leadSources.allowPartnerPortal, active: leadSources.isActive })
+        .from(leadSources)
+        .where(eq(leadSources.id, sourceId))
+        .limit(1);
+      if (!source?.enabled || source.active === false || !source.email) {
+        return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=preview_unavailable`);
+      }
+
+      const cookie = await setPartnerPortalPreviewSessionCookie(req, source.email);
+      res.cookie(cookie.name, cookie.value, cookie.options);
+      return res.redirect(302, PARTNER_PORTAL_PATH);
+    } catch (error) {
+      console.error("[PartnerPortal] Error processing admin preview:", error);
+      return res.redirect(302, `${PARTNER_PORTAL_PATH}?error=server_error`);
+    }
+  });
+
   /**
    * GET /api/auth/partner-portal?token=xxx
    *

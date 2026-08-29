@@ -4,7 +4,7 @@ import { getDb } from "../db";
 import { leadSources, contacts } from "../../drizzle/schema";
 import { eq, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
-import { normalizePartnerPortalEmail, sendPartnerPortalInvitation } from "../_core/partnerPortalAuth";
+import { createPartnerPortalPreviewUrl, normalizePartnerPortalEmail, sendPartnerPortalInvitation } from "../_core/partnerPortalAuth";
 
 const PARTNER_PORTAL_PARENT_NAMES = ["Referral Partner (Leads in)", "Affiliate Referral"] as const;
 
@@ -108,6 +108,23 @@ export const leadSourcesRouter = router({
       .where(eq(leadSources.isActive, true))
       .orderBy(leadSources.parentId, leadSources.name);
   }),
+
+  createPartnerPortalPreview: protectedProcedure
+    .input(z.object({ sourceId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const [source] = await db
+        .select({ enabled: leadSources.allowPartnerPortal, email: leadSources.partnerPortalEmail, active: leadSources.isActive })
+        .from(leadSources)
+        .where(eq(leadSources.id, input.sourceId))
+        .limit(1);
+      if (!source?.enabled || source.active === false || !source.email) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Partner Portal is not enabled for this active lead source." });
+      }
+      return { url: await createPartnerPortalPreviewUrl(input.sourceId) };
+    }),
 
   create: protectedProcedure
     .input(z.object({

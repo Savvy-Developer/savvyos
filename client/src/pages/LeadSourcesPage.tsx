@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
-import { Plus, ChevronRight, ChevronDown, Pencil, Trash2, FolderOpen, Folder, Lock, Percent, Copy, Check, Link2, ExternalLink, Search, Upload, FileText, Download, RefreshCw } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown, Pencil, Trash2, FolderOpen, Folder, Lock, Percent, Copy, Check, Link2, ExternalLink, Search, Upload, FileText, Download, RefreshCw, Eye } from "lucide-react";
 
 const CAMPAIGN_TYPE_LABELS: Record<string, string> = {
   buyer: "Buyer Campaign",
@@ -213,6 +213,12 @@ export default function LeadSourcesPage() {
   const reactivateMutation = trpc.leadSources.update.useMutation({
     onSuccess: () => { utils.leadSources.list.invalidate(); utils.leadSources.listInactive.invalidate(); toast.success("Lead source reactivated"); },
     onError: (e) => toast.error(e.message),
+  });
+  const previewPartnerPortalMutation = trpc.leadSources.createPartnerPortalPreview.useMutation({
+    onSuccess: ({ url }) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    onError: (error) => toast.error(error.message || "Could not open the Partner Portal preview."),
   });
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showDialog, setShowDialog] = useState(false);
@@ -564,6 +570,18 @@ export default function LeadSourcesPage() {
                             >
                               <FileText className="h-3.5 w-3.5" />
                             </a>
+                          )}
+                          {child.ls.allowPartnerPortal && child.ls.isActive && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              title="Preview the exact Partner Portal view for this source"
+                              disabled={previewPartnerPortalMutation.isPending}
+                              onClick={() => previewPartnerPortalMutation.mutate({ sourceId: child.ls.id })}
+                            >
+                              <Eye className="mr-1 h-3.5 w-3.5" /> Preview Portal
+                            </Button>
                           )}
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(child)}>
                             <Pencil className="h-3.5 w-3.5" />
