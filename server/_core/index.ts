@@ -39,6 +39,8 @@ import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { ENV } from "./env";
 import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
+import { getLandingPageMetadata } from "../landingPageHtml";
+import { registerLandingPageRedirects } from "../landingPageRedirects";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -75,6 +77,20 @@ async function startServer() {
     const procedures = req.path.slice("/api/trpc/".length).split(",").filter(Boolean);
     if (procedures.length && procedures.every((procedure) => LANDING_PAGE_PUBLIC_TRPC_PATHS.has(procedure))) return next();
     return res.status(404).json({ error: "Not found." });
+  });
+
+  // Resolve published page metadata before the SPA fallback. The renderer will
+  // still hydrate normally, while crawlers and advertising-preview fetchers
+  // receive title, description, social image, and approved vendor tags in HTML.
+  app.use(async (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    try {
+      res.locals.landingPageMetadata = await getLandingPageMetadata(req);
+    } catch (error) {
+      console.error("[LandingPages] Metadata lookup failed:", error);
+      res.locals.landingPageMetadata = null;
+    }
+    return next();
   });
 
   // ── Resend webhook MUST be registered BEFORE the global JSON body parser ──
@@ -130,6 +146,9 @@ async function startServer() {
   app.get("/healthz", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
+  // Legacy GHL paths resolve first so a migration redirect never competes with
+  // a landing-page slug or a branded short link.
+  registerLandingPageRedirects(app);
   // Public short links are checked before the SPA fallback so links shared from
   // home.savvy-agents.com redirect without showing the SavvyOS hostname.
   registerShortLinkRedirects(app);

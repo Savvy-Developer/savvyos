@@ -6,6 +6,8 @@ import { getDb, logActivity } from "../db";
 import {
   contacts,
   landingPageEvents,
+  landingPageRedirects,
+  landingPageRevisions,
   landingPageSessions,
   landingPageSmsConsents,
   landingPageSubmissions,
@@ -19,11 +21,12 @@ import { canAdminUsePermission, type PermissionKey } from "./permissions";
 import { normalizeOptionalUsPhone } from "@shared/phone";
 import { enrollContactInPlan, triggerSmartPlansForContact } from "../smartPlanScheduler";
 import { triggerGhlContactSync } from "../_core/ghlSync";
+import { normalizeLandingTrackingSettings } from "../landingPageHtml";
 
 const publicHost = process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com";
 const publicBaseUrl = `https://${publicHost}`;
 const landingStatuses = ["draft", "published", "unpublished", "archived"] as const;
-const attributionKeys = ["referrerUrl", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"] as const;
+const attributionKeys = ["referrerUrl", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid", "fbc", "fbp"] as const;
 
 type Attribution = Record<string, string | null | undefined> & { landingUrl?: string; deviceCategory?: string };
 
@@ -37,6 +40,14 @@ const fieldSchema = z.object({
   validation: z.enum(["none", "email", "phone"]).optional(),
   consentLanguage: z.string().max(3000).optional(),
 });
+
+const trackingSettingsSchema = z.object({
+  metaPixelId: z.string().trim().max(32).nullable().optional(),
+  ga4MeasurementId: z.string().trim().max(64).nullable().optional(),
+  googleAdsId: z.string().trim().max(64).nullable().optional(),
+  googleAdsConversionLabel: z.string().trim().max(255).nullable().optional(),
+  customHeadCode: z.string().max(20_000).nullable().optional(),
+}).default({});
 
 const blockSchema = z.object({
   id: z.string().min(1).max(100),
@@ -54,6 +65,7 @@ const pageInput = z.object({
   pageTitle: z.string().trim().min(1).max(255),
   metaDescription: z.string().trim().max(500).nullable().optional(),
   socialImageUrl: z.string().url().nullable().optional(),
+  trackingSettings: trackingSettingsSchema.optional(),
   noindex: z.boolean().default(false),
   postSubmitType: z.enum(["inline", "landing_page", "external"]).default("inline"),
   postSubmitMessage: z.string().trim().max(3000).nullable().optional(),
@@ -72,7 +84,17 @@ const publicAttributionSchema = z.object({
   utm_content: z.string().max(255).nullable().optional(),
   gclid: z.string().max(500).nullable().optional(),
   fbclid: z.string().max(500).nullable().optional(),
+  fbc: z.string().max(500).nullable().optional(),
+  fbp: z.string().max(500).nullable().optional(),
   deviceCategory: z.enum(["mobile", "tablet", "desktop", "other"]).optional(),
+});
+
+const redirectInput = z.object({
+  sourcePath: z.string().trim().min(2).max(500),
+  destinationUrl: z.string().trim().url().max(2000),
+  redirectType: z.enum(["permanent", "temporary"]).default("permanent"),
+  preserveQueryParams: z.boolean().default(true),
+  status: z.enum(["active", "disabled", "archived"]).default("active"),
 });
 
 function landingPermission(permission: PermissionKey) {
@@ -86,6 +108,61 @@ function landingPermission(permission: PermissionKey) {
 
 function publicUrl(slug: string) {
   return `${publicBaseUrl}/${slug}`;
+}
+
+function pageSnapshot(page: Record<string, any>) {
+  return {
+    internalName: page.internalName,
+    slug: page.slug,
+    primaryConversionType: page.primaryConversionType,
+    leadSourceId: page.leadSourceId,
+    smartPlanId: page.smartPlanId ?? null,
+    pageTitle: page.pageTitle,
+    metaDescription: page.metaDescription ?? null,
+    socialImageUrl: page.socialImageUrl ?? null,
+    trackingSettings: normalizeLandingTrackingSettings(page.trackingSettings),
+    noindex: !!page.noindex,
+    postSubmitType: page.postSubmitType,
+    postSubmitMessage: page.postSubmitMessage ?? null,
+    postSubmitUrl: page.postSubmitUrl ?? null,
+    pageSettings: page.pageSettings ?? {},
+    blocks: page.blocks ?? [],
+  };
+}
+
+async function createPageRevision(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, page: Record<string, any>, changeType: string, userId: number) {
+  const [latest] = await db.select({ revisionNumber: landingPageRevisions.revisionNumber })
+    .from(landingPageRevisions)
+    .where(eq(landingPageRevisions.landingPageId, page.id))
+    .orderBy(desc(landingPageRevisions.revisionNumber))
+    .limit(1);
+  await db.insert(landingPageRevisions).values({
+    landingPageId: page.id,
+    revisionNumber: (latest?.revisionNumber ?? 0) + 1,
+    changeType,
+    snapshot: pageSnapshot(page),
+    createdById: userId,
+  });
+}
+
+function normalizeRedirectPath(value: string) {
+  const raw = value.trim();
+  if (!raw || raw.includes("?") || raw.includes("#") || /^https?:\/\//i.test(raw)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Use a public path beginning with / and do not include a domain, query string, or # fragment." });
+  }
+  const path = `/${raw.replace(/^\/+|\/+$/g, "")}`.replace(/\/+/g, "/");
+  if (path === "/" || path.length > 500) throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a specific public path to redirect." });
+  return path;
+}
+
+function assertRedirectDestination(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") throw new Error("Only HTTPS destinations are allowed.");
+    return url.toString();
+  } catch {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a complete HTTPS destination URL." });
+  }
 }
 
 function starterBlocks() {
@@ -151,7 +228,7 @@ function deviceCategory(userAgent: string | undefined) {
 
 function trimmedAttribution(value: Attribution) {
   const result: Record<string, string | null> = {};
-  for (const key of attributionKeys) result[key] = cleanText(value[key], key.includes("clid") ? 500 : 255);
+  for (const key of attributionKeys) result[key] = cleanText(value[key], key.includes("clid") || key === "fbc" || key === "fbp" ? 500 : 255);
   result.landingUrl = cleanText(value.landingUrl, 2000);
   result.deviceCategory = cleanText(value.deviceCategory, 24);
   return result;
@@ -368,6 +445,111 @@ export const landingPagesRouter = router({
     return { ...page, publicUrl: publicUrl(page.slug) };
   }),
 
+  revisions: landingPermission("canViewLandingPages").input(z.object({ pageId: z.number().int().positive() })).query(async ({ input }) => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select({
+      id: landingPageRevisions.id,
+      revisionNumber: landingPageRevisions.revisionNumber,
+      changeType: landingPageRevisions.changeType,
+      snapshot: landingPageRevisions.snapshot,
+      createdAt: landingPageRevisions.createdAt,
+      createdByName: users.name,
+    }).from(landingPageRevisions)
+      .leftJoin(users, eq(landingPageRevisions.createdById, users.id))
+      .where(eq(landingPageRevisions.landingPageId, input.pageId))
+      .orderBy(desc(landingPageRevisions.revisionNumber));
+  }),
+
+  restoreRevision: landingPermission("canEditLandingPages").input(z.object({ pageId: z.number().int().positive(), revisionId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    const [page, revision] = await Promise.all([
+      db.select().from(landingPages).where(eq(landingPages.id, input.pageId)).limit(1),
+      db.select().from(landingPageRevisions).where(and(eq(landingPageRevisions.id, input.revisionId), eq(landingPageRevisions.landingPageId, input.pageId))).limit(1),
+    ]);
+    if (!page[0] || page[0].status === "archived" || !revision[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Landing page revision not found." });
+    const parsed = pageInput.safeParse(revision[0].snapshot);
+    if (!parsed.success) throw new TRPCError({ code: "BAD_REQUEST", message: "This saved page revision is no longer compatible with the current editor." });
+    await assertActiveLeadSource(db, parsed.data.leadSourceId);
+    await assertActiveSmartPlan(db, parsed.data.smartPlanId);
+    const restored = { ...parsed.data, trackingSettings: normalizeLandingTrackingSettings(parsed.data.trackingSettings), lastEditedById: ctx.user.id };
+    await db.update(landingPages).set(restored).where(eq(landingPages.id, page[0].id));
+    await createPageRevision(db, { ...page[0], ...restored }, "restored", ctx.user.id);
+    await logActivity({ userId: ctx.user.id, action: "landing_page_revision_restored", entityType: "landing_page", entityId: page[0].id, details: { revisionId: revision[0].id, revisionNumber: revision[0].revisionNumber } });
+    return { success: true };
+  }),
+
+  listRedirects: landingPermission("canViewLandingPages").query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select({
+      id: landingPageRedirects.id,
+      sourcePath: landingPageRedirects.sourcePath,
+      destinationUrl: landingPageRedirects.destinationUrl,
+      status: landingPageRedirects.status,
+      redirectType: landingPageRedirects.redirectType,
+      preserveQueryParams: landingPageRedirects.preserveQueryParams,
+      clickCount: landingPageRedirects.clickCount,
+      lastRedirectedAt: landingPageRedirects.lastRedirectedAt,
+      createdAt: landingPageRedirects.createdAt,
+      updatedAt: landingPageRedirects.updatedAt,
+      createdByName: users.name,
+    })
+      .from(landingPageRedirects)
+      .leftJoin(users, eq(landingPageRedirects.createdById, users.id))
+      .orderBy(desc(landingPageRedirects.updatedAt));
+  }),
+
+  createRedirect: landingPermission("canEditLandingPages").input(redirectInput).mutation(async ({ input, ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    const sourcePath = normalizeRedirectPath(input.sourcePath);
+    if (!sourcePath.slice(1).includes("/")) {
+      const slug = sourcePath.slice(1);
+      const [reserved] = await Promise.all([
+        db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, slug)).limit(1),
+        db.select({ id: shortLinks.id }).from(shortLinks).where(eq(shortLinks.slug, slug)).limit(1),
+      ]);
+      if (reserved[0] || reserved[1]) throw new TRPCError({ code: "CONFLICT", message: "That path is already reserved by a Landing Page or Short Link." });
+    }
+    try {
+      const result = await db.insert(landingPageRedirects).values({ sourcePath, destinationUrl: assertRedirectDestination(input.destinationUrl), redirectType: input.redirectType, preserveQueryParams: input.preserveQueryParams, status: input.status, createdById: ctx.user.id });
+      return { id: Number(result[0].insertId) };
+    } catch (error: any) {
+      if (error?.code === "ER_DUP_ENTRY") throw new TRPCError({ code: "CONFLICT", message: "A redirect for that path already exists." });
+      throw error;
+    }
+  }),
+
+  updateRedirect: landingPermission("canEditLandingPages").input(z.object({ id: z.number().int().positive(), data: redirectInput.partial() })).mutation(async ({ input }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    const [existing] = await db.select({ id: landingPageRedirects.id }).from(landingPageRedirects).where(eq(landingPageRedirects.id, input.id)).limit(1);
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Redirect not found." });
+    const data = {
+      ...input.data,
+      ...(input.data.sourcePath !== undefined ? { sourcePath: normalizeRedirectPath(input.data.sourcePath) } : {}),
+      ...(input.data.destinationUrl !== undefined ? { destinationUrl: assertRedirectDestination(input.data.destinationUrl) } : {}),
+    };
+    const sourcePath = data.sourcePath as string | undefined;
+    if (sourcePath && !sourcePath.slice(1).includes("/")) {
+      const slug = sourcePath.slice(1);
+      const [reserved] = await Promise.all([
+        db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, slug)).limit(1),
+        db.select({ id: shortLinks.id }).from(shortLinks).where(eq(shortLinks.slug, slug)).limit(1),
+      ]);
+      if (reserved[0] || reserved[1]) throw new TRPCError({ code: "CONFLICT", message: "That path is already reserved by a Landing Page or Short Link." });
+    }
+    try {
+      await db.update(landingPageRedirects).set(data).where(eq(landingPageRedirects.id, input.id));
+      return { success: true };
+    } catch (error: any) {
+      if (error?.code === "ER_DUP_ENTRY") throw new TRPCError({ code: "CONFLICT", message: "A redirect for that path already exists." });
+      throw error;
+    }
+  }),
+
   create: landingPermission("canCreateLandingPages").input(pageInput.partial().extend({ internalName: z.string().trim().min(1).max(255), leadSourceId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
@@ -377,16 +559,17 @@ export const landingPagesRouter = router({
     const [existing] = await db.select({ id: landingPages.id }).from(landingPages).where(eq(landingPages.slug, slug)).limit(1);
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "That public slug is already in use." });
     await assertShortLinkSlugAvailable(db, slug);
-    const [result] = await db.insert(landingPages).values({
+    const pageValues = {
       internalName: input.internalName,
       slug,
-      status: "draft",
+      status: "draft" as const,
       primaryConversionType: input.primaryConversionType ?? "form",
       leadSourceId: input.leadSourceId,
       smartPlanId: input.smartPlanId ?? null,
       pageTitle: input.pageTitle ?? input.internalName,
       metaDescription: input.metaDescription ?? null,
       socialImageUrl: input.socialImageUrl ?? null,
+      trackingSettings: normalizeLandingTrackingSettings(input.trackingSettings),
       noindex: input.noindex ?? false,
       postSubmitType: input.postSubmitType ?? "inline",
       postSubmitMessage: input.postSubmitMessage ?? "Thank you. A Savvy STR Agent will be in touch shortly.",
@@ -395,8 +578,10 @@ export const landingPagesRouter = router({
       blocks: input.blocks ?? starterBlocks(),
       createdById: ctx.user.id,
       lastEditedById: ctx.user.id,
-    });
+    };
+    const [result] = await db.insert(landingPages).values(pageValues);
     const id = Number((result as any).insertId);
+    await createPageRevision(db, { id, ...pageValues }, "created", ctx.user.id);
     await logActivity({ userId: ctx.user.id, action: "landing_page_created", entityType: "landing_page", entityId: id, details: { internalName: input.internalName, slug } });
     return { id, publicUrl: publicUrl(slug) };
   }),
@@ -413,8 +598,13 @@ export const landingPagesRouter = router({
       if (collision) throw new TRPCError({ code: "CONFLICT", message: "That public slug is already in use." });
       await assertShortLinkSlugAvailable(db, input.data.slug);
     }
-    const data = { ...input.data, lastEditedById: ctx.user.id } as Record<string, unknown>;
+    const data = {
+      ...input.data,
+      ...(input.data.trackingSettings !== undefined ? { trackingSettings: normalizeLandingTrackingSettings(input.data.trackingSettings) } : {}),
+      lastEditedById: ctx.user.id,
+    } as Record<string, unknown>;
     await db.update(landingPages).set(data).where(eq(landingPages.id, input.id));
+    await createPageRevision(db, { ...existing, ...data, id: existing.id }, "saved", ctx.user.id);
     await logActivity({ userId: ctx.user.id, action: "landing_page_updated", entityType: "landing_page", entityId: input.id, details: { slug: input.data.slug ?? existing.slug, slugChanged: input.data.slug ? input.data.slug !== existing.slug : false } });
     return { success: true, slugChanged: input.data.slug ? input.data.slug !== existing.slug : false };
   }),
@@ -432,6 +622,7 @@ export const landingPagesRouter = router({
     ) slug = `${existing.slug}-copy-${suffix++}`;
     const [result] = await db.insert(landingPages).values({ ...existing, id: undefined, internalName: `${existing.internalName} (Copy)`, slug, status: "draft", publishedAt: null, archivedAt: null, createdById: ctx.user.id, lastEditedById: ctx.user.id, createdAt: undefined, updatedAt: undefined });
     const id = Number((result as any).insertId);
+    await createPageRevision(db, { ...existing, id, internalName: `${existing.internalName} (Copy)`, slug, status: "draft", publishedAt: null, archivedAt: null, createdById: ctx.user.id, lastEditedById: ctx.user.id }, "duplicated", ctx.user.id);
     await logActivity({ userId: ctx.user.id, action: "landing_page_duplicated", entityType: "landing_page", entityId: id, details: { duplicatedFromId: existing.id, slug } });
     return { id, publicUrl: publicUrl(slug) };
   }),
@@ -444,7 +635,9 @@ export const landingPagesRouter = router({
     if (page.slug !== input.confirmSlug) throw new TRPCError({ code: "BAD_REQUEST", message: "Confirm the exact public slug before publishing." });
     if (page.primaryConversionType === "form" && !formFields(page.blocks as Array<Record<string, unknown>>).length) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a Form block before publishing this page." });
     if (page.primaryConversionType === "calendly" && !hasCalendarBlock(page.blocks as Array<Record<string, unknown>>)) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a Calendly block before publishing this page." });
-    await db.update(landingPages).set({ status: "published", publishedAt: new Date(), lastEditedById: ctx.user.id }).where(eq(landingPages.id, page.id));
+    const publishedAt = new Date();
+    await db.update(landingPages).set({ status: "published", publishedAt, lastEditedById: ctx.user.id }).where(eq(landingPages.id, page.id));
+    await createPageRevision(db, { ...page, status: "published", publishedAt, lastEditedById: ctx.user.id }, "published", ctx.user.id);
     await logActivity({ userId: ctx.user.id, action: "landing_page_published", entityType: "landing_page", entityId: page.id, details: { slug: page.slug, publicUrl: publicUrl(page.slug) } });
     return { success: true, publicUrl: publicUrl(page.slug) };
   }),
@@ -489,9 +682,9 @@ export const landingPagesRouter = router({
   getPublicPage: publicProcedure.input(z.object({ slug: z.string().trim().toLowerCase().min(2).max(120) })).query(async ({ input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "NOT_FOUND" });
-    const [page] = await db.select({ id: landingPages.id, slug: landingPages.slug, pageTitle: landingPages.pageTitle, metaDescription: landingPages.metaDescription, socialImageUrl: landingPages.socialImageUrl, noindex: landingPages.noindex, postSubmitType: landingPages.postSubmitType, postSubmitMessage: landingPages.postSubmitMessage, postSubmitUrl: landingPages.postSubmitUrl, pageSettings: landingPages.pageSettings, blocks: landingPages.blocks, primaryConversionType: landingPages.primaryConversionType }).from(landingPages).where(and(eq(landingPages.slug, input.slug), eq(landingPages.status, "published"))).limit(1);
+    const [page] = await db.select({ id: landingPages.id, slug: landingPages.slug, pageTitle: landingPages.pageTitle, metaDescription: landingPages.metaDescription, socialImageUrl: landingPages.socialImageUrl, trackingSettings: landingPages.trackingSettings, noindex: landingPages.noindex, postSubmitType: landingPages.postSubmitType, postSubmitMessage: landingPages.postSubmitMessage, postSubmitUrl: landingPages.postSubmitUrl, pageSettings: landingPages.pageSettings, blocks: landingPages.blocks, primaryConversionType: landingPages.primaryConversionType }).from(landingPages).where(and(eq(landingPages.slug, input.slug), eq(landingPages.status, "published"))).limit(1);
     if (!page) throw new TRPCError({ code: "NOT_FOUND", message: "Landing page not found." });
-    return { ...page, publicUrl: publicUrl(page.slug) };
+    return { ...page, trackingSettings: normalizeLandingTrackingSettings(page.trackingSettings), publicUrl: publicUrl(page.slug) };
   }),
 
   trackVisit: publicProcedure.input(z.object({ pageId: z.number().int().positive(), sessionId: z.string().uuid(), attribution: publicAttributionSchema })).mutation(async ({ input, ctx }) => {

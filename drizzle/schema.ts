@@ -2286,6 +2286,9 @@ export const landingPages = mysqlTable("landing_pages", {
   pageTitle: varchar("pageTitle", { length: 255 }).notNull(),
   metaDescription: varchar("metaDescription", { length: 500 }),
   socialImageUrl: text("socialImageUrl"),
+  // Per-page measurement settings prevent unrelated campaigns from sharing
+  // conversion destinations while keeping vendor IDs out of page copy blocks.
+  trackingSettings: json("trackingSettings").$type<Record<string, unknown>>(),
   noindex: boolean("noindex").default(false).notNull(),
   postSubmitType: mysqlEnum("postSubmitType", ["inline", "landing_page", "external"]).default("inline").notNull(),
   postSubmitMessage: text("postSubmitMessage"),
@@ -2370,6 +2373,42 @@ export const landingPageSmsConsents = mysqlTable("landing_page_sms_consents", {
 ]);
 export type LandingPageSmsConsent = typeof landingPageSmsConsents.$inferSelect;
 
+// Every saved landing-page document receives an immutable revision. This is
+// deliberately separate from activity logs so an operator can inspect and
+// restore working page content without reconstructing it from audit events.
+export const landingPageRevisions = mysqlTable("landing_page_revisions", {
+  id: int("id").autoincrement().primaryKey(),
+  landingPageId: int("landingPageId").notNull().references(() => landingPages.id, { onDelete: "cascade" }),
+  revisionNumber: int("revisionNumber").notNull(),
+  changeType: varchar("changeType", { length: 32 }).notNull(),
+  snapshot: json("snapshot").$type<Record<string, unknown>>().notNull(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("landing_page_revisions_page_created_idx").on(table.landingPageId, table.createdAt),
+  uniqueIndex("landing_page_revisions_page_revision_unique").on(table.landingPageId, table.revisionNumber),
+]);
+export type LandingPageRevision = typeof landingPageRevisions.$inferSelect;
+
+// Legacy public paths may be migrated gradually from GoHighLevel or another
+// host. The server preserves attribution query parameters while recording a
+// compact operational click count for each redirect.
+export const landingPageRedirects = mysqlTable("landing_page_redirects", {
+  id: int("id").autoincrement().primaryKey(),
+  sourcePath: varchar("sourcePath", { length: 500 }).notNull().unique(),
+  destinationUrl: text("destinationUrl").notNull(),
+  status: mysqlEnum("status", ["active", "disabled", "archived"]).default("active").notNull(),
+  redirectType: mysqlEnum("redirectType", ["permanent", "temporary"]).default("permanent").notNull(),
+  preserveQueryParams: boolean("preserveQueryParams").default(true).notNull(),
+  clickCount: int("clickCount").default(0).notNull(),
+  lastRedirectedAt: timestamp("lastRedirectedAt"),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("landing_page_redirects_status_updated_idx").on(table.status, table.updatedAt),
+]);
+export type LandingPageRedirect = typeof landingPageRedirects.$inferSelect;
 // ─── Admin Command Center Settings & Alert State ──────────────────────────────
 // Calendar-year company targets and configurable operational thresholds. These
 // are separate from agent goals so company pacing is never inferred from partial

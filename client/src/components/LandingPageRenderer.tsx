@@ -10,6 +10,7 @@ export type LandingPageDocument = {
   metaDescription?: string | null;
   socialImageUrl?: string | null;
   noindex?: boolean;
+  trackingSettings?: { metaPixelId?: string | null; ga4MeasurementId?: string | null; googleAdsId?: string | null; googleAdsConversionLabel?: string | null } | null;
   postSubmitType: "inline" | "landing_page" | "external";
   postSubmitMessage?: string | null;
   postSubmitUrl?: string | null;
@@ -17,7 +18,7 @@ export type LandingPageDocument = {
   blocks: Block[];
 };
 
-type Attribution = { landingUrl: string; referrerUrl?: string | null; utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null; utm_term?: string | null; utm_content?: string | null; gclid?: string | null; fbclid?: string | null; deviceCategory?: "mobile" | "tablet" | "desktop" | "other" };
+type Attribution = { landingUrl: string; referrerUrl?: string | null; utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null; utm_term?: string | null; utm_content?: string | null; gclid?: string | null; fbclid?: string | null; fbc?: string | null; fbp?: string | null; deviceCategory?: "mobile" | "tablet" | "desktop" | "other" };
 
 const COLOR = /^#[0-9a-f]{6}$/i;
 const safeColor = (value: unknown, fallback: string) => typeof value === "string" && COLOR.test(value) ? value : fallback;
@@ -30,6 +31,11 @@ function sessionIdFor(pageId: number) {
   const id = crypto.randomUUID();
   sessionStorage.setItem(key, id);
   return id;
+}
+
+function cookieValue(name: string) {
+  const prefix = `${name}=`;
+  return document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix))?.slice(prefix.length) || null;
 }
 
 function buildAttribution(): Attribution {
@@ -46,6 +52,10 @@ function buildAttribution(): Attribution {
     utm_content: query.get("utm_content"),
     gclid: query.get("gclid"),
     fbclid: query.get("fbclid"),
+    // `_fbc` is normally set by the pixel; construct the documented click value
+    // before the SDK has had a chance to persist it on the first visit.
+    fbc: cookieValue("_fbc") || (query.get("fbclid") ? `fb.1.${Date.now()}.${query.get("fbclid")}` : null),
+    fbp: cookieValue("_fbp"),
     deviceCategory,
   };
 }
@@ -72,6 +82,19 @@ function scrollToTarget(target: string) {
   else if (target) window.location.assign(target);
 }
 
+function trackConversion(page: LandingPageDocument, conversionType: "form" | "calendly") {
+  const eventName = conversionType === "calendly" ? "Schedule" : "Lead";
+  const params = { content_name: page.slug, content_category: "landing_page", conversion_type: conversionType };
+  const windowWithTags = window as any;
+  if (typeof windowWithTags.fbq === "function") windowWithTags.fbq("track", eventName, params);
+  if (typeof windowWithTags.gtag === "function") {
+    windowWithTags.gtag("event", "generate_lead", {
+      ...params,
+      ...(page.trackingSettings?.googleAdsId && page.trackingSettings?.googleAdsConversionLabel ? { send_to: `${page.trackingSettings.googleAdsId}/${page.trackingSettings.googleAdsConversionLabel}` } : {}),
+    });
+  }
+}
+
 function Section({ block, children }: { block: Block; children: React.ReactNode }) {
   const settings = block.settings ?? {};
   const style = {
@@ -90,6 +113,7 @@ function FormBlock({ block, page, preview }: { block: Block; page: LandingPageDo
   const [complete, setComplete] = useState(false);
   const submit = trpc.landingPages.submitForm.useMutation({ onSuccess: (result) => {
     if (result.bot) return;
+    trackConversion(page, "form");
     if (result.postSubmitType === "external" || result.postSubmitType === "landing_page") {
       if (result.postSubmitUrl) window.location.assign(result.postSubmitUrl);
       return;
@@ -147,15 +171,20 @@ function Field({ field, value, setValue, error }: { field: any; value: any; setV
 
 function CalendlyBlock({ block, page, preview }: { block: Block; page: LandingPageDocument; preview: boolean }) {
   const container = useRef<HTMLDivElement>(null);
-  const recordBooking = trpc.landingPages.recordCalendlyBooking.useMutation();
+  const recordedBooking = useRef(false);
+  const recordBooking = trpc.landingPages.recordCalendlyBooking.useMutation({ onSuccess: (result) => {
+    if (result.bot) return;
+    trackConversion(page, "calendly");
+    if ((result.postSubmitType === "external" || result.postSubmitType === "landing_page") && result.postSubmitUrl) window.location.assign(result.postSubmitUrl);
+  }, onError: () => { recordedBooking.current = false; }});
   const calendarUrl = cleanUrl(block.content.url);
   const popup = block.content.display === "popup";
   useEffect(() => {
-    if (preview || !calendarUrl || popup) return;
+    if (preview || !calendarUrl) return;
     const scriptId = "savvy-calendly-widget";
     const initialize = () => {
       const Calendly = (window as any).Calendly;
-      if (!Calendly || !container.current) return;
+      if (!Calendly || popup || !container.current) return;
       container.current.innerHTML = "";
       const attribution = persistentAttribution(page.id);
       Calendly.initInlineWidget({ url: calendarUrl, parentElement: container.current, utm: { utmSource: attribution.utm_source || undefined, utmMedium: attribution.utm_medium || undefined, utmCampaign: attribution.utm_campaign || undefined, utmContent: attribution.utm_content || undefined, utmTerm: attribution.utm_term || undefined } });
@@ -172,6 +201,8 @@ function CalendlyBlock({ block, page, preview }: { block: Block; page: LandingPa
     if (preview) return;
     const listener = (event: MessageEvent) => {
       if (!event.origin.includes("calendly.com") || event.data?.event !== "calendly.event_scheduled") return;
+      if (recordedBooking.current) return;
+      recordedBooking.current = true;
       const payload = event.data.payload || {};
       recordBooking.mutate({ pageId: page.id, sessionId: sessionIdFor(page.id), eventUri: payload.event?.uri, inviteeUri: payload.invitee?.uri, attribution: persistentAttribution(page.id) });
     };

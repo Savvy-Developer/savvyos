@@ -13,7 +13,16 @@ function usePageMetadata(page: { pageTitle?: string; metaDescription?: string | 
     const priorTitle = document.title;
     document.title = page.pageTitle || "Savvy STR Agents";
     const nodes: HTMLMetaElement[] = [];
-    const add = (name: string, content: string, property = false) => { const node = document.createElement("meta"); if (property) node.setAttribute("property", name); else node.name = name; node.content = content; document.head.appendChild(node); nodes.push(node); };
+    const add = (name: string, content: string, property = false) => {
+      const selector = property ? `meta[property="${name}"]` : `meta[name="${name}"]`;
+      const existing = document.head.querySelector(selector) as HTMLMetaElement | null;
+      if (existing) { existing.content = content; return; }
+      const node = document.createElement("meta");
+      if (property) node.setAttribute("property", name); else node.name = name;
+      node.content = content;
+      document.head.appendChild(node);
+      nodes.push(node);
+    };
     if (page.metaDescription) add("description", page.metaDescription);
     if (page.noindex) add("robots", "noindex, nofollow");
     if (page.socialImageUrl) add("og:image", page.socialImageUrl, true);
