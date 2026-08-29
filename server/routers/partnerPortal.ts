@@ -178,9 +178,11 @@ export const partnerPortalRouter = router({
         propertyAddress: properties.address,
         propertyCity: properties.city,
         propertyState: properties.state,
+        agentName: users.name,
       })
       .from(transactions)
       .leftJoin(properties, eq(transactions.propertyId, properties.id))
+      .leftJoin(users, eq(transactions.agentId, users.id))
       .where(or(
         inArray(transactions.primaryContactId, leadIds),
         inArray(transactions.sellerContactId, leadIds),
@@ -212,6 +214,7 @@ export const partnerPortalRouter = router({
           closingDate: transaction.closingDate,
           address,
           leadName: leadId ? leadNameById.get(leadId) ?? "Lead" : "Lead",
+          agentName: transaction.agentName ?? "Unassigned",
         };
       });
 

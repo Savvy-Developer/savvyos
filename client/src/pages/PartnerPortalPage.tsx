@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,8 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building2, CheckCircle2, ExternalLink, Loader2, LogOut, Mail, ShieldCheck, Users } from "lucide-react";
-import { toast } from "sonner";
+import { Building2, CheckCircle2, ExternalLink, Link2, Loader2, LogOut, Mail, ShieldCheck, Users } from "lucide-react";
 
 const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
 
@@ -135,7 +133,9 @@ export default function PartnerPortalPage() {
   const leads = dashboard.data?.leads ?? [];
   const transactions = dashboard.data?.transactions ?? [];
   const sources = dashboard.data?.sources ?? me.data.sources;
-  const activeLeads = leads.filter((lead) => !["Closed", "Dead", "Do Not Contact"].includes(lead.status)).length;
+  const connectedLeads = leads.filter((lead) => lead.connections.length > 0).length;
+  const unassignedLeads = leads.length - connectedLeads;
+  const underContractTransactions = transactions.filter((transaction) => transaction.status === "Under Contract").length;
   const closedTransactions = transactions.filter((transaction) => transaction.status === "Closed").length;
 
   return (
@@ -172,19 +172,26 @@ export default function PartnerPortalPage() {
           <Alert variant="destructive"><AlertDescription>We could not load your partner data. Please refresh the page or request a new secure link.</AlertDescription></Alert>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-cyan-50 p-2.5 text-cyan-600"><Users className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{leads.length}</p><p className="text-xs text-slate-500">Leads introduced</p></div></CardContent></Card>
-              <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-amber-50 p-2.5 text-amber-600"><Building2 className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{activeLeads}</p><p className="text-xs text-slate-500">Active leads</p></div></CardContent></Card>
-              <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-emerald-50 p-2.5 text-emerald-600"><CheckCircle2 className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{closedTransactions}</p><p className="text-xs text-slate-500">Closed transactions</p></div></CardContent></Card>
-            </div>
+            <section aria-labelledby="partner-summary">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 id="partner-summary" className="text-base font-semibold text-slate-800">Summary</h2>
+                <p className="text-xs text-slate-500">A snapshot of your introduced business</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-cyan-50 p-2.5 text-cyan-600"><Users className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{leads.length}</p><p className="text-xs text-slate-500">Leads introduced</p></div></CardContent></Card>
+                <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-violet-50 p-2.5 text-violet-600"><Link2 className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{connectedLeads}</p><p className="text-xs text-slate-500">Connected to an agent</p>{unassignedLeads > 0 && <p className="mt-0.5 text-xs text-slate-400">{unassignedLeads} awaiting connection</p>}</div></CardContent></Card>
+                <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-amber-50 p-2.5 text-amber-600"><Building2 className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{underContractTransactions}</p><p className="text-xs text-slate-500">Under contract</p></div></CardContent></Card>
+                <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-emerald-50 p-2.5 text-emerald-600"><CheckCircle2 className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{closedTransactions}</p><p className="text-xs text-slate-500">Closed transactions</p></div></CardContent></Card>
+              </div>
+            </section>
 
             <Tabs defaultValue="leads" className="space-y-4">
               <TabsList className="bg-white"><TabsTrigger value="leads">Leads ({leads.length})</TabsTrigger><TabsTrigger value="transactions">Transactions ({transactions.length})</TabsTrigger></TabsList>
               <TabsContent value="leads">
                 <Card>
-                  <CardHeader className="pb-3"><CardTitle className="text-base">Lead progress</CardTitle><CardDescription>Current client stage, Savvy agent assignment, and source attribution.</CardDescription></CardHeader>
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Lead progress</CardTitle><CardDescription>See when a Savvy agent is connected and their current pipeline status for each lead.</CardDescription></CardHeader>
                   <CardContent className="p-0">
-                    {leads.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No submitted leads are available yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Submitted</th><th className="px-4 py-3">Lead status</th><th className="px-4 py-3">Agent connection</th><th className="px-6 py-3">Assigned agent</th></tr></thead><tbody className="divide-y divide-slate-100">{leads.map((lead) => <tr key={lead.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{lead.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{lead.sourceName}</p></td><td className="px-4 py-4 text-slate-600">{date(lead.submittedAt)}</td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(lead.status)}>{lead.status}</Badge></td><td className="px-4 py-4">{lead.connections.length ? <div className="space-y-1">{lead.connections.map((connection, index) => <Badge key={`${connection.agentName}-${index}`} variant="outline" className={statusClass(connection.status)}>{connection.status}</Badge>)}</div> : <span className="text-slate-400">Not connected yet</span>}</td><td className="px-6 py-4 text-slate-700">{lead.connections.length ? <div className="space-y-1">{lead.connections.map((connection, index) => <p key={`${connection.agentName}-${index}`}>{connection.agentName}</p>)}</div> : <span className="text-slate-400">—</span>}</td></tr>)}</tbody></table></div>}
+                    {leads.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No submitted leads are available yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Submitted</th><th className="px-6 py-3">Agent connection</th></tr></thead><tbody className="divide-y divide-slate-100">{leads.map((lead) => <tr key={lead.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{lead.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{lead.sourceName}</p></td><td className="px-4 py-4 text-slate-600">{date(lead.submittedAt)}</td><td className="px-6 py-4">{lead.connections.length ? <div className="space-y-2">{lead.connections.map((connection, index) => <div key={`${connection.agentName}-${index}`} className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-700">{connection.agentName}</span><Badge variant="outline" className={statusClass(connection.status)}>{connection.status}</Badge></div>)}</div> : <span className="text-slate-400">Not assigned yet</span>}</td></tr>)}</tbody></table></div>}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -192,7 +199,7 @@ export default function PartnerPortalPage() {
                 <Card>
                   <CardHeader className="pb-3"><CardTitle className="text-base">Transaction milestones</CardTitle><CardDescription>High-level deal status for your introduced leads.</CardDescription></CardHeader>
                   <CardContent className="p-0">
-                    {transactions.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No transactions are associated with your leads yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[840px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Under contract</th><th className="px-4 py-3">Closing date</th><th className="px-4 py-3">Sales price</th><th className="px-6 py-3">Address</th></tr></thead><tbody className="divide-y divide-slate-100">{transactions.map((transaction) => <tr key={transaction.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{transaction.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.transactionType}{transaction.transactionNumber ? ` · ${transaction.transactionNumber}` : ""}</p></td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(transaction.status)}>{transaction.status}</Badge></td><td className="px-4 py-4 text-slate-600">{date(transaction.underContractDate)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.closingDate)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.salesPrice)}</td><td className="px-6 py-4 text-slate-600">{transaction.address}</td></tr>)}</tbody></table></div>}
+                    {transactions.length === 0 ? <div className="px-6 py-14 text-center text-sm text-slate-500">No transactions are associated with your leads yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-3">Lead</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Savvy agent</th><th className="px-4 py-3">Under contract</th><th className="px-4 py-3">Closing date</th><th className="px-4 py-3">Sales price</th><th className="px-6 py-3">Address</th></tr></thead><tbody className="divide-y divide-slate-100">{transactions.map((transaction) => <tr key={transaction.id} className="hover:bg-slate-50/70"><td className="px-6 py-4"><p className="font-medium text-slate-800">{transaction.leadName}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.transactionType}{transaction.transactionNumber ? ` · ${transaction.transactionNumber}` : ""}</p></td><td className="px-4 py-4"><Badge variant="outline" className={statusClass(transaction.status)}>{transaction.status}</Badge></td><td className="px-4 py-4 font-medium text-slate-700">{transaction.agentName}</td><td className="px-4 py-4 text-slate-600">{date(transaction.underContractDate)}</td><td className="px-4 py-4 text-slate-600">{date(transaction.closingDate)}</td><td className="px-4 py-4 font-medium text-slate-700">{money(transaction.salesPrice)}</td><td className="px-6 py-4 text-slate-600">{transaction.address}</td></tr>)}</tbody></table></div>}
                   </CardContent>
                 </Card>
               </TabsContent>
