@@ -12,7 +12,7 @@
 
 import { getDb as _getDb, logActivity, scheduleAircallPhoneRematch } from "./db";
 import { triggerGhlContactSync } from "./_core/ghlSync";
-import { resumeSmartPlansAwaitingSmsConsent, triggerSmartPlansForContact } from "./smartPlanScheduler";
+import { triggerSmartPlansForContact } from "./smartPlanScheduler";
 
 async function getDb() {
   const db = await _getDb();
@@ -270,9 +270,6 @@ const leadIngestHandler: HandlerFn = async (rawPayload, endpoint) => {
 
     if (Object.keys(updates).length > 0) {
       await db.update(contacts).set(updates).where(eq(contacts.id, existingId));
-    }
-    if (smsMarketingConsentProvided) {
-      await resumeSmartPlansAwaitingSmsConsent(existingId);
     }
     contactId = existingId;
     action = "updated";

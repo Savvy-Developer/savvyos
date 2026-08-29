@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─── Merge Tag Renderer ───────────────────────────────────────────────────────
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
+import { smsMarketingEligibility } from "./smartPlanScheduler";
 
 describe("renderMergeTags", () => {
   it("replaces {{first_name}}", () => {
@@ -71,6 +72,19 @@ describe("sendAircallSMS", () => {
     const result = await sendAircallSMS("+15551234567", "Test message");
     expect(result.success).toBe(false);
     expect(result.error).toContain("not configured");
+  });
+});
+
+describe("Smart Plan SMS eligibility", () => {
+  it("allows a source-authorized lead without a separate consent field", () => {
+    expect(smsMarketingEligibility({ smsMarketingOptedOutAt: null })).toEqual({ eligible: true });
+  });
+
+  it("blocks texts after an explicit SMS opt-out", () => {
+    expect(smsMarketingEligibility({ smsMarketingOptedOutAt: new Date() })).toEqual({
+      eligible: false,
+      error: "Contact opted out of marketing texts",
+    });
   });
 });
 

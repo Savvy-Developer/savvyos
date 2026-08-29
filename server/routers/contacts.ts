@@ -19,7 +19,6 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
-import { resumeSmartPlansAwaitingSmsConsent } from "../smartPlanScheduler";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
 
 const optionalUsPhone = z
@@ -331,7 +330,6 @@ export const contactsRouter = router({
           smsMarketingOptedOutAt: null,
           smsMarketingOptOutReason: null,
         } as any);
-        await resumeSmartPlansAwaitingSmsConsent(input.id);
       } else {
         await updateContact(input.id, {
           smsMarketingOptedOutAt: changedAt,

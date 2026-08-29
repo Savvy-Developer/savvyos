@@ -101,10 +101,9 @@ export function contactChannelAddresses(contact: Pick<typeof contacts.$inferSele
   return addresses;
 }
 
-/** Marketing SMS requires documented consent and honors an explicit opt-out. */
-export function smsMarketingEligibility(contact: Pick<typeof contacts.$inferSelect, "smsMarketingConsentAt" | "smsMarketingOptedOutAt">): { eligible: boolean; error?: string } {
+/** Source-matched Smart Plan leads are eligible for SMS unless they explicitly opt out. */
+export function smsMarketingEligibility(contact: Pick<typeof contacts.$inferSelect, "smsMarketingOptedOutAt">): { eligible: boolean; error?: string } {
   if (contact.smsMarketingOptedOutAt) return { eligible: false, error: "Contact opted out of marketing texts" };
-  if (!contact.smsMarketingConsentAt) return { eligible: false, error: "Marketing SMS consent has not been recorded" };
   return { eligible: true };
 }
 
@@ -360,21 +359,6 @@ async function processEnrollmentStep(
     errorMessage: errorMessage ?? null,
   });
 
-  // Consent is not a failed delivery and must never let a text plan advance
-  // without sending. Hold the enrollment at its current step until an admin
-  // records documented marketing consent for the contact.
-  if (status === "skipped" && errorMessage === "Marketing SMS consent has not been recorded") {
-    await db
-      .update(smartPlanEnrollments)
-      .set({
-        status: "paused",
-        pauseReason: "Waiting for documented SMS marketing consent",
-        nextStepAt: null,
-      })
-      .where(eq(smartPlanEnrollments.id, enrollment.id));
-    return;
-  }
-
   // Advance to next step
   const nextIndex = stepIndex + 1;
   if (nextIndex >= steps.length) {
@@ -549,20 +533,6 @@ export async function triggerSmartPlansForContact(contactId: number, leadSourceI
       await enrollContactInPlan(contactId, plan.id);
     }
   }
-}
-
-/** Resume consent-paused text plans from the original unsent step. */
-export async function resumeSmartPlansAwaitingSmsConsent(contactId: number): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
-  await db
-    .update(smartPlanEnrollments)
-    .set({ status: "active", pauseReason: null, nextStepAt: new Date() })
-    .where(and(
-      eq(smartPlanEnrollments.contactId, contactId),
-      eq(smartPlanEnrollments.status, "paused"),
-      eq(smartPlanEnrollments.pauseReason, "Waiting for documented SMS marketing consent"),
-    ));
 }
 
 /**
