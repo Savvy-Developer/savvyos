@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockState, mockSendTransactionalEmail } = vi.hoisted(() => ({
   mockState: {
@@ -127,6 +127,14 @@ beforeEach(() => {
   mockState.activities = [];
   (globalThis as any).__websiteHandoffLookupEmail = undefined;
   mockSendTransactionalEmail.mockResolvedValue({ sent: true, skipped: false });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ slug: "123-main-st-asheville-test" }],
+  }));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("Savvy website request handoffs", () => {
@@ -177,6 +185,7 @@ describe("Savvy website request handoffs", () => {
           agentName: "Avery Agent",
           contactName: "Casey Client",
           propertyAddress: "123 Main St, Asheville, NC 28801",
+          propertyUrl: "https://savvy-agents.com/properties/123-main-st-asheville-test",
           agentBookingLink: "https://calendly.com/avery-agent",
         }),
         expect.objectContaining({
@@ -228,6 +237,7 @@ describe("Savvy website request handoffs", () => {
           city: "Whittier",
           state: "NC",
           zip_code: "28789",
+          slug: "109-pin-tail-pl-whittier-test",
         },
       ],
     });
@@ -248,9 +258,9 @@ describe("Savvy website request handoffs", () => {
       "website_deeper_analysis_request",
       expect.objectContaining({
         propertyAddress: "109 Pin Tail Pl, Whittier, NC 28789",
+        propertyUrl: "https://savvy-agents.com/properties/109-pin-tail-pl-whittier-test",
       }),
       expect.anything()
     );
-    vi.unstubAllGlobals();
   });
 });

@@ -69,6 +69,7 @@ describe("website property request handoff emails", () => {
     agentName: "Avery Agent",
     contactName: "Casey Client",
     propertyAddress: "123 Main St, Asheville, NC 28801",
+    propertyUrl: "https://savvy-agents.com/properties/123-main-st-asheville-test",
     agentBookingLink: "https://calendly.com/avery-agent",
   };
 
@@ -76,19 +77,19 @@ describe("website property request handoff emails", () => {
     [
       "website_deeper_analysis_request",
       "Deeper Analysis Requested — 123 Main St, Asheville, NC 28801",
-      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> has asked for a deeper analysis of <strong>123 Main St, Asheville, NC 28801</strong>. Please connect with them soon!",
+      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> has asked for a deeper analysis of",
       "Schedule a Call",
     ],
     [
       "website_financing_request",
       "Financing Information Requested — 123 Main St, Asheville, NC 28801",
-      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> was looking for information regarding financing for this property: <strong>123 Main St, Asheville, NC 28801</strong>. We will let you take it from here!",
+      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> was looking for information regarding financing for this property:",
       "Schedule a Call",
     ],
     [
       "website_showing_request",
       "Showing Requested — 123 Main St, Asheville, NC 28801",
-      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> just asked to book a showing for <strong>123 Main St, Asheville, NC 28801</strong>. Please reach out to them ASAP to get that scheduled!",
+      "Hey <strong>Avery Agent</strong>, <strong>Casey Client</strong> just asked to book a showing for",
       "Schedule a Showing Call",
     ],
   ] as const)("renders the requested %s copy and booking CTA", (emailType, subject, message, cta) => {
@@ -96,6 +97,10 @@ describe("website property request handoff emails", () => {
 
     expect(preview.subject).toBe(subject);
     expect(preview.html).toContain(message);
+    expect(preview.html).toContain(`href="${context.propertyUrl}"`);
+    expect(preview.html).toContain("Website Client Handoff");
+    expect(preview.html).not.toContain("Website Lead Handoff");
+    expect(preview.html).not.toContain("Reply all to continue the conversation with your client.");
     expect(preview.html).toContain(`href="https://calendly.com/avery-agent"`);
     expect(preview.html).toContain(`>${cta}</a>`);
   });

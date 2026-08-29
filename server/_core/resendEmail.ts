@@ -135,6 +135,8 @@ interface EmailContext {
   transactionNumber?: string;
   transactionType?: string;
   propertyAddress?: string;
+  /** Public savvy-agents.com listing URL for website lead handoff emails. */
+  propertyUrl?: string;
   reviewUrl?: string;
   reviewRating?: string;
   reviewComment?: string;
@@ -353,25 +355,29 @@ function websiteLeadHandoffTemplate(
   const agentName = escapeHtml(ctx.agentName ?? "Agent");
   const clientName = escapeHtml(ctx.contactName ?? "A client");
   const propertyAddress = escapeHtml(ctx.propertyAddress ?? "the requested property");
+  const propertyUrl = ctx.propertyUrl ? escapeHtml(ctx.propertyUrl) : null;
+  const propertyLink = propertyUrl
+    ? `<a href="${propertyUrl}" style="color:#0891B2;text-decoration:underline;">${propertyAddress}</a>`
+    : propertyAddress;
   const copy = {
     deeper_analysis: {
       heading: "Deeper Analysis Requested",
       subject: `Deeper Analysis Requested — ${ctx.propertyAddress ?? "Property Request"}`,
-      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> has asked for a deeper analysis of <strong>${propertyAddress}</strong>. Please connect with them soon!`,
+      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> has asked for a deeper analysis of <strong>${propertyLink}</strong>. Please connect with them soon!`,
       preview: `${ctx.contactName ?? "A client"} requested a deeper analysis of ${ctx.propertyAddress ?? "a property"}.`,
       cta: "Schedule a Call",
     },
     financing: {
       heading: "Financing Information Requested",
       subject: `Financing Information Requested — ${ctx.propertyAddress ?? "Property Request"}`,
-      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> was looking for information regarding financing for this property: <strong>${propertyAddress}</strong>. We will let you take it from here!`,
+      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> was looking for information regarding financing for this property: <strong>${propertyLink}</strong>. We will let you take it from here!`,
       preview: `${ctx.contactName ?? "A client"} requested financing information for ${ctx.propertyAddress ?? "a property"}.`,
       cta: "Schedule a Call",
     },
     showing: {
       heading: "Showing Requested",
       subject: `Showing Requested — ${ctx.propertyAddress ?? "Property Request"}`,
-      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> just asked to book a showing for <strong>${propertyAddress}</strong>. Please reach out to them ASAP to get that scheduled!`,
+      message: `Hey <strong>${agentName}</strong>, <strong>${clientName}</strong> just asked to book a showing for <strong>${propertyLink}</strong>. Please reach out to them ASAP to get that scheduled!`,
       preview: `${ctx.contactName ?? "A client"} requested a showing for ${ctx.propertyAddress ?? "a property"}.`,
       cta: "Schedule a Showing Call",
     },
@@ -381,14 +387,13 @@ function websiteLeadHandoffTemplate(
     subject: copy.subject,
     html: emailLayout(
       `${heading(copy.heading, "#0891B2")}
-      ${subheading("Savvy STR Agents · Website Lead Handoff")}
+      ${subheading("Savvy STR Agents · Website Client Handoff")}
       ${bodyText(copy.message)}
       ${infoCard([
         `<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${clientName}`,
-        `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${propertyAddress}`,
+        `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${propertyLink}`,
       ], "#0891B2")}
-      ${ctx.agentBookingLink ? ctaButton(copy.cta, ctx.agentBookingLink, "#0891B2") : ""}
-      ${bodyText("Reply all to continue the conversation with your client.")}`,
+      ${ctx.agentBookingLink ? ctaButton(copy.cta, ctx.agentBookingLink, "#0891B2") : ""}`,
       copy.preview,
     ),
   };

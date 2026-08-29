@@ -583,17 +583,23 @@ async function resolveSavvyWebAgent(
   return firstNameMatches.length === 1 ? firstNameMatches[0] : null;
 }
 
-async function resolveSavvyWebPropertyAddress(
+type SavvyWebPropertyResolution = {
+  address: string;
+  propertyUrl?: string;
+};
+
+async function resolveSavvyWebProperty(
   suppliedAddress: string | null,
   propertyId: unknown,
-): Promise<string> {
-  if (suppliedAddress) return suppliedAddress;
-  if (typeof propertyId !== "string" || !propertyId.trim()) return "the requested property";
+): Promise<SavvyWebPropertyResolution> {
+  if (typeof propertyId !== "string" || !propertyId.trim()) {
+    return { address: suppliedAddress ?? "the requested property" };
+  }
 
   try {
     const url = new URL(SAVVY_WEB_PROPERTY_API_URL);
     url.searchParams.set("id", `eq.${propertyId.trim()}`);
-    url.searchParams.set("select", "address,city,state,zip_code,title");
+    url.searchParams.set("select", "address,city,state,zip_code,title,slug");
     const response = await fetch(url, {
       headers: {
         apikey: SAVVY_WEB_PUBLISHABLE_KEY,
@@ -609,16 +615,22 @@ async function resolveSavvyWebPropertyAddress(
       state?: string | null;
       zip_code?: string | null;
       title?: string | null;
+      slug?: string | null;
     }>;
     const property = rows[0];
     const street = property?.address?.trim() || property?.title?.trim();
     const locality = [property?.city?.trim(), [property?.state?.trim(), property?.zip_code?.trim()].filter(Boolean).join(" ")]
       .filter(Boolean)
       .join(", ");
-    return [street, locality].filter(Boolean).join(", ") || "the requested property";
+    const resolvedAddress = [street, locality].filter(Boolean).join(", ");
+    const slug = property?.slug?.trim();
+    return {
+      address: (suppliedAddress ?? resolvedAddress) || "the requested property",
+      ...(slug ? { propertyUrl: `https://savvy-agents.com/properties/${encodeURIComponent(slug)}` } : {}),
+    };
   } catch (error) {
     console.warn(`[savvyWebEventHandler] Could not resolve property ${propertyId} for website handoff:`, error);
-    return "the requested property";
+    return { address: suppliedAddress ?? "the requested property" };
   }
 }
 
@@ -688,9 +700,9 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
   const propertyId = data.propertyId ?? rawPayload.propertyId ?? null;
   const leadId = data.leadId ?? rawPayload.leadId ?? null;
   const websiteLeadHandoffType = getWebsiteLeadHandoffType(event, data, rawPayload);
-  const handoffPropertyAddress = websiteLeadHandoffType
-    ? await resolveSavvyWebPropertyAddress(propertyAddress, propertyId)
-    : propertyAddress;
+  const handoffProperty = websiteLeadHandoffType
+    ? await resolveSavvyWebProperty(propertyAddress, propertyId)
+    : null;
   const webhookData = Object.fromEntries(
     Object.entries({ ...rawPayload, ...data }).filter(([key]) => ![
       "data", "event", "token", "signature", "authorization", "leadEmail", "email",
@@ -821,7 +833,8 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
             ccEmails: normalizedAgentEmail !== normalizedContactEmail ? [email] : undefined,
             agentName: agent.name ?? pickField(data, rawPayload, ["agentName", "agent_name"]),
             contactName,
-            propertyAddress: handoffPropertyAddress ?? "the requested property",
+            propertyAddress: handoffProperty?.address ?? propertyAddress ?? "the requested property",
+            propertyUrl: handoffProperty?.propertyUrl,
             agentBookingLink: normalizeBookingLink(agent.callBookingLink) ?? undefined,
           }, {
             // This email has two recipients, so never turn a SavvyOS deep link
@@ -829,7 +842,7 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
             injectMagicLinks: false,
             // Preserve the request-specific copy and calendar CTA above.
             allowTemplateOverride: false,
-            idempotencyKey: `savvy-web-handoff:${websiteLeadHandoffType}:${String(leadId ?? contactId)}:${String(propertyId ?? handoffPropertyAddress ?? "property")}:${agent.id}`,
+            idempotencyKey: `savvy-web-handoff:${websiteLeadHandoffType}:${String(leadId ?? contactId)}:${String(propertyId ?? handoffProperty?.address ?? "property")}:${agent.id}`,
           });
           handoffEmailSent = delivery.sent;
           if (!delivery.sent) {
