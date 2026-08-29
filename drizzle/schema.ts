@@ -2563,6 +2563,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canEditLandingPages: boolean("canEditLandingPages").default(false).notNull(),
   canPublishLandingPages: boolean("canPublishLandingPages").default(false).notNull(),
   canArchiveLandingPages: boolean("canArchiveLandingPages").default(false).notNull(),
+  // Short Links send public traffic through the Savvy-owned redirect domain.
+  canViewShortLinks: boolean("canViewShortLinks").default(false).notNull(),
   // Dev Tools
   canViewWebhooks: boolean("canViewWebhooks").default(true).notNull(),
   canViewDuplicates: boolean("canViewDuplicates").default(true).notNull(),

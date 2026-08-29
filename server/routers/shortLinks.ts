@@ -10,6 +10,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb, logActivity } from "../db";
 import { publicShortLinkUrl } from "../shortLinkRedirects";
+import { canAdminUsePermission } from "./permissions";
 
 const linkStatuses = ["active", "disabled", "archived"] as const;
 const reservedSlugs = new Set([
@@ -83,13 +84,16 @@ const updateInput = createInput;
 
 type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-function requireShortLinkAccess(role: string) {
-  if (role !== "admin") {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Administrator access is required for Short Links.",
-    });
-  }
+function shortLinksPermission() {
+  return protectedProcedure.use(async ({ ctx, next }) => {
+    if (!(await canAdminUsePermission(ctx.user, "canViewShortLinks"))) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Your Super Permissions do not allow this Short Links action.",
+      });
+    }
+    return next({ ctx });
+  });
 }
 
 function normaliseDestinationUrl(value: string) {
@@ -149,8 +153,7 @@ async function getManagedLink(
 }
 
 export const shortLinksRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    requireShortLinkAccess(ctx.user.role);
+  list: shortLinksPermission().query(async ({ ctx }) => {
     const db = await getDb();
     if (!db)
       throw new TRPCError({
@@ -176,10 +179,9 @@ export const shortLinksRouter = router({
     }));
   }),
 
-  create: protectedProcedure
+  create: shortLinksPermission()
     .input(createInput)
     .mutation(async ({ ctx, input }) => {
-      requireShortLinkAccess(ctx.user.role);
       const db = await getDb();
       if (!db)
         throw new TRPCError({
@@ -210,10 +212,9 @@ export const shortLinksRouter = router({
       return { id, publicUrl: publicShortLinkUrl(input.slug) };
     }),
 
-  update: protectedProcedure
+  update: shortLinksPermission()
     .input(z.object({ id: z.number().int().positive(), data: updateInput }))
     .mutation(async ({ ctx, input }) => {
-      requireShortLinkAccess(ctx.user.role);
       const db = await getDb();
       if (!db)
         throw new TRPCError({
@@ -252,7 +253,7 @@ export const shortLinksRouter = router({
       return { success: true, publicUrl: publicShortLinkUrl(input.data.slug) };
     }),
 
-  setStatus: protectedProcedure
+  setStatus: shortLinksPermission()
     .input(
       z.object({
         id: z.number().int().positive(),
@@ -260,7 +261,6 @@ export const shortLinksRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      requireShortLinkAccess(ctx.user.role);
       const db = await getDb();
       if (!db)
         throw new TRPCError({
@@ -287,10 +287,9 @@ export const shortLinksRouter = router({
       return { success: true };
     }),
 
-  analytics: protectedProcedure
+  analytics: shortLinksPermission()
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      requireShortLinkAccess(ctx.user.role);
       const db = await getDb();
       if (!db)
         throw new TRPCError({

@@ -180,13 +180,6 @@ function AgentOnlyRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function ShortLinksRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const role = user?.role;
-  if (role && role !== "admin") return <NotFound />;
-  return <>{children}</>;
-}
-
 function NonAgentRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -252,6 +245,16 @@ function LandingPagesRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewLandingPages) return <NotFound />;
+  return <>{children}</>;
+}
+
+function ShortLinksRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewShortLinks) return <NotFound />;
   return <>{children}</>;
 }
 

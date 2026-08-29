@@ -255,6 +255,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewJobBoard: "/job-board",
   canViewTalentProfile: "/talent-profile-admin",
   canViewLandingPages: "/landing-pages",
+  canViewShortLinks: "/short-links",
   canViewWebhooks: "/webhooks",
   canViewDuplicates: "/duplicates",
   canViewKnowledgeBase: "/kb",

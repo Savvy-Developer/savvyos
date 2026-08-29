@@ -102,6 +102,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canEditLandingPages",       label: "Landing Pages: Edit",      group: "Admin" },
   { key: "canPublishLandingPages",    label: "Landing Pages: Publish",   group: "Admin" },
   { key: "canArchiveLandingPages",    label: "Landing Pages: Archive",   group: "Admin" },
+  { key: "canViewShortLinks",         label: "Short Links",              group: "Admin" },
   // Dev Tools
   { key: "canViewWebhooks",           label: "Webhooks",                 group: "Dev Tools" },
   { key: "canViewDuplicates",         label: "Duplicate Contacts",       group: "Dev Tools" },
@@ -335,6 +336,7 @@ export const permissionsRouter = router({
             "canEditLandingPages",
             "canPublishLandingPages",
             "canArchiveLandingPages",
+            "canViewShortLinks",
           ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
             perms[p.key] = !defaultOff.has(p.key);
