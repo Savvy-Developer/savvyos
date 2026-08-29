@@ -107,6 +107,11 @@ export function smsMarketingEligibility(contact: Pick<typeof contacts.$inferSele
   return { eligible: true };
 }
 
+/** Do Not Contact blocks every Smart Plan channel, including email. */
+export function isDoNotContact(contact: Pick<typeof contacts.$inferSelect, "doNotContact" | "isaStatus">): boolean {
+  return Boolean(contact.doNotContact) || contact.isaStatus === "do_not_contact";
+}
+
 async function marketingSender(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<{ id: number; name: string | null; digits: string | null } | null> {
   const [state] = await db
     .select({
@@ -166,6 +171,20 @@ async function processEnrollmentStep(
   plan: typeof smartPlans.$inferSelect,
   contact: typeof contacts.$inferSelect
 ): Promise<void> {
+  // Do Not Contact overrides every channel and must not advance to a later
+  // step, which could otherwise send an email after a skipped text.
+  if (isDoNotContact(contact)) {
+    await db
+      .update(smartPlanEnrollments)
+      .set({
+        status: "paused",
+        pauseReason: "Contact is marked Do Not Contact",
+        nextStepAt: null,
+      })
+      .where(eq(smartPlanEnrollments.id, enrollment.id));
+    return;
+  }
+
   // Provider reply processing pauses plans immediately. This query is a durable
   // guard against a provider retry or a transient error between recording a reply
   // and changing enrollment state.
@@ -262,10 +281,7 @@ async function processEnrollmentStep(
   let providerMessageId: string | undefined;
   let replyToken: string | undefined;
 
-  if (contact.doNotContact || contact.isaStatus === "do_not_contact") {
-    status = "skipped";
-    errorMessage = "Contact is marked Do Not Contact";
-  } else if (step.channel === "email") {
+  if (step.channel === "email") {
     const addresses = contactChannelAddresses(contact, "email");
     if (!addresses.length) {
       status = "skipped";

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─── Merge Tag Renderer ───────────────────────────────────────────────────────
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
-import { smsMarketingEligibility } from "./smartPlanScheduler";
+import { isDoNotContact, smsMarketingEligibility } from "./smartPlanScheduler";
 
 describe("renderMergeTags", () => {
   it("replaces {{first_name}}", () => {
@@ -85,6 +85,17 @@ describe("Smart Plan SMS eligibility", () => {
       eligible: false,
       error: "Contact opted out of marketing texts",
     });
+  });
+});
+
+describe("Smart Plan Do Not Contact guard", () => {
+  it("stops every Smart Plan channel for a Do Not Contact contact", () => {
+    expect(isDoNotContact({ doNotContact: true, isaStatus: null })).toBe(true);
+    expect(isDoNotContact({ doNotContact: false, isaStatus: "do_not_contact" })).toBe(true);
+  });
+
+  it("does not treat a normal contact as Do Not Contact", () => {
+    expect(isDoNotContact({ doNotContact: false, isaStatus: "new_lead" })).toBe(false);
   });
 });
 
