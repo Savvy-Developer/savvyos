@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─── Merge Tag Renderer ───────────────────────────────────────────────────────
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
-import { isDoNotContact, smsMarketingEligibility } from "./smartPlanScheduler";
+import { isDoNotContact, shouldBypassInitialSendWindow, smsMarketingEligibility } from "./smartPlanScheduler";
 
 describe("renderMergeTags", () => {
   it("replaces {{first_name}}", () => {
@@ -96,6 +96,14 @@ describe("Smart Plan Do Not Contact guard", () => {
 
   it("does not treat a normal contact as Do Not Contact", () => {
     expect(isDoNotContact({ doNotContact: false, isaStatus: "new_lead" })).toBe(false);
+  });
+});
+
+describe("Smart Plan immediate restart window override", () => {
+  it("bypasses the window only for the explicitly restarted first step", () => {
+    expect(shouldBypassInitialSendWindow({ currentStepIndex: 0, bypassInitialSendWindow: true })).toBe(true);
+    expect(shouldBypassInitialSendWindow({ currentStepIndex: 1, bypassInitialSendWindow: true })).toBe(false);
+    expect(shouldBypassInitialSendWindow({ currentStepIndex: 0, bypassInitialSendWindow: false })).toBe(false);
   });
 });
 

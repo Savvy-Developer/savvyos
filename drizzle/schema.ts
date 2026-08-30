@@ -968,6 +968,9 @@ export const smartPlanEnrollments = mysqlTable("smart_plan_enrollments", {
   enrolledAt: timestamp("enrolledAt").defaultNow().notNull(),
   // When the next step should fire (UTC)
   nextStepAt: timestamp("nextStepAt"),
+  // One-time override used when an admin explicitly starts an enrollment now.
+  // Future steps still honor their configured send window.
+  bypassInitialSendWindow: boolean("bypassInitialSendWindow").default(false).notNull(),
   status: mysqlEnum("status", ["active", "paused", "completed", "cancelled"]).default("active").notNull(),
   // Provides an actionable explanation when automation pauses an enrollment.
   pauseReason: varchar("pauseReason", { length: 255 }),

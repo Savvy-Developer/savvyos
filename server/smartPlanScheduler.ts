@@ -112,6 +112,11 @@ export function isDoNotContact(contact: Pick<typeof contacts.$inferSelect, "doNo
   return Boolean(contact.doNotContact) || contact.isaStatus === "do_not_contact";
 }
 
+/** An explicit administrator restart may deliver step one outside its normal window. */
+export function shouldBypassInitialSendWindow(enrollment: Pick<typeof smartPlanEnrollments.$inferSelect, "currentStepIndex" | "bypassInitialSendWindow">): boolean {
+  return enrollment.currentStepIndex === 0 && enrollment.bypassInitialSendWindow;
+}
+
 async function marketingSender(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<{ id: number; name: string | null; digits: string | null } | null> {
   const [state] = await db
     .select({
@@ -237,7 +242,7 @@ async function processEnrollmentStep(
     : step.businessHoursOnly
       ? { ...LEGACY_BUSINESS_HOURS_WINDOW, timezone: step.timezone || LEGACY_BUSINESS_HOURS_WINDOW.timezone }
       : null;
-  if (configuredWindow && isValidSmartPlanSendWindow(configuredWindow)) {
+  if (configuredWindow && isValidSmartPlanSendWindow(configuredWindow) && !shouldBypassInitialSendWindow(enrollment)) {
     if (!isWithinSmartPlanSendWindow(new Date(), configuredWindow)) {
       // Keep the current step untouched; it will run at the opening of the next window.
       const deferredAt = nextSmartPlanSendWindowStart(new Date(), configuredWindow);
@@ -381,7 +386,7 @@ async function processEnrollmentStep(
     // No more steps — complete
     await db
       .update(smartPlanEnrollments)
-      .set({ status: "completed", completedAt: new Date(), currentStepIndex: nextIndex, nextStepAt: null })
+      .set({ status: "completed", completedAt: new Date(), currentStepIndex: nextIndex, nextStepAt: null, bypassInitialSendWindow: false })
       .where(eq(smartPlanEnrollments.id, enrollment.id));
   } else {
     // Schedule next step
@@ -392,7 +397,7 @@ async function processEnrollmentStep(
 
     await db
       .update(smartPlanEnrollments)
-      .set({ currentStepIndex: nextIndex, nextStepAt })
+      .set({ currentStepIndex: nextIndex, nextStepAt, bypassInitialSendWindow: false })
       .where(eq(smartPlanEnrollments.id, enrollment.id));
   }
 }
