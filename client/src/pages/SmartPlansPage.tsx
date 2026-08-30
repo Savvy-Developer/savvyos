@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { formatEmail } from "@/lib/format";
+import { safeFormat } from "@/lib/safeFormat";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -872,6 +873,28 @@ function PlanWizard({
 
 const PAGE_SIZE = 25;
 
+function EnrollmentStepJourney({ row }: { row: any }) {
+  const enrollment = row.enrollment;
+  const steps = row.steps ?? [];
+  const executions = row.executions ?? [];
+  const counts = executions.reduce((total: Record<string, number>, execution: any) => {
+    total[execution.status] = (total[execution.status] ?? 0) + 1;
+    return total;
+  }, {});
+  const statusClass = (status: string) => status === "sent" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : status === "failed" ? "border-red-200 bg-red-50 text-red-800" : status === "skipped" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700";
+
+  return <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+    <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-medium">Delivery journey</span><span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800">{counts.sent ?? 0} sent</span><span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">{counts.skipped ?? 0} skipped</span><span className="rounded bg-red-100 px-1.5 py-0.5 text-red-800">{counts.failed ?? 0} failed</span>{enrollment.pauseReason && <span className="font-medium text-amber-700">Paused: {enrollment.pauseReason}</span>}</div>
+    <div className="space-y-1.5">{steps.map((step: any, index: number) => {
+      const execution = executions.find((candidate: any) => candidate.stepId === step.id);
+      const status = execution?.status ?? (index === enrollment.currentStepIndex && enrollment.status === "active" ? "up_next" : "scheduled");
+      const label = status === "sent" ? "Sent" : status === "failed" ? "Failed" : status === "skipped" ? "Skipped" : status === "up_next" ? "Up next" : "Scheduled";
+      const preview = step.subject ?? (step.body?.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 110) || "(No message content)");
+      return <div key={step.id} className={`rounded border px-2.5 py-2 text-xs ${statusClass(status)}`}><div className="flex items-start gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border bg-background font-semibold">{index + 1}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="font-semibold uppercase">{step.channel}</span><Badge variant="outline" className="h-5 bg-background text-[10px]">{label}</Badge><span className="opacity-75">{delayLabel(step.delayDays, step.delayHours)}</span></div><p className="mt-0.5 text-foreground">{preview}</p>{execution ? <><p className="mt-0.5 opacity-80">Attempted {safeFormat(execution.sentAt, "MMM d, yyyy h:mm a")}</p>{execution.errorMessage && <p className="mt-0.5 font-medium">Reason: {execution.errorMessage}</p>}</> : status === "up_next" && enrollment.nextStepAt ? <p className="mt-0.5 font-medium">Scheduled for {safeFormat(enrollment.nextStepAt, "MMM d, yyyy h:mm a")}</p> : null}</div></div></div>;
+    })}</div>
+  </div>;
+}
+
 // ─── Enrollments Dialog ───────────────────────────────────────────────────────
 function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => void }) {
   const { data: enrollments = [] } = trpc.smartPlans.enrollments.list.useQuery({ planId: plan.plan.id });
@@ -879,6 +902,7 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "completed" | "cancelled">("all");
+  const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<number | null>(null);
 
   const cancelMutation = trpc.smartPlans.enrollments.cancel.useMutation({
     onSuccess: () => { utils.smartPlans.enrollments.list.invalidate(); toast.success("Enrollment cancelled"); },
@@ -900,6 +924,14 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
   });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const deliverySummary = allRows.reduce((summary: { sent: number; skipped: number; failed: number }, row: any) => {
+    for (const execution of row.executions ?? []) {
+      if (execution.status === "sent") summary.sent += 1;
+      if (execution.status === "skipped") summary.skipped += 1;
+      if (execution.status === "failed") summary.failed += 1;
+    }
+    return summary;
+  }, { sent: 0, skipped: 0, failed: 0 });
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -909,6 +941,7 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
             <Users className="h-4 w-4" /> Contacts &mdash; {plan.plan.name}
           </DialogTitle>
         </DialogHeader>
+        <div className="grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-800"><strong>{deliverySummary.sent} sent</strong><br />successful steps</div><div className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-800"><strong>{deliverySummary.skipped} skipped</strong><br />with a reason</div><div className="rounded border border-red-200 bg-red-50 p-2 text-red-800"><strong>{deliverySummary.failed} failed</strong><br />needs attention</div></div>
 
         {/* Filters */}
         <div className="flex gap-2 flex-wrap">
@@ -951,7 +984,8 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
               ? `Step ${row.enrollment.currentStepIndex + 1}/${row.totalSteps} · ${row.currentStep.channel === "email" ? "✉" : "💬"} ${row.currentStep.subject ?? row.currentStep.body?.slice(0, 40) ?? "(no subject)"}`
               : row.enrollment.status === "completed" ? `Completed all ${row.totalSteps} steps` : `Step ${row.enrollment.currentStepIndex + 1}`;
             return (
-              <div key={row.enrollment.id} className="flex items-start justify-between text-sm border rounded-md p-2.5 gap-2">
+              <div key={row.enrollment.id} className="space-y-1.5">
+              <div className="flex items-start justify-between text-sm border rounded-md p-2.5 gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{row.contact.firstName} {row.contact.lastName}</p>
                   <p className="text-xs text-muted-foreground truncate">{formatEmail(row.contact.email)}</p>
@@ -967,6 +1001,9 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
                     row.enrollment.status === "completed" ? "text-blue-600" : "text-muted-foreground"
                   }`}>{row.enrollment.status}</span>
                 </div>
+                <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={() => setExpandedEnrollmentId(expandedEnrollmentId === row.enrollment.id ? null : row.enrollment.id)}>
+                  <Eye className="h-3 w-3 mr-1" /> Journey
+                </Button>
                 {row.enrollment.status === "paused" && (
                   <Button
                     variant="outline" size="sm"
@@ -987,6 +1024,8 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
                     Unenroll
                   </Button>
                 )}
+              </div>
+              {expandedEnrollmentId === row.enrollment.id && <EnrollmentStepJourney row={row} />}
               </div>
             );
           })}

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ─── Merge Tag Renderer ───────────────────────────────────────────────────────
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
 import { isDoNotContact, shouldBypassInitialSendWindow, smsMarketingEligibility } from "./smartPlanScheduler";
+import { directionFromAircallMessageEvent, messageParticipantNumber } from "./aircallMessaging";
 
 describe("renderMergeTags", () => {
   it("replaces {{first_name}}", () => {
@@ -104,6 +105,15 @@ describe("Smart Plan immediate restart window override", () => {
     expect(shouldBypassInitialSendWindow({ currentStepIndex: 0, bypassInitialSendWindow: true })).toBe(true);
     expect(shouldBypassInitialSendWindow({ currentStepIndex: 1, bypassInitialSendWindow: true })).toBe(false);
     expect(shouldBypassInitialSendWindow({ currentStepIndex: 0, bypassInitialSendWindow: false })).toBe(false);
+  });
+});
+
+describe("Aircall message directions", () => {
+  it("uses the webhook event and external sender number for an inbound reply", () => {
+    expect(directionFromAircallMessageEvent("message.received")).toBe("inbound");
+    expect(directionFromAircallMessageEvent("message.sent")).toBe("outbound");
+    expect(directionFromAircallMessageEvent("message.status_updated")).toBeUndefined();
+    expect(messageParticipantNumber({ external_number: "+1 818 689 0141" })).toBe("+18186890141");
   });
 });
 

@@ -8,7 +8,7 @@
 
 import type { Express, Request, Response } from "express";
 import type { AircallCallData } from "./aircall";
-import { isAircallMessageWebhook, persistAircallMessage } from "./aircallMessaging";
+import { directionFromAircallMessageEvent, isAircallMessageWebhook, persistAircallMessage } from "./aircallMessaging";
 import {
   persistAircallWebhook,
   processDueAircallWebhookEvents,
@@ -66,7 +66,10 @@ export function registerAircallWebhook(app: Express): void {
       // state before the acknowledgement so a failed CRM write is retried by
       // Aircall instead of silently dropping Contact history.
       if (messagePayload) {
-        await persistAircallMessage(payload.data);
+        await persistAircallMessage(payload.data, {
+          direction: directionFromAircallMessageEvent(eventName),
+          rawPayload: payload as Record<string, unknown>,
+        });
         res.sendStatus(204);
         return;
       }

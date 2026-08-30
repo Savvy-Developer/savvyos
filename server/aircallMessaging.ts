@@ -18,6 +18,7 @@ export type AircallMessageData = {
   sent_at?: number | string | null;
   updated_at?: number | string | null;
   raw_digits?: string | null;
+  external_number?: string | null;
   body?: string | null;
   number?: {
     id?: number | null;
@@ -38,6 +39,8 @@ export type AircallMessageWebhook = {
 type PersistOptions = {
   contactId?: number | null;
   savvyUserId?: number | null;
+  direction?: "inbound" | "outbound";
+  rawPayload?: Record<string, unknown>;
 };
 
 function asDate(value: number | string | null | undefined): Date | null {
@@ -55,8 +58,20 @@ function toStoredPhone(value: string | null | undefined): string | null {
   return digits.length === 10 ? `+1${digits}` : `+${digits}`;
 }
 
+/** Resolve Aircall's sender/recipient variants to a canonical CRM phone value. */
+export function messageParticipantNumber(payload: Pick<AircallMessageData, "raw_digits" | "external_number">): string | null {
+  return toStoredPhone(payload.raw_digits ?? payload.external_number);
+}
+
 function resolveDirection(value: unknown): "inbound" | "outbound" {
   return value === "inbound" ? "inbound" : "outbound";
+}
+
+/** Message webhook names are the authoritative source of message direction. */
+export function directionFromAircallMessageEvent(event: unknown): "inbound" | "outbound" | undefined {
+  if (event === "message.received") return "inbound";
+  if (event === "message.sent") return "outbound";
+  return undefined;
 }
 
 function messageTitle(direction: "inbound" | "outbound"): string {
@@ -87,20 +102,23 @@ export async function persistAircallMessage(
     );
   }
 
-  const direction = resolveDirection(payload.direction);
-  const status =
-    payload.status?.trim() ||
-    (direction === "inbound" ? "received" : "pending");
-  const participant = toStoredPhone(payload.raw_digits);
-  const lineNumber = toStoredPhone(payload.number.digits);
-  const sentAt = asDate(payload.sent_at ?? payload.created_at);
-  const receivedAt = direction === "inbound" ? (sentAt ?? new Date()) : null;
-
   const [existing] = await db
     .select()
     .from(aircallMessages)
     .where(eq(aircallMessages.aircallMessageId, String(payload.id)))
     .limit(1);
+
+  // Status-update events do not repeat direction or the full message body, so
+  // retain the original record instead of converting a lead reply to outbound.
+  const direction = options.direction ?? (payload.direction ? resolveDirection(payload.direction) : existing?.direction ?? "outbound");
+  const status = payload.status?.trim() || (direction === "inbound" ? "received" : "pending");
+  const participant = messageParticipantNumber(payload);
+  const lineNumber = toStoredPhone(payload.number.digits);
+  const sentAt = asDate(payload.sent_at ?? payload.created_at) ?? existing?.sentAt ?? null;
+  const receivedAt = direction === "inbound" ? (sentAt ?? existing?.receivedAt ?? new Date()) : existing?.receivedAt ?? null;
+  const body = payload.body?.trim() || existing?.body || null;
+  const fromNumber = direction === "inbound" ? (participant ?? existing?.fromNumber ?? null) : (lineNumber ?? existing?.fromNumber ?? null);
+  const toNumber = direction === "inbound" ? (lineNumber ?? existing?.toNumber ?? null) : (participant ?? existing?.toNumber ?? null);
 
   const assignment = options.savvyUserId
     ? null
@@ -128,7 +146,7 @@ export async function persistAircallMessage(
     const communication = await db.insert(communications).values({
       type: "sms",
       subject: messageTitle(direction),
-      body: payload.body?.trim() || null,
+      body,
       direction,
       authorId: direction === "outbound" ? savvyUserId : null,
       relatedContactId: contactId,
@@ -158,12 +176,12 @@ export async function persistAircallMessage(
     aircallNumberId: payload.number.id,
     direction,
     status,
-    fromNumber: direction === "inbound" ? participant : lineNumber,
-    toNumber: direction === "inbound" ? lineNumber : participant,
-    body: payload.body?.trim() || null,
+    fromNumber,
+    toNumber,
+    body,
     sentAt,
     receivedAt,
-    rawPayload: payload as Record<string, unknown>,
+    rawPayload: options.rawPayload ?? payload as Record<string, unknown>,
   };
 
   // Honor standard carrier-recognized opt-out keywords sent to the dedicated

@@ -130,7 +130,7 @@ export default function SmartPlanContactTab({ contactId }: Props) {
             const plan = row.plan;
             const relatedExecutions = executionList.filter(
               (ex: any) => ex.enrollment.id === enroll.id
-            );
+            ).sort((a: any, b: any) => (a.step?.stepOrder ?? 0) - (b.step?.stepOrder ?? 0));
 
             return (
               <Card key={enroll.id}>
@@ -157,12 +157,13 @@ export default function SmartPlanContactTab({ contactId }: Props) {
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Enrolled {safeFormat(enroll.enrolledAt, "MMM d, yyyy")}
                         {enroll.nextStepAt && enroll.status === "active" && (
-                          <> · Next step: {safeFormat(enroll.nextStepAt, "MMM d, yyyy h:mm a")}</>
+                          <> · Step {(enroll.currentStepIndex ?? 0) + 1} is next on {safeFormat(enroll.nextStepAt, "MMM d, yyyy h:mm a")}</>
                         )}
                         {enroll.completedAt && (
                           <> · Completed {safeFormat(enroll.completedAt, "MMM d, yyyy")}</>
                         )}
                       </p>
+                      {enroll.pauseReason && <p className="mt-1 text-xs font-medium text-amber-700">Paused: {enroll.pauseReason}</p>}
                     </div>
                     {canEnroll && enroll.status === "active" && (
                       <Button
@@ -181,7 +182,7 @@ export default function SmartPlanContactTab({ contactId }: Props) {
                   {relatedExecutions.length > 0 && (
                     <div className="border-t pt-3 space-y-2">
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Messages Sent
+                        Step delivery history
                       </p>
                       {relatedExecutions.map((ex: any) => (
                         <div key={ex.execution.id} className="flex items-start gap-2 text-sm">
@@ -203,8 +204,10 @@ export default function SmartPlanContactTab({ contactId }: Props) {
                                 {safeFormat(ex.execution.sentAt, "MMM d, yyyy h:mm a")}
                               </span>
                             </div>
-                            {ex.execution.status === "failed" && ex.execution.errorMessage && (
-                              <p className="text-xs text-red-500 mt-0.5">{ex.execution.errorMessage}</p>
+                            {(ex.execution.status === "failed" || ex.execution.status === "skipped") && ex.execution.errorMessage && (
+                              <p className={`text-xs mt-0.5 ${ex.execution.status === "failed" ? "text-red-500" : "text-amber-700"}`}>
+                                {ex.execution.status === "failed" ? "Failed" : "Skipped"}: {ex.execution.errorMessage}
+                              </p>
                             )}
                           </div>
                         </div>

@@ -916,16 +916,35 @@ export const smartPlansRouter = router({
           .where(conditions.length > 0 ? and(...conditions) : undefined)
           .orderBy(desc(smartPlanEnrollments.enrolledAt));
 
-        // Attach current step details for each enrollment
-        const enriched = await Promise.all(rows.map(async (row) => {
-          const stepRows = await db
-            .select()
-            .from(smartPlanSteps)
-            .where(eq(smartPlanSteps.planId, row.enrollment.planId))
-            .orderBy(asc(smartPlanSteps.stepOrder));
-          const currentStep = stepRows[row.enrollment.currentStepIndex] ?? null;
-          return { ...row, currentStep, totalSteps: stepRows.length };
-        }));
+        // Load the entire delivery path in two bounded queries, so the UI can
+        // explain completed, upcoming, skipped, and failed steps per contact.
+        const planIds = Array.from(new Set(rows.map((row) => row.enrollment.planId)));
+        const enrollmentIds = rows.map((row) => row.enrollment.id);
+        const [allSteps, allExecutions] = await Promise.all([
+          planIds.length
+            ? db.select().from(smartPlanSteps).where(inArray(smartPlanSteps.planId, planIds)).orderBy(asc(smartPlanSteps.planId), asc(smartPlanSteps.stepOrder))
+            : Promise.resolve([]),
+          enrollmentIds.length
+            ? db.select().from(smartPlanExecutions).where(inArray(smartPlanExecutions.enrollmentId, enrollmentIds)).orderBy(desc(smartPlanExecutions.sentAt), desc(smartPlanExecutions.id))
+            : Promise.resolve([]),
+        ]);
+        const stepsByPlan = new Map<number, typeof allSteps>();
+        for (const step of allSteps) {
+          const planSteps = stepsByPlan.get(step.planId) ?? [];
+          planSteps.push(step);
+          stepsByPlan.set(step.planId, planSteps);
+        }
+        const executionsByEnrollment = new Map<number, typeof allExecutions>();
+        for (const execution of allExecutions) {
+          const enrollmentExecutions = executionsByEnrollment.get(execution.enrollmentId) ?? [];
+          enrollmentExecutions.push(execution);
+          executionsByEnrollment.set(execution.enrollmentId, enrollmentExecutions);
+        }
+        const enriched = rows.map((row) => {
+          const steps = stepsByPlan.get(row.enrollment.planId) ?? [];
+          const executions = executionsByEnrollment.get(row.enrollment.id) ?? [];
+          return { ...row, currentStep: steps[row.enrollment.currentStepIndex] ?? null, totalSteps: steps.length, steps, executions };
+        });
 
         return enriched;
       }),

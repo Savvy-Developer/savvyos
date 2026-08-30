@@ -180,7 +180,7 @@ export const marketingTextInboxRouter = router({
       return { id: number.id, name: number.name ?? null, digits: number.digits ?? null };
     }),
 
-  /** Groups the dedicated line's message stream into CRM contact threads. */
+  /** Lists only CRM contacts who have replied to the dedicated marketing line. */
   listThreads: protectedProcedure
     .input(z.object({ search: z.string().trim().max(160).optional() }).optional())
     .query(async ({ ctx, input }) => {
@@ -218,7 +218,11 @@ export const marketingTextInboxRouter = router({
       const query = input?.search?.toLowerCase();
       const threads = new Map<string, typeof rows[number]>();
       for (const row of rows) {
-        const key = row.contactId ? `contact:${row.contactId}` : `number:${row.direction === "inbound" ? row.fromNumber : row.toNumber}`;
+        // This is a reply inbox, not an outbound delivery log. Exclude status
+        // callbacks, blank-body records, and unmatched numbers so every row
+        // opens a useful, replyable CRM conversation.
+        if (row.direction !== "inbound" || !row.contactId || !row.body?.trim()) continue;
+        const key = `contact:${row.contactId}`;
         const label = `${row.contactFirstName ?? ""} ${row.contactLastName ?? ""} ${row.contactPhone ?? ""} ${row.fromNumber ?? ""} ${row.toNumber ?? ""} ${row.body ?? ""}`.toLowerCase();
         if (query && !label.includes(query)) continue;
         if (!threads.has(key)) threads.set(key, row);
