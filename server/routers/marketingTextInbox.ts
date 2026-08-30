@@ -9,6 +9,7 @@ import {
   aircallIsaAssignments,
   aircallMessages,
   contacts,
+  marketingTextInboxThreads,
 } from "../../drizzle/schema";
 import { persistAircallMessage, type AircallMessageData } from "../aircallMessaging";
 import { normalizePhone } from "../aircall";
@@ -127,10 +128,12 @@ export const marketingTextInboxRouter = router({
     const [result] = await db
       .select({ count: sql<number>`count(*)` })
       .from(aircallMessages)
+      .leftJoin(marketingTextInboxThreads, eq(marketingTextInboxThreads.contactId, aircallMessages.contactId))
       .where(and(
         eq(aircallMessages.aircallNumberId, line.marketingNumberId),
         eq(aircallMessages.direction, "inbound"),
         isNull(aircallMessages.readAt),
+        isNull(marketingTextInboxThreads.archivedAt),
       ));
     return { count: Number(result?.count ?? 0) };
   }),
@@ -200,7 +203,10 @@ export const marketingTextInboxRouter = router({
 
   /** Lists only CRM contacts who have replied to the dedicated marketing line. */
   listThreads: protectedProcedure
-    .input(z.object({ search: z.string().trim().max(160).optional() }).optional())
+    .input(z.object({
+      search: z.string().trim().max(160).optional(),
+      archived: z.boolean().optional().default(false),
+    }).optional())
     .query(async ({ ctx, input }) => {
       requireAdmin(ctx.user.role);
       const db = await getDb();
@@ -226,9 +232,12 @@ export const marketingTextInboxRouter = router({
           contactPhone: contacts.phone,
           doNotContact: contacts.doNotContact,
           smsMarketingOptedOutAt: contacts.smsMarketingOptedOutAt,
+          readAt: aircallMessages.readAt,
+          archivedAt: marketingTextInboxThreads.archivedAt,
         })
         .from(aircallMessages)
         .leftJoin(contacts, eq(contacts.id, aircallMessages.contactId))
+        .leftJoin(marketingTextInboxThreads, eq(marketingTextInboxThreads.contactId, aircallMessages.contactId))
         .where(eq(aircallMessages.aircallNumberId, line.marketingNumberId))
         .orderBy(desc(aircallMessages.sentAt), desc(aircallMessages.createdAt))
         .limit(750);
@@ -240,12 +249,13 @@ export const marketingTextInboxRouter = router({
         // callbacks, blank-body records, and unmatched numbers so every row
         // opens a useful, replyable CRM conversation.
         if (row.direction !== "inbound" || !row.contactId || !row.body?.trim()) continue;
+        if (input?.archived ? !row.archivedAt : !!row.archivedAt) continue;
         const key = `contact:${row.contactId}`;
         const label = `${row.contactFirstName ?? ""} ${row.contactLastName ?? ""} ${row.contactPhone ?? ""} ${row.fromNumber ?? ""} ${row.toNumber ?? ""} ${row.body ?? ""}`.toLowerCase();
         if (query && !label.includes(query)) continue;
         if (!threads.has(key)) threads.set(key, row);
       }
-      return Array.from(threads.values());
+      return Array.from(threads.values()).map((thread) => ({ ...thread, isUnread: !thread.readAt }));
     }),
 
   /** Returns the complete thread for a marketing contact. */
@@ -289,9 +299,72 @@ export const marketingTextInboxRouter = router({
       return { success: true, count: Number((result as any)[0]?.affectedRows ?? 0) };
     }),
 
+  /** Restores the unread indicator for every inbound reply in a conversation. */
+  markThreadUnread: protectedProcedure
+    .input(z.object({ contactId: positiveId }))
+    .mutation(async ({ ctx, input }) => {
+      requireAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const line = await marketingLine(db);
+      if (!line?.marketingNumberId) return { success: true, count: 0 };
+      const result = await db
+        .update(aircallMessages)
+        .set({ readAt: null })
+        .where(and(
+          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+          eq(aircallMessages.contactId, input.contactId),
+          eq(aircallMessages.direction, "inbound"),
+        ));
+      return { success: true, count: Number((result as any)[0]?.affectedRows ?? 0) };
+    }),
+
+  /** Archives or restores a conversation without deleting its CRM history. */
+  archiveThread: protectedProcedure
+    .input(z.object({ contactId: positiveId, archived: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      requireAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const line = await marketingLine(db);
+      if (!line?.marketingNumberId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Select a dedicated Aircall marketing number first." });
+
+      const [reply] = await db
+        .select({ id: aircallMessages.id })
+        .from(aircallMessages)
+        .where(and(
+          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+          eq(aircallMessages.contactId, input.contactId),
+          eq(aircallMessages.direction, "inbound"),
+        ))
+        .limit(1);
+      if (!reply) throw new TRPCError({ code: "NOT_FOUND", message: "Marketing text conversation not found." });
+
+      const now = new Date();
+      await db.insert(marketingTextInboxThreads).values({
+        contactId: input.contactId,
+        archivedAt: input.archived ? now : null,
+        archivedById: input.archived ? ctx.user.id : null,
+      }).onDuplicateKeyUpdate({
+        set: {
+          archivedAt: input.archived ? now : null,
+          archivedById: input.archived ? ctx.user.id : null,
+        },
+      });
+      await logActivity({
+        userId: ctx.user.id,
+        action: input.archived ? "marketing_text_thread_archived" : "marketing_text_thread_restored",
+        entityType: "contact",
+        entityId: input.contactId,
+        relatedContactId: input.contactId,
+        details: { aircallNumberId: line.marketingNumberId },
+      });
+      return { success: true };
+    }),
+
   /** Sends a manual reply from the shared marketing line and writes it to the CRM immediately. */
   sendReply: protectedProcedure
-    .input(z.object({ contactId: positiveId, body: z.string().trim().min(1).max(160) }))
+    .input(z.object({ contactId: positiveId, body: z.string().trim().min(1).max(1600) }))
     .mutation(async ({ ctx, input }) => {
       requireAdmin(ctx.user.role);
       const db = await getDb();
@@ -307,9 +380,20 @@ export const marketingTextInboxRouter = router({
       if (contact.doNotContact || contact.smsMarketingOptedOutAt) {
         throw new TRPCError({ code: "FORBIDDEN", message: "This contact is opted out of marketing outreach and cannot be texted." });
       }
-      if (!contact.phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Add a primary phone number before sending a reply." });
+      const [latestInbound] = await db
+        .select({ fromNumber: aircallMessages.fromNumber })
+        .from(aircallMessages)
+        .where(and(
+          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+          eq(aircallMessages.contactId, input.contactId),
+          eq(aircallMessages.direction, "inbound"),
+        ))
+        .orderBy(desc(sql`COALESCE(${aircallMessages.receivedAt}, ${aircallMessages.sentAt}, ${aircallMessages.createdAt})`))
+        .limit(1);
+      const replyNumber = latestInbound?.fromNumber ?? contact.phone;
+      if (!replyNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "This conversation does not have a valid reply number." });
 
-      const destination = toE164(contact.phone);
+      const destination = toE164(replyNumber);
       const result = await sendAircallSMS(destination, input.body, line.marketingNumberId);
       if (!result.success || !result.messageId) {
         throw new TRPCError({ code: "BAD_GATEWAY", message: result.error || "Aircall did not return a message identifier." });

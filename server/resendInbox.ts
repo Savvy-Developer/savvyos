@@ -1,8 +1,9 @@
 import { Resend } from "resend";
-import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import {
+  contacts,
   resendInboxMessages,
   resendInboxThreadReads,
   resendInboxThreads,
@@ -96,6 +97,16 @@ function displayName(value: string | null | undefined): string | null {
 
 function cleanRecipients(values: string[] | null | undefined): string[] {
   return (values ?? []).map(cleanEmail).filter(Boolean);
+}
+
+/** Identifies automated DMARC aggregate reports without hiding normal emails. */
+export function isDmarcAggregateReport(email: Pick<ReceivedEmailListItem, "from" | "subject">): boolean {
+  const sender = cleanEmail(email.from);
+  const subject = (email.subject ?? "").trim();
+  const dmarcSender = /(?:^|[.@_-])dmarc(?:[.@_-]|$)/i.test(sender);
+  const standardReportSubject = /^report\s+domain:\s*\S+.*\breport-id\s*:/i.test(subject);
+  const explicitDmarcSubject = /\bdmarc\s+(?:aggregate|rua)\s+report\b/i.test(subject);
+  return standardReportSubject || (dmarcSender && explicitDmarcSubject);
 }
 
 function normaliseSubject(subject: string | null | undefined): string {
@@ -208,6 +219,9 @@ export async function ingestResendReceivedEmail(event: ResendReceivedEvent): Pro
   if (event.type !== "email.received" || !event.data?.email_id) {
     return { stored: false, reason: "not_received_event" };
   }
+  if (isDmarcAggregateReport({ from: event.data.from, subject: event.data.subject })) {
+    return { stored: false, reason: "dmarc_report_filtered" };
+  }
   const db = await getDb();
   const resend = getResendClient();
   if (!db) return { stored: false, reason: "db_unavailable" };
@@ -240,6 +254,9 @@ export async function ingestResendReceivedEmail(event: ResendReceivedEvent): Pro
 
   if (!fromEmail || !receivedAddress) {
     throw new Error("Received email is missing a sender or recipient address");
+  }
+  if (isDmarcAggregateReport({ from: fromEmail, subject })) {
+    return { stored: false, reason: "dmarc_report_filtered" };
   }
 
   let thread = await findThreadForInbound(receivedAddress, fromEmail, subject, references);
@@ -345,6 +362,45 @@ export async function backfillResendInbox(input: { limit?: number; after?: strin
   };
 }
 
+async function getInboxContactMatches(participantEmails: string[]): Promise<Map<string, { id: number; name: string | null; email: string | null }>> {
+  const db = await getDb();
+  const emails = Array.from(new Set(participantEmails.map(cleanEmail).filter(Boolean)));
+  const matches = new Map<string, { id: number; name: string | null; email: string | null }>();
+  if (!db || emails.length === 0) return matches;
+
+  const rows = await db
+    .select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      secondaryEmail: contacts.secondaryEmail,
+      spouseEmail: contacts.spouseEmail,
+    })
+    .from(contacts)
+    .where(and(
+      isNull(contacts.archivedAt),
+      or(
+        inArray(contacts.email, emails),
+        inArray(contacts.secondaryEmail, emails),
+        inArray(contacts.spouseEmail, emails),
+      ),
+    ))
+    .limit(500);
+
+  for (const row of rows) {
+    const contact = {
+      id: row.id,
+      name: `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() || null,
+      email: row.email,
+    };
+    for (const email of [row.email, row.secondaryEmail, row.spouseEmail].map(cleanEmail)) {
+      if (emails.includes(email) && !matches.has(email)) matches.set(email, contact);
+    }
+  }
+  return matches;
+}
+
 export async function getResendInboxThreads(userId: number, archived: boolean) {
   const db = await getDb();
   if (!db) return [];
@@ -362,13 +418,14 @@ export async function getResendInboxThreads(userId: number, archived: boolean) {
     .where(and(
       eq(resendInboxThreadReads.userId, userId),
       inArray(resendInboxThreadReads.threadId, threads.map((thread) => thread.id)),
-    ));
+  ));
   const readByThread = new Map(reads.map((read) => [read.threadId, read]));
+  const contactByEmail = await getInboxContactMatches(threads.map((thread) => thread.participantEmail));
 
   return threads.map((thread) => {
     const read = readByThread.get(thread.id);
     const isUnread = read?.markedUnread || !read?.lastReadAt || thread.lastIncomingAt > read.lastReadAt;
-    return { ...thread, isUnread };
+    return { ...thread, isUnread, contact: contactByEmail.get(thread.participantEmail.toLowerCase()) ?? null };
   });
 }
 
@@ -388,7 +445,14 @@ export async function getResendInboxThread(threadId: number, userId: number) {
     .where(eq(resendInboxMessages.threadId, threadId))
     .orderBy(resendInboxMessages.receivedAt);
   await markThreadRead(threadId, userId, false);
-  return { thread: thread[0], messages };
+  const contactByEmail = await getInboxContactMatches([thread[0].participantEmail]);
+  return {
+    thread: {
+      ...thread[0],
+      contact: contactByEmail.get(thread[0].participantEmail.toLowerCase()) ?? null,
+    },
+    messages,
+  };
 }
 
 export async function setResendInboxThreadUnread(threadId: number, userId: number, markedUnread: boolean) {

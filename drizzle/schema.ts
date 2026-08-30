@@ -2790,6 +2790,21 @@ export const resendInboxThreadReads = mysqlTable("resend_inbox_thread_reads", {
 ]);
 export type ResendInboxThreadRead = typeof resendInboxThreadReads.$inferSelect;
 
+// ─── Marketing Text Inbox ────────────────────────────────────────────────────
+// Marketing replies are grouped by CRM contact. Archived state clears the inbox
+// without deleting the corresponding communications from the contact timeline.
+export const marketingTextInboxThreads = mysqlTable("marketing_text_inbox_threads", {
+  id: int("id").autoincrement().primaryKey(),
+  contactId: int("contactId").notNull().unique().references(() => contacts.id, { onDelete: "cascade" }),
+  archivedAt: timestamp("archivedAt"),
+  archivedById: int("archivedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("marketing_text_inbox_threads_archived_idx").on(table.archivedAt),
+]);
+export type MarketingTextInboxThread = typeof marketingTextInboxThreads.$inferSelect;
+
 // ─── Email Behaviors ──────────────────────────────────────────────────────────
 // Stores email activity imported from Resend and GoHighLevel, matched to a
 // contact by email address. One row per email send event.

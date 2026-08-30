@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
+import { Link } from "wouter";
 import {
   Archive,
   ArchiveRestore,
   CheckCheck,
   ChevronLeft,
+  ExternalLink,
   FileText,
   Inbox,
   Loader2,
@@ -32,6 +34,7 @@ type InboxThread = {
   lastMessageAt: Date | string;
   archivedAt: Date | string | null;
   isUnread: boolean;
+  contact: { id: number; name: string | null; email: string | null } | null;
 };
 
 function toDate(value: Date | string) {
@@ -292,6 +295,11 @@ export default function ResendInboxPage() {
                   {showArchived ? <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" /> : <Archive className="mr-1.5 h-3.5 w-3.5" />}
                   {showArchived ? "Restore" : "Archive"}
                 </Button>
+                {selectedThread.contact && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/contacts/${selectedThread.contact.id}`}><ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open contact</Link>
+                  </Button>
+                )}
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto bg-muted/20 px-4 py-5 md:px-6">

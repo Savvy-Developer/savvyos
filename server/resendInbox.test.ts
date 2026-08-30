@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normaliseReceivedEmailList, normaliseReceivedEmailListPage } from "./resendInbox";
+import { isDmarcAggregateReport, normaliseReceivedEmailList, normaliseReceivedEmailListPage } from "./resendInbox";
 
 describe("normaliseReceivedEmailList", () => {
   it("unwraps the Resend list envelope before callers iterate over it", () => {
@@ -31,5 +31,23 @@ describe("normaliseReceivedEmailList", () => {
       hasMore: true,
       nextCursor: "received_100",
     });
+  });
+});
+
+describe("isDmarcAggregateReport", () => {
+  it("matches the DMARC aggregate reports currently delivered to the Savvy inbox", () => {
+    expect(isDmarcAggregateReport({
+      from: "noreply@dmarc.yahoo.com",
+      subject: "Report Domain: savvy-agents.com Submitter: yahoo.com Report-ID: <123>",
+    })).toBe(true);
+    expect(isDmarcAggregateReport({
+      from: "DMARC Reports <dmarc-noreply@google.com>",
+      subject: "DMARC Aggregate Report",
+    })).toBe(true);
+  });
+
+  it("does not hide ordinary messages that only mention DMARC", () => {
+    expect(isDmarcAggregateReport({ from: "client@example.com", subject: "Question about our DMARC policy" })).toBe(false);
+    expect(isDmarcAggregateReport({ from: "noreply@dmarc.yahoo.com", subject: "Welcome to Yahoo Mail" })).toBe(false);
   });
 });

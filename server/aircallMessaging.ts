@@ -5,6 +5,7 @@ import {
   aircallMessages,
   communications,
   contacts,
+  marketingTextInboxThreads,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { findContactByPhoneDB, normalizePhone } from "./aircall";
@@ -202,6 +203,14 @@ export async function persistAircallMessage(
           smsMarketingOptOutReason: `Inbound SMS keyword: ${(payload.body ?? "OPT-OUT").trim().toUpperCase()}`,
         })
         .where(eq(contacts.id, contactId));
+    }
+    // A fresh reply should return an archived marketing conversation to the
+    // working inbox, while preserving the CRM communication history.
+    if (integration?.marketingNumberId === payload.number.id) {
+      await db
+        .update(marketingTextInboxThreads)
+        .set({ archivedAt: null, archivedById: null })
+        .where(eq(marketingTextInboxThreads.contactId, contactId));
     }
   }
 
