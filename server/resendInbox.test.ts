@@ -44,6 +44,10 @@ describe("isDmarcAggregateReport", () => {
       from: "DMARC Reports <dmarc-noreply@google.com>",
       subject: "DMARC Aggregate Report",
     })).toBe(true);
+    expect(isDmarcAggregateReport({
+      from: "reports@fastmaildmarc.com",
+      subject: "Report Domain: savvy-agents.com Submitter: fastmail.com Report-ID:2026.08.30.2132938039",
+    })).toBe(true);
   });
 
   it("does not hide ordinary messages that only mention DMARC", () => {
