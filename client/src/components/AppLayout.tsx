@@ -288,7 +288,7 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .filter((group) => group.items.length > 0);
 }
 
-function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0, resendInboxUnread: number = 0): NavGroup[] {
+function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0, resendInboxUnread: number = 0, marketingTextInboxUnread: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
@@ -359,7 +359,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Link2, label: "Short Links", path: "/short-links" },
         { icon: Wrench, label: "Vendors", path: "/admin/vendors" },
         { icon: Inbox, label: "Resend Inbox", path: "/resend-inbox", badge: resendInboxUnread > 0 ? resendInboxUnread : undefined },
-        { icon: MessageSquare, label: "Marketing Text Inbox", path: "/marketing-text-inbox" },
+        { icon: MessageSquare, label: "Marketing Text Inbox", path: "/marketing-text-inbox", badge: marketingTextInboxUnread > 0 ? marketingTextInboxUnread : undefined },
         { icon: Lock, label: "Passwords", path: "/passwords" },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
       ],
@@ -667,6 +667,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: canUseResendInbox, refetchInterval: 30000 }
   );
+  const { data: marketingTextInboxUnreadData } = trpc.marketingTextInbox.unreadCount.useQuery(
+    undefined,
+    { enabled: role === "admin", refetchInterval: 30000 },
+  );
 
   // Password navigation is available only to list owners, selected recipients, and designated super users.
   const { data: passwordAccess } = trpc.passwords.hasAccessibleLists.useQuery(
@@ -695,10 +699,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const unreadPmCount = (inboxCount as any)?.count ?? 0;
   const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
+  const marketingTextInboxUnreadCount = (marketingTextInboxUnreadData as any)?.count ?? 0;
 
   const standardNavGroups =
     role === "admin"
-      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount, resendInboxUnreadCount)
+      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount, resendInboxUnreadCount, marketingTextInboxUnreadCount)
       : role === "isa"
       ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
       : role === "agent_support"

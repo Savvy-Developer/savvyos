@@ -931,6 +931,11 @@ Please write the comprehensive AI summary now.`;
         // Smart Plan enrollment
         smart_plan_enrollment_enrolled: "Enrolled in Smart Plan",
         smart_plan_enrollment_cancelled: "Smart Plan enrollment cancelled",
+        smart_plan_step_sent: "Smart Plan step sent",
+        smart_plan_step_failed: "Smart Plan step failed",
+        smart_plan_step_skipped: "Smart Plan step skipped",
+        marketing_text_reply_sent: "Marketing text reply sent",
+        contact_marked_sms_marketing_opt_out: "Marketing SMS opt-out recorded",
         // Pipeline email
         pipeline_email_sent: "Pipeline email sent",
         // savvy-web activity

@@ -4,7 +4,7 @@
  * Dispatches email (Resend) or SMS (Aircall) for each due step.
  */
 
-import { getDb } from "./db";
+import { getDb, logActivity } from "./db";
 import {
   smartPlanEnrollments,
   smartPlanSteps,
@@ -368,7 +368,7 @@ async function processEnrollmentStep(
 
   // Persist the provider response immediately; Resend webhooks later enrich this
   // execution with delivered, opened, click, bounce, complaint, and reply signals.
-  await db.insert(smartPlanExecutions).values({
+  const [executionResult] = await db.insert(smartPlanExecutions).values({
     enrollmentId: enrollment.id,
     stepId: step.id,
     channel: step.channel,
@@ -378,6 +378,21 @@ async function processEnrollmentStep(
     sentAt: new Date(),
     status,
     errorMessage: errorMessage ?? null,
+  });
+  await logActivity({
+    userId: null,
+    action: `smart_plan_step_${status}`,
+    entityType: "smart_plan_execution",
+    entityId: Number((executionResult as any).insertId),
+    relatedContactId: contact.id,
+    details: {
+      planId: plan.id,
+      planName: plan.name,
+      stepOrder: step.stepOrder + 1,
+      channel: step.channel,
+      subject: renderedSubject || null,
+      reason: errorMessage ?? null,
+    },
   });
 
   // Advance to next step

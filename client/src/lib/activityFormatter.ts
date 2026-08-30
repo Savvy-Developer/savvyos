@@ -260,6 +260,20 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "info";
       break;
 
+    case "smart_plan_step_sent":
+    case "smart_plan_step_failed":
+    case "smart_plan_step_skipped": {
+      const outcome = action.replace("smart_plan_step_", "");
+      title = `Smart Plan step ${outcome}`;
+      lines = [
+        details.planName ? `Plan: ${String(details.planName)}` : "",
+        details.stepOrder ? `Step ${String(details.stepOrder)}${details.channel ? ` · ${String(details.channel).toUpperCase()}` : ""}` : "",
+        details.reason ? `Reason: ${String(details.reason)}` : "",
+      ].filter(Boolean);
+      icon = outcome === "failed" ? "alert" : outcome === "sent" ? "check" : "info";
+      break;
+    }
+
     case "page_opened":
       title = "Opened a page";
       lines = details.pageName ? [String(details.pageName)] : [];

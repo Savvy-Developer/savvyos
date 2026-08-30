@@ -98,12 +98,14 @@ function contactEventDotColor(type: ContactHistoryEvent["type"]): string {
   return "bg-slate-400";
 }
 
-function ContactHistoryTabContent({ contactId }: { contactId: number }) {
+function ContactHistoryTabContent({ contactId, recordOnly = false }: { contactId: number; recordOnly?: boolean }) {
   const { data: historyData, isLoading } = trpc.contacts.getHistory.useQuery(
     { contactId },
     { enabled: !!contactId }
   );
-  const events = (historyData?.events ?? []) as ContactHistoryEvent[];
+  const events = ((historyData?.events ?? []) as ContactHistoryEvent[]).filter((event) =>
+    !recordOnly || ["transaction", "listing", "property_linked"].includes(event.type),
+  );
 
   if (isLoading) {
     return (
@@ -118,7 +120,7 @@ function ContactHistoryTabContent({ contactId }: { contactId: number }) {
     return (
       <div className="text-center py-12 text-muted-foreground">
         <History className="h-8 w-8 mx-auto mb-2 opacity-40" />
-        <p className="text-sm">No history recorded yet for this contact.</p>
+        <p className="text-sm">No related records have been logged for this contact yet.</p>
       </div>
     );
   }
@@ -519,8 +521,9 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     : activityTypeFilter === "website"
       ? activityEntries.filter((entry) => websiteActivityActions.has(entry.action))
       : [];
+  const pinnedNotes = (comms ?? []).filter(({ communication }: any) => communication.type === "note" && communication.isPinned);
   const filteredCommunications = (comms ?? []).filter(({ communication }: any) =>
-    activityTypeFilter === "all" || activityTypeFilter === communication.type,
+    !communication.isPinned && (activityTypeFilter === "all" || activityTypeFilter === communication.type),
   );
 
   const contactTransactions = transactions;
@@ -1183,10 +1186,9 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
           <Tabs defaultValue="activity">
             <div className="mb-4 space-y-2">
               <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-                <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
+                <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Timeline</TabsTrigger>
                 <TabsTrigger value="related" className="shrink-0 whitespace-nowrap">Related Records ({(contactProps?.length ?? 0) + contactListings.length + contactTransactions.length})</TabsTrigger>
                 <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">Tasks ({(tasks ?? []).filter(t => t.task.status !== "completed" && t.task.status !== "cancelled").length})</TabsTrigger>
-                <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">History</TabsTrigger>
                 <TabsTrigger value="smart-plans" className="shrink-0 whitespace-nowrap"><Zap className="h-3.5 w-3.5 mr-1 inline shrink-0" />Smart Plans</TabsTrigger>
                 <TabsTrigger value="website-behaviors" className="shrink-0 whitespace-nowrap"><Globe className="h-3.5 w-3.5 mr-1 inline shrink-0" />Website Behaviors</TabsTrigger>
                 <TabsTrigger value="email-behaviors" className="shrink-0 whitespace-nowrap"><Inbox className="h-3.5 w-3.5 mr-1 inline shrink-0" />Email Behaviors</TabsTrigger>
@@ -1199,7 +1201,20 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             </div>
 
             <TabsContent value="activity">
-              {/* AI Summary — always pinned at top, collapsible */}
+              {pinnedNotes.map(({ communication, author }: any) => (
+                <Card key={`pinned-${communication.id}`} className="mb-3 border-primary/50 bg-primary/[0.03]">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2"><Badge className="gap-1 bg-primary text-primary-foreground text-xs"><Pin className="h-3 w-3" /> Pinned note</Badge><span className="text-xs text-muted-foreground">{author?.name ?? "System"}</span></div>
+                        <p className="mt-2 text-sm whitespace-pre-wrap">{communication.body}</p>
+                      </div>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs shrink-0" onClick={() => setPinnedNote.mutate({ id: communication.id, isPinned: false })} disabled={setPinnedNote.isPending}><Pin className="h-3 w-3 mr-1" /> Unpin</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {/* AI Summary — always pinned below any agent's explicitly pinned note. */}
               <ActivityTabAiSummary contactId={contactId} />
               <div className="mb-3 flex items-center justify-end gap-2">
                 <Label htmlFor="contact-activity-type" className="text-xs text-muted-foreground">Activity type</Label>
@@ -1354,6 +1369,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                     </Card>
                   ))}
                 </div>
+              )}
+              {activityTypeFilter === "all" && (
+                <section className="pt-5">
+                  <div className="mb-2 flex items-center gap-2"><History className="h-4 w-4 text-muted-foreground" /><h3 className="text-sm font-semibold">Related record history</h3></div>
+                  <ContactHistoryTabContent contactId={contactId} recordOnly />
+                </section>
               )}
             </TabsContent>
 
@@ -1517,11 +1538,6 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   ))}
                 </div>
               )}
-            </TabsContent>
-
-            {/* History Tab */}
-            <TabsContent value="history">
-              <ContactHistoryTabContent contactId={contactId} />
             </TabsContent>
 
             {/* Smart Plans Tab */}

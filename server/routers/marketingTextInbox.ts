@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { router, protectedProcedure } from "../_core/trpc";
 import { aircallApiRequest, isAircallApiConfigured, sendAircallSMS } from "../_core/aircall";
 import { getDb, logActivity } from "../db";
@@ -115,6 +115,24 @@ export const marketingTextInboxRouter = router({
         : null,
       sendReady: isAircallApiConfigured() && !!line?.marketingNumberId,
     };
+  }),
+
+  /** The sidebar badge count for unread replies on the dedicated marketing line. */
+  unreadCount: protectedProcedure.query(async ({ ctx }) => {
+    requireAdmin(ctx.user.role);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const line = await marketingLine(db);
+    if (!line?.marketingNumberId) return { count: 0 };
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(aircallMessages)
+      .where(and(
+        eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+        eq(aircallMessages.direction, "inbound"),
+        isNull(aircallMessages.readAt),
+      ));
+    return { count: Number(result?.count ?? 0) };
   }),
 
   /** Lists Aircall numbers that are not reserved for an ISA's personal line. */
@@ -239,12 +257,36 @@ export const marketingTextInboxRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
       if (!line?.marketingNumberId) return [];
-      return db
+      const rows = await db
         .select()
         .from(aircallMessages)
-        .where(and(eq(aircallMessages.aircallNumberId, line.marketingNumberId), eq(aircallMessages.contactId, input.contactId)))
-        .orderBy(asc(aircallMessages.sentAt), asc(aircallMessages.createdAt))
+        // A reply surfaces a contact in this inbox; once selected, show their
+        // entire SMS record rather than a fragmented, line-specific thread.
+        .where(eq(aircallMessages.contactId, input.contactId))
+        .orderBy(asc(sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`), asc(aircallMessages.id))
         .limit(300);
+      return rows;
+    }),
+
+  /** Marks every visible inbound reply in one conversation as read. */
+  markThreadRead: protectedProcedure
+    .input(z.object({ contactId: positiveId }))
+    .mutation(async ({ ctx, input }) => {
+      requireAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const line = await marketingLine(db);
+      if (!line?.marketingNumberId) return { success: true, count: 0 };
+      const result = await db
+        .update(aircallMessages)
+        .set({ readAt: new Date() })
+        .where(and(
+          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+          eq(aircallMessages.contactId, input.contactId),
+          eq(aircallMessages.direction, "inbound"),
+          isNull(aircallMessages.readAt),
+        ));
+      return { success: true, count: Number((result as any)[0]?.affectedRows ?? 0) };
     }),
 
   /** Sends a manual reply from the shared marketing line and writes it to the CRM immediately. */

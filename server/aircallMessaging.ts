@@ -158,7 +158,9 @@ export async function persistAircallMessage(
       .update(communications)
       .set({
         subject: messageTitle(direction),
-        body: payload.body?.trim() || null,
+        // Delivery-status webhooks omit the message body; retain the full
+        // original text in the contact's activity rather than blanking it.
+        body,
         direction,
         ...(contactId ? { relatedContactId: contactId } : {}),
         ...(direction === "outbound" && savvyUserId

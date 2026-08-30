@@ -2935,6 +2935,8 @@ export const aircallMessages = mysqlTable(
     body: text("body"),
     sentAt: timestamp("sentAt"),
     receivedAt: timestamp("receivedAt"),
+    // Global admin-inbox read state for inbound messages on the marketing line.
+    readAt: timestamp("readAt"),
     rawPayload: json("rawPayload"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2944,6 +2946,7 @@ export const aircallMessages = mysqlTable(
     index("aircall_messages_contact_sent_idx").on(table.contactId, table.sentAt),
     index("aircall_messages_isa_sent_idx").on(table.savvyUserId, table.sentAt),
     index("aircall_messages_number_sent_idx").on(table.aircallNumberId, table.sentAt),
+    index("aircall_messages_number_inbound_read_idx").on(table.aircallNumberId, table.direction, table.readAt),
   ],
 );
 export type AircallMessage = typeof aircallMessages.$inferSelect;

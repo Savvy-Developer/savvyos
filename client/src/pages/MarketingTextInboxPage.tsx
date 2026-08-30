@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -61,6 +61,7 @@ export default function MarketingTextInboxPage() {
   const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
   const [selectedNumberId, setSelectedNumberId] = useState("");
   const [reply, setReply] = useState("");
+  const conversationScrollRef = useRef<HTMLDivElement>(null);
   const isAdmin = user?.role === "admin";
 
   const configuration = trpc.marketingTextInbox.configuration.useQuery(undefined, { enabled: isAdmin });
@@ -75,6 +76,7 @@ export default function MarketingTextInboxPage() {
     { contactId: selectedContactId ?? 1 },
     { enabled: isAdmin && !!selectedContactId },
   );
+  const messages = ((threadQuery.data ?? []) as Array<{ id: number; direction: "inbound" | "outbound"; body: string | null; sentAt: Date | string | null; receivedAt: Date | string | null; createdAt: Date | string }>).filter((message) => Boolean(message.body?.trim()));
 
   const selectedThread = useMemo(
     () => (threadsQuery.data as MarketingThread[] | undefined)?.find((thread) => thread.contactId === selectedContactId) ?? null,
@@ -99,6 +101,12 @@ export default function MarketingTextInboxPage() {
     },
     onError: (error) => toast.error(error.message),
   });
+  const markThreadRead = trpc.marketingTextInbox.markThreadRead.useMutation({
+    onSuccess: () => {
+      void utils.marketingTextInbox.unreadCount.invalidate();
+      void threadsQuery.refetch();
+    },
+  });
   const optOut = trpc.marketingTextInbox.optOutContact.useMutation({
     onSuccess: () => {
       toast.success("Marketing SMS opt-out recorded.");
@@ -108,12 +116,20 @@ export default function MarketingTextInboxPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  useEffect(() => {
+    if (selectedContactId) markThreadRead.mutate({ contactId: selectedContactId });
+  }, [selectedContactId]);
+
+  useEffect(() => {
+    const element = conversationScrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [selectedContactId, messages.length, threadQuery.dataUpdatedAt]);
+
   if (!isAdmin) {
     return <div className="p-6 text-sm text-muted-foreground">This inbox is available to administrators only.</div>;
   }
 
   const config = configuration.data;
-  const messages = (threadQuery.data ?? []) as Array<{ id: number; direction: "inbound" | "outbound"; body: string | null; sentAt: Date | string | null; receivedAt: Date | string | null; createdAt: Date | string }>;
   const cannotReply = !!selectedThread?.doNotContact || !!selectedThread?.smsMarketingOptedOutAt;
 
   return (
@@ -146,7 +162,7 @@ export default function MarketingTextInboxPage() {
           <div className="min-h-[240px] flex-1 overflow-y-auto">{threadsQuery.isLoading ? <p className="p-4 text-sm text-muted-foreground">Loading replies…</p> : ((threadsQuery.data ?? []) as MarketingThread[]).length === 0 ? <div className="p-8 text-center text-sm text-muted-foreground"><MessageSquare className="mx-auto mb-2 h-8 w-8 opacity-30" /><p>No lead replies on this line yet.</p></div> : ((threadsQuery.data ?? []) as MarketingThread[]).map((thread) => <button key={thread.id} type="button" onClick={() => setSelectedContactId(thread.contactId!)} className={`w-full border-b px-4 py-3 text-left transition-colors hover:bg-muted/60 ${selectedContactId === thread.contactId ? "bg-primary/5" : ""}`}><div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-medium">{contactName(thread)}</p><span className="shrink-0 text-[11px] text-muted-foreground">{formatTime(thread.receivedAt ?? thread.sentAt ?? thread.createdAt)}</span></div><div className="mt-1 flex items-center gap-2"><p className="truncate text-xs text-muted-foreground">Reply: {thread.body}</p><span className="h-2 w-2 shrink-0 rounded-full bg-primary" /></div>{thread.smsMarketingOptedOutAt && <p className="mt-1 text-[11px] font-medium text-destructive">Marketing SMS opted out</p>}</button>)}</div>
         </aside>
 
-        <main className="flex min-h-[520px] min-w-0 flex-1 flex-col">{!selectedContactId ? <div className="m-auto max-w-sm p-8 text-center text-muted-foreground"><Inbox className="mx-auto mb-3 h-10 w-10 opacity-30" /><p className="font-medium text-foreground">Select a conversation</p><p className="mt-1 text-sm">Choose a contact thread to review the full history and reply from the marketing line.</p></div> : <><div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><div><p className="font-medium">{selectedThread ? contactName(selectedThread) : "Marketing text conversation"}</p><p className="text-xs text-muted-foreground">{selectedThread?.contactPhone || "Contact record"}</p></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => navigate(`/contacts/${selectedContactId}`)}><ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open contact</Button><Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => optOut.mutate({ contactId: selectedContactId, reason: "Opted out from Marketing Text Inbox" })} disabled={cannotReply || optOut.isPending}><ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> {cannotReply ? "Opted out" : "Opt out"}</Button></div></div><div className="flex-1 space-y-3 overflow-y-auto bg-muted/15 p-4">{threadQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading conversation…</p> : messages.length === 0 ? <p className="text-sm text-muted-foreground">No messages recorded for this contact on the marketing line.</p> : messages.map((message) => <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}><div className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === "outbound" ? "bg-primary text-primary-foreground" : "bg-background border"}`}><p className="whitespace-pre-wrap">{message.body || "(No message body)"}</p><p className={`mt-1 text-[10px] ${message.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{message.direction === "outbound" ? "Sent" : "Received"} · {formatTime(message.sentAt ?? message.receivedAt ?? message.createdAt)}</p></div></div>)}</div><div className="border-t p-4">{cannotReply ? <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><p>This contact is opted out of marketing SMS. SavvyOS will not send replies or Smart Plan texts from this marketing line.</p></div> : <><div className="flex items-end gap-3"><Textarea value={reply} onChange={(event) => setReply(event.target.value)} maxLength={160} rows={3} placeholder="Write a concise reply…" /><Button onClick={() => sendReply.mutate({ contactId: selectedContactId, body: reply.trim() })} disabled={!reply.trim() || sendReply.isPending}>{sendReply.isPending ? "Sending…" : <><Send className="mr-1.5 h-4 w-4" /> Send</>}</Button></div><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>Replies send from the dedicated marketing number.</span><span>{reply.length}/160</span></div></>}</div></>}</main>
+        <main className="flex min-h-[520px] min-w-0 flex-1 flex-col">{!selectedContactId ? <div className="m-auto max-w-sm p-8 text-center text-muted-foreground"><Inbox className="mx-auto mb-3 h-10 w-10 opacity-30" /><p className="font-medium text-foreground">Select a conversation</p><p className="mt-1 text-sm">Choose a contact thread to review the full history and reply from the marketing line.</p></div> : <><div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><div><p className="font-medium">{selectedThread ? contactName(selectedThread) : "Marketing text conversation"}</p><p className="text-xs text-muted-foreground">{selectedThread?.contactPhone || "Contact record"}</p></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => navigate(`/contacts/${selectedContactId}`)}><ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open contact</Button><Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => optOut.mutate({ contactId: selectedContactId, reason: "Opted out from Marketing Text Inbox" })} disabled={cannotReply || optOut.isPending}><ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> {cannotReply ? "Opted out" : "Opt out"}</Button></div></div><div ref={conversationScrollRef} className="flex-1 space-y-3 overflow-y-auto bg-muted/15 p-4">{threadQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading conversation…</p> : messages.length === 0 ? <p className="text-sm text-muted-foreground">No text messages recorded for this contact on the marketing line.</p> : messages.map((message) => <div key={message.id} className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}><div className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === "outbound" ? "bg-primary text-primary-foreground" : "bg-background border"}`}><p className="whitespace-pre-wrap">{message.body}</p><p className={`mt-1 text-[10px] ${message.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{message.direction === "outbound" ? "Sent" : "Received"} · {formatTime(message.sentAt ?? message.receivedAt ?? message.createdAt)}</p></div></div>)}</div><div className="border-t p-4">{cannotReply ? <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><p>This contact is opted out of marketing SMS. SavvyOS will not send replies or Smart Plan texts from this marketing line.</p></div> : <><div className="flex items-end gap-3"><Textarea value={reply} onChange={(event) => setReply(event.target.value)} maxLength={160} rows={3} placeholder="Write a concise reply…" /><Button onClick={() => sendReply.mutate({ contactId: selectedContactId, body: reply.trim() })} disabled={!reply.trim() || sendReply.isPending}>{sendReply.isPending ? "Sending…" : <><Send className="mr-1.5 h-4 w-4" /> Send</>}</Button></div><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>Replies send from the dedicated marketing number.</span><span>{reply.length}/160</span></div></>}</div></>}</main>
       </div>}
     </div>
   );
