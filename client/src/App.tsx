@@ -297,6 +297,13 @@ function ReviewsRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PtoEmployeeRoute({ children }: { children: React.ReactNode }) {
+  const { data: access, isLoading } = trpc.pto.access.useQuery();
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!access?.canView) return <NotFound />;
+  return <>{children}</>;
+}
+
 function PtoApprovalsRoute({ children }: { children: React.ReactNode }) {
   const { data: access, isLoading } = trpc.pto.access.useQuery();
   if (isLoading) return <div className="min-h-[40vh]" />;
@@ -367,7 +374,7 @@ function Router() {
           <Route path="/tasks" component={TasksPage} />
           <Route path="/my-tasks" component={MyTasksPage} />
           <Route path="/tasks/:id" component={TaskDetailPage} />
-          <Route path="/pto" component={PtoPage} />
+          <Route path="/pto">{() => <PtoEmployeeRoute><PtoPage /></PtoEmployeeRoute>}</Route>
           <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
           <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>
           <Route path="/analytics/legacy">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>

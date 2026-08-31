@@ -95,7 +95,6 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
 
   const operationsItems: NavItem[] = [
     { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
-    { icon: CalendarDays, label: "My PTO", path: "/pto" },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
     { icon: Users, label: "Agent Directory", path: "/agent-directory" },
   ];
@@ -179,12 +178,6 @@ function buildAgentSupportNav(): NavGroup[] {
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
       ],
     },
-    {
-      label: "Personal",
-      items: [
-        { icon: CalendarDays, label: "My PTO", path: "/pto" },
-      ],
-    },
   ];
 }
 
@@ -211,7 +204,6 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
       label: "Operations",
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
-        { icon: CalendarDays, label: "My PTO", path: "/pto" },
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: PhoneCall, label: "Market Match Call", path: "/market-match-call" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
@@ -247,6 +239,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewReferrals: "/referrals",
   canViewPulse: "/pulse",
   canViewTasks: "/tasks",
+  canViewPto: "/pto",
   canApprovePto: "/pto/approvals",
   canAdministerPto: "/pto/admin",
   canViewOnboarding: "/onboarding",

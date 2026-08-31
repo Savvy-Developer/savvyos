@@ -2762,7 +2762,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewPulseSettings: boolean("canViewPulseSettings").default(false).notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
-  // PTO approval and administration are intentionally opt-in and must be assigned through Super Permissions.
+  // PTO access, approval, and administration are intentionally opt-in and must be assigned through Super Permissions.
+  canViewPto: boolean("canViewPto").default(false).notNull(),
   canApprovePto: boolean("canApprovePto").default(false).notNull(),
   canAdministerPto: boolean("canAdministerPto").default(false).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),

@@ -182,6 +182,10 @@ async function currentManagerForEmployee(db: any, employeeId: number) {
   return { employee, manager };
 }
 
+async function assertPtoEmployee(ctx: any): Promise<boolean> {
+  return canAdminUsePermission(ctx.user, "canViewPto" as any);
+}
+
 async function assertPtoManager(ctx: any): Promise<boolean> {
   return canAdminUsePermission(ctx.user, "canApprovePto" as any);
 }
@@ -345,11 +349,13 @@ async function notifyEmployeeOfDecision(input: { request: any; employee: any; ma
 
 export const ptoRouter = router({
   access: protectedProcedure.query(async ({ ctx }) => ({
+    canView: await assertPtoEmployee(ctx),
     canApprove: await assertPtoManager(ctx),
     canAdminister: await assertPtoAdmin(ctx),
   })),
 
   myDashboard: protectedProcedure.query(async ({ ctx }) => {
+    if (!(await assertPtoEmployee(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have My PTO access." });
     const db = requireDb(await getDb());
     const employee = await requireEligibleEmployee(db, ctx.user.id);
     const [balances, requests, managerRows] = await Promise.all([
@@ -376,6 +382,7 @@ export const ptoRouter = router({
       coverageNotes: z.string().trim().max(5_000).optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
+      if (!(await assertPtoEmployee(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have My PTO access." });
       const db = requireDb(await getDb());
       validateRequestRange(input.startDate, input.endDate, input.requestedDays);
       const { employee, manager } = await currentManagerForEmployee(db, ctx.user.id);
@@ -410,6 +417,7 @@ export const ptoRouter = router({
   withdrawRequest: protectedProcedure
     .input(z.object({ requestId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
+      if (!(await assertPtoEmployee(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have My PTO access." });
       const db = requireDb(await getDb());
       const [request] = await db.select().from(ptoRequests).where(eq(ptoRequests.id, input.requestId)).limit(1);
       if (!request || request.employeeId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "Pending PTO request not found." });
