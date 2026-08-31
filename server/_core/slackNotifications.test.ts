@@ -54,7 +54,7 @@ describe("SavvyOS Slack Feature Update notifications", () => {
       "Never mention commits, GitHub, source code, file paths"
     );
     expect(__testables__.fallbackReleaseSummary().whatChanged).toContain(
-      "behind-the-scenes improvements"
+      "workflow update"
     );
   });
 
@@ -99,6 +99,8 @@ describe("SavvyOS Slack Feature Update notifications", () => {
               audience: "Admins, agents, and ISAs",
               whatChanged:
                 "You can now share contact context with the right teammate more easily.",
+              howToUse:
+                "Open a contact and use the sharing controls to include the teammate who needs the context.",
               whyItMatters:
                 "It keeps handoffs clear and helps everyone work from the same client information.",
               additionalImpact:
@@ -125,12 +127,35 @@ describe("SavvyOS Slack Feature Update notifications", () => {
             ":mega: *Savvy OS has just been updated!*",
             "*Who this helps:* Admins, agents, and ISAs",
             "*What's new:* You can now share contact context with the right teammate more easily.",
+            "*How to use it:* Open a contact and use the sharing controls to include the teammate who needs the context.",
             "*Why it matters:* It keeps handoffs clear and helps everyone work from the same client information.",
             "*Also affects:* Existing contact records and sharing workflows remain available.",
           ].join("\n"),
         }),
       })
     );
+  });
+
+  it("uses approved commit release notes when detailed announcement copy is supplied", async () => {
+    fetchMock.mockResolvedValue({ ok: true });
+
+    await expect(
+      notifySavvyOSRelease({
+        commitMessage: [
+          "feat: add weekly reports",
+          "Release Audience: Agents, admins, and ISAs",
+          "Release Changes: Weekly webinar and referral reports are now available alongside partner cheat sheets and a clearer onboarding experience.",
+          "Release How: Agents can open Resources, then Referral Partners, to review commission details and partner guidance; use Onboarding to focus on unfinished tasks.",
+          "Release Why: The reports keep the team informed while clearer partner and onboarding information makes everyday follow-up faster.",
+        ].join("\n"),
+        changedFiles: ["server/weeklyOperationsReportsScheduler.ts"],
+        diff: "+ implementation details",
+      })
+    ).resolves.toBe(true);
+
+    expect(invokeLlmMock).not.toHaveBeenCalled();
+    const request = fetchMock.mock.calls[0]?.[1] as { body: string };
+    expect(JSON.parse(request.body).text).toContain("*How to use it:* Agents can open Resources");
   });
 
   it("returns false rather than blocking an update when Slack rejects the request", async () => {
