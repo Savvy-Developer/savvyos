@@ -320,11 +320,9 @@ function PtoAdministrationRoute({ children }: { children: React.ReactNode }) {
 
 function PulseRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const isAdmin = (user as any)?.role === "admin";
-  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
-  if (!isAdmin) return <NotFound />;
+  const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, { enabled: !!user });
   if (isLoading) return <div className="min-h-[40vh]" />;
-  if (!(permissions as any)?.canViewPulse) return <NotFound />;
+  if (error || !data?.hasPulseAccess) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -337,8 +335,7 @@ function PulseMemberRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { data, isLoading, error } = trpc.pulse.shell.useQuery(undefined, { enabled: !!user });
   if (isLoading) return <div className="min-h-[40vh]" />;
-  if (error) return <NotFound />;
-  if (!data) return <NotFound />;
+  if (error || !data?.hasPulseAccess) return <NotFound />;
   return <>{children}</>;
 }
 

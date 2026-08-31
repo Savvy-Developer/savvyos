@@ -727,9 +727,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       : role === "agent_support"
       ? buildAgentSupportNav()
       : buildAgentNav(hasActiveOnboarding, isGroupLeader, myOverdueTaskCount);
-  const canUsePulseLayout = isPulseMeetingPath
-    ? Boolean(pulseShell)
-    : isPulsePath && role === "admin" && !!(adminPerms as Record<string, boolean> | undefined)?.canViewPulse;
+  const canUsePulseLayout = isPulsePath && Boolean((pulseShell as any)?.hasPulseAccess);
   const baseNavGroups = canUsePulseLayout ? buildPulseNav(pulseShell as PulseNavShell | undefined) : standardNavGroups;
   // For admin users, filter nav by their permissions, then apply password-list visibility.
   const permissionFilteredNavGroups: NavGroup[] = role === "admin"

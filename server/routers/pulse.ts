@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { canOpenPulseSettings, pulseMemberProcedure, pulseProcedure } from "../pulse/authorization";
+import { canOpenPulse, canOpenPulseSettings, hasPulseCapability, pulseMemberProcedure, pulseProcedure } from "../pulse/authorization";
 import { and, asc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -27,6 +27,7 @@ import { pulseGoalsRouter } from "../pulse/goals";
 import { pulseRocksRouter } from "../pulse/rocks";
 import { pulseObservationsRouter } from "../pulse/observations";
 import { pulseSettingsRouter } from "../pulse/settings";
+import { pulseL10Router } from "../pulse/l10";
 
 const sectionKeySchema = z.enum(PULSE_SECTION_KEYS);
 const meetingLabelSchema = z.enum(["level_10", "one_on_one", "other"]);
@@ -162,6 +163,7 @@ export const pulseRouter = router({
   rocks: pulseRocksRouter,
   observations: pulseObservationsRouter,
   settings: pulseSettingsRouter,
+  l10: pulseL10Router,
 
   /** Used by the shell. This payload is built from membership, never platform role. */
   shell: pulseMemberProcedure.query(async ({ ctx }) => {
@@ -169,14 +171,22 @@ export const pulseRouter = router({
     if (!db) throw serviceUnavailable();
     await ensureGlossary(db);
     const meetings = await listVisibleMeetings(db, ctx.user.id);
+    const hasPulseAccess = await canOpenPulse(db, ctx.user);
     const ownsOrAdministers = meetings.some((meeting: any) => (
       meeting.meetingRole === "owner" || meeting.meetingRole === "administrator"
     ));
     const hasPulseSettings = await canOpenPulseSettings(db, ctx.user);
-    const canSeeSettings = ownsOrAdministers || hasPulseSettings;
+    const [canManageL10s, canManagePermissionMatrix, canRunL10s, canViewAllL10Health] = await Promise.all([
+      hasPulseCapability(db, ctx.user, "manage_l10s"),
+      hasPulseCapability(db, ctx.user, "manage_permission_matrix"),
+      hasPulseCapability(db, ctx.user, "run_l10s"),
+      hasPulseCapability(db, ctx.user, "view_all_l10_health"),
+    ]);
+    const canSeeSettings = hasPulseSettings;
     const navMode = meetings.length === 1 && !ownsOrAdministers ? "single_meeting" : "standard";
 
     return {
+      hasPulseAccess,
       navMode,
       meetings,
       ownsOrAdministers,
@@ -184,8 +194,12 @@ export const pulseRouter = router({
       // of a meeting the current person already belongs to.
       canSeeSettings,
       canOpenPulseSettings: hasPulseSettings,
-      settingsReason: ownsOrAdministers ? "meeting_manager" : hasPulseSettings ? "pulse_settings" : "none",
-      canSeeAggregateReporting: hasPulseSettings,
+      canManageL10s,
+      canManagePermissionMatrix,
+      canRunL10s,
+      canViewAllL10Health,
+      settingsReason: hasPulseSettings ? "pulse_settings" : "none",
+      canSeeAggregateReporting: canViewAllL10Health,
     };
   }),
 

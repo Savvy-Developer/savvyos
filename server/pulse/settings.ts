@@ -20,7 +20,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { router } from "../_core/trpc";
-import { canOpenPulseSettings, PULSE_CAPABILITIES, requireMeetingConfigurationAccess, requirePulseSettingsAccess, pulseProcedure } from "./authorization";
+import { canOpenPulseSettings, PULSE_CAPABILITIES, requireMeetingConfigurationAccess, requirePulseCapability, requirePulseSettingsAccess, pulseProcedure } from "./authorization";
 
 const id = () => crypto.randomUUID();
 const daySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -387,10 +387,11 @@ export const pulseSettingsRouter = router({
     .input(z.object({ personId: z.number().int().positive(), capability: z.enum(PULSE_CAPABILITIES), allowed: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const db = await database();
-      await requirePulseSettingsAccess(db, ctx.user);
+      await requirePulseCapability(db, ctx.user, "manage_permission_matrix");
       const [person] = await db.select({ email: users.email }).from(users).where(eq(users.id, input.personId)).limit(1);
-      if (person?.email?.toLowerCase() === "tyler@savvy.realty" && !input.allowed) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Tyler retains every Pulse capability." });
+      if (input.capability === "manage_permission_matrix" && !input.allowed) {
+        const matrixAdmins = await db.select({ personId: pulsePermissions.personId }).from(pulsePermissions).where(and(eq(pulsePermissions.capability, "manage_permission_matrix"), eq(pulsePermissions.allowed, true)));
+        if (matrixAdmins.length <= 1 && matrixAdmins[0]?.personId === input.personId) throw new TRPCError({ code: "BAD_REQUEST", message: "Pulse must retain at least one permission-matrix administrator." });
       }
       await assertActivePerson(db, input.personId);
       await db.insert(pulsePermissions).values({ id: id(), personId: input.personId, capability: input.capability, allowed: input.allowed, grantedById: ctx.user.id })
