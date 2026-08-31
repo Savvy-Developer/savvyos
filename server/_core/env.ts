@@ -24,4 +24,7 @@ export const ENV = {
   // Incoming webhook for concise release-note messages in #savvyos-prompt-queue.
   slackSavvyosPromptQueueWebhookUrl:
     process.env.SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL ?? "",
+  // Shared request secret used by GitHub Actions to call the release summary route.
+  releaseNotificationSecret:
+    process.env.SAVVYOS_RELEASE_NOTIFICATION_SECRET ?? "",
 };

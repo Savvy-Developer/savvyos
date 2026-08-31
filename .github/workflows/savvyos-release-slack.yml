@@ -10,37 +10,78 @@ permissions:
 
 jobs:
   notify-slack:
-    name: Notify #savvyos-prompt-queue
+    name: Send plain-language release update
     runs-on: ubuntu-latest
     env:
+      RELEASE_NOTIFICATION_URL: https://os.savvy-agents.com/api/internal/release-notification
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL }}
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 2
 
-      - name: Post release summary
+      - name: Prepare trusted release material
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/savvyos-release"
+
+          if [ -z "$BEFORE_SHA" ] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git show --format= --name-only "$GITHUB_SHA" > "$RUNNER_TEMP/savvyos-release/changed-files.txt"
+            git show --format= --unified=3 "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' > "$RUNNER_TEMP/savvyos-release/release.diff"
+          else
+            git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" > "$RUNNER_TEMP/savvyos-release/changed-files.txt"
+            git diff --unified=3 "$BEFORE_SHA" "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' > "$RUNNER_TEMP/savvyos-release/release.diff"
+          fi
+
+          git log -1 --pretty=%B "$GITHUB_SHA" > "$RUNNER_TEMP/savvyos-release/commit-message.txt"
+
+      - name: Send plain-language release update
         shell: bash
         run: |
           set -euo pipefail
 
           if [ -z "${SLACK_WEBHOOK_URL}" ]; then
-            echo "::warning::SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL is not configured; no Slack release message was sent."
-            exit 0
+            echo "::error::SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL is not configured."
+            exit 1
           fi
 
-          commit_message="$(git log -1 --pretty=%B)"
-          commit_url="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          release_notification_secret="$(printf '%s' "$SLACK_WEBHOOK_URL" | sha256sum | awk '{print $1}')"
+          changed_files_json="$(jq -Rsc 'split("\n") | map(select(length > 0))' "$RUNNER_TEMP/savvyos-release/changed-files.txt")"
           payload="$(jq -n \
-            --arg commit_message "$commit_message" \
-            --arg commit_url "$commit_url" \
-            --arg actor "${{ github.actor }}" \
-            'def safe: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("(?i)@(channel|here|everyone)"; "@\u200b");
-             {text: (":rocket: *SavvyOS update queued for production*\n" + ($commit_message | safe) + "\n<" + $commit_url + "|View release commit>\nPublished by " + ($actor | safe))}')"
+            --rawfile commit_message "$RUNNER_TEMP/savvyos-release/commit-message.txt" \
+            --argjson changed_files "$changed_files_json" \
+            --rawfile diff "$RUNNER_TEMP/savvyos-release/release.diff" \
+            '{commitMessage: $commit_message, changedFiles: $changed_files, diff: $diff}')"
 
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            --header 'content-type: application/json' \
-            --data "$payload" \
-            "$SLACK_WEBHOOK_URL"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          for attempt in $(seq 1 36); do
+            status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+              --request POST \
+              --header 'content-type: application/json' \
+              --header "x-savvyos-release-notification-secret: ${release_notification_secret}" \
+              --data "$payload" \
+              "$RELEASE_NOTIFICATION_URL" || true)"
+
+            if [ "$status" = "200" ]; then
+              echo "Plain-language SavvyOS release update sent to Slack."
+              exit 0
+            fi
+
+            if [ "$status" != "404" ] && [ "$status" != "503" ]; then
+              cat "$response_file"
+              echo "::error::Release notification endpoint returned HTTP $status."
+              exit 1
+            fi
+
+            echo "Release summary endpoint returned HTTP $status; waiting for the production deployment ($attempt/36)."
+            sleep 15
+          done
+
+          cat "$response_file"
+          echo "::error::Release notification endpoint was unavailable after nine minutes."
+          exit 1

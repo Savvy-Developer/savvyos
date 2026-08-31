@@ -41,6 +41,7 @@ import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
+import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -164,6 +165,8 @@ async function startServer() {
   registerInvestorReportRoute(app);
   // External API proxies (Zillow, Airbnb)
   registerExternalApiRoutes(app);
+  // Trusted GitHub release summaries post only plain-language Slack messages.
+  registerReleaseNotificationRoute(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC
   registerWebhookRoute(app);
 
