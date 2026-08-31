@@ -17,7 +17,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus,
   Search,
@@ -31,6 +30,7 @@ import {
   FolderOpen,
   ArrowLeft,
   List,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -98,21 +98,8 @@ export default function PasswordsPage() {
     setEntryForm({ title: "", username: "", password: "", loginUrl: "", notes: "" });
   }
 
-  function setSharePermission(userId: number, permission: "canView" | "canCreate" | "canEdit", enabled: boolean) {
-    setListForm((current) => ({
-      ...current,
-      shareGrants: (() => {
-        const existing = current.shareGrants.find((grant) => grant.userId === userId) ?? { userId, canView: false, canCreate: false, canEdit: false };
-        const next = { ...existing, [permission]: enabled };
-        if (permission === "canView" && !enabled) {
-          next.canCreate = false;
-          next.canEdit = false;
-        }
-        if ((permission === "canCreate" || permission === "canEdit") && enabled) next.canView = true;
-        const remaining = current.shareGrants.filter((grant) => grant.userId !== userId);
-        return next.canView || next.canCreate || next.canEdit ? [...remaining, next] : remaining;
-      })(),
-    }));
+  function setShareGrants(shareGrants: Array<{ userId: number; canView: boolean; canCreate: boolean; canEdit: boolean }>) {
+    setListForm((current) => ({ ...current, shareGrants }));
   }
 
   function togglePasswordVisibility(id: number) {
@@ -366,7 +353,7 @@ export default function PasswordsPage() {
 
       {/* ─── Create List Dialog ──────────────────────────────────────────────── */}
       <Dialog open={showCreateList} onOpenChange={setShowCreateList}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Create New List</DialogTitle>
           </DialogHeader>
@@ -388,7 +375,7 @@ export default function PasswordsPage() {
                 rows={2}
               />
             </div>
-            <PasswordListShareSelector users={shareableUsers as any[]} grants={listForm.shareGrants} onPermissionChange={setSharePermission} />
+            <PasswordListShareSelector key={showCreateList ? "create-open" : "create-closed"} users={shareableUsers as any[]} grants={listForm.shareGrants} onChange={setShareGrants} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateList(false)}>Cancel</Button>
@@ -404,7 +391,7 @@ export default function PasswordsPage() {
 
       {/* ─── Edit List Dialog ────────────────────────────────────────────────── */}
       <Dialog open={!!editingList} onOpenChange={() => setEditingList(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit List</DialogTitle>
           </DialogHeader>
@@ -424,7 +411,7 @@ export default function PasswordsPage() {
                 rows={2}
               />
             </div>
-            <PasswordListShareSelector users={shareableUsers as any[]} grants={listForm.shareGrants} onPermissionChange={setSharePermission} />
+            <PasswordListShareSelector key={editingList ? `edit-${editingList.id}` : "edit-closed"} users={shareableUsers as any[]} grants={listForm.shareGrants} onChange={setShareGrants} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingList(null)}>Cancel</Button>
@@ -564,49 +551,321 @@ export default function PasswordsPage() {
 function PasswordListShareSelector({
   users,
   grants,
-  onPermissionChange,
+  onChange,
 }: {
-  users: Array<{ id: number; name?: string | null; email?: string | null; role?: string | null }>;
-  grants: Array<{ userId: number; canView: boolean; canCreate: boolean; canEdit: boolean }>;
-  onPermissionChange: (userId: number, permission: "canView" | "canCreate" | "canEdit", enabled: boolean) => void;
+  users: Array<{
+    id: number;
+    name?: string | null;
+    email?: string | null;
+    role?: string | null;
+  }>;
+  grants: Array<{
+    userId: number;
+    canView: boolean;
+    canCreate: boolean;
+    canEdit: boolean;
+  }>;
+  onChange: (
+    grants: Array<{
+      userId: number;
+      canView: boolean;
+      canCreate: boolean;
+      canEdit: boolean;
+    }>
+  ) => void;
 }) {
-  const permissionLabels: Array<{ key: "canView" | "canCreate" | "canEdit"; label: string }> = [
-    { key: "canView", label: "View" },
-    { key: "canCreate", label: "Create" },
-    { key: "canEdit", label: "Edit" },
+  const [step, setStep] = useState<"people" | "permissions">("people");
+  const [search, setSearch] = useState("");
+  const selectedUserIds = new Set(grants.map(grant => grant.userId));
+  const selectedUsers = users.filter(user => selectedUserIds.has(user.id));
+  const availableUsers = users.filter(user => {
+    if (selectedUserIds.has(user.id)) return false;
+    const query = search.trim().toLowerCase();
+    return (
+      !query ||
+      [user.name, user.email, user.role].some(value =>
+        value?.toLowerCase().includes(query)
+      )
+    );
+  });
+  const permissionOptions: Array<{
+    label: string;
+    detail: string;
+    canCreate: boolean;
+    canEdit: boolean;
+  }> = [
+    {
+      label: "View only",
+      detail: "View and copy credentials",
+      canCreate: false,
+      canEdit: false,
+    },
+    {
+      label: "Add entries",
+      detail: "View and add entries",
+      canCreate: true,
+      canEdit: false,
+    },
+    {
+      label: "Edit entries",
+      detail: "View, edit, and delete entries",
+      canCreate: false,
+      canEdit: true,
+    },
+    {
+      label: "Full access",
+      detail: "View, add, edit, and delete",
+      canCreate: true,
+      canEdit: true,
+    },
   ];
+
+  function addCollaborator(userId: number) {
+    if (selectedUserIds.has(userId)) return;
+    onChange([
+      ...grants,
+      { userId, canView: true, canCreate: false, canEdit: false },
+    ]);
+  }
+
+  function removeCollaborator(userId: number) {
+    onChange(grants.filter(grant => grant.userId !== userId));
+  }
+
+  function setPermission(userId: number, canCreate: boolean, canEdit: boolean) {
+    onChange(
+      grants.map(grant =>
+        grant.userId === userId
+          ? { ...grant, canView: true, canCreate, canEdit }
+          : grant
+      )
+    );
+  }
+
+  const displayName = (user: {
+    id: number;
+    name?: string | null;
+    email?: string | null;
+  }) => user.name || user.email || `User #${user.id}`;
+
   return (
-    <div className="space-y-2">
-      <div>
-        <label className="text-sm font-medium">Share with</label>
-        <p className="text-xs text-muted-foreground mt-1">Choose each person's access. Create allows new entries; edit allows changes and deletes. Both also include viewing and copying credentials.</p>
+    <div className="rounded-lg border bg-muted/10 p-4">
+      <div className="mb-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span
+          className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${step === "people" ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary"}`}
+        >
+          1
+        </span>
+        <span>Choose collaborators</span>
+        <span className="h-px w-5 bg-border" />
+        <span
+          className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${step === "permissions" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+        >
+          2
+        </span>
+        <span>Set permissions</span>
       </div>
-      <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
-        {users.length === 0 ? (
-          <p className="px-3 py-3 text-sm text-muted-foreground">No active users are available.</p>
-        ) : users.map((user) => {
-          const grant = grants.find((candidate) => candidate.userId === user.id) ?? { userId: user.id, canView: false, canCreate: false, canEdit: false };
-          return (
-            <div key={user.id} className="px-3 py-2.5 hover:bg-muted/50">
-              <span className="mb-2 block min-w-0 text-sm">
-                <span className="block truncate font-medium">{user.name || user.email || `User #${user.id}`}</span>
-                {user.email && <span className="block truncate text-xs text-muted-foreground">{user.email}</span>}
-              </span>
-              <div className="flex flex-wrap gap-x-4 gap-y-2">
-                {permissionLabels.map(({ key, label }) => (
-                  <label key={key} className="flex cursor-pointer items-center gap-1.5 text-xs font-medium">
-                    <Checkbox
-                      checked={grant[key]}
-                      onCheckedChange={(checked) => onPermissionChange(user.id, key, checked === true)}
-                    />
-                    {label}
-                  </label>
+
+      {step === "people" ? (
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium">Choose collaborators</label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Existing collaborators stay visible here. Select people first,
+              then set access for only those people.
+            </p>
+          </div>
+
+          {selectedUsers.length > 0 && (
+            <div className="rounded-md border bg-background p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Collaborators ({selectedUsers.length})
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setStep("permissions")}
+                >
+                  Set permissions
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedUsers.map(user => (
+                  <span
+                    key={user.id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/30 py-1 pl-2.5 pr-1 text-xs"
+                  >
+                    <span className="max-w-44 truncate font-medium">
+                      {displayName(user)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeCollaborator(user.id)}
+                      className="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
+                      aria-label={`Remove ${displayName(user)}`}
+                      title={`Remove ${displayName(user)}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
                 ))}
               </div>
             </div>
-          );
-        })}
-      </div>
+          )}
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              className="pl-9"
+              placeholder="Search people by name, email, or role…"
+            />
+          </div>
+
+          <div className="max-h-[min(34vh,18rem)] overflow-y-auto rounded-md border bg-background divide-y">
+            {users.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-muted-foreground">
+                No active users are available.
+              </p>
+            ) : availableUsers.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-muted-foreground">
+                {selectedUsers.length === users.length
+                  ? "Everyone available has been selected."
+                  : "No people match that search."}
+              </p>
+            ) : (
+              availableUsers.map(user => (
+                <button
+                  key={user.id}
+                  type="button"
+                  onClick={() => addCollaborator(user.id)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {displayName(user)}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {user.email}
+                      {user.role ? ` · ${user.role.replace(/_/g, " ")}` : ""}
+                    </span>
+                  </span>
+                  <Plus className="h-4 w-4 shrink-0 text-primary" />
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setStep("permissions")}
+              disabled={selectedUsers.length === 0}
+            >
+              Continue to permissions
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium">
+              Set collaborator permissions
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Each collaborator can view credentials. Choose whether they can
+              also add, edit, or delete password entries.
+            </p>
+          </div>
+          <div className="max-h-[min(46vh,28rem)] space-y-3 overflow-y-auto pr-1">
+            {selectedUsers.map(user => {
+              const grant = grants.find(
+                candidate => candidate.userId === user.id
+              ) ?? {
+                userId: user.id,
+                canView: true,
+                canCreate: false,
+                canEdit: false,
+              };
+              return (
+                <div
+                  key={user.id}
+                  className="rounded-md border bg-background p-3"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {displayName(user)}
+                      </p>
+                      {user.email && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {user.email}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive"
+                      onClick={() => removeCollaborator(user.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {permissionOptions.map(option => {
+                      const selected =
+                        grant.canCreate === option.canCreate &&
+                        grant.canEdit === option.canEdit;
+                      return (
+                        <button
+                          key={option.label}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            setPermission(
+                              user.id,
+                              option.canCreate,
+                              option.canEdit
+                            )
+                          }
+                          className={`rounded-md border px-3 py-2 text-left transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted/60"}`}
+                        >
+                          <span className="block text-xs font-semibold">
+                            {option.label}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                            {option.detail}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setStep("people")}
+            >
+              Back
+            </Button>
+            <p className="text-right text-xs text-muted-foreground">
+              Permissions are saved when you create or save this list.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

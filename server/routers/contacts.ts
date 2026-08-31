@@ -29,6 +29,17 @@ const optionalUsPhone = z
   .optional()
   .refine(isValidOptionalUsPhone, { message: "Phone number must contain exactly 10 digits." });
 
+// These values are reserved for contacts created automatically by integrations.
+// They must never be chosen by a person creating a contact in SavvyOS.
+const NON_MANUAL_LEAD_SOURCE_NAMES = new Set([
+  "unattributed",
+  "unattributed (webhook)",
+]);
+
+function isNonManualLeadSource(name: string | null | undefined): boolean {
+  return NON_MANUAL_LEAD_SOURCE_NAMES.has((name ?? "").trim().toLowerCase());
+}
+
 const contactInput = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -95,7 +106,12 @@ export const contactsRouter = router({
       if (!input.leadSourceId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A lead source is required. Every contact must have a source for attribution." });
       }
-      // Agent-created contacts are used for direct outreach, so a phone number is required.
+      // Agent-created contacts are used for direct outreach, so both direct
+      // contact methods are required. This is enforced here in addition to the
+      // Pipeline form so a crafted request cannot bypass the intake rules.
+      if (ctx.user.role === "agent" && !input.email?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "An email address is required when adding a contact to your pipeline." });
+      }
       // Enforce this server-side to cover every contact-creation surface, not only the Pipeline UI.
       if (ctx.user.role === "agent" && !input.phone?.trim()) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A phone number is required when adding a contact to your pipeline." });
@@ -106,10 +122,16 @@ export const contactsRouter = router({
       // enforce the rule here as well so a handcrafted request cannot bypass it.
       if (ctx.user.role !== "admin" && db) {
         const [selectedLeadSource] = await db
-          .select({ name: leadSources.name })
+          .select({ name: leadSources.name, isActive: leadSources.isActive })
           .from(leadSources)
           .where(eq(leadSources.id, input.leadSourceId))
           .limit(1);
+        if (!selectedLeadSource || selectedLeadSource.isActive === false) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active lead source for this contact." });
+        }
+        if (isNonManualLeadSource(selectedLeadSource.name)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Unattributed sources are reserved for automated records and cannot be selected manually." });
+        }
         if (selectedLeadSource?.name.trim().toLowerCase() === "soi list") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can select SOI List as a contact's lead source." });
         }

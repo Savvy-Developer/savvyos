@@ -29,6 +29,7 @@ const validContact = {
   firstName: "Taylor",
   lastName: "Morgan",
   leadSourceId: 360005,
+  email: "taylor@example.com",
   phone: "(555) 123-4567",
 };
 
@@ -56,7 +57,7 @@ function makeDb(sourceName: string | undefined) {
 
   return {
     select: vi.fn((shape: Record<string, unknown>) =>
-      "name" in shape && Object.keys(shape).length === 1
+      "name" in shape && "isActive" in shape
         ? sourceQuery
         : duplicateQuery
     ),
@@ -87,6 +88,38 @@ describe("contacts.create source and phone policies", () => {
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: expect.stringContaining("phone number is required"),
+    });
+
+    expect(mockCreateContact).not.toHaveBeenCalled();
+  });
+
+  it("rejects an agent-created contact without an email address", async () => {
+    const caller = contactsRouter.createCaller(context("agent"));
+
+    await expect(
+      caller.create({
+        ...validContact,
+        email: "",
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("email address is required"),
+    });
+
+    expect(mockCreateContact).not.toHaveBeenCalled();
+  });
+
+  it("requires a lead source for every manually created contact", async () => {
+    const caller = contactsRouter.createCaller(context("agent"));
+
+    await expect(
+      caller.create({
+        ...validContact,
+        leadSourceId: undefined,
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("lead source is required"),
     });
 
     expect(mockCreateContact).not.toHaveBeenCalled();
@@ -130,4 +163,19 @@ describe("contacts.create source and phone policies", () => {
       expect.objectContaining({ leadSourceId: 360004 })
     );
   });
+
+  it.each(["Unattributed", "Unattributed (Webhook)"])(
+    "blocks the reserved %s source from manual contact creation",
+    async sourceName => {
+      mockGetDb.mockResolvedValue(makeDb(sourceName));
+      const caller = contactsRouter.createCaller(context("agent"));
+
+      await expect(caller.create(validContact)).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("reserved for automated records"),
+      });
+
+      expect(mockCreateContact).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -165,6 +165,7 @@ describe("contacts", () => {
       lastName: "Doe",
       email: "jane@example.com",
       phone: null,
+      leadSourceId: 1,
       leadSourceType: "referral",
       contactType: "buyer",
     });

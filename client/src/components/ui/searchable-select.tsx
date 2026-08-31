@@ -36,11 +36,15 @@ interface SearchableSelectProps {
   emptyText?: string;
   /** Extra classes on the trigger button */
   className?: string;
+  /** Extra classes on the scrollable option list, useful for long option sets. */
+  listClassName?: string;
   disabled?: boolean;
   /** Allow clearing the selection */
   clearable?: boolean;
   /** Value that represents "no selection" (e.g. "all", "none", "") */
   clearValue?: string;
+  /** Show the option description below the selected option in the trigger. */
+  showSelectedDescription?: boolean;
 }
 
 export function SearchableSelect({
@@ -53,9 +57,11 @@ export function SearchableSelect({
   onSearchChange,
   emptyText = "No results found.",
   className,
+  listClassName,
   disabled = false,
   clearable = false,
   clearValue = "",
+  showSelectedDescription = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -83,12 +89,20 @@ export function SearchableSelect({
           className={cn(
             "w-full justify-between font-normal",
             !selected && "text-muted-foreground",
+            showSelectedDescription && selected?.description && "h-auto min-h-9 py-1.5",
             className
           )}
         >
-          <span className="truncate">
-            {selected ? selected.label : placeholder}
-          </span>
+          {selected ? (
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block truncate">{selected.label}</span>
+              {showSelectedDescription && selected.description && (
+                <span className="block truncate text-xs text-muted-foreground">{selected.description}</span>
+              )}
+            </span>
+          ) : (
+            <span className="flex-1 truncate text-left">{placeholder}</span>
+          )}
           <span className="ml-2 flex shrink-0 items-center gap-1">
             {clearable && selected && value !== clearValue && (
               <X
@@ -111,13 +125,13 @@ export function SearchableSelect({
             value={searchValue}
             onValueChange={onSearchChange}
           />
-          <CommandList>
+          <CommandList className={listClassName}>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
-                  value={option.label}
+                  value={[option.label, option.description].filter(Boolean).join(" ")}
                   onSelect={() => handleSelect(option.value)}
                   className="flex items-center gap-2"
                 >
