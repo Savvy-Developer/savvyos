@@ -106,22 +106,14 @@ import {
 } from "../analytics/adminCommandCenter";
 import { canAdminUsePermission } from "./permissions";
 
-const dateRangeInput = z
-  .object({
-    dateFrom: z.string().optional(),
-    dateTo: z.string().optional(),
-  })
-  .optional();
+const dateRangeInput = z.object({
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+}).optional();
 
 const transactionIntelligenceInput = z.object({
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   agentId: z.number().int().positive().optional(),
   marketProfileId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
@@ -129,27 +121,11 @@ const transactionIntelligenceInput = z.object({
 });
 
 const leadCohortConversionInput = z.object({
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   agentId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
-  lifecycleStage: z
-    .enum([
-      "new_lead",
-      "attempted_contact",
-      "nurture",
-      "active_client",
-      "under_contract",
-      "closed",
-      "dead",
-    ])
-    .optional(),
+  lifecycleStage: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"]).optional(),
 });
 
 const isaTeamBenchmarkInput = z.object({
@@ -158,39 +134,15 @@ const isaTeamBenchmarkInput = z.object({
 });
 
 const isaDashboardInput = z.object({
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isaId: z.number().int().positive().optional(),
-  statuses: z
-    .array(
-      z.enum([
-        "new_lead",
-        "attempted_contact",
-        "nurture",
-        "active_client",
-        "under_contract",
-        "closed",
-        "dead",
-      ])
-    )
-    .optional(),
+  statuses: z.array(z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"])).optional(),
 });
 
 const ismDashboardInput = z.object({
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isaIds: z.array(z.number().int().positive()).max(25).optional(),
   leadSourceId: z.number().int().positive().optional(),
 });
@@ -201,53 +153,25 @@ const ismActivityLogInput = z.object({
   isaIds: z.array(z.number().int().positive()).max(25).optional(),
   entityTypes: z.array(z.string().min(1).max(64)).max(20).optional(),
   actions: z.array(z.string().min(1).max(255)).max(20).optional(),
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 const ismAppointmentActivityInput = z.object({
   page: z.number().int().min(1).default(1),
   limit: z.number().int().min(1).max(100).default(50),
   isaIds: z.array(z.number().int().positive()).max(25).optional(),
   eventType: z.enum(["all", "appointments", "connections"]).default("all"),
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   search: z.string().trim().max(160).optional(),
 });
 const ismTaskBoardInput = z.object({
   page: z.number().int().min(1).default(1),
   limit: z.number().int().min(1).max(100).default(50),
   isaIds: z.array(z.number().int().positive()).max(25).optional(),
-  status: z
-    .enum([
-      "all",
-      "open",
-      "overdue",
-      "pending",
-      "in_progress",
-      "completed",
-      "cancelled",
-    ])
-    .default("open"),
-  dueDateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dueDateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  status: z.enum(["all", "open", "overdue", "pending", "in_progress", "completed", "cancelled"]).default("open"),
+  dueDateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dueDateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const commandCenterInput = z.object({
@@ -258,43 +182,15 @@ const commandCenterInput = z.object({
   isaId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
   transactionType: z.enum(["buyer", "seller", "dual"]).optional(),
-  pipelineStatus: z
-    .enum([
-      "new_lead",
-      "attempted_contact",
-      "nurture",
-      "active_client",
-      "under_contract",
-      "closed",
-      "dead",
-      "do_not_contact",
-    ])
-    .optional(),
-  transactionStatus: z
-    .enum(["under_contract", "closed", "terminated"])
-    .optional(),
+  pipelineStatus: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead", "do_not_contact"]).optional(),
+  transactionStatus: z.enum(["under_contract", "closed", "terminated"]).optional(),
 });
 
-async function getCommandCenterAccess(ctx: {
-  user: NonNullable<import("../_core/context").TrpcContext["user"]>;
-}) {
+async function getCommandCenterAccess(ctx: { user: NonNullable<import("../_core/context").TrpcContext["user"]> }) {
   if (ctx.user.role !== "admin") {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Administrator access is required.",
-    });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });
   }
-  const [
-    dashboard,
-    transactions,
-    commission,
-    contacts,
-    pipeline,
-    tasks,
-    users,
-    markets,
-    reporting,
-  ] = await Promise.all([
+  const [dashboard, transactions, commission, contacts, pipeline, tasks, users, markets, reporting] = await Promise.all([
     canAdminUsePermission(ctx.user, "canViewDashboard"),
     canAdminUsePermission(ctx.user, "canViewTransactions"),
     canAdminUsePermission(ctx.user, "canViewCommission"),
@@ -306,10 +202,7 @@ async function getCommandCenterAccess(ctx: {
     canAdminUsePermission(ctx.user, "canViewReporting"),
   ]);
   if (!dashboard) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Admin Dashboard access is required.",
-    });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Admin Dashboard access is required." });
   }
   return {
     financial: transactions && commission,
@@ -323,14 +216,8 @@ async function getCommandCenterAccess(ctx: {
 }
 
 const reportingSuiteInput = z.object({
-  dateFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  dateTo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateBasis: z.enum(["closing", "contract"]).optional(),
   agentId: z.number().int().positive().optional(),
   agentIds: z.array(z.number().int().positive()).optional(),
@@ -366,42 +253,27 @@ export const analyticsRouter = router({
   monthlyRevenue: protectedProcedure
     .input(z.object({ months: z.number().optional() }).optional())
     .query(async ({ input }) => getMonthlyRevenue(input?.months ?? 12)),
-  leadSourceBreakdown: protectedProcedure.query(async () =>
-    getLeadSourceBreakdown()
-  ),
+  leadSourceBreakdown: protectedProcedure.query(async () => getLeadSourceBreakdown()),
   activityLog: protectedProcedure
-    .input(
-      z
-        .object({
-          entityType: z.string().optional(),
-          entityId: z.number().optional(),
-          limit: z.number().optional(),
-          contactId: z.number().optional(),
-        })
-        .optional()
-    )
+    .input(z.object({
+      entityType: z.string().optional(),
+      entityId: z.number().optional(),
+      limit: z.number().optional(),
+      contactId: z.number().optional(),
+    }).optional())
     .query(async ({ input }) =>
-      getActivityLog(
-        input?.entityType,
-        input?.entityId,
-        input?.limit ?? 50,
-        input?.contactId
-      )
+      getActivityLog(input?.entityType, input?.entityId, input?.limit ?? 50, input?.contactId)
     ),
 
   // ─── Admin: Global Activity Timeline ─────────────────────────────────────
   /** Paginated global activity log for the /admin/activity timeline page */
   globalActivityLog: protectedProcedure
-    .input(
-      z
-        .object({
-          page: z.number().min(1).default(1),
-          limit: z.number().min(1).max(100).default(50),
-          userId: z.number().optional(),
-          entityTypes: z.array(z.string()).optional(),
-        })
-        .optional()
-    )
+    .input(z.object({
+      page: z.number().min(1).default(1),
+      limit: z.number().min(1).max(100).default(50),
+      userId: z.number().optional(),
+      entityTypes: z.array(z.string()).optional(),
+    }).optional())
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") throw new Error("Admin only");
       return getGlobalActivityLog({
@@ -416,15 +288,7 @@ export const analyticsRouter = router({
 
   /** Lead source conversion funnel: contacts → active → closed, with GCI */
   leadSourceFunnel: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().optional(),
-        })
-        .optional()
-    )
+    .input(z.object({ dateFrom: z.string().optional(), dateTo: z.string().optional(), agentId: z.number().optional() }).optional())
     .query(async ({ input }) => {
       const { dateFrom, dateTo } = parseDates(input);
       return getLeadSourceFunnel(dateFrom, dateTo, input?.agentId);
@@ -448,17 +312,11 @@ export const analyticsRouter = router({
 
   /** Monthly GCI trend with optional agent filter */
   monthlyGciTrend: protectedProcedure
-    .input(
-      z
-        .object({
-          months: z.number().optional(),
-          agentId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getMonthlyGciTrend(input?.months ?? 12, input?.agentId)
-    ),
+    .input(z.object({
+      months: z.number().optional(),
+      agentId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getMonthlyGciTrend(input?.months ?? 12, input?.agentId)),
 
   /** Pipeline velocity: contact count per stage */
   pipelineVelocity: protectedProcedure.query(async () => getPipelineVelocity()),
@@ -476,17 +334,11 @@ export const analyticsRouter = router({
     .input(isaDashboardInput.optional())
     .query(async ({ ctx, input }) => {
       const requestedIsaId = input?.isaId;
-      if (
-        ctx.user.role === "isa" &&
-        requestedIsaId &&
-        requestedIsaId !== ctx.user.id
-      ) {
+      if (ctx.user.role === "isa" && requestedIsaId && requestedIsaId !== ctx.user.id) {
         throw new Error("ISAs can only view their own performance data.");
       }
       if (ctx.user.role !== "admin" && ctx.user.role !== "isa") {
-        throw new Error(
-          "ISA performance stats are available to ISAs and administrators only."
-        );
+        throw new Error("ISA performance stats are available to ISAs and administrators only.");
       }
       return getIsaDashboardStats({
         isaId: ctx.user.role === "isa" ? ctx.user.id : requestedIsaId,
@@ -524,11 +376,7 @@ export const analyticsRouter = router({
           message: "ISM Dashboard access is required.",
         });
       }
-      if (
-        input.dueDateFrom &&
-        input.dueDateTo &&
-        input.dueDateFrom > input.dueDateTo
-      ) {
+      if (input.dueDateFrom && input.dueDateTo && input.dueDateFrom > input.dueDateTo) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "The due-date start must be on or before the due-date end.",
@@ -620,9 +468,7 @@ export const analyticsRouter = router({
     .input(isaTeamBenchmarkInput)
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin" && ctx.user.role !== "isa") {
-        throw new Error(
-          "ISA team benchmarks are available to ISAs and administrators only."
-        );
+        throw new Error("ISA team benchmarks are available to ISAs and administrators only.");
       }
       return getIsaTeamBenchmark({
         period: input.period,
@@ -642,18 +488,14 @@ export const analyticsRouter = router({
 
   agentTransactionTypeBreakdown: protectedProcedure
     .input(z.object({ agentId: z.number() }))
-    .query(async ({ input }) =>
-      getAgentTransactionTypeBreakdown(input.agentId)
-    ),
+    .query(async ({ input }) => getAgentTransactionTypeBreakdown(input.agentId)),
 
-  isaStatusFunnelByIsa: protectedProcedure.query(async () =>
-    getIsaStatusFunnelByIsa()
-  ),
+  isaStatusFunnelByIsa: protectedProcedure
+    .query(async () => getIsaStatusFunnelByIsa()),
 
   /** Market performance overview: GCI, deals, agents per market */
-  marketPerformance: protectedProcedure.query(async () =>
-    getMarketPerformance()
-  ),
+  marketPerformance: protectedProcedure
+    .query(async () => getMarketPerformance()),
 
   /** Market monthly GCI trend */
   marketMonthlyTrend: protectedProcedure
@@ -667,21 +509,13 @@ export const analyticsRouter = router({
 
   /** Team production leaderboard for active agents. */
   agentLeaderboard: protectedProcedure
-    .input(
-      z.object({
-        period: z
-          .enum(["this_week", "this_month", "this_quarter", "ytd", "all_time"])
-          .default("this_month"),
-        dealType: z.enum(["under_contract", "closed"]).default("closed"),
-        rankBy: z.enum(["volume", "units"]).default("volume"),
-      })
-    )
+    .input(z.object({
+      period: z.enum(["this_week", "this_month", "this_quarter", "ytd", "all_time"]).default("this_month"),
+      dealType: z.enum(["under_contract", "closed"]).default("closed"),
+    }))
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "agent" && ctx.user.role !== "admin") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "This leaderboard is available to agents only.",
-        });
+        throw new TRPCError({ code: "FORBIDDEN", message: "This leaderboard is available to agents only." });
       }
       return getAgentLeaderboard({ ...input, viewerAgentId: ctx.user.id });
     }),
@@ -693,10 +527,7 @@ export const analyticsRouter = router({
       const dateFrom = new Date(`${input.dateFrom}T00:00:00.000Z`);
       const dateTo = new Date(`${input.dateTo}T23:59:59.999Z`);
       if (dateFrom > dateTo) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "The start date must be on or before the end date.",
-        });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The start date must be on or before the end date." });
       }
       return getAdminCommandCenter({
         viewerId: ctx.user.id,
@@ -709,35 +540,32 @@ export const analyticsRouter = router({
       });
     }),
 
-  adminCommandCenterFilters: protectedProcedure.query(async ({ ctx }) => {
-    const access = await getCommandCenterAccess({ user: ctx.user! });
-    return getCommandCenterFilterOptions(access);
-  }),
+  adminCommandCenterFilters: protectedProcedure
+    .query(async ({ ctx }) => {
+      const access = await getCommandCenterAccess({ user: ctx.user! });
+      return getCommandCenterFilterOptions(access);
+    }),
 
   updateAdminCommandCenterSettings: protectedProcedure
-    .input(
-      z.object({
-        goalYear: z.number().int().min(2020).max(2100),
-        companyGciGoal: z.number().nonnegative().nullable().optional(),
-        companyVolumeGoal: z.number().nonnegative().nullable().optional(),
-        companyUnitsGoal: z.number().int().nonnegative().nullable().optional(),
-        newLeadSlaHours: z.number().int().min(1).max(720).optional(),
-        pipelineStaleDays: z.number().int().min(1).max(365).optional(),
-      })
-    )
+    .input(z.object({
+      goalYear: z.number().int().min(2020).max(2100),
+      companyGciGoal: z.number().nonnegative().nullable().optional(),
+      companyVolumeGoal: z.number().nonnegative().nullable().optional(),
+      companyUnitsGoal: z.number().int().nonnegative().nullable().optional(),
+      newLeadSlaHours: z.number().int().min(1).max(720).optional(),
+      pipelineStaleDays: z.number().int().min(1).max(365).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       await getCommandCenterAccess({ user: ctx.user! });
       return saveCommandCenterSettings(input);
     }),
 
   reviewAdminCommandCenterAlert: protectedProcedure
-    .input(
-      z.object({
-        alertKey: z.string().min(3).max(255),
-        status: z.enum(["reviewed", "snoozed"]),
-        snoozedUntil: z.string().datetime().optional(),
-      })
-    )
+    .input(z.object({
+      alertKey: z.string().min(3).max(255),
+      status: z.enum(["reviewed", "snoozed"]),
+      snoozedUntil: z.string().datetime().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       await getCommandCenterAccess({ user: ctx.user! });
       return reviewCommandCenterAlert({
@@ -751,113 +579,69 @@ export const analyticsRouter = router({
   // ─── NEW: Executive Dashboard ─────────────────────────────────────────────
   /** Executive dashboard: MTD/YTD metrics, pipeline coverage, revenue per lead/agent */
   executiveDashboard: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          marketId: z.number().optional(),
-          agentId: z.number().optional(),
-        })
-        .optional()
-    )
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      marketId: z.number().optional(),
+      agentId: z.number().optional(),
+    }).optional())
     .query(async ({ input }) => {
       const { dateFrom, dateTo } = parseDates(input);
-      return getExecutiveDashboard({
-        dateFrom,
-        dateTo,
-        marketId: input?.marketId,
-        agentId: input?.agentId,
-      });
+      return getExecutiveDashboard({ dateFrom, dateTo, marketId: input?.marketId, agentId: input?.agentId });
     }),
 
   // ─── NEW: Sales Funnel ────────────────────────────────────────────────────
   /** Stage-by-stage conversion rates, drop-off rates */
   salesFunnel: protectedProcedure
-    .input(
-      z
-        .object({
-          agentId: z.number().optional(),
-          marketId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getSalesFunnelReport({
-        agentId: input?.agentId,
-        marketId: input?.marketId,
-      })
-    ),
+    .input(z.object({
+      agentId: z.number().optional(),
+      marketId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getSalesFunnelReport({ agentId: input?.agentId, marketId: input?.marketId })),
 
   // ─── NEW: Lead Source ROI ─────────────────────────────────────────────────
   /** Revenue per source, conversion rate, avg deal size */
   leadSourceROI: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          marketId: z.number().optional(),
-          agentId: z.number().optional(),
-        })
-        .optional()
-    )
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      marketId: z.number().optional(),
+      agentId: z.number().optional(),
+    }).optional())
     .query(async ({ input }) => {
       const { dateFrom, dateTo } = parseDates(input);
-      return getLeadSourceROI({
-        dateFrom,
-        dateTo,
-        marketId: input?.marketId,
-        agentId: input?.agentId,
-      });
+      return getLeadSourceROI({ dateFrom, dateTo, marketId: input?.marketId, agentId: input?.agentId });
     }),
 
   // ─── NEW: Pipeline Health ─────────────────────────────────────────────────
   /** Stalled deals, aging analysis, days-in-stage heatmap */
   pipelineHealth: protectedProcedure
-    .input(
-      z
-        .object({
-          agentId: z.number().optional(),
-          marketId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getPipelineHealthReport({
-        agentId: input?.agentId,
-        marketId: input?.marketId,
-      })
-    ),
+    .input(z.object({
+      agentId: z.number().optional(),
+      marketId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getPipelineHealthReport({ agentId: input?.agentId, marketId: input?.marketId })),
 
   // ─── NEW: Trend Comparisons ───────────────────────────────────────────────
   /** WoW, MoM, YoY comparisons for GCI, closings, volume */
   trendComparisons: protectedProcedure
-    .input(
-      z
-        .object({
-          agentId: z.number().optional(),
-          marketId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getTrendComparison({ agentId: input?.agentId, marketId: input?.marketId })
-    ),
+    .input(z.object({
+      agentId: z.number().optional(),
+      marketId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getTrendComparison({ agentId: input?.agentId, marketId: input?.marketId })),
 
   // ─── Agent Goals ──────────────────────────────────────────────────────────
   /** Set or update a goal for an agent for a specific year/month (admin only) */
   setGoal: protectedProcedure
-    .input(
-      z.object({
-        agentId: z.number(),
-        year: z.number(),
-        month: z.number(), // 1-12, or 0 for annual
-        gciTarget: z.number().nullable().optional(),
-        closingsTarget: z.number().nullable().optional(),
-        volumeTarget: z.number().nullable().optional(),
-      })
-    )
+    .input(z.object({
+      agentId: z.number(),
+      year: z.number(),
+      month: z.number(), // 1-12, or 0 for annual
+      gciTarget: z.number().nullable().optional(),
+      closingsTarget: z.number().nullable().optional(),
+      volumeTarget: z.number().nullable().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new Error("Admin only");
       await upsertAgentGoal(input);
@@ -866,28 +650,19 @@ export const analyticsRouter = router({
 
   /** Bulk-set the same goal for all agents */
   setBulkGoals: protectedProcedure
-    .input(
-      z.object({
-        agentIds: z.array(z.number()),
-        year: z.number(),
-        month: z.number(),
-        gciTarget: z.number().nullable().optional(),
-        closingsTarget: z.number().nullable().optional(),
-        volumeTarget: z.number().nullable().optional(),
-      })
-    )
+    .input(z.object({
+      agentIds: z.array(z.number()),
+      year: z.number(),
+      month: z.number(),
+      gciTarget: z.number().nullable().optional(),
+      closingsTarget: z.number().nullable().optional(),
+      volumeTarget: z.number().nullable().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new Error("Admin only");
       await Promise.all(
-        input.agentIds.map(agentId =>
-          upsertAgentGoal({
-            agentId,
-            year: input.year,
-            month: input.month,
-            gciTarget: input.gciTarget,
-            closingsTarget: input.closingsTarget,
-            volumeTarget: input.volumeTarget,
-          })
+        input.agentIds.map((agentId) =>
+          upsertAgentGoal({ agentId, year: input.year, month: input.month, gciTarget: input.gciTarget, closingsTarget: input.closingsTarget, volumeTarget: input.volumeTarget })
         )
       );
       return { success: true };
@@ -905,41 +680,36 @@ export const analyticsRouter = router({
 
   /** Agent production with goal progress bars */
   agentProductionWithGoals: protectedProcedure
-    .input(
-      z.object({
-        year: z.number(),
-        month: z.number(), // 1-12, or 0 for annual
-      })
-    )
-    .query(async ({ input }) =>
-      getAgentProductionWithGoals(input.year, input.month)
-    ),
+    .input(z.object({
+      year: z.number(),
+      month: z.number(), // 1-12, or 0 for annual
+    }))
+    .query(async ({ input }) => getAgentProductionWithGoals(input.year, input.month)),
 
   /** My goals and production — agent-facing, returns current user's own data */
   myGoals: protectedProcedure
-    .input(
-      z.object({
-        year: z.number(),
-        month: z.number(), // 1-12, or 0 for annual
-      })
-    )
+    .input(z.object({
+      year: z.number(),
+      month: z.number(), // 1-12, or 0 for annual
+    }))
     .query(async ({ ctx, input }) => {
       return getMyGoalsAndProduction(ctx.user.id, input.year, input.month);
     }),
 
   // ─── NEW: AI Insights ─────────────────────────────────────────────────────
   /** AI-generated insights: anomalies, bottlenecks, coaching recommendations */
-  aiInsights: protectedProcedure.mutation(async () => {
-    const data = await getAiInsightsData();
-    if (!data) return { insights: [], generatedAt: new Date().toISOString() };
+  aiInsights: protectedProcedure
+    .mutation(async () => {
+      const data = await getAiInsightsData();
+      if (!data) return { insights: [], generatedAt: new Date().toISOString() };
 
-    const prompt = `You are a real estate brokerage performance analyst for Savvy, a short-term rental investment brokerage.
+      const prompt = `You are a real estate brokerage performance analyst for Savvy, a short-term rental investment brokerage.
 
 Here is the current performance data:
 
 **Last 30 Days vs Prior 30 Days:**
-- GCI: $${data.recentGci.toLocaleString()} vs $${data.priorGci.toLocaleString()} (${data.gciTrend > 0 ? "+" : ""}${data.gciTrend.toFixed(1)}%)
-- Closings: ${data.recentClosings} vs ${data.priorClosings} (${data.closingsTrend > 0 ? "+" : ""}${data.closingsTrend.toFixed(1)}%)
+- GCI: $${data.recentGci.toLocaleString()} vs $${data.priorGci.toLocaleString()} (${data.gciTrend > 0 ? '+' : ''}${data.gciTrend.toFixed(1)}%)
+- Closings: ${data.recentClosings} vs ${data.priorClosings} (${data.closingsTrend > 0 ? '+' : ''}${data.closingsTrend.toFixed(1)}%)
 - Volume: $${data.recentVolume.toLocaleString()}
 
 **Pipeline Alerts:**
@@ -947,18 +717,13 @@ Here is the current performance data:
 - Overdue follow-ups: ${data.overdueFollowUps}
 
 **Top Agents (last 30d):**
-${data.topAgents.map(a => `- ${a.agentName}: ${a.closings} closings, $${Number(a.gci).toLocaleString()} GCI`).join("\n")}
+${data.topAgents.map(a => `- ${a.agentName}: ${a.closings} closings, $${Number(a.gci).toLocaleString()} GCI`).join('\n')}
 
 **Bottom Agents (last 30d):**
-${data.bottomAgents.map(a => `- ${a.agentName}: ${a.closings} closings, $${Number(a.gci).toLocaleString()} GCI`).join("\n")}
+${data.bottomAgents.map(a => `- ${a.agentName}: ${a.closings} closings, $${Number(a.gci).toLocaleString()} GCI`).join('\n')}
 
 **Top Lead Sources:**
-${data.sourceStats
-  .slice(0, 5)
-  .map(
-    s => `- ${s.sourceName || "Unknown"}: ${s.leads} leads, ${s.closed} closed`
-  )
-  .join("\n")}
+${data.sourceStats.slice(0, 5).map(s => `- ${s.sourceName || 'Unknown'}: ${s.leads} leads, ${s.closed} closed`).join('\n')}
 
 Generate 4-6 specific, actionable insights in JSON format. Each insight should have:
 - type: "warning" | "opportunity" | "coaching" | "anomaly" | "success"
@@ -969,69 +734,50 @@ Generate 4-6 specific, actionable insights in JSON format. Each insight should h
 
 Return only valid JSON array.`;
 
-    try {
-      const response = await invokeLLM({
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a real estate analytics expert. Return only valid JSON arrays.",
-          },
-          { role: "user", content: prompt },
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "insights",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                insights: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      type: { type: "string" },
-                      title: { type: "string" },
-                      description: { type: "string" },
-                      action: { type: "string" },
-                      priority: { type: "string" },
+      try {
+        const response = await invokeLLM({
+          messages: [
+            { role: "system", content: "You are a real estate analytics expert. Return only valid JSON arrays." },
+            { role: "user", content: prompt },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "insights",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  insights: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        type: { type: "string" },
+                        title: { type: "string" },
+                        description: { type: "string" },
+                        action: { type: "string" },
+                        priority: { type: "string" },
+                      },
+                      required: ["type", "title", "description", "action", "priority"],
+                      additionalProperties: false,
                     },
-                    required: [
-                      "type",
-                      "title",
-                      "description",
-                      "action",
-                      "priority",
-                    ],
-                    additionalProperties: false,
                   },
                 },
+                required: ["insights"],
+                additionalProperties: false,
               },
-              required: ["insights"],
-              additionalProperties: false,
             },
           },
-        },
-      });
-      const content = response.choices[0]?.message?.content;
-      const parsed =
-        typeof content === "string" ? JSON.parse(content) : content;
-      return {
-        insights: parsed.insights ?? [],
-        generatedAt: new Date().toISOString(),
-        rawData: data,
-      };
-    } catch (e) {
-      console.error("AI insights error:", e);
-      return {
-        insights: [],
-        generatedAt: new Date().toISOString(),
-        rawData: data,
-      };
-    }
-  }),
+        });
+        const content = response.choices[0]?.message?.content;
+        const parsed = typeof content === "string" ? JSON.parse(content) : content;
+        return { insights: parsed.insights ?? [], generatedAt: new Date().toISOString(), rawData: data };
+      } catch (e) {
+        console.error("AI insights error:", e);
+        return { insights: [], generatedAt: new Date().toISOString(), rawData: data };
+      }
+    }),
 
   /** Full drill-down for a single market */
   marketDrillDown: protectedProcedure
@@ -1050,280 +796,153 @@ Return only valid JSON array.`;
 
   /** Business overview KPIs */
   businessOverviewKpis: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getBusinessOverviewKpis({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-      })
-    ),
+    .input(z.object({ dateFrom: z.string().optional(), dateTo: z.string().optional() }).optional())
+    .query(async ({ input }) => getBusinessOverviewKpis({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+    })),
 
   /** Agent performance report with group/market filters */
   agentPerformanceReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().optional(),
-          groupId: z.number().optional(),
-          marketProfileId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getAgentPerformanceReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        agentId: input?.agentId,
-        groupId: input?.groupId,
-        marketProfileId: input?.marketProfileId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(),
+      agentId: z.number().optional(), groupId: z.number().optional(), marketProfileId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getAgentPerformanceReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId, groupId: input?.groupId, marketProfileId: input?.marketProfileId,
+    })),
 
   /** Agent pipeline funnel by status */
   agentPipelineFunnel: protectedProcedure
-    .input(
-      z
-        .object({
-          agentId: z.number().optional(),
-          groupId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getAgentPipelineFunnel({
-        agentId: input?.agentId,
-        groupId: input?.groupId,
-      })
-    ),
+    .input(z.object({ agentId: z.number().optional(), groupId: z.number().optional() }).optional())
+    .query(async ({ input }) => getAgentPipelineFunnel({ agentId: input?.agentId, groupId: input?.groupId })),
 
   /** Group performance report */
   groupPerformanceReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          groupId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getGroupPerformanceReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        groupId: input?.groupId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(), groupId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getGroupPerformanceReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      groupId: input?.groupId,
+    })),
 
   /** Market performance report */
   marketPerformanceReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          marketProfileId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getMarketPerformanceReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        marketProfileId: input?.marketProfileId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(), marketProfileId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getMarketPerformanceReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      marketProfileId: input?.marketProfileId,
+    })),
 
   /** Commission summary with payout breakdown */
   commissionSummaryReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getCommissionSummaryReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        agentId: input?.agentId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(), agentId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getCommissionSummaryReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId,
+    })),
 
   /** Task analytics report */
   taskAnalyticsReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          assignedToId: z.number().optional(),
-          taskType: z.string().optional(),
-          priority: z.string().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getTaskAnalyticsReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        assignedToId: input?.assignedToId,
-        taskType: input?.taskType,
-        priority: input?.priority,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(),
+      assignedToId: z.number().optional(), taskType: z.string().optional(), priority: z.string().optional(),
+    }).optional())
+    .query(async ({ input }) => getTaskAnalyticsReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      assignedToId: input?.assignedToId, taskType: input?.taskType, priority: input?.priority,
+    })),
 
   /** ISA report with market match sessions */
   isaReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          isaId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getIsaReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        isaId: input?.isaId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(), isaId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getIsaReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      isaId: input?.isaId,
+    })),
 
   /** Lead source analytics report */
   leadSourceAnalyticsReport: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          parentId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getLeadSourceAnalyticsReport({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        parentId: input?.parentId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(), parentId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getLeadSourceAnalyticsReport({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      parentId: input?.parentId,
+    })),
 
   /** Onboarding/offboarding report */
   onboardingReport: protectedProcedure
-    .input(
-      z
-        .object({
-          status: z.enum(["in_progress", "completed"]).optional(),
-          agentId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getOnboardingReport({ status: input?.status, agentId: input?.agentId })
-    ),
+    .input(z.object({
+      status: z.enum(["in_progress", "completed"]).optional(), agentId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getOnboardingReport({ status: input?.status, agentId: input?.agentId })),
 
   /** Database health report */
-  databaseHealthReport: protectedProcedure.query(async () =>
-    getDatabaseHealthReport()
-  ),
+  databaseHealthReport: protectedProcedure
+    .query(async () => getDatabaseHealthReport()),
 
   /** Monthly GCI trend with group/market filters */
   monthlyGciTrendExtended: protectedProcedure
-    .input(
-      z
-        .object({
-          months: z.number().optional(),
-          agentId: z.number().optional(),
-          groupId: z.number().optional(),
-          marketProfileId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getMonthlyGciTrendExtended({
-        months: input?.months,
-        agentId: input?.agentId,
-        groupId: input?.groupId,
-        marketProfileId: input?.marketProfileId,
-      })
-    ),
+    .input(z.object({
+      months: z.number().optional(), agentId: z.number().optional(),
+      groupId: z.number().optional(), marketProfileId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getMonthlyGciTrendExtended({
+      months: input?.months, agentId: input?.agentId,
+      groupId: input?.groupId, marketProfileId: input?.marketProfileId,
+    })),
 
   /** Financial performance summary: closed/UC volumes + commission buckets */
   financialPerformanceSummary: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().optional(),
-          groupId: z.number().optional(),
-          marketProfileId: z.number().optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getFinancialPerformanceSummary({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        agentId: input?.agentId,
-        groupId: input?.groupId,
-        marketProfileId: input?.marketProfileId,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(),
+      agentId: z.number().optional(), groupId: z.number().optional(), marketProfileId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => getFinancialPerformanceSummary({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId, groupId: input?.groupId, marketProfileId: input?.marketProfileId,
+    })),
 
   /** Master metrics table: per-transaction financial breakdown */
   masterMetrics: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().optional(),
-          groupId: z.number().optional(),
-          marketProfileId: z.number().optional(),
-          leadSourceId: z.number().optional(),
-          status: z.enum(["closed", "under_contract"]).optional(),
-          sortBy: z
-            .enum(["closingDate", "purchasePrice", "gci", "companyDollars"])
-            .optional(),
-          sortOrder: z.enum(["asc", "desc"]).optional(),
-        })
-        .optional()
-    )
-    .query(async ({ input }) =>
-      getMasterMetrics({
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        agentId: input?.agentId,
-        groupId: input?.groupId,
-        marketProfileId: input?.marketProfileId,
-        leadSourceId: input?.leadSourceId,
-        status: input?.status,
-        sortBy: input?.sortBy,
-        sortOrder: input?.sortOrder,
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(), dateTo: z.string().optional(),
+      agentId: z.number().optional(), groupId: z.number().optional(), marketProfileId: z.number().optional(),
+      leadSourceId: z.number().optional(),
+      status: z.enum(["closed", "under_contract"]).optional(),
+      sortBy: z.enum(["closingDate", "purchasePrice", "gci", "companyDollars"]).optional(),
+      sortOrder: z.enum(["asc", "desc"]).optional(),
+    }).optional())
+    .query(async ({ input }) => getMasterMetrics({
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId, groupId: input?.groupId, marketProfileId: input?.marketProfileId,
+      leadSourceId: input?.leadSourceId,
+      status: input?.status,
+      sortBy: input?.sortBy,
+      sortOrder: input?.sortOrder,
+    })),
 
   /** Set annual GCI goal for a market */
   setMarketGoal: protectedProcedure
-    .input(
-      z.object({ marketId: z.number(), annualGciGoal: z.number().nullable() })
-    )
+    .input(z.object({ marketId: z.number(), annualGciGoal: z.number().nullable() }))
     .mutation(async ({ input }) => {
       await updateMarketGoal(input.marketId, input.annualGciGoal);
       return { ok: true };
@@ -1342,58 +961,44 @@ Return only valid JSON array.`;
     .input(transactionIntelligenceInput.optional())
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") {
-        throw new Error(
-          "Transaction Intelligence is currently available to administrators only."
-        );
+        throw new Error("Transaction Intelligence is currently available to administrators only.");
       }
       return getTransactionIntelligenceReport(input ?? {});
     }),
 
   /** Return the shared company-wide, sanitized AI Business Insights cache without a model call. */
-  businessInsights: protectedProcedure.query(async () => {
-    // Every authenticated user reads the same completed aggregate brief. The
-    // costly model refresh remains administrator-only in the mutation below.
-    return getCachedBusinessInsights();
-  }),
+  businessInsights: protectedProcedure
+    .query(async () => {
+      // Every authenticated user reads the same completed aggregate brief. The
+      // costly model refresh remains administrator-only in the mutation below.
+      return getCachedBusinessInsights();
+    }),
 
   /** Rebuild the one shared AI Business Insights cache for all authorized viewers. */
-  refreshBusinessInsights: protectedProcedure.mutation(async ({ ctx }) => {
-    if (ctx.user.role !== "admin") {
-      throw new Error(
-        "AI Business Insights is currently available to administrators only."
-      );
-    }
-    return refreshBusinessInsights({
-      viewer: ctx.user,
-      force: true,
-      reason: "manual",
-    });
-  }),
+  refreshBusinessInsights: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("AI Business Insights is currently available to administrators only.");
+      }
+      return refreshBusinessInsights({ viewer: ctx.user, force: true, reason: "manual" });
+    }),
 
   /** Return the latest evidence-grounded Transaction Intelligence brief without a model call. */
   transactionIntelligenceInsights: protectedProcedure
     .input(transactionIntelligenceInput.optional())
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") {
-        throw new Error(
-          "Transaction Intelligence is currently available to administrators only."
-        );
+        throw new Error("Transaction Intelligence is currently available to administrators only.");
       }
       return getCachedTransactionIntelligenceInsights(ctx.user, input ?? {});
     }),
 
   /** Generate or refresh the focused report's scoped, cached intelligence brief. */
   refreshTransactionIntelligenceInsights: protectedProcedure
-    .input(
-      transactionIntelligenceInput
-        .extend({ force: z.boolean().optional() })
-        .optional()
-    )
+    .input(transactionIntelligenceInput.extend({ force: z.boolean().optional() }).optional())
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") {
-        throw new Error(
-          "Transaction Intelligence is currently available to administrators only."
-        );
+        throw new Error("Transaction Intelligence is currently available to administrators only.");
       }
       return refreshTransactionIntelligenceInsights({
         viewer: ctx.user,
@@ -1419,9 +1024,7 @@ Return only valid JSON array.`;
     .input(leadCohortConversionInput.optional())
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") {
-        throw new Error(
-          "Lead Cohort Conversion is currently available to administrators only."
-        );
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
       }
       return getLeadCohortConversionReport(input ?? {});
     }),
@@ -1431,25 +1034,17 @@ Return only valid JSON array.`;
     .input(leadCohortConversionInput.optional())
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") {
-        throw new Error(
-          "Lead Cohort Conversion is currently available to administrators only."
-        );
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
       }
       return getCachedLeadCohortConversionInsights(ctx.user, input ?? {});
     }),
 
   /** Generate or refresh the cohort report's scoped, cached intelligence brief. */
   refreshLeadCohortConversionInsights: protectedProcedure
-    .input(
-      leadCohortConversionInput
-        .extend({ force: z.boolean().optional() })
-        .optional()
-    )
+    .input(leadCohortConversionInput.extend({ force: z.boolean().optional() }).optional())
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin") {
-        throw new Error(
-          "Lead Cohort Conversion is currently available to administrators only."
-        );
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
       }
       return refreshLeadCohortConversionInsights({
         viewer: ctx.user,
@@ -1469,178 +1064,127 @@ Return only valid JSON array.`;
   // The replacement reporting suite intentionally owns all production, financial,
   // and operational definitions under a single bounded server-side contract.
   reportingFilters: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role !== "admin")
-      throw new Error(
-        "Reporting is currently available to administrators only."
-      );
+    if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
     return getReportingFilters();
   }),
 
   agentReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getAgentReport(input ?? {});
     }),
 
   pipelineReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getPipelineReport(input ?? {});
     }),
 
   groupLeaderReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getGroupLeaderReport(input ?? {});
     }),
 
   transactionStatisticsReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getTransactionStatisticsReport(input ?? {});
     }),
 
   referralReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getReferralReport(input ?? {});
     }),
 
   agentOnboardingReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getAgentOnboardingReport(input ?? {});
     }),
 
   marketAnalyticsReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getMarketAnalyticsReport(input ?? {});
     }),
 
   tasksReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getTasksReport(input ?? {});
     }),
 
   isaActivitiesReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getIsaActivitiesReport(input ?? {});
     }),
 
   leadSourcesReport: protectedProcedure
     .input(reportingSuiteInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin")
-        throw new Error(
-          "Reporting is currently available to administrators only."
-        );
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
       return getLeadSourcesReport(input ?? {});
     }),
 
   /** Agent SavvyOS usage, engagement, pipeline stewardship, and adoption score. */
-  savvyOsAdoptionReport: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role !== "admin")
-      throw new Error(
-        "Reporting is currently available to administrators only."
-      );
-    return getSavvyOsAdoptionReport();
-  }),
+  savvyOsAdoptionReport: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new Error("Reporting is currently available to administrators only.");
+      return getSavvyOsAdoptionReport();
+    }),
 
   // ─── Analytics Workspace v1 ───────────────────────────────────────────────
   // New consolidated reporting surface. All row-level evidence is scope-bound on
   // the server; client filters never confer access to records outside the viewer's
   // permitted book of business.
   workspace: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().int().positive().optional(),
-          marketProfileId: z.number().int().positive().optional(),
-          leadSourceId: z.number().int().positive().optional(),
-          status: z
-            .enum(["all", "closed", "under_contract", "terminated"])
-            .optional(),
-        })
-        .optional()
-    )
-    .query(async ({ ctx, input }) =>
-      getAnalyticsWorkspace(ctx.user, {
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        agentId: input?.agentId,
-        marketProfileId: input?.marketProfileId,
-        leadSourceId: input?.leadSourceId,
-        status: input?.status ?? "all",
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      agentId: z.number().int().positive().optional(),
+      marketProfileId: z.number().int().positive().optional(),
+      leadSourceId: z.number().int().positive().optional(),
+      status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => getAnalyticsWorkspace(ctx.user, {
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId,
+      marketProfileId: input?.marketProfileId,
+      leadSourceId: input?.leadSourceId,
+      status: input?.status ?? "all",
+    })),
 
   /** Return the latest scope-specific AI analysis without consuming model calls. */
   workspaceInsights: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().int().positive().optional(),
-          marketProfileId: z.number().int().positive().optional(),
-          leadSourceId: z.number().int().positive().optional(),
-          status: z
-            .enum(["all", "closed", "under_contract", "terminated"])
-            .optional(),
-        })
-        .optional()
-    )
-    .query(async ({ ctx, input }) =>
-      getCachedAnalyticsInsights(ctx.user, {
-        dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
-        dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
-        agentId: input?.agentId,
-        marketProfileId: input?.marketProfileId,
-        leadSourceId: input?.leadSourceId,
-        status: input?.status ?? "all",
-      })
-    ),
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      agentId: z.number().int().positive().optional(),
+      marketProfileId: z.number().int().positive().optional(),
+      leadSourceId: z.number().int().positive().optional(),
+      status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => getCachedAnalyticsInsights(ctx.user, {
+      dateFrom: input?.dateFrom ? new Date(input.dateFrom) : undefined,
+      dateTo: input?.dateTo ? new Date(input.dateTo) : undefined,
+      agentId: input?.agentId,
+      marketProfileId: input?.marketProfileId,
+      leadSourceId: input?.leadSourceId,
+      status: input?.status ?? "all",
+    })),
 
   /**
    * Generate a scoped cached explanation. Every authenticated viewer is limited
@@ -1648,26 +1192,18 @@ Return only valid JSON array.`;
    * a real-time regeneration before the seven-day cache expires.
    */
   refreshWorkspaceInsights: protectedProcedure
-    .input(
-      z
-        .object({
-          dateFrom: z.string().optional(),
-          dateTo: z.string().optional(),
-          agentId: z.number().int().positive().optional(),
-          marketProfileId: z.number().int().positive().optional(),
-          leadSourceId: z.number().int().positive().optional(),
-          status: z
-            .enum(["all", "closed", "under_contract", "terminated"])
-            .optional(),
-          force: z.boolean().optional(),
-        })
-        .optional()
-    )
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      agentId: z.number().int().positive().optional(),
+      marketProfileId: z.number().int().positive().optional(),
+      leadSourceId: z.number().int().positive().optional(),
+      status: z.enum(["all", "closed", "under_contract", "terminated"]).optional(),
+      force: z.boolean().optional(),
+    }).optional())
     .mutation(async ({ ctx, input }) => {
       if (input?.force && ctx.user.role !== "admin") {
-        throw new Error(
-          "Only administrators can force a real-time AI analysis refresh."
-        );
+        throw new Error("Only administrators can force a real-time AI analysis refresh.");
       }
       return refreshAnalyticsInsights({
         viewer: ctx.user,
@@ -1685,7 +1221,6 @@ Return only valid JSON array.`;
     }),
 
   /** All-time career stats for the current agent */
-  myCareerStats: protectedProcedure.query(async ({ ctx }) =>
-    getMyCareerStats(ctx.user.id)
-  ),
+  myCareerStats: protectedProcedure
+    .query(async ({ ctx }) => getMyCareerStats(ctx.user.id)),
 });

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  getAgentLeaderboardPeriodRange,
-  sortAgentLeaderboardEntries,
-} from "./db-analytics";
+import { getAgentLeaderboardPeriodRange } from "./db-analytics";
 
 const now = new Date("2026-08-14T15:30:00.000Z");
 
@@ -29,29 +26,6 @@ describe("agent leaderboard period ranges", () => {
 
   it("does not impose date limits for the all-time board", () => {
     const range = getAgentLeaderboardPeriodRange("all_time", now);
-    expect(range).toEqual({
-      dateFrom: undefined,
-      dateTo: undefined,
-      label: "All Time",
-    });
-  });
-
-  it("orders the units view by units, with volume as the tie-breaker", () => {
-    const entries = [
-      { agentName: "Volume First", units: 3, volume: 950_000 },
-      { agentName: "Units First", units: 4, volume: 500_000 },
-      { agentName: "Unit Tie", units: 3, volume: 1_000_000 },
-    ];
-
-    expect(
-      sortAgentLeaderboardEntries(entries, "units").map(
-        entry => entry.agentName
-      )
-    ).toEqual(["Units First", "Unit Tie", "Volume First"]);
-    expect(
-      sortAgentLeaderboardEntries(entries, "volume").map(
-        entry => entry.agentName
-      )
-    ).toEqual(["Unit Tie", "Volume First", "Units First"]);
+    expect(range).toEqual({ dateFrom: undefined, dateTo: undefined, label: "All Time" });
   });
 });

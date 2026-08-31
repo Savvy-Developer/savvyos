@@ -7,11 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -35,14 +31,8 @@ import {
   Trophy,
 } from "lucide-react";
 
-type LeaderboardPeriod =
-  | "this_week"
-  | "this_month"
-  | "this_quarter"
-  | "ytd"
-  | "all_time";
+type LeaderboardPeriod = "this_week" | "this_month" | "this_quarter" | "ytd" | "all_time";
 type DealType = "under_contract" | "closed";
-type LeaderboardRankBy = "volume" | "units";
 
 type AgentEntry = {
   agentId: number;
@@ -110,7 +100,7 @@ function initials(name: string) {
   return name
     .split(" ")
     .filter(Boolean)
-    .map(part => part[0])
+    .map((part) => part[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
@@ -118,30 +108,20 @@ function initials(name: string) {
 
 function formatMonth(value?: string | null) {
   if (!value) return "this year";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${value}-01T12:00:00.000Z`));
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${value}-01T12:00:00.000Z`));
 }
 
 function formatDate(value?: string | null) {
   if (!value) return "soon";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T12:00:00.000Z`));
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${value}T12:00:00.000Z`));
 }
 
 function rankTreatment(rank: number) {
-  if (rank === 1)
-    return "bg-amber-400/20 text-amber-700 dark:text-amber-300 border-amber-400/30";
-  if (rank === 2)
-    return "bg-slate-300/25 text-slate-700 dark:text-slate-200 border-slate-300/30";
-  if (rank === 3)
-    return "bg-orange-400/15 text-orange-700 dark:text-orange-300 border-orange-400/30";
+  if (rank === 1) return "bg-amber-400/20 text-amber-700 dark:text-amber-300 border-amber-400/30";
+  if (rank === 2) return "bg-slate-300/25 text-slate-700 dark:text-slate-200 border-slate-300/30";
+  if (rank === 3) return "bg-orange-400/15 text-orange-700 dark:text-orange-300 border-orange-400/30";
   return "bg-muted text-muted-foreground border-border";
 }
 
@@ -151,25 +131,11 @@ function RankIcon({ rank }: { rank: number }) {
   return <span className="text-xs font-bold tabular-nums">#{rank}</span>;
 }
 
-function AgentAvatar({
-  entry,
-  className = "h-9 w-9",
-}: {
-  entry: Pick<AgentEntry, "agentName" | "profilePhotoUrl">;
-  className?: string;
-}) {
+function AgentAvatar({ entry, className = "h-9 w-9" }: { entry: Pick<AgentEntry, "agentName" | "profilePhotoUrl">; className?: string }) {
   return (
     <Avatar className={className}>
-      {entry.profilePhotoUrl ? (
-        <AvatarImage
-          src={entry.profilePhotoUrl}
-          alt={entry.agentName}
-          className="object-cover"
-        />
-      ) : null}
-      <AvatarFallback className="bg-primary/12 text-primary text-xs font-bold">
-        {initials(entry.agentName)}
-      </AvatarFallback>
+      {entry.profilePhotoUrl ? <AvatarImage src={entry.profilePhotoUrl} alt={entry.agentName} className="object-cover" /> : null}
+      <AvatarFallback className="bg-primary/12 text-primary text-xs font-bold">{initials(entry.agentName)}</AvatarFallback>
     </Avatar>
   );
 }
@@ -189,12 +155,11 @@ function MilestoneCard({
   entry: Milestone | null | undefined;
   tone?: "default" | "warm" | "cool";
 }) {
-  const toneClass =
-    tone === "warm"
-      ? "from-amber-500/10 via-amber-500/5 to-transparent border-amber-500/20"
-      : tone === "cool"
-        ? "from-cyan-500/10 via-cyan-500/5 to-transparent border-cyan-500/20"
-        : "from-primary/10 via-primary/5 to-transparent border-primary/15";
+  const toneClass = tone === "warm"
+    ? "from-amber-500/10 via-amber-500/5 to-transparent border-amber-500/20"
+    : tone === "cool"
+      ? "from-cyan-500/10 via-cyan-500/5 to-transparent border-cyan-500/20"
+      : "from-primary/10 via-primary/5 to-transparent border-primary/15";
 
   return (
     <Card className={`overflow-hidden border bg-gradient-to-br ${toneClass}`}>
@@ -204,28 +169,17 @@ function MilestoneCard({
             <Icon className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              {eyebrow}
-            </p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{eyebrow}</p>
             {entry ? (
               <>
                 <div className="mt-1 flex items-start gap-2">
-                  <AgentAvatar
-                    entry={entry}
-                    className="mt-0.5 h-6 w-6 shrink-0"
-                  />
-                  <p className="min-w-0 text-sm font-semibold leading-snug break-words">
-                    {headline}
-                  </p>
+                  <AgentAvatar entry={entry} className="mt-0.5 h-6 w-6 shrink-0" />
+                  <p className="min-w-0 text-sm font-semibold leading-snug break-words">{headline}</p>
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground break-words">
-                  {detail}
-                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground break-words">{detail}</p>
               </>
             ) : (
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                No qualifying production has been posted yet.
-              </p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">No qualifying production has been posted yet.</p>
             )}
           </div>
         </div>
@@ -238,9 +192,7 @@ function LeaderboardLoading() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
-        {[0, 1, 2].map(index => (
-          <Skeleton key={index} className="h-28 rounded-xl" />
-        ))}
+        {[0, 1, 2].map((index) => <Skeleton key={index} className="h-28 rounded-xl" />)}
       </div>
       <Skeleton className="h-[430px] rounded-xl" />
     </div>
@@ -252,56 +204,41 @@ export default function AgentLeaderboardPage() {
   const [, navigate] = useLocation();
   const [period, setPeriod] = useState<LeaderboardPeriod>("this_month");
   const [dealType, setDealType] = useState<DealType>("closed");
-  const [rankBy, setRankBy] = useState<LeaderboardRankBy>("volume");
-  const queryInput = useMemo(
-    () => ({ period, dealType, rankBy }),
-    [period, dealType, rankBy]
-  );
-  const { data, isLoading, isError } = trpc.analytics.agentLeaderboard.useQuery(
-    queryInput,
-    {
-      staleTime: 60_000,
-    }
-  );
+  const queryInput = useMemo(() => ({ period, dealType }), [period, dealType]);
+  const { data, isLoading, isError } = trpc.analytics.agentLeaderboard.useQuery(queryInput, {
+    staleTime: 60_000,
+  });
 
   const isClosed = dealType === "closed";
   const leaderboard = (data?.leaderboard ?? []) as AgentEntry[];
   const myEntry = (data?.myEntry ?? null) as AgentEntry | null;
-  const isUnitsRanked = rankBy === "units";
-  const topAgent =
-    leaderboard.find(entry =>
-      isUnitsRanked ? entry.units > 0 : entry.volume > 0
-    ) ?? null;
+  const topAgent = leaderboard.find((entry) => entry.volume > 0) ?? null;
   const milestones = (data?.milestones ?? {}) as {
     largestTransaction?: Milestone | null;
     bestWeek?: Milestone | null;
     powerMonth?: Milestone | null;
     nextClosing?: Milestone | null;
   };
-  const periodLabel =
-    data?.periodLabel ??
-    PERIOD_OPTIONS.find(option => option.value === period)?.label ??
-    "This Month";
+  const periodLabel = data?.periodLabel ?? PERIOD_OPTIONS.find((option) => option.value === period)?.label ?? "This Month";
   const activeAgentCount = data?.activeAgentCount ?? leaderboard.length;
   const powerMonthYear = data?.powerMonthYear ?? new Date().getFullYear();
   const hasDateFilters = data?.hasDateFilters ?? isClosed;
-  const aboveMe =
-    myEntry && myEntry.rank > 1 ? leaderboard[myEntry.rank - 2] : null;
+  const aboveMe = myEntry && myEntry.rank > 1 ? leaderboard[myEntry.rank - 2] : null;
 
   const standingMessage = !myEntry
     ? null
     : myEntry.rank === 1
-      ? `You are leading the team in ${isUnitsRanked ? "units" : "production volume"}. Keep the crown.`
-      : isUnitsRanked && aboveMe && aboveMe.units > myEntry.units
-        ? `You are ${aboveMe.units - myEntry.units} ${aboveMe.units - myEntry.units === 1 ? "unit" : "units"} from #${aboveMe.rank}.`
-        : !isUnitsRanked && aboveMe && aboveMe.volume > myEntry.volume
-          ? `You are ${currency(aboveMe.volume - myEntry.volume)} in volume from #${aboveMe.rank}.`
+      ? `You are leading the team in production volume. Keep the crown.`
+      : aboveMe && aboveMe.volume > myEntry.volume
+        ? `You are ${currency(aboveMe.volume - myEntry.volume)} in volume from #${aboveMe.rank}.`
+        : aboveMe && aboveMe.units > myEntry.units
+          ? `You are one deal count step from #${aboveMe.rank}.`
           : "Every deal moves the board. Build your next win.";
 
-  const boardTitle = `${isClosed ? "Closed" : "Under Contract"} standings by ${isUnitsRanked ? "units" : "volume"}`;
+  const boardTitle = isClosed ? "Closed standings" : "Under Contract standings";
   const boardDescriptor = isClosed
-    ? `${periodLabel} · ordered by ${isUnitsRanked ? "units, then production volume" : "production volume, then units"}`
-    : `Live view of every active deal currently under contract · ordered by ${isUnitsRanked ? "units, then production volume" : "production volume, then units"}`;
+    ? `${periodLabel} · ordered by production volume, then units`
+    : "Live view of every active deal currently under contract · ordered by production volume, then units";
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 pb-8">
@@ -310,28 +247,18 @@ export default function AgentLeaderboardPage() {
         <div className="pointer-events-none absolute right-24 bottom-0 h-24 w-24 rounded-full bg-primary/15 blur-2xl" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
-            <Badge
-              variant="outline"
-              className="border-primary/25 bg-background/65 text-primary"
-            >
+            <Badge variant="outline" className="border-primary/25 bg-background/65 text-primary">
               <Trophy className="mr-1.5 h-3.5 w-3.5" /> Team production board
             </Badge>
-            <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
-              Agent Leaderboard
-            </h1>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Agent Leaderboard</h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Benchmark your momentum against{" "}
-              <span className="font-semibold text-foreground">
-                {activeAgentCount} active Savvy agents
-              </span>
-              . Switch between production volume and units to recognize the
-              performance that matters most right now.
+              Benchmark your momentum against <span className="font-semibold text-foreground">{activeAgentCount} active Savvy agents</span>. Rankings prioritize total production volume, with units as the tie-breaker.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {hasDateFilters ? (
               <div className="flex flex-wrap gap-1.5 rounded-xl border bg-background/75 p-1.5 shadow-sm">
-                {PERIOD_OPTIONS.map(option => (
+                {PERIOD_OPTIONS.map((option) => (
                   <button
                     key={option.value}
                     type="button"
@@ -347,21 +274,13 @@ export default function AgentLeaderboardPage() {
                 ))}
               </div>
             ) : (
-              <Badge
-                variant="outline"
-                className="w-fit border-primary/25 bg-background/75 px-3 py-2 text-primary"
-              >
-                <Target className="mr-1.5 h-3.5 w-3.5" /> Live pipeline · all
-                active contracts
+              <Badge variant="outline" className="w-fit border-primary/25 bg-background/75 px-3 py-2 text-primary">
+                <Target className="mr-1.5 h-3.5 w-3.5" /> Live pipeline · all active contracts
               </Badge>
             )}
             <button
               type="button"
-              onClick={() =>
-                navigate(
-                  `/leaderboard/present?period=${period}&dealType=${dealType}&rankBy=${rankBy}`
-                )
-              }
+              onClick={() => navigate("/leaderboard/present")}
               className="inline-flex items-center gap-1.5 rounded-xl border border-primary/25 bg-background/80 px-3 py-2 text-xs font-bold text-primary shadow-sm transition-all duration-150 hover:bg-primary hover:text-primary-foreground active:scale-[0.97]"
             >
               <MonitorUp className="h-3.5 w-3.5" /> Presentation mode
@@ -370,11 +289,7 @@ export default function AgentLeaderboardPage() {
         </div>
       </section>
 
-      <Tabs
-        value={dealType}
-        onValueChange={value => setDealType(value as DealType)}
-        className="gap-4"
-      >
+      <Tabs value={dealType} onValueChange={(value) => setDealType(value as DealType)} className="gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <TabsList className="w-full sm:w-auto">
             <TabsTrigger value="closed" className="gap-1.5 px-4">
@@ -385,54 +300,17 @@ export default function AgentLeaderboardPage() {
             </TabsTrigger>
           </TabsList>
           <p className="text-xs text-muted-foreground">
-            {isClosed ? "Closed production" : "Current under-contract pipeline"}{" "}
-            · <span className="font-medium text-foreground">{periodLabel}</span>
+            {isClosed ? "Closed production" : "Current under-contract pipeline"} · <span className="font-medium text-foreground">{periodLabel}</span>
           </p>
         </div>
       </Tabs>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2.5 sm:px-4">
-        <div>
-          <p className="text-sm font-semibold">Rank the board by</p>
-          <p className="text-xs text-muted-foreground">
-            Highlights, leader cards, and standings update to match.
-          </p>
-        </div>
-        <div
-          className="inline-flex rounded-lg border bg-muted/35 p-1"
-          role="group"
-          aria-label="Leaderboard ranking metric"
-        >
-          <button
-            type="button"
-            onClick={() => setRankBy("volume")}
-            aria-pressed={!isUnitsRanked}
-            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${!isUnitsRanked ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Volume
-          </button>
-          <button
-            type="button"
-            onClick={() => setRankBy("units")}
-            aria-pressed={isUnitsRanked}
-            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${isUnitsRanked ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Units
-          </button>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <LeaderboardLoading />
-      ) : isError ? (
+      {isLoading ? <LeaderboardLoading /> : isError ? (
         <Card>
           <CardContent className="flex min-h-48 flex-col items-center justify-center px-6 text-center">
             <Trophy className="mb-3 h-8 w-8 text-muted-foreground/50" />
             <h2 className="font-semibold">The leaderboard could not load</h2>
-            <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              Please refresh the page. If the issue continues, let the Savvy
-              team know.
-            </p>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">Please refresh the page. If the issue continues, let the Savvy team know.</p>
           </CardContent>
         </Card>
       ) : (
@@ -442,39 +320,19 @@ export default function AgentLeaderboardPage() {
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                      {isUnitsRanked
-                        ? isClosed
-                          ? "Current units leader"
-                          : "Live units leader"
-                        : isClosed
-                          ? "Current pace leader"
-                          : "Live pipeline leader"}
-                    </p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{isClosed ? "Current pace leader" : "Live pipeline leader"}</p>
                     {topAgent ? (
                       <div className="mt-2 flex items-center gap-2.5">
                         <div className="relative shrink-0">
                           <AgentAvatar entry={topAgent} className="h-10 w-10" />
-                          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[9px] text-amber-950 shadow-sm">
-                            1
-                          </span>
+                          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[9px] text-amber-950 shadow-sm">1</span>
                         </div>
                         <div className="min-w-0">
-                          <p className="text-base font-bold leading-snug break-words">
-                            {topAgent.agentName}
-                          </p>
-                          <p className="text-xs leading-relaxed text-muted-foreground">
-                            {isUnitsRanked
-                              ? `${topAgent.units} ${topAgent.units === 1 ? "unit" : "units"} ${isClosed ? "closed" : "under contract"} · ${compactCurrency(topAgent.volume)} in volume`
-                              : `${compactCurrency(topAgent.volume)} ${isClosed ? "closed" : "under contract"} · ${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"}`}
-                          </p>
+                          <p className="text-base font-bold leading-snug break-words">{topAgent.agentName}</p>
+                          <p className="text-xs leading-relaxed text-muted-foreground">{compactCurrency(topAgent.volume)} {isClosed ? "closed" : "under contract"} · {topAgent.units} {topAgent.units === 1 ? "deal" : "deals"}</p>
                         </div>
                       </div>
-                    ) : (
-                      <p className="mt-3 text-sm text-muted-foreground">
-                        No qualifying production posted yet.
-                      </p>
-                    )}
+                    ) : <p className="mt-3 text-sm text-muted-foreground">No qualifying production posted yet.</p>}
                   </div>
                   <Crown className="h-7 w-7 shrink-0 text-amber-500" />
                 </div>
@@ -482,15 +340,7 @@ export default function AgentLeaderboardPage() {
                   <div className="mt-4 rounded-lg border border-primary/15 bg-background/65 px-3 py-2">
                     <div className="flex items-start gap-2">
                       <TrendingUp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                      <p className="text-xs leading-relaxed">
-                        <span className="font-bold text-primary">
-                          You are #{myEntry.rank}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {" "}
-                          of {activeAgentCount}. {standingMessage}
-                        </span>
-                      </p>
+                      <p className="text-xs leading-relaxed"><span className="font-bold text-primary">You are #{myEntry.rank}</span><span className="text-muted-foreground"> of {activeAgentCount}. {standingMessage}</span></p>
                     </div>
                   </div>
                 ) : null}
@@ -499,83 +349,23 @@ export default function AgentLeaderboardPage() {
 
             <MilestoneCard
               icon={Gem}
-              eyebrow={
-                isUnitsRanked
-                  ? isClosed
-                    ? "Most units"
-                    : "Most live units"
-                  : isClosed
-                    ? "Big deal energy"
-                    : "Big deal in play"
-              }
-              headline={
-                isUnitsRanked
-                  ? topAgent
-                    ? `${topAgent.agentName} is leading in units`
-                    : ""
-                  : milestones.largestTransaction
-                    ? `${milestones.largestTransaction.agentName} ${isClosed ? "closed the largest deal" : "has the largest deal under contract"}`
-                    : ""
-              }
-              detail={
-                isUnitsRanked
-                  ? topAgent
-                    ? `${topAgent.units} ${topAgent.units === 1 ? "unit" : "units"} ${isClosed ? `closed during ${periodLabel}` : "currently under contract"}.`
-                    : ""
-                  : milestones.largestTransaction
-                    ? `${compactCurrency(milestones.largestTransaction.volume)} in ${isClosed ? `closed production during ${periodLabel}` : "current under-contract volume"}.`
-                    : ""
-              }
-              entry={isUnitsRanked ? topAgent : milestones.largestTransaction}
+              eyebrow={isClosed ? "Big deal energy" : "Big deal in play"}
+              headline={milestones.largestTransaction ? `${milestones.largestTransaction.agentName} ${isClosed ? "closed the largest deal" : "has the largest deal under contract"}` : ""}
+              detail={milestones.largestTransaction ? `${compactCurrency(milestones.largestTransaction.volume)} in ${isClosed ? `closed production during ${periodLabel}` : "current under-contract volume"}.` : ""}
+              entry={milestones.largestTransaction}
               tone="warm"
             />
 
             <MilestoneCard
               icon={isClosed ? Flame : CalendarDays}
-              eyebrow={
-                isUnitsRanked
-                  ? isClosed
-                    ? "Unit hot hand"
-                    : "Units in play"
-                  : isClosed
-                    ? "Hot hand"
-                    : "Next closing"
-              }
-              headline={
-                isClosed
-                  ? milestones.bestWeek
-                    ? `${milestones.bestWeek.agentName} had the ${isUnitsRanked ? "biggest unit week" : "hottest week"}`
-                    : ""
-                  : isUnitsRanked
-                    ? topAgent
-                      ? `${topAgent.agentName} has the most deals in play`
-                      : ""
-                    : milestones.nextClosing
-                      ? `${milestones.nextClosing.agentName}'s deal is closing next`
-                      : ""
-              }
-              detail={
-                isClosed
-                  ? milestones.bestWeek
-                    ? isUnitsRanked
-                      ? `${milestones.bestWeek.units} ${milestones.bestWeek.units === 1 ? "unit" : "units"} closed in one week.`
-                      : `${milestones.bestWeek.units} ${milestones.bestWeek.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.bestWeek.volume)} of production closed in one week.`
-                    : ""
-                  : isUnitsRanked
-                    ? topAgent
-                      ? `${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"} currently under contract.`
-                      : ""
-                    : milestones.nextClosing
-                      ? `${compactCurrency(milestones.nextClosing.volume)} is expected to close ${formatDate(milestones.nextClosing.date)}.`
-                      : ""
-              }
-              entry={
-                isClosed
-                  ? milestones.bestWeek
-                  : isUnitsRanked
-                    ? topAgent
-                    : milestones.nextClosing
-              }
+              eyebrow={isClosed ? "Hot hand" : "Next closing"}
+              headline={isClosed
+                ? (milestones.bestWeek ? `${milestones.bestWeek.agentName} had the hottest week` : "")
+                : (milestones.nextClosing ? `${milestones.nextClosing.agentName}'s deal is closing next` : "")}
+              detail={isClosed
+                ? (milestones.bestWeek ? `${milestones.bestWeek.units} ${milestones.bestWeek.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.bestWeek.volume)} of production closed in one week.` : "")
+                : (milestones.nextClosing ? `${compactCurrency(milestones.nextClosing.volume)} is expected to close ${formatDate(milestones.nextClosing.date)}.` : "")}
+              entry={isClosed ? milestones.bestWeek : milestones.nextClosing}
               tone="cool"
             />
           </section>
@@ -585,36 +375,16 @@ export default function AgentLeaderboardPage() {
               <MilestoneCard
                 icon={CalendarDays}
                 eyebrow={`Power month ${powerMonthYear}`}
-                headline={
-                  milestones.powerMonth
-                    ? `${milestones.powerMonth.agentName} posted the strongest month`
-                    : ""
-                }
-                detail={
-                  milestones.powerMonth
-                    ? isUnitsRanked
-                      ? `${milestones.powerMonth.units} ${milestones.powerMonth.units === 1 ? "unit" : "units"} closed in ${formatMonth(milestones.powerMonth.periodStart)}.`
-                      : `${milestones.powerMonth.units} ${milestones.powerMonth.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.powerMonth.volume)} closed in ${formatMonth(milestones.powerMonth.periodStart)}.`
-                    : ""
-                }
+                headline={milestones.powerMonth ? `${milestones.powerMonth.agentName} posted the strongest month` : ""}
+                detail={milestones.powerMonth ? `${milestones.powerMonth.units} ${milestones.powerMonth.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.powerMonth.volume)} closed in ${formatMonth(milestones.powerMonth.periodStart)}.` : ""}
                 entry={milestones.powerMonth}
               />
             ) : (
               <MilestoneCard
                 icon={Flame}
-                eyebrow={isUnitsRanked ? "Units in play" : "Pipeline pulse"}
-                headline={
-                  topAgent
-                    ? `${topAgent.agentName} is carrying the most live ${isUnitsRanked ? "units" : "volume"}`
-                    : ""
-                }
-                detail={
-                  topAgent
-                    ? isUnitsRanked
-                      ? `${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"} are currently under contract.`
-                      : `${compactCurrency(topAgent.volume)} is currently under contract across ${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"}.`
-                    : ""
-                }
+                eyebrow="Pipeline pulse"
+                headline={topAgent ? `${topAgent.agentName} is carrying the most live volume` : ""}
+                detail={topAgent ? `${compactCurrency(topAgent.volume)} is currently under contract across ${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"}.` : ""}
                 entry={topAgent}
               />
             )}
@@ -627,8 +397,8 @@ export default function AgentLeaderboardPage() {
                   <p className="text-sm font-semibold">How this board works</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {isClosed
-                      ? `Every active agent is included. Closed rankings use ${isUnitsRanked ? "units first, then production volume" : "production volume first, then units"}. The Power Month headline always finds the strongest single closed month in the current calendar year.`
-                      : `Every active agent is included. This is a live view of all current under-contract deals, so it has no date filters. Rankings use ${isUnitsRanked ? "units first, then under-contract volume" : "under-contract volume first, then units"}.`}
+                      ? "Every active agent is included. Closed rankings use production volume first, then units. The Power Month headline always finds the strongest single closed month in the current calendar year."
+                      : "Every active agent is included. This is a live view of all current under-contract deals, so it has no date filters. Rankings use under-contract volume first, then units."}
                   </p>
                 </div>
               </CardContent>
@@ -639,13 +409,9 @@ export default function AgentLeaderboardPage() {
             <div className="flex flex-col gap-1 border-b bg-muted/25 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div>
                 <h2 className="font-semibold">{boardTitle}</h2>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {boardDescriptor}
-                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">{boardDescriptor}</p>
               </div>
-              <Badge variant="secondary" className="w-fit">
-                {leaderboard.length} agents
-              </Badge>
+              <Badge variant="secondary" className="w-fit">{leaderboard.length} agents</Badge>
             </div>
             <Table className="min-w-[1100px] table-fixed">
               <TableHeader>
@@ -656,35 +422,18 @@ export default function AgentLeaderboardPage() {
                   <TableHead className="text-right">Units</TableHead>
                   <TableHead className="text-right">Buyers</TableHead>
                   <TableHead className="text-right">Sellers</TableHead>
-                  <TableHead className="w-[105px] whitespace-normal text-right leading-tight">
-                    Buyer
-                    <br />
-                    Avg. %
-                  </TableHead>
-                  <TableHead className="w-[105px] whitespace-normal text-right leading-tight">
-                    Seller
-                    <br />
-                    Avg. %
-                  </TableHead>
+                  <TableHead className="w-[105px] whitespace-normal text-right leading-tight">Buyer<br />Avg. %</TableHead>
+                  <TableHead className="w-[105px] whitespace-normal text-right leading-tight">Seller<br />Avg. %</TableHead>
                   <TableHead className="px-4 text-right">Avg. Deal</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {leaderboard.map(entry => {
+                {leaderboard.map((entry) => {
                   const isMe = Number(user?.id) === entry.agentId;
                   return (
-                    <TableRow
-                      key={entry.agentId}
-                      className={
-                        isMe
-                          ? "bg-primary/[0.055] hover:bg-primary/[0.075]"
-                          : ""
-                      }
-                    >
+                    <TableRow key={entry.agentId} className={isMe ? "bg-primary/[0.055] hover:bg-primary/[0.075]" : ""}>
                       <TableCell className="px-4 sm:px-5">
-                        <span
-                          className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full border px-1.5 ${rankTreatment(entry.rank)}`}
-                        >
+                        <span className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full border px-1.5 ${rankTreatment(entry.rank)}`}>
                           <RankIcon rank={entry.rank} />
                         </span>
                       </TableCell>
@@ -692,77 +441,40 @@ export default function AgentLeaderboardPage() {
                         <div className="flex min-w-0 items-center gap-2.5">
                           <AgentAvatar entry={entry} className="shrink-0" />
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold leading-snug break-words">
-                              {entry.agentName}{" "}
-                              {isMe ? (
-                                <span className="font-medium text-primary">
-                                  (You)
-                                </span>
-                              ) : null}
-                            </p>
-                            <p className="mt-0.5 max-w-[172px] whitespace-normal break-words text-xs leading-snug text-muted-foreground">
-                              {entry.marketName
-                                ? `${entry.marketName}${entry.marketState ? `, ${entry.marketState}` : ""}`
-                                : "Market not assigned"}
-                            </p>
+                            <p className="text-sm font-semibold leading-snug break-words">{entry.agentName} {isMe ? <span className="font-medium text-primary">(You)</span> : null}</p>
+                            <p className="mt-0.5 max-w-[172px] whitespace-normal break-words text-xs leading-snug text-muted-foreground">{entry.marketName ? `${entry.marketName}${entry.marketState ? `, ${entry.marketState}` : ""}` : "Market not assigned"}</p>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             {entry.email ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <a
-                                    href={`mailto:${entry.email}`}
-                                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                    aria-label={`Email ${entry.agentName}`}
-                                  >
+                                  <a href={`mailto:${entry.email}`} className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" aria-label={`Email ${entry.agentName}`}>
                                     <Mail className="h-3.5 w-3.5" />
                                   </a>
                                 </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={6}>
-                                  {entry.email}
-                                </TooltipContent>
+                                <TooltipContent side="top" sideOffset={6}>{entry.email}</TooltipContent>
                               </Tooltip>
                             ) : null}
                             {entry.phone ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <a
-                                    href={`tel:${entry.phone}`}
-                                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                    aria-label={`Call ${entry.agentName}`}
-                                  >
+                                  <a href={`tel:${entry.phone}`} className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" aria-label={`Call ${entry.agentName}`}>
                                     <Phone className="h-3.5 w-3.5" />
                                   </a>
                                 </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={6}>
-                                  {entry.phone}
-                                </TooltipContent>
+                                <TooltipContent side="top" sideOffset={6}>{entry.phone}</TooltipContent>
                               </Tooltip>
                             ) : null}
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-bold tabular-nums">
-                        {compactCurrency(entry.volume)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {entry.units}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {entry.buyerSides}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {entry.sellerSides}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatPercent(entry.averageBuyerCommissionRate)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatPercent(entry.averageSellerCommissionRate)}
-                      </TableCell>
-                      <TableCell className="px-4 text-right tabular-nums">
-                        {compactCurrency(entry.averageDealSize)}
-                      </TableCell>
+                      <TableCell className="text-right font-bold tabular-nums">{compactCurrency(entry.volume)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{entry.units}</TableCell>
+                      <TableCell className="text-right tabular-nums">{entry.buyerSides}</TableCell>
+                      <TableCell className="text-right tabular-nums">{entry.sellerSides}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatPercent(entry.averageBuyerCommissionRate)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatPercent(entry.averageSellerCommissionRate)}</TableCell>
+                      <TableCell className="px-4 text-right tabular-nums">{compactCurrency(entry.averageDealSize)}</TableCell>
                     </TableRow>
                   );
                 })}

@@ -3,18 +3,7 @@
  * All new BI report query helpers for the Analytics & Reporting rebuild (v55).
  */
 
-import {
-  and,
-  eq,
-  gte,
-  lte,
-  sql,
-  isNull,
-  isNotNull,
-  ne,
-  inArray,
-  or,
-} from "drizzle-orm";
+import { and, eq, gte, lte, sql, isNull, isNotNull, ne, inArray, or } from "drizzle-orm";
 import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import {
@@ -61,14 +50,8 @@ async function getDb() {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-export type AgentLeaderboardPeriod =
-  | "this_week"
-  | "this_month"
-  | "this_quarter"
-  | "ytd"
-  | "all_time";
+export type AgentLeaderboardPeriod = "this_week" | "this_month" | "this_quarter" | "ytd" | "all_time";
 export type AgentLeaderboardDealType = "under_contract" | "closed";
-export type AgentLeaderboardRankBy = "volume" | "units";
 
 type LeaderboardMilestone = {
   agentId: number;
@@ -88,23 +71,10 @@ function excludeReferralTransactions() {
 }
 
 function utcDate(year: number, month: number, day: number, endOfDay = false) {
-  return new Date(
-    Date.UTC(
-      year,
-      month,
-      day,
-      endOfDay ? 23 : 0,
-      endOfDay ? 59 : 0,
-      endOfDay ? 59 : 0,
-      endOfDay ? 999 : 0
-    )
-  );
+  return new Date(Date.UTC(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
 }
 
-export function getAgentLeaderboardPeriodRange(
-  period: AgentLeaderboardPeriod,
-  now = new Date()
-) {
+export function getAgentLeaderboardPeriodRange(period: AgentLeaderboardPeriod, now = new Date()) {
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth();
   const day = now.getUTCDate();
@@ -114,30 +84,18 @@ export function getAgentLeaderboardPeriodRange(
     return { dateFrom: undefined, dateTo: undefined, label: "All Time" };
   }
   if (period === "ytd") {
-    return {
-      dateFrom: utcDate(year, 0, 1),
-      dateTo: endOfToday,
-      label: "Year to Date",
-    };
+    return { dateFrom: utcDate(year, 0, 1), dateTo: endOfToday, label: "Year to Date" };
   }
   if (period === "this_quarter") {
     const quarterStartMonth = Math.floor(month / 3) * 3;
     const quarter = Math.floor(month / 3) + 1;
-    return {
-      dateFrom: utcDate(year, quarterStartMonth, 1),
-      dateTo: endOfToday,
-      label: `Q${quarter} ${year}`,
-    };
+    return { dateFrom: utcDate(year, quarterStartMonth, 1), dateTo: endOfToday, label: `Q${quarter} ${year}` };
   }
   if (period === "this_month") {
     return {
       dateFrom: utcDate(year, month, 1),
       dateTo: endOfToday,
-      label: now.toLocaleDateString("en-US", {
-        month: "long",
-        year: "numeric",
-        timeZone: "UTC",
-      }),
+      label: now.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }),
     };
   }
 
@@ -169,34 +127,11 @@ function monthKeyFromDate(value: Date | string | null) {
 }
 
 function pickMilestone(groups: Map<string, LeaderboardMilestone>) {
-  return (
-    Array.from(groups.values()).sort(
-      (a, b) =>
-        b.units - a.units ||
-        b.volume - a.volume ||
-        a.agentName.localeCompare(b.agentName)
-    )[0] ?? null
-  );
+  return Array.from(groups.values()).sort((a, b) =>
+    b.units - a.units || b.volume - a.volume || a.agentName.localeCompare(b.agentName)
+  )[0] ?? null;
 }
 
-export function sortAgentLeaderboardEntries<
-  T extends { agentName: string; units: number; volume: number },
->(entries: T[], rankBy: AgentLeaderboardRankBy) {
-  return entries.slice().sort((a, b) => {
-    if (rankBy === "units") {
-      return (
-        b.units - a.units ||
-        b.volume - a.volume ||
-        a.agentName.localeCompare(b.agentName)
-      );
-    }
-    return (
-      b.volume - a.volume ||
-      b.units - a.units ||
-      a.agentName.localeCompare(b.agentName)
-    );
-  });
-}
 
 async function resolveAgentIds(opts: {
   agentId?: number;
@@ -211,7 +146,7 @@ async function resolveAgentIds(opts: {
       .select({ userId: groupMembers.userId })
       .from(groupMembers)
       .where(eq(groupMembers.groupId, opts.groupId));
-    ids = rows.map(r => r.userId);
+    ids = rows.map((r) => r.userId);
     if (ids.length === 0) return [-1];
   }
 
@@ -220,8 +155,8 @@ async function resolveAgentIds(opts: {
       .select({ agentId: marketAgentAssignments.agentId })
       .from(marketAgentAssignments)
       .where(eq(marketAgentAssignments.marketProfileId, opts.marketProfileId));
-    const mktIds = rows.map(r => r.agentId);
-    ids = ids ? ids.filter(id => mktIds.includes(id)) : mktIds;
+    const mktIds = rows.map((r) => r.agentId);
+    ids = ids ? ids.filter((id) => mktIds.includes(id)) : mktIds;
     if (ids.length === 0) return [-1];
   }
 
@@ -242,7 +177,7 @@ export async function getBusinessOverviewKpis(opts?: {
     excludeReferralTransactions(),
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
-    dateTo ? lte(transactions.closingDate, dateTo) : undefined
+    dateTo ? lte(transactions.closingDate, dateTo) : undefined,
   );
 
   const [gciRow] = await db
@@ -258,12 +193,7 @@ export async function getBusinessOverviewKpis(opts?: {
   const [pipelineRow] = await db
     .select({ active: sql<number>`COUNT(*)` })
     .from(transactions)
-    .where(
-      and(
-        excludeReferralTransactions(),
-        eq(transactions.status, "under_contract")
-      )
-    );
+    .where(and(excludeReferralTransactions(), eq(transactions.status, "under_contract")));
 
   const [agentRow] = await db
     .select({ total: sql<number>`COUNT(*)` })
@@ -310,7 +240,7 @@ export async function getAgentPerformanceReport(opts?: {
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
-    agentIds ? inArray(transactions.agentId, agentIds) : undefined
+    agentIds ? inArray(transactions.agentId, agentIds) : undefined,
   );
 
   const production = await db
@@ -338,16 +268,16 @@ export async function getAgentPerformanceReport(opts?: {
     .where(agentIds ? inArray(agentConnections.agentId, agentIds) : undefined)
     .groupBy(agentConnections.agentId);
 
-  const pipelineMap = new Map(pipelineRows.map(p => [p.agentId, p]));
+  const pipelineMap = new Map(pipelineRows.map((p) => [p.agentId, p]));
 
   const year = new Date().getFullYear();
   const goalRows = await db
     .select()
     .from(agentGoals)
     .where(and(eq(agentGoals.year, year), eq(agentGoals.month, 0)));
-  const goalMap = new Map(goalRows.map(g => [g.agentId, g]));
+  const goalMap = new Map(goalRows.map((g) => [g.agentId, g]));
 
-  return production.map(row => {
+  return production.map((row) => {
     const p = pipelineMap.get(row.agentId);
     const g = goalMap.get(row.agentId);
     const gci = Number(row.totalGci);
@@ -362,8 +292,7 @@ export async function getAgentPerformanceReport(opts?: {
       pipelineCount: p ? Number(p.pipelineCount) : 0,
       activeCount: p ? Number(p.activeCount) : 0,
       gciGoal,
-      goalPct:
-        gciGoal && gciGoal > 0 ? Math.round((gci / gciGoal) * 100) : null,
+      goalPct: gciGoal && gciGoal > 0 ? Math.round((gci / gciGoal) * 100) : null,
     };
   });
 }
@@ -373,18 +302,12 @@ export async function getAgentPerformanceReport(opts?: {
 export async function getAgentLeaderboard(opts: {
   period: AgentLeaderboardPeriod;
   dealType: AgentLeaderboardDealType;
-  rankBy?: AgentLeaderboardRankBy;
   viewerAgentId: number;
 }) {
   const db = await getDb();
   const isClosed = opts.dealType === "closed";
-  const rankBy = opts.rankBy ?? "volume";
-  const { dateFrom, dateTo, label } = getAgentLeaderboardPeriodRange(
-    opts.period
-  );
-  const dateField = isClosed
-    ? transactions.closingDate
-    : transactions.contractDate;
+  const { dateFrom, dateTo, label } = getAgentLeaderboardPeriodRange(opts.period);
+  const dateField = isClosed ? transactions.closingDate : transactions.contractDate;
   // Closed production follows the agent-selected period. Under Contract is intentionally
   // a live pipeline view, so date controls never hide active deals.
   const transactionWhere = isClosed
@@ -392,12 +315,9 @@ export async function getAgentLeaderboard(opts: {
         excludeReferralTransactions(),
         eq(transactions.status, "closed"),
         dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
-        dateTo ? lte(transactions.closingDate, dateTo) : undefined
+        dateTo ? lte(transactions.closingDate, dateTo) : undefined,
       )
-    : and(
-        excludeReferralTransactions(),
-        eq(transactions.status, "under_contract")
-      );
+    : and(excludeReferralTransactions(), eq(transactions.status, "under_contract"));
 
   const activeAgents = await db
     .select({
@@ -407,20 +327,16 @@ export async function getAgentLeaderboard(opts: {
       marketName: marketProfiles.name,
       marketState: marketProfiles.state,
       email: users.email,
-      phone: sql<
-        string | null
-      >`COALESCE(NULLIF(${users.phone}, ''), NULLIF(${userProfiles.primaryPhone}, ''))`,
+      phone: sql<string | null>`COALESCE(NULLIF(${users.phone}, ''), NULLIF(${userProfiles.primaryPhone}, ''))`,
     })
     .from(users)
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
     .leftJoin(marketProfiles, eq(users.marketProfileId, marketProfiles.id))
-    .where(
-      and(
-        eq(users.role, "agent"),
-        eq(users.isActive, true),
-        sql`LOWER(TRIM(COALESCE(${users.name}, ''))) <> 'savvy agent'`
-      )
-    )
+    .where(and(
+      eq(users.role, "agent"),
+      eq(users.isActive, true),
+      sql`LOWER(TRIM(COALESCE(${users.name}, ''))) <> 'savvy agent'`,
+    ))
     .orderBy(users.name);
 
   const production = await db
@@ -431,23 +347,17 @@ export async function getAgentLeaderboard(opts: {
       averageDealSize: sql<string>`COALESCE(AVG(${transactions.purchasePrice}), 0)`,
       buyerSides: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'buyer' THEN 1 ELSE 0 END), 0)`,
       sellerSides: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.transactionType} = 'seller' THEN 1 ELSE 0 END), 0)`,
-      averageBuyerCommissionRate: sql<
-        string | null
-      >`AVG(CASE WHEN ${transactions.transactionType} = 'buyer' AND ${transactions.commissionType} = 'percentage' THEN ${transactions.commissionRate} * 100 ELSE NULL END)`,
-      averageSellerCommissionRate: sql<
-        string | null
-      >`AVG(CASE WHEN ${transactions.transactionType} = 'seller' AND ${transactions.commissionType} = 'percentage' THEN ${transactions.commissionRate} * 100 ELSE NULL END)`,
+      averageBuyerCommissionRate: sql<string | null>`AVG(CASE WHEN ${transactions.transactionType} = 'buyer' AND ${transactions.commissionType} = 'percentage' THEN ${transactions.commissionRate} * 100 ELSE NULL END)`,
+      averageSellerCommissionRate: sql<string | null>`AVG(CASE WHEN ${transactions.transactionType} = 'seller' AND ${transactions.commissionType} = 'percentage' THEN ${transactions.commissionRate} * 100 ELSE NULL END)`,
     })
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
-    .where(
-      and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true))
-    )
+    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)))
     .groupBy(transactions.agentId);
 
-  const productionByAgent = new Map(production.map(row => [row.agentId, row]));
-  const leaderboard = sortAgentLeaderboardEntries(
-    activeAgents.map(agent => {
+  const productionByAgent = new Map(production.map((row) => [row.agentId, row]));
+  const leaderboard = activeAgents
+    .map((agent) => {
       const row = productionByAgent.get(agent.agentId);
       return {
         agentId: agent.agentId,
@@ -462,18 +372,12 @@ export async function getAgentLeaderboard(opts: {
         averageDealSize: Number(row?.averageDealSize ?? 0),
         buyerSides: Number(row?.buyerSides ?? 0),
         sellerSides: Number(row?.sellerSides ?? 0),
-        averageBuyerCommissionRate:
-          row?.averageBuyerCommissionRate == null
-            ? null
-            : Number(row.averageBuyerCommissionRate),
-        averageSellerCommissionRate:
-          row?.averageSellerCommissionRate == null
-            ? null
-            : Number(row.averageSellerCommissionRate),
+        averageBuyerCommissionRate: row?.averageBuyerCommissionRate == null ? null : Number(row.averageBuyerCommissionRate),
+        averageSellerCommissionRate: row?.averageSellerCommissionRate == null ? null : Number(row.averageSellerCommissionRate),
       };
-    }),
-    rankBy
-  ).map((entry, index) => ({ ...entry, rank: index + 1 }));
+    })
+    .sort((a, b) => b.volume - a.volume || b.units - a.units || a.agentName.localeCompare(b.agentName))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
   const milestoneRows = await db
     .select({
@@ -487,13 +391,11 @@ export async function getAgentLeaderboard(opts: {
     .from(transactions)
     .innerJoin(users, eq(users.id, transactions.agentId))
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
-    .where(
-      and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true))
-    );
+    .where(and(transactionWhere, eq(users.role, "agent"), eq(users.isActive, true)));
 
   const normalizedMilestones = milestoneRows
-    .filter(row => !isClosed || Boolean(row.performanceDate))
-    .map(row => ({
+    .filter((row) => !isClosed || Boolean(row.performanceDate))
+    .map((row) => ({
       agentId: row.agentId,
       agentName: row.agentName ?? "Unknown",
       profilePhotoUrl: row.profilePhotoUrl ?? null,
@@ -504,9 +406,7 @@ export async function getAgentLeaderboard(opts: {
 
   const largestTransaction = normalizedMilestones
     .slice()
-    .sort(
-      (a, b) => b.volume - a.volume || a.agentName.localeCompare(b.agentName)
-    )[0];
+    .sort((a, b) => b.volume - a.volume || a.agentName.localeCompare(b.agentName))[0];
 
   const weeklyGroups = new Map<string, LeaderboardMilestone>();
   if (isClosed) {
@@ -531,34 +431,24 @@ export async function getAgentLeaderboard(opts: {
   const powerMonthYear = new Date().getUTCFullYear();
   const powerMonthRows = isClosed
     ? await db
-        .select({
-          agentId: transactions.agentId,
-          agentName: users.name,
-          profilePhotoUrl: userProfiles.profilePhotoUrl,
-          purchasePrice: transactions.purchasePrice,
-          closingDate: transactions.closingDate,
-        })
-        .from(transactions)
-        .innerJoin(users, eq(users.id, transactions.agentId))
-        .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
-        .where(
-          and(
-            excludeReferralTransactions(),
-            eq(transactions.status, "closed"),
-            gte(transactions.closingDate, utcDate(powerMonthYear, 0, 1)),
-            lte(
-              transactions.closingDate,
-              utcDate(
-                new Date().getUTCFullYear(),
-                new Date().getUTCMonth(),
-                new Date().getUTCDate(),
-                true
-              )
-            ),
-            eq(users.role, "agent"),
-            eq(users.isActive, true)
-          )
-        )
+      .select({
+        agentId: transactions.agentId,
+        agentName: users.name,
+        profilePhotoUrl: userProfiles.profilePhotoUrl,
+        purchasePrice: transactions.purchasePrice,
+        closingDate: transactions.closingDate,
+      })
+      .from(transactions)
+      .innerJoin(users, eq(users.id, transactions.agentId))
+      .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+      .where(and(
+        excludeReferralTransactions(),
+        eq(transactions.status, "closed"),
+        gte(transactions.closingDate, utcDate(powerMonthYear, 0, 1)),
+        lte(transactions.closingDate, utcDate(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), true)),
+        eq(users.role, "agent"),
+        eq(users.isActive, true),
+      ))
     : [];
 
   const powerMonthGroups = new Map<string, LeaderboardMilestone>();
@@ -582,48 +472,34 @@ export async function getAgentLeaderboard(opts: {
   const now = new Date();
   const nextClosing = !isClosed
     ? normalizedMilestones
-        .filter(
-          transaction =>
-            transaction.closingDate &&
-            new Date(transaction.closingDate).getTime() >= now.getTime()
-        )
-        .sort(
-          (a, b) =>
-            new Date(a.closingDate!).getTime() -
-              new Date(b.closingDate!).getTime() || b.volume - a.volume
-        )[0]
+      .filter((transaction) => transaction.closingDate && new Date(transaction.closingDate).getTime() >= now.getTime())
+      .sort((a, b) => new Date(a.closingDate!).getTime() - new Date(b.closingDate!).getTime() || b.volume - a.volume)[0]
     : null;
 
   return {
     periodLabel: isClosed ? label : "Live Pipeline",
     hasDateFilters: isClosed,
-    rankBy,
     activeAgentCount: activeAgents.length,
     leaderboard,
-    myEntry:
-      leaderboard.find(entry => entry.agentId === opts.viewerAgentId) ?? null,
+    myEntry: leaderboard.find((entry) => entry.agentId === opts.viewerAgentId) ?? null,
     milestones: {
-      largestTransaction: largestTransaction
-        ? {
-            agentId: largestTransaction.agentId,
-            agentName: largestTransaction.agentName,
-            profilePhotoUrl: largestTransaction.profilePhotoUrl,
-            units: 1,
-            volume: largestTransaction.volume,
-          }
-        : null,
+      largestTransaction: largestTransaction ? {
+        agentId: largestTransaction.agentId,
+        agentName: largestTransaction.agentName,
+        profilePhotoUrl: largestTransaction.profilePhotoUrl,
+        units: 1,
+        volume: largestTransaction.volume,
+      } : null,
       bestWeek: isClosed ? pickMilestone(weeklyGroups) : null,
       powerMonth: isClosed ? pickMilestone(powerMonthGroups) : null,
-      nextClosing: nextClosing
-        ? {
-            agentId: nextClosing.agentId,
-            agentName: nextClosing.agentName,
-            profilePhotoUrl: nextClosing.profilePhotoUrl,
-            units: 1,
-            volume: nextClosing.volume,
-            date: toDayKey(nextClosing.closingDate) ?? undefined,
-          }
-        : null,
+      nextClosing: nextClosing ? {
+        agentId: nextClosing.agentId,
+        agentName: nextClosing.agentName,
+        profilePhotoUrl: nextClosing.profilePhotoUrl,
+        units: 1,
+        volume: nextClosing.volume,
+        date: toDayKey(nextClosing.closingDate) ?? undefined,
+      } : null,
     },
     powerMonthYear,
   };
@@ -647,17 +523,9 @@ export async function getAgentPipelineFunnel(opts?: {
     .where(agentIds ? inArray(agentConnections.agentId, agentIds) : undefined)
     .groupBy(agentConnections.pipelineStatus);
 
-  const order: string[] = [
-    "new_lead",
-    "attempted_contact",
-    "nurture",
-    "active_client",
-    "under_contract",
-    "closed",
-    "dead",
-  ];
-  const map = new Map(rows.map(r => [r.status as string, Number(r.count)]));
-  return order.map(s => ({ status: s, count: map.get(s) ?? 0 }));
+  const order: string[] = ["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"];
+  const map = new Map(rows.map((r) => [r.status as string, Number(r.count)]));
+  return order.map((s) => ({ status: s, count: map.get(s) ?? 0 }));
 }
 
 // ─── 4. Group Performance ─────────────────────────────────────────────────────
@@ -676,37 +544,29 @@ export async function getGroupPerformanceReport(opts?: {
     .where(groupId ? eq(groups.id, groupId) : undefined);
 
   const results = await Promise.all(
-    allGroups.map(async g => {
+    allGroups.map(async (g) => {
       const members = await db
         .select({ userId: groupMembers.userId, userName: users.name })
         .from(groupMembers)
         .innerJoin(users, eq(groupMembers.userId, users.id))
         .where(eq(groupMembers.groupId, g.id));
 
-      const memberIds = members.map(m => m.userId);
+      const memberIds = members.map((m) => m.userId);
       if (memberIds.length === 0) {
-        return {
-          groupId: g.id,
-          groupName: g.name,
-          memberCount: 0,
-          closings: 0,
-          totalGci: 0,
-          totalVolume: 0,
-          members: [],
-        };
+        return { groupId: g.id, groupName: g.name, memberCount: 0, closings: 0, totalGci: 0, totalVolume: 0, members: [] };
       }
 
-      const txWhere = and(
+       const txWhere = and(
         excludeReferralTransactions(),
         eq(transactions.status, "closed"),
         inArray(transactions.agentId, memberIds),
         dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
-        dateTo ? lte(transactions.closingDate, dateTo) : undefined
+        dateTo ? lte(transactions.closingDate, dateTo) : undefined,
       );
       const ucWhere = and(
         excludeReferralTransactions(),
         eq(transactions.status, "under_contract" as any),
-        inArray(transactions.agentId, memberIds)
+        inArray(transactions.agentId, memberIds),
       );
       const [summary] = await db
         .select({
@@ -744,7 +604,7 @@ export async function getGroupPerformanceReport(opts?: {
         .from(transactions)
         .where(ucWhere)
         .groupBy(transactions.agentId);
-      const ucByAgent = new Map(memberUcStats.map(u => [u.agentId, u]));
+      const ucByAgent = new Map(memberUcStats.map((u) => [u.agentId, u]));
       return {
         groupId: g.id,
         groupName: g.name,
@@ -754,7 +614,7 @@ export async function getGroupPerformanceReport(opts?: {
         totalVolume: Number(summary.totalVolume),
         ucUnits: Number(ucSummary?.ucUnits ?? 0),
         ucVolume: Number(ucSummary?.ucVolume ?? 0),
-        members: memberStats.map(m => ({
+        members: memberStats.map((m) => ({
           agentId: m.agentId,
           agentName: m.agentName ?? "Unknown",
           closings: Number(m.closings),
@@ -789,35 +649,22 @@ export async function getMarketPerformanceReport(opts?: {
       annualGciGoal: marketProfiles.annualGciGoal,
     })
     .from(marketProfiles)
-    .where(
-      marketProfileId ? eq(marketProfiles.id, marketProfileId) : undefined
-    );
+    .where(marketProfileId ? eq(marketProfiles.id, marketProfileId) : undefined);
 
   const results = await Promise.all(
-    allMarkets.map(async m => {
+    allMarkets.map(async (m) => {
       const assignments = await db
-        .select({
-          agentId: marketAgentAssignments.agentId,
-          agentName: users.name,
-        })
+        .select({ agentId: marketAgentAssignments.agentId, agentName: users.name })
         .from(marketAgentAssignments)
         .innerJoin(users, eq(marketAgentAssignments.agentId, users.id))
         .where(eq(marketAgentAssignments.marketProfileId, m.id));
 
-      const agentIds = assignments.map(a => a.agentId);
+      const agentIds = assignments.map((a) => a.agentId);
       if (agentIds.length === 0) {
         return {
-          marketId: m.id,
-          marketName: m.name,
-          state: m.state,
-          status: m.status,
+          marketId: m.id, marketName: m.name, state: m.state, status: m.status,
           annualGciGoal: m.annualGciGoal ? Number(m.annualGciGoal) : null,
-          agentCount: 0,
-          closings: 0,
-          totalGci: 0,
-          totalVolume: 0,
-          goalPct: null,
-          agents: [],
+          agentCount: 0, closings: 0, totalGci: 0, totalVolume: 0, goalPct: null, agents: [],
         };
       }
 
@@ -826,7 +673,7 @@ export async function getMarketPerformanceReport(opts?: {
         eq(transactions.status, "closed"),
         inArray(transactions.agentId, agentIds),
         dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
-        dateTo ? lte(transactions.closingDate, dateTo) : undefined
+        dateTo ? lte(transactions.closingDate, dateTo) : undefined,
       );
 
       const [summary] = await db
@@ -855,21 +702,13 @@ export async function getMarketPerformanceReport(opts?: {
       const goal = m.annualGciGoal ? Number(m.annualGciGoal) : null;
 
       return {
-        marketId: m.id,
-        marketName: m.name,
-        state: m.state,
-        status: m.status,
-        annualGciGoal: goal,
-        agentCount: assignments.length,
-        closings: Number(summary.closings),
-        totalGci: gci,
-        totalVolume: Number(summary.totalVolume),
+        marketId: m.id, marketName: m.name, state: m.state, status: m.status,
+        annualGciGoal: goal, agentCount: assignments.length,
+        closings: Number(summary.closings), totalGci: gci, totalVolume: Number(summary.totalVolume),
         goalPct: goal && goal > 0 ? Math.round((gci / goal) * 100) : null,
-        agents: agentStats.map(a => ({
-          agentId: a.agentId,
-          agentName: a.agentName ?? "Unknown",
-          closings: Number(a.closings),
-          totalGci: Number(a.totalGci),
+        agents: agentStats.map((a) => ({
+          agentId: a.agentId, agentName: a.agentName ?? "Unknown",
+          closings: Number(a.closings), totalGci: Number(a.totalGci),
         })),
       };
     })
@@ -893,7 +732,7 @@ export async function getCommissionSummaryReport(opts?: {
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
-    agentId ? eq(transactions.agentId, agentId) : undefined
+    agentId ? eq(transactions.agentId, agentId) : undefined,
   );
 
   const [gciSummary] = await db
@@ -913,10 +752,7 @@ export async function getCommissionSummaryReport(opts?: {
       paidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.isPaid} = 1 THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
     })
     .from(transactionPayoutItems)
-    .innerJoin(
-      transactions,
-      eq(transactionPayoutItems.transactionId, transactions.id)
-    )
+    .innerJoin(transactions, eq(transactionPayoutItems.transactionId, transactions.id))
     .where(txWhere)
     .groupBy(transactionPayoutItems.payeeType);
 
@@ -930,10 +766,7 @@ export async function getCommissionSummaryReport(opts?: {
       count: sql<number>`COUNT(*)`,
     })
     .from(transactionPayoutItems)
-    .innerJoin(
-      transactions,
-      eq(transactionPayoutItems.transactionId, transactions.id)
-    )
+    .innerJoin(transactions, eq(transactionPayoutItems.transactionId, transactions.id))
     .leftJoin(users, eq(transactionPayoutItems.payeeUserId, users.id))
     .where(and(txWhere, eq(transactionPayoutItems.payeeType, "agent")))
     .groupBy(transactionPayoutItems.payeeUserId, users.name)
@@ -951,14 +784,14 @@ export async function getCommissionSummaryReport(opts?: {
   return {
     totalGci: Number(gciSummary.totalGci),
     closings: Number(gciSummary.closings),
-    payoutsByType: payoutsByType.map(p => ({
+    payoutsByType: payoutsByType.map((p) => ({
       payeeType: p.payeeType,
       totalAmount: Number(p.totalAmount),
       unpaidAmount: Number(p.unpaidAmount),
       paidAmount: Number(p.paidAmount),
       count: Number(p.count),
     })),
-    agentPayouts: agentPayouts.map(a => ({
+    agentPayouts: agentPayouts.map((a) => ({
       agentId: a.agentId,
       agentName: a.agentName ?? "Unknown",
       totalAmount: Number(a.totalAmount),
@@ -991,56 +824,27 @@ export async function getTaskAnalyticsReport(opts?: {
     dateFrom ? gte(tasks.createdAt, dateFrom) : undefined,
     dateTo ? lte(tasks.createdAt, dateTo) : undefined,
     assignedToId ? eq(tasks.assignedToId, assignedToId) : undefined,
-    taskType
-      ? eq(
-          tasks.taskType,
-          taskType as
-            | "follow_up"
-            | "outreach"
-            | "document"
-            | "call"
-            | "email"
-            | "meeting"
-            | "review"
-            | "payout"
-            | "other"
-        )
-      : undefined,
-    priority
-      ? eq(tasks.priority, priority as "low" | "medium" | "high" | "urgent")
-      : undefined
+    taskType ? eq(tasks.taskType, taskType as "follow_up" | "outreach" | "document" | "call" | "email" | "meeting" | "review" | "payout" | "other") : undefined,
+    priority ? eq(tasks.priority, priority as "low" | "medium" | "high" | "urgent") : undefined,
   );
 
   const statusBreakdown = await db
     .select({ status: tasks.status, count: sql<number>`COUNT(*)` })
-    .from(tasks)
-    .where(where)
-    .groupBy(tasks.status);
+    .from(tasks).where(where).groupBy(tasks.status);
 
   const priorityBreakdown = await db
     .select({ priority: tasks.priority, count: sql<number>`COUNT(*)` })
-    .from(tasks)
-    .where(where)
-    .groupBy(tasks.priority);
+    .from(tasks).where(where).groupBy(tasks.priority);
 
   const typeBreakdown = await db
     .select({ taskType: tasks.taskType, count: sql<number>`COUNT(*)` })
-    .from(tasks)
-    .where(where)
-    .groupBy(tasks.taskType);
+    .from(tasks).where(where).groupBy(tasks.taskType);
 
   const now = new Date();
   const [overdueRow] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(tasks)
-    .where(
-      and(
-        where,
-        lte(tasks.dueDate, now),
-        ne(tasks.status, "completed"),
-        ne(tasks.status, "cancelled")
-      )
-    );
+    .where(and(where, lte(tasks.dueDate, now), ne(tasks.status, "completed"), ne(tasks.status, "cancelled")));
 
   const byAssignee = await db
     .select({
@@ -1056,9 +860,7 @@ export async function getTaskAnalyticsReport(opts?: {
     .groupBy(tasks.assignedToId, users.name)
     .orderBy(sql`COUNT(*) DESC`);
 
-  const statusMap = new Map(
-    statusBreakdown.map(s => [s.status, Number(s.count)])
-  );
+  const statusMap = new Map(statusBreakdown.map((s) => [s.status, Number(s.count)]));
   const total = statusBreakdown.reduce((acc, s) => acc + Number(s.count), 0);
   const completed = statusMap.get("completed") ?? 0;
 
@@ -1070,28 +872,16 @@ export async function getTaskAnalyticsReport(opts?: {
     cancelled: statusMap.get("cancelled") ?? 0,
     overdue: Number(overdueRow.count),
     completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
-    statusBreakdown: statusBreakdown.map(s => ({
-      status: s.status,
-      count: Number(s.count),
-    })),
-    priorityBreakdown: priorityBreakdown.map(p => ({
-      priority: p.priority,
-      count: Number(p.count),
-    })),
-    typeBreakdown: typeBreakdown.map(t => ({
-      taskType: t.taskType,
-      count: Number(t.count),
-    })),
-    byAssignee: byAssignee.map(a => ({
+    statusBreakdown: statusBreakdown.map((s) => ({ status: s.status, count: Number(s.count) })),
+    priorityBreakdown: priorityBreakdown.map((p) => ({ priority: p.priority, count: Number(p.count) })),
+    typeBreakdown: typeBreakdown.map((t) => ({ taskType: t.taskType, count: Number(t.count) })),
+    byAssignee: byAssignee.map((a) => ({
       assignedToId: a.assignedToId,
       assigneeName: a.assigneeName ?? "Unassigned",
       total: Number(a.total),
       completed: Number(a.completed),
       overdue: Number(a.overdue),
-      completionRate:
-        Number(a.total) > 0
-          ? Math.round((Number(a.completed) / Number(a.total)) * 100)
-          : 0,
+      completionRate: Number(a.total) > 0 ? Math.round((Number(a.completed) / Number(a.total)) * 100) : 0,
     })),
   };
 }
@@ -1110,14 +900,12 @@ export async function getIsaReport(opts?: {
     dateFrom ? gte(contacts.createdAt, dateFrom) : undefined,
     dateTo ? lte(contacts.createdAt, dateTo) : undefined,
     isaId ? eq(contacts.assignedIsaId, isaId) : undefined,
-    isNull(contacts.archivedAt)
+    isNull(contacts.archivedAt),
   );
 
   const statusFunnel = await db
     .select({ isaStatus: contacts.isaStatus, count: sql<number>`COUNT(*)` })
-    .from(contacts)
-    .where(contactWhere)
-    .groupBy(contacts.isaStatus);
+    .from(contacts).where(contactWhere).groupBy(contacts.isaStatus);
 
   const isaPerf = await db
     .select({
@@ -1138,7 +926,7 @@ export async function getIsaReport(opts?: {
   const connWhere = and(
     dateFrom ? gte(agentConnections.createdAt, dateFrom) : undefined,
     dateTo ? lte(agentConnections.createdAt, dateTo) : undefined,
-    isaId ? eq(contacts.assignedIsaId, isaId) : undefined
+    isaId ? eq(contacts.assignedIsaId, isaId) : undefined,
   );
   const appointmentRows = await db
     .select({
@@ -1151,23 +939,14 @@ export async function getIsaReport(opts?: {
     .where(and(connWhere, isNotNull(contacts.assignedIsaId)))
     .groupBy(contacts.assignedIsaId);
   const appointmentMap = new Map(
-    appointmentRows.map(r => [
-      r.isaId,
-      {
-        totalConnections: Number(r.totalConnections),
-        appointmentsSet: Number(r.appointmentsSet),
-      },
-    ])
+    appointmentRows.map((r) => [r.isaId, { totalConnections: Number(r.totalConnections), appointmentsSet: Number(r.appointmentsSet) }])
   );
-  const totalAppointmentsSet = appointmentRows.reduce(
-    (sum, r) => sum + Number(r.appointmentsSet),
-    0
-  );
+  const totalAppointmentsSet = appointmentRows.reduce((sum, r) => sum + Number(r.appointmentsSet), 0);
 
   const sessionWhere = and(
     dateFrom ? gte(marketMatchSessions.startedAt, dateFrom) : undefined,
     dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined,
-    isaId ? eq(marketMatchSessions.isaId, isaId) : undefined
+    isaId ? eq(marketMatchSessions.isaId, isaId) : undefined,
   );
 
   const [sessionSummary] = await db
@@ -1180,22 +959,12 @@ export async function getIsaReport(opts?: {
     .from(marketMatchSessions)
     .where(sessionWhere);
 
-  const order = [
-    "new_lead",
-    "attempted_contact",
-    "nurture",
-    "active_client",
-    "under_contract",
-    "closed",
-    "dead",
-  ];
-  const statusMap = new Map(
-    statusFunnel.map(s => [s.isaStatus ?? "unknown", Number(s.count)])
-  );
+  const order = ["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"];
+  const statusMap = new Map(statusFunnel.map((s) => [s.isaStatus ?? "unknown", Number(s.count)]));
 
   return {
-    statusFunnel: order.map(s => ({ status: s, count: statusMap.get(s) ?? 0 })),
-    isaPerformance: isaPerf.map(i => {
+    statusFunnel: order.map((s) => ({ status: s, count: statusMap.get(s) ?? 0 })),
+    isaPerformance: isaPerf.map((i) => {
       const appt = appointmentMap.get(i.isaId ?? 0);
       const appointmentsSet = appt?.appointmentsSet ?? 0;
       const totalConnections = appt?.totalConnections ?? 0;
@@ -1206,16 +975,12 @@ export async function getIsaReport(opts?: {
         activeClients: Number(i.activeClients),
         closed: Number(i.closed),
         dead: Number(i.dead),
-        conversionRate:
-          Number(i.totalContacts) > 0
-            ? Math.round((Number(i.closed) / Number(i.totalContacts)) * 100)
-            : 0,
+        conversionRate: Number(i.totalContacts) > 0
+          ? Math.round((Number(i.closed) / Number(i.totalContacts)) * 100) : 0,
         appointmentsSet,
         totalConnections,
-        appointmentRate:
-          totalConnections > 0
-            ? Math.round((appointmentsSet / totalConnections) * 100)
-            : 0,
+        appointmentRate: totalConnections > 0
+          ? Math.round((appointmentsSet / totalConnections) * 100) : 0,
       };
     }),
     totalAppointmentsSet,
@@ -1224,8 +989,7 @@ export async function getIsaReport(opts?: {
       completed: Number(sessionSummary.completed),
       abandoned: Number(sessionSummary.abandoned),
       avgDurationMinutes: sessionSummary.avgDurationSeconds
-        ? Math.round(Number(sessionSummary.avgDurationSeconds) / 60)
-        : null,
+        ? Math.round(Number(sessionSummary.avgDurationSeconds) / 60) : null,
     },
   };
 }
@@ -1254,22 +1018,13 @@ export async function getLeadSourceAnalyticsReport(opts?: {
     })
     .from(contacts)
     .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
-    .where(
-      and(
-        isNull(contacts.archivedAt),
-        dateFrom ? gte(contacts.createdAt, dateFrom) : undefined,
-        dateTo ? lte(contacts.createdAt, dateTo) : undefined,
-        parentId ? eq(leadSources.parentId, parentId) : undefined
-      )
-    )
-    .groupBy(
-      contacts.leadSourceId,
-      leadSources.name,
-      leadSources.campaignType,
-      leadSources.parentId,
-      leadSources.clickCount,
-      leadSources.submissionCount
-    )
+    .where(and(
+      isNull(contacts.archivedAt),
+      dateFrom ? gte(contacts.createdAt, dateFrom) : undefined,
+      dateTo ? lte(contacts.createdAt, dateTo) : undefined,
+      parentId ? eq(leadSources.parentId, parentId) : undefined,
+    ))
+    .groupBy(contacts.leadSourceId, leadSources.name, leadSources.campaignType, leadSources.parentId, leadSources.clickCount, leadSources.submissionCount)
     .orderBy(sql`COUNT(DISTINCT ${contacts.id}) DESC`);
 
   // Fetch GCI from closed transactions per lead source
@@ -1281,19 +1036,17 @@ export async function getLeadSourceAnalyticsReport(opts?: {
     })
     .from(transactions)
     .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
-    .where(
-      and(
-        excludeReferralTransactions(),
-        eq(transactions.status, "closed"),
-        dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
-        dateTo ? lte(transactions.closingDate, dateTo) : undefined
-      )
-    )
+    .where(and(
+      excludeReferralTransactions(),
+      eq(transactions.status, "closed"),
+      dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
+      dateTo ? lte(transactions.closingDate, dateTo) : undefined,
+    ))
     .groupBy(contacts.leadSourceId);
 
-  const gciMap = new Map(gciRows.map(r => [r.leadSourceId, r]));
+  const gciMap = new Map(gciRows.map((r) => [r.leadSourceId, r]));
 
-  return rows.map(r => {
+  return rows.map((r) => {
     const gci = gciMap.get(r.leadSourceId);
     const totalGci = Number(gci?.totalGci ?? 0);
     const totalContacts = Number(r.totalContacts);
@@ -1308,12 +1061,9 @@ export async function getLeadSourceAnalyticsReport(opts?: {
       activeContacts: Number(r.activeClients),
       closings: Number(gci?.closings ?? 0),
       totalGci,
-      gciPerContact:
-        totalContacts > 0 ? Math.round(totalGci / totalContacts) : 0,
-      conversionRate:
-        totalContacts > 0
-          ? Math.round((Number(r.closed) / totalContacts) * 100)
-          : 0,
+      gciPerContact: totalContacts > 0 ? Math.round(totalGci / totalContacts) : 0,
+      conversionRate: totalContacts > 0
+        ? Math.round((Number(r.closed) / totalContacts) * 100) : 0,
     };
   });
 }
@@ -1338,16 +1088,14 @@ export async function getOnboardingReport(opts?: {
     })
     .from(onboardingInstances)
     .innerJoin(users, eq(onboardingInstances.agentUserId, users.id))
-    .where(
-      and(
-        status ? eq(onboardingInstances.status, status) : undefined,
-        agentId ? eq(onboardingInstances.agentUserId, agentId) : undefined
-      )
-    )
+    .where(and(
+      status ? eq(onboardingInstances.status, status) : undefined,
+      agentId ? eq(onboardingInstances.agentUserId, agentId) : undefined,
+    ))
     .orderBy(onboardingInstances.startedAt);
 
   const enriched = await Promise.all(
-    instances.map(async inst => {
+    instances.map(async (inst) => {
       const [taskStats] = await db
         .select({
           total: sql<number>`COUNT(*)`,
@@ -1360,9 +1108,7 @@ export async function getOnboardingReport(opts?: {
       const total = Number(taskStats.total);
       const completedCount = Number(taskStats.completed);
       const daysToComplete = inst.completedAt
-        ? Math.round(
-            (inst.completedAt.getTime() - inst.startedAt.getTime()) / 86400000
-          )
+        ? Math.round((inst.completedAt.getTime() - inst.startedAt.getTime()) / 86400000)
         : null;
 
       return {
@@ -1381,25 +1127,17 @@ export async function getOnboardingReport(opts?: {
     })
   );
 
-  const completedInstances = enriched.filter(
-    i => i.status === "completed" && i.daysToComplete !== null
-  );
-  const avgDaysToComplete =
-    completedInstances.length > 0
-      ? Math.round(
-          completedInstances.reduce(
-            (acc, i) => acc + (i.daysToComplete ?? 0),
-            0
-          ) / completedInstances.length
-        )
-      : null;
+  const completedInstances = enriched.filter((i) => i.status === "completed" && i.daysToComplete !== null);
+  const avgDaysToComplete = completedInstances.length > 0
+    ? Math.round(completedInstances.reduce((acc, i) => acc + (i.daysToComplete ?? 0), 0) / completedInstances.length)
+    : null;
 
   return {
     instances: enriched,
     summary: {
       total: enriched.length,
-      inProgress: enriched.filter(i => i.status === "in_progress").length,
-      completed: enriched.filter(i => i.status === "completed").length,
+      inProgress: enriched.filter((i) => i.status === "in_progress").length,
+      completed: enriched.filter((i) => i.status === "completed").length,
       avgDaysToComplete,
       totalOverdueTasks: enriched.reduce((acc, i) => acc + i.overdueTasks, 0),
     },
@@ -1438,17 +1176,13 @@ export async function getDatabaseHealthReport() {
       newContacts: sql<number>`COUNT(*)`,
     })
     .from(contacts)
-    .where(
-      gte(contacts.createdAt, new Date(Date.now() - 365 * 24 * 60 * 60 * 1000))
-    )
+    .where(gte(contacts.createdAt, new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)))
     .groupBy(sql`DATE_FORMAT(${contacts.createdAt}, '%Y-%m')`)
     .orderBy(sql`DATE_FORMAT(${contacts.createdAt}, '%Y-%m')`);
 
   const isaStatusDist = await db
     .select({ isaStatus: contacts.isaStatus, count: sql<number>`COUNT(*)` })
-    .from(contacts)
-    .where(isNull(contacts.archivedAt))
-    .groupBy(contacts.isaStatus);
+    .from(contacts).where(isNull(contacts.archivedAt)).groupBy(contacts.isaStatus);
 
   // Transaction stats
   const [txStats] = await db
@@ -1485,15 +1219,9 @@ export async function getDatabaseHealthReport() {
     .from(tasks);
 
   // Group and market stats
-  const [groupCount] = await db
-    .select({ total: sql<number>`COUNT(*)` })
-    .from(groups);
-  const [marketCount] = await db
-    .select({ total: sql<number>`COUNT(*)` })
-    .from(marketProfiles);
-  const [leadSourceCount] = await db
-    .select({ total: sql<number>`COUNT(*)` })
-    .from(leadSources);
+  const [groupCount] = await db.select({ total: sql<number>`COUNT(*)` }).from(groups);
+  const [marketCount] = await db.select({ total: sql<number>`COUNT(*)` }).from(marketProfiles);
+  const [leadSourceCount] = await db.select({ total: sql<number>`COUNT(*)` }).from(leadSources);
 
   // Pipeline connections
   const [pipelineStats] = await db
@@ -1553,14 +1281,8 @@ export async function getDatabaseHealthReport() {
       markets: Number(marketCount.total),
       leadSources: Number(leadSourceCount.total),
     },
-    monthlyGrowth: monthlyGrowth.map(m => ({
-      month: m.month,
-      newContacts: Number(m.newContacts),
-    })),
-    isaStatusDistribution: isaStatusDist.map(s => ({
-      status: s.isaStatus ?? "unset",
-      count: Number(s.count),
-    })),
+    monthlyGrowth: monthlyGrowth.map((m) => ({ month: m.month, newContacts: Number(m.newContacts) })),
+    isaStatusDistribution: isaStatusDist.map((s) => ({ status: s.isaStatus ?? "unset", count: Number(s.count) })),
   };
 }
 
@@ -1587,18 +1309,16 @@ export async function getMonthlyGciTrendExtended(opts?: {
       totalVolume: sql<string>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
     })
     .from(transactions)
-    .where(
-      and(
-        excludeReferralTransactions(),
-        eq(transactions.status, "closed"),
-        gte(transactions.closingDate, cutoff),
-        agentIds ? inArray(transactions.agentId, agentIds) : undefined
-      )
-    )
+    .where(and(
+      excludeReferralTransactions(),
+      eq(transactions.status, "closed"),
+      gte(transactions.closingDate, cutoff),
+      agentIds ? inArray(transactions.agentId, agentIds) : undefined,
+    ))
     .groupBy(sql`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`)
     .orderBy(sql`DATE_FORMAT(${transactions.closingDate}, '%Y-%m')`);
 
-  return rows.map(r => ({
+  return rows.map((r) => ({
     month: r.month,
     totalGci: Number(r.totalGci),
     closings: Number(r.closings),
@@ -1624,7 +1344,7 @@ export async function getFinancialPerformanceSummary(opts?: {
     eq(transactions.status, "closed"),
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
-    agentIds ? inArray(transactions.agentId, agentIds) : undefined
+    agentIds ? inArray(transactions.agentId, agentIds) : undefined,
   );
 
   // Live under-contract inventory is a present-state snapshot and intentionally
@@ -1632,7 +1352,7 @@ export async function getFinancialPerformanceSummary(opts?: {
   const ucWhere = and(
     excludeReferralTransactions(),
     eq(transactions.status, "under_contract"),
-    agentIds ? inArray(transactions.agentId, agentIds) : undefined
+    agentIds ? inArray(transactions.agentId, agentIds) : undefined,
   );
 
   // Closed transaction aggregates
@@ -1661,23 +1381,17 @@ export async function getFinancialPerformanceSummary(opts?: {
       totalAmount: sql<string>`COALESCE(SUM(${transactionPayoutItems.amount}), 0)`,
     })
     .from(transactionPayoutItems)
-    .innerJoin(
-      transactions,
-      eq(transactionPayoutItems.transactionId, transactions.id)
-    )
+    .innerJoin(transactions, eq(transactionPayoutItems.transactionId, transactions.id))
     .where(closedWhere)
     .groupBy(transactionPayoutItems.payeeType);
 
-  const payoutMap = new Map(
-    payoutRows.map(p => [p.payeeType, Number(p.totalAmount)])
-  );
+  const payoutMap = new Map(payoutRows.map((p) => [p.payeeType, Number(p.totalAmount)]));
 
   const totalGci = Number(closedRow.totalGci);
-  const referralPayouts = payoutMap.get("referral_partner") ?? 0;
-  const groupLeaderSplits = payoutMap.get("group_leader") ?? 0;
-  const agentPayouts = payoutMap.get("agent") ?? 0;
-  const companyDollars =
-    (payoutMap.get("savvy_str_agents") ?? 0) + (payoutMap.get("exp") ?? 0);
+  const referralPayouts = (payoutMap.get("referral_partner") ?? 0);
+  const groupLeaderSplits = (payoutMap.get("group_leader") ?? 0);
+  const agentPayouts = (payoutMap.get("agent") ?? 0);
+  const companyDollars = (payoutMap.get("savvy_str_agents") ?? 0) + (payoutMap.get("exp") ?? 0);
   // Gross commission = GCI minus referral payouts
   const grossCommission = totalGci - referralPayouts;
   // Net commission = what agents actually receive
@@ -1715,14 +1429,7 @@ export async function getMasterMetrics(opts?: {
   sortOrder?: "asc" | "desc";
 }) {
   const db = await getDb();
-  const {
-    dateFrom,
-    dateTo,
-    leadSourceId,
-    status,
-    sortBy = "closingDate",
-    sortOrder = "desc",
-  } = opts ?? {};
+  const { dateFrom, dateTo, leadSourceId, status, sortBy = "closingDate", sortOrder = "desc" } = opts ?? {};
   const agentIds = await resolveAgentIds(opts ?? {});
 
   const statusFilter = status
@@ -1735,7 +1442,7 @@ export async function getMasterMetrics(opts?: {
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
     agentIds ? inArray(transactions.agentId, agentIds) : undefined,
-    leadSourceId ? eq(contacts.leadSourceId, leadSourceId) : undefined
+    leadSourceId ? eq(contacts.leadSourceId, leadSourceId) : undefined,
   );
 
   const rows = await db
@@ -1762,12 +1469,9 @@ export async function getMasterMetrics(opts?: {
     .where(txWhere)
     .orderBy(
       (() => {
-        const col =
-          sortBy === "purchasePrice"
-            ? transactions.purchasePrice
-            : sortBy === "gci"
-              ? transactions.grossCommissionIncome
-              : transactions.closingDate;
+        const col = sortBy === "purchasePrice" ? transactions.purchasePrice
+          : sortBy === "gci" ? transactions.grossCommissionIncome
+          : transactions.closingDate;
         return sortOrder === "asc" ? sql`${col} ASC` : sql`${col} DESC`;
       })()
     )
@@ -1775,7 +1479,7 @@ export async function getMasterMetrics(opts?: {
 
   if (rows.length === 0) return [];
 
-  const txIds = rows.map(r => r.txId);
+  const txIds = rows.map((r) => r.txId);
 
   // Fetch all payout items for these transactions in one query
   const payoutRows = await db
@@ -1795,12 +1499,10 @@ export async function getMasterMetrics(opts?: {
     payoutsByTx.set(p.transactionId, existing);
   }
 
-  return rows.map(r => {
+  return rows.map((r) => {
     const txPayouts = payoutsByTx.get(r.txId) ?? [];
     const sumType = (type: string) =>
-      txPayouts
-        .filter(p => p.payeeType === type)
-        .reduce((s, p) => s + Number(p.amount ?? 0), 0);
+      txPayouts.filter((p) => p.payeeType === type).reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
     const referralPayouts = sumType("referral_partner");
     const groupLeaderSplits = sumType("group_leader");
@@ -1808,10 +1510,8 @@ export async function getMasterMetrics(opts?: {
     const companyDollars = sumType("savvy_str_agents") + sumType("exp");
     const gci = Number(r.grossCommissionIncome ?? 0);
 
-    const address =
-      [r.propertyAddress, r.propertyCity].filter(Boolean).join(", ") || "—";
-    const contactName =
-      [r.contactFirstName, r.contactLastName].filter(Boolean).join(" ") || "—";
+    const address = [r.propertyAddress, r.propertyCity].filter(Boolean).join(", ") || "—";
+    const contactName = [r.contactFirstName, r.contactLastName].filter(Boolean).join(" ") || "—";
 
     return {
       txId: r.txId,
@@ -1832,6 +1532,7 @@ export async function getMasterMetrics(opts?: {
     };
   });
 }
+
 
 // ─── ISA Performance Dashboard ────────────────────────────────────────────────
 
@@ -1863,8 +1564,7 @@ export async function getIsaDashboardStats(opts: {
 }) {
   const db = await getDb();
   const { isaId, dateFrom, dateTo, statuses } = opts;
-  const selectedStatuses =
-    statuses?.filter(status => ISA_DASHBOARD_STATUSES.includes(status)) ?? [];
+  const selectedStatuses = statuses?.filter((status) => ISA_DASHBOARD_STATUSES.includes(status)) ?? [];
   const contactStatusFilter = selectedStatuses.length
     ? inArray(contacts.isaStatus, selectedStatuses)
     : undefined;
@@ -1874,58 +1574,52 @@ export async function getIsaDashboardStats(opts: {
     dateFrom ? gte(contacts.createdAt, dateFrom) : undefined,
     dateTo ? lte(contacts.createdAt, dateTo) : undefined,
     contactStatusFilter,
-    isNull(contacts.archivedAt)
+    isNull(contacts.archivedAt),
   );
 
   const appointmentCreditIsaId = sql`COALESCE(${agentConnections.appointmentSetByUserId}, ${contacts.assignedIsaId})`;
   const appointmentWhere = and(
     eq(agentConnections.appointmentSet, true),
     isaId ? sql`${appointmentCreditIsaId} = ${isaId}` : undefined,
-    dateFrom
-      ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${dateFrom}`
-      : undefined,
-    dateTo
-      ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${dateTo}`
-      : undefined,
+    dateFrom ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${dateFrom}` : undefined,
+    dateTo ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${dateTo}` : undefined,
     contactStatusFilter,
-    isNull(contacts.archivedAt)
+    isNull(contacts.archivedAt),
   );
 
   const sessionWhere = and(
     isaId ? eq(marketMatchSessions.isaId, isaId) : undefined,
     dateFrom ? gte(marketMatchSessions.startedAt, dateFrom) : undefined,
-    dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined
+    dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined,
   );
 
   const taskCompletionWhere = and(
     isaId ? eq(tasks.assignedToId, isaId) : undefined,
     eq(tasks.status, "completed"),
     dateFrom ? gte(tasks.completedAt, dateFrom) : undefined,
-    dateTo ? lte(tasks.completedAt, dateTo) : undefined
+    dateTo ? lte(tasks.completedAt, dateTo) : undefined,
   );
 
   const overdueFollowUpWhere = and(
     isaId ? eq(tasks.assignedToId, isaId) : undefined,
     inArray(tasks.status, ["pending", "in_progress"]),
-    lte(tasks.dueDate, new Date())
+    lte(tasks.dueDate, new Date()),
   );
 
-  const outcomeIsaWhere = isaId
-    ? eq(isaOutcomeAttributions.isaId, isaId)
-    : undefined;
+  const outcomeIsaWhere = isaId ? eq(isaOutcomeAttributions.isaId, isaId) : undefined;
   const currentUnderContractWhere = and(
     outcomeIsaWhere,
-    eq(isaOutcomeAttributions.status, "under_contract")
+    eq(isaOutcomeAttributions.status, "under_contract"),
   );
   const closedPeriodWhere = and(
     outcomeIsaWhere,
     eq(isaOutcomeAttributions.status, "closed"),
     dateFrom ? gte(isaOutcomeAttributions.closedAt, dateFrom) : undefined,
-    dateTo ? lte(isaOutcomeAttributions.closedAt, dateTo) : undefined
+    dateTo ? lte(isaOutcomeAttributions.closedAt, dateTo) : undefined,
   );
   const lifetimeClosedWhere = and(
     outcomeIsaWhere,
-    eq(isaOutcomeAttributions.status, "closed")
+    eq(isaOutcomeAttributions.status, "closed"),
   );
 
   const [
@@ -1958,21 +1652,15 @@ export async function getIsaDashboardStats(opts: {
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
       .where(appointmentWhere),
     db
-      .select({
-        underContract: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})`,
-      })
+      .select({ underContract: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})` })
       .from(isaOutcomeAttributions)
       .where(currentUnderContractWhere),
     db
-      .select({
-        closed: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})`,
-      })
+      .select({ closed: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})` })
       .from(isaOutcomeAttributions)
       .where(closedPeriodWhere),
     db
-      .select({
-        closed: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})`,
-      })
+      .select({ closed: sql<number>`COUNT(DISTINCT ${isaOutcomeAttributions.transactionId})` })
       .from(isaOutcomeAttributions)
       .where(lifetimeClosedWhere),
     db
@@ -1988,21 +1676,14 @@ export async function getIsaDashboardStats(opts: {
         agentName: users.name,
       })
       .from(isaOutcomeAttributions)
-      .innerJoin(
-        transactions,
-        eq(transactions.id, isaOutcomeAttributions.transactionId)
-      )
+      .innerJoin(transactions, eq(transactions.id, isaOutcomeAttributions.transactionId))
       .innerJoin(contacts, eq(contacts.id, isaOutcomeAttributions.contactId))
       .leftJoin(users, eq(users.id, transactions.agentId))
-      .where(
-        and(
-          outcomeIsaWhere,
-          inArray(isaOutcomeAttributions.status, ["under_contract", "closed"])
-        )
-      )
-      .orderBy(
-        sql`COALESCE(${isaOutcomeAttributions.closedAt}, ${isaOutcomeAttributions.underContractAt}, ${isaOutcomeAttributions.createdAt}) DESC`
-      )
+      .where(and(
+        outcomeIsaWhere,
+        inArray(isaOutcomeAttributions.status, ["under_contract", "closed"]),
+      ))
+      .orderBy(sql`COALESCE(${isaOutcomeAttributions.closedAt}, ${isaOutcomeAttributions.underContractAt}, ${isaOutcomeAttributions.createdAt}) DESC`)
       .limit(12),
     db
       .select({
@@ -2029,12 +1710,8 @@ export async function getIsaDashboardStats(opts: {
       .from(agentConnections)
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
       .where(appointmentWhere)
-      .groupBy(
-        sql`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m')`
-      )
-      .orderBy(
-        sql`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m') ASC`
-      ),
+      .groupBy(sql`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m')`)
+      .orderBy(sql`DATE_FORMAT(COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}), '%Y-%m') ASC`),
   ]);
 
   const leads = leadRows[0] ?? {};
@@ -2053,12 +1730,9 @@ export async function getIsaDashboardStats(opts: {
       untouchedLeads: Number(leads.untouchedLeads ?? 0),
       engagedLeads,
       activeLeads: Number(leads.activeLeads ?? 0),
-      engagementRate:
-        assignedLeads > 0 ? (engagedLeads / assignedLeads) * 100 : null,
+      engagementRate: assignedLeads > 0 ? (engagedLeads / assignedLeads) * 100 : null,
       appointmentsSet,
-      contactsWithAppointments: Number(
-        appointments.contactsWithAppointments ?? 0
-      ),
+      contactsWithAppointments: Number(appointments.contactsWithAppointments ?? 0),
       underContract,
       closed,
       lifetimeClosed,
@@ -2070,7 +1744,7 @@ export async function getIsaDashboardStats(opts: {
         ? Number(sessions.avgDurationSeconds) / 60
         : null,
     },
-    attributedOutcomes: attributedOutcomeRows.map(row => ({
+    attributedOutcomes: attributedOutcomeRows.map((row) => ({
       transactionId: row.transactionId,
       transactionNumber: row.transactionNumber,
       status: row.status,
@@ -2080,13 +1754,14 @@ export async function getIsaDashboardStats(opts: {
       contactName: `${row.contactFirstName} ${row.contactLastName}`.trim(),
       agentName: row.agentName,
     })),
-    trend: trendRows.map(row => ({
+    trend: trendRows.map((row) => ({
       month: String(row.month ?? ""),
       appointmentsSet: Number(row.appointmentsSet ?? 0),
       uniqueContacts: Number(row.uniqueContacts ?? 0),
     })),
   };
 }
+
 
 // ─── ISA Team Benchmarks ──────────────────────────────────────────────────────
 
@@ -2125,31 +1800,23 @@ export async function getIsaTeamBenchmark(opts: {
     .select({ id: users.id, name: users.name })
     .from(users)
     .leftJoin(isaProfiles, eq(isaProfiles.userId, users.id))
-    .where(
-      and(
-        eq(users.role, "isa"),
-        eq(users.isActive, true),
-        or(isNull(isaProfiles.isaStatus), eq(isaProfiles.isaStatus, "active"))
-      )
-    );
+    .where(and(
+      eq(users.role, "isa"),
+      eq(users.isActive, true),
+      or(isNull(isaProfiles.isaStatus), eq(isaProfiles.isaStatus, "active")),
+    ));
 
   if (!activeIsas.length) {
     return {
       period: opts.period,
       range: { dateFrom: start, dateTo: end },
       teamSize: 0,
-      averages: {
-        engagedLeads: 0,
-        appointmentsSet: 0,
-        underContract: 0,
-        closed: 0,
-        completedFollowUps: 0,
-      },
+      averages: { engagedLeads: 0, appointmentsSet: 0, underContract: 0, closed: 0, completedFollowUps: 0 },
       leaderboard: [],
     };
   }
 
-  const isaIds = activeIsas.map(isa => isa.id);
+  const isaIds = activeIsas.map((isa) => isa.id);
   const benchmarkAppointmentIsaId = sql<number>`COALESCE(${agentConnections.appointmentSetByUserId}, ${contacts.assignedIsaId})`;
   const [leadRows, appointmentRows, outcomeRows, taskRows] = await Promise.all([
     db
@@ -2158,14 +1825,12 @@ export async function getIsaTeamBenchmark(opts: {
         engagedLeads: sql<number>`SUM(CASE WHEN ${contacts.isaStatus} <> 'new_lead' THEN 1 ELSE 0 END)`,
       })
       .from(contacts)
-      .where(
-        and(
-          inArray(contacts.assignedIsaId, isaIds),
-          gte(contacts.createdAt, start),
-          lte(contacts.createdAt, end),
-          isNull(contacts.archivedAt)
-        )
-      )
+      .where(and(
+        inArray(contacts.assignedIsaId, isaIds),
+        gte(contacts.createdAt, start),
+        lte(contacts.createdAt, end),
+        isNull(contacts.archivedAt),
+      ))
       .groupBy(contacts.assignedIsaId),
     db
       .select({
@@ -2174,21 +1839,16 @@ export async function getIsaTeamBenchmark(opts: {
       })
       .from(agentConnections)
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
-      .where(
-        and(
-          eq(agentConnections.appointmentSet, true),
-          or(
-            inArray(agentConnections.appointmentSetByUserId, isaIds),
-            and(
-              isNull(agentConnections.appointmentSetByUserId),
-              inArray(contacts.assignedIsaId, isaIds)
-            )
-          ),
-          sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${start}`,
-          sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${end}`,
-          isNull(contacts.archivedAt)
-        )
-      )
+      .where(and(
+        eq(agentConnections.appointmentSet, true),
+        or(
+          inArray(agentConnections.appointmentSetByUserId, isaIds),
+          and(isNull(agentConnections.appointmentSetByUserId), inArray(contacts.assignedIsaId, isaIds)),
+        ),
+        sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) >= ${start}`,
+        sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${end}`,
+        isNull(contacts.archivedAt),
+      ))
       .groupBy(benchmarkAppointmentIsaId),
     db
       .select({
@@ -2205,41 +1865,25 @@ export async function getIsaTeamBenchmark(opts: {
         completedFollowUps: sql<number>`COUNT(*)`,
       })
       .from(tasks)
-      .where(
-        and(
-          inArray(tasks.assignedToId, isaIds),
-          eq(tasks.status, "completed"),
-          gte(tasks.completedAt, start),
-          lte(tasks.completedAt, end)
-        )
-      )
+      .where(and(
+        inArray(tasks.assignedToId, isaIds),
+        eq(tasks.status, "completed"),
+        gte(tasks.completedAt, start),
+        lte(tasks.completedAt, end),
+      ))
       .groupBy(tasks.assignedToId),
   ]);
 
-  const leadMap = new Map(
-    leadRows.map(row => [row.isaId, Number(row.engagedLeads ?? 0)])
-  );
-  const appointmentMap = new Map(
-    appointmentRows.map(row => [
-      Number(row.isaId),
-      Number(row.appointmentsSet ?? 0),
-    ])
-  );
-  const outcomeMap = new Map(
-    outcomeRows.map(row => [
-      row.isaId,
-      {
-        underContract: Number(row.underContract ?? 0),
-        closed: Number(row.closed ?? 0),
-      },
-    ])
-  );
-  const taskMap = new Map(
-    taskRows.map(row => [row.isaId, Number(row.completedFollowUps ?? 0)])
-  );
+  const leadMap = new Map(leadRows.map((row) => [row.isaId, Number(row.engagedLeads ?? 0)]));
+  const appointmentMap = new Map(appointmentRows.map((row) => [Number(row.isaId), Number(row.appointmentsSet ?? 0)]));
+  const outcomeMap = new Map(outcomeRows.map((row) => [row.isaId, {
+    underContract: Number(row.underContract ?? 0),
+    closed: Number(row.closed ?? 0),
+  }]));
+  const taskMap = new Map(taskRows.map((row) => [row.isaId, Number(row.completedFollowUps ?? 0)]));
 
   const leaderboard = activeIsas
-    .map(isa => {
+    .map((isa) => {
       const outcome = outcomeMap.get(isa.id);
       return {
         isaId: isa.id,
@@ -2252,32 +1896,22 @@ export async function getIsaTeamBenchmark(opts: {
         isViewer: isa.id === opts.viewerIsaId,
       };
     })
-    .sort(
-      (a, b) =>
-        b.appointmentsSet - a.appointmentsSet ||
-        b.underContract - a.underContract ||
-        b.closed - a.closed ||
-        b.engagedLeads - a.engagedLeads ||
-        a.isaName.localeCompare(b.isaName)
-    )
+    .sort((a, b) => (
+      b.appointmentsSet - a.appointmentsSet
+      || b.underContract - a.underContract
+      || b.closed - a.closed
+      || b.engagedLeads - a.engagedLeads
+      || a.isaName.localeCompare(b.isaName)
+    ))
     .map((row, index) => ({ ...row, rank: index + 1 }));
 
-  const sum = leaderboard.reduce(
-    (total, row) => ({
-      engagedLeads: total.engagedLeads + row.engagedLeads,
-      appointmentsSet: total.appointmentsSet + row.appointmentsSet,
-      underContract: total.underContract + row.underContract,
-      closed: total.closed + row.closed,
-      completedFollowUps: total.completedFollowUps + row.completedFollowUps,
-    }),
-    {
-      engagedLeads: 0,
-      appointmentsSet: 0,
-      underContract: 0,
-      closed: 0,
-      completedFollowUps: 0,
-    }
-  );
+  const sum = leaderboard.reduce((total, row) => ({
+    engagedLeads: total.engagedLeads + row.engagedLeads,
+    appointmentsSet: total.appointmentsSet + row.appointmentsSet,
+    underContract: total.underContract + row.underContract,
+    closed: total.closed + row.closed,
+    completedFollowUps: total.completedFollowUps + row.completedFollowUps,
+  }), { engagedLeads: 0, appointmentsSet: 0, underContract: 0, closed: 0, completedFollowUps: 0 });
 
   const teamSize = leaderboard.length;
   return {
