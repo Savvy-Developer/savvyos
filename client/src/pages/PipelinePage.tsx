@@ -183,9 +183,9 @@ export default function PipelinePage() {
     const f = addContactForm;
     if (!f.firstName.trim() || !f.lastName.trim()) { toast.error("First and last name are required"); return; }
     if (!f.leadSourceId) { toast.error("Lead source is required — every contact needs a source for attribution."); return; }
+    if ((user as any)?.role === "agent" && !f.phone.trim()) { toast.error("A phone number is required when adding a contact to your pipeline"); return; }
     if (f.email && !isValidEmail(f.email)) { toast.error("Please enter a valid email address"); return; }
     if (f.phone && !isValidPhone(f.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
-    if ((user as any)?.role === "agent" && !f.email.trim() && !f.phone.trim()) { toast.error("Please provide at least an email address or phone number"); return; }
     if (!forceCreate) {
       try {
         const dupResult = await checkDup.mutateAsync({ email: f.email || undefined, phone: f.phone || undefined, firstName: f.firstName.trim(), lastName: f.lastName.trim() });
@@ -1083,15 +1083,15 @@ export default function PipelinePage() {
                   </div>
                 </div>
                 <div>
-                  <Label>Email {(user as any)?.role === "agent" && <span className="text-destructive">*</span>}</Label>
+                  <Label>Email</Label>
                   <Input className="mt-1" type="email" placeholder="jane@example.com" value={addContactForm.email} onChange={(e) => setAddContactForm(f => ({ ...f, email: e.target.value }))} />
                 </div>
                 <div>
                   <Label>Phone {(user as any)?.role === "agent" && <span className="text-destructive">*</span>}</Label>
                   <Input className="mt-1" placeholder="(555) 000-0000" value={addContactForm.phone} onChange={(e) => setAddContactForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} />
                 </div>
-                {(user as any)?.role === "agent" && !addContactForm.email.trim() && !addContactForm.phone.trim() && (
-                  <p className="text-xs text-muted-foreground">At least one of email or phone is required.</p>
+                {(user as any)?.role === "agent" && !addContactForm.phone.trim() && (
+                  <p className="text-xs text-muted-foreground">A phone number is required when adding a contact to your pipeline.</p>
                 )}
                 <div>
                   <Label>Lead Source <span className="text-destructive">*</span></Label>
@@ -1113,7 +1113,7 @@ export default function PipelinePage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setAddContactOpen(false)}>Cancel</Button>
-                <Button onClick={() => handleAddContact(false)} disabled={createContact.isPending || createConnection.isPending || checkDup.isPending || !addContactForm.leadSourceId}>
+                <Button onClick={() => handleAddContact(false)} disabled={createContact.isPending || createConnection.isPending || checkDup.isPending || !addContactForm.leadSourceId || ((user as any)?.role === "agent" && !addContactForm.phone.trim())}>
                   {(createContact.isPending || createConnection.isPending || checkDup.isPending) ? "Checking..." : "Add to Pipeline"}
                 </Button>
               </DialogFooter>

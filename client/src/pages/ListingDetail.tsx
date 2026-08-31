@@ -409,6 +409,10 @@ export default function ListingDetail() {
         toast.error("Lead source is required — every contact needs a source for attribution.");
         return;
       }
+      if (role === "agent" && !newContactForm.phone.trim()) {
+        toast.error("A phone number is required when adding a contact");
+        return;
+      }
       if (newContactForm.email && !isValidEmail(newContactForm.email)) {
         toast.error("Please enter a valid email address for the contact");
         return;
@@ -1361,7 +1365,7 @@ export default function ListingDetail() {
                     <Input type="email" value={newContactForm.email} onChange={(e) => setNewContactForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@example.com" />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Phone</Label>
+                    <Label className="text-xs">Phone {role === "agent" && <span className="text-destructive">*</span>}</Label>
                     <Input value={newContactForm.phone} onChange={(e) => setNewContactForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} placeholder="e.g. 5551234567" />
                   </div>
                   <div className="space-y-1">

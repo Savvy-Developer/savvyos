@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -15,11 +16,17 @@ interface LeadSourcePickerProps {
 }
 
 export default function LeadSourcePicker({ value, onChange, className }: LeadSourcePickerProps) {
+  const { user } = useAuth();
   const { data: rawSources = [] } = trpc.leadSources.list.useQuery();
 
-  const sources = rawSources as unknown as Array<{
+  const allSources = rawSources as unknown as Array<{
     ls: { id: number; name: string; parentId: number | null; isActive: boolean };
   }>;
+  // SOI List is an admin-managed source and must not be selectable by any other role.
+  // The API independently enforces this rule for request-level protection.
+  const sources = allSources.filter((source) =>
+    user?.role === "admin" || source.ls.name.trim().toLowerCase() !== "soi list"
+  );
 
   const topLevel = sources.filter(s => s.ls.parentId === null && s.ls.isActive);
   const childrenOf = (pid: number) => sources.filter(s => s.ls.parentId === pid && s.ls.isActive);

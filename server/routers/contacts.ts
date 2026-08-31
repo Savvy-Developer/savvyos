@@ -93,6 +93,25 @@ export const contactsRouter = router({
       if (!input.leadSourceId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A lead source is required. Every contact must have a source for attribution." });
       }
+      // Agent-created contacts are used for direct outreach, so a phone number is required.
+      // Enforce this server-side to cover every contact-creation surface, not only the Pipeline UI.
+      if (ctx.user.role === "agent" && !input.phone?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A phone number is required when adding a contact to your pipeline." });
+      }
+
+      const db = await getDb();
+      // SOI List is an admin-managed source. Hide it from non-admin interfaces and
+      // enforce the rule here as well so a handcrafted request cannot bypass it.
+      if (ctx.user.role !== "admin" && db) {
+        const [selectedLeadSource] = await db
+          .select({ name: leadSources.name })
+          .from(leadSources)
+          .where(eq(leadSources.id, input.leadSourceId))
+          .limit(1);
+        if (selectedLeadSource?.name.trim().toLowerCase() === "soi list") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can select SOI List as a contact's lead source." });
+        }
+      }
       // Every lead must be reachable: require at least an email or a phone.
       const hasEmail = !!input.email?.trim();
       const hasPhone = !!input.phone?.trim();
@@ -100,7 +119,6 @@ export const contactsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "A lead needs at least an email or a phone number." });
       }
       // Check for duplicate email or phone
-      const db = await getDb();
       if (db) {
         const conditions = [];
         if (input.email) conditions.push(eq(contactsTable.email, input.email));

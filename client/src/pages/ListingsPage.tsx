@@ -240,6 +240,10 @@ export default function ListingsPage() {
         toast.error("Lead source is required — every contact needs a source for attribution.");
         return;
       }
+      if (user?.role === "agent" && !newContactForm.phone.trim()) {
+        toast.error("A phone number is required when adding a contact");
+        return;
+      }
       if (newContactForm.email && !isValidEmail(newContactForm.email)) {
         toast.error("Please enter a valid email address for the contact");
         return;
@@ -321,6 +325,18 @@ export default function ListingsPage() {
       }
       if (!newConvertContactForm.leadSourceId) {
         toast.error("Lead source is required — every contact needs a source for attribution.");
+        return;
+      }
+      if (user?.role === "agent" && !newConvertContactForm.phone.trim()) {
+        toast.error("A phone number is required when adding a contact");
+        return;
+      }
+      if (newConvertContactForm.email && !isValidEmail(newConvertContactForm.email)) {
+        toast.error("Please enter a valid email address for the contact");
+        return;
+      }
+      if (newConvertContactForm.phone && !isValidPhone(newConvertContactForm.phone)) {
+        toast.error("Please enter a valid phone number (9+ digits)");
         return;
       }
       try {
@@ -723,7 +739,7 @@ export default function ListingsPage() {
                         onChange={(e) => setNewContactForm({ ...newContactForm, email: e.target.value })} />
                     </div>
                     <div>
-                      <Label className="text-xs">Phone</Label>
+                      <Label className="text-xs">Phone {user?.role === "agent" && <span className="text-destructive">*</span>}</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newContactForm.phone}
                         onChange={(e) => setNewContactForm({ ...newContactForm, phone: formatPhone(e.target.value) })} />
                     </div>
@@ -1000,7 +1016,7 @@ export default function ListingsPage() {
                         onChange={(e) => setNewConvertContactForm({ ...newConvertContactForm, email: e.target.value })} />
                     </div>
                     <div>
-                      <Label className="text-xs">Phone</Label>
+                      <Label className="text-xs">Phone {user?.role === "agent" && <span className="text-destructive">*</span>}</Label>
                       <Input className="mt-0.5 h-8 text-sm" value={newConvertContactForm.phone}
                         onChange={(e) => setNewConvertContactForm({ ...newConvertContactForm, phone: formatPhone(e.target.value) })} />
                     </div>

@@ -44,6 +44,8 @@ function ContactPicker({
   onChange: (c: { id: number; firstName: string; lastName: string; email?: string | null } | null) => void;
   excludeContactId?: number | null;
 }) {
+  const { user } = useAuth();
+  const requiresPhone = user?.role === "agent";
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [newFirst, setNewFirst] = useState("");
@@ -154,7 +156,7 @@ function ContactPicker({
             <Input className="mt-0.5 h-8 text-sm" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
           </div>
           <div>
-            <Label className="text-xs">Phone</Label>
+            <Label className="text-xs">Phone {requiresPhone && <span className="text-destructive">*</span>}</Label>
             <Input className="mt-0.5 h-8 text-sm" value={newPhone} onChange={(e) => setNewPhone(formatPhoneDisplay(e.target.value))} placeholder="e.g. 5551234567" />
           </div>
           <div>
@@ -170,9 +172,10 @@ function ContactPicker({
             <Button
               size="sm"
               className="h-7 text-xs"
-              disabled={!newFirst || !newLast || !newLeadSourceId || createContact.isPending}
+              disabled={!newFirst || !newLast || !newLeadSourceId || createContact.isPending || (requiresPhone && !newPhone.trim())}
               onClick={() => {
                 if (!newLeadSourceId) { toast.error("Lead source is required \u2014 every contact needs a source for attribution."); return; }
+                if (requiresPhone && !newPhone.trim()) { toast.error("A phone number is required when adding a contact"); return; }
                 if (newEmail && !isValidEmail(newEmail)) { toast.error("Please enter a valid email address"); return; }
                 if (newPhone && !isValidPhone(newPhone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
                 createContact.mutate({
