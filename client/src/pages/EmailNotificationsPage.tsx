@@ -11,19 +11,18 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus, Settings2, UsersRound } from "lucide-react";
+import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EmailTestPage from "./EmailTestPage";
 import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } from "@/components/EmailNotificationBuilderDialog";
-import NotificationRecipientsDialog from "@/components/NotificationRecipientsDialog";
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Mentioned User";
-type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Recognition" | "Reporting";
+type Recipient = "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Not Currently Sent";
+type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting";
 type TriggerType = "Event" | "Scheduled";
 
 interface NotifMeta {
@@ -40,39 +39,64 @@ interface NotifMeta {
 
 const NOTIFICATIONS: NotifMeta[] = [
   // ── Leads & CRM ──────────────────────────────────────────────────────────
-  { id: "lead_assigned", name: "Lead Assigned to Agent", description: "Sent to the agent when a contact is connected to them via the pipeline.", trigger: "Agent connection created (admin or ISA assigns a contact to an agent)", triggerType: "Event", recipient: "Agent", category: "Leads & CRM" },
-  { id: "connection_request_approved", name: "Connection Request Approved", description: "Sent to the agent when their connection request for an existing contact is approved.", trigger: "Admin or ISA approves a connection request", triggerType: "Event", recipient: "Agent", category: "Leads & CRM" },
-  { id: "client_intro", name: "Client Introduction Email", description: "Sent to the investor/client to introduce them to their assigned agent.", trigger: "Agent connection created and client intro is triggered", triggerType: "Event", recipient: "Agent", category: "Leads & CRM" },
-  { id: "website_deeper_analysis_request", name: "Website Deeper Analysis Handoff", description: "Shares a branded email with the client and listing agent, including the agent's call link.", trigger: "An investor requests deeper analysis from a savvy-agents.com property page", triggerType: "Event", recipient: "Agent + Client", category: "Leads & CRM" },
-  { id: "website_financing_request", name: "Website Financing Handoff", description: "Shares a branded email with the client and listing agent, including the agent's call link.", trigger: "An investor requests financing information from a savvy-agents.com property page", triggerType: "Event", recipient: "Agent + Client", category: "Leads & CRM" },
-  { id: "website_showing_request", name: "Website Showing Handoff", description: "Shares a branded email with the client and listing agent, including the agent's call link.", trigger: "An investor requests a showing from a savvy-agents.com property page", triggerType: "Event", recipient: "Agent + Client", category: "Leads & CRM" },
+  { id: "lead_assigned", name: "Lead Assigned to Agent", description: "Sent only to the agent newly connected to the contact via the pipeline.", trigger: "Agent connection created (admin or ISA assigns a contact to an agent)", triggerType: "Event", recipient: "Assigned Agent", category: "Leads & CRM" },
+  { id: "connection_request_approved", name: "Connection Request Approved", description: "Sent only to the agent whose request for an existing contact was approved.", trigger: "Admin or ISA approves a connection request", triggerType: "Event", recipient: "Assigned Agent", category: "Leads & CRM" },
+  { id: "client_intro", name: "Client Introduction Email", description: "Sent to the investor/client, with their assigned agent copied, when an introduction is requested.", trigger: "Agent connection created and client intro is triggered", triggerType: "Event", recipient: "Client + Assigned Agent", category: "Leads & CRM" },
+  { id: "website_deeper_analysis_request", name: "Website Deeper Analysis Handoff", description: "Sent to the assigned agent, with the requesting client copied, including the agent's call link.", trigger: "An investor requests deeper analysis from a savvy-agents.com property page", triggerType: "Event", recipient: "Client + Assigned Agent", category: "Leads & CRM" },
+  { id: "website_financing_request", name: "Website Financing Handoff", description: "Sent to the assigned agent, with the requesting client copied, including the agent's call link.", trigger: "An investor requests financing information from a savvy-agents.com property page", triggerType: "Event", recipient: "Client + Assigned Agent", category: "Leads & CRM" },
+  { id: "website_showing_request", name: "Website Showing Handoff", description: "Sent to the assigned agent, with the requesting client copied, including the agent's call link.", trigger: "An investor requests a showing from a savvy-agents.com property page", triggerType: "Event", recipient: "Client + Assigned Agent", category: "Leads & CRM" },
   // ── Transactions ──────────────────────────────────────────────────────────
-  { id: "transaction_created", name: "Transaction Created", description: "Notifies the agent when a new transaction is created and linked to them.", trigger: "New transaction created with an assigned agent", triggerType: "Event", recipient: "Agent", category: "Transactions" },
-  { id: "transaction_status_changed", name: "Transaction Status Changed", description: "Notifies the agent when the status of one of their transactions changes.", trigger: "Transaction status updated", triggerType: "Event", recipient: "Agent", category: "Transactions" },
-  { id: "transaction_closed", name: "Transaction Closed", description: "Notifies the agent when their transaction is marked as Closed.", trigger: "Transaction status set to 'closed'", triggerType: "Event", recipient: "Agent", category: "Transactions" },
+  { id: "transaction_created", name: "Transaction Created", description: "Sent only to the agent assigned to the new transaction.", trigger: "New transaction created with an assigned agent", triggerType: "Event", recipient: "Assigned Agent", category: "Transactions" },
+  { id: "transaction_status_changed", name: "Transaction Status Changed", description: "Sent only to the agent assigned to the transaction whose status changed.", trigger: "Transaction status updated", triggerType: "Event", recipient: "Assigned Agent", category: "Transactions" },
+  { id: "transaction_closed", name: "Transaction Closed", description: "Sent only to the agent assigned to the transaction when it is marked Closed.", trigger: "Transaction status set to 'closed'", triggerType: "Event", recipient: "Assigned Agent", category: "Transactions" },
   // ── Reporting ──────────────────────────────────────────────────────────────
-  { id: "agent_production_report", name: "Agent Production Report", description: "Sends all active administrators a table of current under-contract and closed production by agent.", trigger: "Every Friday at 6:00 PM Eastern", triggerType: "Scheduled", recipient: "Admin", category: "Reporting" },
+  { id: "agent_production_report", name: "Agent Production Report", description: "Sends the current under-contract and closed production table to every active administrator.", trigger: "Every Friday at 6:00 PM Eastern", triggerType: "Scheduled", recipient: "Active Admins", category: "Reporting" },
   // ── Commission ────────────────────────────────────────────────────────────
-  { id: "commission_calculated", name: "Commission Calculated", description: "Notifies the payee when their commission payout has been calculated.", trigger: "Commission payout record created for a payee", triggerType: "Event", recipient: "Agent", category: "Commission" },
-  { id: "payout_integrity_fail", name: "Payout Integrity Failure", description: "Alerts when a payout calculation fails integrity checks.", trigger: "Payout integrity check fails during transaction update", triggerType: "Event", recipient: "Agent + Admin", category: "Commission" },
-  { id: "commission_exception_warning", name: "Commission Exception Warning", description: "Notifies the agent when a commission exception is flagged.", trigger: "Commission exception created or status changed", triggerType: "Event", recipient: "Agent", category: "Commission" },
+  { id: "commission_calculated", name: "Commission Calculated", description: "Sent only to the person recorded as the commission payout payee.", trigger: "Commission payout record created for a payee", triggerType: "Event", recipient: "Transaction Payee", category: "Commission" },
+  { id: "payout_integrity_fail", name: "Payout Integrity Failure", description: "Sent only to the assigned transaction agent when a payout integrity check fails.", trigger: "Payout integrity check fails during transaction update", triggerType: "Event", recipient: "Assigned Agent", category: "Commission" },
+  { id: "commission_exception_warning", name: "Commission Exception Warning", description: "Sent to the brokerage owner when commission guardrails are breached.", trigger: "Commission exception created or status changed", triggerType: "Event", recipient: "Brokerage Owner", category: "Commission" },
   // ── Listings ──────────────────────────────────────────────────────────────
-  { id: "listing_created", name: "Listing Created", description: "Notifies the agent when a new listing is created and assigned to them.", trigger: "New listing created with an assigned agent", triggerType: "Event", recipient: "Agent", category: "Listings" },
-  { id: "listing_expiration_reminder", name: "Listing Expiration Reminder", description: "Warns the agent that their listing is approaching its expiration date.", trigger: "Nightly scheduler — fires when a listing's expiration date is within 14 days", triggerType: "Scheduled", recipient: "Agent", category: "Listings" },
+  { id: "listing_created", name: "Listing Created", description: "Sent only to the agent assigned to the new listing.", trigger: "New listing created with an assigned agent", triggerType: "Event", recipient: "Listing Agent", category: "Listings" },
+  { id: "listing_expiration_reminder", name: "Listing Expiration Reminder", description: "Sent only to the agent assigned to the listing approaching expiration.", trigger: "Nightly scheduler — fires when a listing's expiration date is within 14 days", triggerType: "Scheduled", recipient: "Listing Agent", category: "Listings" },
   // ── Tasks ─────────────────────────────────────────────────────────────────
-  { id: "task_assigned", name: "Task Assigned", description: "Notifies a user when a task is assigned to them.", trigger: "Task created or updated with a new assignee", triggerType: "Event", recipient: "Agent", category: "Tasks" },
-  { id: "task_due", name: "Task Due Reminder", description: "Reminds the assignee that a task is due soon.", trigger: "Scheduled — fires when a task's due date is approaching", triggerType: "Scheduled", recipient: "Agent", category: "Tasks" },
+  { id: "task_assigned", name: "Task Assigned", description: "Sent only to the user newly assigned to the task.", trigger: "Task created or updated with a new assignee", triggerType: "Event", recipient: "Assigned User", category: "Tasks" },
+  { id: "task_due", name: "Task Due Reminder", description: "Sent only to the user assigned to the task as its due date approaches.", trigger: "Scheduled — fires when a task's due date is approaching", triggerType: "Scheduled", recipient: "Assigned User", category: "Tasks" },
   // ── Onboarding ────────────────────────────────────────────────────────────
-  { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Alerts the agent and their admin when onboarding tasks are overdue.", trigger: "Nightly scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Agent + Admin", category: "Onboarding" },
+  { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Sends every active administrator the overdue instance; also sends the agent their own overdue agent tasks.", trigger: "Nightly scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Active Admins", category: "Onboarding" },
   // ── Market Match ──────────────────────────────────────────────────────────
-  { id: "market_match_intro", name: "Market Match Intro", description: "Sends a branded introduction email to the investor after a Market Match call.", trigger: "Market Match call completed and intro triggered by ISA or admin", triggerType: "Event", recipient: "Agent", category: "Market Match" },
+  { id: "market_match_intro", name: "Market Match Intro", description: "Sent to the recommended agent; the operator may also send the same handoff copy to the matched investor.", trigger: "Market Match call completed and intro triggered by ISA or admin", triggerType: "Event", recipient: "Assigned Agent + Optional Client Copy", category: "Market Match" },
   // ── Projects ──────────────────────────────────────────────────────────────────────────────────────
   { id: "pm_mention", name: "Project Mention Notification", description: "Notifies a user when they are @mentioned in a project note or comment.", trigger: "@mention detected in a project note", triggerType: "Event", recipient: "Mentioned User", category: "Projects" },
-  // ── Recognition ──────────────────────────────────────────────────────────────────────────────────
-  { id: "birthday_recognition", name: "Birthday Recognition Email", description: "Sends a birthday recognition email to agents who have opted in via their Extended Profile (Birthday Recognition Opt-In toggle). The agent's birthday is set in their profile.", trigger: "Nightly scheduler — fires on the agent's birthday (matching month/day)", triggerType: "Scheduled", recipient: "Agent", category: "Recognition" },
-  { id: "anniversary_recognition", name: "Work Anniversary Recognition Email", description: "Sends a work anniversary recognition email to agents who have opted in via their Extended Profile (Anniversary Recognition Opt-In toggle). The work anniversary date is set in their profile.", trigger: "Nightly scheduler — fires on the agent's Work Anniversary Date (matching month/day)", triggerType: "Scheduled", recipient: "Agent", category: "Recognition" },
+  // ── Transaction reviews ──────────────────────────────────────────────────
+  { id: "transaction_review_request", name: "Transaction Review Request", description: "Sent only to the client being asked to review their completed transaction; replies route to the transaction agent.", trigger: "A review request is created for a closed transaction", triggerType: "Event", recipient: "Transaction Client", category: "Transactions" },
+  { id: "transaction_review_received", name: "Transaction Review Received", description: "Sent to the transaction agent and, if assigned, that agent's coach of record.", trigger: "A client submits a transaction review", triggerType: "Event", recipient: "Assigned Agent + Coach", category: "Transactions" },
+  // ── Reporting and coaching ───────────────────────────────────────────────
+  { id: "weekly_lead_report", name: "Weekly Lead Report", description: "Sent only to the designated leadership distribution list.", trigger: "Weekly scheduled report", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
+  { id: "daily_agent_report", name: "Daily Agent Report", description: "Each active full-user agent receives only their own live priorities, leads, and tasks.", trigger: "Daily scheduled report", triggerType: "Scheduled", recipient: "Full-User Agent", category: "Reporting" },
+  { id: "daily_isa_activities", name: "Daily ISA Activities Report", description: "Sent only to the designated ISA leadership distribution list.", trigger: "Daily scheduled report", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
+  { id: "coaching_weekly_accountability", name: "Coaching Weekly Accountability", description: "Sent only to the named coaching leadership distribution list.", trigger: "Friday scheduled report", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
+  { id: "coaching_tips_for_today", name: "Coaching Tips for Today", description: "Sent only to the named coaching leadership distribution list.", trigger: "Daily scheduled briefing", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
+  { id: "coaching_feedback_invitation", name: "Coaching Feedback Invitation", description: "Sent only to the agent who attended the coaching session, using a private survey link.", trigger: "Following an eligible coaching session", triggerType: "Event", recipient: "Coached Agent", category: "Reporting" },
+  { id: "coaching_feedback_weekly_summary", name: "Coaching Feedback Weekly Summary", description: "Each active coach receives their own aggregate; named leaders receive the company-wide aggregate.", trigger: "Friday scheduled report", triggerType: "Scheduled", recipient: "Coach + Leaders", category: "Reporting" },
+  // ── Pulse ────────────────────────────────────────────────────────────────
+  { id: "meeting_reminder", name: "Pulse Meeting Reminder", description: "Sent only to active members of the relevant Pulse meeting who have email enabled in their preferences.", trigger: "Scheduled weekly preparation reminder", triggerType: "Scheduled", recipient: "Pulse Member(s)", category: "Pulse" },
+  { id: "pulse_submission_confirmation", name: "Pulse Weekly Prep Confirmation", description: "Sent only to the member who submitted weekly preparation.", trigger: "Weekly preparation is submitted", triggerType: "Event", recipient: "Pulse Member(s)", category: "Pulse" },
+  { id: "pulse_meeting_recap", name: "Pulse Meeting Recap", description: "Sent only to active members of the meeting whose recap was generated.", trigger: "Meeting recap is generated", triggerType: "Event", recipient: "Pulse Member(s)", category: "Pulse" },
+  { id: "todo_assigned", name: "Pulse To-do Assigned", description: "Sent only to the member or members assigned the Pulse to-do and enabled for email.", trigger: "A Pulse to-do is assigned", triggerType: "Event", recipient: "Pulse Work Assignee(s)", category: "Pulse" },
+  { id: "cascade_sent", name: "Pulse Cascade Sent", description: "Sent only to members of the cascade's destination meeting who have email enabled.", trigger: "A Pulse cascade is sent", triggerType: "Event", recipient: "Pulse Member(s)", category: "Pulse" },
+  { id: "overdue_digest", name: "Pulse Overdue Digest", description: "Sent only to each assignee with overdue Pulse to-dos who has email enabled.", trigger: "Weekly scheduled digest", triggerType: "Scheduled", recipient: "Pulse Work Assignee(s)", category: "Pulse" },
+  { id: "mention", name: "Pulse Mention", description: "Sent only to the Pulse member or members who were mentioned and have email enabled.", trigger: "A Pulse comment includes an @mention", triggerType: "Event", recipient: "Mentioned User", category: "Pulse" },
+  { id: "rock_completed", name: "Pulse Rock Completed", description: "Sent only to the members selected by the rock-completion notification rule who have email enabled.", trigger: "A Pulse rock is marked complete", triggerType: "Event", recipient: "Pulse Member(s)", category: "Pulse" },
+  { id: "pulse_overdue_digest", name: "Legacy Pulse Overdue Digest Template", description: "Template retained for compatibility; the active overdue digest uses the Pulse Overdue Digest notification above.", trigger: "No active sender", triggerType: "Scheduled", recipient: "Not Currently Sent", category: "Pulse" },
+  { id: "pulse_rock_completed", name: "Legacy Pulse Rock Completed Template", description: "Template retained for compatibility; the active rock notification uses Pulse Rock Completed above.", trigger: "No active sender", triggerType: "Event", recipient: "Not Currently Sent", category: "Pulse" },
+  { id: "welcome", name: "Pulse Welcome Template", description: "Template retained for Pulse member onboarding; there is no active automated sender at this time.", trigger: "No active sender", triggerType: "Event", recipient: "Not Currently Sent", category: "Pulse" },
+  // ── Partners, account access, and marketing ──────────────────────────────
+  { id: "partner_lead_confirmation", name: "Partner Lead Confirmation", description: "Sent only to the referring partner whose email was supplied with the lead intake.", trigger: "Partner lead intake is submitted", triggerType: "Event", recipient: "Partner", category: "Partner & Access" },
+  { id: "partner_portal_access", name: "Partner Portal Access", description: "Sent only to the partner who requested a secure portal sign-in link.", trigger: "Partner requests portal access", triggerType: "Event", recipient: "Partner", category: "Partner & Access" },
+  { id: "password_reset", name: "Password Reset", description: "Sent only to the SavvyOS account holder who requested the password reset.", trigger: "Account password reset is requested", triggerType: "Event", recipient: "Account Holder", category: "Account Security" },
+  { id: "webinar_marketing_request", name: "Webinar Marketing Request", description: "Sent to the marketing inbox, with the SavvyOS webinar creator copied.", trigger: "A webinar is created in SavvyOS", triggerType: "Event", recipient: "Marketing Team + Creator", category: "Marketing" },
 ];
-const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Recognition", "Reporting"];
+const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Pulse", "Partner & Access", "Account Security", "Marketing", "Reporting"];
 const CATEGORY_COLORS: Record<Category, string> = {
   "Transactions": "bg-blue-100 text-blue-700",
   "Listings": "bg-purple-100 text-purple-700",
@@ -82,17 +106,35 @@ const CATEGORY_COLORS: Record<Category, string> = {
   "Market Match": "bg-indigo-100 text-indigo-700",
   "Commission": "bg-rose-100 text-rose-700",
   "Projects": "bg-orange-100 text-orange-700",
-  "Recognition": "bg-pink-100 text-pink-700",
+  "Pulse": "bg-fuchsia-100 text-fuchsia-700",
+  "Partner & Access": "bg-lime-100 text-lime-700",
+  "Account Security": "bg-stone-100 text-stone-700",
+  "Marketing": "bg-pink-100 text-pink-700",
   "Reporting": "bg-sky-100 text-sky-700",
 };
 
 const RECIPIENT_COLORS: Record<Recipient, string> = {
-  "Agent": "bg-slate-100 text-slate-700",
-  "Admin": "bg-red-100 text-red-700",
-  "ISA": "bg-violet-100 text-violet-700",
-  "Agent + Admin": "bg-orange-100 text-orange-700",
-  "Agent + Client": "bg-cyan-100 text-cyan-700",
+  "Assigned Agent": "bg-slate-100 text-slate-700",
+  "Assigned User": "bg-slate-100 text-slate-700",
+  "Transaction Payee": "bg-slate-100 text-slate-700",
+  "Listing Agent": "bg-slate-100 text-slate-700",
+  "Brokerage Owner": "bg-red-100 text-red-700",
+  "Transaction Client": "bg-cyan-100 text-cyan-700",
+  "Assigned Agent + Coach": "bg-orange-100 text-orange-700",
+  "Client + Assigned Agent": "bg-cyan-100 text-cyan-700",
+  "Assigned Agent + Optional Client Copy": "bg-cyan-100 text-cyan-700",
+  "Active Admins": "bg-red-100 text-red-700",
+  "Designated Leadership": "bg-violet-100 text-violet-700",
+  "Full-User Agent": "bg-slate-100 text-slate-700",
+  "Coached Agent": "bg-slate-100 text-slate-700",
+  "Coach + Leaders": "bg-orange-100 text-orange-700",
+  "Pulse Member(s)": "bg-fuchsia-100 text-fuchsia-700",
+  "Pulse Work Assignee(s)": "bg-fuchsia-100 text-fuchsia-700",
   "Mentioned User": "bg-teal-100 text-teal-700",
+  "Partner": "bg-lime-100 text-lime-700",
+  "Account Holder": "bg-stone-100 text-stone-700",
+  "Marketing Team + Creator": "bg-pink-100 text-pink-700",
+  "Not Currently Sent": "bg-zinc-100 text-zinc-600",
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -100,13 +142,11 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
 export default function EmailNotificationsPage() {
   const [search, setSearch] = useState("");
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [recipientEditor, setRecipientEditor] = useState<NotifMeta | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [triggerFilter, setTriggerFilter] = useState<string>("all");
 
   // Live settings from DB
   const { data: settings = [], isLoading, refetch } = trpc.emailNotifications.list.useQuery();
-  const { data: recipientUsers = [] } = trpc.emailNotifications.recipientUsers.useQuery();
   const toggleMutation = trpc.emailNotifications.toggle.useMutation({
     onSuccess: () => { refetch(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetch(); },
@@ -124,24 +164,9 @@ export default function EmailNotificationsPage() {
     onSuccess: () => { refetchCustomNotifications(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetchCustomNotifications(); },
   });
-  const setRecipientsMutation = trpc.emailNotifications.setRecipients.useMutation({
-    onSuccess: () => {
-      toast.success("Notification recipients saved.");
-      setRecipientEditor(null);
-      refetch();
-    },
-    onError: (err) => toast.error(`Failed to save recipients: ${err.message}`),
-  });
-
   // Build a quick lookup map: notificationKey → isEnabled
   const enabledMap = new Map<string, boolean>(
     settings.map((s: { notificationKey: string; isEnabled: boolean }) => [s.notificationKey, s.isEnabled])
-  );
-  const recipientOverrideMap = new Map<string, number[]>(
-    settings.map((s: { notificationKey: string; recipientUserIds?: number[] | null }) => [s.notificationKey, s.recipientUserIds ?? []])
-  );
-  const futureUsersMap = new Map<string, boolean>(
-    settings.map((s: { notificationKey: string; includeFutureUsers?: boolean }) => [s.notificationKey, s.includeFutureUsers ?? false])
   );
 
   const customNotificationMeta: NotifMeta[] = customNotifications.map((notification) => ({
@@ -175,11 +200,6 @@ export default function EmailNotificationsPage() {
     createCustomNotificationMutation.mutate(values);
   }
 
-  function handleRecipientSave(recipientUserIds: number[], includeFutureUsers: boolean) {
-    if (!recipientEditor) return;
-    setRecipientsMutation.mutate({ notificationKey: recipientEditor.id, recipientUserIds, includeFutureUsers });
-  }
-
   const filtered = notificationItems.filter((n) => {
     const q = search.toLowerCase();
     const matchesSearch = !q || n.name.toLowerCase().includes(q) || n.description.toLowerCase().includes(q) || n.trigger.toLowerCase().includes(q);
@@ -196,7 +216,7 @@ export default function EmailNotificationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Email Notifications"
-        subtitle="Manage which automated email notifications SavvyOS sends"
+        subtitle="Review each automated email's built-in audience and manage whether SavvyOS sends it"
         actions={
           <Button onClick={() => setBuilderOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -339,42 +359,10 @@ export default function EmailNotificationsPage() {
                         <Zap className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/60" />
                         <span><span className="font-medium text-foreground/70">Trigger:</span> {n.trigger}</span>
                       </div>
-                      {n.customId === undefined && (recipientOverrideMap.get(n.id)?.length || futureUsersMap.get(n.id)) ? (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-primary">
-                          <UsersRound className="h-3 w-3" />
-                          <span>
-                            {recipientOverrideMap.get(n.id)?.length ? `${recipientOverrideMap.get(n.id)!.length} selected recipient${recipientOverrideMap.get(n.id)!.length === 1 ? "" : "s"}` : "No current users selected"}
-                            {futureUsersMap.get(n.id) ? `${recipientOverrideMap.get(n.id)?.length ? " + " : ""}all future users` : ""}
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
 
                     {/* Controls */}
                     <div className="shrink-0 flex items-center gap-3">
-                      {n.customId === undefined && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="hidden sm:flex"
-                          onClick={() => setRecipientEditor(n)}
-                        >
-                          <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Recipients
-                        </Button>
-                      )}
-                      {n.customId === undefined && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="sm:hidden"
-                          onClick={() => setRecipientEditor(n)}
-                          aria-label={`Configure recipients for ${n.name}`}
-                        >
-                          <Settings2 className="h-4 w-4" />
-                        </Button>
-                      )}
                       <div className="flex flex-col items-center gap-1.5">
                       <Switch
                         checked={enabled}
@@ -406,15 +394,6 @@ export default function EmailNotificationsPage() {
         onOpenChange={setBuilderOpen}
         onCreate={handleCreateCustomNotification}
         isSaving={createCustomNotificationMutation.isPending}
-      />
-      <NotificationRecipientsDialog
-        notification={recipientEditor ? { id: recipientEditor.id, name: recipientEditor.name, recipient: recipientEditor.recipient } : null}
-        users={recipientUsers}
-        selectedUserIds={recipientEditor ? recipientOverrideMap.get(recipientEditor.id) ?? [] : []}
-        includeFutureUsers={recipientEditor ? futureUsersMap.get(recipientEditor.id) ?? false : false}
-        isSaving={setRecipientsMutation.isPending}
-        onOpenChange={(open) => { if (!open) setRecipientEditor(null); }}
-        onSave={handleRecipientSave}
       />
     </div>
   );

@@ -935,7 +935,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         if (input.mentionedUserIds.length > 0) {
           try {
             const [project] = await db.select({ title: pmProjects.title }).from(pmProjects).where(eq(pmProjects.id, input.projectId)).limit(1);
-            const mentionedUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, input.mentionedUserIds));
+            const mentionedUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(inArray(users.id, input.mentionedUserIds), eq(users.isActive, true)));
             const authorName = ctx.user.name ?? ctx.user.email ?? "A teammate";
             const projectTitle = project?.title ?? "a project";
             const projectUrl = `https://os.savvy-agents.com/projects/${input.projectId}`;

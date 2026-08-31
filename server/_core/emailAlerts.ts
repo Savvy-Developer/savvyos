@@ -17,7 +17,9 @@ export async function sendEmailAlert(
     if (!db) return;
 
     const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (!user) return;
+    // Event notifications must not be sent to a deactivated account, even if
+    // an older record remains assigned to that user.
+    if (!user || !user.isActive) return;
 
     // Resolve the contact name from contactId when the caller didn't pass a
     // name. Callers like the "lead_assigned" alert only pass contactId, which

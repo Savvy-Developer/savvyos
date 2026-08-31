@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { ENV } from "./env";
 import { getDb } from "../db";
 import { emailTemplates, emailNotificationSettings, magicLinkTokens, users } from "../../drizzle/schema";
-import { and, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const FROM_ADDRESS = "Savvy STR Agents <notifications@savvy-agents.com>";
 const APP_URL = "https://os.savvy-agents.com";
@@ -62,51 +62,21 @@ async function sendViaResendHttpFallback(params: {
   }
 }
 
-export type EmailType =
-  | "lead_assigned"
-  | "transaction_created"
-  | "transaction_status_changed"
-  | "transaction_closed"
-  | "transaction_review_request"
-  | "transaction_review_received"
-  | "commission_calculated"
-  | "task_assigned"
-  | "task_due"
-  | "payout_integrity_fail"
-  | "listing_created"
-  | "listing_expiration_reminder"
-  | "onboarding_overdue"
-  | "commission_exception_warning"
-  | "market_match_intro"
-  | "client_intro"
-  | "connection_request_approved"
-  | "pm_mention"
-  | "partner_lead_confirmation"
-  | "partner_portal_access"
-  | "agent_production_report"
-  | "weekly_lead_report"
-  | "daily_agent_report"
-  | "daily_isa_activities"
-  | "coaching_weekly_accountability"
-  | "coaching_tips_for_today"
-  | "coaching_feedback_invitation"
-  | "coaching_feedback_weekly_summary"
-  | "pulse_overdue_digest"
-  | "pulse_rock_completed"
-  | "meeting_reminder"
-  | "pulse_submission_confirmation"
-  | "pulse_meeting_recap"
-  | "todo_assigned"
-  | "cascade_sent"
-  | "overdue_digest"
-  | "mention"
-  | "rock_completed"
-  | "welcome"
-  | "password_reset"
-  | "webinar_marketing_request"
-  | "website_deeper_analysis_request"
-  | "website_financing_request"
-  | "website_showing_request";
+/** Every built-in transactional email whose delivery can be toggled in SavvyOS. */
+export const EMAIL_NOTIFICATION_TYPES = [
+  "lead_assigned", "transaction_created", "transaction_status_changed", "transaction_closed",
+  "transaction_review_request", "transaction_review_received", "commission_calculated", "task_assigned",
+  "task_due", "payout_integrity_fail", "listing_created", "listing_expiration_reminder", "onboarding_overdue",
+  "commission_exception_warning", "market_match_intro", "client_intro", "connection_request_approved", "pm_mention",
+  "partner_lead_confirmation", "partner_portal_access", "agent_production_report", "weekly_lead_report",
+  "daily_agent_report", "daily_isa_activities", "coaching_weekly_accountability", "coaching_tips_for_today",
+  "coaching_feedback_invitation", "coaching_feedback_weekly_summary", "pulse_overdue_digest", "pulse_rock_completed",
+  "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
+  "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
+  "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
+] as const;
+
+export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
 
 interface EmailContext {
   recipientName?: string;
@@ -1018,8 +988,6 @@ export interface EmailDeliveryOptions {
   injectMagicLinks?: boolean;
   /** An explicitly requested template test may send even when the normal administrative sender toggle is off. */
   bypassNotificationSetting?: boolean;
-  /** Internal recursion guard after an explicit notification audience has been resolved. */
-  bypassRecipientOverride?: boolean;
 }
 
 export interface EmailDeliveryResult {
@@ -1028,58 +996,24 @@ export interface EmailDeliveryResult {
   reason?: string;
 }
 
-type NotificationRecipient = { id: number; name: string | null; email: string | null };
-
-async function notificationRecipientOverride(type: EmailType): Promise<{
-  disabled: boolean;
-  recipients: NotificationRecipient[] | null;
-}> {
+/**
+ * Notification settings control whether a type is enabled, not who receives
+ * an individual event. Every sender resolves its own event-specific recipient
+ * (for example, the assigned agent, task assignee, or client).
+ *
+ * This prevents a saved administrative audience from redirecting sensitive
+ * lead, client, or transaction details to unrelated SavvyOS users.
+ */
+async function isNotificationDisabled(type: EmailType): Promise<boolean> {
   const db = await getDb();
-  if (!db) return { disabled: false, recipients: null };
+  if (!db) return false;
 
   const [setting] = await db
-    .select({
-      isEnabled: emailNotificationSettings.isEnabled,
-      recipientUserIds: emailNotificationSettings.recipientUserIds,
-      includeFutureUsers: emailNotificationSettings.includeFutureUsers,
-      futureUsersAfter: emailNotificationSettings.futureUsersAfter,
-    })
+    .select({ isEnabled: emailNotificationSettings.isEnabled })
     .from(emailNotificationSettings)
     .where(eq(emailNotificationSettings.notificationKey, type))
     .limit(1);
-  if (!setting) return { disabled: false, recipients: null };
-  if (!setting.isEnabled) return { disabled: true, recipients: null };
-
-  const recipientUserIds = Array.from(new Set((setting.recipientUserIds ?? []).filter((id): id is number => Number.isInteger(id) && id > 0)));
-  const includeFutureUsers = setting.includeFutureUsers && Boolean(setting.futureUsersAfter);
-  if (!recipientUserIds.length && !includeFutureUsers) return { disabled: false, recipients: null };
-
-  const recipientConditions = [eq(users.isActive, true), isNotNull(users.email)];
-  if (recipientUserIds.length && includeFutureUsers) {
-    const selectedOrFuture = or(
-      inArray(users.id, recipientUserIds),
-      gt(users.createdAt, setting.futureUsersAfter!)
-    );
-    if (selectedOrFuture) recipientConditions.push(selectedOrFuture);
-  } else if (recipientUserIds.length) {
-    recipientConditions.push(inArray(users.id, recipientUserIds));
-  } else {
-    recipientConditions.push(gt(users.createdAt, setting.futureUsersAfter!));
-  }
-  const recipients = await db
-    .select({ id: users.id, name: users.name, email: users.email })
-    .from(users)
-    .where(and(...recipientConditions));
-  return { disabled: false, recipients };
-}
-
-function recipientOverrideIdempotencyKey(type: EmailType, ctx: EmailContext, recipientId: number): string {
-  // The legacy sender may loop across recipients. Excluding recipient fields
-  // keeps that behavior from producing duplicate copies for a selected audience.
-  const { recipientEmail: _email, recipientName: _name, ccEmail: _ccEmail, ccEmails: _ccEmails, ...eventContext } = ctx;
-  const contextFingerprint = JSON.stringify(Object.entries(eventContext).sort(([a], [b]) => a.localeCompare(b)));
-  const day = new Date().toISOString().slice(0, 10);
-  return `recipient-override:${type}:${crypto.createHash("sha256").update(`${day}:${contextFingerprint}`).digest("hex")}:${recipientId}`;
+  return Boolean(setting && !setting.isEnabled);
 }
 
 /**
@@ -1183,32 +1117,13 @@ export async function sendTransactionalEmail(
     return { sent: false, skipped: true, reason: "Resend API key is not configured" };
   }
 
-  // An explicit settings-page test is the only permitted bypass. Normal sends
-  // honor both the enable toggle and any selected user audience.
-  if (!options.bypassNotificationSetting && !options.bypassRecipientOverride) try {
-    const override = await notificationRecipientOverride(type);
-    if (override.disabled) {
+  // An explicit settings-page test is the only permitted bypass. Production
+  // delivery honors the type's enable toggle while preserving the recipient(s)
+  // selected by the event-specific sender.
+  if (!options.bypassNotificationSetting) try {
+    if (await isNotificationDisabled(type)) {
       console.info(`[Resend] Email type "${type}" is disabled via admin settings — skipping`);
       return { sent: false, skipped: true, reason: "Email notification is disabled" };
-    }
-    if (override.recipients !== null) {
-      if (!override.recipients.length) {
-        console.warn(`[Resend] Email type "${type}" has no active configured recipients — skipping`);
-        return { sent: false, skipped: true, reason: "No active configured recipients" };
-      }
-      const deliveries = await Promise.all(override.recipients
-        .filter((recipient): recipient is NotificationRecipient & { email: string } => Boolean(recipient.email))
-        .map((recipient) => sendTransactionalEmail(
-          type,
-          { ...ctx, recipientEmail: recipient.email, recipientName: recipient.name ?? undefined, ccEmail: undefined, ccEmails: undefined },
-          { ...options, bypassRecipientOverride: true, idempotencyKey: recipientOverrideIdempotencyKey(type, ctx, recipient.id) },
-        )));
-      const sent = deliveries.some((delivery) => delivery.sent);
-      return {
-        sent,
-        skipped: !sent && deliveries.every((delivery) => delivery.skipped),
-        ...(sent ? {} : { reason: deliveries.map((delivery) => delivery.reason).filter(Boolean).join("; ") || "No configured recipient received the email" }),
-      };
     }
   } catch (settingErr) {
     // Fail open: a transient settings read must not block a system notification.

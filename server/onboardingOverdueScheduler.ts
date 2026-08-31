@@ -90,11 +90,11 @@ export async function checkOverdueOnboardingTasks(): Promise<void> {
         if (!instance) continue;
 
         const [agent] = await db
-          .select({ id: users.id, name: users.name, email: users.email })
+          .select({ id: users.id, name: users.name, email: users.email, isActive: users.isActive })
           .from(users)
           .where(eq(users.id, instance.agentUserId));
 
-        if (!agent) continue;
+        if (!agent || !agent.isActive) continue;
 
         // Build task list for email
         const taskListLines = tasks.map((t: OverdueTask) => {
@@ -110,11 +110,11 @@ export async function checkOverdueOnboardingTasks(): Promise<void> {
           taskList: taskListLines.join("\n"),
         };
 
-        // Send to admin (all users with admin role)
+        // Send to active administrators only.
         const admins = await db
           .select({ id: users.id, name: users.name, email: users.email })
           .from(users)
-          .where(eq(users.role, "admin"));
+          .where(and(eq(users.role, "admin"), eq(users.isActive, true)));
 
         for (const admin of admins) {
           if (!admin.email) continue;

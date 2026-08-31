@@ -7,12 +7,12 @@ import { z } from "zod";
 import { SIMULATE_COOKIE, SIMULATE_OWNER_EMAIL, WORK_AS_COOKIE } from "./_core/context";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
-import { sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
+import { EMAIL_NOTIFICATION_TYPES, sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
-import { customEmailNotifications, emailTemplates, emailNotificationSettings, users } from "../drizzle/schema";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { customEmailNotifications, emailTemplates, emailNotificationSettings } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
 import { propertiesRouter } from "./routers/properties";
@@ -294,19 +294,10 @@ export const appRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db2 = await db.getDb();
       if (!db2) return [];
-      const EMAIL_TYPES = [
-        "lead_assigned", "transaction_created", "transaction_status_changed",
-        "transaction_closed", "transaction_review_request", "transaction_review_received", "commission_calculated", "task_assigned", "task_due",
-        "payout_integrity_fail", "listing_created", "listing_expiration_reminder",
-        "onboarding_overdue", "commission_exception_warning", "market_match_intro",
-        "client_intro", "connection_request_approved", "pm_mention", "daily_agent_report", "coaching_weekly_accountability",
-        "coaching_feedback_invitation", "coaching_feedback_weekly_summary",
-        "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
-      ];
       // Seed any missing rows
       const existing = await db2.select().from(emailNotificationSettings);
       const existingKeys = new Set(existing.map((r: { notificationKey: string }) => r.notificationKey));
-      const missing = EMAIL_TYPES.filter(k => !existingKeys.has(k));
+      const missing = EMAIL_NOTIFICATION_TYPES.filter(k => !existingKeys.has(k));
       if (missing.length > 0) {
         await db2.insert(emailNotificationSettings).values(missing.map(k => ({ notificationKey: k, isEnabled: true })));
       }
@@ -324,61 +315,6 @@ export const appRouter = router({
           .values({ notificationKey: input.notificationKey, isEnabled: input.isEnabled, updatedBy: ctx.user.id })
           .onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, updatedBy: ctx.user.id } });
         return { success: true };
-      }),
-    /** Active SavvyOS users eligible for an explicit notification recipient override. */
-    recipientUsers: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db2 = await db.getDb();
-      if (!db2) return [];
-      return db2
-        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
-        .from(users)
-        .where(and(eq(users.isActive, true), isNotNull(users.email)))
-        .orderBy(users.name);
-    }),
-    /**
-     * Sets the optional explicit audience for a notification. Clearing every
-     * selection restores the notification's normal dynamic recipient behavior.
-     */
-    setRecipients: protectedProcedure
-      .input(z.object({
-        notificationKey: z.string().min(1).max(128),
-        recipientUserIds: z.array(z.number().int().positive()).max(250),
-        includeFutureUsers: z.boolean().default(false),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        const db2 = await db.getDb();
-        if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const recipientUserIds = Array.from(new Set(input.recipientUserIds));
-        if (recipientUserIds.length > 0) {
-          const validUsers = await db2
-            .select({ id: users.id })
-            .from(users)
-            .where(and(
-              eq(users.isActive, true),
-              isNotNull(users.email),
-              inArray(users.id, recipientUserIds),
-            ));
-          if (validUsers.length !== recipientUserIds.length) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Selected recipients must be active users with an email address." });
-          }
-        }
-        const [existing] = await db2
-          .select({ includeFutureUsers: emailNotificationSettings.includeFutureUsers, futureUsersAfter: emailNotificationSettings.futureUsersAfter })
-          .from(emailNotificationSettings)
-          .where(eq(emailNotificationSettings.notificationKey, input.notificationKey))
-          .limit(1);
-        // Preserve the original cutoff whenever the future-user option remains
-        // enabled, so users added while it was on continue to be included.
-        const futureUsersAfter = input.includeFutureUsers
-          ? (existing?.includeFutureUsers && existing.futureUsersAfter ? existing.futureUsersAfter : new Date())
-          : null;
-        await db2
-          .insert(emailNotificationSettings)
-          .values({ notificationKey: input.notificationKey, isEnabled: true, recipientUserIds: recipientUserIds.length ? recipientUserIds : null, includeFutureUsers: input.includeFutureUsers, futureUsersAfter, updatedBy: ctx.user.id })
-          .onDuplicateKeyUpdate({ set: { recipientUserIds: recipientUserIds.length ? recipientUserIds : null, includeFutureUsers: input.includeFutureUsers, futureUsersAfter, updatedBy: ctx.user.id } });
-        return { success: true, recipientUserIds, includeFutureUsers: input.includeFutureUsers };
       }),
   }),
 

@@ -91,23 +91,15 @@ describe("transaction created email", () => {
 });
 
 describe("configured notification recipients", () => {
-  it("replaces the default audience with the selected active users", async () => {
+  it("preserves the event-specific recipient when legacy recipient settings are present", async () => {
     mockSend.mockClear();
     const settingsQuery = {
       from: () => ({
-        where: () => ({ limit: async () => [{ isEnabled: true, recipientUserIds: [7, 8] }] }),
-      }),
-    };
-    const recipientsQuery = {
-      from: () => ({
-        where: async () => [
-          { id: 7, name: "Taylor Admin", email: "taylor@example.com" },
-          { id: 8, name: "Jordan ISA", email: "jordan@example.com" },
-        ],
+        where: () => ({ limit: async () => [{ isEnabled: true, recipientUserIds: [7, 8], includeFutureUsers: true }] }),
       }),
     };
     mockGetDb.mockResolvedValue({
-      select: vi.fn().mockReturnValueOnce(settingsQuery).mockReturnValueOnce(recipientsQuery),
+      select: vi.fn().mockReturnValueOnce(settingsQuery),
     });
 
     await sendTransactionalEmail("listing_created", {
@@ -117,50 +109,10 @@ describe("configured notification recipients", () => {
       listingAddress: "123 Main St",
     }, { allowTemplateOverride: false, injectMagicLinks: false });
 
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls.map(([message]) => message.to).sort()).toEqual([
-      "jordan@example.com",
-      "taylor@example.com",
-    ]);
-    expect(mockSend.mock.calls.every(([, options]) => String(options?.idempotencyKey).startsWith("recipient-override:listing_created:"))).toBe(true);
-  });
-
-  it("includes eligible users added after future-user enrollment is enabled", async () => {
-    mockSend.mockClear();
-    const settingsQuery = {
-      from: () => ({
-        where: () => ({
-          limit: async () => [{
-            isEnabled: true,
-            recipientUserIds: [7],
-            includeFutureUsers: true,
-            futureUsersAfter: new Date("2026-08-29T20:00:00.000Z"),
-          }],
-        }),
-      }),
-    };
-    const recipientsQuery = {
-      from: () => ({
-        where: async () => [
-          { id: 7, name: "Selected Admin", email: "selected@example.com" },
-          { id: 12, name: "New Agent", email: "new-user@example.com" },
-        ],
-      }),
-    };
-    mockGetDb.mockResolvedValue({
-      select: vi.fn().mockReturnValueOnce(settingsQuery).mockReturnValueOnce(recipientsQuery),
-    });
-
-    await sendTransactionalEmail(
-      "listing_created",
-      { recipientEmail: "default-agent@example.com", listingAddress: "123 Main St" },
-      { allowTemplateOverride: false, injectMagicLinks: false }
-    );
-
-    expect(mockSend.mock.calls.map(([message]) => message.to).sort()).toEqual([
-      "new-user@example.com",
-      "selected@example.com",
-    ]);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({
+      to: "default-agent@example.com",
+    }), undefined);
   });
 });
 

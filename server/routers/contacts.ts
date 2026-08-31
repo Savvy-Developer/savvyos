@@ -1357,7 +1357,7 @@ export const connectionRequestsRouter = router({
       // Email the requesting agent
       const [agent] = await db.select().from(users).where(eq(users.id, req.agentId)).limit(1);
       const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, req.contactId)).limit(1);
-      if (agent?.email && contact) {
+      if (agent?.email && agent.isActive && contact) {
         await sendTransactionalEmail("connection_request_approved", {
           recipientEmail: agent.email,
           recipientName: agent.name ?? "Agent",

@@ -258,7 +258,7 @@ async function sendReviewReceivedNotifications(params: {
     .where(eq(coachingProfiles.agentId, params.agentId))
     .limit(1);
   const [coach] = coachingProfile?.coachOfRecordId
-    ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, coachingProfile.coachOfRecordId)).limit(1)
+    ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.id, coachingProfile.coachOfRecordId), eq(users.isActive, true))).limit(1)
     : [];
 
   const recipients: Array<{ id: number; name: string; email: string }> = [];
