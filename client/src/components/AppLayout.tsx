@@ -16,6 +16,7 @@ import { trpc } from "@/lib/trpc";
 import {
   BarChart3,
   Building2,
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -94,6 +95,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
 
   const operationsItems: NavItem[] = [
     { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
+    { icon: CalendarDays, label: "My PTO", path: "/pto" },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
     { icon: Users, label: "Agent Directory", path: "/agent-directory" },
   ];
@@ -177,6 +179,12 @@ function buildAgentSupportNav(): NavGroup[] {
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
       ],
     },
+    {
+      label: "Personal",
+      items: [
+        { icon: CalendarDays, label: "My PTO", path: "/pto" },
+      ],
+    },
   ];
 }
 
@@ -203,6 +211,7 @@ function buildIsaNav(pendingConnReqs: number, myOverdueTasks: number = 0): NavGr
       label: "Operations",
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
+        { icon: CalendarDays, label: "My PTO", path: "/pto" },
         { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         { icon: PhoneCall, label: "Market Match Call", path: "/market-match-call" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
@@ -238,6 +247,8 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewReferrals: "/referrals",
   canViewPulse: "/pulse",
   canViewTasks: "/tasks",
+  canApprovePto: "/pto/approvals",
+  canAdministerPto: "/pto/admin",
   canViewOnboarding: "/onboarding",
   canViewCoachingHub: "/coaching",
   canViewCoachFeedback: "/coach-feedback",
@@ -288,7 +299,7 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .filter((group) => group.items.length > 0);
 }
 
-function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0, resendInboxUnread: number = 0, marketingTextInboxUnread: number = 0): NavGroup[] {
+function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0, resendInboxUnread: number = 0, marketingTextInboxUnread: number = 0, pendingPtoApprovals: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
@@ -332,6 +343,9 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "Operations",
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
+        { icon: CalendarDays, label: "My PTO", path: "/pto" },
+        { icon: ClipboardList, label: "PTO Approvals", path: "/pto/approvals", badge: pendingPtoApprovals > 0 ? pendingPtoApprovals : undefined },
+        { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
         { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
         { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
         { icon: MessageSquare, label: "Coach feedback", path: "/coach-feedback" },
@@ -609,6 +623,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin", refetchInterval: 60000 }
   );
+  // Fetch PTO requests awaiting this manager's decision. The server returns zero without the explicit Super Permission.
+  const { data: pendingPtoApprovalsData } = trpc.pto.pendingCount.useQuery(
+    undefined,
+    { enabled: role === "admin", refetchInterval: 30000 }
+  );
   // Fetch active tech request count for admin sidebar badge
   const { data: pendingTechRequestsData } = trpc.techRequests.pendingCount.useQuery(
     undefined,
@@ -695,6 +714,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
   const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
   const pendingTechRequestsCount = (pendingTechRequestsData as any)?.count ?? 0;
+  const pendingPtoApprovalsCount = (pendingPtoApprovalsData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
   const unreadPmCount = (inboxCount as any)?.count ?? 0;
@@ -703,7 +723,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const standardNavGroups =
     role === "admin"
-      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount, resendInboxUnreadCount, marketingTextInboxUnreadCount)
+      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount, resendInboxUnreadCount, marketingTextInboxUnreadCount, pendingPtoApprovalsCount)
       : role === "isa"
       ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
       : role === "agent_support"

@@ -139,6 +139,9 @@ import ShortLinksPage from "./pages/ShortLinksPage";
 import VendorListManagementPage from "./pages/VendorListManagementPage";
 import VendorListsAdminPage from "./pages/VendorListsAdminPage";
 import PublicVendorListPage from "./pages/PublicVendorListPage";
+import PtoPage from "./pages/PtoPage";
+import PtoManagerQueuePage from "./pages/PtoManagerQueuePage";
+import PtoAdministrationPage from "./pages/PtoAdministrationPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -294,6 +297,20 @@ function ReviewsRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PtoApprovalsRoute({ children }: { children: React.ReactNode }) {
+  const { data: access, isLoading } = trpc.pto.access.useQuery();
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!access?.canApprove) return <NotFound />;
+  return <>{children}</>;
+}
+
+function PtoAdministrationRoute({ children }: { children: React.ReactNode }) {
+  const { data: access, isLoading } = trpc.pto.access.useQuery();
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!access?.canAdminister) return <NotFound />;
+  return <>{children}</>;
+}
+
 function PulseRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
@@ -350,6 +367,9 @@ function Router() {
           <Route path="/tasks" component={TasksPage} />
           <Route path="/my-tasks" component={MyTasksPage} />
           <Route path="/tasks/:id" component={TaskDetailPage} />
+          <Route path="/pto" component={PtoPage} />
+          <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
+          <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>
           <Route path="/analytics/legacy">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/analytics/lead-cohorts">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/analytics">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>

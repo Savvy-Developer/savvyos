@@ -74,6 +74,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
   "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
   "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
+  "pto_request_submitted", "pto_request_decision",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
@@ -119,6 +120,15 @@ interface EmailContext {
   amount?: string;
   percentage?: string;
   notes?: string;
+  // PTO request and decision fields
+  employeeName?: string;
+  managerName?: string;
+  ptoType?: string;
+  ptoDateRange?: string;
+  ptoRequestedDays?: string;
+  coverageNotes?: string;
+  decisionStatus?: string;
+  decisionReason?: string;
   listingAddress?: string;
   listPrice?: string;
   listingDate?: string;
@@ -539,6 +549,49 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       `Task due soon: ${ctx.taskTitle ?? "Task"}`
     ),
   }),
+
+  pto_request_submitted: (ctx) => ({
+    subject: `PTO Approval Needed: ${ctx.employeeName ?? "Direct report"}`,
+    html: emailLayout(
+      `${heading("New PTO Request", "#0891B2")}
+      ${subheading("PTO Approval Needed")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("A direct report has submitted a PTO request for your review.")}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Employee</strong>&nbsp;&nbsp; ${escapeHtml(ctx.employeeName ?? "—")}`,
+        ...(ctx.ptoType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoType)}`] : []),
+        ...(ctx.ptoDateRange ? [`<strong style="color:${BLACK};">Dates</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoDateRange)}`] : []),
+        ...(ctx.ptoRequestedDays ? [`<strong style="color:${BLACK};">Requested</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoRequestedDays)}`] : []),
+        ...(ctx.coverageNotes ? [`<strong style="color:${BLACK};">Coverage notes</strong>&nbsp;&nbsp; ${escapeHtml(ctx.coverageNotes)}`] : []),
+      ], "#0891B2")}
+      ${ctaButton("Review PTO Request", APP_URL + "/pto/approvals", "#0891B2")}`,
+      `New PTO request from ${ctx.employeeName ?? "a direct report"}.`
+    ),
+  }),
+
+  pto_request_decision: (ctx) => {
+    const approved = (ctx.decisionStatus ?? "").toLowerCase() === "approved";
+    const accent = approved ? "#059669" : "#D97706";
+    const decision = approved ? "approved" : "declined";
+    return {
+      subject: `PTO Request ${approved ? "Approved" : "Declined"}: ${ctx.ptoDateRange ?? "Your Request"}`,
+      html: emailLayout(
+        `${heading(`PTO Request ${approved ? "Approved" : "Declined"}`, accent)}
+        ${subheading("PTO Decision")}
+        ${greeting(ctx.recipientName)}
+        ${bodyText(`Your manager has ${decision} your ${escapeHtml(ctx.ptoType ?? "PTO")} request.`)}
+        ${infoCard([
+          ...(ctx.managerName ? [`<strong style="color:${BLACK};">Manager</strong>&nbsp;&nbsp; ${escapeHtml(ctx.managerName)}`] : []),
+          ...(ctx.ptoType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoType)}`] : []),
+          ...(ctx.ptoDateRange ? [`<strong style="color:${BLACK};">Dates</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoDateRange)}`] : []),
+          ...(ctx.ptoRequestedDays ? [`<strong style="color:${BLACK};">Time requested</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoRequestedDays)}`] : []),
+          ...(ctx.decisionReason ? [`<strong style="color:${BLACK};">Manager note</strong>&nbsp;&nbsp; ${escapeHtml(ctx.decisionReason)}`] : []),
+        ], accent)}
+        ${ctaButton("View My PTO", APP_URL + "/pto", accent)}`,
+        `Your PTO request was ${decision}.`
+      ),
+    };
+  },
 
   transaction_created: (ctx) => ({
     subject: `New Transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""} Created`,

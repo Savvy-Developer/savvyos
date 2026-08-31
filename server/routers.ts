@@ -69,6 +69,7 @@ import { coachFeedbackRouter } from "./routers/coachFeedback";
 import { shortLinksRouter } from "./routers/shortLinks";
 import { partnerPortalRouter } from "./routers/partnerPortal";
 import { vendorsRouter } from "./routers/vendors";
+import { ptoRouter } from "./routers/pto";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -91,6 +92,8 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
     ["client_intro", { ...ctx2, agentName: "Sarah Mitchell", contactName: "Alex Johnson", isaName: "Jordan Lee", agentBookingLink: "https://calendly.com/sarah-mitchell" }],
     ["connection_request_approved", { ...ctx2, contactName: "Jane Smith", agentName: "Sarah Mitchell", pipelineStatus: "Nurture" }],
     ["pm_mention", { ...ctx2, mentionedByName: "Tyler Coon", projectTitle: "Website Redesign Q2", noteContent: "Hey, can you review the wireframes for the landing page before Friday?", projectUrl: "https://os.savvy-agents.com/projects/1" }],
+    ["pto_request_submitted", { ...ctx2, employeeName: "Jordan Lee", ptoType: "Vacation", ptoDateRange: "July 6, 2026 to July 10, 2026", ptoRequestedDays: "5 days", coverageNotes: "Coverage plan is documented in the weekly handoff." }],
+    ["pto_request_decision", { ...ctx2, managerName: "Tyler Coon", decisionStatus: "Approved", decisionReason: "Coverage plan confirmed.", ptoType: "Vacation", ptoDateRange: "July 6, 2026 to July 10, 2026", ptoRequestedDays: "5 days" }],
   ] as [string, Record<string, string>][];
 }
 
@@ -286,6 +289,7 @@ export const appRouter = router({
   coachFeedback: coachFeedbackRouter,
   partnerPortal: partnerPortalRouter,
   vendors: vendorsRouter,
+  pto: ptoRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

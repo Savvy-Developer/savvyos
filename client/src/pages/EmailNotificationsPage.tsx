@@ -21,8 +21,8 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Not Currently Sent";
-type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting";
+type Recipient = "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Not Currently Sent";
+type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
 type TriggerType = "Event" | "Scheduled";
 
 interface NotifMeta {
@@ -62,6 +62,10 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "task_assigned", name: "Task Assigned", description: "Sent only to the user newly assigned to the task.", trigger: "Task created or updated with a new assignee", triggerType: "Event", recipient: "Assigned User", category: "Tasks" },
   { id: "task_due", name: "Task Due Reminder", description: "Sent only to the user assigned to the task as its due date approaches.", trigger: "Scheduled — fires when a task's due date is approaching", triggerType: "Scheduled", recipient: "Assigned User", category: "Tasks" },
   // ── Onboarding ────────────────────────────────────────────────────────────
+  // ── PTO ──────────────────────────────────────────────────────────────────
+  { id: "pto_request_submitted", name: "PTO Request Submitted", description: "Sent only to the employee's current reporting manager when a PTO request is submitted.", trigger: "Employee submits a PTO request", triggerType: "Event", recipient: "Reporting Manager", category: "PTO" },
+  { id: "pto_request_decision", name: "PTO Request Decision", description: "Sent only to the requesting employee when their reporting manager approves or declines PTO.", trigger: "Reporting manager approves or declines a PTO request", triggerType: "Event", recipient: "Requesting Employee", category: "PTO" },
+  // ── Onboarding ──────────────────────────────────────────────────────────
   { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Sends every active administrator the overdue instance; also sends the agent their own overdue agent tasks.", trigger: "Nightly scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Active Admins", category: "Onboarding" },
   // ── Market Match ──────────────────────────────────────────────────────────
   { id: "market_match_intro", name: "Market Match Intro", description: "Sent to the recommended agent; the operator may also send the same handoff copy to the matched investor.", trigger: "Market Match call completed and intro triggered by ISA or admin", triggerType: "Event", recipient: "Assigned Agent + Optional Client Copy", category: "Market Match" },
@@ -96,7 +100,7 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "password_reset", name: "Password Reset", description: "Sent only to the SavvyOS account holder who requested the password reset.", trigger: "Account password reset is requested", triggerType: "Event", recipient: "Account Holder", category: "Account Security" },
   { id: "webinar_marketing_request", name: "Webinar Marketing Request", description: "Sent to the marketing inbox, with the SavvyOS webinar creator copied.", trigger: "A webinar is created in SavvyOS", triggerType: "Event", recipient: "Marketing Team + Creator", category: "Marketing" },
 ];
-const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Pulse", "Partner & Access", "Account Security", "Marketing", "Reporting"];
+const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Pulse", "Partner & Access", "Account Security", "Marketing", "Reporting", "PTO"];
 const CATEGORY_COLORS: Record<Category, string> = {
   "Transactions": "bg-blue-100 text-blue-700",
   "Listings": "bg-purple-100 text-purple-700",
@@ -111,6 +115,7 @@ const CATEGORY_COLORS: Record<Category, string> = {
   "Account Security": "bg-stone-100 text-stone-700",
   "Marketing": "bg-pink-100 text-pink-700",
   "Reporting": "bg-sky-100 text-sky-700",
+  "PTO": "bg-teal-100 text-teal-700",
 };
 
 const RECIPIENT_COLORS: Record<Recipient, string> = {
@@ -134,6 +139,8 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Partner": "bg-lime-100 text-lime-700",
   "Account Holder": "bg-stone-100 text-stone-700",
   "Marketing Team + Creator": "bg-pink-100 text-pink-700",
+  "Reporting Manager": "bg-teal-100 text-teal-700",
+  "Requesting Employee": "bg-teal-100 text-teal-700",
   "Not Currently Sent": "bg-zinc-100 text-zinc-600",
 };
 

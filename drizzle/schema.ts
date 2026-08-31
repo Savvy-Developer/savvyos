@@ -59,6 +59,99 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;;
 
+// ─── PTO ───────────────────────────────────────────────────────────────────────
+// PTO requests are restricted in the service layer: employees see only their own
+// records; managers see only current direct reports resolved from users.reportsToId.
+export const ptoPolicies = mysqlTable("pto_policies", {
+  id: int("id").autoincrement().primaryKey(),
+  ptoType: mysqlEnum("ptoType", ["vacation", "sick", "personal", "bereavement", "other"]).notNull(),
+  annualAccrualDays: decimal("annualAccrualDays", { precision: 7, scale: 2 }).notNull(),
+  carryoverCapDays: decimal("carryoverCapDays", { precision: 7, scale: 2 }).notNull().default("0"),
+  waitingPeriodDays: int("waitingPeriodDays").notNull().default(0),
+  effectiveDate: date("effectiveDate").notNull(),
+  isActive: boolean("isActive").notNull().default(true),
+  updatedById: int("updatedById").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("pto_policies_type_effective_date_uq").on(table.ptoType, table.effectiveDate),
+  index("pto_policies_type_effective_date_idx").on(table.ptoType, table.effectiveDate),
+]);
+export type PtoPolicy = typeof ptoPolicies.$inferSelect;
+export type InsertPtoPolicy = typeof ptoPolicies.$inferInsert;
+
+// These organization-wide guardrails are intentionally policy-owned rather than
+// client-controlled. The initial policy disallows negative balances and payout.
+export const ptoSettings = mysqlTable("pto_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  negativeBalanceAllowed: boolean("negativeBalanceAllowed").notNull().default(false),
+  payoutAllowed: boolean("payoutAllowed").notNull().default(false),
+  reportingLineSource: varchar("reportingLineSource", { length: 128 }).notNull().default("users.reportsToId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PtoSettings = typeof ptoSettings.$inferSelect;
+
+export const ptoRequests = mysqlTable("pto_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  employeeId: int("employeeId").notNull().references(() => users.id),
+  // Snapshot at submission. Authorization always re-checks the current reporting line.
+  managerId: int("managerId").notNull().references(() => users.id),
+  ptoType: mysqlEnum("ptoType", ["vacation", "sick", "personal", "bereavement", "other"]).notNull(),
+  startDate: date("startDate").notNull(),
+  endDate: date("endDate").notNull(),
+  requestedDays: decimal("requestedDays", { precision: 7, scale: 2 }).notNull(),
+  coverageNotes: mediumtext("coverageNotes"),
+  status: mysqlEnum("status", ["pending", "approved", "declined", "withdrawn"]).notNull().default("pending"),
+  decisionById: int("decisionById").references(() => users.id),
+  decisionReason: mediumtext("decisionReason"),
+  decidedAt: timestamp("decidedAt"),
+  withdrawnAt: timestamp("withdrawnAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pto_requests_employee_status_idx").on(table.employeeId, table.status),
+  index("pto_requests_manager_status_created_idx").on(table.managerId, table.status, table.createdAt),
+  index("pto_requests_dates_status_idx").on(table.startDate, table.endDate, table.status),
+]);
+export type PtoRequest = typeof ptoRequests.$inferSelect;
+export type InsertPtoRequest = typeof ptoRequests.$inferInsert;
+
+// Balance changes are immutable, signed ledger rows. PTO accrual and carryover
+// remain derived from policy; every manual change names its administrator/reason,
+// while every request deduction references the approved PTO request that caused it.
+export const ptoBalanceAdjustments = mysqlTable("pto_balance_adjustments", {
+  id: int("id").autoincrement().primaryKey(),
+  employeeId: int("employeeId").notNull().references(() => users.id),
+  ptoType: mysqlEnum("ptoType", ["vacation", "sick", "personal", "bereavement", "other"]).notNull(),
+  amountDays: decimal("amountDays", { precision: 7, scale: 2 }).notNull(),
+  sourceType: mysqlEnum("sourceType", ["approved_request", "admin_adjustment"]).notNull(),
+  ptoRequestId: int("ptoRequestId").references(() => ptoRequests.id),
+  reason: mediumtext("reason").notNull(),
+  recordedById: int("recordedById").notNull().references(() => users.id),
+  effectiveDate: date("effectiveDate").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("pto_balance_adjustments_request_uq").on(table.ptoRequestId),
+  index("pto_balance_adjustments_employee_type_date_idx").on(table.employeeId, table.ptoType, table.effectiveDate),
+]);
+export type PtoBalanceAdjustment = typeof ptoBalanceAdjustments.$inferSelect;
+export type InsertPtoBalanceAdjustment = typeof ptoBalanceAdjustments.$inferInsert;
+
+// The request history provides a durable, actor-attributed record of each PTO
+// lifecycle transition without mutating or erasing prior decisions.
+export const ptoRequestEvents = mysqlTable("pto_request_events", {
+  id: int("id").autoincrement().primaryKey(),
+  ptoRequestId: int("ptoRequestId").notNull().references(() => ptoRequests.id, { onDelete: "cascade" }),
+  actorId: int("actorId").notNull().references(() => users.id),
+  eventType: mysqlEnum("eventType", ["submitted", "approved", "declined", "withdrawn"]).notNull(),
+  reason: mediumtext("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("pto_request_events_request_created_idx").on(table.ptoRequestId, table.createdAt),
+]);
+export type PtoRequestEvent = typeof ptoRequestEvents.$inferSelect;
+
 // ─── Groups ───────────────────────────────────────────────────────────────────
 export const groups = mysqlTable("groups", {
   id: int("id").autoincrement().primaryKey(),
@@ -2669,6 +2762,9 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewPulseSettings: boolean("canViewPulseSettings").default(false).notNull(),
   // Operations
   canViewTasks: boolean("canViewTasks").default(true).notNull(),
+  // PTO approval and administration are intentionally opt-in and must be assigned through Super Permissions.
+  canApprovePto: boolean("canApprovePto").default(false).notNull(),
+  canAdministerPto: boolean("canAdministerPto").default(false).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
   canViewCoachingHub: boolean("canViewCoachingHub").default(true).notNull(),
   // Sensitive aggregate-only feedback area. Explicitly granted to designated leadership.
