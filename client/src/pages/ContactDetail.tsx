@@ -578,9 +578,11 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   async function handleSaveContactEdit() {
     if (editForm.email && !isValidEmail(editForm.email)) { toast.error("Please enter a valid email address (e.g. name@example.com)"); return; }
     if (editForm.secondaryEmail && !isValidEmail(editForm.secondaryEmail)) { toast.error("Please enter a valid secondary email address"); return; }
+    if (editForm.thirdEmail && !isValidEmail(editForm.thirdEmail)) { toast.error("Please enter a valid third email address"); return; }
     if (editForm.spouseEmail && !isValidEmail(editForm.spouseEmail)) { toast.error("Please enter a valid spouse email address"); return; }
     if (editForm.phone && !isValidPhone(editForm.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
     if (editForm.secondaryPhone && !isValidPhone(editForm.secondaryPhone)) { toast.error("Please enter a valid secondary phone number (9+ digits)"); return; }
+    if (editForm.thirdPhone && !isValidPhone(editForm.thirdPhone)) { toast.error("Please enter a valid third phone number (9+ digits)"); return; }
     if (editForm.spousePhone && !isValidPhone(editForm.spousePhone)) { toast.error("Please enter a valid spouse phone number (9+ digits)"); return; }
     // Hard block: email or phone matches a DIFFERENT contact.
     // Only check fields that actually changed — if the user didn't edit the
@@ -611,6 +613,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
         phone: editForm.phone || null,
         secondaryEmail: editForm.secondaryEmail || null,
         secondaryPhone: editForm.secondaryPhone || null,
+        thirdEmail: editForm.thirdEmail || null,
+        thirdPhone: editForm.thirdPhone || null,
         spouseFirstName: editForm.spouseFirstName || null,
         spouseLastName: editForm.spouseLastName || null,
         spouseEmail: editForm.spouseEmail || null,
@@ -758,6 +762,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       phone: contact.phone ?? "",
       secondaryEmail: (contact as any).secondaryEmail ?? "",
       secondaryPhone: (contact as any).secondaryPhone ?? "",
+      thirdEmail: (contact as any).thirdEmail ?? "",
+      thirdPhone: (contact as any).thirdPhone ?? "",
       spouseFirstName: (contact as any).spouseFirstName ?? "",
       spouseLastName: (contact as any).spouseLastName ?? "",
       spouseEmail: (contact as any).spouseEmail ?? "",
@@ -1017,6 +1023,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   <a href={`mailto:${(contact as any).secondaryEmail}`} className="truncate text-muted-foreground hover:underline">{formatEmail((contact as any).secondaryEmail)}</a>
                 </div>
               )}
+              {(contact as any).thirdEmail && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-50" />
+                  <a href={`mailto:${(contact as any).thirdEmail}`} className="truncate text-muted-foreground hover:underline">{formatEmail((contact as any).thirdEmail)}</a>
+                </div>
+              )}
               {contact.phone && (
                 <div className="flex items-center gap-2 text-sm">
                   <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -1027,6 +1039,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 <div className="flex items-center gap-2 text-sm">
                   <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-50" />
                   <a href={`tel:${(contact as any).secondaryPhone}`} className="text-muted-foreground hover:underline">{formatPhone((contact as any).secondaryPhone)}</a>
+                </div>
+              )}
+              {(contact as any).thirdPhone && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-50" />
+                  <a href={`tel:${(contact as any).thirdPhone}`} className="text-muted-foreground hover:underline">{formatPhone((contact as any).thirdPhone)}</a>
                 </div>
               )}
               {/* Timezone + live local time */}
@@ -1615,6 +1633,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   <div><Label>Phone</Label><Input className="mt-1" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: formatPhone(e.target.value) })} placeholder="e.g. 5551234567" /></div>
                   <div><Label>Secondary Email</Label><Input className="mt-1" type="email" value={editForm.secondaryEmail} onChange={e => setEditForm({ ...editForm, secondaryEmail: e.target.value })} /></div>
                   <div><Label>Secondary Phone</Label><Input className="mt-1" value={editForm.secondaryPhone} onChange={e => setEditForm({ ...editForm, secondaryPhone: formatPhone(e.target.value) })} placeholder="e.g. 5551234567" /></div>
+                  <div><Label>Third Email</Label><Input className="mt-1" type="email" value={editForm.thirdEmail} onChange={e => setEditForm({ ...editForm, thirdEmail: e.target.value })} /></div>
+                  <div><Label>Third Phone</Label><Input className="mt-1" value={editForm.thirdPhone} onChange={e => setEditForm({ ...editForm, thirdPhone: formatPhone(e.target.value) })} placeholder="e.g. 5551234567" /></div>
                   <div className="sm:col-span-2">
                     <Label>Time Zone</Label>
                     <Select value={editForm.timezone || "none"} onValueChange={v => setEditForm({ ...editForm, timezone: v === "none" ? "" : v })}>

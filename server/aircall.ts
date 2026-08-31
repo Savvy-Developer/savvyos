@@ -51,7 +51,7 @@ function canonicalStoredPhone(raw: string | null | undefined): string | null {
 // ─── Contact Lookup ───────────────────────────────────────────────────────────
 
 /**
- * Find a SavvyOS contact whose primary, secondary, or spouse phone number
+ * Find a SavvyOS contact whose saved phone number
  * matches the given raw phone string after normalization.
  * Returns the first match, or null if none found.
  */
@@ -78,13 +78,15 @@ export async function findContactByPhone(
       lastName: contacts.lastName,
       phone: contacts.phone,
       secondaryPhone: contacts.secondaryPhone,
+      thirdPhone: contacts.thirdPhone,
       spousePhone: contacts.spousePhone,
     })
     .from(contacts)
+    .where(isNull(contacts.archivedAt))
     .limit(200); // fetch a batch; we'll filter in JS for flexibility
 
   for (const row of rows) {
-    const phones = [row.phone, row.secondaryPhone, row.spousePhone];
+    const phones = [row.phone, row.secondaryPhone, row.thirdPhone, row.spousePhone];
     for (const p of phones) {
       if (!p) continue;
       const n = normalizePhone(p);
@@ -123,20 +125,22 @@ export async function findContactByPhoneDB(
       lastName: contacts.lastName,
       phone: contacts.phone,
       secondaryPhone: contacts.secondaryPhone,
+      thirdPhone: contacts.thirdPhone,
       spousePhone: contacts.spousePhone,
     })
     .from(contacts)
     .where(
-      or(
+      and(isNull(contacts.archivedAt), or(
         like(contacts.phone, `%${finalFour}`),
         like(contacts.secondaryPhone, `%${finalFour}`),
+        like(contacts.thirdPhone, `%${finalFour}`),
         like(contacts.spousePhone, `%${finalFour}`),
-      )
+      ))
     )
     .limit(100);
 
   for (const row of rows) {
-    for (const phone of [row.phone, row.secondaryPhone, row.spousePhone]) {
+    for (const phone of [row.phone, row.secondaryPhone, row.thirdPhone, row.spousePhone]) {
       if (normalizePhone(phone) === norm) {
         return { id: row.id, firstName: row.firstName, lastName: row.lastName };
       }

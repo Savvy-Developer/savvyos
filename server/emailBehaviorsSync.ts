@@ -20,7 +20,7 @@ import {
   emailBehaviorsUnmatched,
   emailBehaviorsSyncState,
 } from "../drizzle/schema";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, or, sql } from "drizzle-orm";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 // Use the v2 token (Conversations scope) if set, fall back to the original token
@@ -384,15 +384,17 @@ async function upsertEmailRecords(records: EmailRecord[]): Promise<{
   // Collect unique email addresses
   const emails = Array.from(new Set(records.map((r) => r.toEmail.toLowerCase()).filter(Boolean)));
 
-  // Batch-lookup contacts by email
+  // Batch-lookup contacts by every retained email method.
   const contactRows = await db
-    .select({ id: contacts.id, email: contacts.email })
+    .select({ id: contacts.id, email: contacts.email, secondaryEmail: contacts.secondaryEmail, thirdEmail: contacts.thirdEmail })
     .from(contacts)
-    .where(inArray(contacts.email, emails));
+    .where(or(inArray(contacts.email, emails), inArray(contacts.secondaryEmail, emails), inArray(contacts.thirdEmail, emails)));
 
   const emailToContactId = new Map<string, number>();
   for (const row of contactRows) {
-    if (row.email) emailToContactId.set(row.email.toLowerCase(), row.id);
+    for (const email of [row.email, row.secondaryEmail, row.thirdEmail]) {
+      if (email) emailToContactId.set(email.toLowerCase(), row.id);
+    }
   }
 
   let matched = 0;

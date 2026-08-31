@@ -301,9 +301,9 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
       const marketAgentIds = marketAgents.map((a) => a.id);
       if (marketAgentIds.length > 0) {
         const marketContactIds = await db2
-          .select({ contactId: agentConnections.contactId })
-          .from(agentConnections)
-          .where(inArray(agentConnections.agentId, marketAgentIds));
+        .select({ contactId: agentConnections.contactId })
+        .from(agentConnections)
+        .where(and(inArray(agentConnections.agentId, marketAgentIds), isNull(agentConnections.archivedAt)));
         const ids = Array.from(new Set(marketContactIds.map((r) => r.contactId).filter(Boolean))) as number[];
         if (ids.length === 0) return { rows: [], total: 0, page, limit };
         conditions.push(inArray(contacts.id, ids));
@@ -319,7 +319,7 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
       const agentContactIds = await db2
         .select({ contactId: agentConnections.contactId, connectionId: agentConnections.id })
         .from(agentConnections)
-        .where(eq(agentConnections.agentId, agentId));
+        .where(and(eq(agentConnections.agentId, agentId), isNull(agentConnections.archivedAt)));
       const ids = agentContactIds.map((r) => r.contactId).filter(Boolean) as number[];
       if (ids.length === 0) return { rows: [], total: 0, page, limit };
       conditions.push(inArray(contacts.id, ids));
@@ -360,7 +360,7 @@ export async function getContacts(search?: string, isaId?: number, agentId?: num
       })
       .from(contacts)
       .leftJoin(assignedIsaAlias, eq(contacts.assignedIsaId, assignedIsaAlias.id))
-      .leftJoin(agentConnections, eq(contacts.id, agentConnections.contactId))
+      .leftJoin(agentConnections, and(eq(contacts.id, agentConnections.contactId), isNull(agentConnections.archivedAt)))
       .leftJoin(agentAlias, eq(agentConnections.agentId, agentAlias.id))
       .where(where)
       .groupBy(contacts.id, assignedIsaAlias.id)
@@ -398,9 +398,9 @@ export async function getContactById(id: number) {
 
 export function scheduleAircallPhoneRematch(
   contactId: number,
-  data: Pick<typeof contacts.$inferInsert, "phone" | "secondaryPhone" | "spousePhone"> | Partial<typeof contacts.$inferInsert>
+  data: Pick<typeof contacts.$inferInsert, "phone" | "secondaryPhone" | "thirdPhone" | "spousePhone"> | Partial<typeof contacts.$inferInsert>
 ): void {
-  const phoneValues = [data.phone, data.secondaryPhone, data.spousePhone];
+  const phoneValues = [data.phone, data.secondaryPhone, data.thirdPhone, data.spousePhone];
   if (!phoneValues.some(phone => typeof phone === "string" && phone.trim())) return;
 
   void import("./aircall")
@@ -415,7 +415,7 @@ export function scheduleAircallPhoneRematch(
 export async function createContact(data: typeof contacts.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const normalizedData = normalizePhoneFields(data, ["phone", "secondaryPhone", "spousePhone"]);
+  const normalizedData = normalizePhoneFields(data, ["phone", "secondaryPhone", "thirdPhone", "spousePhone"]);
   const [result] = await db.insert(contacts).values(normalizedData);
   const insertId = (result as any).insertId as number;
   // Outbound GHL sync — fire-and-forget; never blocks contact creation. See
@@ -450,7 +450,7 @@ export async function updateContact(id: number, data: Partial<typeof contacts.$i
   // Attribution belongs to the original lead creation. Callers cannot rewrite
   // it while updating a contact through this shared helper.
   for (const field of immutableAttributionFields) delete mutableData[field];
-  const normalizedData = normalizePhoneFields(mutableData as Partial<typeof contacts.$inferInsert>, ["phone", "secondaryPhone", "spousePhone"]);
+  const normalizedData = normalizePhoneFields(mutableData as Partial<typeof contacts.$inferInsert>, ["phone", "secondaryPhone", "thirdPhone", "spousePhone"]);
   await db.update(contacts).set(normalizedData).where(eq(contacts.id, id));
   scheduleAircallPhoneRematch(id, normalizedData);
 }
@@ -499,7 +499,7 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
     };
   }
 
-  const baseConditions: any[] = [];
+  const baseConditions: any[] = [isNull(agentConnections.archivedAt)];
   if (filters.scopeAgentId) baseConditions.push(eq(agentConnections.agentId, filters.scopeAgentId));
   // scopeAgentIds: restrict to a set of agent IDs (used by agent_support role)
   if (filters.scopeAgentIds) {
@@ -674,7 +674,7 @@ export async function getAgentConnectionById(id: number) {
     .leftJoin(isaUser, eq(contacts.assignedIsaId, isaUser.id))
     .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
     .leftJoin(parentLS, eq(leadSources.parentId, parentLS.id))
-    .where(eq(agentConnections.id, id))
+    .where(and(eq(agentConnections.id, id), isNull(agentConnections.archivedAt)))
     .limit(1);
   return result[0];
 }
@@ -729,6 +729,7 @@ export async function ensureTeamAgentConnection(input: {
     .where(and(
       eq(agentConnections.agentId, input.agentId),
       eq(agentConnections.contactId, input.contactId),
+      isNull(agentConnections.archivedAt),
     ))
     .limit(1);
   if (existing) return { created: false, connectionId: existing.id };
@@ -752,6 +753,7 @@ export async function ensureTeamAgentConnection(input: {
         .where(and(
           eq(agentConnections.agentId, input.agentId),
           eq(agentConnections.contactId, input.contactId),
+          isNull(agentConnections.archivedAt),
         ))
         .limit(1);
       return { created: false, connectionId: concurrent?.id };

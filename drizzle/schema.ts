@@ -235,6 +235,10 @@ export const contacts = mysqlTable("contacts", {
   phone: varchar("phone", { length: 32 }),
   secondaryEmail: varchar("secondaryEmail", { length: 320 }),
   secondaryPhone: varchar("secondaryPhone", { length: 32 }),
+  // Primary values remain in the first slots for current integrations. A third
+  // retained value supports lossless duplicate merges without dropping data.
+  thirdEmail: varchar("thirdEmail", { length: 320 }),
+  thirdPhone: varchar("thirdPhone", { length: 32 }),
   address: text("address"),
   city: varchar("city", { length: 128 }),
   state: varchar("state", { length: 64 }),
@@ -342,6 +346,12 @@ export const agentConnections = mysqlTable("agent_connections", {
   // The user who recorded the appointment. Unlike the contact's current ISA
   // assignment, this snapshot does not change when a lead is reassigned.
   appointmentSetByUserId: int("appointmentSetByUserId").references(() => users.id),
+  // Merged duplicate connections remain as historical, auditable rows and are
+  // excluded from active pipeline queries.
+  archivedAt: timestamp("archivedAt"),
+  mergeArchivedAt: timestamp("mergeArchivedAt"),
+  mergeArchivedById: int("mergeArchivedById").references(() => users.id, { onDelete: "set null" }),
+  mergedIntoConnectionId: int("mergedIntoConnectionId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -1068,6 +1078,9 @@ export const smartPlanEnrollments = mysqlTable("smart_plan_enrollments", {
   // Provides an actionable explanation when automation pauses an enrollment.
   pauseReason: varchar("pauseReason", { length: 255 }),
   completedAt: timestamp("completedAt"),
+  // Preserves a source enrollment when the same plan exists on both contacts.
+  archivedAt: timestamp("archivedAt"),
+  mergedIntoEnrollmentId: int("mergedIntoEnrollmentId"),
 }, (table) => [
   // One contact can only enter a given plan once, even when a webhook is retried
   // or multiple intake events arrive at the same time.
@@ -1999,6 +2012,8 @@ export const connectionRequests = mysqlTable("connection_requests", {
   reviewedById: int("reviewedById").references(() => users.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewedAt"),
   notes: text("notes"),
+  archivedAt: timestamp("archivedAt"),
+  mergedIntoRequestId: int("mergedIntoRequestId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type ConnectionRequest = typeof connectionRequests.$inferSelect;
@@ -2188,6 +2203,33 @@ export const duplicateContactPairs = mysqlTable("duplicate_contact_pairs", {
 });
 export type DuplicateContactPair = typeof duplicateContactPairs.$inferSelect;
 export type InsertDuplicateContactPair = typeof duplicateContactPairs.$inferInsert;
+
+// ─── Contact Merge Archives ────────────────────────────────────────────────
+// Every value or related row not retained by a merge is preserved here with its
+// source context. This is the recovery ledger behind the Duplicate Contacts
+// Archived tab; no merge path silently deletes losing data.
+export const contactMergeArchives = mysqlTable("contact_merge_archives", {
+  id: int("id").autoincrement().primaryKey(),
+  mergePairId: int("mergePairId").notNull().references(() => duplicateContactPairs.id, { onDelete: "cascade" }),
+  winnerContactId: int("winnerContactId").notNull().references(() => contacts.id),
+  loserContactId: int("loserContactId").notNull().references(() => contacts.id),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  sourceContactId: int("sourceContactId").references(() => contacts.id, { onDelete: "set null" }),
+  sourceTable: varchar("sourceTable", { length: 128 }),
+  sourceRecordId: int("sourceRecordId"),
+  fieldName: varchar("fieldName", { length: 128 }),
+  archivedValue: json("archivedValue"),
+  keptValue: json("keptValue"),
+  mergedIntoId: int("mergedIntoId"),
+  archivedById: int("archivedById").references(() => users.id, { onDelete: "set null" }),
+  archivedAt: timestamp("archivedAt").defaultNow().notNull(),
+  restoredAt: timestamp("restoredAt"),
+  restoredById: int("restoredById").references(() => users.id, { onDelete: "set null" }),
+}, (table) => [
+  index("contact_merge_archives_pair_idx").on(table.mergePairId, table.archivedAt),
+  index("contact_merge_archives_loser_idx").on(table.loserContactId, table.archivedAt),
+]);
+export type ContactMergeArchive = typeof contactMergeArchives.$inferSelect;
 
 // ─── Webhook Endpoints ────────────────────────────────────────────────────────
 // Admin-managed inbound webhook endpoints. Each endpoint has a unique slug,
@@ -2895,6 +2937,7 @@ export const marketingTextInboxThreads = mysqlTable("marketing_text_inbox_thread
   contactId: int("contactId").notNull().unique().references(() => contacts.id, { onDelete: "cascade" }),
   archivedAt: timestamp("archivedAt"),
   archivedById: int("archivedById").references(() => users.id, { onDelete: "set null" }),
+  mergedIntoThreadId: int("mergedIntoThreadId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
@@ -3750,6 +3793,8 @@ export const contactRelationships = mysqlTable("contact_relationships", {
   // Optional: which duplicate pair triggered this link
   sourcePairId: int("sourcePairId").references(() => duplicateContactPairs.id, { onDelete: "set null" }),
   createdByUserId: int("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+  archivedAt: timestamp("archivedAt"),
+  mergedIntoRelationshipId: int("mergedIntoRelationshipId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   contactIdx: index("idx_contact_relationships_contact").on(table.contactId),

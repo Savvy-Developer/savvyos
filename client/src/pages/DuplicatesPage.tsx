@@ -1,1031 +1,192 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertCircle,
-  CheckCircle2,
-  GitMerge,
-  RefreshCw,
-  Search,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  Users,
-  Phone,
-  Mail,
-  MapPin,
-  Loader2,
-  Link2,
-  Heart,
-} from "lucide-react";
+import { AlertCircle, ArchiveRestore, CheckCircle2, ChevronLeft, ChevronRight, Eye, GitMerge, Heart, Link2, Loader2, Mail, MapPin, Phone, RefreshCw, Search, Users, X } from "lucide-react";
 
 type ContactSummary = {
-  id: number;
-  firstName: string;
-  lastName: string;
-  email: string | null;
-  secondaryEmail: string | null;
-  phone: string | null;
-  secondaryPhone: string | null;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  createdAt: Date | string;
-  updatedAt: Date | string;
+  id: number; firstName: string; lastName: string;
+  email: string | null; secondaryEmail: string | null; thirdEmail: string | null;
+  phone: string | null; secondaryPhone: string | null; thirdPhone: string | null;
+  address: string | null; city: string | null; state: string | null; zip: string | null;
+  leadSourceId: number | null; leadSourceType: string | null; campaignSource: string | null; partnershipName: string | null;
+  createdAt: Date | string; updatedAt: Date | string; archivedAt?: Date | string | null;
+  [key: string]: unknown;
 };
 
 type PairRow = {
-  id: number;
-  contactAId: number;
-  contactBId: number;
+  id: number; contactAId: number; contactBId: number;
   matchType: "email" | "phone" | "name_address" | "fuzzy_name" | "manual";
-  confidence: number;
-  status: "pending" | "merged" | "dismissed";
-  contactA: ContactSummary | null;
-  contactB: ContactSummary | null;
+  confidence: number; status: "pending" | "merged" | "dismissed";
+  contactA: ContactSummary | null; contactB: ContactSummary | null;
 };
 
-const MATCH_LABELS: Record<string, string> = {
-  email: "Same Email",
-  phone: "Same Phone",
-  name_address: "Same Name + Address",
-  fuzzy_name: "Similar Name",
-  manual: "Manual Selection",
+type MethodSelection = { value: string; isPrimary: boolean };
+type AgentConnection = { connection: Record<string, any>; agent: { id: number; name: string | null; email: string | null } | null };
+
+type MergeContext = {
+  contactA: ContactSummary; contactB: ContactSummary;
+  contactAConnections: AgentConnection[]; contactBConnections: AgentConnection[];
+  leadSourceConflict: boolean; agentConflict: boolean;
 };
 
-const MATCH_COLORS: Record<string, string> = {
-  email: "bg-red-100 text-red-700 border-red-200",
-  phone: "bg-orange-100 text-orange-700 border-orange-200",
-  name_address: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  fuzzy_name: "bg-blue-100 text-blue-700 border-blue-200",
-  manual: "bg-purple-100 text-purple-700 border-purple-200",
-};
-
-// Fields shown in the side-by-side comparison (excluding email which gets special treatment)
-const COMPARE_FIELDS: Array<{ key: keyof ContactSummary; label: string }> = [
-  { key: "phone", label: "Phone" },
-  { key: "address", label: "Address" },
-  { key: "city", label: "City" },
-  { key: "state", label: "State" },
-];
-
+const MATCH_LABELS: Record<string, string> = { email: "Same Email", phone: "Same Phone", name_address: "Same Name + Address", fuzzy_name: "Similar Name", manual: "Manual Selection" };
+const MATCH_COLORS: Record<string, string> = { email: "bg-red-100 text-red-700 border-red-200", phone: "bg-orange-100 text-orange-700 border-orange-200", name_address: "bg-yellow-100 text-yellow-700 border-yellow-200", fuzzy_name: "bg-blue-100 text-blue-700 border-blue-200", manual: "bg-purple-100 text-purple-700 border-purple-200" };
 const RELATIONSHIP_TYPES = [
-  { value: "spouse", label: "Spouse" },
-  { value: "partner", label: "Partner" },
-  { value: "business_partner", label: "Business Partner" },
-  { value: "unknown_relationship", label: "Unknown Relationship" },
+  { value: "spouse", label: "Spouse" }, { value: "partner", label: "Partner" },
+  { value: "business_partner", label: "Business Partner" }, { value: "unknown_relationship", label: "Unknown Relationship" },
+] as const;
+const CONTACT_FIELDS = [
+  ["firstName", "First name"], ["lastName", "Last name"], ["address", "Address"], ["city", "City"], ["state", "State"], ["zip", "ZIP"],
+  ["spouseFirstName", "Spouse first name"], ["spouseLastName", "Spouse last name"], ["spouseEmail", "Spouse email"], ["spousePhone", "Spouse phone"],
+  ["assignedIsaId", "Assigned ISA"], ["isaStatus", "ISA status"], ["timezone", "Time zone"],
+] as const;
+const CONNECTION_FIELDS = [
+  ["pipelineStatus", "Pipeline status"], ["followUpDate", "Follow-up date"], ["propertyType", "Property type"], ["minPrice", "Minimum price"], ["maxPrice", "Maximum price"],
+  ["minBeds", "Minimum beds"], ["maxBeds", "Maximum beds"], ["minBaths", "Minimum baths"], ["minSqft", "Minimum sqft"], ["maxSqft", "Maximum sqft"],
+  ["targetCities", "Target cities"], ["targetZips", "Target ZIPs"], ["strRequirements", "STR requirements"], ["investmentNotes", "Investment notes"],
+  ["appointmentSet", "Appointment set"], ["appointmentSetAt", "Appointment date"], ["appointmentSetByUserId", "Appointment setter"], ["agingUpdatedAt", "Lead activity date"],
 ] as const;
 
-function ContactCard({
-  contact,
-  label,
-  isWinner,
-  onSetWinner,
-}: {
-  contact: ContactSummary;
-  label: string;
-  isWinner: boolean;
-  onSetWinner: () => void;
-}) {
-  return (
-    <div
-      className={`rounded-lg border-2 p-3 transition-all cursor-pointer min-w-0 ${
-        isWinner ? "border-green-500 bg-green-50" : "border-border bg-card hover:border-muted-foreground"
-      }`}
-      onClick={onSetWinner}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
-        {isWinner && (
-          <Badge className="bg-green-600 text-white text-xs">
-            <CheckCircle2 className="h-3 w-3 mr-1" /> Keep
-          </Badge>
-        )}
-      </div>
-      <div className="font-semibold text-sm mb-2 truncate">
-        {contact.firstName} {contact.lastName}
-      </div>
-      <div className="space-y-1 text-xs text-muted-foreground">
-        {contact.email && (
-          <div className="flex items-center gap-1.5">
-            <Mail className="h-3 w-3 shrink-0" />
-            <span className="truncate">{contact.email}</span>
-          </div>
-        )}
-        {contact.secondaryEmail && (
-          <div className="flex items-center gap-1.5">
-            <Mail className="h-3 w-3 shrink-0 opacity-50" />
-            <span className="truncate text-muted-foreground/70">{contact.secondaryEmail}</span>
-          </div>
-        )}
-        {contact.phone && (
-          <div className="flex items-center gap-1.5">
-            <Phone className="h-3 w-3 shrink-0" />
-            <span>{contact.phone}</span>
-          </div>
-        )}
-        {(contact.address || contact.city) && (
-          <div className="flex items-center gap-1.5">
-            <MapPin className="h-3 w-3 shrink-0" />
-            <span className="truncate">
-              {[contact.address, contact.city, contact.state].filter(Boolean).join(", ")}
-            </span>
-          </div>
-        )}
-      </div>
-      <div className="mt-2 text-xs text-muted-foreground">
-        ID #{contact.id} · Updated {new Date(contact.updatedAt).toLocaleDateString()}
-      </div>
-    </div>
-  );
+function valueText(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "(empty)";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.join(", ") || "(empty)";
+  const asDate = typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? new Date(value) : null;
+  return asDate && !Number.isNaN(asDate.getTime()) ? asDate.toLocaleString() : String(value);
+}
+function hasValue(value: unknown): boolean { return value !== null && value !== undefined && value !== ""; }
+function valuesDiffer(first: unknown, second: unknown): boolean { return hasValue(first) && hasValue(second) && JSON.stringify(first) !== JSON.stringify(second); }
+function displayName(contact: ContactSummary | null | undefined): string { return contact ? `${contact.firstName} ${contact.lastName}`.trim() || `Contact #${contact.id}` : "Unknown contact"; }
+function leadSourceText(contact: ContactSummary): string { return contact.leadSourceId != null ? `Lead Source #${contact.leadSourceId}` : [contact.leadSourceType, contact.campaignSource, contact.partnershipName].filter(Boolean).join(" · ") || "No Lead Source"; }
+function methodCandidates(contact: ContactSummary, type: "email" | "phone") {
+  const keys = type === "email" ? ["email", "secondaryEmail", "thirdEmail"] : ["phone", "secondaryPhone", "thirdPhone"];
+  return keys.flatMap((key, index) => contact[key] ? [{ value: String(contact[key]), source: `${displayName(contact)} · ${index === 0 ? "current primary" : `method ${index + 1}`}` }] : []);
+}
+function dedupeMethods(items: Array<{ value: string; source: string }>, type: "email" | "phone") {
+  const normalise = (value: string) => type === "email" ? value.trim().toLowerCase() : value.replace(/\D/g, "");
+  return items.filter((item, index, all) => all.findIndex((entry) => normalise(entry.value) === normalise(item.value)) === index);
 }
 
-function ContactSearchPicker({
-  label,
-  selectedContact,
-  search,
-  excludeContactId,
-  onSearchChange,
-  onSelect,
-  onClear,
-}: {
-  label: string;
-  selectedContact: ContactSummary | null;
-  search: string;
-  excludeContactId?: number;
-  onSearchChange: (value: string) => void;
-  onSelect: (contact: ContactSummary) => void;
-  onClear: () => void;
-}) {
-  const { data: results = [], isFetching } = trpc.duplicates.searchContacts.useQuery(
-    { query: search.trim(), excludeContactId },
-    { enabled: search.trim().length >= 2 && !selectedContact }
-  );
-
-  return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium">{label}</p>
-      {selectedContact ? (
-        <div className="flex items-center gap-3 rounded-md border border-purple-200 bg-purple-50 p-3">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-purple-950">
-              {selectedContact.firstName} {selectedContact.lastName}
-            </p>
-            <p className="truncate text-xs text-purple-700">
-              {selectedContact.email ?? selectedContact.phone ?? "No email or phone"} · ID #{selectedContact.id}
-            </p>
-          </div>
-          <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={onClear}>
-            Change
-          </Button>
-        </div>
-      ) : (
-        <>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              className="pl-9"
-              placeholder="Name, email, or phone number"
-              aria-label={label}
-            />
-          </div>
-          {search.trim().length >= 2 && (
-            <div className="max-h-48 divide-y overflow-y-auto rounded-md border bg-background">
-              {isFetching ? (
-                <p className="px-3 py-3 text-center text-sm text-muted-foreground">Searching contacts…</p>
-              ) : results.length === 0 ? (
-                <p className="px-3 py-3 text-center text-sm text-muted-foreground">No active contacts found.</p>
-              ) : (
-                results.map((contact) => (
-                  <button
-                    key={contact.id}
-                    type="button"
-                    className="w-full px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
-                    onClick={() => onSelect(contact as ContactSummary)}
-                  >
-                    <p className="text-sm font-medium">{contact.firstName} {contact.lastName}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {contact.email ?? contact.phone ?? "No email or phone"} · ID #{contact.id}
-                    </p>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </>
-      )}
+function ContactCard({ contact, label, isWinner, onSetWinner }: { contact: ContactSummary; label: string; isWinner: boolean; onSetWinner: () => void }) {
+  return <button type="button" className={`w-full rounded-lg border-2 p-3 text-left transition-all ${isWinner ? "border-green-500 bg-green-50" : "border-border bg-card hover:border-muted-foreground"}`} onClick={onSetWinner}>
+    <div className="mb-2 flex items-center justify-between gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>{isWinner && <Badge className="bg-green-600 text-xs text-white"><CheckCircle2 className="mr-1 h-3 w-3" />Keep</Badge>}</div>
+    <p className="mb-2 truncate text-sm font-semibold">{displayName(contact)}</p>
+    <div className="space-y-1 text-xs text-muted-foreground">
+      {contact.email && <p className="flex gap-1.5"><Mail className="h-3 w-3 shrink-0" />{contact.email}</p>}
+      {contact.phone && <p className="flex gap-1.5"><Phone className="h-3 w-3 shrink-0" />{contact.phone}</p>}
+      {(contact.address || contact.city) && <p className="flex gap-1.5"><MapPin className="h-3 w-3 shrink-0" />{[contact.address, contact.city, contact.state].filter(Boolean).join(", ")}</p>}
     </div>
-  );
+    <p className="mt-2 text-xs text-muted-foreground">ID #{contact.id} · Updated {new Date(contact.updatedAt).toLocaleDateString()}</p>
+  </button>;
 }
 
-function MergeDialog({
-  pair,
-  isManualSelection = false,
-  onClose,
-  onMerged,
-}: {
-  pair: PairRow;
-  isManualSelection?: boolean;
-  onClose: () => void;
-  onMerged: () => void;
-}) {
+function ContactSearchPicker({ label, selectedContact, search, excludeContactId, onSearchChange, onSelect, onClear }: { label: string; selectedContact: ContactSummary | null; search: string; excludeContactId?: number; onSearchChange: (value: string) => void; onSelect: (contact: ContactSummary) => void; onClear: () => void }) {
+  const { data: results = [], isFetching } = trpc.duplicates.searchContacts.useQuery({ query: search.trim(), excludeContactId }, { enabled: search.trim().length >= 2 && !selectedContact });
+  return <div className="space-y-2"><p className="text-sm font-medium">{label}</p>{selectedContact ? <div className="flex items-center gap-3 rounded-md border border-purple-200 bg-purple-50 p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-purple-950">{displayName(selectedContact)}</p><p className="truncate text-xs text-purple-700">{selectedContact.email ?? selectedContact.phone ?? "No email or phone"} · ID #{selectedContact.id}</p></div><Button type="button" variant="ghost" size="sm" onClick={onClear}>Change</Button></div> : <><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => onSearchChange(event.target.value)} className="pl-9" placeholder="Name, email, or phone number" aria-label={label} /></div>{search.trim().length >= 2 && <div className="max-h-48 divide-y overflow-y-auto rounded-md border bg-background">{isFetching ? <p className="px-3 py-3 text-center text-sm text-muted-foreground">Searching contacts…</p> : results.length === 0 ? <p className="px-3 py-3 text-center text-sm text-muted-foreground">No active contacts found.</p> : results.map((contact) => <button key={contact.id} type="button" className="w-full px-3 py-2.5 text-left hover:bg-muted/50" onClick={() => onSelect(contact as ContactSummary)}><p className="text-sm font-medium">{contact.firstName} {contact.lastName}</p><p className="truncate text-xs text-muted-foreground">{contact.email ?? contact.phone ?? "No email or phone"} · ID #{contact.id}</p></button>)}</div>}</>}</div>;
+}
+
+function MethodSelector({ type, candidates, selections, onChange }: { type: "email" | "phone"; candidates: Array<{ value: string; source: string }>; selections: MethodSelection[]; onChange: (next: MethodSelection[]) => void }) {
+  const icon = type === "email" ? <Mail className="h-4 w-4 text-blue-600" /> : <Phone className="h-4 w-4 text-blue-600" />;
+  const selected = (value: string) => selections.find((entry) => entry.value === value);
+  const toggle = (value: string) => {
+    const current = selected(value);
+    if (current) { onChange(selections.filter((entry) => entry.value !== value)); return; }
+    if (selections.length >= 3) { toast.error(`A maximum of three ${type}s can be retained.`); return; }
+    onChange([...selections, { value, isPrimary: selections.length === 0 }]);
+  };
+  const makePrimary = (value: string) => onChange(selections.map((entry) => ({ ...entry, isPrimary: entry.value === value })));
+  return <div className="rounded-lg border bg-muted/30 p-3"><p className="mb-1 flex items-center gap-1.5 text-sm font-medium">{icon}Select {type}s to retain (up to 3)</p><p className="mb-2 text-xs text-muted-foreground">Every selected value stays on the merged record. Values not selected are archived and can be viewed or restored later.</p><div className="space-y-1.5">{candidates.map(({ value, source }) => { const choice = selected(value); return <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${choice ? "border-blue-500 bg-blue-50" : "bg-background hover:border-muted-foreground"}`}><input type="checkbox" checked={Boolean(choice)} onChange={() => toggle(value)} /><span className="min-w-0 flex-1 truncate">{value}</span><span className="hidden text-xs text-muted-foreground md:inline">{source}</span>{choice && <button type="button" className={`rounded px-2 py-1 text-xs font-medium ${choice.isPrimary ? "bg-blue-600 text-white" : "border bg-white text-muted-foreground"}`} onClick={(event) => { event.preventDefault(); makePrimary(value); }}>{choice.isPrimary ? "Primary" : "Make primary"}</button>}</label>; })}</div>{selections.length > 0 && !selections.some((entry) => entry.isPrimary) && <p className="mt-2 text-xs font-medium text-destructive">Mark exactly one selected {type} as Primary.</p>}</div>;
+}
+
+function ChoiceRows({ title, fields, winner, loser, choices, onChoice }: { title: string; fields: readonly (readonly [string, string])[]; winner: Record<string, any>; loser: Record<string, any>; choices: Record<string, "winner" | "loser">; onChoice: (key: string, choice: "winner" | "loser") => void }) {
+  const conflicts = fields.filter(([key]) => valuesDiffer(winner[key], loser[key]));
+  if (!conflicts.length) return null;
+  return <div className="space-y-2"><p className="flex items-center gap-1.5 text-sm font-medium"><AlertCircle className="h-4 w-4 text-amber-500" />{title} — choose a value to retain</p><p className="text-xs text-muted-foreground">No value is selected automatically. The losing value is placed in the archive ledger.</p>{conflicts.map(([key, label]) => <div key={key} className="rounded-md border bg-muted/30 p-2.5"><span className="mb-2 block text-xs font-medium">{label}</span><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{(["winner", "loser"] as const).map((choice) => <button key={choice} type="button" onClick={() => onChoice(key, choice)} className={`rounded border px-2 py-2 text-left text-xs ${choices[key] === choice ? "border-green-500 bg-green-50 font-medium" : "bg-background hover:border-muted-foreground"}`}><span className="mb-1 block text-[10px] uppercase text-muted-foreground">{choice === "winner" ? "Keep record" : "Archive record"}</span>{valueText((choice === "winner" ? winner : loser)[key])}</button>)}</div>{!choices[key] && <p className="mt-1.5 text-xs font-medium text-amber-700">Selection required</p>}</div>)}</div>;
+}
+
+function MergeDialog({ pair, isManualSelection, onClose, onResolved }: { pair: PairRow; isManualSelection: boolean; onClose: () => void; onResolved: () => void }) {
   const utils = trpc.useUtils();
-
-  const [winnerId, setWinnerId] = useState<number>(pair.contactAId);
-  const loserId = winnerId === pair.contactAId ? pair.contactBId : pair.contactAId;
-  const winner = winnerId === pair.contactAId ? pair.contactA : pair.contactB;
-  const loser = loserId === pair.contactAId ? pair.contactA : pair.contactB;
-
-  // Field-level overrides: key → "winner" | "loser"
-  const [fieldChoices, setFieldChoices] = useState<Record<string, "winner" | "loser">>({});
-
-  // Multiple email retention: user selects which emails to keep
-  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
-
-  // Relationship linking mode
+  const [winnerId, setWinnerId] = useState(pair.contactAId);
   const [linkMode, setLinkMode] = useState(false);
   const [relationshipType, setRelationshipType] = useState<string>("spouse");
+  const [emailSelections, setEmailSelections] = useState<MethodSelection[]>([]);
+  const [phoneSelections, setPhoneSelections] = useState<MethodSelection[]>([]);
+  const [fieldChoices, setFieldChoices] = useState<Record<string, "winner" | "loser">>({});
+  const [agentChoices, setAgentChoices] = useState<Set<number>>(new Set());
+  const [connectionChoices, setConnectionChoices] = useState<Record<string, Record<string, "winner" | "loser">>>({});
+  const contextQuery = trpc.duplicates.getMergeContext.useQuery({ contactAId: pair.contactAId, contactBId: pair.contactBId });
+  const context = contextQuery.data as MergeContext | undefined;
+  const winner = (winnerId === pair.contactAId ? context?.contactA ?? pair.contactA : context?.contactB ?? pair.contactB) as ContactSummary | null;
+  const loser = (winnerId === pair.contactAId ? context?.contactB ?? pair.contactB : context?.contactA ?? pair.contactA) as ContactSummary | null;
+  const loserId = winnerId === pair.contactAId ? pair.contactBId : pair.contactAId;
+  const emailCandidates = useMemo(() => winner && loser ? dedupeMethods([...methodCandidates(winner, "email"), ...methodCandidates(loser, "email")], "email") : [], [winner?.id, loser?.id]);
+  const phoneCandidates = useMemo(() => winner && loser ? dedupeMethods([...methodCandidates(winner, "phone"), ...methodCandidates(loser, "phone")], "phone") : [], [winner?.id, loser?.id]);
+  const visibleConnections = useMemo(() => {
+    if (!context) return [] as Array<{ agentId: number; agentName: string; winner?: Record<string, any>; loser?: Record<string, any> }>;
+    const winnerConnections = winnerId === pair.contactAId ? context.contactAConnections : context.contactBConnections;
+    const loserConnections = winnerId === pair.contactAId ? context.contactBConnections : context.contactAConnections;
+    return Array.from(new Set([...winnerConnections, ...loserConnections].map((row) => row.connection.agentId))).map((agentId) => {
+      const winnerConnection = winnerConnections.find((row) => row.connection.agentId === agentId);
+      const loserConnection = loserConnections.find((row) => row.connection.agentId === agentId);
+      return { agentId, agentName: winnerConnection?.agent?.name ?? loserConnection?.agent?.name ?? `Agent #${agentId}`, winner: winnerConnection?.connection, loser: loserConnection?.connection };
+    });
+  }, [context, winnerId, pair.contactAId]);
+  const contactConflicts = winner && loser ? CONTACT_FIELDS.filter(([key]) => valuesDiffer(winner[key], loser[key])) : [];
+  const selectedSharedAgentConflicts = visibleConnections.filter((row) => row.winner && row.loser && agentChoices.has(row.agentId));
+  const connectionConflictsComplete = selectedSharedAgentConflicts.every((row) => CONNECTION_FIELDS.filter(([key]) => valuesDiffer(row.winner?.[key], row.loser?.[key])).every(([key]) => Boolean(connectionChoices[String(row.agentId)]?.[key])));
+  const methodsComplete = (emailCandidates.length === 0 || (emailSelections.length > 0 && emailSelections.some((entry) => entry.isPrimary))) && (phoneCandidates.length === 0 || (phoneSelections.length > 0 && phoneSelections.some((entry) => entry.isPrimary)));
+  const fieldsComplete = contactConflicts.every(([key]) => Boolean(fieldChoices[key]));
+  const agentsComplete = !context?.agentConflict || agentChoices.size > 0;
+  const mergeBlocked = Boolean(context?.leadSourceConflict);
+  const readyToMerge = !mergeBlocked && methodsComplete && fieldsComplete && agentsComplete && connectionConflictsComplete;
 
-  // Collect all unique emails from both contacts
-  const allEmails: Array<{ value: string; source: string }> = [];
-  if (winner?.email) allEmails.push({ value: winner.email, source: `${winner.firstName} (primary)` });
-  if (winner?.secondaryEmail) allEmails.push({ value: winner.secondaryEmail, source: `${winner.firstName} (secondary)` });
-  if (loser?.email) allEmails.push({ value: loser.email, source: `${loser.firstName} (primary)` });
-  if (loser?.secondaryEmail) allEmails.push({ value: loser.secondaryEmail, source: `${loser.firstName} (secondary)` });
-  // Deduplicate
-  const uniqueEmails = allEmails.filter(
-    (e, i, arr) => arr.findIndex((x) => x.value.toLowerCase() === e.value.toLowerCase()) === i
-  );
-
-  // Initialize selected emails with the winner's primary email
   useEffect(() => {
-    if (winner?.email && selectedEmails.size === 0) {
-      setSelectedEmails(new Set([winner.email]));
+    if (!winner) return;
+    setEmailSelections(winner.email ? [{ value: winner.email, isPrimary: true }] : []);
+    setPhoneSelections(winner.phone ? [{ value: winner.phone, isPrimary: true }] : []);
+    setFieldChoices({}); setConnectionChoices({});
+    if (context?.agentConflict) setAgentChoices(new Set()); else setAgentChoices(new Set(visibleConnections.map((row) => row.agentId)));
+  }, [winnerId, context?.agentConflict]);
+
+  const mergeMutation = trpc.duplicates.merge.useMutation({ onSuccess: () => { toast.success("Contacts merged. Unselected values are safely archived."); void utils.duplicates.listPairs.invalidate(); void utils.duplicates.listArchivedMerges.invalidate(); void utils.duplicates.getStats.invalidate(); onResolved(); }, onError: (error) => toast.error(`Merge blocked: ${error.message}`) });
+  const manualMergeMutation = trpc.duplicates.manualMerge.useMutation({ onSuccess: () => { toast.success("Contacts merged. Unselected values are safely archived."); void utils.duplicates.listPairs.invalidate(); void utils.duplicates.listArchivedMerges.invalidate(); void utils.duplicates.getStats.invalidate(); onResolved(); }, onError: (error) => toast.error(`Merge blocked: ${error.message}`) });
+  const linkMutation = trpc.duplicates.linkAsRelationship.useMutation({ onSuccess: (data) => { toast.success(`Contacts linked as ${RELATIONSHIP_TYPES.find((entry) => entry.value === data.relationshipType)?.label ?? "a relationship"}.`); void utils.duplicates.listPairs.invalidate(); void utils.duplicates.getStats.invalidate(); onResolved(); }, onError: (error) => toast.error(`Link failed: ${error.message}`) });
+
+  function merge() {
+    if (!winner || !loser || !readyToMerge) return;
+    const fieldOverrides: Record<string, string | number | null> = {};
+    for (const [key, source] of Object.entries(fieldChoices)) {
+      const value = source === "winner" ? winner[key] : loser[key];
+      fieldOverrides[key] = value == null ? null : typeof value === "number" ? value : String(value);
     }
-  }, [winner?.email]);
-
-  const handleMergeSuccess = () => {
-    toast.success("Contacts merged — the duplicate has been consolidated.");
-    utils.duplicates.listPairs.invalidate();
-    utils.duplicates.getStats.invalidate();
-    onMerged();
-  };
-
-  const mergeMutation = trpc.duplicates.merge.useMutation({
-    onSuccess: handleMergeSuccess,
-    onError: (err) => {
-      toast.error(`Merge failed: ${err.message}`);
-    },
-  });
-
-  const manualMergeMutation = trpc.duplicates.manualMerge.useMutation({
-    onSuccess: handleMergeSuccess,
-    onError: (err) => {
-      toast.error(`Merge failed: ${err.message}`);
-    },
-  });
-
-  const linkMutation = trpc.duplicates.linkAsRelationship.useMutation({
-    onSuccess: (data) => {
-      const typeLabel = RELATIONSHIP_TYPES.find((t) => t.value === data.relationshipType)?.label ?? data.relationshipType;
-      toast.success(`Contacts linked as "${typeLabel}" — pair resolved.`);
-      utils.duplicates.listPairs.invalidate();
-      utils.duplicates.getStats.invalidate();
-      onMerged();
-    },
-    onError: (err) => {
-      toast.error(`Link failed: ${err.message}`);
-    },
-  });
-
-  function buildOverrides() {
-    const overrides: Record<string, string | number | null> = {};
-    for (const [field, choice] of Object.entries(fieldChoices)) {
-      if (choice === "loser" && loser) {
-        overrides[field] = (loser as Record<string, unknown>)[field] as string | number | null;
-      }
-    }
-    return overrides;
+    const payload = { winnerId, loserId, fieldOverrides, retainEmails: emailSelections, retainPhones: phoneSelections, retainAgentIds: Array.from(agentChoices), connectionFieldOverrides: connectionChoices };
+    if (isManualSelection) manualMergeMutation.mutate(payload); else mergeMutation.mutate({ pairId: pair.id, ...payload });
   }
+  function link() { if (!winner || !loser) return; linkMutation.mutate({ pairId: isManualSelection ? 0 : pair.id, contactAId: pair.contactAId, contactBId: pair.contactBId, relationshipType: relationshipType as any }); }
+  function toggleAgent(agentId: number) { setAgentChoices((previous) => { const next = new Set(previous); next.has(agentId) ? next.delete(agentId) : next.add(agentId); return next; }); }
 
-  function handleMerge() {
-    // Build retainEmails from selected emails
-    const retainEmails: Array<{ field: "email" | "secondaryEmail"; value: string }> = [];
-    const emailsArr = Array.from(selectedEmails);
-    if (emailsArr.length > 0) {
-      retainEmails.push({ field: "email", value: emailsArr[0] });
-    }
-    if (emailsArr.length > 1) {
-      retainEmails.push({ field: "secondaryEmail", value: emailsArr[1] });
-    }
-
-    const payload = {
-      winnerId,
-      loserId,
-      fieldOverrides: buildOverrides(),
-      retainEmails: retainEmails.length > 0 ? retainEmails : undefined,
-    };
-    if (isManualSelection) {
-      manualMergeMutation.mutate(payload);
-    } else {
-      mergeMutation.mutate({ pairId: pair.id, ...payload });
-    }
-  }
-
-  function handleLink() {
-    if (!pair.contactA || !pair.contactB) return;
-    linkMutation.mutate({
-      pairId: pair.id,
-      contactAId: pair.contactAId,
-      contactBId: pair.contactBId,
-      relationshipType: relationshipType as "spouse" | "partner" | "business_partner" | "unknown_relationship",
-    });
-  }
-
-  function toggleEmail(email: string) {
-    setSelectedEmails((prev) => {
-      const next = new Set(prev);
-      if (next.has(email)) {
-        next.delete(email);
-      } else {
-        // Max 2 emails (primary + secondary)
-        if (next.size >= 2) {
-          toast.error("Maximum 2 emails can be retained (primary + secondary).");
-          return prev;
-        }
-        next.add(email);
-      }
-      return next;
-    });
-  }
-
-  if (!winner || !loser) return null;
-
-  // Detect conflicting fields (excluding email which is handled separately)
-  const conflicts = COMPARE_FIELDS.filter(({ key }) => {
-    const wv = winner[key];
-    const lv = loser[key];
-    return wv && lv && wv !== lv;
-  });
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col overflow-hidden p-0">
-        <div className="flex-shrink-0 p-6 pb-0">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <GitMerge className="h-5 w-5 text-primary" />
-              {isManualSelection ? "Review & Merge Contacts" : "Review & Merge Duplicate Contacts"}
-            </DialogTitle>
-            <DialogDescription>
-              {isManualSelection
-                ? "Choose the record to keep, then review any conflicts before consolidating the selected contacts."
-                : "Click a contact card to select which record to keep, or link them as a relationship instead."}
-            </DialogDescription>
-          </DialogHeader>
-        </div>
-
-        {/* Scrollable content area */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 min-h-0">
-          {/* Mode toggle: Merge vs Link */}
-          {!isManualSelection && <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border">
-            <Button
-              variant={!linkMode ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setLinkMode(false)}
-              className="flex-1"
-            >
-              <GitMerge className="h-3.5 w-3.5 mr-1.5" />
-              Merge Contacts
-            </Button>
-            <Button
-              variant={linkMode ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setLinkMode(true)}
-              className="flex-1"
-            >
-              <Link2 className="h-3.5 w-3.5 mr-1.5" />
-              Link as Relationship
-            </Button>
-          </div>}
-
-          {/* Side-by-side cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <ContactCard
-              contact={pair.contactA!}
-              label="Contact A"
-              isWinner={!linkMode && winnerId === pair.contactAId}
-              onSetWinner={() => { if (!linkMode) setWinnerId(pair.contactAId); }}
-            />
-            <ContactCard
-              contact={pair.contactB!}
-              label="Contact B"
-              isWinner={!linkMode && winnerId === pair.contactBId}
-              onSetWinner={() => { if (!linkMode) setWinnerId(pair.contactBId); }}
-            />
-          </div>
-
-          {/* ─── LINK MODE ─────────────────────────────────────────────────────── */}
-          {linkMode && (
-            <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Heart className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-medium text-purple-900">Link as Relationship</span>
-              </div>
-              <p className="text-xs text-purple-700">
-                Instead of merging, keep both contacts and link them with a relationship.
-                The duplicate pair will be marked as resolved.
-              </p>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium whitespace-nowrap">Relationship Type:</span>
-                <Select value={relationshipType} onValueChange={setRelationshipType}>
-                  <SelectTrigger className="w-full max-w-[220px] bg-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RELATIONSHIP_TYPES.map((rt) => (
-                      <SelectItem key={rt.value} value={rt.value}>
-                        {rt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-
-          {/* ─── MERGE MODE ────────────────────────────────────────────────────── */}
-          {!linkMode && (
-            <>
-              {/* Multiple Email Retention */}
-              {uniqueEmails.length > 0 && (
-                <div className="rounded-lg border p-3 bg-muted/30">
-                  <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
-                    <Mail className="h-4 w-4 text-blue-500" />
-                    Select emails to retain (max 2):
-                  </p>
-                  <div className="space-y-1.5">
-                    {uniqueEmails.map(({ value, source }) => {
-                      const isSelected = selectedEmails.has(value);
-                      return (
-                        <label
-                          key={value}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-all text-sm ${
-                            isSelected
-                              ? "border-blue-500 bg-blue-50 font-medium"
-                              : "border-border hover:border-muted-foreground bg-background"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleEmail(value)}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="truncate flex-1">{value}</span>
-                          <span className="text-xs text-muted-foreground shrink-0">({source})</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {selectedEmails.size > 1 && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      First selected = Primary email, Second = Secondary email on the merged record.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Conflict resolution */}
-              {conflicts.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
-                    <AlertCircle className="h-4 w-4 text-amber-500" />
-                    Conflicting fields — choose which value to keep:
-                  </p>
-                  <div className="space-y-2">
-                    {conflicts.map(({ key, label }) => {
-                      const winnerVal = String(winner[key] ?? "");
-                      const loserVal = String(loser[key] ?? "");
-                      const choice = fieldChoices[key] ?? "winner";
-                      return (
-                        <div key={key} className="flex items-center gap-3 rounded-md border p-2.5 bg-muted/30">
-                          <span className="text-xs font-medium w-16 shrink-0">{label}</span>
-                          <div className="flex-1 grid grid-cols-2 gap-2 text-xs min-w-0">
-                            <button
-                              onClick={() => setFieldChoices((p) => ({ ...p, [key]: "winner" }))}
-                              className={`text-left px-2 py-1.5 rounded border transition-all truncate ${
-                                choice === "winner"
-                                  ? "border-green-500 bg-green-50 font-medium"
-                                  : "border-border hover:border-muted-foreground"
-                              }`}
-                              title={winnerVal}
-                            >
-                              {winnerVal}
-                            </button>
-                            <button
-                              onClick={() => setFieldChoices((p) => ({ ...p, [key]: "loser" }))}
-                              className={`text-left px-2 py-1.5 rounded border transition-all truncate ${
-                                choice === "loser"
-                                  ? "border-green-500 bg-green-50 font-medium"
-                                  : "border-border hover:border-muted-foreground"
-                              }`}
-                              title={loserVal}
-                            >
-                              {loserVal}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Fixed footer */}
-        <div className="flex-shrink-0 border-t p-4 bg-background">
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            {linkMode && !isManualSelection ? (
-              <Button
-                onClick={handleLink}
-                disabled={linkMutation.isPending}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                {linkMutation.isPending ? "Linking…" : "Link as Relationship"}
-              </Button>
-            ) : (
-              <Button
-                onClick={handleMerge}
-                disabled={mergeMutation.isPending || manualMergeMutation.isPending}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                {(mergeMutation.isPending || manualMergeMutation.isPending) ? "Merging…" : "Confirm Merge"}
-              </Button>
-            )}
-          </DialogFooter>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+  if (contextQuery.isLoading || !context || !winner || !loser) return <Dialog open onOpenChange={onClose}><DialogContent><div className="flex items-center justify-center py-12"><Loader2 className="h-5 w-5 animate-spin" /></div></DialogContent></Dialog>;
+  return <Dialog open onOpenChange={onClose}><DialogContent className="flex max-h-[92vh] w-[calc(100vw-2rem)] max-w-4xl flex-col overflow-hidden p-0"><div className="shrink-0 p-6 pb-0"><DialogHeader><DialogTitle className="flex items-center gap-2"><GitMerge className="h-5 w-5 text-primary" />{isManualSelection ? "Review selected contacts" : "Review duplicate contacts"}</DialogTitle><DialogDescription>Choose what stays active. Any value you do not retain is archived—not deleted.</DialogDescription></DialogHeader></div><div className="flex-1 space-y-4 overflow-y-auto px-6 py-4"><div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-2"><Button variant={!linkMode ? "default" : "ghost"} size="sm" className="flex-1" onClick={() => setLinkMode(false)}><GitMerge className="mr-1.5 h-3.5 w-3.5" />Merge contacts</Button><Button variant={linkMode ? "default" : "ghost"} size="sm" className="flex-1" onClick={() => setLinkMode(true)}><Link2 className="mr-1.5 h-3.5 w-3.5" />Link as Relationship</Button></div><div className="grid gap-3 sm:grid-cols-2"><ContactCard contact={context.contactA} label="Contact A" isWinner={!linkMode && winnerId === pair.contactAId} onSetWinner={() => !linkMode && setWinnerId(pair.contactAId)} /><ContactCard contact={context.contactB} label="Contact B" isWinner={!linkMode && winnerId === pair.contactBId} onSetWinner={() => !linkMode && setWinnerId(pair.contactBId)} /></div>{linkMode ? <div className="space-y-3 rounded-lg border border-purple-200 bg-purple-50/50 p-4"><p className="flex items-center gap-2 text-sm font-medium text-purple-900"><Heart className="h-4 w-4 text-purple-600" />Link as Relationship</p><p className="text-xs text-purple-700">Both records remain active and no data is merged. This uses the same relationship workflow for scanned duplicates and manual lookup.</p><Select value={relationshipType} onValueChange={setRelationshipType}><SelectTrigger className="bg-white"><SelectValue /></SelectTrigger><SelectContent>{RELATIONSHIP_TYPES.map((type) => <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>)}</SelectContent></Select></div> : <><div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700"><strong>Active primary references:</strong> The selected Primary email and phone are saved in the existing primary contact fields, so automations, notifications, calls, texts, and integrations use your chosen method after the merge.</div>{mergeBlocked && <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4"><p className="flex items-center gap-2 font-semibold text-destructive"><AlertCircle className="h-4 w-4" />Merge blocked — Lead Source conflict</p><p className="mt-1 text-sm text-destructive">{displayName(context.contactA)}: {leadSourceText(context.contactA)}<br />{displayName(context.contactB)}: {leadSourceText(context.contactB)}</p><p className="mt-2 text-xs text-destructive">Lead Source attribution cannot be merged, overridden, or bypassed. You may link the records as a relationship instead.</p></div>}<MethodSelector type="email" candidates={emailCandidates} selections={emailSelections} onChange={setEmailSelections} /><MethodSelector type="phone" candidates={phoneCandidates} selections={phoneSelections} onChange={setPhoneSelections} /><ChoiceRows title="Contact conflicts" fields={CONTACT_FIELDS} winner={winner} loser={loser} choices={fieldChoices} onChoice={(key, choice) => setFieldChoices((previous) => ({ ...previous, [key]: choice }))} />{visibleConnections.length > 0 && <div className="space-y-3 rounded-lg border p-3"><p className="text-sm font-medium">Agent connections</p>{context.agentConflict && <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">These contacts are connected to different agents. Automatic resolution is disabled—select the connection(s) to keep active. Any connection not selected is archived with its full history.</p>}{visibleConnections.map((row) => <div key={row.agentId} className="rounded-md border bg-muted/30 p-3"><label className="flex cursor-pointer items-center gap-2 text-sm font-medium"><input type="checkbox" checked={agentChoices.has(row.agentId)} disabled={!context.agentConflict} onChange={() => toggleAgent(row.agentId)} />{row.agentName}{row.winner && row.loser ? <Badge variant="outline">Connected to both</Badge> : <Badge variant="outline">One record only</Badge>}</label>{row.winner && row.loser && agentChoices.has(row.agentId) && <div className="mt-3"><ChoiceRows title={`${row.agentName} profile conflicts`} fields={CONNECTION_FIELDS} winner={row.winner} loser={row.loser} choices={connectionChoices[String(row.agentId)] ?? {}} onChoice={(key, choice) => setConnectionChoices((previous) => ({ ...previous, [String(row.agentId)]: { ...(previous[String(row.agentId)] ?? {}), [key]: choice } }))} /></div>}</div>)}</div>}</>}</div><div className="shrink-0 border-t bg-background p-4"><DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button>{linkMode ? <Button onClick={link} disabled={linkMutation.isPending} className="bg-purple-600 text-white hover:bg-purple-700">{linkMutation.isPending ? "Linking…" : "Link as Relationship"}</Button> : <Button onClick={merge} disabled={!readyToMerge || mergeMutation.isPending || manualMergeMutation.isPending} className="bg-green-600 text-white hover:bg-green-700">{mergeMutation.isPending || manualMergeMutation.isPending ? "Merging…" : mergeBlocked ? "Lead Source conflict" : "Confirm lossless merge"}</Button>}</DialogFooter></div></DialogContent></Dialog>;
 }
 
-function PairRowComponent({
-  pair,
-  onMerge,
-  onDismiss,
-}: {
-  pair: PairRow;
-  onMerge: (pair: PairRow) => void;
-  onDismiss: (pairId: number) => void;
-}) {
-  const a = pair.contactA;
-  const b = pair.contactB;
+function PairRowComponent({ pair, onMerge, onDismiss }: { pair: PairRow; onMerge: (pair: PairRow) => void; onDismiss: (pairId: number) => void }) { return <div className="rounded-lg border bg-card p-4 transition-shadow hover:shadow-sm"><div className="flex items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="mb-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={`text-xs ${MATCH_COLORS[pair.matchType]}`}>{MATCH_LABELS[pair.matchType]}</Badge><span className="text-xs text-muted-foreground">{pair.confidence}% confidence</span></div><div className="grid grid-cols-2 gap-4"><div><p className="text-sm font-medium">{displayName(pair.contactA)}</p><p className="truncate text-xs text-muted-foreground">{pair.contactA?.email ?? "—"}</p><p className="text-xs text-muted-foreground">{pair.contactA?.phone ?? "—"}</p></div><div><p className="text-sm font-medium">{displayName(pair.contactB)}</p><p className="truncate text-xs text-muted-foreground">{pair.contactB?.email ?? "—"}</p><p className="text-xs text-muted-foreground">{pair.contactB?.phone ?? "—"}</p></div></div></div>{pair.status === "pending" && <div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => onDismiss(pair.id)}><X className="mr-1 h-3.5 w-3.5" />Not a dup</Button><Button size="sm" className="bg-green-600 text-white hover:bg-green-700" onClick={() => onMerge(pair)}><GitMerge className="mr-1 h-3.5 w-3.5" />Review</Button></div>}{pair.status === "merged" && <Badge className="shrink-0 bg-green-100 text-green-700">Merged</Badge>}{pair.status === "dismissed" && <Badge variant="outline" className="shrink-0 text-muted-foreground">Dismissed</Badge>}</div></div>; }
 
-  return (
-    <div className="rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <Badge variant="outline" className={`text-xs ${MATCH_COLORS[pair.matchType]}`}>
-              {MATCH_LABELS[pair.matchType]}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              {pair.confidence}% confidence
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="font-medium text-sm">
-                {a?.firstName} {a?.lastName}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">{a?.email ?? "—"}</p>
-              <p className="text-xs text-muted-foreground">{a?.phone ?? "—"}</p>
-            </div>
-            <div>
-              <p className="font-medium text-sm">
-                {b?.firstName} {b?.lastName}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">{b?.email ?? "—"}</p>
-              <p className="text-xs text-muted-foreground">{b?.phone ?? "—"}</p>
-            </div>
-          </div>
-        </div>
-        {pair.status === "pending" && (
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-red-600 border-red-200 hover:bg-red-50"
-              onClick={() => onDismiss(pair.id)}
-            >
-              <X className="h-3.5 w-3.5 mr-1" />
-              Not a Dup
-            </Button>
-            <Button
-              size="sm"
-              className="bg-green-600 hover:bg-green-700 text-white"
-              onClick={() => onMerge(pair)}
-            >
-              <GitMerge className="h-3.5 w-3.5 mr-1" />
-              Merge
-            </Button>
-          </div>
-        )}
-        {pair.status === "merged" && (
-          <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">Merged</Badge>
-        )}
-        {pair.status === "dismissed" && (
-          <Badge variant="outline" className="text-muted-foreground shrink-0">Dismissed</Badge>
-        )}
-      </div>
-    </div>
-  );
-}
+function ArchivedMergeRow({ merge, onView, onRestore, restoring }: { merge: any; onView: () => void; onRestore: () => void; restoring: boolean }) { const kinds = Array.from(new Set((merge.archivedItems ?? []).map((item: any) => item.kind.replace(/_/g, " ")))); return <div className="rounded-lg border bg-card p-4"><div className="flex items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="mb-2 flex flex-wrap items-center gap-2"><Badge className="bg-amber-100 text-amber-800">Archived merge</Badge>{merge.restored && <Badge variant="outline">Restored</Badge>}<span className="text-xs text-muted-foreground">{merge.mergedAt ? new Date(merge.mergedAt).toLocaleString() : "Merge date unavailable"}</span></div><p className="text-sm font-medium">{displayName(merge.archivedContact)} merged into {displayName(merge.winner)}</p><p className="mt-1 text-xs text-muted-foreground">Archived: {kinds.join(", ") || "contact values"} · {merge.archivedItems?.length ?? 0} preserved item{merge.archivedItems?.length === 1 ? "" : "s"}</p></div><div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" onClick={onView}><Eye className="mr-1 h-3.5 w-3.5" />View</Button><Button size="sm" variant="outline" disabled={merge.restored || restoring} onClick={onRestore}><ArchiveRestore className="mr-1 h-3.5 w-3.5" />{restoring ? "Restoring…" : merge.restored ? "Restored" : "Restore"}</Button></div></div></div>; }
 
 export default function DuplicatesPage() {
-  const utils = trpc.useUtils();
-
-  const [statusFilter, setStatusFilter] = useState<"pending" | "merged" | "dismissed" | "all">("pending");
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
-
-  const [mergeTarget, setMergeTarget] = useState<{ pair: PairRow; isManualSelection: boolean } | null>(null);
-  const [manualContactA, setManualContactA] = useState<ContactSummary | null>(null);
-  const [manualContactB, setManualContactB] = useState<ContactSummary | null>(null);
-  const [manualSearchA, setManualSearchA] = useState("");
-  const [manualSearchB, setManualSearchB] = useState("");
-  const [activeJobId, setActiveJobId] = useState<number | null>(null);
-
-  const statsQuery = trpc.duplicates.getStats.useQuery();
-  const pairsQuery = trpc.duplicates.listPairs.useQuery({
-    status: statusFilter,
-    page,
-    pageSize: PAGE_SIZE,
-  });
-
-  // Poll the latest scan job on mount to resume tracking if a job is running
-  const latestJobQuery = trpc.duplicates.getLatestScanJob.useQuery(undefined, {
-    refetchInterval: activeJobId ? false : 0,
-  });
-  useEffect(() => {
-    const job = latestJobQuery.data as any;
-    if (job && job.status === "running" && !activeJobId) {
-      setActiveJobId(job.id);
-    }
-  }, [latestJobQuery.data]);
-
-  // Poll the active job for progress
-  const jobStatusQuery = trpc.duplicates.getScanJob.useQuery(
-    { jobId: activeJobId! },
-    {
-      enabled: activeJobId !== null,
-      refetchInterval: (data: any) => {
-        if (!data) return 2000;
-        if ((data as any)?.status === "running") return 2000;
-        return false;
-      },
-    }
-  );
-  useEffect(() => {
-    const job = jobStatusQuery.data as any;
-    if (!job) return;
-    if (job.status === "completed") {
-      toast.success(`Scan complete — ${job.detected} pairs detected, ${job.inserted} new pairs added.`);
-      utils.duplicates.listPairs.invalidate();
-      utils.duplicates.getStats.invalidate();
-    } else if (job.status === "failed") {
-      toast.error(`Scan failed: ${job.errorMessage ?? "Unknown error"}`);
-    }
-  }, [(jobStatusQuery.data as any)?.status]);
-
-  const activeJob = jobStatusQuery.data as any;
-  const isScanning = activeJob?.status === "running";
-
-  const scanMutation = trpc.duplicates.scan.useMutation({
-    onSuccess: (data: any) => {
-      if (data.alreadyRunning) {
-        toast.info("A scan is already running — tracking progress below.");
-      } else {
-        toast.success("Scan started in the background — tracking progress below.");
-      }
-      setActiveJobId(data.jobId);
-    },
-    onError: (err) => {
-      toast.error(`Scan failed to start: ${err.message}`);
-    },
-  });
-
-  const dismissMutation = trpc.duplicates.dismiss.useMutation({
-    onSuccess: () => {
-      toast.success("Pair dismissed — marked as not a duplicate.");
-      utils.duplicates.listPairs.invalidate();
-      utils.duplicates.getStats.invalidate();
-    },
-    onError: (err) => {
-      toast.error(err.message);
-    },
-  });
-
-  const stats = statsQuery.data;
-  const pairs = (pairsQuery.data?.pairs ?? []) as PairRow[];
-  const total = pairsQuery.data?.total ?? 0;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  function handleTabChange(val: string) {
-    setStatusFilter(val as typeof statusFilter);
-    setPage(1);
-  }
-
-  return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users className="h-6 w-6 text-primary" />
-            Duplicate Contacts
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Identify and merge duplicate contact records across the database.
-          </p>
-        </div>
-        <Button
-          onClick={() => scanMutation.mutate()}
-          disabled={scanMutation.isPending || isScanning}
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${(scanMutation.isPending || isScanning) ? "animate-spin" : ""}`} />
-          {isScanning ? "Scanning…" : scanMutation.isPending ? "Starting…" : "Run Scan"}
-        </Button>
-      </div>
-
-      {/* Manually select contacts to merge */}
-      <Card className="mb-6 border-purple-200 bg-purple-50/30">
-        <CardContent className="space-y-4 pt-5">
-          <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold">
-              <Search className="h-4 w-4 text-purple-700" />
-              Find and merge contacts
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Search for any two active contacts, then review their details and choose which record to keep before merging.
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <ContactSearchPicker
-              label="First contact"
-              selectedContact={manualContactA}
-              search={manualSearchA}
-              excludeContactId={manualContactB?.id}
-              onSearchChange={(value) => { setManualSearchA(value); setManualContactA(null); }}
-              onSelect={(contact) => { setManualContactA(contact); setManualSearchA(""); }}
-              onClear={() => { setManualContactA(null); setManualSearchA(""); }}
-            />
-            <ContactSearchPicker
-              label="Second contact"
-              selectedContact={manualContactB}
-              search={manualSearchB}
-              excludeContactId={manualContactA?.id}
-              onSearchChange={(value) => { setManualSearchB(value); setManualContactB(null); }}
-              onSelect={(contact) => { setManualContactB(contact); setManualSearchB(""); }}
-              onClear={() => { setManualContactB(null); setManualSearchB(""); }}
-            />
-          </div>
-          <div className="flex justify-end border-t pt-4">
-            <Button
-              disabled={!manualContactA || !manualContactB}
-              className="bg-purple-700 text-white hover:bg-purple-800"
-              onClick={() => {
-                if (!manualContactA || !manualContactB) return;
-                setMergeTarget({
-                  isManualSelection: true,
-                  pair: {
-                    id: 0,
-                    contactAId: manualContactA.id,
-                    contactBId: manualContactB.id,
-                    matchType: "manual",
-                    confidence: 100,
-                    status: "pending",
-                    contactA: manualContactA,
-                    contactB: manualContactB,
-                  },
-                });
-              }}
-            >
-              <GitMerge className="mr-1.5 h-4 w-4" />
-              Review selected contacts
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Scan Progress */}
-      {activeJob && (activeJob.status === "running" || activeJob.status === "completed" || activeJob.status === "failed") && (
-        <div className={`rounded-lg border p-4 mb-6 ${
-          activeJob.status === "running" ? "bg-blue-50 border-blue-200" :
-          activeJob.status === "completed" ? "bg-green-50 border-green-200" :
-          "bg-red-50 border-red-200"
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              {activeJob.status === "running" ? (
-                <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
-              ) : activeJob.status === "completed" ? (
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span className="text-sm font-medium">
-                {activeJob.status === "running" ? "Scan in progress…" :
-                 activeJob.status === "completed" ? "Scan complete" :
-                 "Scan failed"}
-              </span>
-              <span className="text-xs text-muted-foreground capitalize">
-                Phase: {activeJob.phase?.replace(/_/g, " ")}
-              </span>
-            </div>
-            {activeJob.status !== "running" && (
-              <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setActiveJobId(null)}>Dismiss</button>
-            )}
-          </div>
-          {activeJob.total > 0 && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{activeJob.processed.toLocaleString()} / {activeJob.total.toLocaleString()} contacts processed</span>
-                <span>{Math.round((activeJob.processed / activeJob.total) * 100)}%</span>
-              </div>
-              <div className="w-full bg-white/60 rounded-full h-2 border">
-                <div
-                  className={`h-2 rounded-full transition-all ${
-                    activeJob.status === "completed" ? "bg-green-500" :
-                    activeJob.status === "failed" ? "bg-red-500" :
-                    "bg-blue-500"
-                  }`}
-                  style={{ width: `${Math.round((activeJob.processed / activeJob.total) * 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-          <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-            <span>{activeJob.detected} pairs detected</span>
-            <span>{activeJob.inserted} new pairs inserted</span>
-            {activeJob.errorMessage && activeJob.status !== "failed" && (
-              <span className="text-amber-600">{activeJob.errorMessage}</span>
-            )}
-          </div>
-          {activeJob.status === "failed" && activeJob.errorMessage && (
-            <p className="text-xs text-red-600 mt-1">{activeJob.errorMessage}</p>
-          )}
-        </div>
-      )}
-
-      {/* Stats cards */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Pairs</p>
-              <p className="text-2xl font-bold mt-1">{stats.total}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200">
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-amber-600 uppercase tracking-wide">Pending Review</p>
-              <p className="text-2xl font-bold mt-1 text-amber-700">{stats.pending}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-green-200">
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-green-600 uppercase tracking-wide">Merged</p>
-              <p className="text-2xl font-bold mt-1 text-green-700">{stats.merged}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Dismissed</p>
-              <p className="text-2xl font-bold mt-1">{stats.dismissed}</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <Tabs value={statusFilter} onValueChange={handleTabChange}>
-        <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          <TabsTrigger value="pending" className="shrink-0 whitespace-nowrap">
-            Pending {stats?.pending ? `(${stats.pending})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="merged" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Merged</TabsTrigger>
-          <TabsTrigger value="dismissed" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Dismissed</TabsTrigger>
-          <TabsTrigger value="all" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">All</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value={statusFilter}>
-          {pairsQuery.isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
-              ))}
-            </div>
-          ) : pairs.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <Search className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">No {statusFilter === "all" ? "" : statusFilter} pairs found</p>
-              {statusFilter === "pending" && (
-                <p className="text-sm mt-1">
-                  Click <strong>Run Scan</strong> to detect duplicates across the contact database.
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pairs.map((pair) => (
-                <PairRowComponent
-                  key={pair.id}
-                  pair={pair}
-                  onMerge={(pair) => setMergeTarget({ pair, isManualSelection: false })}
-                  onDismiss={(id) => dismissMutation.mutate({ pairId: id })}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-6">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm">
-                  {page} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-
-      {/* Merge dialog */}
-      {mergeTarget && (
-        <MergeDialog
-          pair={mergeTarget.pair}
-          isManualSelection={mergeTarget.isManualSelection}
-          onClose={() => setMergeTarget(null)}
-          onMerged={() => {
-            setMergeTarget(null);
-            setManualContactA(null);
-            setManualContactB(null);
-            setManualSearchA("");
-            setManualSearchB("");
-          }}
-        />
-      )}
-    </div>
-  );
+  const utils = trpc.useUtils(); const [statusFilter, setStatusFilter] = useState<"pending" | "merged" | "dismissed" | "all" | "archived">("pending"); const [page, setPage] = useState(1); const pageSize = 20;
+  const [mergeTarget, setMergeTarget] = useState<{ pair: PairRow; isManualSelection: boolean } | null>(null); const [archiveView, setArchiveView] = useState<any | null>(null); const [manualContactA, setManualContactA] = useState<ContactSummary | null>(null); const [manualContactB, setManualContactB] = useState<ContactSummary | null>(null); const [manualSearchA, setManualSearchA] = useState(""); const [manualSearchB, setManualSearchB] = useState(""); const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const statsQuery = trpc.duplicates.getStats.useQuery(); const pairsQuery = trpc.duplicates.listPairs.useQuery({ status: statusFilter === "archived" ? "merged" : statusFilter, page, pageSize }, { enabled: statusFilter !== "archived" }); const archivesQuery = trpc.duplicates.listArchivedMerges.useQuery({ page, pageSize }, { enabled: statusFilter === "archived" });
+  const latestJobQuery = trpc.duplicates.getLatestScanJob.useQuery(undefined, { refetchInterval: activeJobId ? false : 0 }); useEffect(() => { const job: any = latestJobQuery.data; if (job?.status === "running" && !activeJobId) setActiveJobId(job.id); }, [latestJobQuery.data, activeJobId]); const jobStatusQuery = trpc.duplicates.getScanJob.useQuery({ jobId: activeJobId! }, { enabled: activeJobId !== null, refetchInterval: (data: any) => data?.status === "running" ? 2000 : false });
+  useEffect(() => { const job: any = jobStatusQuery.data; if (job?.status === "completed") { toast.success(`Scan complete — ${job.detected} pairs detected.`); void utils.duplicates.listPairs.invalidate(); void utils.duplicates.getStats.invalidate(); setActiveJobId(null); } else if (job?.status === "failed") { toast.error(`Scan failed: ${job.errorMessage ?? "Unknown error"}`); setActiveJobId(null); } }, [(jobStatusQuery.data as any)?.status]);
+  const scanMutation = trpc.duplicates.scan.useMutation({ onSuccess: (data) => { toast.success(data.alreadyRunning ? "A scan is already running." : "Duplicate scan started."); setActiveJobId(data.jobId); }, onError: (error) => toast.error(error.message) }); const dismissMutation = trpc.duplicates.dismiss.useMutation({ onSuccess: () => { toast.success("Pair dismissed."); void utils.duplicates.listPairs.invalidate(); void utils.duplicates.getStats.invalidate(); }, onError: (error) => toast.error(error.message) }); const restoreMutation = trpc.duplicates.restoreArchivedMerge.useMutation({ onSuccess: () => { toast.success("Archived contact restored. Review it before any future merge."); void utils.duplicates.listArchivedMerges.invalidate(); void utils.duplicates.listPairs.invalidate(); }, onError: (error) => toast.error(error.message) });
+  const pairs = (pairsQuery.data?.pairs ?? []) as PairRow[]; const archives = (archivesQuery.data?.merges ?? []) as any[]; const total = statusFilter === "archived" ? archivesQuery.data?.total ?? 0 : pairsQuery.data?.total ?? 0; const totalPages = Math.max(1, Math.ceil(total / pageSize)); const isLoading = statusFilter === "archived" ? archivesQuery.isLoading : pairsQuery.isLoading;
+  return <div className="mx-auto max-w-5xl p-4 sm:p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><h1 className="flex items-center gap-2 text-2xl font-bold"><Users className="h-6 w-6 text-primary" />Duplicate Contacts</h1><p className="mt-1 text-sm text-muted-foreground">Resolve duplicates without deleting unselected contact data.</p></div><Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || (jobStatusQuery.data as any)?.status === "running"}><RefreshCw className={`mr-2 h-4 w-4 ${(scanMutation.isPending || (jobStatusQuery.data as any)?.status === "running") ? "animate-spin" : ""}`} />{(jobStatusQuery.data as any)?.status === "running" ? "Scanning…" : "Run scan"}</Button></div><Card className="mb-6 border-purple-200 bg-purple-50/30"><CardContent className="space-y-4 pt-5"><div><h2 className="flex items-center gap-2 text-base font-semibold"><Search className="h-4 w-4 text-purple-700" />Find contacts manually</h2><p className="mt-1 text-sm text-muted-foreground">Search any two active contacts to review a lossless merge or link them as a relationship.</p></div><div className="grid gap-4 md:grid-cols-2"><ContactSearchPicker label="First contact" selectedContact={manualContactA} search={manualSearchA} excludeContactId={manualContactB?.id} onSearchChange={(value) => { setManualSearchA(value); setManualContactA(null); }} onSelect={(contact) => { setManualContactA(contact); setManualSearchA(""); }} onClear={() => { setManualContactA(null); setManualSearchA(""); }} /><ContactSearchPicker label="Second contact" selectedContact={manualContactB} search={manualSearchB} excludeContactId={manualContactA?.id} onSearchChange={(value) => { setManualSearchB(value); setManualContactB(null); }} onSelect={(contact) => { setManualContactB(contact); setManualSearchB(""); }} onClear={() => { setManualContactB(null); setManualSearchB(""); }} /></div><div className="flex justify-end border-t pt-4"><Button disabled={!manualContactA || !manualContactB} className="bg-purple-700 text-white hover:bg-purple-800" onClick={() => manualContactA && manualContactB && setMergeTarget({ isManualSelection: true, pair: { id: 0, contactAId: manualContactA.id, contactBId: manualContactB.id, matchType: "manual", confidence: 100, status: "pending", contactA: manualContactA, contactB: manualContactB } })}><GitMerge className="mr-1.5 h-4 w-4" />Review selected contacts</Button></div></CardContent></Card>{statsQuery.data && <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-5"><Card><CardContent className="py-4"><p className="text-xs uppercase text-muted-foreground">Total pairs</p><p className="mt-1 text-2xl font-bold">{statsQuery.data.total}</p></CardContent></Card><Card className="border-amber-200"><CardContent className="py-4"><p className="text-xs uppercase text-amber-700">Pending</p><p className="mt-1 text-2xl font-bold text-amber-800">{statsQuery.data.pending}</p></CardContent></Card><Card className="border-green-200"><CardContent className="py-4"><p className="text-xs uppercase text-green-700">Merged</p><p className="mt-1 text-2xl font-bold text-green-800">{statsQuery.data.merged}</p></CardContent></Card><Card><CardContent className="py-4"><p className="text-xs uppercase text-muted-foreground">Dismissed</p><p className="mt-1 text-2xl font-bold">{statsQuery.data.dismissed}</p></CardContent></Card><Card className="border-slate-200"><CardContent className="py-4"><p className="text-xs uppercase text-slate-600">Archived</p><p className="mt-1 text-2xl font-bold text-slate-800">{statsQuery.data.archived}</p></CardContent></Card></div>}<Tabs value={statusFilter} onValueChange={(value) => { setStatusFilter(value as any); setPage(1); }}><TabsList className="mb-4 flex h-auto w-full overflow-x-auto"><TabsTrigger value="pending">Pending {statsQuery.data?.pending ? `(${statsQuery.data.pending})` : ""}</TabsTrigger><TabsTrigger value="merged">Merged</TabsTrigger><TabsTrigger value="archived">Archived</TabsTrigger><TabsTrigger value="dismissed">Dismissed</TabsTrigger><TabsTrigger value="all">All</TabsTrigger></TabsList><TabsContent value={statusFilter}>{isLoading ? <div className="space-y-3">{[1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div> : total === 0 ? <div className="py-16 text-center text-muted-foreground"><Search className="mx-auto mb-3 h-10 w-10 opacity-30" /><p className="font-medium">No {statusFilter === "all" ? "" : statusFilter} records found</p></div> : <div className="space-y-3">{statusFilter === "archived" ? archives.map((merge) => <ArchivedMergeRow key={merge.pairId} merge={merge} restoring={restoreMutation.isPending && restoreMutation.variables?.pairId === merge.pairId} onView={() => setArchiveView(merge)} onRestore={() => restoreMutation.mutate({ pairId: merge.pairId })} />) : pairs.map((pair) => <PairRowComponent key={pair.id} pair={pair} onMerge={(selected) => setMergeTarget({ pair: selected, isManualSelection: false })} onDismiss={(pairId) => dismissMutation.mutate({ pairId })} />)}</div>}{totalPages > 1 && <div className="mt-6 flex items-center justify-between"><p className="text-sm text-muted-foreground">Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</p><div className="flex items-center gap-2"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft className="h-4 w-4" /></Button><span className="text-sm">{page} / {totalPages}</span><Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}</TabsContent></Tabs>{mergeTarget && <MergeDialog pair={mergeTarget.pair} isManualSelection={mergeTarget.isManualSelection} onClose={() => setMergeTarget(null)} onResolved={() => { setMergeTarget(null); setManualContactA(null); setManualContactB(null); }} />}{archiveView && <Dialog open onOpenChange={() => setArchiveView(null)}><DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>Archived merge details</DialogTitle><DialogDescription>{displayName(archiveView.archivedContact)} merged into {displayName(archiveView.winner)}. Every entry below was preserved rather than deleted.</DialogDescription></DialogHeader><div className="space-y-2">{archiveView.archivedItems.map((item: any) => <div key={item.id} className="rounded border bg-muted/30 p-3 text-sm"><div className="mb-1 flex flex-wrap gap-2"><Badge variant="outline">{item.kind.replace(/_/g, " ")}</Badge>{item.fieldName && <Badge variant="outline">{item.fieldName}</Badge>}</div><p className="break-all text-xs text-muted-foreground">Archived: {valueText(item.archivedValue)}</p>{item.keptValue != null && <p className="mt-1 break-all text-xs text-muted-foreground">Kept: {valueText(item.keptValue)}</p>}</div>)}</div><DialogFooter><Button variant="outline" onClick={() => setArchiveView(null)}>Close</Button><Button disabled={archiveView.restored || restoreMutation.isPending} onClick={() => restoreMutation.mutate({ pairId: archiveView.pairId })}><ArchiveRestore className="mr-2 h-4 w-4" />{archiveView.restored ? "Restored" : "Restore archived contact"}</Button></DialogFooter></DialogContent></Dialog>}</div>;
 }

@@ -179,7 +179,11 @@ async function runScanJob(jobId: number): Promise<void> {
       firstName: contacts.firstName,
       lastName: contacts.lastName,
       email: contacts.email,
+      secondaryEmail: contacts.secondaryEmail,
+      thirdEmail: contacts.thirdEmail,
       phone: contacts.phone,
+      secondaryPhone: contacts.secondaryPhone,
+      thirdPhone: contacts.thirdPhone,
       address: contacts.address,
       city: contacts.city,
       state: contacts.state,
@@ -197,17 +201,19 @@ async function runScanJob(jobId: number): Promise<void> {
   const nameAddrMap = new Map<string, number[]>();
 
   for (const c of allContacts) {
-    const email = normalizeEmail(c.email);
-    if (email) {
+    for (const value of [c.email, c.secondaryEmail, c.thirdEmail]) {
+      const email = normalizeEmail(value);
+      if (!email) continue;
       if (!emailMap.has(email)) emailMap.set(email, []);
-      emailMap.get(email)!.push(c.id);
+      if (!emailMap.get(email)!.includes(c.id)) emailMap.get(email)!.push(c.id);
     }
 
-    const phone = normalizePhone(c.phone);
-    if (phone.length >= 10) {
+    for (const value of [c.phone, c.secondaryPhone, c.thirdPhone]) {
+      const phone = normalizePhone(value);
+      if (phone.length < 10) continue;
       const normalized = phone.slice(-10);
       if (!phoneMap.has(normalized)) phoneMap.set(normalized, []);
-      phoneMap.get(normalized)!.push(c.id);
+      if (!phoneMap.get(normalized)!.includes(c.id)) phoneMap.get(normalized)!.push(c.id);
     }
 
     const fn = normalizeName(c.firstName);

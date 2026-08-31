@@ -375,6 +375,7 @@ async function getInboxContactMatches(participantEmails: string[]): Promise<Map<
       lastName: contacts.lastName,
       email: contacts.email,
       secondaryEmail: contacts.secondaryEmail,
+      thirdEmail: contacts.thirdEmail,
       spouseEmail: contacts.spouseEmail,
     })
     .from(contacts)
@@ -383,6 +384,7 @@ async function getInboxContactMatches(participantEmails: string[]): Promise<Map<
       or(
         inArray(contacts.email, emails),
         inArray(contacts.secondaryEmail, emails),
+        inArray(contacts.thirdEmail, emails),
         inArray(contacts.spouseEmail, emails),
       ),
     ))
@@ -394,7 +396,7 @@ async function getInboxContactMatches(participantEmails: string[]): Promise<Map<
       name: `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() || null,
       email: row.email,
     };
-    for (const email of [row.email, row.secondaryEmail, row.spouseEmail].map(cleanEmail)) {
+    for (const email of [row.email, row.secondaryEmail, row.thirdEmail, row.spouseEmail].map(cleanEmail)) {
       if (emails.includes(email) && !matches.has(email)) matches.set(email, contact);
     }
   }

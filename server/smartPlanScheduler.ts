@@ -19,7 +19,7 @@ import {
   oneTimeSendRecipients,
   aircallIntegrationState,
 } from "../drizzle/schema";
-import { and, eq, gte, inArray, lte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, isNotNull, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { sendAircallSMS } from "./_core/aircall";
@@ -84,10 +84,10 @@ async function reserveSmsCapacity(db: NonNullable<Awaited<ReturnType<typeof getD
 }
 
 /** Return distinct deliverable addresses stored on a contact for the selected campaign channel. */
-export function contactChannelAddresses(contact: Pick<typeof contacts.$inferSelect, "email" | "secondaryEmail" | "spouseEmail" | "phone" | "secondaryPhone" | "spousePhone">, channel: "email" | "sms"): string[] {
+export function contactChannelAddresses(contact: Pick<typeof contacts.$inferSelect, "email" | "secondaryEmail" | "thirdEmail" | "spouseEmail" | "phone" | "secondaryPhone" | "thirdPhone" | "spousePhone">, channel: "email" | "sms"): string[] {
   const candidates = channel === "email"
-    ? [contact.email, contact.secondaryEmail, contact.spouseEmail]
-    : [contact.phone, contact.secondaryPhone, contact.spousePhone];
+    ? [contact.email, contact.secondaryEmail, contact.thirdEmail, contact.spouseEmail]
+    : [contact.phone, contact.secondaryPhone, contact.thirdPhone, contact.spousePhone];
   const seen = new Set<string>();
   const addresses: string[] = [];
   for (const candidate of candidates) {
@@ -153,6 +153,7 @@ export async function processSmartPlanSteps(): Promise<void> {
       .where(
         and(
           eq(smartPlanEnrollments.status, "active"),
+          isNull(smartPlanEnrollments.archivedAt),
           eq(smartPlans.status, "active"),
           isNotNull(smartPlanEnrollments.nextStepAt),
           lte(smartPlanEnrollments.nextStepAt, now)
@@ -504,7 +505,7 @@ async function matchingUnenrolledContactIds(planId: number, config: TriggerConfi
   const existingEnrollments = await db
     .select({ contactId: smartPlanEnrollments.contactId })
     .from(smartPlanEnrollments)
-    .where(eq(smartPlanEnrollments.planId, planId));
+    .where(and(eq(smartPlanEnrollments.planId, planId), isNull(smartPlanEnrollments.archivedAt)));
   const enrolledIds = new Set(existingEnrollments.map((row) => row.contactId));
   return matchingIds.filter((contactId) => !enrolledIds.has(contactId));
 }
@@ -519,7 +520,7 @@ export async function enrollContactInPlan(contactId: number, planId: number): Pr
   const existing = await db
     .select({ id: smartPlanEnrollments.id })
     .from(smartPlanEnrollments)
-    .where(and(eq(smartPlanEnrollments.contactId, contactId), eq(smartPlanEnrollments.planId, planId)))
+    .where(and(eq(smartPlanEnrollments.contactId, contactId), eq(smartPlanEnrollments.planId, planId), isNull(smartPlanEnrollments.archivedAt)))
     .limit(1);
   if (existing.length > 0) return false;
 

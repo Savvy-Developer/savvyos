@@ -36,6 +36,8 @@ const contactInput = z.object({
   phone: optionalUsPhone,
   secondaryEmail: z.union([z.string().email("Invalid email address"), z.literal("")]).optional().nullable(),
   secondaryPhone: optionalUsPhone,
+  thirdEmail: z.union([z.string().email("Invalid email address"), z.literal("")]).optional().nullable(),
+  thirdPhone: optionalUsPhone,
   // address/city/state/zip removed — use Properties tab instead
   spouseFirstName: z.string().optional().nullable(),
   spouseLastName: z.string().optional().nullable(),
@@ -198,6 +200,8 @@ export const contactsRouter = router({
         phone: "Phone",
         secondaryEmail: "Secondary email",
         secondaryPhone: "Secondary phone",
+        thirdEmail: "Third email",
+        thirdPhone: "Third phone",
         spouseFirstName: "Spouse first name",
         spouseLastName: "Spouse last name",
         spouseEmail: "Spouse email",
@@ -1017,6 +1021,8 @@ Please write the comprehensive AI summary now.`;
         phone: z.string().optional().nullable(),
         secondaryEmail: z.string().optional().nullable(),
         secondaryPhone: z.string().optional().nullable(),
+        thirdEmail: z.string().optional().nullable(),
+        thirdPhone: z.string().optional().nullable(),
         address: z.string().optional().nullable(),
         city: z.string().optional().nullable(),
         state: z.string().optional().nullable(),
@@ -1063,6 +1069,7 @@ Please write the comprehensive AI summary now.`;
           }
           const phone = normalizeOptionalUsPhone(row.phone);
           const secondaryPhone = normalizeOptionalUsPhone(row.secondaryPhone);
+          const thirdPhone = normalizeOptionalUsPhone(row.thirdPhone);
           const spousePhone = normalizeOptionalUsPhone(row.spousePhone);
           // Duplicate check by email or canonical phone value.
           const conditions = [];
@@ -1087,6 +1094,8 @@ Please write the comprehensive AI summary now.`;
             phone,
             secondaryEmail: row.secondaryEmail?.trim() || null,
             secondaryPhone,
+            thirdEmail: row.thirdEmail?.trim() || null,
+            thirdPhone,
             address: row.address?.trim() || null,
             city: row.city?.trim() || null,
             state: row.state?.trim() || null,
@@ -1272,13 +1281,14 @@ export const connectionRequestsRouter = router({
           eq(connectionRequestsTable.agentId, effectiveAgentId),
           eq(connectionRequestsTable.contactId, input.contactId),
           eq(connectionRequestsTable.status, "pending"),
+          isNull(connectionRequestsTable.archivedAt),
         ))
         .limit(1);
       if (existing.length > 0) throw new TRPCError({ code: "CONFLICT", message: "A pending connection request already exists for this agent and contact" });
       // Also check if connection already exists
       const connExists = await db.select({ id: agentConnectionsTable.id })
         .from(agentConnectionsTable)
-        .where(and(eq(agentConnectionsTable.agentId, effectiveAgentId), eq(agentConnectionsTable.contactId, input.contactId)))
+        .where(and(eq(agentConnectionsTable.agentId, effectiveAgentId), eq(agentConnectionsTable.contactId, input.contactId), isNull(agentConnectionsTable.archivedAt)))
         .limit(1);
       if (connExists.length > 0) throw new TRPCError({ code: "CONFLICT", message: "This agent already has a connection with this contact" });
       // Auto-approve: create the connection immediately and record the request as approved
@@ -1326,7 +1336,10 @@ export const connectionRequestsRouter = router({
         .from(connectionRequestsTable)
         .innerJoin(users, eq(connectionRequestsTable.agentId, users.id))
         .innerJoin(contactsTable, eq(connectionRequestsTable.contactId, contactsTable.id))
-        .where(input.status === "all" ? undefined : eq(connectionRequestsTable.status, input.status))
+        .where(and(
+          isNull(connectionRequestsTable.archivedAt),
+          input.status === "all" ? undefined : eq(connectionRequestsTable.status, input.status),
+        ))
         .orderBy(
           input.sortOrder === "asc" ? asc(contactsTable.lastName) : desc(contactsTable.lastName),
           input.sortOrder === "asc" ? asc(contactsTable.firstName) : desc(contactsTable.firstName),
@@ -1340,7 +1353,9 @@ export const connectionRequestsRouter = router({
       if (ctx.user.role === "agent") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const [req] = await db.select().from(connectionRequestsTable).where(eq(connectionRequestsTable.id, input.id)).limit(1);
+      const [req] = await db.select().from(connectionRequestsTable)
+        .where(and(eq(connectionRequestsTable.id, input.id), isNull(connectionRequestsTable.archivedAt)))
+        .limit(1);
       if (!req) throw new TRPCError({ code: "NOT_FOUND" });
       if (req.status !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: "Request is no longer pending" });
       // Create the agent connection
@@ -1385,7 +1400,9 @@ export const connectionRequestsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       // Fetch the request to get the contactId for audit trail
-      const [req] = await db.select().from(connectionRequestsTable).where(eq(connectionRequestsTable.id, input.id)).limit(1);
+      const [req] = await db.select().from(connectionRequestsTable)
+        .where(and(eq(connectionRequestsTable.id, input.id), isNull(connectionRequestsTable.archivedAt)))
+        .limit(1);
       await db.update(connectionRequestsTable)
         .set({ status: "denied", reviewedById: ctx.user.id, reviewedAt: new Date(), notes: input.notes ?? null })
         .where(eq(connectionRequestsTable.id, input.id));
@@ -1410,7 +1427,7 @@ export const connectionRequestsRouter = router({
       if (!db) return { count: 0 };
       const rows = await db.select({ id: connectionRequestsTable.id })
         .from(connectionRequestsTable)
-        .where(eq(connectionRequestsTable.status, "pending"));
+        .where(and(eq(connectionRequestsTable.status, "pending"), isNull(connectionRequestsTable.archivedAt)));
        return { count: rows.length };
     }),
 
@@ -1437,7 +1454,7 @@ export const connectionRequestsRouter = router({
         })
         .from(connectionRequestsTable)
         .innerJoin(contactsTable, eq(connectionRequestsTable.contactId, contactsTable.id))
-        .where(eq(connectionRequestsTable.agentId, ctx.user.id))
+        .where(and(eq(connectionRequestsTable.agentId, ctx.user.id), isNull(connectionRequestsTable.archivedAt)))
         .orderBy(desc(connectionRequestsTable.createdAt));
       return rows;
     }),

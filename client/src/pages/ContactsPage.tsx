@@ -38,6 +38,7 @@ type ContactForm = {
   firstName: string; lastName: string;
   email: string; phone: string;
   secondaryEmail: string; secondaryPhone: string;
+  thirdEmail: string; thirdPhone: string;
   spouseFirstName: string; spouseLastName: string;
   spouseEmail: string; spousePhone: string;
   leadSourceId: number | null;
@@ -48,6 +49,7 @@ type ContactForm = {
 const emptyForm: ContactForm = {
   firstName: "", lastName: "", email: "", phone: "",
   secondaryEmail: "", secondaryPhone: "",
+  thirdEmail: "", thirdPhone: "",
   spouseFirstName: "", spouseLastName: "", spouseEmail: "", spousePhone: "",
   leadSourceId: null, assignedIsaId: "", notes: "",
 };
@@ -419,15 +421,18 @@ export default function ContactsPage() {
     if (!form.leadSourceId) { toast.error("Please select a lead source (Details tab) — every lead needs a source for attribution."); return; }
     if (form.email && !isValidEmail(form.email)) { toast.error("Please enter a valid email address (e.g. name@example.com)"); return; }
     if (form.secondaryEmail && !isValidEmail(form.secondaryEmail)) { toast.error("Please enter a valid secondary email address"); return; }
+    if (form.thirdEmail && !isValidEmail(form.thirdEmail)) { toast.error("Please enter a valid third email address"); return; }
     if (form.spouseEmail && !isValidEmail(form.spouseEmail)) { toast.error("Please enter a valid spouse email address"); return; }
     if (form.phone && !isValidPhone(form.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
     if (form.secondaryPhone && !isValidPhone(form.secondaryPhone)) { toast.error("Please enter a valid secondary phone number (9+ digits)"); return; }
+    if (form.thirdPhone && !isValidPhone(form.thirdPhone)) { toast.error("Please enter a valid third phone number (9+ digits)"); return; }
     if (form.spousePhone && !isValidPhone(form.spousePhone)) { toast.error("Please enter a valid spouse phone number (9+ digits)"); return; }
     create.mutate({
       firstName: form.firstName, lastName: form.lastName,
       email: form.email || undefined,
       phone: form.phone || null,
       secondaryEmail: form.secondaryEmail || null, secondaryPhone: form.secondaryPhone || null,
+      thirdEmail: form.thirdEmail || null, thirdPhone: form.thirdPhone || null,
       spouseFirstName: form.spouseFirstName || null, spouseLastName: form.spouseLastName || null,
       spouseEmail: form.spouseEmail || null, spousePhone: form.spousePhone || null,
       leadSourceId: form.leadSourceId,
@@ -495,6 +500,8 @@ export default function ContactsPage() {
     { key: "phone", label: "Phone", example: "555-123-4567" },
     { key: "secondaryEmail", label: "Secondary Email", example: "" },
     { key: "secondaryPhone", label: "Secondary Phone", example: "" },
+    { key: "thirdEmail", label: "Third Email", example: "" },
+    { key: "thirdPhone", label: "Third Phone", example: "" },
     { key: "address", label: "Address", example: "123 Main St" },
     { key: "city", label: "City", example: "Nashville" },
     { key: "state", label: "State", example: "TN" },
@@ -1042,6 +1049,8 @@ export default function ContactsPage() {
                 <div><Label>Phone</Label><Input className="mt-1" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} placeholder="e.g. 5551234567" /></div>
                 <div><Label>Secondary Email</Label><Input className="mt-1" type="email" value={form.secondaryEmail} onChange={e => setForm(f => ({ ...f, secondaryEmail: e.target.value }))} /></div>
                 <div><Label>Secondary Phone</Label><Input className="mt-1" value={form.secondaryPhone} onChange={e => setForm(f => ({ ...f, secondaryPhone: formatPhone(e.target.value) }))} placeholder="e.g. 5551234567" /></div>
+                <div><Label>Third Email</Label><Input className="mt-1" type="email" value={form.thirdEmail} onChange={e => setForm(f => ({ ...f, thirdEmail: e.target.value }))} /></div>
+                <div><Label>Third Phone</Label><Input className="mt-1" value={form.thirdPhone} onChange={e => setForm(f => ({ ...f, thirdPhone: formatPhone(e.target.value) }))} placeholder="e.g. 5551234567" /></div>
               </div>
             </TabsContent>
 
