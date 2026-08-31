@@ -23,7 +23,6 @@ import {
   ClipboardList,
   DollarSign,
   FileText,
-  FileDown,
   GitBranch,
   Home,
   LogOut,
@@ -298,15 +297,13 @@ function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, 
     .filter((group) => group.items.length > 0);
 }
 
-function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, pendingTechRequests: number = 0, resendInboxUnread: number = 0, marketingTextInboxUnread: number = 0, pendingPtoApprovals: number = 0): NavGroup[] {
+function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendingExceptions: number, flaggedTx: number, unpaidPayouts: number, pendingConnReqs: number, myOverdueTasks: number = 0, pendingMarketing: number = 0, resendInboxUnread: number = 0, marketingTextInboxUnread: number = 0, pendingPtoApprovals: number = 0): NavGroup[] {
   return [
     {
       label: "Overview",
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
-        { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
-        { icon: Sparkles, label: "Custom Reports", path: "/custom-reports" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
     },
@@ -314,89 +311,87 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "CRM",
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
+        { icon: GitBranch, label: "Agent Pipelines", path: "/pipeline" },
+      ],
+    },
+    {
+      label: "ISA",
+      items: [
+        { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
         { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
-        { icon: GitBranch, label: "All Pipelines", path: "/pipeline" },
-        { icon: GitMerge, label: "Connection Requests", path: "/connection-requests", badge: pendingConnReqs > 0 ? pendingConnReqs : undefined },
-        { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
+        { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
+        { icon: Inbox, label: "Resend Inbox", path: "/resend-inbox", badge: resendInboxUnread > 0 ? resendInboxUnread : undefined },
+        { icon: MessageSquare, label: "Marketing Text Inbox", path: "/marketing-text-inbox", badge: marketingTextInboxUnread > 0 ? marketingTextInboxUnread : undefined },
+        { icon: GitMerge, label: "Duplicate Contacts", path: "/duplicates" },
       ],
     },
     {
       label: "Transactions",
       items: [
         { icon: FileText, label: "All Transactions", path: "/transactions" },
-        { icon: FileDown, label: "Transaction Exports", path: "/transaction-reporting" },
         { icon: Building2, label: "Listings", path: "/listings" },
         { icon: Building2, label: "Properties", path: "/properties" },
-        { icon: DollarSign, label: "Commission & Payouts", path: "/commission", badge: (unpaidPayouts > 0 || flaggedTx > 0 || pendingExceptions > 0) ? (unpaidPayouts + flaggedTx + pendingExceptions) : undefined },
-        { icon: Star, label: "Reviews", path: "/reviews" },
+        { icon: DollarSign, label: "Commissions and Payouts", path: "/commission", badge: (unpaidPayouts > 0 || flaggedTx > 0 || pendingExceptions > 0) ? (unpaidPayouts + flaggedTx + pendingExceptions) : undefined },
         { icon: Handshake, label: "Referrals", path: "/referrals" },
       ],
     },
     {
-      label: "Pulse",
+      label: "Agent Success Team",
       items: [
-        { icon: Activity, label: "Pulse", path: "/pulse" },
+        { icon: Star, label: "Reviews", path: "/reviews" },
+        { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
+        { icon: Users, label: "Leadership Dashboard", path: "/leadership-dashboard" },
+        { icon: MessageSquare, label: "Coach Feedback", path: "/coach-feedback" },
+        { icon: Target, label: "Goals", path: "/goals" },
+        { icon: Wrench, label: "Vendors", path: "/admin/vendors" },
       ],
     },
     {
-      label: "Operations",
+      label: "Work",
       items: [
         { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
-        { icon: CalendarDays, label: "My PTO", path: "/pto" },
-        { icon: ClipboardList, label: "PTO Approvals", path: "/pto/approvals", badge: pendingPtoApprovals > 0 ? pendingPtoApprovals : undefined },
-        { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
-        { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
-        { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
-        { icon: MessageSquare, label: "Coach feedback", path: "/coach-feedback" },
-        { icon: Users, label: "Leadership Dashboard", path: "/leadership-dashboard" },
-        { icon: Activity, label: "Activity Log", path: "/admin/activity" },
+        { icon: Activity, label: "Pulse", path: "/pulse" },
+        { icon: Layers, label: "Projects", path: "/projects" },
+        { icon: Briefcase, label: "Job Board", path: "/job-board" },
+        { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
+        { icon: BookOpen, label: "Knowledgebase", path: "/kb" },
+      ],
+    },
+    {
+      label: "Marketing",
+      items: [
+        { icon: Video, label: "Webinars", path: "/webinars" },
+        { icon: LayoutDashboard, label: "Landing Pages", path: "/landing-pages" },
+        { icon: Zap, label: "Smart Plans", path: "/smart-plans" },
+        { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
+        { icon: Link2, label: "Short Links", path: "/short-links" },
+      ],
+    },
+    {
+      label: "Approvals",
+      items: [
+        { icon: GitMerge, label: "Connection Requests", path: "/connection-requests", badge: pendingConnReqs > 0 ? pendingConnReqs : undefined },
+        { icon: CheckSquare, label: "Admin Approvals", path: "/approvals", badge: pendingApprovals > 0 ? pendingApprovals : undefined },
       ],
     },
     {
       label: "Admin",
       items: [
         { icon: UserCheck, label: "Users", path: "/users" },
-        { icon: CheckSquare, label: "Admin Approvals", path: "/approvals", badge: pendingApprovals > 0 ? pendingApprovals : undefined },
-        { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
+        { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
+        { icon: Activity, label: "Activity Log", path: "/admin/activity" },
+        { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
+        { icon: ClipboardList, label: "PTO Approvals", path: "/pto/approvals", badge: pendingPtoApprovals > 0 ? pendingPtoApprovals : undefined },
+        { icon: UserCheck, label: "On/Offboarding", path: "/onboarding" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
-    { icon: Users, label: "Agent Directory", path: "/agent-directory" },
-        { icon: ClipboardList, label: "Roles & Responsibilities", path: "/roles-responsibilities" },
-        { icon: MessageSquarePlus, label: "Feedback & Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
-        { icon: Megaphone, label: "Marketing Requests", path: "/marketing-admin", badge: pendingMarketing > 0 ? pendingMarketing : undefined },
-        { icon: Video, label: "Webinars", path: "/webinars" },
-        { icon: Wrench, label: "Tech Requests", path: "/tech-requests", badge: pendingTechRequests > 0 ? pendingTechRequests : undefined },
-        { icon: Target, label: "Goals", path: "/goals" },
-        { icon: Briefcase, label: "Job Board", path: "/job-board" },
-        { icon: Activity, label: "Talent Profiles", path: "/talent-profile-admin" },
-        { icon: LayoutDashboard, label: "Landing Pages", path: "/landing-pages" },
-        { icon: Link2, label: "Short Links", path: "/short-links" },
-        { icon: Wrench, label: "Vendors", path: "/admin/vendors" },
-        { icon: Inbox, label: "Resend Inbox", path: "/resend-inbox", badge: resendInboxUnread > 0 ? resendInboxUnread : undefined },
-        { icon: MessageSquare, label: "Marketing Text Inbox", path: "/marketing-text-inbox", badge: marketingTextInboxUnread > 0 ? marketingTextInboxUnread : undefined },
-        { icon: Lock, label: "Passwords", path: "/passwords" },
+        { icon: Users, label: "Agent Directory", path: "/agent-directory" },
+        { icon: ClipboardList, label: "Roles and Responsibilities", path: "/roles-responsibilities" },
+        { icon: MessageSquarePlus, label: "Feedback and Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
-      ],
-    },
-    {
-      label: "Dev Tools",
-      items: [
-        { icon: Webhook, label: "Webhooks", path: "/webhooks" },
-        { icon: GitMerge, label: "Duplicate Contacts", path: "/duplicates" },
-      ],
-    },
-    {
-      label: "Resources",
-      items: [
-        { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
-      ],
-    },
-    {
-      label: "Projects & Plans",
-      items: [
-        { icon: Layers, label: "Projects", path: "/projects" },
-        { icon: Zap, label: "Smart Plans", path: "/smart-plans" },
-        { icon: Sparkles, label: "Feature Updates", path: "/daily-report-updates" },
+        { icon: Lock, label: "Passwords", path: "/passwords" },
         { icon: Mail, label: "Email Notifications", path: "/email-notifications" },
+        { icon: Sparkles, label: "Feature Updates", path: "/daily-report-updates" },
+        { icon: Webhook, label: "Webhooks", path: "/webhooks" },
       ],
     },
   ];
@@ -427,6 +422,16 @@ function SidebarNav({
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
   const avatarUrl = (user as any).profilePhotoUrl ?? null;
+  // Each category begins expanded so the condensed admin navigation remains discoverable.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const toggleGroup = (label: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-col h-full select-none">
@@ -446,55 +451,66 @@ function SidebarNav({
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto overscroll-y-contain py-3 px-2 space-y-3">
-        {navGroups.map((group) => (
-          <div key={group.label}>
-            {!collapsed && (
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-2 mb-1">
-                {group.label}
-              </p>
-            )}
-            <ul className="space-y-0.5">
-              {group.items.map((item) => {
-                const isActive = !item.external && (
-                  item.path === "/"
-                    ? currentPath === "/"
-                    : currentPath.startsWith(item.path)
-                );
-                return (
-                  <li key={item.path}>
-                    <button
-                      type="button"
-                      onClick={() => item.external ? window.open(item.path, "_blank", "noopener,noreferrer") : onNavigate(item.path)}
-                      title={collapsed ? item.label : undefined}
-                      className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
-                        isActive
-                          ? "bg-[oklch(0.74_0.14_200)]/15 text-[oklch(0.60_0.14_200)] font-semibold"
-                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                      }`}
-                    >
-                      <item.icon className="h-[16px] w-[16px] shrink-0" />
-                      {!collapsed && (
-                        <span className="truncate leading-tight flex-1">{item.label}</span>
-                      )}
-                      {!collapsed && item.external && <Link2 className="h-3 w-3 shrink-0 opacity-60" />}
-                      {!collapsed && item.badge != null && (
-                        <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
-                          {item.badge}
-                        </span>
-                      )}
-                      {collapsed && item.badge != null && (
-                        <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
-                          {item.badge}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+      <nav className="flex-1 overflow-y-auto overscroll-y-contain py-3 px-2 space-y-1">
+        {navGroups.map((group) => {
+          const isGroupCollapsed = collapsedGroups.has(group.label);
+          return (
+            <div key={group.label} className="border-b border-sidebar-border/60 pb-1 last:border-b-0">
+              {!collapsed && (
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.label)}
+                  aria-expanded={!isGroupCollapsed}
+                  className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                >
+                  <span>{group.label}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isGroupCollapsed ? "-rotate-90" : ""}`} />
+                </button>
+              )}
+              {(collapsed || !isGroupCollapsed) && (
+                <ul className="space-y-0.5 pb-1">
+                  {group.items.map((item) => {
+                    const isActive = !item.external && (
+                      item.path === "/"
+                        ? currentPath === "/"
+                        : currentPath.startsWith(item.path)
+                    );
+                    return (
+                      <li key={item.path} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => item.external ? window.open(item.path, "_blank", "noopener,noreferrer") : onNavigate(item.path)}
+                          title={collapsed ? item.label : undefined}
+                          className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
+                            isActive
+                              ? "bg-[oklch(0.74_0.14_200)]/15 text-[oklch(0.60_0.14_200)] font-semibold"
+                              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                          }`}
+                        >
+                          <item.icon className="h-[16px] w-[16px] shrink-0" />
+                          {!collapsed && (
+                            <span className="truncate leading-tight flex-1">{item.label}</span>
+                          )}
+                          {!collapsed && item.external && <Link2 className="h-3 w-3 shrink-0 opacity-60" />}
+                          {!collapsed && item.badge != null && (
+                            <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                              {item.badge}
+                            </span>
+                          )}
+                          {collapsed && item.badge != null && (
+                            <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                              {item.badge}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Simulate As (only for tyler@savvy.realty) */}
@@ -627,11 +643,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: role === "admin", refetchInterval: 30000 }
   );
-  // Fetch active tech request count for admin sidebar badge
-  const { data: pendingTechRequestsData } = trpc.techRequests.pendingCount.useQuery(
-    undefined,
-    { enabled: role === "admin", refetchInterval: 60000 }
-  );
   // Fetch my overdue task count for Tasks badge
   const { data: myOverdueTaskData } = trpc.tasks.myOverdueCount.useQuery(
     undefined,
@@ -712,7 +723,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pendingConnReqs = (pendingConnReqsData as any)?.count ?? 0;
   const myOverdueTaskCount = (myOverdueTaskData as any)?.count ?? 0;
   const pendingMarketingCount = (pendingMarketingData as any)?.count ?? 0;
-  const pendingTechRequestsCount = (pendingTechRequestsData as any)?.count ?? 0;
   const pendingPtoApprovalsCount = (pendingPtoApprovalsData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
@@ -722,7 +732,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const standardNavGroups =
     role === "admin"
-      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, pendingTechRequestsCount, resendInboxUnreadCount, marketingTextInboxUnreadCount, pendingPtoApprovalsCount)
+      ? buildAdminNav(pending, pendingFb, pendingExc, flaggedTx, unpaidPayouts, pendingConnReqs, myOverdueTaskCount, pendingMarketingCount, resendInboxUnreadCount, marketingTextInboxUnreadCount, pendingPtoApprovalsCount)
       : role === "isa"
       ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
       : role === "agent_support"
@@ -734,33 +744,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const permissionFilteredNavGroups: NavGroup[] = role === "admin"
     ? filterNavByPermissions(baseNavGroups, adminPerms as Record<string, boolean> | null | undefined)
     : baseNavGroups;
-  const navGroupsWithoutPasswords = permissionFilteredNavGroups
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.path !== "/passwords") }))
-    .filter((group) => group.items.length > 0);
   const passwordNavItem: NavItem = { icon: Lock, label: "Passwords", path: "/passwords" };
-  const passwordNavTargetGroup = role === "admin" ? "Admin" : "Resources";
   const navGroups: NavGroup[] = canUsePulseLayout
     ? baseNavGroups
-    : passwordAccess?.hasAccessibleLists
-      ? navGroupsWithoutPasswords.some((group) => group.label === passwordNavTargetGroup)
-        ? navGroupsWithoutPasswords.map((group) => group.label === passwordNavTargetGroup
-          ? { ...group, items: [...group.items, passwordNavItem] }
-          : group)
-        : [...navGroupsWithoutPasswords, { label: "Shared", items: [passwordNavItem] }]
-      : navGroupsWithoutPasswords;
-  // My PTO is an employee benefit driven only by the authoritative W-2 tag.
-  // Approval and administration remain separately controlled through Super Permissions.
-  const employmentFilteredNavGroups = navGroups
-    .map((group) => {
-      if (group.label !== "Operations") return group;
-      const itemsWithoutMyPto = group.items.filter((item) => item.path !== "/pto");
-      if ((user as any).employmentType !== "w2") return { ...group, items: itemsWithoutMyPto };
-      const tasksIndex = itemsWithoutMyPto.findIndex((item) => item.path === "/tasks");
-      const ptoItem: NavItem = { icon: CalendarDays, label: "My PTO", path: "/pto" };
-      const insertionIndex = tasksIndex >= 0 ? tasksIndex + 1 : 0;
-      return { ...group, items: [...itemsWithoutMyPto.slice(0, insertionIndex), ptoItem, ...itemsWithoutMyPto.slice(insertionIndex)] };
-    })
-    .filter((group) => group.items.length > 0);
+    : role === "admin"
+      ? permissionFilteredNavGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => item.path !== "/passwords" || !!passwordAccess?.hasAccessibleLists),
+        }))
+        .filter((group) => group.items.length > 0)
+      : passwordAccess?.hasAccessibleLists
+        ? permissionFilteredNavGroups.some((group) => group.label === "Resources")
+          ? permissionFilteredNavGroups.map((group) => group.label === "Resources"
+            ? { ...group, items: [...group.items, passwordNavItem] }
+            : group)
+          : [...permissionFilteredNavGroups, { label: "Shared", items: [passwordNavItem] }]
+        : permissionFilteredNavGroups;
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"
@@ -775,7 +775,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarWidth = collapsed ? "w-[56px]" : "w-[240px]";
 
   const navProps = {
-    navGroups: employmentFilteredNavGroups,
+    navGroups,
     currentPath,
     collapsed,
     user: { ...user, profilePhotoUrl: (myCoreProfile as any)?.profilePhotoUrl ?? null },

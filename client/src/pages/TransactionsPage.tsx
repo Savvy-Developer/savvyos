@@ -491,6 +491,11 @@ export default function TransactionsPage() {
   const [location, navigate] = useLocation();
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(
+    undefined,
+    { enabled: isAdmin, staleTime: 30000 },
+  );
+  const canViewTransactionExports = !!(adminPermissions as Record<string, boolean> | undefined)?.canViewTransactionExports;
 
   // ─── Bulk Upload State ────────────────────────────────────────────────────────
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -951,6 +956,11 @@ export default function TransactionsPage() {
             )}
             {user?.role !== "agent" && (
               <div className="flex gap-2">
+                {isAdmin && canViewTransactionExports && (
+                  <Button variant="outline" size="sm" onClick={() => navigate("/transaction-reporting")}>
+                    <Download className="h-4 w-4 mr-1" /> Transaction Exports
+                  </Button>
+                )}
                 {isAdmin && (
                   <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
                     <Upload className="h-4 w-4 mr-1" /> Bulk Upload
