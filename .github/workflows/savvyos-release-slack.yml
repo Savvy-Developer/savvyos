@@ -1,0 +1,46 @@
+name: Notify SavvyOS Release Channel
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  notify-slack:
+    name: Notify #savvyos-prompt-queue
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL }}
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Post release summary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+            echo "::warning::SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL is not configured; no Slack release message was sent."
+            exit 0
+          fi
+
+          commit_message="$(git log -1 --pretty=%B)"
+          commit_url="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          payload="$(jq -n \
+            --arg commit_message "$commit_message" \
+            --arg commit_url "$commit_url" \
+            --arg actor "${{ github.actor }}" \
+            'def safe: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("(?i)@(channel|here|everyone)"; "@\u200b");
+             {text: (":rocket: *SavvyOS update queued for production*\n" + ($commit_message | safe) + "\n<" + $commit_url + "|View release commit>\nPublished by " + ($actor | safe))}')"
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header 'content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"

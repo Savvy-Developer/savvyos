@@ -4,6 +4,7 @@ import { z } from "zod";
 import { savvyosFeatureUpdates, users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { buildDailyAgentReport, getSavedDailyAgentReport } from "../dailyAgentReportScheduler";
+import { notifySavvyOSFeatureUpdate } from "../_core/slackNotifications";
 import { protectedProcedure, router } from "../_core/trpc";
 
 const featureUpdateInput = z.object({
@@ -105,6 +106,7 @@ export const dailyReportRouter = router({
         createdById: ctx.user.id,
       };
       const result = await db.insert(savvyosFeatureUpdates).values(values);
+      if (values.isPublished) await notifySavvyOSFeatureUpdate({ event: "published", title: values.title, summary: values.summary, details: values.details, actionUrl: values.actionUrl });
       return { id: Number(result[0].insertId) };
     }),
 
@@ -114,12 +116,12 @@ export const dailyReportRouter = router({
       requireAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
-      const [existing] = await db.select({ id: savvyosFeatureUpdates.id, publishedAt: savvyosFeatureUpdates.publishedAt })
+      const [existing] = await db.select({ id: savvyosFeatureUpdates.id, isPublished: savvyosFeatureUpdates.isPublished, publishedAt: savvyosFeatureUpdates.publishedAt })
         .from(savvyosFeatureUpdates)
         .where(eq(savvyosFeatureUpdates.id, input.id))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Feature update not found." });
-      await db.update(savvyosFeatureUpdates).set({
+      const values = {
         title: input.data.title,
         summary: input.data.summary,
         details: input.data.details || null,
@@ -127,7 +129,9 @@ export const dailyReportRouter = router({
         isAgentFacing: input.data.isAgentFacing,
         isPublished: input.data.isPublished,
         publishedAt: input.data.isPublished ? (existing.publishedAt ?? new Date()) : null,
-      }).where(eq(savvyosFeatureUpdates.id, input.id));
+      };
+      await db.update(savvyosFeatureUpdates).set(values).where(eq(savvyosFeatureUpdates.id, input.id));
+      if (values.isPublished) await notifySavvyOSFeatureUpdate({ event: existing.isPublished ? "revised" : "published", title: values.title, summary: values.summary, details: values.details, actionUrl: values.actionUrl });
       return { success: true };
     }),
 

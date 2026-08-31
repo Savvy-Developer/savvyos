@@ -21,4 +21,7 @@ export const ENV = {
   aircallWebhookToken: process.env.AIRCALL_WEBHOOK_TOKEN ?? "",
   // OpenAI API key — used for Whisper transcription (real OpenAI, not Forge proxy)
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  // Incoming webhook for concise release-note messages in #savvyos-prompt-queue.
+  slackSavvyosPromptQueueWebhookUrl:
+    process.env.SLACK_SAVVYOS_PROMPT_QUEUE_WEBHOOK_URL ?? "",
 };
