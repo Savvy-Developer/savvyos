@@ -20,7 +20,7 @@ type PasswordViewer = {
 };
 
 function isPasswordListSuperUser(user: PasswordViewer) {
-  return user.role === "admin" || PASSWORD_LIST_SUPER_USERS.has((user.email ?? "").toLowerCase());
+  return PASSWORD_LIST_SUPER_USERS.has((user.email ?? "").toLowerCase());
 }
 
 function canCreatePasswordLists(user: PasswordViewer) {
@@ -113,7 +113,7 @@ async function validateSharedUserIds(db: any, userIds: number[] | undefined, own
 export const passwordsRouter = router({
   // ─── Lists ──────────────────────────────────────────────────────────────────
 
-  /** Get lists the current user owns, is shared on, or may manage as an administrator or designated super user. */
+  /** Get only lists the current user owns, is shared on, or is a designated super user for. */
   getLists: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) return [];
@@ -182,7 +182,7 @@ export const passwordsRouter = router({
       return { id: result };
     }),
 
-  /** Update list details and sharing. Only the owner, an administrator, or a designated super user can manage a list. */
+  /** Update list details and sharing. Only the owner or a designated super user can manage a list. */
   updateList: protectedProcedure
     .input(z.object({
       id: z.number().int().positive(),
@@ -281,7 +281,7 @@ export const passwordsRouter = router({
       return entries.map((entry) => ({ ...entry, canManage: managerByListId.get(entry.listId) === true }));
     }),
 
-  /** Create a password entry. Shared recipients are read-only; owners and administrators can manage entries. */
+  /** Create a password entry. Shared recipients are intentionally read-only. */
   createEntry: protectedProcedure
     .input(z.object({
       listId: z.number().int().positive(),
