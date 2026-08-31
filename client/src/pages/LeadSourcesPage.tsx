@@ -8,9 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import RichEmailEditor from "@/components/RichEmailEditor";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
-import { Plus, ChevronRight, ChevronDown, Pencil, Trash2, FolderOpen, Folder, Lock, Percent, Copy, Check, Link2, ExternalLink, Search, Upload, FileText, Download, RefreshCw, Eye } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown, Pencil, Trash2, FolderOpen, Folder, Lock, Percent, Copy, Check, Link2, ExternalLink, Search, Upload, FileText, Download, RefreshCw, Eye, BookOpen } from "lucide-react";
 
 const CAMPAIGN_TYPE_LABELS: Record<string, string> = {
   buyer: "Buyer Campaign",
@@ -29,6 +30,7 @@ type SourceRow = {
     referralPercent: number | null;
     isProtected: boolean;
     description: string | null;
+    partnerCheatSheet: string | null;
     isActive: boolean;
     agreementUrl: string | null;
     agreementKey: string | null;
@@ -227,6 +229,8 @@ export default function LeadSourcesPage() {
   const [agreementFile, setAgreementFile] = useState<File | null>(null);
   const [agreementUploading, setAgreementUploading] = useState(false);
   const [agreementError, setAgreementError] = useState<string | null>(null);
+  const [cheatSheetSource, setCheatSheetSource] = useState<SourceRow | null>(null);
+  const [cheatSheetDraft, setCheatSheetDraft] = useState("");
 
   const createMutation = trpc.leadSources.create.useMutation({
     onSuccess: () => { utils.leadSources.list.invalidate(); setShowDialog(false); toast.success("Lead source created"); },
@@ -238,6 +242,14 @@ export default function LeadSourcesPage() {
   });
   const deleteMutation = trpc.leadSources.delete.useMutation({
     onSuccess: () => { utils.leadSources.list.invalidate(); toast.success("Lead source deleted"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updatePartnerCheatSheetMutation = trpc.leadSources.updatePartnerCheatSheet.useMutation({
+    onSuccess: () => {
+      utils.leadSources.list.invalidate();
+      setCheatSheetSource(null);
+      toast.success("Partner cheat sheet saved");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -283,6 +295,11 @@ export default function LeadSourcesPage() {
     setAgreementFile(null);
     setAgreementError(null);
     setShowDialog(true);
+  }
+
+  function openCheatSheet(row: SourceRow) {
+    setCheatSheetSource(row);
+    setCheatSheetDraft(row.ls.partnerCheatSheet ?? "");
   }
 
   async function uploadAgreementFile(file: File): Promise<{ url: string; fileKey: string } | null> {
@@ -470,6 +487,7 @@ export default function LeadSourcesPage() {
             const children = childrenOf(parent.ls.id);
             const isOpen = expanded.has(parent.ls.id);
             const isReferralParent = parent.ls.name.toLowerCase().includes("referral partner");
+            const isCheatSheetParent = parent.ls.name === "Referral Partner (Leads in)" || parent.ls.name === "Affiliate Referral";
             return (
               <Card key={parent.ls.id} className="overflow-hidden">
                 <div className="flex items-center gap-3 p-4 hover:bg-muted/20 transition-colors">
@@ -544,6 +562,11 @@ export default function LeadSourcesPage() {
                                 <Percent className="h-2.5 w-2.5" /> {child.ls.referralPercent}% Referral Fee
                               </Badge>
                             )}
+                            {isCheatSheetParent && (
+                              <Badge variant="outline" className={`text-xs gap-1 ${child.ls.partnerCheatSheet?.trim() ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+                                <BookOpen className="h-2.5 w-2.5" /> {child.ls.partnerCheatSheet?.trim() ? "Cheat sheet ready" : "Cheat sheet missing"}
+                              </Badge>
+                            )}
                             {child.ls.allowPartnerPortal && (
                               <Badge variant="outline" className="text-xs border-cyan-200 bg-cyan-50 text-cyan-700">
                                 Partner Portal enabled
@@ -581,6 +604,16 @@ export default function LeadSourcesPage() {
                               onClick={() => previewPartnerPortalMutation.mutate({ sourceId: child.ls.id })}
                             >
                               <Eye className="mr-1 h-3.5 w-3.5" /> Preview Portal
+                            </Button>
+                          )}
+                          {isCheatSheetParent && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => openCheatSheet(child)}
+                            >
+                              <BookOpen className="mr-1 h-3.5 w-3.5" /> Cheat Sheet
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(child)}>
@@ -829,6 +862,36 @@ export default function LeadSourcesPage() {
             <Button variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
             <Button onClick={handleSubmit} disabled={isSubmitting || agreementUploading}>
               {agreementUploading ? "Uploading..." : isSubmitting ? "Saving..." : editingId ? "Save Changes" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(cheatSheetSource)} onOpenChange={(open) => { if (!open) setCheatSheetSource(null); }}>
+        <DialogContent className="max-w-3xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Cheat Sheet — {cheatSheetSource?.ls.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Add the guidance agents need for this partner, such as referral expectations, key contacts, process steps, and helpful links. This is shown on the agent Referral Partners page.
+            </p>
+            <RichEmailEditor
+              value={cheatSheetDraft}
+              onChange={setCheatSheetDraft}
+              placeholder="Add partner guidance for agents…"
+              showMergeTags={false}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCheatSheetSource(null)}>Cancel</Button>
+            <Button
+              onClick={() => cheatSheetSource && updatePartnerCheatSheetMutation.mutate({
+                sourceId: cheatSheetSource.ls.id,
+                partnerCheatSheet: cheatSheetDraft.trim() ? cheatSheetDraft : null,
+              })}
+              disabled={updatePartnerCheatSheetMutation.isPending}
+            >
+              {updatePartnerCheatSheetMutation.isPending ? "Saving..." : "Save Cheat Sheet"}
             </Button>
           </DialogFooter>
         </DialogContent>

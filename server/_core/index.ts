@@ -17,6 +17,7 @@ import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
 import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
+import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
@@ -297,6 +298,8 @@ async function startServer() {
   scheduleAgentProductionReport();
   // Lead source funnel report: Friday at 6:00 PM Eastern
   scheduleWeeklyLeadReport();
+  // Company webinars and leadership referrals: Monday at 12:00 PM Eastern
+  scheduleWeeklyOperationsReports();
 
   // Personalized agent operating digest: daily at 6:00 PM Eastern
   scheduleDailyAgentReports();

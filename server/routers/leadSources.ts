@@ -1,12 +1,46 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import sanitizeHtml from "sanitize-html";
 import { getDb } from "../db";
 import { leadSources, contacts } from "../../drizzle/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { createPartnerPortalPreviewUrl, normalizePartnerPortalEmail, sendPartnerPortalInvitation } from "../_core/partnerPortalAuth";
 
 const PARTNER_PORTAL_PARENT_NAMES = ["Referral Partner (Leads in)", "Affiliate Referral"] as const;
+const PARTNER_CHEAT_SHEET_ALLOWED_TAGS = ["p", "br", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "code", "pre", "a"];
+
+function isPartnerCheatSheetParent(name: string | null | undefined): boolean {
+  return PARTNER_PORTAL_PARENT_NAMES.includes(name as typeof PARTNER_PORTAL_PARENT_NAMES[number]);
+}
+
+function sanitizePartnerCheatSheet(value: string): string | null {
+  const clean = sanitizeHtml(value, {
+    allowedTags: PARTNER_CHEAT_SHEET_ALLOWED_TAGS,
+    allowedAttributes: { a: ["href", "target", "rel"] },
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesAppliedToAttributes: ["href"],
+  }).trim();
+  return clean || null;
+}
+
+async function requirePartnerCheatSheetSource(sourceId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [source] = await db.select({ id: leadSources.id, parentId: leadSources.parentId })
+    .from(leadSources)
+    .where(eq(leadSources.id, sourceId))
+    .limit(1);
+  if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Lead source not found." });
+  if (!source.parentId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Cheat sheets are available only for eligible partner sub-sources." });
+  }
+  const [parent] = await db.select({ name: leadSources.name }).from(leadSources).where(eq(leadSources.id, source.parentId)).limit(1);
+  if (!isPartnerCheatSheetParent(parent?.name)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Cheat sheets are available only for Affiliate Referral or Referral Partner (Leads in) sub-sources." });
+  }
+  return db;
+}
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -236,21 +270,48 @@ export const leadSourcesRouter = router({
       return { success: true, invitationSent };
     }),
 
-  // Get all referral partners (child sources of "Referral Partner" category) with their referral %
+  // Get the agent-facing referral and affiliate partner cards, including commission details and published cheat sheets.
   referralPartners: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    const [parent] = await db
-      .select()
+    const parents = await db
+      .select({ id: leadSources.id, name: leadSources.name })
       .from(leadSources)
-      .where(eq(leadSources.name, "Referral Partner (Leads in)"));
-    if (!parent) return [];
+      .where(inArray(leadSources.name, [...PARTNER_PORTAL_PARENT_NAMES]));
+    if (!parents.length) return [];
+    const parentNames = new Map(parents.map((parent) => [parent.id, parent.name]));
     const rows = await db
       .select()
       .from(leadSources)
-      .where(eq(leadSources.parentId, parent.id))
+      .where(and(inArray(leadSources.parentId, parents.map((parent) => parent.id)), eq(leadSources.isActive, true)))
       .orderBy(leadSources.name);
-    return rows;
+    return rows.map((row) => ({
+      ...row,
+      partnerCategory: parentNames.get(row.parentId ?? 0) ?? "Referral Partner",
+      hasPartnerCheatSheet: Boolean(row.partnerCheatSheet?.trim()),
+    }));
+  }),
+
+  getPartnerCheatSheet: protectedProcedure
+    .input(z.object({ sourceId: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      const db = await requirePartnerCheatSheetSource(input.sourceId);
+      const [source] = await db.select({ id: leadSources.id, name: leadSources.name, partnerCheatSheet: leadSources.partnerCheatSheet })
+        .from(leadSources)
+        .where(eq(leadSources.id, input.sourceId))
+        .limit(1);
+      if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Lead source not found." });
+      return source;
+    }),
+
+  updatePartnerCheatSheet: protectedProcedure
+    .input(z.object({ sourceId: z.number().int().positive(), partnerCheatSheet: z.string().max(60_000).nullable() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await requirePartnerCheatSheetSource(input.sourceId);
+      const partnerCheatSheet = input.partnerCheatSheet ? sanitizePartnerCheatSheet(input.partnerCheatSheet) : null;
+      await db.update(leadSources).set({ partnerCheatSheet }).where(eq(leadSources.id, input.sourceId));
+      return { success: true, hasPartnerCheatSheet: Boolean(partnerCheatSheet) };
   }),
 
   delete: protectedProcedure

@@ -3,6 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import PageHeader from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Handshake, Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -157,7 +158,10 @@ export default function ReferralPartnersPage() {
                       const bd = calcBreakdown(refPct, agentSplit, inGroup ? glSplit : null);
                       return (
                         <tr key={partner.id} className={`border-b last:border-0 hover:bg-muted/20 transition-colors ${idx % 2 === 0 ? "" : "bg-muted/10"}`}>
-                          <td className="px-4 py-3 font-medium">{partner.name}</td>
+                          <td className="px-4 py-3 font-medium">
+                            <div>{partner.name}</div>
+                            <div className="mt-0.5 text-xs font-normal text-muted-foreground">{partner.partnerCategory}</div>
+                          </td>
                           <td className="px-4 py-3 text-center">
                             <Badge variant="outline" className="text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-950/30">
                               {fmt(bd.referral)}
@@ -200,6 +204,40 @@ export default function ReferralPartnersPage() {
             )}
           </CardContent>
         </Card>
+
+        {partners.some((partner) => partner.hasPartnerCheatSheet) && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Info className="h-4 w-4 text-primary" />
+                Partner Cheat Sheets
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Open a partner below for their current process notes, contacts, and referral guidance.
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <Accordion type="multiple" className="w-full">
+                {partners.filter((partner) => partner.hasPartnerCheatSheet).map((partner) => (
+                  <AccordionItem key={partner.id} value={`partner-${partner.id}`}>
+                    <AccordionTrigger className="py-3 no-underline hover:no-underline">
+                      <span className="text-left">
+                        <span className="block font-medium">{partner.name}</span>
+                        <span className="block pt-0.5 text-xs font-normal text-muted-foreground">{partner.partnerCategory}</span>
+                      </span>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div
+                        className="prose prose-sm max-w-none rounded-md border bg-muted/20 p-4 text-foreground dark:prose-invert [&_a]:text-primary [&_a]:underline [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                        dangerouslySetInnerHTML={{ __html: partner.partnerCheatSheet ?? "" }}
+                      />
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </TooltipProvider>
   );

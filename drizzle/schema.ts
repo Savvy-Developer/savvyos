@@ -208,6 +208,8 @@ export const leadSources = mysqlTable("lead_sources", {
   // Whether this source is system-protected (cannot be deleted)
   isProtected: boolean("isProtected").default(false).notNull(),
   description: text("description"),
+  // Agent-facing rich-text guidance for eligible referral and affiliate partners.
+  partnerCheatSheet: mediumtext("partnerCheatSheet"),
   // Agreement document for sub-sources
   agreementUrl: text("agreementUrl"),
   agreementKey: varchar("agreementKey", { length: 500 }),

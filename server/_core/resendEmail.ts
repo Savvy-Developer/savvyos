@@ -69,7 +69,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "task_due", "payout_integrity_fail", "listing_created", "listing_expiration_reminder", "onboarding_overdue",
   "commission_exception_warning", "market_match_intro", "client_intro", "connection_request_approved", "pm_mention",
   "partner_lead_confirmation", "partner_portal_access", "agent_production_report", "weekly_lead_report",
-  "daily_agent_report", "daily_isa_activities", "coaching_weekly_accountability", "coaching_tips_for_today",
+  "weekly_webinar_report", "weekly_referral_report", "daily_agent_report", "daily_isa_activities", "coaching_weekly_accountability", "coaching_tips_for_today",
   "coaching_feedback_invitation", "coaching_feedback_weekly_summary", "pulse_overdue_digest", "pulse_rock_completed",
   "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
   "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
@@ -163,6 +163,12 @@ interface EmailContext {
   weeklyLeadReportDate?: string;
   weeklyLeadReportHtml?: string;
   weeklyLeadReportSubject?: string;
+  // Weekly webinar report-specific fields
+  weeklyWebinarReportHtml?: string;
+  weeklyWebinarReportSubject?: string;
+  // Weekly referral report-specific fields
+  weeklyReferralReportHtml?: string;
+  weeklyReferralReportSubject?: string;
   // Daily agent report-specific fields
   dailyReportDate?: string;
   dailyReportAsOf?: string;
@@ -923,6 +929,24 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       `${ctx.weeklyLeadReportHtml ?? bodyText("The Weekly Lead Report could not be generated. Please open SavvyOS to review lead-source performance.")}`,
       `Weekly Lead Report — ${ctx.weeklyLeadReportDate ?? "Current Week"}`,
       980,
+    ),
+  }),
+
+  weekly_webinar_report: (ctx) => ({
+    subject: ctx.weeklyWebinarReportSubject ?? "Upcoming Webinars | SavvyOS",
+    html: emailLayout(
+      `${ctx.weeklyWebinarReportHtml ?? bodyText("The upcoming webinar report could not be generated. Please open SavvyOS to review scheduled webinars.")}`,
+      "Your upcoming SavvyOS webinars",
+      900,
+    ),
+  }),
+
+  weekly_referral_report: (ctx) => ({
+    subject: ctx.weeklyReferralReportSubject ?? "Weekly Referral Report | SavvyOS",
+    html: emailLayout(
+      `${ctx.weeklyReferralReportHtml ?? bodyText("The weekly referral report could not be generated. Please open SavvyOS to review referrals and payment tracking.")}`,
+      "Weekly outbound referral pipeline and payment tracking",
+      900,
     ),
   }),
 

@@ -99,7 +99,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
     { icon: Users, label: "Agent Directory", path: "/agent-directory" },
   ];
   if (hasActiveOnboarding) {
-    operationsItems.push({ icon: UserCheck, label: "On/Offboarding", path: "/my-onboarding" });
+    operationsItems.push({ icon: UserCheck, label: "Onboarding", path: "/my-onboarding" });
   }
 
   return [
@@ -138,6 +138,7 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
     {
       label: "Resources",
       items: [
+        { icon: Handshake, label: "Referral Partners", path: "/referral-partners" },
         { icon: Wrench, label: "Vendor List", path: "/vendors" },
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
         { icon: Link2, label: "Savvy-Agents.com", path: "https://www.savvy-agents.com/admin/properties", external: true },

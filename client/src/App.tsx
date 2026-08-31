@@ -124,6 +124,7 @@ import PulseMeetingEffectivenessPage from "./pages/PulseMeetingEffectivenessPage
 import DailyReportPage from "./pages/DailyReportPage";
 import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
 import ReferralsPage from "./pages/ReferralsPage";
+import ReferralPartnersPage from "./pages/ReferralPartnersPage";
 import ResendInboxPage from "./pages/ResendInboxPage";
 import MarketingTextInboxPage from "./pages/MarketingTextInboxPage";
 import ReferralDetailPage from "./pages/ReferralDetailPage";
@@ -365,6 +366,8 @@ function Router() {
           <Route path="/proforma-defaults" component={ProformaDefaultsPage} />
           <Route path="/pipeline" component={PipelinePage} />
           <Route path="/daily-report">{() => <AgentOnlyRoute><DailyReportPage /></AgentOnlyRoute>}</Route>
+          <Route path="/stats">{() => <AgentOnlyRoute><StatsPage /></AgentOnlyRoute>}</Route>
+          <Route path="/referral-partners">{() => <AgentOnlyRoute><ReferralPartnersPage /></AgentOnlyRoute>}</Route>
           <Route path="/pipeline/:id" component={AgentConnectionDetail} />
           <Route path="/connection-requests" component={ConnectionRequestsPage} />
           <Route path="/request-connection" component={RequestConnectionPage} />

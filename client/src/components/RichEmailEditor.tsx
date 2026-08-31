@@ -34,9 +34,10 @@ type Props = {
   onChange: (html: string) => void;
   placeholder?: string;
   className?: string;
+  showMergeTags?: boolean;
 };
 
-export default function RichEmailEditor({ value, onChange, placeholder, className }: Props) {
+export default function RichEmailEditor({ value, onChange, placeholder, className, showMergeTags = true }: Props) {
   const [isHtmlMode, setIsHtmlMode] = useState(false);
   const [rawHtml, setRawHtml] = useState(value ?? "");
 
@@ -196,27 +197,29 @@ export default function RichEmailEditor({ value, onChange, placeholder, classNam
         />
       )}
 
-      {/* Merge tag helper */}
-      <div className="flex flex-wrap gap-1.5 p-2 border-t bg-muted/20">
-        <span className="text-xs text-muted-foreground mr-1 self-center">Merge tags:</span>
-        {["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{agent_name}}", "{{lead_source}}"].map((tag) => (
-          <button
-            key={tag}
-            type="button"
-            className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded hover:bg-primary/20 transition-colors font-mono"
-            onClick={() => {
-              if (isHtmlMode) {
-                setRawHtml((prev) => prev + tag);
-                onChange(rawHtml + tag);
-              } else {
-                editor.chain().focus().insertContent(tag).run();
-              }
-            }}
-          >
-            {tag}
-          </button>
-        ))}
-      </div>
+      {/* Merge tags are meaningful only in outbound message composition. */}
+      {showMergeTags && (
+        <div className="flex flex-wrap gap-1.5 p-2 border-t bg-muted/20">
+          <span className="text-xs text-muted-foreground mr-1 self-center">Merge tags:</span>
+          {["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{agent_name}}", "{{lead_source}}"].map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded hover:bg-primary/20 transition-colors font-mono"
+              onClick={() => {
+                if (isHtmlMode) {
+                  setRawHtml((prev) => prev + tag);
+                  onChange(rawHtml + tag);
+                } else {
+                  editor.chain().focus().insertContent(tag).run();
+                }
+              }}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
