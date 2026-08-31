@@ -133,14 +133,11 @@ async function getActivePolicies(db: any) {
 }
 
 function policyAt(policies: any[], ptoType: PtoType, asOf: string) {
-  const match = policies
+  // No policy is applied before its explicit effective date. This prevents the
+  // launch policy from manufacturing retroactive accrual or carryover.
+  return policies
     .filter((policy) => policy.ptoType === ptoType && isoDate(policy.effectiveDate) <= asOf)
-    .sort((a, b) => isoDate(b.effectiveDate).localeCompare(isoDate(a.effectiveDate)))[0];
-  if (match) return match;
-  return {
-    ...DEFAULT_POLICIES.find((policy) => policy.ptoType === ptoType)!,
-    effectiveDate: DEFAULT_POLICY_EFFECTIVE_DATE,
-  };
+    .sort((a, b) => isoDate(b.effectiveDate).localeCompare(isoDate(a.effectiveDate)))[0] ?? null;
 }
 
 async function requireEligibleEmployee(db: any, userId: number) {
@@ -232,6 +229,7 @@ async function calculateBalances(db: any, employee: any, asOf = todayIso()) {
     if (year < employmentYear || effectiveEnd < yearStart) return { accrued: 0, carryover: 0, adjustments: 0, remaining: 0 };
 
     const policy = policyAt(policies, ptoType, effectiveEnd);
+    if (!policy) return { accrued: 0, carryover: 0, adjustments: 0, remaining: 0 };
     const waitingStart = addCalendarDays(employmentStart, numeric(policy.waitingPeriodDays));
     const accrualStart = maxDate(yearStart, waitingStart);
     const accrued = effectiveEnd < accrualStart
@@ -249,7 +247,7 @@ async function calculateBalances(db: any, employee: any, asOf = todayIso()) {
     if (year > employmentYear) {
       const prior = calculateYear(ptoType, year - 1);
       const priorPolicy = policyAt(policies, ptoType, `${year - 1}-12-31`);
-      carryover = roundDays(Math.min(numeric(priorPolicy.carryoverCapDays), Math.max(0, prior.remaining)));
+      carryover = priorPolicy ? roundDays(Math.min(numeric(priorPolicy.carryoverCapDays), Math.max(0, prior.remaining))) : 0;
     }
 
     return {
@@ -283,9 +281,9 @@ async function calculateBalances(db: any, employee: any, asOf = todayIso()) {
     return {
       ptoType,
       label: labelForType(ptoType),
-      annualAccrualDays: roundDays(numeric(policy.annualAccrualDays)),
-      waitingPeriodDays: numeric(policy.waitingPeriodDays),
-      carryoverCapDays: roundDays(numeric(policy.carryoverCapDays)),
+      annualAccrualDays: roundDays(numeric(policy?.annualAccrualDays)),
+      waitingPeriodDays: numeric(policy?.waitingPeriodDays),
+      carryoverCapDays: roundDays(numeric(policy?.carryoverCapDays)),
       accrued: current.accrued,
       carryover: current.carryover,
       manualAdjustments,
