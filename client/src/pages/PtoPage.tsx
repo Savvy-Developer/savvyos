@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { CalendarDays, ClipboardCheck, Clock3, Loader2, Send, ShieldCheck, XCircle } from "lucide-react";
+import { CalendarDays, Clock3, Loader2, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 const PTO_TYPES = ["vacation", "sick", "personal", "bereavement", "other"] as const;
@@ -80,10 +79,8 @@ function RequestTable({ requests, onWithdraw, withdrawingId }: { requests: any[]
 
 export default function PtoPage() {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data, isLoading, error } = trpc.pto.myDashboard.useQuery();
-  const { data: access } = trpc.pto.access.useQuery();
   const [ptoType, setPtoType] = useState<PtoType>("vacation");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -146,10 +143,6 @@ export default function PtoPage() {
           <div className="mb-2 flex items-center gap-2 text-cyan-100"><CalendarDays className="h-5 w-5" /><span className="text-sm font-medium">Personal time off</span></div>
           <h1 className="text-3xl font-semibold tracking-tight">My PTO</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-cyan-50/80">Review your available time, request time away, and keep your coverage plan together in one place.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {access?.canApprove ? <Button variant="secondary" size="sm" onClick={() => navigate("/pto/approvals")}><ClipboardCheck className="mr-1.5 h-4 w-4" />PTO Approvals</Button> : null}
-          {access?.canAdminister ? <Button variant="secondary" size="sm" onClick={() => navigate("/pto/admin")}><ShieldCheck className="mr-1.5 h-4 w-4" />PTO Administration</Button> : null}
         </div>
       </section>
 
