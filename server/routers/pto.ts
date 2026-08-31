@@ -3,7 +3,9 @@ import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   activityLog,
+  adminProfiles,
   ptoBalanceAdjustments,
+  ptoDepartments,
   ptoPolicies,
   ptoRequestEvents,
   ptoRequests,
@@ -37,6 +39,7 @@ const DEFAULT_POLICIES: Array<{
 ];
 
 const DEFAULT_POLICY_EFFECTIVE_DATE = "2026-01-01";
+const DEFAULT_PTO_DEPARTMENTS = ["Executive", "Operations", "Marketing", "Expansion", "Finance", "Other"] as const;
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a YYYY-MM-DD date.");
 const requestedDaysSchema = z.number().finite().min(0.25).max(366).refine(
   (value) => Math.abs(value * 4 - Math.round(value * 4)) < 0.000001,
@@ -100,7 +103,36 @@ function requireDb(db: Awaited<ReturnType<typeof getDb>>) {
   return db;
 }
 
+async function ensurePtoDepartments(db: any) {
+  const existing = await db.select().from(ptoDepartments);
+  const existingNames = new Set(existing.map((department: any) => department.name.toLowerCase()));
+  const missing = DEFAULT_PTO_DEPARTMENTS
+    .filter((name) => !existingNames.has(name.toLowerCase()))
+    .map((name) => ({ name, isActive: true }));
+  if (missing.length > 0) await db.insert(ptoDepartments).values(missing);
+
+  const departments = await db.select().from(ptoDepartments);
+  const departmentByName = new Map<string, any>(departments.map((department: any) => [department.name.toLowerCase(), department] as [string, any]));
+  // Reuse the established Admin Profile buckets as a one-time starting point,
+  // without treating project departments as employee departments.
+  const profiles = await db.select({ userId: adminProfiles.userId, adminType: adminProfiles.adminType }).from(adminProfiles);
+  for (const profile of profiles) {
+    if (!profile.adminType) continue;
+    const department = departmentByName.get(profile.adminType.toLowerCase());
+    if (department) await db.update(users).set({ ptoDepartmentId: department.id }).where(and(eq(users.id, profile.userId), sql`${users.ptoDepartmentId} IS NULL`));
+  }
+  // Every active PTO user receives a bucket. Administrators can refine these
+  // assignments in PTO Administration; Other is a deliberately conservative
+  // default so unassigned people still receive red same-bucket safeguards.
+  const otherDepartment = departmentByName.get("other");
+  if (otherDepartment) await db.update(users)
+    .set({ ptoDepartmentId: otherDepartment.id })
+    .where(and(eq(users.isActive, true), eq(users.personType, "full_user"), sql`${users.ptoDepartmentId} IS NULL`));
+  return departments;
+}
+
 async function ensurePtoDefaults(db: any) {
+  await ensurePtoDepartments(db);
   const settingsRows = await db.select().from(ptoSettings).limit(1);
   if (settingsRows.length === 0) {
     await db.insert(ptoSettings).values({
@@ -149,6 +181,7 @@ async function requireEligibleEmployee(db: any, userId: number) {
       isActive: users.isActive,
       personType: users.personType,
       reportsToId: users.reportsToId,
+      ptoDepartmentId: users.ptoDepartmentId,
       createdAt: users.createdAt,
     })
     .from(users)
@@ -200,6 +233,39 @@ async function directReportIds(db: any, managerId: number): Promise<number[]> {
     .from(users)
     .where(and(eq(users.reportsToId, managerId), eq(users.isActive, true), eq(users.personType, "full_user")));
   return reports.map((report: any) => report.id);
+}
+
+async function getPtoConflictFlags(db: any, request: any) {
+  const [employeeRow] = await db
+    .select({ departmentId: users.ptoDepartmentId, departmentName: ptoDepartments.name })
+    .from(users)
+    .leftJoin(ptoDepartments, eq(users.ptoDepartmentId, ptoDepartments.id))
+    .where(eq(users.id, request.employeeId))
+    .limit(1);
+
+  const overlaps = await db
+    .select({ employeeId: ptoRequests.employeeId, departmentId: users.ptoDepartmentId })
+    .from(ptoRequests)
+    .innerJoin(users, eq(ptoRequests.employeeId, users.id))
+    .where(and(
+      eq(ptoRequests.status, "approved"),
+      ne(ptoRequests.id, request.id),
+      lte(ptoRequests.startDate, dbDate(isoDate(request.endDate))),
+      gte(ptoRequests.endDate, dbDate(isoDate(request.startDate))),
+    ));
+
+  const departmentId = employeeRow?.departmentId ?? null;
+  const sameDepartmentOverlaps = departmentId === null
+    ? []
+    : overlaps.filter((overlap: any) => overlap.departmentId === departmentId);
+  return {
+    departmentId,
+    departmentName: employeeRow?.departmentName ?? null,
+    companyOverlapCount: overlaps.length,
+    sameDepartmentOverlapCount: sameDepartmentOverlaps.length,
+    hasCompanyConflict: overlaps.length > 0,
+    requiresCoveragePlan: sameDepartmentOverlaps.length > 0,
+  };
 }
 
 async function assertCurrentDirectManager(db: any, managerId: number, employeeId: number) {
@@ -439,6 +505,7 @@ export const ptoRouter = router({
   managerQueue: protectedProcedure.query(async ({ ctx }) => {
     if (!(await assertPtoManager(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have PTO approval access." });
     const db = requireDb(await getDb());
+    await ensurePtoDepartments(db);
     const reportIds = await directReportIds(db, ctx.user.id);
     if (reportIds.length === 0) return [];
     const rows = await db
@@ -451,12 +518,13 @@ export const ptoRouter = router({
     for (const row of rows) employeeMap.set(row.employee.id, row.employee);
     const balanceMap = new Map<number, any>();
     for (const employee of Array.from(employeeMap.values())) balanceMap.set(employee.id, await calculateBalances(db, employee));
-    return rows.map((row: any) => ({
+    return Promise.all(rows.map(async (row: any) => ({
       ...row.request,
       requestedDays: numeric(row.request.requestedDays),
       employee: { id: row.employee.id, name: row.employee.name, email: row.employee.email },
       remainingBalance: balanceMap.get(row.employee.id)?.find((balance: any) => balance.ptoType === row.request.ptoType)?.remaining ?? 0,
-    }));
+      conflictFlags: await getPtoConflictFlags(db, row.request),
+    })));
   }),
 
   managerRequestDetails: protectedProcedure
@@ -464,11 +532,12 @@ export const ptoRouter = router({
     .query(async ({ input, ctx }) => {
       if (!(await assertPtoManager(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have PTO approval access." });
       const db = requireDb(await getDb());
+      await ensurePtoDepartments(db);
       const [request] = await db.select().from(ptoRequests).where(eq(ptoRequests.id, input.requestId)).limit(1);
       if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "PTO request not found." });
       const employee = await assertCurrentDirectManager(db, ctx.user.id, request.employeeId);
       const reportIds = await directReportIds(db, ctx.user.id);
-      const [events, approvedOverlaps, balances] = await Promise.all([
+      const [events, approvedOverlaps, balances, conflictFlags] = await Promise.all([
         db.select({ event: ptoRequestEvents, actorName: users.name, actorEmail: users.email })
           .from(ptoRequestEvents)
           .innerJoin(users, eq(ptoRequestEvents.actorId, users.id))
@@ -486,11 +555,13 @@ export const ptoRouter = router({
           ))
           .orderBy(asc(ptoRequests.startDate)),
         calculateBalances(db, employee),
+        getPtoConflictFlags(db, request),
       ]);
       return {
         request: { ...request, requestedDays: numeric(request.requestedDays) },
         employee: { id: employee.id, name: employee.name, email: employee.email },
         balances,
+        conflictFlags,
         history: events.map((entry: any) => ({ ...entry.event, actorName: entry.actorName ?? entry.actorEmail ?? "SavvyOS user" })),
         overlappingApprovedRequests: approvedOverlaps.map((entry: any) => ({
           ...entry.request,
@@ -501,7 +572,7 @@ export const ptoRouter = router({
     }),
 
   decideRequest: protectedProcedure
-    .input(z.object({ requestId: z.number().int().positive(), decision: z.enum(["approved", "declined"]), reason: z.string().trim().max(5_000).optional().nullable() }))
+    .input(z.object({ requestId: z.number().int().positive(), decision: z.enum(["approved", "declined"]), reason: z.string().trim().max(5_000).optional().nullable(), approverCoveragePlan: z.string().trim().max(5_000).optional().nullable() }))
     .mutation(async ({ input, ctx }) => {
       if (!(await assertPtoManager(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have PTO approval access." });
       if (input.decision === "declined" && !input.reason?.trim()) {
@@ -515,7 +586,15 @@ export const ptoRouter = router({
         const employee = await assertCurrentDirectManager(tx, ctx.user.id, request.employeeId);
         // Serialize approvals for this employee so two simultaneous approvals cannot overdraw a balance.
         await tx.execute(sql`SELECT id FROM users WHERE id = ${employee.id} FOR UPDATE`);
+        if (employee.ptoDepartmentId) await tx.execute(sql`SELECT id FROM users WHERE ptoDepartmentId = ${employee.ptoDepartmentId} FOR UPDATE`);
         await ensurePtoDefaults(tx);
+        const conflictFlags = await getPtoConflictFlags(tx, request);
+        if (input.decision === "approved" && conflictFlags.requiresCoveragePlan && !input.approverCoveragePlan?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `A coverage plan is required because ${conflictFlags.sameDepartmentOverlapCount} approved PTO request${conflictFlags.sameDepartmentOverlapCount === 1 ? "" : "s"} overlap in the ${conflictFlags.departmentName ?? "assigned"} department.`,
+          });
+        }
         if (input.decision === "approved") {
           const [settings] = await tx.select().from(ptoSettings).limit(1);
           const balances = await calculateBalances(tx, employee);
@@ -541,6 +620,9 @@ export const ptoRouter = router({
           status: input.decision,
           decisionById: ctx.user.id,
           decisionReason: input.reason?.trim() || null,
+          approverCoveragePlan: input.decision === "approved" ? input.approverCoveragePlan?.trim() || null : null,
+          coveragePlanById: input.decision === "approved" && input.approverCoveragePlan?.trim() ? ctx.user.id : null,
+          coveragePlanAt: input.decision === "approved" && input.approverCoveragePlan?.trim() ? new Date() : null,
           decidedAt: new Date(),
         }).where(and(eq(ptoRequests.id, request.id), eq(ptoRequests.status, "pending")));
         await tx.insert(ptoRequestEvents).values({ ptoRequestId: request.id, actorId: ctx.user.id, eventType: input.decision, reason: input.reason?.trim() || null });
@@ -549,7 +631,7 @@ export const ptoRouter = router({
           action: input.decision === "approved" ? "pto_request_approved" : "pto_request_declined",
           entityType: "pto_request",
           entityId: request.id,
-          details: { employeeId: employee.id, ptoType: request.ptoType, startDate: isoDate(request.startDate), endDate: isoDate(request.endDate), requestedDays: numeric(request.requestedDays), reason: input.reason?.trim() || null },
+          details: { employeeId: employee.id, ptoType: request.ptoType, startDate: isoDate(request.startDate), endDate: isoDate(request.endDate), requestedDays: numeric(request.requestedDays), reason: input.reason?.trim() || null, companyOverlapCount: conflictFlags.companyOverlapCount, sameDepartmentOverlapCount: conflictFlags.sameDepartmentOverlapCount, approverCoveragePlan: input.decision === "approved" ? input.approverCoveragePlan?.trim() || null : null },
         });
         const [updated] = await tx.select().from(ptoRequests).where(eq(ptoRequests.id, request.id)).limit(1);
         return { request: updated, employee };
@@ -572,22 +654,25 @@ export const ptoRouter = router({
   adminOverview: protectedProcedure.query(async ({ ctx }) => {
     if (!(await assertPtoAdmin(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have PTO administration access." });
     const db = requireDb(await getDb());
-    const [settings, policies, employeeRows, adjustmentRows] = await Promise.all([
-      ensurePtoDefaults(db),
+    const settings = await ensurePtoDefaults(db);
+    const [policies, departments, employeeRows, adjustmentRows] = await Promise.all([
       getActivePolicies(db),
-      db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, reportsToId: users.reportsToId })
+      db.select().from(ptoDepartments).where(eq(ptoDepartments.isActive, true)).orderBy(asc(ptoDepartments.name)),
+      db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, reportsToId: users.reportsToId, ptoDepartmentId: users.ptoDepartmentId })
         .from(users)
         .where(and(eq(users.isActive, true), eq(users.personType, "full_user")))
         .orderBy(asc(users.name)),
       db.select().from(ptoBalanceAdjustments).orderBy(desc(ptoBalanceAdjustments.createdAt)).limit(100),
     ]);
+    const departmentById = new Map(departments.map((department: any) => [department.id, department]));
     const usersById = new Map(employeeRows.map((employee: any) => [employee.id, employee]));
     const balances = [];
     for (const employee of employeeRows) {
-      balances.push({ employee, balances: await calculateBalances(db, employee) });
+      balances.push({ employee: { ...employee, department: employee.ptoDepartmentId ? departmentById.get(employee.ptoDepartmentId) ?? null : null }, balances: await calculateBalances(db, employee) });
     }
     return {
       settings,
+      departments,
       policies: policies.map((policy: any) => ({ ...policy, annualAccrualDays: numeric(policy.annualAccrualDays), carryoverCapDays: numeric(policy.carryoverCapDays) })),
       employees: balances,
       adjustments: adjustmentRows.map((adjustment: any) => ({
@@ -598,6 +683,34 @@ export const ptoRouter = router({
       })),
     };
   }),
+
+  createDepartment: protectedProcedure
+    .input(z.object({ name: z.string().trim().min(2).max(128) }))
+    .mutation(async ({ input, ctx }) => {
+      if (!(await assertPtoAdmin(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have PTO administration access." });
+      const db = requireDb(await getDb());
+      await ensurePtoDefaults(db);
+      const [existing] = await db.select({ id: ptoDepartments.id }).from(ptoDepartments).where(eq(ptoDepartments.name, input.name)).limit(1);
+      if (existing) throw new TRPCError({ code: "CONFLICT", message: "A PTO department with that name already exists." });
+      const result = await db.insert(ptoDepartments).values({ name: input.name, isActive: true, createdById: ctx.user.id });
+      const departmentId = Number((result as any)[0]?.insertId ?? (result as any).insertId);
+      await db.insert(activityLog).values({ userId: ctx.user.id, action: "pto_department_created", entityType: "pto_department", entityId: departmentId, details: { name: input.name } });
+      return { success: true, departmentId };
+    }),
+
+  assignEmployeeDepartment: protectedProcedure
+    .input(z.object({ employeeId: z.number().int().positive(), departmentId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      if (!(await assertPtoAdmin(ctx))) throw new TRPCError({ code: "FORBIDDEN", message: "You do not have PTO administration access." });
+      const db = requireDb(await getDb());
+      await ensurePtoDefaults(db);
+      const employee = await requireEligibleEmployee(db, input.employeeId);
+      const [department] = await db.select().from(ptoDepartments).where(and(eq(ptoDepartments.id, input.departmentId), eq(ptoDepartments.isActive, true))).limit(1);
+      if (!department) throw new TRPCError({ code: "NOT_FOUND", message: "Active PTO department not found." });
+      await db.update(users).set({ ptoDepartmentId: department.id }).where(eq(users.id, employee.id));
+      await db.insert(activityLog).values({ userId: ctx.user.id, action: "pto_department_assigned", entityType: "user", entityId: employee.id, details: { departmentId: department.id, departmentName: department.name } });
+      return { success: true };
+    }),
 
   savePolicies: protectedProcedure
     .input(z.array(z.object({

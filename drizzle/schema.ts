@@ -37,6 +37,8 @@ export const users = mysqlTable("users", {
   phone: varchar("phone", { length: 32 }),
   title: varchar("title", { length: 128 }),
   reportsToId: int("reportsToId"),
+  // PTO department buckets are maintained by PTO administrators and drive same-department conflict safeguards.
+  ptoDepartmentId: int("ptoDepartmentId"),
   marketProfileId: int("marketProfileId").references(() => marketProfiles.id),
   loginMethod: varchar("loginMethod", { length: 64 }),
   // Full Users may authenticate and participate in operations; Teammates are directory-only.
@@ -62,6 +64,16 @@ export type InsertUser = typeof users.$inferInsert;;
 // ─── PTO ───────────────────────────────────────────────────────────────────────
 // PTO requests are restricted in the service layer: employees see only their own
 // records; managers see only current direct reports resolved from users.reportsToId.
+export const ptoDepartments = mysqlTable("pto_departments", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull().unique(),
+  isActive: boolean("isActive").notNull().default(true),
+  createdById: int("createdById").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PtoDepartment = typeof ptoDepartments.$inferSelect;
+
 export const ptoPolicies = mysqlTable("pto_policies", {
   id: int("id").autoincrement().primaryKey(),
   ptoType: mysqlEnum("ptoType", ["vacation", "sick", "personal", "bereavement", "other"]).notNull(),
@@ -102,6 +114,10 @@ export const ptoRequests = mysqlTable("pto_requests", {
   endDate: date("endDate").notNull(),
   requestedDays: decimal("requestedDays", { precision: 7, scale: 2 }).notNull(),
   coverageNotes: mediumtext("coverageNotes"),
+  // Required when a same-department approved PTO conflict is present at approval time.
+  approverCoveragePlan: mediumtext("approverCoveragePlan"),
+  coveragePlanById: int("coveragePlanById").references(() => users.id),
+  coveragePlanAt: timestamp("coveragePlanAt"),
   status: mysqlEnum("status", ["pending", "approved", "declined", "withdrawn"]).notNull().default("pending"),
   decisionById: int("decisionById").references(() => users.id),
   decisionReason: mediumtext("decisionReason"),

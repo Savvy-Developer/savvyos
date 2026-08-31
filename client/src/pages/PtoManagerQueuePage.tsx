@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { CalendarDays, CheckCircle2, Clock3, Eye, Loader2, ShieldAlert, XCircle } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, Eye, Loader2, ShieldAlert, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 function toIsoDate(value: unknown): string {
@@ -46,6 +46,7 @@ export default function PtoManagerQueuePage() {
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
   const [reason, setReason] = useState("");
+  const [approverCoveragePlan, setApproverCoveragePlan] = useState("");
   const selectedRequest = useMemo(() => queue.find((request: any) => request.id === selectedRequestId) as any | undefined, [queue, selectedRequestId]);
   const detailQuery = trpc.pto.managerRequestDetails.useQuery({ requestId: selectedRequestId ?? 1 }, { enabled: selectedRequestId !== null });
   const decideMutation = trpc.pto.decideRequest.useMutation({
@@ -53,6 +54,7 @@ export default function PtoManagerQueuePage() {
       toast.success(`PTO request ${result.status}.`);
       setDecision(null);
       setReason("");
+      setApproverCoveragePlan("");
       setSelectedRequestId(null);
       utils.pto.managerQueue.invalidate();
       utils.pto.pendingCount.invalidate();
@@ -64,11 +66,12 @@ export default function PtoManagerQueuePage() {
     setSelectedRequestId(null);
     setDecision(null);
     setReason("");
+    setApproverCoveragePlan("");
   }
 
   function decide() {
     if (!selectedRequestId || !decision) return;
-    decideMutation.mutate({ requestId: selectedRequestId, decision, reason: reason.trim() || null });
+    decideMutation.mutate({ requestId: selectedRequestId, decision, reason: reason.trim() || null, approverCoveragePlan: approverCoveragePlan.trim() || null });
   }
 
   if (isLoading) return <div className="flex min-h-[45vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>;
@@ -85,7 +88,7 @@ export default function PtoManagerQueuePage() {
       </section>
 
       <Card>
-        <CardHeader><CardTitle className="text-lg">Pending queue</CardTitle><CardDescription>Balances include approved future PTO that is already reserved. Open a request to inspect its full history and approved overlaps.</CardDescription></CardHeader>
+        <CardHeader><CardTitle className="text-lg">Pending queue</CardTitle><CardDescription>Yellow flags show approved company-wide overlap. Red flags show an approved overlap in the employee’s PTO department and require an approver coverage plan before approval.</CardDescription></CardHeader>
         <CardContent>
           {pending.length === 0 ? <div className="py-12 text-center text-muted-foreground"><CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-500" /><p className="font-medium text-foreground">You are all caught up.</p><p className="mt-1 text-sm">There are no pending PTO requests from your direct reports.</p></div> : <QueueTable rows={pending} onOpen={setSelectedRequestId} />}
         </CardContent>
@@ -100,11 +103,18 @@ export default function PtoManagerQueuePage() {
             <div className="space-y-5 py-2">
               <div className="grid gap-3 sm:grid-cols-3"><InfoCell label="Dates" value={`${formatDate(detailQuery.data.request.startDate)} – ${formatDate(detailQuery.data.request.endDate)}`} /><InfoCell label="Duration" value={pluralDays(detailQuery.data.request.requestedDays)} /><InfoCell label="Current balance" value={`${detailQuery.data.balances.find((balance: any) => balance.ptoType === detailQuery.data.request.ptoType)?.remaining ?? 0} days`} /></div>
               <BalanceSummary balances={detailQuery.data.balances} requestType={detailQuery.data.request.ptoType} />
-              <div><p className="mb-1.5 text-sm font-medium">Coverage notes</p><div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{detailQuery.data.request.coverageNotes || "No coverage notes were provided."}</div></div>
+              <ConflictSummary conflictFlags={detailQuery.data.conflictFlags} />
+              {detailQuery.data.request.approverCoveragePlan ? <div><p className="mb-1.5 text-sm font-medium">Approver coverage plan</p><div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 text-sm leading-relaxed text-rose-950 whitespace-pre-wrap">{detailQuery.data.request.approverCoveragePlan}</div></div> : null}
+              <div><p className="mb-1.5 text-sm font-medium">Employee coverage notes</p><div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{detailQuery.data.request.coverageNotes || "No coverage notes were provided."}</div></div>
               <Separator />
               <div><p className="mb-2 text-sm font-medium">Approved PTO overlap</p>{detailQuery.data.overlappingApprovedRequests.length === 0 ? <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">No other approved PTO from your direct reports overlaps these dates.</p> : <div className="space-y-2">{detailQuery.data.overlappingApprovedRequests.map((overlap: any) => <div key={overlap.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><span className="font-medium">{overlap.employeeName}</span><span className="text-muted-foreground"> · {overlap.ptoType} · {formatDate(overlap.startDate)} – {formatDate(overlap.endDate)}</span></div><Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">{pluralDays(overlap.requestedDays)}</Badge></div>)}</div>}</div>
               <div><p className="mb-2 text-sm font-medium">Request history</p><div className="space-y-2">{detailQuery.data.history.map((entry: any) => <div key={entry.id} className="flex gap-3 text-sm"><div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-cyan-500" /><div><p><span className="font-medium">{entry.actorName}</span> {entry.eventType} this request.</p>{entry.reason ? <p className="mt-0.5 text-xs text-muted-foreground">{entry.reason}</p> : null}<p className="mt-0.5 text-xs text-muted-foreground">{formatDate(entry.createdAt)}</p></div></div>)}</div></div>
-              {detailQuery.data.request.status === "pending" ? <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4"><Label htmlFor="pto-decision-note">Decision note {decision === "declined" ? <span className="text-destructive">(required to decline)</span> : <span className="text-muted-foreground">(optional for approval)</span>}</Label><Textarea id="pto-decision-note" className="mt-2 min-h-24 bg-white" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Provide context for the employee." maxLength={5000} /><div className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setDecision("declined")} disabled={decideMutation.isPending}><XCircle className="mr-1.5 h-4 w-4 text-rose-600" />Decline</Button><Button onClick={() => setDecision("approved")} disabled={decideMutation.isPending}><CheckCircle2 className="mr-1.5 h-4 w-4" />Approve</Button></div></div> : null}
+              {detailQuery.data.request.status === "pending" ? <div className={`rounded-xl border p-4 ${detailQuery.data.conflictFlags.requiresCoveragePlan ? "border-rose-200 bg-rose-50/60" : "border-amber-200 bg-amber-50/50"}`}>
+                <Label htmlFor="pto-decision-note">Decision note {decision === "declined" ? <span className="text-destructive">(required to decline)</span> : <span className="text-muted-foreground">(optional for approval)</span>}</Label>
+                <Textarea id="pto-decision-note" className="mt-2 min-h-24 bg-white" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Provide context for the employee." maxLength={5000} />
+                {detailQuery.data.conflictFlags.requiresCoveragePlan ? <div className="mt-4"><Label htmlFor="pto-approver-coverage-plan">Approver coverage plan <span className="text-destructive">(required)</span></Label><Textarea id="pto-approver-coverage-plan" className="mt-2 min-h-24 bg-white" value={approverCoveragePlan} onChange={(event) => setApproverCoveragePlan(event.target.value)} placeholder="Explain how work and client coverage will be maintained during the overlapping absence." maxLength={5000} /><p className="mt-1.5 text-xs text-rose-800">Approval is blocked until this coverage plan is recorded.</p></div> : null}
+                <div className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setDecision("declined")} disabled={decideMutation.isPending}><XCircle className="mr-1.5 h-4 w-4 text-rose-600" />Decline</Button><Button onClick={() => setDecision("approved")} disabled={decideMutation.isPending}><CheckCircle2 className="mr-1.5 h-4 w-4" />Approve</Button></div>
+              </div> : null}
             </div>
             <DialogFooter><Button variant="outline" onClick={closeDetail}>Close</Button></DialogFooter>
           </> : selectedRequest ? <p className="py-8 text-center text-sm text-muted-foreground">Loading request details…</p> : null}
@@ -112,14 +122,26 @@ export default function PtoManagerQueuePage() {
       </Dialog>
 
       <Dialog open={decision !== null} onOpenChange={(open) => { if (!open) setDecision(null); }}>
-        <DialogContent className="max-w-md"><DialogHeader><DialogTitle>{decision === "approved" ? "Approve PTO request" : "Decline PTO request"}</DialogTitle><DialogDescription>{decision === "approved" ? "Approval creates an immutable PTO ledger deduction and notifies the employee." : "A decline reason is required and will be included in the employee notification."}</DialogDescription></DialogHeader>{decision === "declined" && !reason.trim() ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">Add a reason before declining this request.</p> : null}<DialogFooter><Button variant="outline" onClick={() => setDecision(null)} disabled={decideMutation.isPending}>Cancel</Button><Button variant={decision === "declined" ? "destructive" : "default"} onClick={decide} disabled={decideMutation.isPending || (decision === "declined" && !reason.trim())}>{decideMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Confirm {decision === "approved" ? "approval" : "decline"}</Button></DialogFooter></DialogContent>
+        <DialogContent className="max-w-md"><DialogHeader><DialogTitle>{decision === "approved" ? "Approve PTO request" : "Decline PTO request"}</DialogTitle><DialogDescription>{decision === "approved" ? "Approval creates an immutable PTO ledger deduction and notifies the employee." : "A decline reason is required and will be included in the employee notification."}</DialogDescription></DialogHeader>{decision === "declined" && !reason.trim() ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">Add a reason before declining this request.</p> : null}{decision === "approved" && detailQuery.data?.conflictFlags.requiresCoveragePlan && !approverCoveragePlan.trim() ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">A coverage plan is required because approved PTO overlaps in the employee’s department.</p> : null}<DialogFooter><Button variant="outline" onClick={() => setDecision(null)} disabled={decideMutation.isPending}>Cancel</Button><Button variant={decision === "declined" ? "destructive" : "default"} onClick={decide} disabled={decideMutation.isPending || (decision === "declined" && !reason.trim()) || (decision === "approved" && detailQuery.data?.conflictFlags.requiresCoveragePlan && !approverCoveragePlan.trim())}>{decideMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Confirm {decision === "approved" ? "approval" : "decline"}</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );
 }
 
+function ConflictSummary({ conflictFlags }: { conflictFlags: any }) {
+  if (!conflictFlags?.hasCompanyConflict) return <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">No approved PTO overlaps were found for these dates.</div>;
+  if (conflictFlags.requiresCoveragePlan) return <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"><div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />Department coverage required</div><p className="mt-1">{conflictFlags.sameDepartmentOverlapCount} approved PTO request{conflictFlags.sameDepartmentOverlapCount === 1 ? "" : "s"} overlap in <strong>{conflictFlags.departmentName}</strong>. A manager coverage plan is required before approval.</p><p className="mt-1 text-xs text-rose-800">{conflictFlags.companyOverlapCount} approved overlap{conflictFlags.companyOverlapCount === 1 ? "" : "s"} across the company in total.</p></div>;
+  return <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />Company availability warning</div><p className="mt-1">{conflictFlags.companyOverlapCount} approved PTO request{conflictFlags.companyOverlapCount === 1 ? "" : "s"} overlap elsewhere in the company. No same-department coverage plan is required.</p></div>;
+}
+
+function ConflictBadge({ conflictFlags }: { conflictFlags: any }) {
+  if (!conflictFlags?.hasCompanyConflict) return <span className="text-xs text-muted-foreground">None</span>;
+  if (conflictFlags.requiresCoveragePlan) return <Badge variant="outline" className="border-rose-300 bg-rose-50 text-rose-800"><AlertTriangle className="mr-1 h-3 w-3" />Department · plan required</Badge>;
+  return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800"><AlertTriangle className="mr-1 h-3 w-3" />Company overlap</Badge>;
+}
+
 function QueueTable({ rows, onOpen }: { rows: any[]; onOpen: (requestId: number) => void }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-2 py-3 font-medium">Employee</th><th className="px-2 py-3 font-medium">Dates</th><th className="px-2 py-3 font-medium">Duration</th><th className="px-2 py-3 font-medium">Type</th><th className="px-2 py-3 font-medium">Remaining</th><th className="px-2 py-3 font-medium">Status</th><th className="px-2 py-3" /></tr></thead><tbody>{rows.map((request) => <tr key={request.id} className="border-b last:border-0"><td className="px-2 py-3 font-medium">{request.employee.name ?? request.employee.email}</td><td className="px-2 py-3 text-muted-foreground">{formatDate(request.startDate)} – {formatDate(request.endDate)}</td><td className="px-2 py-3">{pluralDays(request.requestedDays)}</td><td className="px-2 py-3 capitalize">{request.ptoType}</td><td className="px-2 py-3 font-medium tabular-nums">{request.remainingBalance} days</td><td className="px-2 py-3"><Badge variant="outline" className={statusStyle(request.status)}>{request.status}</Badge></td><td className="px-2 py-3 text-right"><Button variant="outline" size="sm" onClick={() => onOpen(request.id)}><Eye className="mr-1.5 h-3.5 w-3.5" />Inspect</Button></td></tr>)}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[840px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-2 py-3 font-medium">Employee</th><th className="px-2 py-3 font-medium">Dates</th><th className="px-2 py-3 font-medium">Duration</th><th className="px-2 py-3 font-medium">Type</th><th className="px-2 py-3 font-medium">Conflict</th><th className="px-2 py-3 font-medium">Remaining</th><th className="px-2 py-3 font-medium">Status</th><th className="px-2 py-3" /></tr></thead><tbody>{rows.map((request) => <tr key={request.id} className="border-b last:border-0"><td className="px-2 py-3 font-medium">{request.employee.name ?? request.employee.email}</td><td className="px-2 py-3 text-muted-foreground">{formatDate(request.startDate)} – {formatDate(request.endDate)}</td><td className="px-2 py-3">{pluralDays(request.requestedDays)}</td><td className="px-2 py-3 capitalize">{request.ptoType}</td><td className="px-2 py-3"><ConflictBadge conflictFlags={request.conflictFlags} /></td><td className="px-2 py-3 font-medium tabular-nums">{request.remainingBalance} days</td><td className="px-2 py-3"><Badge variant="outline" className={statusStyle(request.status)}>{request.status}</Badge></td><td className="px-2 py-3 text-right"><Button variant="outline" size="sm" onClick={() => onOpen(request.id)}><Eye className="mr-1.5 h-3.5 w-3.5" />Inspect</Button></td></tr>)}</tbody></table></div>;
 }
 
 function InfoCell({ label, value }: { label: string; value: string }) {
