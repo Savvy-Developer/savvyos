@@ -512,6 +512,7 @@ export const analyticsRouter = router({
     .input(z.object({
       period: z.enum(["this_week", "this_month", "this_quarter", "ytd", "all_time"]).default("this_month"),
       dealType: z.enum(["under_contract", "closed"]).default("closed"),
+      rankBy: z.enum(["volume", "units"]).default("volume"),
     }))
     .query(async ({ ctx, input }) => {
       if (ctx.user.role !== "agent" && ctx.user.role !== "admin") {

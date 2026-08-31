@@ -52,6 +52,7 @@ async function getDb() {
 
 export type AgentLeaderboardPeriod = "this_week" | "this_month" | "this_quarter" | "ytd" | "all_time";
 export type AgentLeaderboardDealType = "under_contract" | "closed";
+export type AgentLeaderboardRankBy = "volume" | "units";
 
 type LeaderboardMilestone = {
   agentId: number;
@@ -130,6 +131,18 @@ function pickMilestone(groups: Map<string, LeaderboardMilestone>) {
   return Array.from(groups.values()).sort((a, b) =>
     b.units - a.units || b.volume - a.volume || a.agentName.localeCompare(b.agentName)
   )[0] ?? null;
+}
+
+export function sortAgentLeaderboardEntries<T extends { agentName: string; units: number; volume: number }>(
+  entries: T[],
+  rankBy: AgentLeaderboardRankBy,
+) {
+  return entries.slice().sort((a, b) => {
+    if (rankBy === "units") {
+      return b.units - a.units || b.volume - a.volume || a.agentName.localeCompare(b.agentName);
+    }
+    return b.volume - a.volume || b.units - a.units || a.agentName.localeCompare(b.agentName);
+  });
 }
 
 
@@ -302,10 +315,12 @@ export async function getAgentPerformanceReport(opts?: {
 export async function getAgentLeaderboard(opts: {
   period: AgentLeaderboardPeriod;
   dealType: AgentLeaderboardDealType;
+  rankBy?: AgentLeaderboardRankBy;
   viewerAgentId: number;
 }) {
   const db = await getDb();
   const isClosed = opts.dealType === "closed";
+  const rankBy = opts.rankBy ?? "volume";
   const { dateFrom, dateTo, label } = getAgentLeaderboardPeriodRange(opts.period);
   const dateField = isClosed ? transactions.closingDate : transactions.contractDate;
   // Closed production follows the agent-selected period. Under Contract is intentionally
@@ -356,7 +371,7 @@ export async function getAgentLeaderboard(opts: {
     .groupBy(transactions.agentId);
 
   const productionByAgent = new Map(production.map((row) => [row.agentId, row]));
-  const leaderboard = activeAgents
+  const leaderboard = sortAgentLeaderboardEntries(activeAgents
     .map((agent) => {
       const row = productionByAgent.get(agent.agentId);
       return {
@@ -375,8 +390,7 @@ export async function getAgentLeaderboard(opts: {
         averageBuyerCommissionRate: row?.averageBuyerCommissionRate == null ? null : Number(row.averageBuyerCommissionRate),
         averageSellerCommissionRate: row?.averageSellerCommissionRate == null ? null : Number(row.averageSellerCommissionRate),
       };
-    })
-    .sort((a, b) => b.volume - a.volume || b.units - a.units || a.agentName.localeCompare(b.agentName))
+    }), rankBy)
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
   const milestoneRows = await db
@@ -479,6 +493,7 @@ export async function getAgentLeaderboard(opts: {
   return {
     periodLabel: isClosed ? label : "Live Pipeline",
     hasDateFilters: isClosed,
+    rankBy,
     activeAgentCount: activeAgents.length,
     leaderboard,
     myEntry: leaderboard.find((entry) => entry.agentId === opts.viewerAgentId) ?? null,

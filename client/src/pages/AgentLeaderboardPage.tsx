@@ -33,6 +33,7 @@ import {
 
 type LeaderboardPeriod = "this_week" | "this_month" | "this_quarter" | "ytd" | "all_time";
 type DealType = "under_contract" | "closed";
+type LeaderboardRankBy = "volume" | "units";
 
 type AgentEntry = {
   agentId: number;
@@ -204,7 +205,8 @@ export default function AgentLeaderboardPage() {
   const [, navigate] = useLocation();
   const [period, setPeriod] = useState<LeaderboardPeriod>("this_month");
   const [dealType, setDealType] = useState<DealType>("closed");
-  const queryInput = useMemo(() => ({ period, dealType }), [period, dealType]);
+  const [rankBy, setRankBy] = useState<LeaderboardRankBy>("volume");
+  const queryInput = useMemo(() => ({ period, dealType, rankBy }), [period, dealType, rankBy]);
   const { data, isLoading, isError } = trpc.analytics.agentLeaderboard.useQuery(queryInput, {
     staleTime: 60_000,
   });
@@ -212,7 +214,8 @@ export default function AgentLeaderboardPage() {
   const isClosed = dealType === "closed";
   const leaderboard = (data?.leaderboard ?? []) as AgentEntry[];
   const myEntry = (data?.myEntry ?? null) as AgentEntry | null;
-  const topAgent = leaderboard.find((entry) => entry.volume > 0) ?? null;
+  const isUnitsRanked = rankBy === "units";
+  const topAgent = leaderboard.find((entry) => isUnitsRanked ? entry.units > 0 : entry.volume > 0) ?? null;
   const milestones = (data?.milestones ?? {}) as {
     largestTransaction?: Milestone | null;
     bestWeek?: Milestone | null;
@@ -228,17 +231,17 @@ export default function AgentLeaderboardPage() {
   const standingMessage = !myEntry
     ? null
     : myEntry.rank === 1
-      ? `You are leading the team in production volume. Keep the crown.`
-      : aboveMe && aboveMe.volume > myEntry.volume
-        ? `You are ${currency(aboveMe.volume - myEntry.volume)} in volume from #${aboveMe.rank}.`
-        : aboveMe && aboveMe.units > myEntry.units
-          ? `You are one deal count step from #${aboveMe.rank}.`
+      ? `You are leading the team in ${isUnitsRanked ? "units" : "production volume"}. Keep the crown.`
+      : isUnitsRanked && aboveMe && aboveMe.units > myEntry.units
+        ? `You are ${aboveMe.units - myEntry.units} ${aboveMe.units - myEntry.units === 1 ? "unit" : "units"} from #${aboveMe.rank}.`
+        : !isUnitsRanked && aboveMe && aboveMe.volume > myEntry.volume
+          ? `You are ${currency(aboveMe.volume - myEntry.volume)} in volume from #${aboveMe.rank}.`
           : "Every deal moves the board. Build your next win.";
 
-  const boardTitle = isClosed ? "Closed standings" : "Under Contract standings";
+  const boardTitle = `${isClosed ? "Closed" : "Under Contract"} standings by ${isUnitsRanked ? "units" : "volume"}`;
   const boardDescriptor = isClosed
-    ? `${periodLabel} · ordered by production volume, then units`
-    : "Live view of every active deal currently under contract · ordered by production volume, then units";
+    ? `${periodLabel} · ordered by ${isUnitsRanked ? "units, then production volume" : "production volume, then units"}`
+    : `Live view of every active deal currently under contract · ordered by ${isUnitsRanked ? "units, then production volume" : "production volume, then units"}`;
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 pb-8">
@@ -252,7 +255,7 @@ export default function AgentLeaderboardPage() {
             </Badge>
             <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Agent Leaderboard</h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Benchmark your momentum against <span className="font-semibold text-foreground">{activeAgentCount} active Savvy agents</span>. Rankings prioritize total production volume, with units as the tie-breaker.
+              Benchmark your momentum against <span className="font-semibold text-foreground">{activeAgentCount} active Savvy agents</span>. Switch between production volume and units to recognize the performance that matters most right now.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -280,7 +283,7 @@ export default function AgentLeaderboardPage() {
             )}
             <button
               type="button"
-              onClick={() => navigate("/leaderboard/present")}
+              onClick={() => navigate(`/leaderboard/present?period=${period}&dealType=${dealType}&rankBy=${rankBy}`)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-primary/25 bg-background/80 px-3 py-2 text-xs font-bold text-primary shadow-sm transition-all duration-150 hover:bg-primary hover:text-primary-foreground active:scale-[0.97]"
             >
               <MonitorUp className="h-3.5 w-3.5" /> Presentation mode
@@ -305,6 +308,31 @@ export default function AgentLeaderboardPage() {
         </div>
       </Tabs>
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2.5 sm:px-4">
+        <div>
+          <p className="text-sm font-semibold">Rank the board by</p>
+          <p className="text-xs text-muted-foreground">Highlights, leader cards, and standings update to match.</p>
+        </div>
+        <div className="inline-flex rounded-lg border bg-muted/35 p-1" role="group" aria-label="Leaderboard ranking metric">
+          <button
+            type="button"
+            onClick={() => setRankBy("volume")}
+            aria-pressed={!isUnitsRanked}
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${!isUnitsRanked ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Volume
+          </button>
+          <button
+            type="button"
+            onClick={() => setRankBy("units")}
+            aria-pressed={isUnitsRanked}
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${isUnitsRanked ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Units
+          </button>
+        </div>
+      </div>
+
       {isLoading ? <LeaderboardLoading /> : isError ? (
         <Card>
           <CardContent className="flex min-h-48 flex-col items-center justify-center px-6 text-center">
@@ -320,7 +348,9 @@ export default function AgentLeaderboardPage() {
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{isClosed ? "Current pace leader" : "Live pipeline leader"}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                      {isUnitsRanked ? (isClosed ? "Current units leader" : "Live units leader") : (isClosed ? "Current pace leader" : "Live pipeline leader")}
+                    </p>
                     {topAgent ? (
                       <div className="mt-2 flex items-center gap-2.5">
                         <div className="relative shrink-0">
@@ -329,7 +359,11 @@ export default function AgentLeaderboardPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-base font-bold leading-snug break-words">{topAgent.agentName}</p>
-                          <p className="text-xs leading-relaxed text-muted-foreground">{compactCurrency(topAgent.volume)} {isClosed ? "closed" : "under contract"} · {topAgent.units} {topAgent.units === 1 ? "deal" : "deals"}</p>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {isUnitsRanked
+                              ? `${topAgent.units} ${topAgent.units === 1 ? "unit" : "units"} ${isClosed ? "closed" : "under contract"} · ${compactCurrency(topAgent.volume)} in volume`
+                              : `${compactCurrency(topAgent.volume)} ${isClosed ? "closed" : "under contract"} · ${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"}`}
+                          </p>
                         </div>
                       </div>
                     ) : <p className="mt-3 text-sm text-muted-foreground">No qualifying production posted yet.</p>}
@@ -349,23 +383,32 @@ export default function AgentLeaderboardPage() {
 
             <MilestoneCard
               icon={Gem}
-              eyebrow={isClosed ? "Big deal energy" : "Big deal in play"}
-              headline={milestones.largestTransaction ? `${milestones.largestTransaction.agentName} ${isClosed ? "closed the largest deal" : "has the largest deal under contract"}` : ""}
-              detail={milestones.largestTransaction ? `${compactCurrency(milestones.largestTransaction.volume)} in ${isClosed ? `closed production during ${periodLabel}` : "current under-contract volume"}.` : ""}
-              entry={milestones.largestTransaction}
+              eyebrow={isUnitsRanked ? (isClosed ? "Most units" : "Most live units") : (isClosed ? "Big deal energy" : "Big deal in play")}
+              headline={isUnitsRanked
+                ? (topAgent ? `${topAgent.agentName} is leading in units` : "")
+                : (milestones.largestTransaction ? `${milestones.largestTransaction.agentName} ${isClosed ? "closed the largest deal" : "has the largest deal under contract"}` : "")}
+              detail={isUnitsRanked
+                ? (topAgent ? `${topAgent.units} ${topAgent.units === 1 ? "unit" : "units"} ${isClosed ? `closed during ${periodLabel}` : "currently under contract"}.` : "")
+                : (milestones.largestTransaction ? `${compactCurrency(milestones.largestTransaction.volume)} in ${isClosed ? `closed production during ${periodLabel}` : "current under-contract volume"}.` : "")}
+              entry={isUnitsRanked ? topAgent : milestones.largestTransaction}
               tone="warm"
             />
 
             <MilestoneCard
               icon={isClosed ? Flame : CalendarDays}
-              eyebrow={isClosed ? "Hot hand" : "Next closing"}
+              eyebrow={isUnitsRanked ? (isClosed ? "Unit hot hand" : "Units in play") : (isClosed ? "Hot hand" : "Next closing")}
               headline={isClosed
-                ? (milestones.bestWeek ? `${milestones.bestWeek.agentName} had the hottest week` : "")
-                : (milestones.nextClosing ? `${milestones.nextClosing.agentName}'s deal is closing next` : "")}
+                ? (milestones.bestWeek ? `${milestones.bestWeek.agentName} had the ${isUnitsRanked ? "biggest unit week" : "hottest week"}` : "")
+                : (isUnitsRanked ? (topAgent ? `${topAgent.agentName} has the most deals in play` : "") : (milestones.nextClosing ? `${milestones.nextClosing.agentName}'s deal is closing next` : ""))}
               detail={isClosed
-                ? (milestones.bestWeek ? `${milestones.bestWeek.units} ${milestones.bestWeek.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.bestWeek.volume)} of production closed in one week.` : "")
-                : (milestones.nextClosing ? `${compactCurrency(milestones.nextClosing.volume)} is expected to close ${formatDate(milestones.nextClosing.date)}.` : "")}
-              entry={isClosed ? milestones.bestWeek : milestones.nextClosing}
+                ? (milestones.bestWeek ? isUnitsRanked
+                  ? `${milestones.bestWeek.units} ${milestones.bestWeek.units === 1 ? "unit" : "units"} closed in one week.`
+                  : `${milestones.bestWeek.units} ${milestones.bestWeek.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.bestWeek.volume)} of production closed in one week.`
+                  : "")
+                : (isUnitsRanked
+                  ? (topAgent ? `${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"} currently under contract.` : "")
+                  : (milestones.nextClosing ? `${compactCurrency(milestones.nextClosing.volume)} is expected to close ${formatDate(milestones.nextClosing.date)}.` : ""))}
+              entry={isClosed ? milestones.bestWeek : (isUnitsRanked ? topAgent : milestones.nextClosing)}
               tone="cool"
             />
           </section>
@@ -376,15 +419,19 @@ export default function AgentLeaderboardPage() {
                 icon={CalendarDays}
                 eyebrow={`Power month ${powerMonthYear}`}
                 headline={milestones.powerMonth ? `${milestones.powerMonth.agentName} posted the strongest month` : ""}
-                detail={milestones.powerMonth ? `${milestones.powerMonth.units} ${milestones.powerMonth.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.powerMonth.volume)} closed in ${formatMonth(milestones.powerMonth.periodStart)}.` : ""}
+                detail={milestones.powerMonth ? isUnitsRanked
+                  ? `${milestones.powerMonth.units} ${milestones.powerMonth.units === 1 ? "unit" : "units"} closed in ${formatMonth(milestones.powerMonth.periodStart)}.`
+                  : `${milestones.powerMonth.units} ${milestones.powerMonth.units === 1 ? "deal" : "deals"} and ${compactCurrency(milestones.powerMonth.volume)} closed in ${formatMonth(milestones.powerMonth.periodStart)}.` : ""}
                 entry={milestones.powerMonth}
               />
             ) : (
               <MilestoneCard
                 icon={Flame}
-                eyebrow="Pipeline pulse"
-                headline={topAgent ? `${topAgent.agentName} is carrying the most live volume` : ""}
-                detail={topAgent ? `${compactCurrency(topAgent.volume)} is currently under contract across ${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"}.` : ""}
+                eyebrow={isUnitsRanked ? "Units in play" : "Pipeline pulse"}
+                headline={topAgent ? `${topAgent.agentName} is carrying the most live ${isUnitsRanked ? "units" : "volume"}` : ""}
+                detail={topAgent ? isUnitsRanked
+                  ? `${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"} are currently under contract.`
+                  : `${compactCurrency(topAgent.volume)} is currently under contract across ${topAgent.units} ${topAgent.units === 1 ? "deal" : "deals"}.` : ""}
                 entry={topAgent}
               />
             )}
@@ -397,8 +444,8 @@ export default function AgentLeaderboardPage() {
                   <p className="text-sm font-semibold">How this board works</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {isClosed
-                      ? "Every active agent is included. Closed rankings use production volume first, then units. The Power Month headline always finds the strongest single closed month in the current calendar year."
-                      : "Every active agent is included. This is a live view of all current under-contract deals, so it has no date filters. Rankings use under-contract volume first, then units."}
+                      ? `Every active agent is included. Closed rankings use ${isUnitsRanked ? "units first, then production volume" : "production volume first, then units"}. The Power Month headline always finds the strongest single closed month in the current calendar year.`
+                      : `Every active agent is included. This is a live view of all current under-contract deals, so it has no date filters. Rankings use ${isUnitsRanked ? "units first, then under-contract volume" : "under-contract volume first, then units"}.`}
                   </p>
                 </div>
               </CardContent>
