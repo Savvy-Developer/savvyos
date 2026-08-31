@@ -120,6 +120,8 @@ interface EmailContext {
   amount?: string;
   percentage?: string;
   notes?: string;
+  leadSourceLabel?: string;
+  clientContextSummary?: string;
   // PTO request and decision fields
   employeeName?: string;
   managerName?: string;
@@ -420,9 +422,11 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${greeting(ctx.recipientName)}
       ${bodyText("A new lead has been assigned to you in SavvyOS. Reach out within 24 hours for the best conversion rate.")}
       ${infoCard([
-        `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName ?? "—"}`,
-        ...(ctx.notes ? [`<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${ctx.notes}`] : []),
+        `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName ?? "—")}`,
+        ...(ctx.leadSourceLabel ? [`<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; ${escapeHtml(ctx.leadSourceLabel)}`] : []),
+        ...(ctx.notes ? [`<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${escapeHtml(ctx.notes)}`] : []),
       ])}
+      ${ctx.clientContextSummary ? `<p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Client Context</p><div style="background:#F9FAFB;border-radius:8px;border-left:3px solid #0FC0DF;padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(ctx.clientContextSummary)}</div>` : ""}
       ${ctaButton("View Contact", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
       `New lead assigned: ${ctx.contactName ?? "New Contact"}`
     ),

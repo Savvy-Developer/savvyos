@@ -6,10 +6,13 @@ import {
   OFFER_SHEET_REFERRAL_SOURCE_NAME,
 } from "./smartPlanPropertyContext";
 import {
+  DEFAULT_SMART_PLAN_DELIVERY_WINDOW,
   isWithinSmartPlanSendWindow,
   LEGACY_BUSINESS_HOURS_WINDOW,
   nextSmartPlanSendWindowStart,
 } from "./smartPlanScheduling";
+import { compareSmartPlanStepsByTiming } from "./smartPlanStepOrder";
+import { capabilitiesForPasswordShare, normalizePasswordShareGrant, sharedAccessLabel } from "./passwordListSharing";
 
 describe("Offer Sheet referral property extraction", () => {
   it("extracts an address from the current no-space intake format", () => {
@@ -57,6 +60,17 @@ describe("Offer Sheet referral property extraction", () => {
 });
 
 describe("Smart Plan send windows", () => {
+  it("defaults plan delivery to Sunday–Saturday from 8 AM through 8 PM Eastern", () => {
+    expect(DEFAULT_SMART_PLAN_DELIVERY_WINDOW).toEqual({
+      days: [0, 1, 2, 3, 4, 5, 6],
+      startHour: 8,
+      endHour: 20,
+      timezone: "America/New_York",
+    });
+    expect(isWithinSmartPlanSendWindow(new Date("2026-08-30T12:00:00.000Z"), DEFAULT_SMART_PLAN_DELIVERY_WINDOW)).toBe(true);
+    expect(isWithinSmartPlanSendWindow(new Date("2026-08-30T00:00:00.000Z"), DEFAULT_SMART_PLAN_DELIVERY_WINDOW)).toBe(false);
+  });
+
   it("retains the legacy Monday–Friday 9 AM–6 PM business-hours behavior", () => {
     expect(
       isWithinSmartPlanSendWindow(
@@ -110,5 +124,26 @@ describe("Smart Plan send windows", () => {
     expect(
       isWithinSmartPlanSendWindow(next, LEGACY_BUSINESS_HOURS_WINDOW)
     ).toBe(true);
+  });
+});
+
+describe("Smart Plan timing order", () => {
+  it("places shorter waits first and retains authored order for equal waits", () => {
+    const steps = [
+      { id: 30, stepOrder: 0, delayDays: 0, delayHours: 0 },
+      { id: 31, stepOrder: 1, delayDays: 1, delayHours: 0 },
+      { id: 40, stepOrder: 8, delayDays: 0, delayHours: 2 },
+      { id: 32, stepOrder: 2, delayDays: 2, delayHours: 0 },
+      { id: 33, stepOrder: 3, delayDays: 2, delayHours: 0 },
+    ];
+    expect([...steps].sort(compareSmartPlanStepsByTiming).map((step) => step.id)).toEqual([30, 40, 31, 32, 33]);
+  });
+});
+
+describe("Password list share capabilities", () => {
+  it("makes create and edit grants viewable without granting list management", () => {
+    expect(normalizePasswordShareGrant({ userId: 7, canView: false, canCreate: true, canEdit: false })).toEqual({ userId: 7, canView: true, canCreate: true, canEdit: false });
+    expect(capabilitiesForPasswordShare({ userId: 7, canView: false, canCreate: false, canEdit: true })).toEqual({ canView: true, canCreateEntries: false, canEditEntries: true });
+    expect(sharedAccessLabel({ canView: true, canCreateEntries: true, canEditEntries: true })).toBe("Shared: view, create & edit");
   });
 });

@@ -28,6 +28,7 @@ import { persistOutboundAircallSend } from "./aircallMessaging";
 import { refreshOneTimeSendMetrics } from "./oneTimeSendTracking";
 import { extractOfferSheetReferralPropertyAddress, OFFER_SHEET_REFERRAL_SOURCE_NAME } from "./smartPlanPropertyContext";
 import {
+  DEFAULT_SMART_PLAN_DELIVERY_WINDOW,
   isValidSmartPlanSendWindow,
   isWithinSmartPlanSendWindow,
   LEGACY_BUSINESS_HOURS_WINDOW,
@@ -232,17 +233,26 @@ async function processEnrollmentStep(
   const step = steps[stepIndex];
 
   // ── Configurable send-window check ────────────────────────────────────────
-  // Retain legacy business-hours behavior for any rows awaiting migration.
-  const configuredWindow = step.sendWindowEnabled
+  // Individual step schedules override the plan default only when explicitly
+  // enabled. This keeps plan-wide settings predictable for every new step.
+  const planDefaultWindow = plan.defaultSendWindowEnabled
+    ? normaliseSmartPlanSendWindow({
+      days: plan.defaultSendDays,
+      startHour: plan.defaultSendStartHour,
+      endHour: plan.defaultSendEndHour,
+      timezone: plan.defaultSendTimezone,
+    })
+    : null;
+  const configuredWindow = step.sendWindowOverride
     ? normaliseSmartPlanSendWindow({
       days: step.sendDays,
       startHour: step.sendStartHour,
       endHour: step.sendEndHour,
       timezone: step.timezone,
     })
-    : step.businessHoursOnly
+    : planDefaultWindow ?? (step.businessHoursOnly
       ? { ...LEGACY_BUSINESS_HOURS_WINDOW, timezone: step.timezone || LEGACY_BUSINESS_HOURS_WINDOW.timezone }
-      : null;
+      : null);
   if (configuredWindow && isValidSmartPlanSendWindow(configuredWindow) && !shouldBypassInitialSendWindow(enrollment)) {
     if (!isWithinSmartPlanSendWindow(new Date(), configuredWindow)) {
       // Keep the current step untouched; it will run at the opening of the next window.

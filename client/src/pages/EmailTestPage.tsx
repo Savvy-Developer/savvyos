@@ -19,7 +19,7 @@ import {
 const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> = {
   lead_assigned: {
     subject: "New Lead Assigned: {{contactName}}",
-    bodyText: "A new lead has been assigned to you. Please review their details and reach out as soon as possible.",
+    bodyText: "A new lead has been assigned to you, including their source and a concise client-context briefing when existing CRM history is available.",
   },
   transaction_created: {
     subject: "New Transaction #{{transactionNumber}} Created",
@@ -96,7 +96,9 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
   lead_assigned: [
     { key: "recipientName", description: "Name of the person receiving the email" },
     { key: "contactName", description: "Name of the new lead" },
+    { key: "leadSourceLabel", description: "Original lead source, including its parent category when available" },
     { key: "notes", description: "Notes about the lead from the ISA" },
+    { key: "clientContextSummary", description: "Concise AI briefing based on pre-existing CRM history, when enough context exists" },
   ],
   transaction_created: [
     { key: "recipientName", description: "Recipient's name" },

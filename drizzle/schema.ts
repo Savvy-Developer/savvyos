@@ -946,6 +946,13 @@ export const smartPlans = mysqlTable("smart_plans", {
   triggerScope: mysqlEnum("triggerScope", ["new_only", "existing_and_new", "manual"]).default("new_only").notNull(),
   // Stops future steps when the contact replies to a Smart Plan email or text.
   pauseOnReply: boolean("pauseOnReply").default(false).notNull(),
+  // Plan-wide delivery schedule. Steps inherit this window unless they explicitly
+  // opt into an individual override.
+  defaultSendWindowEnabled: boolean("defaultSendWindowEnabled").default(true).notNull(),
+  defaultSendDays: json("defaultSendDays").$type<number[]>().notNull(),
+  defaultSendStartHour: int("defaultSendStartHour").default(8).notNull(),
+  defaultSendEndHour: int("defaultSendEndHour").default(20).notNull(),
+  defaultSendTimezone: varchar("defaultSendTimezone", { length: 64 }).default("America/New_York").notNull(),
   // Optional, plan-scoped property-address merge behavior for specialized intake flows.
   propertyAddressFromNotes: boolean("propertyAddressFromNotes").default(false).notNull(),
   propertyAddressFallbackText: text("propertyAddressFallbackText"),
@@ -1067,6 +1074,8 @@ export const smartPlanSteps = mysqlTable("smart_plan_steps", {
   businessHoursOnly: boolean("businessHoursOnly").default(false).notNull(),
   // Explicit delivery schedule. The old business-hours flag remains for backward
   // compatibility and is migrated into the matching weekday/time configuration.
+  // When false, the step inherits its plan-wide delivery schedule.
+  sendWindowOverride: boolean("sendWindowOverride").default(false).notNull(),
   sendWindowEnabled: boolean("sendWindowEnabled").default(false).notNull(),
   sendDays: json("sendDays").$type<number[]>(),
   sendStartHour: int("sendStartHour").default(9).notNull(),
@@ -3837,6 +3846,10 @@ export const passwordListShares = mysqlTable("password_list_shares", {
   id: int("id").autoincrement().primaryKey(),
   listId: int("listId").notNull().references(() => passwordLists.id, { onDelete: "cascade" }),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  // Individual entry capabilities. Create and edit implicitly retain view access.
+  canView: boolean("canView").default(true).notNull(),
+  canCreate: boolean("canCreate").default(false).notNull(),
+  canEdit: boolean("canEdit").default(false).notNull(),
   sharedByUserId: int("sharedByUserId").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({

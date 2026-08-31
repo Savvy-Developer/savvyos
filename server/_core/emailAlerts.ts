@@ -54,6 +54,8 @@ export async function sendEmailAlert(
         amount: context.amount as string | undefined,
         percentage: context.percentage as string | undefined,
         notes: context.notes as string | undefined,
+        leadSourceLabel: context.leadSourceLabel as string | undefined,
+        clientContextSummary: context.clientContextSummary as string | undefined,
         listingAddress: context.listingAddress as string | undefined,
         listPrice: context.listPrice as string | undefined,
         listingDate: context.listingDate as string | undefined,
@@ -66,7 +68,9 @@ export async function sendEmailAlert(
         listingId: context.listingId != null ? String(context.listingId) : undefined,
         connectionId: context.connectionId != null ? String(context.connectionId) : undefined,
         contactId: context.contactId != null ? String(context.contactId) : undefined,
-      });
+      }, type === "lead_assigned" && context.connectionId != null
+        ? { idempotencyKey: `savvyos-lead-assigned-${String(context.connectionId)}` }
+        : undefined);
     }
   } catch (err) {
     console.error("[EmailAlert] Failed to send alert:", err);

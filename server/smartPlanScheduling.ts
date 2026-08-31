@@ -12,6 +12,13 @@ export type SmartPlanSendWindowInput = {
   timezone?: string | null;
 };
 
+export const DEFAULT_SMART_PLAN_DELIVERY_WINDOW: SmartPlanSendWindow = {
+  days: [0, 1, 2, 3, 4, 5, 6],
+  startHour: 8,
+  endHour: 20,
+  timezone: "America/New_York",
+};
+
 export const LEGACY_BUSINESS_HOURS_WINDOW: SmartPlanSendWindow = {
   days: [1, 2, 3, 4, 5],
   startHour: 9,
@@ -47,7 +54,7 @@ export function normaliseSmartPlanSendWindow(
 ): SmartPlanSendWindow {
   const days = Array.from(
     new Set(
-      (input?.days ?? LEGACY_BUSINESS_HOURS_WINDOW.days).filter(
+      (input?.days ?? DEFAULT_SMART_PLAN_DELIVERY_WINDOW.days).filter(
         (day): day is number => Number.isInteger(day) && day >= 0 && day <= 6
       )
     )
@@ -57,19 +64,19 @@ export function normaliseSmartPlanSendWindow(
     input!.startHour! >= 0 &&
     input!.startHour! <= 23
       ? input!.startHour!
-      : LEGACY_BUSINESS_HOURS_WINDOW.startHour;
+      : DEFAULT_SMART_PLAN_DELIVERY_WINDOW.startHour;
   const endHour =
     Number.isInteger(input?.endHour) &&
     input!.endHour! >= 1 &&
     input!.endHour! <= 24
       ? input!.endHour!
-      : LEGACY_BUSINESS_HOURS_WINDOW.endHour;
+      : DEFAULT_SMART_PLAN_DELIVERY_WINDOW.endHour;
 
   return {
-    days: days.length ? days : LEGACY_BUSINESS_HOURS_WINDOW.days,
+    days: days.length ? days : DEFAULT_SMART_PLAN_DELIVERY_WINDOW.days,
     startHour,
     endHour,
-    timezone: input?.timezone?.trim() || LEGACY_BUSINESS_HOURS_WINDOW.timezone,
+    timezone: input?.timezone?.trim() || DEFAULT_SMART_PLAN_DELIVERY_WINDOW.timezone,
   };
 }
 

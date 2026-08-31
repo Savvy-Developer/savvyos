@@ -74,7 +74,7 @@ import { ptoRouter } from "./routers/pto";
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
   return [
-    ["lead_assigned", { ...ctx2, contactName: "Jane Smith", notes: "Interested in STR investment, budget $500k" }],
+    ["lead_assigned", { ...ctx2, contactName: "Jane Smith", leadSourceLabel: "Paid Leads › AirDNA", notes: "Interested in STR investment, budget $500k", clientContextSummary: "Jane has been researching an STR purchase with a roughly $500,000 budget. Prior activity suggests she is focused on validating market data; a quick discovery call about her target market and buy box is the best next step." }],
     ["transaction_created", { ...ctx2, transactionNumber: "TXN-TEST-001", transactionType: "buyer", contactName: "Jane Smith", propertyAddress: "123 Mountain View Dr, Asheville, NC", amount: "$525,000" }],
     ["transaction_status_changed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", status: "Under Contract" }],
     ["transaction_closed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", amount: "$525,000" }],

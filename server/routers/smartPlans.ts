@@ -15,7 +15,7 @@ import {
   users,
   aircallIntegrationState,
 } from "../../drizzle/schema";
-import { and, eq, desc, asc, sql, inArray, isNotNull, or } from "drizzle-orm";
+import { and, eq, desc, asc, sql, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { sendAircallSMS } from "../_core/aircall";
 import { renderSavvyCampaignEmail, sendSmartPlanEmail } from "../_core/smartPlanEmail";
 import { renderMergeTags } from "../_core/smartPlanMergeTags";
@@ -31,7 +31,8 @@ import {
   contactChannelAddresses,
   bulkEnrollExistingContacts,
 } from "../smartPlanScheduler";
-import { isValidSmartPlanSendWindow, normaliseSmartPlanSendWindow } from "../smartPlanScheduling";
+import { DEFAULT_SMART_PLAN_DELIVERY_WINDOW, isValidSmartPlanSendWindow, normaliseSmartPlanSendWindow } from "../smartPlanScheduling";
+import { compareSmartPlanStepsByTiming } from "../smartPlanStepOrder";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
@@ -44,6 +45,11 @@ const planInput = z.object({
   triggerType: smartPlanTriggerSchema.optional(),
   triggerScope: z.enum(["new_only", "existing_and_new", "manual"]).optional(),
   pauseOnReply: z.boolean().optional(),
+  defaultSendWindowEnabled: z.boolean().optional(),
+  defaultSendDays: z.array(z.number().int().min(0).max(6)).optional(),
+  defaultSendStartHour: z.number().int().min(0).max(23).optional(),
+  defaultSendEndHour: z.number().int().min(1).max(24).optional(),
+  defaultSendTimezone: z.string().optional(),
   status: z.enum(["active", "paused", "draft"]).optional(),
 });
 
@@ -164,6 +170,54 @@ function testMergeContext(agentName: string | null | undefined) {
   };
 }
 
+async function orderPlanStepsByTiming(db: any, planId: number): Promise<void> {
+  const currentSteps = await db
+    .select()
+    .from(smartPlanSteps)
+    .where(eq(smartPlanSteps.planId, planId))
+    .orderBy(asc(smartPlanSteps.stepOrder));
+  const orderedSteps = [...currentSteps].sort(compareSmartPlanStepsByTiming);
+  const currentIds = currentSteps.map((step: any) => step.id);
+  const changed = orderedSteps.some((step, index) => step.id !== currentIds[index]);
+  if (!changed) return;
+
+  // Enrollment progress stores the positional next-step index. Preserve the
+  // actual pending step when timing normalization changes visible ordering.
+  const liveEnrollments = await db
+    .select({ id: smartPlanEnrollments.id, currentStepIndex: smartPlanEnrollments.currentStepIndex })
+    .from(smartPlanEnrollments)
+    .where(and(
+      eq(smartPlanEnrollments.planId, planId),
+      inArray(smartPlanEnrollments.status, ["active", "paused"]),
+      isNull(smartPlanEnrollments.archivedAt),
+    ));
+  const orderedIndexById = new Map(orderedSteps.map((step, index) => [step.id, index]));
+
+  for (let index = 0; index < orderedSteps.length; index++) {
+    await db.update(smartPlanSteps).set({ stepOrder: index }).where(eq(smartPlanSteps.id, orderedSteps[index].id));
+  }
+  for (const enrollment of liveEnrollments) {
+    const pendingStepId = currentIds[enrollment.currentStepIndex];
+    const nextIndex = pendingStepId === undefined ? enrollment.currentStepIndex : orderedIndexById.get(pendingStepId);
+    if (nextIndex !== undefined && nextIndex !== enrollment.currentStepIndex) {
+      await db.update(smartPlanEnrollments).set({ currentStepIndex: nextIndex }).where(eq(smartPlanEnrollments.id, enrollment.id));
+    }
+  }
+}
+
+function validateDefaultSendWindow(input: z.infer<typeof planInput>): void {
+  if (!input.defaultSendWindowEnabled) return;
+  const window = normaliseSmartPlanSendWindow({
+    days: input.defaultSendDays,
+    startHour: input.defaultSendStartHour,
+    endHour: input.defaultSendEndHour,
+    timezone: input.defaultSendTimezone,
+  });
+  if ((input.defaultSendDays?.length === 0) || !isValidSmartPlanSendWindow(window)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one default delivery day and an end time after the start time." });
+  }
+}
+
 export const smartPlansRouter = router({
   // ── Plan CRUD ──────────────────────────────────────────────────────────────
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -243,6 +297,7 @@ export const smartPlansRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      validateDefaultSendWindow(input);
       const [result] = await db.insert(smartPlans).values({
         name: input.name,
         description: input.description ?? null,
@@ -250,6 +305,11 @@ export const smartPlansRouter = router({
         triggerLeadSourceIds: input.triggerLeadSourceIds ?? null,
         triggerType: input.triggerType ?? "lead_source",
         triggerScope: input.triggerScope ?? "new_only",
+        defaultSendWindowEnabled: input.defaultSendWindowEnabled ?? true,
+        defaultSendDays: input.defaultSendDays ?? DEFAULT_SMART_PLAN_DELIVERY_WINDOW.days,
+        defaultSendStartHour: input.defaultSendStartHour ?? DEFAULT_SMART_PLAN_DELIVERY_WINDOW.startHour,
+        defaultSendEndHour: input.defaultSendEndHour ?? DEFAULT_SMART_PLAN_DELIVERY_WINDOW.endHour,
+        defaultSendTimezone: input.defaultSendTimezone ?? DEFAULT_SMART_PLAN_DELIVERY_WINDOW.timezone,
         status: input.status ?? "draft",
       });
       const newId = (result as any).insertId as number;
@@ -277,6 +337,11 @@ export const smartPlansRouter = router({
         triggerLeadSourceIds: input.triggerLeadSourceIds ?? null,
         triggerType: input.triggerType ?? "lead_source",
         triggerScope: input.triggerScope ?? "new_only",
+        defaultSendWindowEnabled: true,
+        defaultSendDays: DEFAULT_SMART_PLAN_DELIVERY_WINDOW.days,
+        defaultSendStartHour: DEFAULT_SMART_PLAN_DELIVERY_WINDOW.startHour,
+        defaultSendEndHour: DEFAULT_SMART_PLAN_DELIVERY_WINDOW.endHour,
+        defaultSendTimezone: DEFAULT_SMART_PLAN_DELIVERY_WINDOW.timezone,
         status: "draft",
       });
       const draftId = (result as any).insertId as number;
@@ -616,6 +681,24 @@ export const smartPlansRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { includeExistingContacts, ...data } = input.data;
+      const [existingPlan] = await db.select().from(smartPlans).where(eq(smartPlans.id, input.id)).limit(1);
+      if (!existingPlan) throw new TRPCError({ code: "NOT_FOUND" });
+      const windowChanged = data.defaultSendWindowEnabled !== undefined ||
+        data.defaultSendDays !== undefined ||
+        data.defaultSendStartHour !== undefined ||
+        data.defaultSendEndHour !== undefined ||
+        data.defaultSendTimezone !== undefined;
+      if (windowChanged) {
+        validateDefaultSendWindow({
+          ...existingPlan,
+          ...data,
+          defaultSendWindowEnabled: data.defaultSendWindowEnabled ?? existingPlan.defaultSendWindowEnabled,
+          defaultSendDays: data.defaultSendDays ?? existingPlan.defaultSendDays,
+          defaultSendStartHour: data.defaultSendStartHour ?? existingPlan.defaultSendStartHour,
+          defaultSendEndHour: data.defaultSendEndHour ?? existingPlan.defaultSendEndHour,
+          defaultSendTimezone: data.defaultSendTimezone ?? existingPlan.defaultSendTimezone,
+        });
+      }
       await db.update(smartPlans).set(data).where(eq(smartPlans.id, input.id));
       const enrollment = includeExistingContacts ? await bulkEnrollExistingContacts(input.id) : { enrolled: 0 };
       await logActivity({
@@ -663,6 +746,13 @@ export const smartPlansRouter = router({
           delayHours: z.number().min(0).max(23).default(0),
           subject: z.string().optional().nullable(),
           body: z.string().min(1),
+          businessHoursOnly: z.boolean().default(false),
+          sendWindowOverride: z.boolean().default(false),
+          sendWindowEnabled: z.boolean().default(false),
+          sendDays: z.array(z.number().int().min(0).max(6)).default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.days),
+          sendStartHour: z.number().int().min(0).max(23).default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.startHour),
+          sendEndHour: z.number().int().min(1).max(24).default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.endHour),
+          timezone: z.string().default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.timezone),
         })),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -680,9 +770,17 @@ export const smartPlansRouter = router({
               delayHours: s.delayHours,
               subject: s.subject ?? null,
               body: s.body,
+              businessHoursOnly: s.businessHoursOnly,
+              sendWindowOverride: s.sendWindowOverride,
+              sendWindowEnabled: s.sendWindowEnabled,
+              sendDays: s.sendDays,
+              sendStartHour: s.sendStartHour,
+              sendEndHour: s.sendEndHour,
+              timezone: s.timezone,
             }))
           );
         }
+        await orderPlanStepsByTiming(db, input.planId);
         return { success: true };
       }),
 
@@ -696,11 +794,12 @@ export const smartPlansRouter = router({
         subject: z.string().optional().nullable(),
         body: z.string().min(1),
         businessHoursOnly: z.boolean().default(false),
+        sendWindowOverride: z.boolean().default(false),
         sendWindowEnabled: z.boolean().default(false),
-        sendDays: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5]),
-        sendStartHour: z.number().int().min(0).max(23).default(9),
-        sendEndHour: z.number().int().min(1).max(24).default(18),
-        timezone: z.string().default("America/New_York"),
+        sendDays: z.array(z.number().int().min(0).max(6)).default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.days),
+        sendStartHour: z.number().int().min(0).max(23).default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.startHour),
+        sendEndHour: z.number().int().min(1).max(24).default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.endHour),
+        timezone: z.string().default(DEFAULT_SMART_PLAN_DELIVERY_WINDOW.timezone),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -731,13 +830,17 @@ export const smartPlansRouter = router({
           subject: input.subject ?? null,
           body: input.body,
           businessHoursOnly: input.businessHoursOnly,
+          sendWindowOverride: input.sendWindowOverride,
           sendWindowEnabled: input.sendWindowEnabled,
           sendDays: input.sendDays,
           sendStartHour: input.sendStartHour,
           sendEndHour: input.sendEndHour,
           timezone: input.timezone,
         });
-        return { id: (result as any).insertId as number, stepOrder: nextOrder };
+        await orderPlanStepsByTiming(db, input.planId);
+        const insertedId = (result as any).insertId as number;
+        const [insertedStep] = await db.select({ stepOrder: smartPlanSteps.stepOrder }).from(smartPlanSteps).where(eq(smartPlanSteps.id, insertedId)).limit(1);
+        return { id: insertedId, stepOrder: insertedStep?.stepOrder ?? nextOrder };
       }),
 
     // Update a single step
@@ -750,6 +853,7 @@ export const smartPlansRouter = router({
         subject: z.string().optional().nullable(),
         body: z.string().min(1).optional(),
         businessHoursOnly: z.boolean().optional(),
+        sendWindowOverride: z.boolean().optional(),
         sendWindowEnabled: z.boolean().optional(),
         sendDays: z.array(z.number().int().min(0).max(6)).optional(),
         sendStartHour: z.number().int().min(0).max(23).optional(),
@@ -774,6 +878,8 @@ export const smartPlansRouter = router({
           }
         }
         await db.update(smartPlanSteps).set(data).where(eq(smartPlanSteps.id, stepId));
+        const [updatedStep] = await db.select({ planId: smartPlanSteps.planId }).from(smartPlanSteps).where(eq(smartPlanSteps.id, stepId)).limit(1);
+        if (updatedStep) await orderPlanStepsByTiming(db, updatedStep.planId);
         return { success: true };
       }),
 
@@ -821,6 +927,9 @@ export const smartPlansRouter = router({
         const bOrder = steps[swapIdx].stepOrder;
         await db.update(smartPlanSteps).set({ stepOrder: bOrder }).where(eq(smartPlanSteps.id, steps[idx].id));
         await db.update(smartPlanSteps).set({ stepOrder: aOrder }).where(eq(smartPlanSteps.id, steps[swapIdx].id));
+        // Timing remains the primary order; a manual move can only establish
+        // the sequence between two steps that have the same wait time.
+        await orderPlanStepsByTiming(db, input.planId);
         return { success: true };
       }),
   }),

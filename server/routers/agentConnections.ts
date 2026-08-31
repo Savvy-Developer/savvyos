@@ -15,6 +15,7 @@ import { activityLog, agentConnections, agentSupportAssignments, users, contacts
 import { protectedProcedure, router } from "../_core/trpc";
 import { sendEmailAlert } from "../_core/emailAlerts";
 import { sendTransactionalEmail } from "../_core/resendEmail";
+import { buildLeadAssignmentContext } from "../contactClientContext";
 import { NO_EXCLUDED_FIELDS, shouldResetLeadAging } from "../leadAging";
 
 const buyBoxInput = z.object({
@@ -278,6 +279,8 @@ export const agentConnectionsRouter = router({
         const db2 = await getDb();
         let contactName: string | undefined = undefined;
         let notes: string | undefined = undefined;
+        let leadSourceLabel: string | undefined = undefined;
+        let clientContextSummary: string | undefined = undefined;
         if (db2) {
           const [contact] = await db2
             .select()
@@ -289,11 +292,22 @@ export const agentConnectionsRouter = router({
             notes = input.agentNotes ?? contact.notes ?? undefined;
           }
         }
+        try {
+          const context = await buildLeadAssignmentContext({ contactId: input.contactId, connectionId: id });
+          leadSourceLabel = context.leadSourceLabel;
+          clientContextSummary = context.clientContextSummary;
+        } catch (error) {
+          // The assignment and its normal alert remain reliable even when a
+          // history query or optional AI context briefing is unavailable.
+          console.warn("[LeadAssignment] Unable to build client context:", error);
+        }
         await sendEmailAlert("lead_assigned", input.agentId, {
           connectionId: id,
           contactId: input.contactId,
           contactName,
           notes,
+          leadSourceLabel,
+          clientContextSummary,
         });
       } catch (_) {}
 

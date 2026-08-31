@@ -16,7 +16,7 @@ import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
 import LeadSourceTriggerPicker, { formatLeadSourcePath } from "@/components/LeadSourceTriggerPicker";
 import { toast } from "sonner";
 import {
-  ArrowLeft, BarChart3, Check, ChevronDown, ChevronUp, Clock, Eye, FileText,
+  ArrowLeft, BarChart3, Check, Clock, Eye, FileText,
   Mail, MessageSquare, Pause, Play, Plus, Save, Send, Settings2, Trash2,
   Users, Zap, AlertTriangle, ExternalLink, MousePointerClick, Reply, Ban,
 } from "lucide-react";
@@ -48,6 +48,7 @@ type Step = {
   subject: string | null;
   body: string;
   businessHoursOnly: boolean;
+  sendWindowOverride: boolean;
   sendWindowEnabled: boolean;
   sendDays: number[] | null;
   sendStartHour: number;
@@ -63,6 +64,7 @@ type StepForm = {
   subject: string;
   body: string;
   businessHoursOnly: boolean;
+  sendWindowOverride: boolean;
   sendWindowEnabled: boolean;
   sendDays: number[];
   sendStartHour: number;
@@ -84,10 +86,11 @@ const EMPTY_STEP: StepForm = {
   subject: "",
   body: "",
   businessHoursOnly: false,
-  sendWindowEnabled: false,
-  sendDays: [1, 2, 3, 4, 5],
-  sendStartHour: 9,
-  sendEndHour: 18,
+  sendWindowOverride: false,
+  sendWindowEnabled: true,
+  sendDays: [0, 1, 2, 3, 4, 5, 6],
+  sendStartHour: 8,
+  sendEndHour: 20,
   timezone: "America/New_York",
 };
 
@@ -232,12 +235,12 @@ function NewPlanPage() {
   );
 }
 
-function StepComposer({ planId, step, onSaved, onDelete, onMove, propertyAddressFromNotes = false }: {
+function StepComposer({ planId, step, defaultSchedule, onSaved, onDelete, propertyAddressFromNotes = false }: {
   planId: number;
   step: Step | null;
+  defaultSchedule: { enabled: boolean; days: number[]; startHour: number; endHour: number; timezone: string };
   onSaved: (stepId?: number) => void;
   onDelete: () => void;
-  onMove: (direction: "up" | "down") => void;
   propertyAddressFromNotes?: boolean;
 }) {
   const [form, setForm] = useState<StepForm>(EMPTY_STEP);
@@ -257,13 +260,14 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove, propertyAddress
       subject: step.subject ?? "",
       body: step.body,
       businessHoursOnly: step.businessHoursOnly,
-      sendWindowEnabled: step.sendWindowEnabled ?? step.businessHoursOnly ?? false,
-      sendDays: step.sendDays?.length ? step.sendDays : [1, 2, 3, 4, 5],
-      sendStartHour: step.sendStartHour ?? 9,
-      sendEndHour: step.sendEndHour ?? 18,
-      timezone: step.timezone || "America/New_York",
+      sendWindowOverride: step.sendWindowOverride ?? step.businessHoursOnly ?? false,
+      sendWindowEnabled: step.sendWindowOverride ? step.sendWindowEnabled : defaultSchedule.enabled,
+      sendDays: step.sendWindowOverride && step.sendDays?.length ? step.sendDays : defaultSchedule.days,
+      sendStartHour: step.sendWindowOverride ? step.sendStartHour ?? defaultSchedule.startHour : defaultSchedule.startHour,
+      sendEndHour: step.sendWindowOverride ? step.sendEndHour ?? defaultSchedule.endHour : defaultSchedule.endHour,
+      timezone: step.sendWindowOverride ? step.timezone || defaultSchedule.timezone : defaultSchedule.timezone,
     });
-  }, [step?.id]);
+  }, [step?.id, defaultSchedule.enabled, defaultSchedule.startHour, defaultSchedule.endHour, defaultSchedule.timezone, defaultSchedule.days.join(",")]);
 
   const addStep = trpc.smartPlans.steps.add.useMutation({
     onSuccess: (result) => { toast.success("Step added"); onSaved(result.id); },
@@ -286,6 +290,7 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove, propertyAddress
       subject: form.channel === "email" ? form.subject.trim() : null,
       body: form.body,
       businessHoursOnly: form.businessHoursOnly,
+      sendWindowOverride: form.sendWindowOverride,
       sendWindowEnabled: form.sendWindowEnabled,
       sendDays: form.sendDays,
       sendStartHour: form.sendStartHour,
@@ -306,8 +311,6 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove, propertyAddress
         </div>
         {isExisting && (
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => onMove("up")} title="Move earlier"><ChevronUp className="h-4 w-4" /></Button>
-            <Button variant="outline" size="sm" onClick={() => onMove("down")} title="Move later"><ChevronDown className="h-4 w-4" /></Button>
             <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={onDelete}><Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete</Button>
           </div>
         )}
@@ -387,14 +390,14 @@ function StepComposer({ planId, step, onSaved, onDelete, onMove, propertyAddress
       <div className="rounded-lg border bg-slate-50/70 p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium">Limit delivery to a schedule</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Choose the days and hours when this step is allowed to send.</p>
+            <p className="text-sm font-medium">Override plan delivery schedule</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{form.sendWindowOverride ? "Choose days and hours for this step only." : "This step uses the plan default. Turn on an override to use different delivery times."}</p>
           </div>
-          <button type="button" role="switch" aria-checked={form.sendWindowEnabled} onClick={() => setForm((current) => ({ ...current, sendWindowEnabled: !current.sendWindowEnabled, businessHoursOnly: false }))} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${form.sendWindowEnabled ? "bg-primary" : "bg-slate-200"}`}>
-            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${form.sendWindowEnabled ? "translate-x-6" : "translate-x-1"}`} />
+          <button type="button" role="switch" aria-checked={form.sendWindowOverride} onClick={() => setForm((current) => ({ ...current, sendWindowOverride: !current.sendWindowOverride, sendWindowEnabled: true, businessHoursOnly: false, ...(current.sendWindowOverride ? { sendDays: defaultSchedule.days, sendStartHour: defaultSchedule.startHour, sendEndHour: defaultSchedule.endHour, timezone: defaultSchedule.timezone } : {}) }))} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${form.sendWindowOverride ? "bg-primary" : "bg-slate-200"}`}>
+            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${form.sendWindowOverride ? "translate-x-6" : "translate-x-1"}`} />
           </button>
         </div>
-        {form.sendWindowEnabled && (
+        {form.sendWindowOverride && (
           <div className="mt-4 space-y-4 border-t pt-4">
             <div className="space-y-2">
               <Label>Allowed days</Label>
@@ -443,6 +446,10 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
     triggerLeadSourceIds: [] as number[],
     includeExistingContacts: false,
     pauseOnReply: false,
+    defaultSendDays: [0, 1, 2, 3, 4, 5, 6] as number[],
+    defaultSendStartHour: 8,
+    defaultSendEndHour: 20,
+    defaultSendTimezone: "America/New_York",
   });
   useEffect(() => {
     if (!plan) return;
@@ -453,6 +460,10 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
       triggerLeadSourceIds: plan.triggerLeadSourceIds || (plan.triggerLeadSourceId ? [plan.triggerLeadSourceId] : []),
       includeExistingContacts: plan.triggerScope === "existing_and_new",
       pauseOnReply: plan.pauseOnReply ?? false,
+      defaultSendDays: plan.defaultSendDays?.length ? plan.defaultSendDays : [0, 1, 2, 3, 4, 5, 6],
+      defaultSendStartHour: plan.defaultSendStartHour ?? 8,
+      defaultSendEndHour: plan.defaultSendEndHour ?? 20,
+      defaultSendTimezone: plan.defaultSendTimezone || "America/New_York",
     });
   }, [plan?.id, plan?.updatedAt]);
 
@@ -475,6 +486,8 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
   const save = () => {
     if (!form.name.trim()) return toast.error("A plan name is required");
     if (isLeadSourceTrigger && form.triggerLeadSourceIds.length === 0) return toast.error("Choose at least one lead source for this trigger");
+    if (!form.defaultSendDays.length) return toast.error("Choose at least one default delivery day");
+    if (form.defaultSendStartHour >= form.defaultSendEndHour) return toast.error("The default delivery window must end after it begins");
     update.mutate({
       id: plan.id,
       data: {
@@ -485,6 +498,11 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
         triggerScope: form.includeExistingContacts ? "existing_and_new" : "new_only",
         includeExistingContacts: form.includeExistingContacts,
         pauseOnReply: form.pauseOnReply,
+        defaultSendWindowEnabled: true,
+        defaultSendDays: form.defaultSendDays,
+        defaultSendStartHour: form.defaultSendStartHour,
+        defaultSendEndHour: form.defaultSendEndHour,
+        defaultSendTimezone: form.defaultSendTimezone,
       },
     });
   };
@@ -496,6 +514,17 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
         <CardContent className="space-y-5 pt-6">
           <div className="space-y-2"><Label>Plan name <span className="text-destructive">*</span></Label><Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></div>
           <div className="space-y-2"><Label>Description</Label><Textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={3} /></div>
+          <Separator />
+
+          <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
+            <div><Label className="text-sm font-medium">Default limited delivery schedule</Label><p className="mt-1 text-xs text-muted-foreground">Every workflow step uses these days and hours unless its individual delivery schedule is overridden.</p></div>
+            <div className="space-y-2"><Label>Allowed days</Label><div className="flex flex-wrap gap-2">{DAYS_OF_WEEK.map((day) => { const selected = form.defaultSendDays.includes(day.value); return <Button key={day.value} type="button" size="sm" variant={selected ? "default" : "outline"} className="h-8 min-w-12" onClick={() => setForm((current) => ({ ...current, defaultSendDays: selected ? current.defaultSendDays.filter((value) => value !== day.value) : [...current.defaultSendDays, day.value].sort((a, b) => a - b) }))}>{day.label}</Button>; })}</div></div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-2"><Label>Start time</Label><Select value={String(form.defaultSendStartHour)} onValueChange={(value) => setForm((current) => ({ ...current, defaultSendStartHour: Number(value) }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, hour) => <SelectItem key={hour} value={String(hour)}>{hourLabel(hour)}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>End time</Label><Select value={String(form.defaultSendEndHour)} onValueChange={(value) => setForm((current) => ({ ...current, defaultSendEndHour: Number(value) }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => <SelectItem key={hour} value={String(hour)}>{hourLabel(hour)}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Timezone</Label><Select value={form.defaultSendTimezone} onValueChange={(timezone) => setForm((current) => ({ ...current, defaultSendTimezone: timezone }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{TIMEZONES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+            </div>
+          </div>
           <Separator />
 
           <div className="space-y-2">
@@ -589,7 +618,6 @@ function PlanWorkspace({ planId }: { planId: number }) {
   const toggleStatus = trpc.smartPlans.update.useMutation({ onSuccess: () => { utils.smartPlans.get.invalidate({ id: planId }); utils.smartPlans.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const publish = trpc.smartPlans.publish.useMutation({ onSuccess: () => { toast.success("Plan published and active"); utils.smartPlans.get.invalidate({ id: planId }); utils.smartPlans.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const deleteStep = trpc.smartPlans.steps.delete.useMutation({ onSuccess: () => { toast.success("Step deleted"); setSelectedStepId("new"); refresh(); }, onError: (error) => toast.error(error.message) });
-  const reorderStep = trpc.smartPlans.steps.reorder.useMutation({ onSuccess: () => refresh(), onError: (error) => toast.error(error.message) });
 
   const refresh = () => {
     utils.smartPlans.get.invalidate({ id: planId });
@@ -602,6 +630,13 @@ function PlanWorkspace({ planId }: { planId: number }) {
   const selectedStep = selectedStepId === "new" ? null : steps.find((step) => step.id === selectedStepId) || null;
   const totals = ((analyticsData as any)?.totals || EMPTY_METRICS) as Metrics;
   const leadSources = (sourceRows as any[]).map((row) => ({ id: row.ls?.id ?? row.id, name: row.ls?.name ?? row.name, parentId: row.ls?.parentId ?? row.parentId ?? null })) as LeadSource[];
+  const defaultSchedule = {
+    enabled: plan?.defaultSendWindowEnabled ?? true,
+    days: plan?.defaultSendDays?.length ? plan.defaultSendDays : [0, 1, 2, 3, 4, 5, 6],
+    startHour: plan?.defaultSendStartHour ?? 8,
+    endHour: plan?.defaultSendEndHour ?? 20,
+    timezone: plan?.defaultSendTimezone || "America/New_York",
+  };
 
   useEffect(() => {
     if (selectedStepId !== "new" && !steps.some((step) => step.id === selectedStepId)) setSelectedStepId(steps[0]?.id || "new");
@@ -633,14 +668,14 @@ function PlanWorkspace({ planId }: { planId: number }) {
 
       {tab === "workflow" && <div className="grid gap-5 lg:grid-cols-[290px_minmax(0,1fr)]">
         <aside className="rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-9rem)] lg:overflow-hidden">
-          <div className="flex items-center justify-between border-b px-4 py-3"><div><p className="text-sm font-semibold">Workflow steps</p><p className="text-xs text-muted-foreground">Scrollable for up to 100 steps</p></div><Badge variant="secondary">{steps.length}/100</Badge></div>
+          <div className="flex items-center justify-between border-b px-4 py-3"><div><p className="text-sm font-semibold">Workflow steps</p><p className="text-xs text-muted-foreground">Ordered automatically by wait time</p></div><Badge variant="secondary">{steps.length}/100</Badge></div>
           <div className="max-h-[360px] overflow-y-auto p-2 lg:max-h-[calc(100vh-16rem)]">
             {steps.map((step) => <button key={step.id} onClick={() => setSelectedStepId(step.id)} className={`mb-1 w-full rounded-lg border p-2.5 text-left transition-colors ${selectedStepId === step.id ? "border-primary bg-primary/5 shadow-sm" : "border-transparent hover:border-border hover:bg-muted/50"}`}><div className="flex items-center gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">{step.stepOrder + 1}</span>{channelBadge(step.channel)}<span className="ml-auto text-[10px] text-muted-foreground">{step.metrics.sent} sent</span></div><p className="mt-1.5 truncate text-xs font-medium">{step.subject || stripHtml(step.body) || "Untitled message"}</p><p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground"><Clock className="h-3 w-3" />{delayLabel(step.delayDays, step.delayHours)}</p></button>)}
             {!steps.length && <div className="px-3 py-8 text-center text-xs text-muted-foreground">No steps yet. Start with an email or text message.</div>}
           </div>
           <div className="grid grid-cols-2 gap-2 border-t p-3"><Button size="sm" variant={selectedStepId === "new" ? "default" : "outline"} onClick={() => { setSelectedStepId("new"); setTab("workflow"); }}><Mail className="mr-1 h-3.5 w-3.5" />Email</Button><Button size="sm" variant="outline" className="border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800" onClick={() => { setSelectedStepId("new"); setTab("workflow"); }}><MessageSquare className="mr-1 h-3.5 w-3.5" />Text</Button></div>
         </aside>
-        <div className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"><StepComposer key={selectedStep?.id ?? "new"} planId={planId} step={selectedStep} propertyAddressFromNotes={plan.propertyAddressFromNotes === true} onSaved={(id) => { refresh(); if (id) setSelectedStepId(id); }} onDelete={() => selectedStep && deleteStep.mutate({ stepId: selectedStep.id, planId })} onMove={(direction) => selectedStep && reorderStep.mutate({ planId, stepId: selectedStep.id, direction })} /></div>
+        <div className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"><StepComposer key={selectedStep?.id ?? "new"} planId={planId} step={selectedStep} defaultSchedule={defaultSchedule} propertyAddressFromNotes={plan.propertyAddressFromNotes === true} onSaved={(id) => { refresh(); if (id) setSelectedStepId(id); }} onDelete={() => selectedStep && deleteStep.mutate({ stepId: selectedStep.id, planId })} /></div>
       </div>}
 
       {tab === "analytics" && <AnalyticsPanel steps={steps} totals={totals} />}

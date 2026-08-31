@@ -4,6 +4,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { passwordEntries, passwordListShares, passwordLists, users } from "../../drizzle/schema";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { capabilitiesForPasswordShare, normalizePasswordShareGrant, type PasswordShareGrant } from "../passwordListSharing";
 
 const PASSWORD_LIST_SUPER_USERS = new Set([
   "tyler@savvy.realty",
@@ -12,6 +13,13 @@ const PASSWORD_LIST_SUPER_USERS = new Set([
 ]);
 
 const sharedUserIdsSchema = z.array(z.number().int().positive()).max(500).optional();
+const shareGrantSchema = z.object({
+  userId: z.number().int().positive(),
+  canView: z.boolean().default(false),
+  canCreate: z.boolean().default(false),
+  canEdit: z.boolean().default(false),
+});
+const shareGrantsSchema = z.array(shareGrantSchema).max(500).optional();
 
 type PasswordViewer = {
   id: number;
@@ -25,6 +33,10 @@ function isPasswordListSuperUser(user: PasswordViewer) {
 
 function canCreatePasswordLists(user: PasswordViewer) {
   return user.role === "admin" || isPasswordListSuperUser(user);
+}
+
+function fullListCapabilities() {
+  return { canView: true, canCreateEntries: true, canEditEntries: true };
 }
 
 async function getAccessibleLists(db: any, user: PasswordViewer) {
@@ -42,38 +54,53 @@ async function getAccessibleLists(db: any, user: PasswordViewer) {
       .from(passwordLists)
       .leftJoin(users, eq(passwordLists.createdByUserId, users.id))
       .orderBy(desc(passwordLists.createdAt)),
-    db.select({ listId: passwordListShares.listId, userId: passwordListShares.userId })
-      .from(passwordListShares),
+    db.select({
+      listId: passwordListShares.listId,
+      userId: passwordListShares.userId,
+      canView: passwordListShares.canView,
+      canCreate: passwordListShares.canCreate,
+      canEdit: passwordListShares.canEdit,
+    }).from(passwordListShares),
   ]);
 
-  const sharedUserIdsByList = new Map<number, number[]>();
+  const sharesByList = new Map<number, PasswordShareGrant[]>();
   for (const share of shares) {
-    const existing = sharedUserIdsByList.get(share.listId) ?? [];
-    existing.push(share.userId);
-    sharedUserIdsByList.set(share.listId, existing);
+    const listShares = sharesByList.get(share.listId) ?? [];
+    listShares.push(normalizePasswordShareGrant({
+      userId: share.userId,
+      canView: share.canView,
+      canCreate: share.canCreate,
+      canEdit: share.canEdit,
+    }));
+    sharesByList.set(share.listId, listShares);
   }
 
   const isSuperUser = isPasswordListSuperUser(user);
   return lists
-    .filter((list: any) => {
-      const isOwner = list.createdByUserId === user.id;
-      const isSharedWithUser = (sharedUserIdsByList.get(list.id) ?? []).includes(user.id);
-      return isSuperUser || isOwner || isSharedWithUser;
-    })
     .map((list: any) => {
       const isOwner = list.createdByUserId === user.id;
       const canManage = isSuperUser || isOwner;
+      const ownGrant = sharesByList.get(list.id)?.find((grant) => grant.userId === user.id);
+      const capabilities = canManage ? fullListCapabilities() : capabilitiesForPasswordShare(ownGrant);
       return {
         ...list,
         ownerName: list.ownerName ?? "Unassigned",
         ownerEmail: list.ownerEmail ?? null,
         isOwner,
         canManage,
+        ...capabilities,
+        // Keep this additive legacy field for any existing caller that only
+        // knows whether a person has list visibility.
         sharedUserIds: canManage
-          ? (sharedUserIdsByList.get(list.id) ?? []).filter((userId) => userId !== list.createdByUserId)
+          ? (sharesByList.get(list.id) ?? []).filter((grant) => grant.userId !== list.createdByUserId).map((grant) => grant.userId)
+          : [],
+        // Only managers can inspect or alter another person's permissions.
+        shareGrants: canManage
+          ? (sharesByList.get(list.id) ?? []).filter((grant) => grant.userId !== list.createdByUserId)
           : [],
       };
-    });
+    })
+    .filter((list: any) => list.canView);
 }
 
 async function requireListAccess(db: any, user: PasswordViewer, listId: number) {
@@ -87,27 +114,82 @@ async function requireListAccess(db: any, user: PasswordViewer, listId: number) 
 async function requireListManager(db: any, user: PasswordViewer, listId: number) {
   const list = await requireListAccess(db, user, listId);
   if (!list.canManage) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Only this list's owner can manage it." });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only this list's owner can manage its sharing and settings." });
   }
   return list;
 }
 
-async function validateSharedUserIds(db: any, userIds: number[] | undefined, ownerUserId: number) {
-  const normalizedIds = Array.from(new Set(userIds ?? [])).filter((userId) => userId !== ownerUserId);
-  if (normalizedIds.length === 0) return normalizedIds;
+async function requireListEntryCreator(db: any, user: PasswordViewer, listId: number) {
+  const list = await requireListAccess(db, user, listId);
+  if (!list.canCreateEntries) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to create password entries in this list." });
+  }
+  return list;
+}
+
+async function requireListEntryEditor(db: any, user: PasswordViewer, listId: number) {
+  const list = await requireListAccess(db, user, listId);
+  if (!list.canEditEntries) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to edit password entries in this list." });
+  }
+  return list;
+}
+
+function normalizeRequestedGrants(input: {
+  sharedUserIds?: number[];
+  shareGrants?: PasswordShareGrant[];
+}): PasswordShareGrant[] | undefined {
+  if (input.shareGrants !== undefined) {
+    const byUserId = new Map<number, PasswordShareGrant>();
+    for (const rawGrant of input.shareGrants) {
+      const grant = normalizePasswordShareGrant(rawGrant);
+      const existing = byUserId.get(grant.userId);
+      byUserId.set(grant.userId, existing ? normalizePasswordShareGrant({
+        userId: grant.userId,
+        canView: existing.canView || grant.canView,
+        canCreate: existing.canCreate || grant.canCreate,
+        canEdit: existing.canEdit || grant.canEdit,
+      }) : grant);
+    }
+    return Array.from(byUserId.values()).filter((grant) => grant.canView);
+  }
+  if (input.sharedUserIds !== undefined) {
+    return Array.from(new Set(input.sharedUserIds)).map((userId) => ({ userId, canView: true, canCreate: false, canEdit: false }));
+  }
+  return undefined;
+}
+
+async function validateShareGrants(db: any, grants: PasswordShareGrant[] | undefined, ownerUserId: number): Promise<PasswordShareGrant[] | undefined> {
+  if (grants === undefined) return undefined;
+  const normalized = grants
+    .filter((grant) => grant.userId !== ownerUserId)
+    .map(normalizePasswordShareGrant);
+  if (normalized.length === 0) return [];
 
   const activeUsers = await db.select({ id: users.id })
     .from(users)
-    .where(and(inArray(users.id, normalizedIds), eq(users.isActive, true)));
-
-  if (activeUsers.length !== normalizedIds.length) {
+    .where(and(inArray(users.id, normalized.map((grant) => grant.userId)), eq(users.isActive, true)));
+  if (activeUsers.length !== normalized.length) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "Password lists can only be shared with active SavvyOS users.",
     });
   }
+  return normalized;
+}
 
-  return normalizedIds;
+async function replaceShareGrants(tx: any, listId: number, sharedByUserId: number, grants: PasswordShareGrant[]): Promise<void> {
+  await tx.delete(passwordListShares).where(eq(passwordListShares.listId, listId));
+  if (grants.length) {
+    await tx.insert(passwordListShares).values(grants.map((grant) => ({
+      listId,
+      userId: grant.userId,
+      canView: grant.canView,
+      canCreate: grant.canCreate,
+      canEdit: grant.canEdit,
+      sharedByUserId,
+    })));
+  }
 }
 
 export const passwordsRouter = router({
@@ -156,6 +238,7 @@ export const passwordsRouter = router({
       name: z.string().min(1).max(255),
       description: z.string().optional(),
       sharedUserIds: sharedUserIdsSchema,
+      shareGrants: shareGrantsSchema,
     }))
     .mutation(async ({ input, ctx }) => {
       const viewer = ctx.user as PasswordViewer;
@@ -163,7 +246,8 @@ export const passwordsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const sharedUserIds = await validateSharedUserIds(db, input.sharedUserIds, viewer.id);
+      const requestedGrants = normalizeRequestedGrants(input);
+      const shareGrants = await validateShareGrants(db, requestedGrants, viewer.id) ?? [];
       const result = await db.transaction(async (tx: any) => {
         const created = await tx.insert(passwordLists).values({
           name: input.name,
@@ -171,14 +255,18 @@ export const passwordsRouter = router({
           createdByUserId: viewer.id,
         });
         const listId = created[0].insertId;
-        if (sharedUserIds.length > 0) {
-          await tx.insert(passwordListShares).values(
-            sharedUserIds.map((userId) => ({ listId, userId, sharedByUserId: viewer.id }))
-          );
+        if (shareGrants.length) {
+          await tx.insert(passwordListShares).values(shareGrants.map((grant) => ({
+            listId,
+            userId: grant.userId,
+            canView: grant.canView,
+            canCreate: grant.canCreate,
+            canEdit: grant.canEdit,
+            sharedByUserId: viewer.id,
+          })));
         }
         return listId;
       });
-
       return { id: result };
     }),
 
@@ -189,30 +277,22 @@ export const passwordsRouter = router({
       name: z.string().min(1).max(255),
       description: z.string().optional(),
       sharedUserIds: sharedUserIdsSchema,
+      shareGrants: shareGrantsSchema,
     }))
     .mutation(async ({ input, ctx }) => {
       const viewer = ctx.user as PasswordViewer;
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const list = await requireListManager(db, viewer, input.id);
-      const sharedUserIds = input.sharedUserIds === undefined
-        ? undefined
-        : await validateSharedUserIds(db, input.sharedUserIds, list.createdByUserId!);
+      const requestedGrants = normalizeRequestedGrants(input);
+      const shareGrants = await validateShareGrants(db, requestedGrants, list.createdByUserId!);
 
       await db.transaction(async (tx: any) => {
         await tx.update(passwordLists).set({
           name: input.name,
           description: input.description ?? null,
         }).where(eq(passwordLists.id, input.id));
-
-        if (sharedUserIds !== undefined) {
-          await tx.delete(passwordListShares).where(eq(passwordListShares.listId, input.id));
-          if (sharedUserIds.length > 0) {
-            await tx.insert(passwordListShares).values(
-              sharedUserIds.map((userId) => ({ listId: input.id, userId, sharedByUserId: viewer.id }))
-            );
-          }
-        }
+        if (shareGrants !== undefined) await replaceShareGrants(tx, input.id, viewer.id, shareGrants);
       });
       return { success: true };
     }),
@@ -240,7 +320,12 @@ export const passwordsRouter = router({
       const entries = await db.select().from(passwordEntries)
         .where(eq(passwordEntries.listId, input.listId))
         .orderBy(desc(passwordEntries.createdAt));
-      return entries.map((entry: any) => ({ ...entry, canManage: list.canManage }));
+      return entries.map((entry: any) => ({
+        ...entry,
+        canManage: list.canManage,
+        canCreateEntries: list.canCreateEntries,
+        canEditEntries: list.canEditEntries,
+      }));
     }),
 
   /** Search entries only across password lists visible to the current user. */
@@ -277,11 +362,19 @@ export const passwordsRouter = router({
         ))
         .orderBy(desc(passwordEntries.createdAt));
 
-      const managerByListId = new Map(accessibleLists.map((list: any) => [list.id, list.canManage]));
-      return entries.map((entry) => ({ ...entry, canManage: managerByListId.get(entry.listId) === true }));
+      const capabilitiesByListId = new Map(accessibleLists.map((list: any) => [list.id, list]));
+      return entries.map((entry) => {
+        const list = capabilitiesByListId.get(entry.listId) as any;
+        return {
+          ...entry,
+          canManage: list?.canManage === true,
+          canCreateEntries: list?.canCreateEntries === true,
+          canEditEntries: list?.canEditEntries === true,
+        };
+      });
     }),
 
-  /** Create a password entry. Shared recipients are intentionally read-only. */
+  /** Create a password entry when the owner or a share grant allows it. */
   createEntry: protectedProcedure
     .input(z.object({
       listId: z.number().int().positive(),
@@ -294,7 +387,7 @@ export const passwordsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await requireListManager(db, ctx.user as PasswordViewer, input.listId);
+      await requireListEntryCreator(db, ctx.user as PasswordViewer, input.listId);
       const result = await db.insert(passwordEntries).values({
         listId: input.listId,
         title: input.title,
@@ -307,7 +400,7 @@ export const passwordsRouter = router({
       return { id: result[0].insertId };
     }),
 
-  /** Update a password entry when the user manages its parent list. */
+  /** Update a password entry when the owner or a share grant allows it. */
   updateEntry: protectedProcedure
     .input(z.object({
       id: z.number().int().positive(),
@@ -325,7 +418,7 @@ export const passwordsRouter = router({
         .where(eq(passwordEntries.id, input.id))
         .limit(1);
       if (!entry) throw new TRPCError({ code: "NOT_FOUND" });
-      await requireListManager(db, ctx.user as PasswordViewer, entry.listId);
+      await requireListEntryEditor(db, ctx.user as PasswordViewer, entry.listId);
       await db.update(passwordEntries).set({
         title: input.title,
         username: input.username ?? null,
@@ -336,7 +429,7 @@ export const passwordsRouter = router({
       return { success: true };
     }),
 
-  /** Delete a password entry when the user manages its parent list. */
+  /** Delete a password entry when the owner or a share grant allows it. */
   deleteEntry: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
@@ -347,7 +440,7 @@ export const passwordsRouter = router({
         .where(eq(passwordEntries.id, input.id))
         .limit(1);
       if (!entry) throw new TRPCError({ code: "NOT_FOUND" });
-      await requireListManager(db, ctx.user as PasswordViewer, entry.listId);
+      await requireListEntryEditor(db, ctx.user as PasswordViewer, entry.listId);
       await db.delete(passwordEntries).where(eq(passwordEntries.id, input.id));
       return { success: true };
     }),

@@ -20,6 +20,35 @@ vi.mock("resend", () => ({
 
 import { getEmailPreview, sendTransactionalEmail } from "./resendEmail";
 
+describe("lead assigned email", () => {
+  it("renders the source and escaped client context when they are available", () => {
+    const preview = getEmailPreview("lead_assigned", {
+      recipientEmail: "agent@example.com",
+      contactName: "Jamie & Jordan",
+      leadSourceLabel: "Paid Leads › AirDNA",
+      notes: "Looking for <cabin>",
+      clientContextSummary: "Prior call: focused on a $500k purchase and wants a market recommendation.",
+      connectionId: "42",
+    });
+
+    expect(preview.html).toContain("Contact</strong>&nbsp;&nbsp; Jamie &amp; Jordan");
+    expect(preview.html).toContain("Lead Source</strong>&nbsp;&nbsp; Paid Leads › AirDNA");
+    expect(preview.html).toContain("Notes</strong>&nbsp;&nbsp; Looking for &lt;cabin&gt;");
+    expect(preview.html).toContain("Client Context");
+    expect(preview.html).toContain("Prior call: focused on a $500k purchase");
+  });
+
+  it("retains the standard alert when no client context is available", () => {
+    const preview = getEmailPreview("lead_assigned", {
+      recipientEmail: "agent@example.com",
+      contactName: "Jamie Client",
+    });
+
+    expect(preview.html).not.toContain("Lead Source</strong>");
+    expect(preview.html).not.toContain("Client Context");
+  });
+});
+
 describe("listing created email", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -42,7 +42,7 @@ export default function PasswordsPage() {
   // ─── List CRUD state ────────────────────────────────────────────────────────
   const [showCreateList, setShowCreateList] = useState(false);
   const [editingList, setEditingList] = useState<any | null>(null);
-  const [listForm, setListForm] = useState({ name: "", description: "", sharedUserIds: [] as number[] });
+  const [listForm, setListForm] = useState({ name: "", description: "", shareGrants: [] as Array<{ userId: number; canView: boolean; canCreate: boolean; canEdit: boolean }> });
 
   // ─── Entry CRUD state ──────────────────────────────────────────────────────
   const [showCreateEntry, setShowCreateEntry] = useState(false);
@@ -70,7 +70,7 @@ export default function PasswordsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
   const createList = trpc.passwords.createList.useMutation({
-    onSuccess: () => { refetchLists(); setShowCreateList(false); setListForm({ name: "", description: "", sharedUserIds: [] }); toast.success("List created"); },
+    onSuccess: () => { refetchLists(); setShowCreateList(false); setListForm({ name: "", description: "", shareGrants: [] }); toast.success("List created"); },
     onError: (e) => toast.error(e.message),
   });
   const updateList = trpc.passwords.updateList.useMutation({
@@ -98,12 +98,20 @@ export default function PasswordsPage() {
     setEntryForm({ title: "", username: "", password: "", loginUrl: "", notes: "" });
   }
 
-  function toggleSharedUser(userId: number) {
+  function setSharePermission(userId: number, permission: "canView" | "canCreate" | "canEdit", enabled: boolean) {
     setListForm((current) => ({
       ...current,
-      sharedUserIds: current.sharedUserIds.includes(userId)
-        ? current.sharedUserIds.filter((id) => id !== userId)
-        : [...current.sharedUserIds, userId],
+      shareGrants: (() => {
+        const existing = current.shareGrants.find((grant) => grant.userId === userId) ?? { userId, canView: false, canCreate: false, canEdit: false };
+        const next = { ...existing, [permission]: enabled };
+        if (permission === "canView" && !enabled) {
+          next.canCreate = false;
+          next.canEdit = false;
+        }
+        if ((permission === "canCreate" || permission === "canEdit") && enabled) next.canView = true;
+        const remaining = current.shareGrants.filter((grant) => grant.userId !== userId);
+        return next.canView || next.canCreate || next.canEdit ? [...remaining, next] : remaining;
+      })(),
     }));
   }
 
@@ -153,7 +161,7 @@ export default function PasswordsPage() {
             />
           </div>
           {passwordAccess?.canCreateLists && (
-            <Button onClick={() => { setListForm({ name: "", description: "", sharedUserIds: [] }); setShowCreateList(true); }} variant="outline" size="sm">
+            <Button onClick={() => { setListForm({ name: "", description: "", shareGrants: [] }); setShowCreateList(true); }} variant="outline" size="sm">
               <Plus className="h-4 w-4 mr-1" /> New List
             </Button>
           )}
@@ -198,7 +206,7 @@ export default function PasswordsPage() {
                 {list.canManage && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setEditingList(list); setListForm({ name: list.name, description: list.description || "", sharedUserIds: list.sharedUserIds || [] }); }}
+                      onClick={(e) => { e.stopPropagation(); setEditingList(list); setListForm({ name: list.name, description: list.description || "", shareGrants: list.shareGrants || [] }); }}
                       className="p-1 hover:bg-muted rounded"
                       title="Edit list and sharing"
                     >
@@ -238,7 +246,7 @@ export default function PasswordsPage() {
                     )}
                     <p className="text-xs text-muted-foreground mt-1">Owner: {selectedList.ownerName}</p>
                   </div>
-                  {selectedList.canManage ? (
+                  {selectedList.canCreateEntries ? (
                     <Button onClick={() => { resetEntryForm(); setShowCreateEntry(true); }} size="sm">
                       <Plus className="h-4 w-4 mr-1" /> Add Entry
                     </Button>
@@ -316,8 +324,7 @@ export default function PasswordsPage() {
                             </div>
                           </div>
 
-                          {/* Actions are limited to the owner and designated super users. */}
-                          {entry.canManage && (
+                          {entry.canEditEntries && (
                             <div className="flex items-center gap-1 shrink-0">
                               <Button
                                 variant="ghost"
@@ -381,12 +388,12 @@ export default function PasswordsPage() {
                 rows={2}
               />
             </div>
-            <PasswordListShareSelector users={shareableUsers as any[]} selectedUserIds={listForm.sharedUserIds} onToggle={toggleSharedUser} />
+            <PasswordListShareSelector users={shareableUsers as any[]} grants={listForm.shareGrants} onPermissionChange={setSharePermission} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateList(false)}>Cancel</Button>
             <Button
-              onClick={() => createList.mutate({ name: listForm.name, description: listForm.description || undefined, sharedUserIds: listForm.sharedUserIds })}
+              onClick={() => createList.mutate({ name: listForm.name, description: listForm.description || undefined, shareGrants: listForm.shareGrants })}
               disabled={!listForm.name.trim() || createList.isPending}
             >
               Create List
@@ -417,12 +424,12 @@ export default function PasswordsPage() {
                 rows={2}
               />
             </div>
-            <PasswordListShareSelector users={shareableUsers as any[]} selectedUserIds={listForm.sharedUserIds} onToggle={toggleSharedUser} />
+            <PasswordListShareSelector users={shareableUsers as any[]} grants={listForm.shareGrants} onPermissionChange={setSharePermission} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingList(null)}>Cancel</Button>
             <Button
-              onClick={() => editingList && updateList.mutate({ id: editingList.id, name: listForm.name, description: listForm.description || undefined, sharedUserIds: listForm.sharedUserIds })}
+              onClick={() => editingList && updateList.mutate({ id: editingList.id, name: listForm.name, description: listForm.description || undefined, shareGrants: listForm.shareGrants })}
               disabled={!listForm.name.trim() || updateList.isPending}
             >
               Save Changes
@@ -556,34 +563,49 @@ export default function PasswordsPage() {
 
 function PasswordListShareSelector({
   users,
-  selectedUserIds,
-  onToggle,
+  grants,
+  onPermissionChange,
 }: {
   users: Array<{ id: number; name?: string | null; email?: string | null; role?: string | null }>;
-  selectedUserIds: number[];
-  onToggle: (userId: number) => void;
+  grants: Array<{ userId: number; canView: boolean; canCreate: boolean; canEdit: boolean }>;
+  onPermissionChange: (userId: number, permission: "canView" | "canCreate" | "canEdit", enabled: boolean) => void;
 }) {
+  const permissionLabels: Array<{ key: "canView" | "canCreate" | "canEdit"; label: string }> = [
+    { key: "canView", label: "View" },
+    { key: "canCreate", label: "Create" },
+    { key: "canEdit", label: "Edit" },
+  ];
   return (
     <div className="space-y-2">
       <div>
         <label className="text-sm font-medium">Share with</label>
-        <p className="text-xs text-muted-foreground mt-1">Only the people selected here can see this list. They can view and copy credentials but cannot edit the list, entries, or sharing.</p>
+        <p className="text-xs text-muted-foreground mt-1">Choose each person's access. Create allows new entries; edit allows changes and deletes. Both also include viewing and copying credentials.</p>
       </div>
-      <div className="max-h-44 overflow-y-auto rounded-md border divide-y">
+      <div className="max-h-64 overflow-y-auto rounded-md border divide-y">
         {users.length === 0 ? (
           <p className="px-3 py-3 text-sm text-muted-foreground">No active users are available.</p>
-        ) : users.map((user) => (
-          <label key={user.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/50">
-            <Checkbox
-              checked={selectedUserIds.includes(user.id)}
-              onCheckedChange={() => onToggle(user.id)}
-            />
-            <span className="min-w-0 text-sm">
-              <span className="block truncate font-medium">{user.name || user.email || `User #${user.id}`}</span>
-              {user.email && <span className="block truncate text-xs text-muted-foreground">{user.email}</span>}
-            </span>
-          </label>
-        ))}
+        ) : users.map((user) => {
+          const grant = grants.find((candidate) => candidate.userId === user.id) ?? { userId: user.id, canView: false, canCreate: false, canEdit: false };
+          return (
+            <div key={user.id} className="px-3 py-2.5 hover:bg-muted/50">
+              <span className="mb-2 block min-w-0 text-sm">
+                <span className="block truncate font-medium">{user.name || user.email || `User #${user.id}`}</span>
+                {user.email && <span className="block truncate text-xs text-muted-foreground">{user.email}</span>}
+              </span>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {permissionLabels.map(({ key, label }) => (
+                  <label key={key} className="flex cursor-pointer items-center gap-1.5 text-xs font-medium">
+                    <Checkbox
+                      checked={grant[key]}
+                      onCheckedChange={(checked) => onPermissionChange(user.id, key, checked === true)}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
