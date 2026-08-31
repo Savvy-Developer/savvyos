@@ -47,6 +47,20 @@ function normalizeReferralPayoutPercentage(value: number | null | undefined): nu
   return value > 0 && value < 1 ? Number((value * 100).toFixed(2)) : value;
 }
 
+/** Formats a persisted transaction price for agent-facing communication. */
+function formatPurchasePrice(value: string | null | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return undefined;
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 async function syncIsaOutcomeAttributionSafely(transactionId: number): Promise<void> {
   try {
     await syncIsaOutcomeAttribution(transactionId);
@@ -381,6 +395,9 @@ export const transactionsRouter = router({
         transactionNumber: txNumber,
         transactionType: input.transactionType,
         transactionId: id,
+        contactName: txContactName !== "Unknown Contact" ? txContactName : undefined,
+        propertyAddress: txPropertyAddress !== "Unknown Property" ? txPropertyAddress : undefined,
+        amount: formatPurchasePrice(input.purchasePrice),
       }).catch(() => {});
       return { id, transactionNumber: txNumber, autoPayouts: autoPayoutResult };
     }),

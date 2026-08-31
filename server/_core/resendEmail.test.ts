@@ -62,6 +62,34 @@ describe("listing created email", () => {
   });
 });
 
+describe("transaction created email", () => {
+  it("includes the client, property address, and formatted purchase price", () => {
+    const preview = getEmailPreview("transaction_created", {
+      recipientEmail: "agent@example.com",
+      recipientName: "Avery Agent",
+      contactName: "Jamie Client",
+      propertyAddress: "123 Main St, Austin, TX",
+      amount: "$500,000",
+    });
+
+    expect(preview.html).toContain("Client</strong>&nbsp;&nbsp; Jamie Client");
+    expect(preview.html).toContain("Property</strong>&nbsp;&nbsp; 123 Main St, Austin, TX");
+    expect(preview.html).toContain("Purchase Price</strong>&nbsp;&nbsp; <span style=\"font-weight:700;color:#0fc0df;\">$500,000</span>");
+  });
+
+  it("escapes the client and property values before rendering", () => {
+    const preview = getEmailPreview("transaction_created", {
+      recipientEmail: "agent@example.com",
+      contactName: "Jamie & Jordan",
+      propertyAddress: "15 <Main> St",
+      amount: "$500,000",
+    });
+
+    expect(preview.html).toContain("Jamie &amp; Jordan");
+    expect(preview.html).toContain("15 &lt;Main&gt; St");
+  });
+});
+
 describe("configured notification recipients", () => {
   it("replaces the default audience with the selected active users", async () => {
     mockSend.mockClear();

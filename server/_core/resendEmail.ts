@@ -579,10 +579,10 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${bodyText("A new transaction has been created and assigned to you in SavvyOS.")}
       ${infoCard([
         ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
-        ...(ctx.transactionType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${ctx.transactionType.charAt(0).toUpperCase() + ctx.transactionType.slice(1)}`] : []),
-        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${ctx.propertyAddress}`] : []),
-        ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; ${ctx.amount}`] : []),
+        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`] : []),
+        ...(ctx.transactionType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.transactionType.charAt(0).toUpperCase() + ctx.transactionType.slice(1))}`] : []),
+        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
+        ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${escapeHtml(ctx.amount)}</span>`] : []),
       ])}
       ${ctaButton("View Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `New transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""} created`
