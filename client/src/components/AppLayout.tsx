@@ -173,6 +173,12 @@ function buildAgentSupportNav(): NavGroup[] {
       ],
     },
     {
+      label: "Operations",
+      items: [
+        { icon: CalendarDays, label: "My PTO", path: "/pto" },
+      ],
+    },
+    {
       label: "Resources",
       items: [
         { icon: BookOpen, label: "Knowledge Base", path: "/kb" },
@@ -239,7 +245,6 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewReferrals: "/referrals",
   canViewPulse: "/pulse",
   canViewTasks: "/tasks",
-  canViewPto: "/pto",
   canApprovePto: "/pto/approvals",
   canAdministerPto: "/pto/admin",
   canViewOnboarding: "/onboarding",
@@ -744,11 +749,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           : group)
         : [...navGroupsWithoutPasswords, { label: "Shared", items: [passwordNavItem] }]
       : navGroupsWithoutPasswords;
-  // PTO is employee benefit functionality: only explicitly tagged W-2 users see My PTO.
-  // Manager approval and PTO administration remain independently permission-gated.
-  const employmentFilteredNavGroups = (user as any).employmentType === "w2"
-    ? navGroups
-    : navGroups.map((group) => ({ ...group, items: group.items.filter((item) => item.path !== "/pto") })).filter((group) => group.items.length > 0);
+  // My PTO is an employee benefit driven only by the authoritative W-2 tag.
+  // Approval and administration remain separately controlled through Super Permissions.
+  const employmentFilteredNavGroups = navGroups
+    .map((group) => {
+      if (group.label !== "Operations") return group;
+      const itemsWithoutMyPto = group.items.filter((item) => item.path !== "/pto");
+      if ((user as any).employmentType !== "w2") return { ...group, items: itemsWithoutMyPto };
+      const tasksIndex = itemsWithoutMyPto.findIndex((item) => item.path === "/tasks");
+      const ptoItem: NavItem = { icon: CalendarDays, label: "My PTO", path: "/pto" };
+      const insertionIndex = tasksIndex >= 0 ? tasksIndex + 1 : 0;
+      return { ...group, items: [...itemsWithoutMyPto.slice(0, insertionIndex), ptoItem, ...itemsWithoutMyPto.slice(insertionIndex)] };
+    })
+    .filter((group) => group.items.length > 0);
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"

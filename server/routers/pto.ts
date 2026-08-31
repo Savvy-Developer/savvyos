@@ -217,7 +217,9 @@ async function currentManagerForEmployee(db: any, employeeId: number) {
 }
 
 async function assertPtoEmployee(ctx: any): Promise<boolean> {
-  return ctx.user.employmentType === "w2" && canAdminUsePermission(ctx.user, "canViewPto" as any);
+  // My PTO is an employment benefit, not a Super Permission. W-2 status is the
+  // single source of employee PTO access; approval and administration remain separate.
+  return ctx.user.employmentType === "w2";
 }
 
 async function assertPtoManager(ctx: any): Promise<boolean> {

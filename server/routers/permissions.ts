@@ -79,7 +79,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewPulseSettings",     label: "Pulse Settings",           group: "Pulse" },
   // Operations
   { key: "canViewTasks",              label: "Tasks",                    group: "Operations" },
-  { key: "canViewPto",                label: "My PTO",                   group: "Operations" },
   { key: "canApprovePto",             label: "PTO Approvals",            group: "Operations" },
   { key: "canAdministerPto",          label: "PTO Administration",       group: "Operations" },
   { key: "canViewOnboarding",         label: "On/Offboarding",           group: "Operations" },
@@ -334,7 +333,6 @@ export const permissionsRouter = router({
             "canViewResendInbox",
             "canViewPulseSettings",
             "canViewCoachFeedback",
-            "canViewPto",
             "canApprovePto",
             "canAdministerPto",
             "canViewLandingPages",
