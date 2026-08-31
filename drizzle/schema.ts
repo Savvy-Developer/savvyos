@@ -43,6 +43,8 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   // Full Users may authenticate and participate in operations; Teammates are directory-only.
   personType: mysqlEnum("personType", ["full_user", "teammate"]).default("full_user").notNull(),
+  // Deliberately nullable for pre-existing records; manual user creation requires an explicit selection.
+  employmentType: mysqlEnum("employmentType", ["w2", "1099"]),
   role: mysqlEnum("role", ["admin", "agent", "isa", "agent_support"]).default("agent").notNull(),
   // Agent commission split with Savvy (50, 60, 70, 80)
   commissionSplit: int("commissionSplit"),

@@ -119,7 +119,7 @@ async function ensurePtoDepartments(db: any) {
   for (const profile of profiles) {
     if (!profile.adminType) continue;
     const department = departmentByName.get(profile.adminType.toLowerCase());
-    if (department) await db.update(users).set({ ptoDepartmentId: department.id }).where(and(eq(users.id, profile.userId), sql`${users.ptoDepartmentId} IS NULL`));
+    if (department) await db.update(users).set({ ptoDepartmentId: department.id }).where(and(eq(users.id, profile.userId), eq(users.employmentType, "w2"), sql`${users.ptoDepartmentId} IS NULL`));
   }
   // Every active PTO user receives a bucket. Administrators can refine these
   // assignments in PTO Administration; Other is a deliberately conservative
@@ -127,7 +127,7 @@ async function ensurePtoDepartments(db: any) {
   const otherDepartment = departmentByName.get("other");
   if (otherDepartment) await db.update(users)
     .set({ ptoDepartmentId: otherDepartment.id })
-    .where(and(eq(users.isActive, true), eq(users.personType, "full_user"), sql`${users.ptoDepartmentId} IS NULL`));
+    .where(and(eq(users.isActive, true), eq(users.personType, "full_user"), eq(users.employmentType, "w2"), sql`${users.ptoDepartmentId} IS NULL`));
   return departments;
 }
 
@@ -180,6 +180,7 @@ async function requireEligibleEmployee(db: any, userId: number) {
       email: users.email,
       isActive: users.isActive,
       personType: users.personType,
+      employmentType: users.employmentType,
       reportsToId: users.reportsToId,
       ptoDepartmentId: users.ptoDepartmentId,
       createdAt: users.createdAt,
@@ -187,8 +188,8 @@ async function requireEligibleEmployee(db: any, userId: number) {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  if (!employee || !employee.isActive || employee.personType !== "full_user") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "PTO is available only to active SavvyOS users." });
+  if (!employee || !employee.isActive || employee.personType !== "full_user" || employee.employmentType !== "w2") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "PTO is available only to active W-2 SavvyOS users." });
   }
   return employee;
 }
@@ -216,7 +217,7 @@ async function currentManagerForEmployee(db: any, employeeId: number) {
 }
 
 async function assertPtoEmployee(ctx: any): Promise<boolean> {
-  return canAdminUsePermission(ctx.user, "canViewPto" as any);
+  return ctx.user.employmentType === "w2" && canAdminUsePermission(ctx.user, "canViewPto" as any);
 }
 
 async function assertPtoManager(ctx: any): Promise<boolean> {
@@ -231,7 +232,7 @@ async function directReportIds(db: any, managerId: number): Promise<number[]> {
   const reports = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.reportsToId, managerId), eq(users.isActive, true), eq(users.personType, "full_user")));
+    .where(and(eq(users.reportsToId, managerId), eq(users.isActive, true), eq(users.personType, "full_user"), eq(users.employmentType, "w2")));
   return reports.map((report: any) => report.id);
 }
 
@@ -249,6 +250,7 @@ async function getPtoConflictFlags(db: any, request: any) {
     .innerJoin(users, eq(ptoRequests.employeeId, users.id))
     .where(and(
       eq(ptoRequests.status, "approved"),
+      eq(users.employmentType, "w2"),
       ne(ptoRequests.id, request.id),
       lte(ptoRequests.startDate, dbDate(isoDate(request.endDate))),
       gte(ptoRequests.endDate, dbDate(isoDate(request.startDate))),
@@ -660,7 +662,7 @@ export const ptoRouter = router({
       db.select().from(ptoDepartments).where(eq(ptoDepartments.isActive, true)).orderBy(asc(ptoDepartments.name)),
       db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, reportsToId: users.reportsToId, ptoDepartmentId: users.ptoDepartmentId })
         .from(users)
-        .where(and(eq(users.isActive, true), eq(users.personType, "full_user")))
+        .where(and(eq(users.isActive, true), eq(users.personType, "full_user"), eq(users.employmentType, "w2")))
         .orderBy(asc(users.name)),
       db.select().from(ptoBalanceAdjustments).orderBy(desc(ptoBalanceAdjustments.createdAt)).limit(100),
     ]);
@@ -675,7 +677,7 @@ export const ptoRouter = router({
       departments,
       policies: policies.map((policy: any) => ({ ...policy, annualAccrualDays: numeric(policy.annualAccrualDays), carryoverCapDays: numeric(policy.carryoverCapDays) })),
       employees: balances,
-      adjustments: adjustmentRows.map((adjustment: any) => ({
+      adjustments: adjustmentRows.filter((adjustment: any) => usersById.has(adjustment.employeeId)).map((adjustment: any) => ({
         ...adjustment,
         amountDays: numeric(adjustment.amountDays),
         employeeName: usersById.get(adjustment.employeeId)?.name ?? String(adjustment.employeeId),

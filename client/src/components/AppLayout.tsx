@@ -744,6 +744,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           : group)
         : [...navGroupsWithoutPasswords, { label: "Shared", items: [passwordNavItem] }]
       : navGroupsWithoutPasswords;
+  // PTO is employee benefit functionality: only explicitly tagged W-2 users see My PTO.
+  // Manager approval and PTO administration remain independently permission-gated.
+  const employmentFilteredNavGroups = (user as any).employmentType === "w2"
+    ? navGroups
+    : navGroups.map((group) => ({ ...group, items: group.items.filter((item) => item.path !== "/pto") })).filter((group) => group.items.length > 0);
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"
@@ -758,7 +763,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarWidth = collapsed ? "w-[56px]" : "w-[240px]";
 
   const navProps = {
-    navGroups,
+    navGroups: employmentFilteredNavGroups,
     currentPath,
     collapsed,
     user: { ...user, profilePhotoUrl: (myCoreProfile as any)?.profilePhotoUrl ?? null },

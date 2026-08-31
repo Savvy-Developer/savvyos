@@ -53,6 +53,7 @@ type UserRow = {
   createdAt: Date;
   lastSignedIn: Date;
   loginMethod: string | null;
+  employmentType: "w2" | "1099" | null;
 };
 
 type MarketRow = { id: number; name: string };
@@ -77,6 +78,7 @@ type FormState = {
   name: string;
   email: string;
   role: "admin" | "agent" | "isa" | "agent_support";
+  employmentType: "" | "w2" | "1099";
   phone: string;
   title: string;
   reportsToId: string; // string for select
@@ -89,7 +91,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  name: "", email: "", role: "agent" as "admin" | "agent" | "isa" | "agent_support",
+  name: "", email: "", role: "agent" as "admin" | "agent" | "isa" | "agent_support", employmentType: "",
   phone: "", title: "", reportsToId: "", marketProfileId: "",
   commissionSplit: "",
   callBookingLink: "",
@@ -254,6 +256,7 @@ export default function UsersPage() {
       name: u.name ?? "",
       email: u.email ?? "",
       role: (["admin", "agent", "isa", "agent_support"].includes(u.role) ? u.role : "agent") as "admin" | "agent" | "isa" | "agent_support",
+      employmentType: u.employmentType ?? "",
       phone: u.phone ?? "",
       title: u.title ?? "",
       reportsToId: u.reportsToId ? String(u.reportsToId) : "",
@@ -304,6 +307,7 @@ export default function UsersPage() {
       name: form.name,
       email: form.email,
       role: form.role,
+      employmentType: form.employmentType || null,
       phone: form.phone || null,
       title: form.title || null,
       reportsToId: form.reportsToId ? Number(form.reportsToId) : null,
@@ -434,17 +438,31 @@ export default function UsersPage() {
           />
           <p className="text-xs text-muted-foreground">Required to keep the Org Chart accurate. Select “None” only for the top-level owner.</p>
         </div>
-        <div className="space-y-1.5">
-          <Label>Role *</Label>
-          <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v as any }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="agent">Agent</SelectItem>
-              <SelectItem value="isa">ISA (Inside Sales Agent)</SelectItem>
-              {canManagePerms && <SelectItem value="admin">Admin</SelectItem>}
-              <SelectItem value="agent_support">Agent Support</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Role *</Label>
+            <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v as any }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="agent">Agent</SelectItem>
+                <SelectItem value="isa">ISA (Inside Sales Agent)</SelectItem>
+                {canManagePerms && <SelectItem value="admin">Admin</SelectItem>}
+                <SelectItem value="agent_support">Agent Support</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Employment Type {!isEdit && "*"}</Label>
+            <Select value={form.employmentType || "__untagged__"} onValueChange={(value) => setForm((f) => ({ ...f, employmentType: value === "__untagged__" ? "" : value as "w2" | "1099" }))}>
+              <SelectTrigger><SelectValue placeholder="Select employment type" /></SelectTrigger>
+              <SelectContent>
+                {isEdit && <SelectItem value="__untagged__">Untagged (legacy)</SelectItem>}
+                <SelectItem value="w2">W-2 Employee</SelectItem>
+                <SelectItem value="1099">1099 Contractor</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Only W-2 users are eligible for PTO.</p>
+          </div>
         </div>
         {(form.role === "agent") && (
           <div className="space-y-1.5">
@@ -992,6 +1010,7 @@ export default function UsersPage() {
               <TableHead>Email</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>Employment</TableHead>
               <TableHead>Split</TableHead>
               <TableHead>Market</TableHead>
               <TableHead>Reports To</TableHead>
@@ -1002,13 +1021,13 @@ export default function UsersPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                   Loading team members...
                 </TableCell>
               </TableRow>
             ) : userList.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                   No team members yet. Add your first member above.
                 </TableCell>
               </TableRow>
@@ -1065,6 +1084,7 @@ export default function UsersPage() {
                         {ROLE_LABELS[u.role] ?? u.role}
                       </span>
                     </TableCell>
+                    <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.employmentType === "w2" ? "bg-emerald-100 text-emerald-800" : u.employmentType === "1099" ? "bg-slate-100 text-slate-700" : "bg-amber-100 text-amber-800"}`}>{u.employmentType === "w2" ? "W-2" : u.employmentType === "1099" ? "1099" : "Untagged"}</span></TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {(u as any).commissionSplit ? `${(u as any).commissionSplit}/${100 - (u as any).commissionSplit}` : "—"}
                     </TableCell>
@@ -1188,9 +1208,10 @@ export default function UsersPage() {
               onClick={() => {
                 if (form.email && !isValidEmail(form.email)) { toast.error("Please enter a valid email address"); return; }
                 if (form.phone && !isValidPhone(form.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
-                createMutation.mutate(buildMutationPayload());
+                if (!form.employmentType) { toast.error("Choose W-2 or 1099 before adding a team member."); return; }
+                createMutation.mutate({ ...buildMutationPayload(), employmentType: form.employmentType as "w2" | "1099" });
               }}
-              disabled={!form.name || !form.email || createMutation.isPending}
+              disabled={!form.name || !form.email || !form.employmentType || createMutation.isPending}
             >
               {createMutation.isPending ? "Adding..." : "Add Member"}
             </Button>
