@@ -53,8 +53,40 @@ describe("SavvyOS Slack Feature Update notifications", () => {
     expect(prompt).toContain(
       "Never mention commits, GitHub, source code, file paths"
     );
-    expect(__testables__.fallbackReleaseSummary().whatChanged).toContain(
-      "workflow update"
+    expect(__testables__.releaseSubject("feat: streamline sharing")).toBe(
+      "streamline sharing"
+    );
+  });
+
+  it("builds an actionable navigation announcement when AI copy is unavailable", () => {
+    const summary = __testables__.fallbackReleaseSummary({
+      commitMessage: "feat: move admin CRM tasks navigation",
+      changedFiles: ["client/src/components/AppLayout.tsx", "server/routers/permissions.ts"],
+      diff: '+  { key: "canViewTasks", label: "CRM Tasks", group: "CRM" },',
+    });
+
+    expect(summary).toEqual({
+      audience: "SavvyOS administrators",
+      whatChanged: "CRM Tasks is now located in the CRM section of the left navigation.",
+      howToUse: "Open the left navigation, choose CRM, then select CRM Tasks.",
+      whyItMatters: "CRM Tasks is easier to find in the workflow where it belongs.",
+      additionalImpact: "",
+    });
+    expect(summary.whatChanged).not.toContain("could not be generated");
+  });
+
+  it("uses an explicit Pulse workflow rule when the change adds one", () => {
+    const summary = __testables__.fallbackReleaseSummary({
+      commitMessage: "fix: enforce Pulse work item destinations",
+      changedFiles: ["server/pulse/workItems.ts"],
+      diff: '+ if (item.type !== "rock" && !input.toMeetingId) throw new TRPCError({ message: "Every To-Do and Issue must stay in an authorized meeting forum." });',
+    });
+
+    expect(summary.whatChanged).toBe(
+      "Pulse now enforces this rule: Every To-Do and Issue must stay in an authorized meeting forum."
+    );
+    expect(summary.howToUse).toBe(
+      "When moving a To-Do or Issue in Pulse, choose an authorized meeting destination."
     );
   });
 
@@ -134,6 +166,25 @@ describe("SavvyOS Slack Feature Update notifications", () => {
         }),
       })
     );
+  });
+
+  it("posts the actionable deterministic summary if AI generation fails", async () => {
+    fetchMock.mockResolvedValue({ ok: true });
+    invokeLlmMock.mockRejectedValue(new Error("AI proxy credentials are not configured"));
+
+    await expect(
+      notifySavvyOSRelease({
+        commitMessage: "feat: move admin CRM tasks navigation",
+        changedFiles: ["client/src/components/AppLayout.tsx"],
+        diff: '+  { key: "canViewTasks", label: "CRM Tasks", group: "CRM" },',
+      })
+    ).resolves.toBe(true);
+
+    const request = fetchMock.mock.calls[0]?.[1] as { body: string };
+    const text = JSON.parse(request.body).text;
+    expect(text).toContain("*What's new:* CRM Tasks is now located in the CRM section of the left navigation.");
+    expect(text).toContain("*How to use it:* Open the left navigation, choose CRM, then select CRM Tasks.");
+    expect(text).not.toContain("could not be generated automatically");
   });
 
   it("uses approved commit release notes when detailed announcement copy is supplied", async () => {

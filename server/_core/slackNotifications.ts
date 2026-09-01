@@ -93,15 +93,163 @@ function isReleaseSummary(value: unknown): value is ReleaseSummary {
   );
 }
 
-function fallbackReleaseSummary(): ReleaseSummary {
+type NavigationLocation = {
+  label: string;
+  group?: string;
+  path?: string;
+};
+
+type ReleaseArea = {
+  name: string;
+  audience: string;
+  howToUse: string;
+  whyItMatters: string;
+};
+
+function releaseSubject(commitMessage: string): string {
+  const firstContentLine = commitMessage
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => line && !/^Release (?:Audience|Changes|How|Why|Also)\s*:/i.test(line));
+  return (firstContentLine ?? "SavvyOS update")
+    .replace(/^(?:feat|fix|chore|refactor|docs|test|build|ci)(?:\([^)]*\))?!?\s*:\s*/i, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sentenceCase(value: string): string {
+  if (!value) return "SavvyOS has been updated";
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function changedLines(diff: string): string[] {
+  return diff
+    .split(/\r?\n/)
+    .filter(line => line.startsWith("+") && !line.startsWith("+++"))
+    .map(line => line.slice(1));
+}
+
+function findNavigationLocation(diff: string): NavigationLocation | null {
+  for (const line of changedLines(diff)) {
+    const label = line.match(/label:\s*["']([^"']+)["']/)?.[1];
+    if (!label) continue;
+    const group = line.match(/group:\s*["']([^"']+)["']/)?.[1];
+    const path = line.match(/path:\s*["']([^"']+)["']/)?.[1];
+    return { label, group, path };
+  }
+  return null;
+}
+
+function findEnforcedRule(diff: string): string | null {
+  for (const line of changedLines(diff)) {
+    const message = line.match(/message:\s*["']([^"']+)["']/)?.[1];
+    if (message && /(?:must|cannot|only|require)/i.test(message)) return message;
+  }
+  return null;
+}
+
+function releaseArea(notification: SavvyOSReleaseNotification, subject: string): ReleaseArea {
+  const material = `${subject}\n${notification.changedFiles.join("\n")}\n${notification.diff}`.toLowerCase();
+  if (/(?:agent renewal|renewal)/.test(material)) {
+    return {
+      name: "Agent Renewals",
+      audience: "SavvyOS administrators",
+      howToUse: "Open Agent Renewals in the left navigation to review and complete the renewal queue.",
+      whyItMatters: "Keeps annual agent renewal work visible and easier to complete on time.",
+    };
+  }
+  if (/(?:pulse|eos)/.test(material)) {
+    return {
+      name: "Pulse",
+      audience: "SavvyOS users who work in Pulse",
+      howToUse: "Open Pulse from the left navigation and continue in the updated workspace.",
+      whyItMatters: "Keeps meeting, preparation, and personal-work workflows easier to follow.",
+    };
+  }
+  if (/(?:referral)/.test(material)) {
+    return {
+      name: "Referrals",
+      audience: "SavvyOS users who manage referrals",
+      howToUse: "Open Referrals from the left navigation and use the updated workflow.",
+      whyItMatters: "Makes referral work faster to find and manage.",
+    };
+  }
+  if (/(?:onboarding)/.test(material)) {
+    return {
+      name: "Onboarding",
+      audience: "SavvyOS administrators and agents completing onboarding",
+      howToUse: "Open Onboarding from the left navigation and continue with the updated steps.",
+      whyItMatters: "Keeps onboarding responsibilities clear and easier to complete.",
+    };
+  }
+  if (/(?:crm|contact|pipeline|task)/.test(material)) {
+    return {
+      name: "CRM",
+      audience: "SavvyOS administrators and CRM users",
+      howToUse: "Open the CRM section from the left navigation and use the updated workflow.",
+      whyItMatters: "Keeps everyday client-management work easier to find and complete.",
+    };
+  }
   return {
-    audience: "SavvyOS users affected by the released workflow",
-    whatChanged:
-      "This release contains a SavvyOS workflow update, but its detailed announcement could not be generated automatically.",
-    howToUse:
-      "Open SavvyOS and use the relevant workflow as usual; administrators can review Feature Updates for the published change details.",
-    whyItMatters:
-      "The update is available now, while the team verifies the release summary.",
+    name: "SavvyOS",
+    audience: "SavvyOS users affected by the updated area",
+    howToUse: "Open the updated area in SavvyOS and continue using the workflow as usual.",
+    whyItMatters: "Keeps the related workflow clearer and easier to use.",
+  };
+}
+
+function summaryFromSubject(subject: string, area: ReleaseArea): string {
+  const normalized = subject.toLowerCase();
+  const remainder = (pattern: RegExp) => subject.replace(pattern, "").trim();
+  if (/^add\b/i.test(subject)) return `${sentenceCase(remainder(/^add\s+/i))} is now available in SavvyOS.`;
+  if (/^(?:move|place|surface|restore)\b/i.test(subject)) return `${sentenceCase(remainder(/^(?:move|place|surface|restore)\s+/i))} has been updated to make it easier to find.`;
+  if (/^simplify\b/i.test(subject)) return `${sentenceCase(remainder(/^simplify\s+/i))} has been simplified for clearer navigation.`;
+  if (/^enforce\b/i.test(subject)) return `SavvyOS now enforces ${remainder(/^enforce\s+/i)}.`;
+  if (/^tie\b/i.test(subject)) return `${sentenceCase(remainder(/^tie\s+/i))} is now handled automatically in ${area.name}.`;
+  if (/^remove\b/i.test(subject)) return `${sentenceCase(remainder(/^remove\s+/i))} has been removed from the workflow.`;
+  if (/^improve\b/i.test(subject)) return `${sentenceCase(remainder(/^improve\s+/i))} has been improved.`;
+  if (/^fix\b/i.test(subject)) return `${sentenceCase(remainder(/^fix\s+/i))} has been corrected.`;
+  return `${sentenceCase(normalized === "savvyos update" ? "SavvyOS workflow" : subject)} has been updated.`;
+}
+
+function fallbackReleaseSummary(notification: SavvyOSReleaseNotification): ReleaseSummary {
+  const subject = releaseSubject(notification.commitMessage);
+  const location = findNavigationLocation(notification.diff);
+  const enforcedRule = findEnforcedRule(notification.diff);
+  const area = releaseArea(notification, subject);
+
+  if (location?.group) {
+    const action = `Open the left navigation, choose ${location.group}, then select ${location.label}.`;
+    return {
+      audience: location.group === "Admin" || location.group === "CRM" ? "SavvyOS administrators" : area.audience,
+      whatChanged: `${location.label} is now located in the ${location.group} section of the left navigation.`,
+      howToUse: action,
+      whyItMatters: `${location.label} is easier to find in the workflow where it belongs.`,
+      additionalImpact: "",
+    };
+  }
+
+  if (/^enforce\b/i.test(subject) && enforcedRule) {
+    const isPulse = area.name === "Pulse";
+    return {
+      audience: area.audience,
+      whatChanged: `${isPulse ? "Pulse" : "SavvyOS"} now enforces this rule: ${sentenceCase(enforcedRule)}`,
+      howToUse: isPulse
+        ? "When moving a To-Do or Issue in Pulse, choose an authorized meeting destination."
+        : area.howToUse,
+      whyItMatters: isPulse
+        ? "Keeps shared work in the correct meeting context and protects the intended workflow."
+        : area.whyItMatters,
+      additionalImpact: "",
+    };
+  }
+
+  return {
+    audience: area.audience,
+    whatChanged: summaryFromSubject(subject, area),
+    howToUse: area.howToUse,
+    whyItMatters: area.whyItMatters,
     additionalImpact: "",
   };
 }
@@ -201,7 +349,7 @@ async function createReleaseSummary(
       "[Slack] Release summary generation failed; using a safe fallback:",
       error
     );
-    return fallbackReleaseSummary();
+    return fallbackReleaseSummary(notification);
   }
 }
 
@@ -291,8 +439,11 @@ export async function notifySavvyOSRelease(
 export const __testables__ = {
   buildReleaseSummaryPrompt,
   fallbackReleaseSummary,
+  findEnforcedRule,
+  findNavigationLocation,
   getCommitReleaseSummary,
   normalizeSentence,
+  releaseSubject,
   sanitizeForSlack,
   toSavvyOSUrl,
   trimToLength,
