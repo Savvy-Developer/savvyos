@@ -70,6 +70,7 @@ import { shortLinksRouter } from "./routers/shortLinks";
 import { partnerPortalRouter } from "./routers/partnerPortal";
 import { vendorsRouter } from "./routers/vendors";
 import { ptoRouter } from "./routers/pto";
+import { agentRenewalsRouter } from "./routers/agentRenewals";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -290,6 +291,7 @@ export const appRouter = router({
   partnerPortal: partnerPortalRouter,
   vendors: vendorsRouter,
   pto: ptoRouter,
+  agentRenewals: agentRenewalsRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

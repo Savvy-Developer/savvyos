@@ -143,6 +143,7 @@ import PublicVendorListPage from "./pages/PublicVendorListPage";
 import PtoPage from "./pages/PtoPage";
 import PtoManagerQueuePage from "./pages/PtoManagerQueuePage";
 import PtoAdministrationPage from "./pages/PtoAdministrationPage";
+import AgentRenewalsPage from "./pages/AgentRenewalsPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -286,6 +287,16 @@ function CoachFeedbackRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AgentRenewalsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewAgentRenewals) return <NotFound />;
+  return <>{children}</>;
+}
+
 function ReviewsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const role = (user as any)?.role;
@@ -405,6 +416,7 @@ function Router() {
           <Route path="/onboarding-tracker">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
           <Route path="/onboarding-report">{() => <AdminRoute><OnboardingPage /></AdminRoute>}</Route>
           <Route path="/leadership-dashboard">{() => <AdminRoute><LeadershipDashboardPage /></AdminRoute>}</Route>
+          <Route path="/agent-renewals">{() => <AgentRenewalsRoute><AgentRenewalsPage /></AgentRenewalsRoute>}</Route>
           <Route path="/commission-exceptions">{() => <AdminRoute><CommissionExceptionsPage /></AdminRoute>}</Route>
           <Route path="/referrals">{() => <AdminOrIsaRoute><ReferralsPage /></AdminOrIsaRoute>}</Route>
           <Route path="/referrals/agents/:id">{() => <AdminOrIsaRoute><ReferralAgentDetailPage /></AdminOrIsaRoute>}</Route>

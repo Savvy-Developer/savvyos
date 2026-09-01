@@ -1598,6 +1598,37 @@ export const agentProfiles = mysqlTable("agent_profiles", {
 export type AgentProfile = typeof agentProfiles.$inferSelect;
 export type InsertAgentProfile = typeof agentProfiles.$inferInsert;
 
+// ─── Agent Renewals ───────────────────────────────────────────────────────────
+// A renewal begins as one scheduled row. Completing it preserves the meeting
+// record and immediately creates the following year's scheduled row, so agents
+// without a scheduled row are explicitly visible to administrators.
+export const agentRenewals = mysqlTable("agent_renewals", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  renewalDate: date("renewalDate").notNull(),
+  status: mysqlEnum("status", ["scheduled", "completed"]).notNull().default("scheduled"),
+  meetingDate: date("meetingDate"),
+  completedAt: timestamp("completedAt"),
+  completedById: int("completedById").references(() => users.id, { onDelete: "set null" }),
+  attendees: text("attendees"),
+  discussionSummary: text("discussionSummary"),
+  productionReview: text("productionReview"),
+  goalsAndCommitments: text("goalsAndCommitments"),
+  followUpItems: text("followUpItems"),
+  splitNotes: text("splitNotes"),
+  agreementUrl: text("agreementUrl"),
+  agreementKey: varchar("agreementKey", { length: 500 }),
+  agreementName: varchar("agreementName", { length: 255 }),
+  agreementMimeType: varchar("agreementMimeType", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("agent_renewals_agent_status_date_idx").on(table.agentId, table.status, table.renewalDate),
+  index("agent_renewals_status_completed_idx").on(table.status, table.completedAt),
+]);
+export type AgentRenewal = typeof agentRenewals.$inferSelect;
+export type InsertAgentRenewal = typeof agentRenewals.$inferInsert;
+
 // ─── ISA Extended Profile ─────────────────────────────────────────────────────
 export const isaProfiles = mysqlTable("isa_profiles", {
   id: int("id").autoincrement().primaryKey(),
@@ -2839,6 +2870,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canAdministerPto: boolean("canAdministerPto").default(false).notNull(),
   canViewOnboarding: boolean("canViewOnboarding").default(true).notNull(),
   canViewCoachingHub: boolean("canViewCoachingHub").default(true).notNull(),
+  canViewAgentRenewals: boolean("canViewAgentRenewals").default(true).notNull(),
   // Sensitive aggregate-only feedback area. Explicitly granted to designated leadership.
   canViewCoachFeedback: boolean("canViewCoachFeedback").default(false).notNull(),
   canViewLeadershipDashboard: boolean("canViewLeadershipDashboard").default(true).notNull(),

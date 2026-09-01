@@ -90,6 +90,29 @@ export function registerUploadRoutes(app: express.Application) {
     }
   });
 
+  // POST /api/upload/agent-renewal-agreement — renewal meeting agreement upload
+  app.post("/api/upload/agent-renewal-agreement", upload.single("file"), async (req: any, res: any) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      if (!(await canAdminUsePermission(user, "canViewAgentRenewals"))) return res.status(403).json({ error: "Agent Renewals permission is required" });
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+      const allowed = [
+        "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "image/jpeg", "image/png", "image/webp", "text/plain",
+      ];
+      if (!allowed.includes(req.file.mimetype)) return res.status(400).json({ error: "Unsupported document type" });
+      const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const fileKey = `agent-renewal-agreements/${user.id}/${nanoid(12)}-${safeName}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      return res.json({ fileUrl: url, fileKey, fileName: req.file.originalname, mimeType: req.file.mimetype, fileSize: req.file.size });
+    } catch (err: any) {
+      console.error("[AgentRenewalAgreementUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/transaction-document — transaction document upload
   app.post("/api/upload/transaction-document", upload.single("file"), async (req: any, res: any) => {
     try {

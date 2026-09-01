@@ -110,6 +110,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canApprovePto",                 label: "PTO Approvals",              group: "Admin" },
   { key: "canViewOnboarding",             label: "On/Offboarding",             group: "Admin" },
   { key: "canViewOrgChart",               label: "Org Chart",                  group: "Admin" },
+  { key: "canViewAgentRenewals",          label: "Agent Renewals",             group: "Admin" },
   { key: "canViewRolesResponsibilities",  label: "Roles and Responsibilities", group: "Admin" },
   { key: "canViewFeedback",               label: "Feedback and Requests",      group: "Admin" },
   { key: "canViewSuperPermissions",       label: "Super Permissions",          group: "Admin" },
