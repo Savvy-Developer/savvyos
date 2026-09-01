@@ -50,9 +50,10 @@ async function getEmailSpeedToLead() {
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
   const inbound = aliasedTable(resendInboxMessages, "speed_to_lead_inbound_email");
   const outbound = aliasedTable(resendInboxMessages, "speed_to_lead_outbound_email");
+  const outboundAlias = sql.raw("`speed_to_lead_outbound_email`");
   const responseAt = sql<Date | null>`(
     SELECT MIN(${outbound.receivedAt})
-    FROM ${outbound}
+    FROM ${resendInboxMessages} AS ${outboundAlias}
     WHERE ${outbound.threadId} = ${inbound.threadId}
       AND ${outbound.direction} = 'outbound'
       AND ${outbound.receivedAt} > ${inbound.receivedAt}

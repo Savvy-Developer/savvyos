@@ -240,10 +240,11 @@ async function getMarketingTextSpeedToLead(
 
   const inbound = aliasedTable(aircallMessages, "speed_to_lead_inbound_sms");
   const outbound = aliasedTable(aircallMessages, "speed_to_lead_outbound_sms");
+  const outboundAlias = sql.raw("`speed_to_lead_outbound_sms`");
   const inboundAt = sql<Date>`COALESCE(${inbound.receivedAt}, ${inbound.sentAt}, ${inbound.createdAt})`;
   const responseAt = sql<Date | null>`(
     SELECT MIN(COALESCE(${outbound.sentAt}, ${outbound.createdAt}))
-    FROM ${outbound}
+    FROM ${aircallMessages} AS ${outboundAlias}
     WHERE ${outbound.contactId} = ${inbound.contactId}
       AND ${outbound.aircallNumberId} = ${marketingNumberId}
       AND ${outbound.direction} = 'outbound'

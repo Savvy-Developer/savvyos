@@ -244,7 +244,12 @@ export default function ResendInboxPage() {
       </header>
 
       <div className="border-b bg-muted/10 px-4 py-3 md:px-6">
-        <SpeedToLeadStats windows={speedToLead.data?.windows} channel="email" />
+        <SpeedToLeadStats
+          windows={speedToLead.data?.windows}
+          channel="email"
+          isLoading={speedToLead.isLoading}
+          errorMessage={speedToLead.error?.message}
+        />
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

@@ -476,7 +476,12 @@ export default function MarketingTextInboxPage() {
         </div>
       </div>
 
-      <SpeedToLeadStats windows={speedToLead.data?.windows} channel="text" />
+      <SpeedToLeadStats
+        windows={speedToLead.data?.windows}
+        channel="text"
+        isLoading={speedToLead.isLoading}
+        errorMessage={speedToLead.error?.message}
+      />
 
       {!config?.sendReady && (
         <Card className="border-amber-200 bg-amber-50/50">

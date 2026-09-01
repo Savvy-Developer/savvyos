@@ -8,6 +8,8 @@ type SpeedToLeadWindow = {
   incomingCount: number;
 };
 
+const SPEED_TO_LEAD_WINDOWS = ["Today", "7D", "30D", "90D", "YTD", "All Time"];
+
 function formatDuration(minutes: number | null) {
   if (minutes === null || !Number.isFinite(minutes)) return "—";
   if (minutes < 1) return "< 1m";
@@ -22,12 +24,25 @@ function formatDuration(minutes: number | null) {
 export function SpeedToLeadStats({
   windows,
   channel,
+  isLoading = false,
+  errorMessage,
 }: {
   windows?: SpeedToLeadWindow[];
   channel: "text" | "email";
+  isLoading?: boolean;
+  errorMessage?: string | null;
 }) {
   const isText = channel === "text";
   const readyWindows = windows ?? [];
+  const displayWindows = readyWindows.length
+    ? readyWindows
+    : SPEED_TO_LEAD_WINDOWS.map((label, index) => ({
+        key: `placeholder-${index}`,
+        label,
+        averageMinutes: null,
+        respondedCount: 0,
+        incomingCount: 0,
+      }));
 
   return (
     <section
@@ -49,20 +64,28 @@ export function SpeedToLeadStats({
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Responded conversations only
+          {isLoading
+            ? "Loading response data…"
+            : errorMessage
+              ? "Response data unavailable"
+              : "Responded conversations only"}
         </p>
       </div>
       <div className="grid grid-cols-2 divide-x divide-y sm:grid-cols-3 lg:grid-cols-6 lg:divide-y-0">
-        {readyWindows.map(window => (
+        {displayWindows.map(window => (
           <div key={window.key} className="min-w-0 px-4 py-3">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {window.label}
             </p>
             <p className="mt-1 text-lg font-semibold tabular-nums">
-              {formatDuration(window.averageMinutes)}
+              {isLoading ? "Loading…" : formatDuration(window.averageMinutes)}
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {window.respondedCount}/{window.incomingCount} replied
+              {isLoading
+                ? "Fetching replies"
+                : errorMessage
+                  ? "Try refreshing"
+                  : `${window.respondedCount}/${window.incomingCount} replied`}
             </p>
           </div>
         ))}
