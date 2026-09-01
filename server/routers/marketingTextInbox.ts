@@ -284,19 +284,103 @@ async function getMarketingTextSpeedToLead(
   );
 }
 
+type IntroductionMessage = {
+  direction: "inbound" | "outbound";
+  body: string | null;
+  sentAt: Date | null;
+  receivedAt: Date | null;
+  createdAt: Date;
+};
+
+type IntroductionContext = {
+  topic: string | null;
+  clientResponse: string | null;
+  sourceMessage: string | null;
+};
+
+function cleanIntroductionSentence(value: string, maxLength = 260): string {
+  return plainText(value).replace(/\s+/g, " ").trim().slice(0, maxLength).replace(/[.\s]+$/, "");
+}
+
+/**
+ * Produces a factual handoff brief even if the AI provider is unavailable. It
+ * intentionally reads the outbound message immediately before a client's reply
+ * and then scans back through the thread for the explicit inquiry or property
+ * that prompted the requested connection.
+ */
+function deriveIntroductionContext(messages: IntroductionMessage[]): IntroductionContext {
+  const chronological = [...messages]
+    .filter((message) => Boolean(cleanIntroductionSentence(message.body ?? "")))
+    .sort((left, right) => {
+      const leftAt = left.sentAt ?? left.receivedAt ?? left.createdAt;
+      const rightAt = right.sentAt ?? right.receivedAt ?? right.createdAt;
+      return leftAt.getTime() - rightAt.getTime();
+    });
+  const latestInboundIndex = chronological.map((message) => message.direction).lastIndexOf("inbound");
+  const inbound = latestInboundIndex >= 0 ? chronological[latestInboundIndex] : null;
+  const precedingOutbound = latestInboundIndex >= 0
+    ? chronological.slice(0, latestInboundIndex).filter((message) => message.direction === "outbound")
+    : chronological.filter((message) => message.direction === "outbound");
+  const reversedOutbound = [...precedingOutbound].reverse();
+  // Prefer the actual inquiry/property request over a later logistical nudge
+  // such as "Should I connect you?". That distinction is what makes a handoff
+  // useful to the receiving agent.
+  const source = reversedOutbound.find((message) =>
+    /\b(?:inquiry|request|property|listing|showing|analysis|offer sheet)\b/i.test(message.body ?? ""),
+  ) ?? reversedOutbound.at(0) ?? null;
+  const sourceMessage = cleanIntroductionSentence(source?.body ?? "") || null;
+
+  const topicMatch = sourceMessage?.match(
+    /\b(?:got|received|saw)?\s*(?:your\s+)?(?:inquiry|request)\s+(?:about|for|regarding)\s+(.+?)(?:\s*[,;—-]\s*(?:should|would|can|do|is)\b|[?.!]|$)/i,
+  );
+  const propertyMatch = sourceMessage?.match(
+    /\b(?:about|for|regarding)\s+(.+?)(?:\s*[,;—-]\s*(?:should|would|can|do|is)\b|[?.!]|$)/i,
+  );
+  const topicValue = cleanIntroductionSentence(topicMatch?.[1] ?? propertyMatch?.[1] ?? "", 180);
+  const topic = topicValue ? topicValue.replace(/^the\s+/i, "") : null;
+
+  const inboundMessage = cleanIntroductionSentence(inbound?.body ?? "", 280);
+  let clientResponse: string | null = null;
+  if (inboundMessage) {
+    if (/\b(?:text works|accept a text intro|text introduction)\b/i.test(inboundMessage)) {
+      const traveling = /\btravel(?:ing|ling)\b.*?\b(?:work|week)\b/i.test(inboundMessage);
+      clientResponse = traveling
+        ? "confirmed that a text introduction works while he is traveling for work this week"
+        : "confirmed that a text introduction works";
+    } else if (/\byes\b|\bsure\b|\bplease\b|\bsounds good\b/i.test(inboundMessage)) {
+      clientResponse = "confirmed that he would like the introduction";
+    } else {
+      clientResponse = `replied, “${inboundMessage}”`;
+    }
+  }
+  return { topic, clientResponse, sourceMessage };
+}
+
 function fallbackIntroductionDraft(input: {
   contactFirstName: string;
   contactName: string;
   agentName: string;
   userName: string;
-  conversationTopic: string;
+  context: IntroductionContext;
 }) {
   const agentFirstName = firstName(input.agentName, "your Savvy agent");
+  const reason = input.context.topic
+    ? `about ${input.context.topic}`
+    : input.context.sourceMessage
+      ? `after we texted about “${input.context.sourceMessage}”`
+      : "after connecting with Savvy STR Agents";
+  const clientResponse = input.context.clientResponse
+    ? ` ${input.contactFirstName} ${input.context.clientResponse}.`
+    : "";
   return {
-    groupText: `Hi ${input.contactFirstName} and ${agentFirstName} — ${input.contactFirstName} recently replied to a Savvy STR Agents text${input.conversationTopic ? ` about ${input.conversationTopic}` : ""}. I wanted to connect you both directly so ${agentFirstName} can learn more about what would be most helpful. I’ll let you take it from here! — ${input.userName}`,
+    groupText: `Hi ${input.contactFirstName} and ${agentFirstName} — ${input.contactFirstName} reached out ${reason}.${clientResponse} ${agentFirstName}, I wanted to introduce you so you can connect directly with ${input.contactFirstName} about this. I’ll let you take it from here! — ${input.userName}`,
     emailSubject: `Introduction: ${input.contactName} + ${input.agentName}`,
-    emailBody: `Hi ${input.contactFirstName} and ${agentFirstName},\n\nI wanted to personally connect you both. ${input.contactName} recently replied to a Savvy STR Agents message${input.conversationTopic ? ` about ${input.conversationTopic}` : ""}, and ${input.agentName} can continue the conversation directly.\n\n${agentFirstName}, ${input.contactFirstName} is copied here so you can connect directly. ${input.contactFirstName}, ${agentFirstName} will be glad to learn more about what you are looking for.\n\nBest,\n${input.userName}`,
-    contextSummary: input.conversationTopic ? `The client replied to our text about ${input.conversationTopic}.` : "The client replied to a recent Savvy STR Agents text.",
+    emailBody: `Hi ${input.contactFirstName} and ${agentFirstName},\n\nI wanted to personally connect you both after ${input.contactFirstName} reached out ${reason}.${clientResponse}\n\n${agentFirstName}, ${input.contactFirstName} is copied here so you can connect directly. ${input.contactFirstName}, ${agentFirstName} can continue the conversation with you from here.\n\nBest,\n${input.userName}`,
+    contextSummary: input.context.topic
+      ? `${input.contactFirstName} reached out about ${input.context.topic}${input.context.clientResponse ? ` and ${input.context.clientResponse}` : ""}.`
+      : input.context.clientResponse
+        ? `${input.contactFirstName} ${input.context.clientResponse}.`
+        : "Recent Savvy STR Agents handoff conversation.",
   };
 }
 
@@ -310,12 +394,18 @@ function parsedIntroductionDraft(
       typeof parsed[key] === "string" && parsed[key].trim().length > 0
         ? parsed[key].trim().slice(0, max)
         : fallback[key as keyof typeof fallback];
-    return {
+    const draft = {
       groupText: get("groupText", 1600) as string,
       emailSubject: get("emailSubject", 255) as string,
       emailBody: get("emailBody", 20_000) as string,
       contextSummary: get("contextSummary", 700) as string,
     };
+    // Do not silently accept a superficially valid but context-free model draft
+    // when the thread supplied enough evidence for the deterministic brief.
+    const fallbackHasSpecificContext = !/Recent Savvy STR Agents handoff conversation\.?$/i.test(fallback.contextSummary);
+    const genericReply = /\b(?:recently\s+)?replied to (?:a |our )?(?:Savvy STR Agents )?(?:text|message)\b/i.test(draft.groupText);
+    if (fallbackHasSpecificContext && genericReply) return fallback;
+    return draft;
   } catch {
     return fallback;
   }
@@ -622,7 +712,7 @@ export const marketingTextInboxRouter = router({
       .orderBy(users.name);
   }),
 
-  /** Generates an editable, personal two-way text and group-email introduction draft. */
+  /** Generates an editable, grounded group-text and group-email introduction draft. */
   draftIntroduction: protectedProcedure
     .input(z.object({ contactId: positiveId, agentId: positiveId }))
     .mutation(async ({ ctx, input }) => {
@@ -695,6 +785,7 @@ export const marketingTextInboxRouter = router({
         });
 
       const contactName = `${contact.firstName} ${contact.lastName}`.trim();
+      const context = deriveIntroductionContext(textHistory);
       const recentItems = [
         ...textHistory.map(message => ({
           at: message.sentAt ?? message.receivedAt ?? message.createdAt,
@@ -714,7 +805,7 @@ export const marketingTextInboxRouter = router({
         contactName,
         agentName: agent.name ?? "your Savvy agent",
         userName: ctx.user.name ?? "The Savvy team",
-        conversationTopic: "",
+        context,
       });
 
       try {
@@ -722,12 +813,26 @@ export const marketingTextInboxRouter = router({
           model: "gpt-5",
           maxTokens: 1200,
           reasoning: { effort: "low" },
-          responseFormat: { type: "json_object" },
+          outputSchema: {
+            name: "grounded_client_introduction",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                groupText: { type: "string" },
+                emailSubject: { type: "string" },
+                emailBody: { type: "string" },
+                contextSummary: { type: "string" },
+              },
+              required: ["groupText", "emailSubject", "emailBody", "contextSummary"],
+            },
+          },
           messages: [
             {
               role: "system",
               content:
-                "Write a warm, concise real-estate introduction. Return JSON only with groupText, emailSubject, emailBody, and contextSummary. The groupText is ONE genuine group SMS received by both the client and the agent, so it must directly greet both people by first name, explain the specific client context from the complete supplied history, and make a natural handoff. Identify what the client replied to and their meaningful response or question; when a very short reply depends on a prior Savvy text, use that prior text to explain the topic. Never use vague phrases such as 'based on our recent conversation,' 'our recent conversation about,' 'resource to help,' or a bare response such as 'Yes please' as the context. Never invent facts, promises, appointments, or financial details. Mention the named SavvyOS user as the personal introducer. Group texts must be under 700 characters. The email addresses both people, uses the same grounded context, and is plain text with paragraphs. contextSummary is a concise factual explanation of why the introduction is being made.",
+                "Write a warm, concise real-estate introduction. The supplied handoffFacts are the required factual foundation: preserve the property, inquiry, question, stated preference, and/or client response when present. Return the required schema. groupText is ONE shared group SMS received by both the client and agent, so greet both people by first name and write a natural handoff. State both (1) why the client reached out, including the actual subject from the earlier Savvy message, and (2) the client's response or agreed next step when present. A short reply must never be used without its preceding Savvy context. Never use vague phrases such as 'recently replied to a text/message,' 'based on our recent conversation,' 'our recent conversation about,' 'resource to help,' or a bare response such as 'Yes please.' Never invent facts, promises, appointments, or financial details. Mention the named SavvyOS user as the personal introducer. Group texts must be under 700 characters. The email addresses both people, uses the same grounded context, and is plain text with paragraphs. contextSummary is a factual one-sentence explanation of why this introduction is being made.",
             },
             {
               role: "user",
@@ -739,6 +844,7 @@ export const marketingTextInboxRouter = router({
                 },
                 agent: { name: agent.name },
                 introducedBy: ctx.user.name ?? "The Savvy team",
+                handoffFacts: context,
                 recentConversation: recentItems,
               }),
             },
