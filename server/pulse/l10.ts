@@ -234,7 +234,7 @@ async function getIssues(db: any, targetMeetingId: string) {
     .orderBy(asc(pulseWorkItems.status), asc(pulseWorkItems.priority), asc(pulseWorkItems.createdAt));
 }
 
-async function getUpdates(db: any, targetMeetingId: string, updateType: "segue" | "headline") {
+async function getUpdates(db: any, targetMeetingId: string, updateType: "segue" | "headline" | "brief") {
   const { pulseMeetingUpdates } = await import("../../drizzle/schema");
   return db.select({ id: pulseMeetingUpdates.id, body: pulseMeetingUpdates.body, tone: pulseMeetingUpdates.tone, authorName: users.name, createdAt: pulseMeetingUpdates.createdAt, sessionId: pulseMeetingUpdates.sessionId })
     .from(pulseMeetingUpdates)
@@ -273,7 +273,7 @@ function healthFromReports(reports: any[], scheduledMinutes: number) {
 async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: string) {
   const meeting = await require_visible_meeting(db, user.id, targetMeetingId);
   if (meeting.label !== "level_10") throw notFound("This workspace is not a Level 10 meeting.");
-  const [members, scorecard, rocks, todos, issues, segue, headlines, reports, activeSession] = await Promise.all([
+  const [members, scorecard, rocks, todos, issues, segue, headlines, briefs, reports, activeSession] = await Promise.all([
     listMembers(db, targetMeetingId),
     getScorecard(db, targetMeetingId, Math.max(1, Math.min(16, meeting.scorecardHistoryWeeks ?? 8))),
     getRocks(db, targetMeetingId),
@@ -281,6 +281,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     getIssues(db, targetMeetingId),
     getUpdates(db, targetMeetingId, "segue"),
     getUpdates(db, targetMeetingId, "headline"),
+    getUpdates(db, targetMeetingId, "brief"),
     getReports(db, targetMeetingId),
     getActiveSession(db, targetMeetingId),
   ]);
@@ -319,6 +320,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
       overview: { attention, latestReport: reports[0]?.report ?? null, health: healthFromReports(reports, meeting.durationMinutes) },
       segue,
       headlines,
+      briefs,
       scorecard,
       rocks,
       todos: todos.map((todo: any) => ({ ...todo, dueDate: dateValue(todo.dueDate) })),
