@@ -3,14 +3,16 @@ import { and, eq, isNull } from "drizzle-orm";
 import { pulseMeetingMembers, pulsePermissions } from "../../drizzle/schema";
 import { protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
+import { canAdminUsePermission } from "../routers/permissions";
 
 const PULSE_UNAVAILABLE = "Pulse is not available. Ask a Pulse administrator to grant access.";
 const PULSE_SETTINGS_UNAVAILABLE = "This Pulse configuration is not available.";
 
 /**
- * These are the authoritative Pulse-wide permissions. SavvyOS roles, teams, and
- * Super Permissions never grant a Pulse capability. Meeting data still requires
- * active, explicit membership in the relevant L10.
+ * These are the authoritative Pulse-wide capabilities. SavvyOS Super Permissions
+ * may open the Pulse module and its Settings hub, but never grant a Pulse
+ * capability or meeting membership. Meeting data still requires active, explicit
+ * membership in the relevant L10.
  */
 export const PULSE_CAPABILITIES = [
   "manage_permission_matrix",
@@ -20,7 +22,7 @@ export const PULSE_CAPABILITIES = [
 ] as const;
 export type PulseCapability = typeof PULSE_CAPABILITIES[number];
 
-type PulseUser = { id: number; email?: string | null };
+type PulseUser = { id: number; email?: string | null; role?: string | null };
 
 function unavailable(message: string) {
   return new TRPCError({ code: "NOT_FOUND", message });
@@ -42,8 +44,9 @@ export async function hasAnyPulseCapability(db: any, user: PulseUser): Promise<b
   return Boolean(row);
 }
 
-/** A Pulse home may be opened by a meeting member or a matrix-capability holder. */
+/** A Pulse home may be opened by a meeting member, a matrix-capability holder, or a Super Permissions assignee. */
 export async function canOpenPulse(db: any, user: PulseUser): Promise<boolean> {
+  if (user.role === "admin" && await canAdminUsePermission({ id: user.id, role: user.role, email: user.email }, "canViewPulse")) return true;
   if (await hasAnyPulseCapability(db, user)) return true;
   const [membership] = await db.select({ id: pulseMeetingMembers.id })
     .from(pulseMeetingMembers)
@@ -61,6 +64,11 @@ export async function requirePulseCapability(db: any, user: PulseUser, capabilit
 }
 
 export async function canOpenPulseSettings(db: any, user: PulseUser): Promise<boolean> {
+  // Super Permissions is authoritative for administrators. Pulse capabilities remain
+  // the settings authority for non-administrator operating users.
+  if (user.role === "admin") {
+    return canAdminUsePermission({ id: user.id, role: user.role, email: user.email }, "canViewPulseSettings");
+  }
   return hasPulseCapability(db, user, "manage_l10s") || hasPulseCapability(db, user, "manage_permission_matrix");
 }
 
