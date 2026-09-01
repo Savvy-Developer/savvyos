@@ -389,6 +389,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: CalendarDays, label: "Agent Renewals", path: "/agent-renewals" },
         { icon: ClipboardList, label: "Roles and Responsibilities", path: "/roles-responsibilities" },
         { icon: MessageSquarePlus, label: "Feedback and Requests", path: "/feedback", badge: pendingFeedback > 0 ? pendingFeedback : undefined },
+        { icon: Wrench, label: "Tech Requests", path: "/tech-requests" },
         { icon: ShieldCheck, label: "Super Permissions", path: "/admin/super-permissions" },
         { icon: Lock, label: "Passwords", path: "/passwords" },
         { icon: Mail, label: "Email Notifications", path: "/email-notifications" },

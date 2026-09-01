@@ -98,7 +98,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewSmartPlans",             label: "Smart Plans",                group: "Marketing" },
   { key: "canViewMarketingAdmin",         label: "Marketing Requests",         group: "Marketing" },
   { key: "canViewShortLinks",             label: "Short Links",                group: "Marketing" },
-  { key: "canViewTechRequests",           label: "Tech Requests",              group: "Marketing" },
   // Approvals
   { key: "canViewConnectionRequests",     label: "Connection Requests",        group: "Approvals" },
   { key: "canViewAdminApprovals",         label: "Admin Approvals",            group: "Approvals" },
@@ -113,6 +112,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewAgentRenewals",          label: "Agent Renewals",             group: "Admin" },
   { key: "canViewRolesResponsibilities",  label: "Roles and Responsibilities", group: "Admin" },
   { key: "canViewFeedback",               label: "Feedback and Requests",      group: "Admin" },
+  { key: "canViewTechRequests",           label: "Tech Requests",              group: "Admin" },
   { key: "canViewSuperPermissions",       label: "Super Permissions",          group: "Admin" },
   { key: "canViewPasswords",              label: "Passwords",                  group: "Admin" },
   { key: "canViewEmailNotifications",     label: "Email Notifications",        group: "Admin" },

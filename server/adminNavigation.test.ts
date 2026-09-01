@@ -41,6 +41,7 @@ describe("admin navigation consolidation", () => {
     expect(source).toContain('label: "Agent Pipelines", path: "/pipeline"');
     expect(source).toContain('label: "Commissions and Payouts", path: "/commission"');
     expect(source).toContain('label: "Knowledgebase", path: "/kb"');
+    expect(source).toContain('label: "Tech Requests", path: "/tech-requests"');
   });
 
   it("renders category labels as expanded-by-default accessible collapse controls", () => {
@@ -57,5 +58,6 @@ describe("admin navigation consolidation", () => {
     expect(transactionsPage).toContain('onClick={() => navigate("/transaction-reporting")}');
     expect(permissionsRouter).toContain('{ key: "canViewCustomReports",          label: "Custom Reports",             group: "Overview" }');
     expect(permissionsRouter).toContain('{ key: "canViewTransactionExports",     label: "Transaction Exports",        group: "Transactions" }');
+    expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Admin" }');
   });
 });
