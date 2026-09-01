@@ -2110,6 +2110,7 @@ export const pmProjectCollaborators = mysqlTable("pm_project_collaborators", {
 export const pmTasks = mysqlTable("pm_tasks", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId").notNull().references(() => pmProjects.id, { onDelete: "cascade" }),
+  parentTaskId: int("parentTaskId"),
   title: text("title").notNull(),
   ownerId: int("ownerId").notNull().references(() => users.id, { onDelete: "restrict" }),
   dueDate: timestamp("dueDate").notNull(),
@@ -2120,9 +2121,36 @@ export const pmTasks = mysqlTable("pm_tasks", {
   sortOrder: int("sortOrder").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  foreignKey({
+    columns: [table.parentTaskId],
+    foreignColumns: [table.id],
+    name: "pm_tasks_parentTaskId_pm_tasks_id_fk",
+  }).onDelete("set null"),
+  index("pm_tasks_parent_idx").on(table.parentTaskId),
+]);
 export type PmTask = typeof pmTasks.$inferSelect;
 export type InsertPmTask = typeof pmTasks.$inferInsert;
+
+// Personal todos live outside of a project. Recurring items roll their due date
+// forward when completed so users keep one current, actionable record.
+export const pmPersonalTodos = mysqlTable("pm_personal_todos", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  notes: text("notes"),
+  dueDate: timestamp("dueDate"),
+  recurrence: varchar("recurrence", { length: 16 }).notNull().default("none"), // none | daily | weekdays | weekly | monthly
+  completed: boolean("completed").notNull().default(false),
+  completedAt: timestamp("completedAt"),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("pm_personal_todos_user_status_idx").on(table.userId, table.completed, table.dueDate),
+]);
+export type PmPersonalTodo = typeof pmPersonalTodos.$inferSelect;
+export type InsertPmPersonalTodo = typeof pmPersonalTodos.$inferInsert;
 
 export const pmTaskComments = mysqlTable("pm_task_comments", {
   id: int("id").autoincrement().primaryKey(),
@@ -2172,6 +2200,7 @@ export const pmNoteMentions = mysqlTable("pm_note_mentions", {
   id: int("id").autoincrement().primaryKey(),
   noteId: int("noteId").notNull().references(() => pmProjectNotes.id, { onDelete: "cascade" }),
   mentionedUserId: int("mentionedUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  shouldNotify: boolean("shouldNotify").notNull().default(true),
 });
 
 // ─── PM Note Reads (unread tracking for project notes) ────────────────────────
@@ -2181,6 +2210,7 @@ export const pmNoteReads = mysqlTable("pm_note_reads", {
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   readAt: timestamp("readAt").defaultNow().notNull(),
   markedUnread: boolean("markedUnread").notNull().default(false),
+  dismissedAt: timestamp("dismissedAt"),
 });
 
 // ─── PM Task Comment Reads (unread tracking for task comments) ────────────────
@@ -2190,6 +2220,7 @@ export const pmTaskCommentReads = mysqlTable("pm_task_comment_reads", {
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   readAt: timestamp("readAt").defaultNow().notNull(),
   markedUnread: boolean("markedUnread").notNull().default(false),
+  dismissedAt: timestamp("dismissedAt"),
 });
 
 export const pmProjectActivity = mysqlTable("pm_project_activity", {

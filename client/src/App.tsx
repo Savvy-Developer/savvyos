@@ -71,6 +71,7 @@ import TechRequestsPage from "./pages/TechRequestsPage";
 import ConnectionRequestsPage from "./pages/ConnectionRequestsPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import PersonalTodosPage from "./pages/PersonalTodosPage";
 import DepartmentManagementPage from "./pages/DepartmentManagementPage";
 import KnowledgeBasePage from "./pages/KnowledgeBasePage";
 import AgentSupportPage from "./pages/AgentSupportPage";
@@ -457,6 +458,7 @@ function Router() {
           <Route path="/short-links">{() => <ShortLinksRoute><ShortLinksPage /></ShortLinksRoute>}</Route>
           <Route path="/tech-requests" component={TechRequestsPage} />
           <Route path="/projects" component={ProjectsPage} />
+          <Route path="/projects/personal-todos" component={PersonalTodosPage} />
           <Route path="/projects/:id" component={ProjectDetailPage} />
           <Route path="/departments" component={DepartmentManagementPage} />
           <Route path="/kb" component={KnowledgeBasePage} />

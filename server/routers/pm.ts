@@ -14,6 +14,7 @@ import {
   pmNoteMentions,
   pmNoteReads,
   pmTaskCommentReads,
+  pmPersonalTodos,
   users,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
@@ -21,11 +22,70 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
+const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
+  "tyler@savvy.realty",
+  "dyl@savvy.realty",
+  "kryzll@savvy.realty",
+  "elana@savvy.realty",
+  "philleone@savvy.realty",
+  "rhythm@savvy.realty",
+  "athens@savvy.realty",
+]);
 
 function assertPmAccess(ctx: { user: { role: string; email?: string | null } }) {
   if (ctx.user.role !== "admin" && ctx.user.email !== OWNER_EMAIL) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Project management is admin-only." });
   }
+}
+
+function canViewAllProjects(user: { email?: string | null }) {
+  return !!user.email && FULL_PROJECT_VISIBILITY_EMAILS.has(user.email.toLowerCase());
+}
+
+async function assertProjectAccess(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  projectId: number,
+  user: { id: number; email?: string | null },
+) {
+  if (canViewAllProjects(user)) return;
+  const [membership] = await db
+    .select({ id: pmProjectCollaborators.id })
+    .from(pmProjectCollaborators)
+    .where(and(
+      eq(pmProjectCollaborators.projectId, projectId),
+      eq(pmProjectCollaborators.userId, user.id),
+    ))
+    .limit(1);
+  if (!membership) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You are not a collaborator on this project." });
+  }
+}
+
+async function getAccessibleProjectIds(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  userId: number,
+) {
+  const memberships = await db
+    .select({ projectId: pmProjectCollaborators.projectId })
+    .from(pmProjectCollaborators)
+    .where(eq(pmProjectCollaborators.userId, userId));
+  return memberships.map((membership) => membership.projectId);
+}
+
+function isPersonalTodoManager(user: { email?: string | null }) {
+  return canViewAllProjects(user);
+}
+
+function advanceRecurringDueDate(dueDate: Date | null, recurrence: string, now = new Date()) {
+  const next = new Date(dueDate && dueDate > now ? dueDate : now);
+  if (recurrence === "daily") next.setDate(next.getDate() + 1);
+  if (recurrence === "weekdays") {
+    next.setDate(next.getDate() + 1);
+    while (next.getDay() === 0 || next.getDay() === 6) next.setDate(next.getDate() + 1);
+  }
+  if (recurrence === "weekly") next.setDate(next.getDate() + 7);
+  if (recurrence === "monthly") next.setMonth(next.getMonth() + 1);
+  return next;
 }
 
 async function logActivity(
@@ -53,6 +113,7 @@ export const pmRouter = router({
     list: protectedProcedure
       .input(z.object({
         includeArchived: z.boolean().optional().default(false),
+        showAll: z.boolean().optional().default(false),
         department: z.string().optional(),
         ownerId: z.number().optional(),
         priority: z.string().optional(),
@@ -63,7 +124,7 @@ export const pmRouter = router({
         const db = await getDb();
         if (!db) return [];
 
-        const rows = await db
+        const allRows = await db
           .select({
             id: pmProjects.id,
             title: pmProjects.title,
@@ -85,7 +146,11 @@ export const pmRouter = router({
           .leftJoin(users, eq(pmProjects.ownerId, users.id))
           .orderBy(asc(pmProjects.sortOrder), asc(pmProjects.createdAt));
 
-        let filtered = rows;
+        const mayShowAll = input?.showAll === true && canViewAllProjects(ctx.user);
+        const accessibleProjectIds = mayShowAll ? null : await getAccessibleProjectIds(db, ctx.user.id);
+        let filtered = accessibleProjectIds === null
+          ? allRows
+          : allRows.filter((project) => accessibleProjectIds.includes(project.id));
         if (!input?.includeArchived) {
           filtered = filtered.filter(r => !r.archivedAt);
         }
@@ -159,6 +224,7 @@ export const pmRouter = router({
           .limit(1);
 
         if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, input.id, ctx.user);
 
         const collaborators = await db
           .select({ userId: pmProjectCollaborators.userId, name: users.name, email: users.email })
@@ -170,6 +236,7 @@ export const pmRouter = router({
           .select({
             id: pmTasks.id,
             title: pmTasks.title,
+            parentTaskId: pmTasks.parentTaskId,
             ownerId: pmTasks.ownerId,
             ownerName: users.name,
             dueDate: pmTasks.dueDate,
@@ -255,7 +322,7 @@ export const pmRouter = router({
           status: "not_started",
         });
         const projectId = result.insertId;
-        const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId]));
+        const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId, ctx.user.id]));
         await db.insert(pmProjectCollaborators).values(
           collaboratorIds.map(userId => ({ projectId, userId }))
         );
@@ -280,6 +347,8 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        await assertProjectAccess(db, input.id, ctx.user);
 
         const [existingProject] = await db
           .select({ ownerId: pmProjects.ownerId, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing })
@@ -333,6 +402,7 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.id, ctx.user);
         await db.update(pmProjects).set({ archivedAt: new Date() }).where(eq(pmProjects.id, input.id));
         await logActivity(input.id, ctx.user.id, "project_archived", "Project archived");
         return { success: true };
@@ -345,6 +415,7 @@ export const pmRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         for (const item of input) {
+          await assertProjectAccess(db, item.id, ctx.user);
           await db.update(pmProjects).set({ sortOrder: item.sortOrder }).where(eq(pmProjects.id, item.id));
         }
         return { success: true };
@@ -357,6 +428,7 @@ export const pmRouter = router({
     create: protectedProcedure
       .input(z.object({
         projectId: z.number(),
+        parentTaskId: z.number().nullable().optional(),
         title: z.string().min(1).max(5000),
         ownerId: z.number(),
         dueDate: z.date(),
@@ -367,15 +439,24 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
+        if (input.parentTaskId) {
+          const [parent] = await db.select({ id: pmTasks.id, projectId: pmTasks.projectId })
+            .from(pmTasks).where(eq(pmTasks.id, input.parentTaskId)).limit(1);
+          if (!parent || parent.projectId !== input.projectId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "A sub-todo must belong to a todo in this project." });
+          }
+        }
         const [result] = await db.insert(pmTasks).values({
           projectId: input.projectId,
+          parentTaskId: input.parentTaskId ?? null,
           title: input.title,
           ownerId: input.ownerId,
           dueDate: input.dueDate,
           priority: input.priority,
           notes: input.notes ?? null,
         });
-        await logActivity(input.projectId, ctx.user.id, "task_created", `Added task "${input.title}"`, result.insertId);
+        await logActivity(input.projectId, ctx.user.id, "task_created", `Added todo "${input.title}"`, result.insertId);
         return { id: result.insertId };
       }),
 
@@ -392,10 +473,12 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, task.projectId, ctx.user);
         const { id, ...fields } = input;
         await db.update(pmTasks).set(fields).where(eq(pmTasks.id, id));
-        const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, id));
-        if (task) await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated task");
+        await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo");
         return { success: true };
       }),
 
@@ -405,14 +488,14 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, task.projectId, ctx.user);
         await db.update(pmTasks).set({
           completed: input.completed,
           completedAt: input.completed ? new Date() : null,
         }).where(eq(pmTasks.id, input.id));
-        const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title }).from(pmTasks).where(eq(pmTasks.id, input.id));
-        if (task) {
-          await logActivity(task.projectId, ctx.user.id, input.completed ? "task_completed" : "task_reopened", `"${task.title}"`, input.id);
-        }
+        await logActivity(task.projectId, ctx.user.id, input.completed ? "task_completed" : "task_reopened", `"${task.title}"`, input.id);
         return { success: true };
       }),
 
@@ -423,7 +506,9 @@ export const pmRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         const [task] = await db.select({ projectId: pmTasks.projectId, title: pmTasks.title }).from(pmTasks).where(eq(pmTasks.id, input.id));
-        if (task) await logActivity(task.projectId, ctx.user.id, "task_deleted", `Deleted task "${task.title}"`);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, task.projectId, ctx.user);
+        await logActivity(task.projectId, ctx.user.id, "task_deleted", `Deleted todo "${task.title}"`);
         await db.delete(pmTaskComments).where(eq(pmTaskComments.taskId, input.id));
         await db.delete(pmTasks).where(eq(pmTasks.id, input.id));
         return { success: true };
@@ -436,6 +521,9 @@ export const pmRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         for (const item of input) {
+          const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, item.id)).limit(1);
+          if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+          await assertProjectAccess(db, task.projectId, ctx.user);
           await db.update(pmTasks).set({ sortOrder: item.sortOrder }).where(eq(pmTasks.id, item.id));
         }
         return { success: true };
@@ -447,13 +535,15 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.taskId)).limit(1);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, task.projectId, ctx.user);
         const [result] = await db.insert(pmTaskComments).values({
           taskId: input.taskId,
           authorId: ctx.user.id,
           content: input.content,
         });
-        const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.taskId));
-        if (task) await logActivity(task.projectId, ctx.user.id, "comment_added", "Comment on task", input.taskId);
+        await logActivity(task.projectId, ctx.user.id, "comment_added", "Comment on todo", input.taskId);
         return { id: result.insertId };
       }),
 
@@ -463,6 +553,9 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) return [];
+        const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.taskId)).limit(1);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, task.projectId, ctx.user);
         return db
           .select({
             id: pmTaskComments.id,
@@ -475,6 +568,146 @@ export const pmRouter = router({
           .leftJoin(users, eq(pmTaskComments.authorId, users.id))
           .where(eq(pmTaskComments.taskId, input.taskId))
           .orderBy(asc(pmTaskComments.createdAt));
+      }),
+  }),
+
+  // ── Personal Todos ───────────────────────────────────────────────────────
+
+  personalTodos: router({
+    availableUsers: protectedProcedure.query(async ({ ctx }) => {
+      assertPmAccess(ctx);
+      const db = await getDb();
+      if (!db) return [];
+      if (!isPersonalTodoManager(ctx.user)) {
+        return [{ id: ctx.user.id, name: ctx.user.name ?? ctx.user.email ?? "My todos", email: ctx.user.email ?? null }];
+      }
+      return db.select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.isActive, true))
+        .orderBy(asc(users.name));
+    }),
+
+    list: protectedProcedure
+      .input(z.object({ userId: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) return [];
+        const userId = input?.userId ?? ctx.user.id;
+        if (userId !== ctx.user.id && !isPersonalTodoManager(ctx.user)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your personal todos." });
+        }
+        return db.select().from(pmPersonalTodos)
+          .where(eq(pmPersonalTodos.userId, userId))
+          .orderBy(asc(pmPersonalTodos.completed), asc(pmPersonalTodos.dueDate), asc(pmPersonalTodos.sortOrder), desc(pmPersonalTodos.createdAt));
+      }),
+
+    stats: protectedProcedure
+      .input(z.object({ userId: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) return { active: 0, overdue: 0 };
+        const userId = input?.userId ?? ctx.user.id;
+        if (userId !== ctx.user.id && !isPersonalTodoManager(ctx.user)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your personal todos." });
+        }
+        const activeTodos = await db.select({ dueDate: pmPersonalTodos.dueDate })
+          .from(pmPersonalTodos)
+          .where(and(eq(pmPersonalTodos.userId, userId), eq(pmPersonalTodos.completed, false)));
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        return {
+          active: activeTodos.length,
+          overdue: activeTodos.filter((todo) => !!todo.dueDate && todo.dueDate < todayStart).length,
+        };
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        title: z.string().trim().min(1).max(5000),
+        notes: z.string().trim().max(20_000).optional(),
+        dueDate: z.date().nullable().optional(),
+        recurrence: z.enum(["none", "daily", "weekdays", "weekly", "monthly"]).default("none"),
+      }).superRefine((input, refinement) => {
+        if (input.recurrence !== "none" && !input.dueDate) {
+          refinement.addIssue({ code: "custom", path: ["dueDate"], message: "A recurring todo needs a first due date." });
+        }
+      }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [result] = await db.insert(pmPersonalTodos).values({
+          userId: ctx.user.id,
+          title: input.title,
+          notes: input.notes || null,
+          dueDate: input.dueDate ?? null,
+          recurrence: input.recurrence,
+        });
+        return { id: result.insertId };
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().trim().min(1).max(5000).optional(),
+        notes: z.string().trim().max(20_000).nullable().optional(),
+        dueDate: z.date().nullable().optional(),
+        recurrence: z.enum(["none", "daily", "weekdays", "weekly", "monthly"]).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [todo] = await db.select().from(pmPersonalTodos).where(eq(pmPersonalTodos.id, input.id)).limit(1);
+        if (!todo) throw new TRPCError({ code: "NOT_FOUND" });
+        if (todo.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Personal todos can only be edited by their owner." });
+        const finalRecurrence = input.recurrence ?? todo.recurrence;
+        const finalDueDate = input.dueDate === undefined ? todo.dueDate : input.dueDate;
+        if (finalRecurrence !== "none" && !finalDueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A recurring todo needs a due date." });
+        }
+        const { id, ...fields } = input;
+        await db.update(pmPersonalTodos).set(fields).where(eq(pmPersonalTodos.id, id));
+        return { success: true };
+      }),
+
+    toggleComplete: protectedProcedure
+      .input(z.object({ id: z.number(), completed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [todo] = await db.select().from(pmPersonalTodos).where(eq(pmPersonalTodos.id, input.id)).limit(1);
+        if (!todo) throw new TRPCError({ code: "NOT_FOUND" });
+        if (todo.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Personal todos can only be completed by their owner." });
+        if (input.completed && todo.recurrence !== "none") {
+          await db.update(pmPersonalTodos).set({
+            completed: false,
+            completedAt: null,
+            dueDate: advanceRecurringDueDate(todo.dueDate, todo.recurrence),
+          }).where(eq(pmPersonalTodos.id, todo.id));
+          return { success: true, rolledForward: true };
+        }
+        await db.update(pmPersonalTodos).set({
+          completed: input.completed,
+          completedAt: input.completed ? new Date() : null,
+        }).where(eq(pmPersonalTodos.id, todo.id));
+        return { success: true, rolledForward: false };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [todo] = await db.select({ userId: pmPersonalTodos.userId }).from(pmPersonalTodos).where(eq(pmPersonalTodos.id, input.id)).limit(1);
+        if (!todo) throw new TRPCError({ code: "NOT_FOUND" });
+        if (todo.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Personal todos can only be deleted by their owner." });
+        await db.delete(pmPersonalTodos).where(eq(pmPersonalTodos.id, input.id));
+        return { success: true };
       }),
   }),
 
@@ -494,6 +727,7 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
         const [result] = await db.insert(pmWeeklyUpdates).values({
           projectId: input.projectId,
           authorId: ctx.user.id,
@@ -558,6 +792,13 @@ export const pmRouter = router({
         .leftJoin(users, eq(pmTasks.ownerId, users.id))
         .where(eq(pmTasks.completed, false));
 
+      const accessibleProjectIds = canViewAllProjects(ctx.user) ? null : await getAccessibleProjectIds(db, ctx.user.id);
+      const visibleProjects = accessibleProjectIds === null
+        ? allProjects
+        : allProjects.filter((project) => accessibleProjectIds.includes(project.id));
+      const visibleProjectIdSet = new Set(visibleProjects.map((project) => project.id));
+      const visibleTasks = allTasks.filter((task) => visibleProjectIdSet.has(task.projectId));
+
       const latestUpdates = await db
         .select()
         .from(pmWeeklyUpdates)
@@ -568,25 +809,25 @@ export const pmRouter = router({
         if (!latestUpdateMap.has(u.projectId)) latestUpdateMap.set(u.projectId, u);
       }
 
-      type ProjectRow = (typeof allProjects)[0];
-      type TaskRow = (typeof allTasks)[0];
+      type ProjectRow = (typeof visibleProjects)[0];
+      type TaskRow = (typeof visibleTasks)[0];
 
-      const overdueProjects = allProjects.filter((p: ProjectRow) => p.status !== "completed" && !p.isOngoing && !!p.dueDate && p.dueDate < now);
-      const atRiskProjects = allProjects.filter((p: ProjectRow) => p.status === "at_risk");
-      const staleProjects = allProjects.filter((p: ProjectRow) => {
+      const overdueProjects = visibleProjects.filter((p: ProjectRow) => p.status !== "completed" && !p.isOngoing && !!p.dueDate && p.dueDate < now);
+      const atRiskProjects = visibleProjects.filter((p: ProjectRow) => p.status === "at_risk");
+      const staleProjects = visibleProjects.filter((p: ProjectRow) => {
         const lu = latestUpdateMap.get(p.id);
         return p.status !== "completed" && (!lu || lu.createdAt < sevenDaysAgo);
       });
 
-      const overdueTasks = allTasks.filter((t: TaskRow) => t.dueDate < now);
-      const dueTodayTasks = allTasks.filter((t: TaskRow) => {
+      const overdueTasks = visibleTasks.filter((t: TaskRow) => t.dueDate < now);
+      const dueTodayTasks = visibleTasks.filter((t: TaskRow) => {
         const d = t.dueDate;
         return d >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) &&
                d < new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       });
 
-      const myTasks = allTasks.filter((t: TaskRow) => t.ownerId === ctx.user.id);
-      const myProjects = allProjects.filter((p: ProjectRow) => p.ownerId === ctx.user.id);
+      const myTasks = visibleTasks.filter((t: TaskRow) => t.ownerId === ctx.user.id);
+      const myProjects = visibleProjects.filter((p: ProjectRow) => p.ownerId === ctx.user.id);
 
       return {
         overdueProjects,
@@ -597,8 +838,8 @@ export const pmRouter = router({
         dueTodayTasks,
         myTasks,
         myProjects,
-        totalProjects: allProjects.length,
-        totalTasks: allTasks.length,
+        totalProjects: visibleProjects.length,
+        totalTasks: visibleTasks.length,
       };
     }),
 
@@ -620,22 +861,29 @@ export const pmRouter = router({
         .from(pmTasks)
         .where(eq(pmTasks.completed, false));
 
+      const accessibleProjectIds = canViewAllProjects(ctx.user) ? null : await getAccessibleProjectIds(db, ctx.user.id);
+      const visibleProjects = accessibleProjectIds === null
+        ? allProjects
+        : allProjects.filter((project) => accessibleProjectIds.includes(project.id));
+      const visibleProjectIdSet = new Set(visibleProjects.map((project) => project.id));
+      const visibleTasks = allTasks.filter((task) => visibleProjectIdSet.has(task.projectId));
+
       const latestUpdates = await db.select().from(pmWeeklyUpdates).orderBy(desc(pmWeeklyUpdates.createdAt));
       const latestUpdateMap = new Map<number, (typeof latestUpdates)[0]>();
       for (const u of latestUpdates) {
         if (!latestUpdateMap.has(u.projectId)) latestUpdateMap.set(u.projectId, u);
       }
 
-      type PRow = (typeof allProjects)[0];
-      type TRow = (typeof allTasks)[0];
+      type PRow = (typeof visibleProjects)[0];
+      type TRow = (typeof visibleTasks)[0];
 
-      const overdueProjects = allProjects.filter((p: PRow) => p.status !== "completed" && !p.isOngoing && !!p.dueDate && p.dueDate < now);
-      const atRisk = allProjects.filter((p: PRow) => p.status === "at_risk");
-      const stale = allProjects.filter((p: PRow) => {
+      const overdueProjects = visibleProjects.filter((p: PRow) => p.status !== "completed" && !p.isOngoing && !!p.dueDate && p.dueDate < now);
+      const atRisk = visibleProjects.filter((p: PRow) => p.status === "at_risk");
+      const stale = visibleProjects.filter((p: PRow) => {
         const lu = latestUpdateMap.get(p.id);
         return p.status !== "completed" && (!lu || lu.createdAt < sevenDaysAgo);
       });
-      const overdueTasks = allTasks.filter((t: TRow) => t.dueDate < now);
+      const overdueTasks = visibleTasks.filter((t: TRow) => t.dueDate < now);
 
       const prompt = `You are an executive assistant for a real estate brokerage. Today is ${now.toLocaleDateString()}.
 
@@ -677,6 +925,7 @@ Be direct, specific, and use plain language. No fluff.`;
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
 
         const [project] = await db
           .select({ id: pmProjects.id, title: pmProjects.title, department: pmProjects.department, status: pmProjects.status, priority: pmProjects.priority, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing })
@@ -786,6 +1035,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) return [];
+        await assertProjectAccess(db, input.projectId, ctx.user);
         return db
           .select({ userId: pmProjectCollaborators.userId, name: users.name, email: users.email })
           .from(pmProjectCollaborators)
@@ -799,6 +1049,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
         const existing = await db.select().from(pmProjectCollaborators)
           .where(eq(pmProjectCollaborators.projectId, input.projectId))
           .limit(100);
@@ -814,6 +1065,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
 
         const [project] = await db
           .select({ ownerId: pmProjects.ownerId })
@@ -856,6 +1108,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) return [];
+        await assertProjectAccess(db, input.projectId, ctx.user);
 
         const notes = await db
           .select({
@@ -907,11 +1160,24 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         projectId: z.number(),
         content: z.string().min(1),
         mentionedUserIds: z.array(z.number()).optional().default([]),
+        shouldNotifyMentions: z.boolean().optional().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
+
+        const requestedMentionIds = Array.from(new Set(input.mentionedUserIds.filter((id) => id !== ctx.user.id)));
+        const collaborators = requestedMentionIds.length > 0
+          ? await db.select({ userId: pmProjectCollaborators.userId })
+            .from(pmProjectCollaborators)
+            .where(and(
+              eq(pmProjectCollaborators.projectId, input.projectId),
+              inArray(pmProjectCollaborators.userId, requestedMentionIds),
+            ))
+          : [];
+        const allowedMentionIds = collaborators.map((collaborator) => collaborator.userId);
 
         const [result] = await db.insert(pmProjectNotes).values({
           projectId: input.projectId,
@@ -920,9 +1186,9 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         });
         const noteId = result.insertId;
 
-        if (input.mentionedUserIds.length > 0) {
+        if (allowedMentionIds.length > 0) {
           await db.insert(pmNoteMentions).values(
-            input.mentionedUserIds.map(uid => ({ noteId, mentionedUserId: uid }))
+            allowedMentionIds.map((uid) => ({ noteId, mentionedUserId: uid, shouldNotify: input.shouldNotifyMentions }))
           );
         }
 
@@ -932,10 +1198,10 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         await logActivity(input.projectId, ctx.user.id, "note_added", "Added a note");
 
         // Send @mention email notifications (fire-and-forget)
-        if (input.mentionedUserIds.length > 0) {
+        if (input.shouldNotifyMentions && allowedMentionIds.length > 0) {
           try {
             const [project] = await db.select({ title: pmProjects.title }).from(pmProjects).where(eq(pmProjects.id, input.projectId)).limit(1);
-            const mentionedUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(inArray(users.id, input.mentionedUserIds), eq(users.isActive, true)));
+            const mentionedUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(inArray(users.id, allowedMentionIds), eq(users.isActive, true)));
             const authorName = ctx.user.name ?? ctx.user.email ?? "A teammate";
             const projectTitle = project?.title ?? "a project";
             const projectUrl = `https://os.savvy-agents.com/projects/${input.projectId}`;
@@ -967,6 +1233,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         const [note] = await db.select({ projectId: pmProjectNotes.projectId, authorId: pmProjectNotes.authorId })
           .from(pmProjectNotes).where(eq(pmProjectNotes.id, input.id)).limit(1);
         if (!note) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, note.projectId, ctx.user);
         if (note.authorId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Can only delete your own notes" });
         }
@@ -982,11 +1249,14 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [note] = await db.select({ projectId: pmProjectNotes.projectId }).from(pmProjectNotes).where(eq(pmProjectNotes.id, input.noteId)).limit(1);
+        if (!note) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, note.projectId, ctx.user);
         const existing = await db.select().from(pmNoteReads)
           .where(eq(pmNoteReads.noteId, input.noteId)).limit(100);
         const myRead = existing.find(r => r.userId === ctx.user.id);
         if (myRead) {
-          await db.update(pmNoteReads).set({ markedUnread: false, readAt: new Date() })
+          await db.update(pmNoteReads).set({ markedUnread: false, dismissedAt: null, readAt: new Date() })
             .where(eq(pmNoteReads.id, myRead.id));
         } else {
           await db.insert(pmNoteReads).values({ noteId: input.noteId, userId: ctx.user.id, markedUnread: false });
@@ -1000,11 +1270,14 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [note] = await db.select({ projectId: pmProjectNotes.projectId }).from(pmProjectNotes).where(eq(pmProjectNotes.id, input.noteId)).limit(1);
+        if (!note) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, note.projectId, ctx.user);
         const existing = await db.select().from(pmNoteReads)
           .where(eq(pmNoteReads.noteId, input.noteId)).limit(100);
         const myRead = existing.find(r => r.userId === ctx.user.id);
         if (myRead) {
-          await db.update(pmNoteReads).set({ markedUnread: true }).where(eq(pmNoteReads.id, myRead.id));
+          await db.update(pmNoteReads).set({ markedUnread: true, dismissedAt: null }).where(eq(pmNoteReads.id, myRead.id));
         } else {
           await db.insert(pmNoteReads).values({ noteId: input.noteId, userId: ctx.user.id, markedUnread: true });
         }
@@ -1062,7 +1335,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
           const myReads = new Map(reads.filter(r => r.userId === ctx.user.id).map(r => [r.noteId, r]));
           unreadNoteCount = allRelevantNoteIds.filter(id => {
             const r = myReads.get(id);
-            return !r || r.markedUnread;
+            return !r || (!r.dismissedAt && r.markedUnread);
           }).length;
         }
       }
@@ -1086,7 +1359,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
             const myReads = new Map(reads.filter(r => r.userId === ctx.user.id).map(r => [r.commentId, r]));
             unreadCommentCount = commentIds.filter(id => {
               const r = myReads.get(id);
-              return !r || r.markedUnread;
+              return !r || (!r.dismissedAt && r.markedUnread);
             }).length;
           }
         }
@@ -1117,11 +1390,16 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         ...myCollabProjects.map(p => p.projectId),
       ]));
 
-      const projectTitleMap = new Map(myProjects.map(p => [p.id, p.title]));
+      const accessibleProjects = projectIds.length > 0
+        ? await db.select({ id: pmProjects.id, title: pmProjects.title })
+          .from(pmProjects).where(inArray(pmProjects.id, projectIds))
+        : [];
+      const projectTitleMap = new Map(accessibleProjects.map(p => [p.id, p.title]));
 
       const items: {
         type: "note" | "comment";
         id: number;
+        taskId?: number;
         projectId: number;
         projectTitle: string;
         authorName: string | null;
@@ -1159,6 +1437,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
 
           for (const note of relevantNotes) {
             const myRead = myReads.get(note.id);
+            if (myRead?.dismissedAt) continue;
             const isUnread = !myRead || myRead.markedUnread;
             items.push({
               type: "note",
@@ -1208,12 +1487,14 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
 
             for (const comment of otherComments) {
               const myRead = myReads.get(comment.id);
+              if (myRead?.dismissedAt) continue;
               const isUnread = !myRead || myRead.markedUnread;
               const projectId = taskProjectMap.get(comment.taskId) ?? 0;
-              items.push({
-                type: "comment",
-                id: comment.id,
-                projectId,
+            items.push({
+              type: "comment",
+              id: comment.id,
+              taskId: comment.taskId,
+              projectId,
                 projectTitle: projectTitleMap.get(projectId) ?? "Unknown Project",
                 authorName: comment.authorName,
                 content: comment.content,
@@ -1235,12 +1516,20 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [comment] = await db
+          .select({ projectId: pmTasks.projectId })
+          .from(pmTaskComments)
+          .leftJoin(pmTasks, eq(pmTaskComments.taskId, pmTasks.id))
+          .where(eq(pmTaskComments.id, input.commentId))
+          .limit(1);
+        if (!comment || !comment.projectId) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, comment.projectId, ctx.user);
         const existing = await db.select().from(pmTaskCommentReads)
           .where(eq(pmTaskCommentReads.commentId, input.commentId)).limit(100);
         const myRead = existing.find(r => r.userId === ctx.user.id);
         if (myRead) {
           await db.update(pmTaskCommentReads)
-            .set({ markedUnread: input.markedUnread, readAt: new Date() })
+            .set({ markedUnread: input.markedUnread, dismissedAt: null, readAt: new Date() })
             .where(eq(pmTaskCommentReads.id, myRead.id));
         } else {
           await db.insert(pmTaskCommentReads).values({
@@ -1248,6 +1537,45 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
             userId: ctx.user.id,
             markedUnread: input.markedUnread,
           });
+        }
+        return { success: true };
+      }),
+
+    dismiss: protectedProcedure
+      .input(z.object({ type: z.enum(["note", "comment"]), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const now = new Date();
+        if (input.type === "note") {
+          const [note] = await db.select({ projectId: pmProjectNotes.projectId })
+            .from(pmProjectNotes).where(eq(pmProjectNotes.id, input.id)).limit(1);
+          if (!note) throw new TRPCError({ code: "NOT_FOUND" });
+          await assertProjectAccess(db, note.projectId, ctx.user);
+          const reads = await db.select().from(pmNoteReads).where(eq(pmNoteReads.noteId, input.id));
+          const existing = reads.find((read) => read.userId === ctx.user.id);
+          if (existing) {
+            await db.update(pmNoteReads).set({ markedUnread: false, dismissedAt: now, readAt: now }).where(eq(pmNoteReads.id, existing.id));
+          } else {
+            await db.insert(pmNoteReads).values({ noteId: input.id, userId: ctx.user.id, markedUnread: false, dismissedAt: now });
+          }
+        } else {
+          const [comment] = await db
+            .select({ projectId: pmTasks.projectId })
+            .from(pmTaskComments)
+            .leftJoin(pmTasks, eq(pmTaskComments.taskId, pmTasks.id))
+            .where(eq(pmTaskComments.id, input.id))
+            .limit(1);
+          if (!comment || !comment.projectId) throw new TRPCError({ code: "NOT_FOUND" });
+          await assertProjectAccess(db, comment.projectId, ctx.user);
+          const reads = await db.select().from(pmTaskCommentReads).where(eq(pmTaskCommentReads.commentId, input.id));
+          const existing = reads.find((read) => read.userId === ctx.user.id);
+          if (existing) {
+            await db.update(pmTaskCommentReads).set({ markedUnread: false, dismissedAt: now, readAt: now }).where(eq(pmTaskCommentReads.id, existing.id));
+          } else {
+            await db.insert(pmTaskCommentReads).values({ commentId: input.id, userId: ctx.user.id, markedUnread: false, dismissedAt: now });
+          }
         }
         return { success: true };
       }),

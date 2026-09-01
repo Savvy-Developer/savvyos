@@ -48,7 +48,6 @@ import {
   Megaphone,
   GitMerge,
   Layers,
-  Bell,
   StickyNote,
   MessageSquare,
   BookOpen,
@@ -69,7 +68,7 @@ import {
   Video,
   Star,
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { getPulseNavDestinations, type PulseNavShell } from "@shared/pulseNav";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -657,36 +656,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { enabled: !!user, staleTime: 60000 }
   );
 
-  // Derived values needed to conditionally enable PM inbox queries
-  const isTyler = (user as any)?.email === "tyler@savvy.realty";
-  const isPmUser = isTyler || role === "admin";
-
-  // PM Inbox unread count — must be above early returns
-  const { data: inboxCount, refetch: refetchInbox } = trpc.pm.inbox.unreadCount.useQuery(
-    undefined,
-    { enabled: isPmUser, refetchInterval: 30000 }
-  );
-
-  // PM Inbox panel state — must be above early returns
-  const [inboxOpen, setInboxOpen] = useState(false);
-  const inboxRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (inboxRef.current && !inboxRef.current.contains(e.target as Node)) {
-        setInboxOpen(false);
-      }
-    }
-    if (inboxOpen) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [inboxOpen]);
-
-  const { data: inboxItems = [] } = trpc.pm.inbox.list.useQuery(
-    undefined,
-    { enabled: isPmUser && inboxOpen }
-  );
-  const markNoteRead = trpc.pm.notes.markRead.useMutation({ onSuccess: () => { refetchInbox(); } });
-  const markNoteUnread = trpc.pm.notes.markUnread.useMutation({ onSuccess: () => { refetchInbox(); } });
-
   // Fetch admin permissions for nav filtering
   const { data: adminPerms } = trpc.permissions.getMyPermissions.useQuery(
     undefined,
@@ -729,7 +698,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pendingPtoApprovalsCount = (pendingPtoApprovalsData as any)?.count ?? 0;
   const hasActiveOnboarding = onboardingStatus?.active ?? false;
   const isGroupLeader = groupLeaderStatus?.isLeader ?? false;
-  const unreadPmCount = (inboxCount as any)?.count ?? 0;
   const resendInboxUnreadCount = (resendInboxUnreadData as any)?.count ?? 0;
   const marketingTextInboxUnreadCount = (marketingTextInboxUnreadData as any)?.count ?? 0;
 
@@ -895,110 +863,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Desktop: spacer */}
           <div className="hidden md:flex flex-1" />
 
-          {/* PM Inbox Bell — visible to Tyler and all admins */}
-          {isPmUser && (
-            <div className="relative" ref={inboxRef}>
-              <button
-                type="button"
-                onClick={() => setInboxOpen(v => !v)}
-                className="relative p-2 rounded-md hover:bg-muted transition-colors"
-                title="Project Inbox"
-              >
-                <Bell className="h-5 w-5 text-muted-foreground" />
-                {unreadPmCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-                )}
-              </button>
-
-              {/* Inbox Dropdown */}
-              {inboxOpen && (
-                <div className="absolute right-0 top-full mt-1 w-80 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <span className="font-semibold text-sm">Project Inbox</span>
-                    {unreadPmCount > 0 && (
-                      <span className="text-xs text-muted-foreground">{unreadPmCount} unread</span>
-                    )}
-                  </div>
-                  <div className="max-h-96 overflow-y-auto">
-                    {(inboxItems as any[]).length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Bell className="h-7 w-7 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">All caught up!</p>
-                        <p className="text-xs mt-0.5">No unread notes or comments</p>
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-border">
-                        {(inboxItems as any[]).map((item: any) => (
-                          <div
-                            key={`${item.type}-${item.id}`}
-                            className={`px-4 py-3 hover:bg-accent/50 cursor-pointer transition-colors ${
-                              item.isUnread ? "bg-primary/3" : ""
-                            }`}
-                            onClick={() => {
-                              if (item.type === "note" && item.isUnread) {
-                                markNoteRead.mutate({ noteId: item.id });
-                              }
-                              navigate(`/projects/${item.projectId}`);
-                              setInboxOpen(false);
-                            }}
-                          >
-                            <div className="flex items-start gap-2.5">
-                              <div className="shrink-0 mt-0.5">
-                                {item.type === "note" ? (
-                                  <StickyNote className="h-4 w-4 text-primary" />
-                                ) : (
-                                  <MessageSquare className="h-4 w-4 text-blue-500" />
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 mb-0.5">
-                                  <span className="text-xs font-medium truncate">{item.authorName ?? "Someone"}</span>
-                                  {item.isUnread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                                </div>
-                                <p className="text-xs text-muted-foreground line-clamp-2">{item.content}</p>
-                                <div className="flex items-center gap-1.5 mt-1">
-                                  <span className="text-[10px] text-muted-foreground truncate">{item.projectTitle}</span>
-                                  <span className="text-[10px] text-muted-foreground">·</span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {item.createdAt ? new Date(item.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
-                                  </span>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="shrink-0 p-1 rounded hover:bg-muted text-muted-foreground"
-                                title={item.isUnread ? "Mark read" : "Mark unread"}
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  if (item.type === "note") {
-                                    if (item.isUnread) markNoteRead.mutate({ noteId: item.id });
-                                    else markNoteUnread.mutate({ noteId: item.id });
-                                  }
-                                }}
-                              >
-                                {item.isUnread
-                                  ? <span className="text-[10px] text-primary font-medium">Read</span>
-                                  : <span className="text-[10px] text-muted-foreground">Unread</span>}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="px-4 py-2 border-t border-border">
-                    <button
-                      type="button"
-                      className="text-xs text-primary hover:underline"
-                      onClick={() => { navigate("/projects"); setInboxOpen(false); }}
-                    >
-                      View all projects →
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </header>
 
         {/* Simulation banner — shown when impersonating another user */}

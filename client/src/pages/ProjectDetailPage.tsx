@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { Children, useEffect, useState, useMemo } from "react";
 import { useParams } from "wouter";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -20,7 +20,7 @@ import {
   ArrowLeft, Plus, CheckCircle2, Circle, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity,
-  BarChart3, FileText, Users, StickyNote, AtSign, Eye, EyeOff, UserPlus, UserMinus,
+  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -75,14 +75,20 @@ function TaskItem({
   onToggle,
   onDelete,
   onUpdate,
+  onAddSubtask,
+  children,
 }: {
   task: any;
   adminUsers: any[];
   onToggle: (id: number, completed: boolean) => void;
   onDelete: (id: number) => void;
   onUpdate: (id: number, data: any) => void;
+  onAddSubtask?: (task: any) => void;
+  children?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [subtasksExpanded, setSubtasksExpanded] = useState(true);
+  const hasSubtodos = Children.count(children) > 0;
   const [editing, setEditing] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [editForm, setEditForm] = useState({
@@ -119,7 +125,7 @@ function TaskItem({
   }
 
   return (
-    <div className={cn("border border-border rounded-lg overflow-hidden transition-all", task.completed && "opacity-60")}>
+    <div id={`todo-${task.id}`} className={cn("border border-border rounded-lg overflow-hidden transition-all", task.completed && "opacity-60")}>
       <div className="flex items-center gap-3 px-4 py-3">
         <button
           onClick={() => onToggle(task.id, !task.completed)}
@@ -171,6 +177,16 @@ function TaskItem({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {hasSubtodos && (
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7"
+              onClick={() => setSubtasksExpanded((value) => !value)}
+              aria-label={subtasksExpanded ? "Collapse sub-todos" : "Expand sub-todos"}
+              title={subtasksExpanded ? "Collapse sub-todos" : "Expand sub-todos"}
+            >
+              {subtasksExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </Button>
+          )}
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setExpanded(e => !e)}
@@ -190,6 +206,11 @@ function TaskItem({
               <DropdownMenuItem onClick={() => setEditing(e => !e)}>
                 <Edit2 className="h-3.5 w-3.5 mr-2" /> Edit
               </DropdownMenuItem>
+              {onAddSubtask && (
+                <DropdownMenuItem onClick={() => onAddSubtask(task)}>
+                  <Plus className="h-3.5 w-3.5 mr-2" /> Add sub-todo
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setExpanded(e => !e)}>
                 <MessageSquare className="h-3.5 w-3.5 mr-2" /> Comments
               </DropdownMenuItem>
@@ -240,6 +261,12 @@ function TaskItem({
             <Button size="sm" onClick={handleSaveEdit}><Save className="h-3.5 w-3.5 mr-1" /> Save</Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}><X className="h-3.5 w-3.5 mr-1" /> Cancel</Button>
           </div>
+        </div>
+      )}
+
+      {hasSubtodos && subtasksExpanded && (
+        <div className="border-t border-border bg-muted/10 px-3 py-2 sm:pl-8">
+          <div className="space-y-2 border-l-2 border-primary/15 pl-3">{children}</div>
         </div>
       )}
 
@@ -367,6 +394,7 @@ export default function ProjectDetailPage() {
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
 
   const [showAddTask, setShowAddTask] = useState(false);
+  const [parentTodo, setParentTodo] = useState<any>(null);
   const [taskForm, setTaskForm] = useState({ title: "", ownerId: "", dueDate: "", priority: "medium" as Priority, notes: "" });
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
@@ -375,12 +403,12 @@ export default function ProjectDetailPage() {
 
   // Notes state
   const [noteContent, setNoteContent] = useState("");
-  const [mentionSearch, setMentionSearch] = useState("");
-  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [notifyMentions, setNotifyMentions] = useState(true);
   const [selectedMentions, setSelectedMentions] = useState<{ id: number; name: string }[]>([]);
 
   const createTask = trpc.pm.tasks.create.useMutation({
-    onSuccess: () => { toast.success("Task added"); refetch(); setShowAddTask(false); setTaskForm({ title: "", ownerId: "", dueDate: "", priority: "medium", notes: "" }); },
+    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", ownerId: "", dueDate: "", priority: "medium", notes: "" }); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -390,12 +418,12 @@ export default function ProjectDetailPage() {
   });
 
   const deleteTask = trpc.pm.tasks.delete.useMutation({
-    onSuccess: () => { toast.success("Task deleted"); refetch(); },
+    onSuccess: () => { toast.success("Todo deleted"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
   const updateTask = trpc.pm.tasks.update.useMutation({
-    onSuccess: () => { toast.success("Task updated"); refetch(); },
+    onSuccess: () => { toast.success("Todo updated"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -428,11 +456,14 @@ export default function ProjectDetailPage() {
   const [collabUserId, setCollabUserId] = useState("");
   const [ownerRemoval, setOwnerRemoval] = useState<any>(null);
   const [newOwnerId, setNewOwnerId] = useState("");
+  const mentionCandidates = useMemo(() => (collaborators as any[])
+    .filter((collaborator: any) => !selectedMentions.some((mention) => mention.id === collaborator.userId))
+    .filter((collaborator: any) => !mentionQuery || (collaborator.name ?? collaborator.email ?? "").toLowerCase().includes(mentionQuery.toLowerCase())), [collaborators, selectedMentions, mentionQuery]);
 
   // Notes queries and mutations
   const { data: notes = [], refetch: refetchNotes } = trpc.pm.notes.list.useQuery({ projectId });
   const createNote = trpc.pm.notes.create.useMutation({
-    onSuccess: () => { toast.success("Note added"); refetchNotes(); setNoteContent(""); setSelectedMentions([]); },
+    onSuccess: () => { toast.success("Note added"); refetchNotes(); setNoteContent(""); setMentionQuery(null); setSelectedMentions([]); setNotifyMentions(true); },
     onError: (e) => toast.error(e.message),
   });
   const deleteNote = trpc.pm.notes.delete.useMutation({
@@ -455,14 +486,14 @@ export default function ProjectDetailPage() {
       projectId,
       content: noteContent.trim(),
       mentionedUserIds: selectedMentions.map(m => m.id),
+      shouldNotifyMentions: notifyMentions,
     });
   }
 
   function insertMention(u: { id: number; name: string }) {
     setSelectedMentions(prev => prev.some(m => m.id === u.id) ? prev : [...prev, u]);
-    setNoteContent(prev => prev + `@${u.name} `);
-    setShowMentionPicker(false);
-    setMentionSearch("");
+    setNoteContent(prev => prev.replace(/(^|\s)@[^\s@]*$/, `$1@${u.name} `));
+    setMentionQuery(null);
   }
 
   function startEditProject() {
@@ -503,6 +534,7 @@ export default function ProjectDetailPage() {
     }
     createTask.mutate({
       projectId,
+      parentTaskId: parentTodo?.id ?? null,
       title: taskForm.title,
       ownerId: Number(taskForm.ownerId),
       dueDate: new Date(taskForm.dueDate),
@@ -517,6 +549,13 @@ export default function ProjectDetailPage() {
     aiSummaryMutation.mutate({ projectId });
   }
 
+  useEffect(() => {
+    const todoId = window.location.hash.match(/^#todo-(\d+)$/)?.[1];
+    if (!todoId || !project) return;
+    const timeout = window.setTimeout(() => document.getElementById(`todo-${todoId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    return () => window.clearTimeout(timeout);
+  }, [projectId, project?.tasks?.length]);
+
   if (!project) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -528,6 +567,13 @@ export default function ProjectDetailPage() {
   const statusCfg = STATUS_CONFIG[project.status as Status];
   const priorityCfg = PRIORITY_CONFIG[project.priority as Priority];
   const tasks = project.tasks ?? [];
+  const topLevelTodos = tasks.filter((task: any) => !task.parentTaskId);
+  const subTodosByParent = new Map<number, any[]>();
+  tasks.filter((task: any) => task.parentTaskId).forEach((task: any) => {
+    const siblings = subTodosByParent.get(task.parentTaskId) ?? [];
+    siblings.push(task);
+    subTodosByParent.set(task.parentTaskId, siblings);
+  });
   const completedTasks = tasks.filter((t: any) => t.completed).length;
   const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : (project.weeklyUpdates?.[0]?.progressPct ?? 0);
 
@@ -671,7 +717,7 @@ export default function ProjectDetailPage() {
             {/* Progress */}
             <div>
               <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                <span>{completedTasks}/{tasks.length} tasks completed</span>
+                <span>{completedTasks}/{tasks.length} todos completed</span>
                 <span>{progress}%</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -801,7 +847,7 @@ export default function ProjectDetailPage() {
         <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-            Tasks ({tasks.length})
+            Todos ({tasks.length})
           </TabsTrigger>
           <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">
             <StickyNote className="h-3.5 w-3.5 mr-1.5" />
@@ -822,21 +868,22 @@ export default function ProjectDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Tasks Tab */}
+        {/* Todos Tab */}
         <TabsContent value="tasks" className="space-y-3">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Tasks</h2>
-            <Button size="sm" variant="outline" onClick={() => setShowAddTask(s => !s)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Add Task
+            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Todos</h2>
+            <Button size="sm" variant="outline" onClick={() => { setParentTodo(null); setShowAddTask(s => !s); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Todo
             </Button>
           </div>
 
-          {/* Add task form */}
+          {/* Add todo form */}
           {showAddTask && (
             <form onSubmit={handleAddTask} className="bg-card border border-primary/30 rounded-lg p-4 space-y-3">
+              {parentTodo && <div className="rounded-md bg-primary/5 px-3 py-2 text-xs text-primary">Adding a sub-todo under <strong>{parentTodo.title}</strong></div>}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
-                  <Label className="text-xs">Task Title *</Label>
+                  <Label className="text-xs">Todo Title *</Label>
                   <Input
                     value={taskForm.title}
                     onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
@@ -877,23 +924,23 @@ export default function ProjectDetailPage() {
               </div>
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={createTask.isPending}>
-                  {createTask.isPending ? "Adding..." : "Add Task"}
+                  {createTask.isPending ? "Adding..." : parentTodo ? "Add Sub-todo" : "Add Todo"}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setShowAddTask(false)}>Cancel</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddTask(false); setParentTodo(null); }}>Cancel</Button>
               </div>
             </form>
           )}
 
-          {/* Task list */}
+          {/* Todo list */}
           {tasks.length === 0 && !showAddTask ? (
             <div className="text-center py-10 text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No tasks yet. Add the first task to get started.</p>
+              <p className="text-sm">No todos yet. Add the first todo to get started.</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {/* Open tasks */}
-              {tasks.filter((t: any) => !t.completed).map((task: any) => (
+              {/* Open parent todos and their collapsible sub-todos */}
+              {topLevelTodos.filter((task: any) => !task.completed).map((task: any) => (
                 <TaskItem
                   key={task.id}
                   task={task}
@@ -901,16 +948,21 @@ export default function ProjectDetailPage() {
                   onToggle={(id, completed) => toggleTask.mutate({ id, completed })}
                   onDelete={(id) => deleteTask.mutate({ id })}
                   onUpdate={(id, data) => updateTask.mutate({ id, ...data })}
-                />
+                  onAddSubtask={(parent) => { setParentTodo(parent); setTaskForm({ title: "", ownerId: String(parent.ownerId ?? ""), dueDate: parent.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "", priority: parent.priority as Priority, notes: "" }); setShowAddTask(true); }}
+                >
+                  {(subTodosByParent.get(task.id) ?? []).map((subTodo) => (
+                    <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
+                  ))}
+                </TaskItem>
               ))}
-              {/* Completed tasks */}
-              {tasks.filter((t: any) => t.completed).length > 0 && (
+              {/* Completed parent todos */}
+              {topLevelTodos.filter((task: any) => task.completed).length > 0 && (
                 <details className="mt-4">
                   <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground mb-2 select-none">
-                    {tasks.filter((t: any) => t.completed).length} completed task(s)
+                    {topLevelTodos.filter((task: any) => task.completed).length} completed todo(s)
                   </summary>
                   <div className="space-y-2 mt-2">
-                    {tasks.filter((t: any) => t.completed).map((task: any) => (
+                    {topLevelTodos.filter((task: any) => task.completed).map((task: any) => (
                       <TaskItem
                         key={task.id}
                         task={task}
@@ -918,7 +970,12 @@ export default function ProjectDetailPage() {
                         onToggle={(id, completed) => toggleTask.mutate({ id, completed })}
                         onDelete={(id) => deleteTask.mutate({ id })}
                         onUpdate={(id, data) => updateTask.mutate({ id, ...data })}
-                      />
+                        onAddSubtask={(parent) => { setParentTodo(parent); setTaskForm({ title: "", ownerId: String(parent.ownerId ?? ""), dueDate: parent.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "", priority: parent.priority as Priority, notes: "" }); setShowAddTask(true); }}
+                      >
+                        {(subTodosByParent.get(task.id) ?? []).map((subTodo) => (
+                          <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
+                        ))}
+                      </TaskItem>
                     ))}
                   </div>
                 </details>
@@ -933,13 +990,36 @@ export default function ProjectDetailPage() {
           <form onSubmit={handleAddNote} className="bg-card border border-border rounded-lg p-4 space-y-3">
             <div>
               <Label className="text-xs mb-1.5 block">Add a Note</Label>
-              <Textarea
-                value={noteContent}
-                onChange={e => setNoteContent(e.target.value)}
-                placeholder="Write a note... Use the @ button to mention someone."
-                rows={3}
-                className="resize-none"
-              />
+              <div className="relative">
+                <Textarea
+                  value={noteContent}
+                  onChange={event => {
+                    const value = event.target.value;
+                    setNoteContent(value);
+                    const match = value.match(/(?:^|\s)@([^\s@]*)$/);
+                    setMentionQuery(match ? match[1] : null);
+                  }}
+                  placeholder="Write a note… Type @ to mention a collaborator."
+                  rows={3}
+                  className="resize-none"
+                />
+                {mentionQuery !== null && (
+                  <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                    {mentionCandidates.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No matching collaborators. Add them to the project first.</p>
+                    ) : (
+                      <div className="max-h-44 overflow-y-auto py-1">
+                        {mentionCandidates.map((collaborator: any) => (
+                          <button key={collaborator.userId} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => insertMention({ id: collaborator.userId, name: collaborator.name ?? collaborator.email })}>
+                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-medium text-primary">{(collaborator.name ?? collaborator.email ?? "?")[0]}</span>
+                            <span>{collaborator.name ?? collaborator.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             {selectedMentions.length > 0 && (
               <div className="flex flex-wrap gap-1">
@@ -953,46 +1033,8 @@ export default function ProjectDetailPage() {
                 ))}
               </div>
             )}
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => setShowMentionPicker(v => !v)}
-                >
-                  <AtSign className="h-3.5 w-3.5 mr-1" /> Mention
-                </Button>
-                {showMentionPicker && (
-                  <div className="absolute bottom-full mb-1 left-0 bg-popover border border-border rounded-lg shadow-lg p-2 w-56 z-50">
-                    <Input
-                      placeholder="Search users..."
-                      value={mentionSearch}
-                      onChange={e => setMentionSearch(e.target.value)}
-                      className="h-7 text-xs mb-2"
-                      autoFocus
-                    />
-                    <div className="space-y-0.5 max-h-36 overflow-y-auto">
-                      {(adminUsers as any[])
-                        .filter((u: any) => !mentionSearch || (u.name ?? "").toLowerCase().includes(mentionSearch.toLowerCase()))
-                        .map((u: any) => (
-                          <button
-                            key={u.id}
-                            type="button"
-                            className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-accent flex items-center gap-2"
-                            onClick={() => insertMention({ id: u.id, name: u.name ?? u.email })}
-                          >
-                            <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-medium">
-                              {(u.name ?? "?")[0]}
-                            </span>
-                            {u.name ?? u.email}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {selectedMentions.length > 0 && <div className="flex items-center gap-2"><Checkbox id="notify-mentions" checked={notifyMentions} onCheckedChange={(checked) => setNotifyMentions(checked === true)} /><Label htmlFor="notify-mentions" className="cursor-pointer text-xs">Notify mentioned collaborators</Label></div>}
               <Button type="submit" size="sm" className="h-8" disabled={!noteContent.trim() || createNote.isPending}>
                 {createNote.isPending ? "Posting..." : "Post Note"}
               </Button>

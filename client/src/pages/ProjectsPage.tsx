@@ -22,6 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import ProjectNotificationsPanel from "@/components/ProjectNotificationsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -241,7 +242,7 @@ function ProjectCard({ project, onArchive }: { project: Project; onArchive: (id:
       {/* Progress bar */}
       <div className="mb-3">
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-          <span>{project.taskTotal > 0 ? `${project.taskCompleted}/${project.taskTotal} tasks` : "No tasks yet"}</span>
+          <span>{project.taskTotal > 0 ? `${project.taskCompleted}/${project.taskTotal} todos` : "No todos yet"}</span>
           <span>{progress}%</span>
         </div>
         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -406,7 +407,10 @@ function CreateProjectDialog({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [view, setView] = useState<"list" | "kanban">("list");
+  const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
@@ -427,9 +431,15 @@ export default function ProjectsPage() {
   const [deletingDept, setDeletingDept] = useState<{ id: number; name: string } | null>(null);
   const { data: projects = [], refetch } = trpc.pm.projects.list.useQuery({
     includeArchived: showArchived,
+    showAll,
   });
   const { data: departments = [], refetch: refetchDepts } = trpc.pm.departments.list.useQuery();
   const { data: adminUsers = [] } = trpc.users.list.useQuery({ role: "admin" });
+  const { data: personalTodoStats } = trpc.pm.personalTodos.stats.useQuery();
+  const canToggleAllProjects = new Set([
+    "tyler@savvy.realty", "dyl@savvy.realty", "kryzll@savvy.realty", "elana@savvy.realty",
+    "philleone@savvy.realty", "rhythm@savvy.realty", "athens@savvy.realty",
+  ]).has(String((user as any)?.email ?? "").toLowerCase());
 
   const archive = trpc.pm.projects.archive.useMutation({
     onSuccess: () => { toast.success("Project archived"); refetch(); },
@@ -508,9 +518,19 @@ export default function ProjectsPage() {
     <div>
       <PageHeader
         title="Projects"
-        subtitle="Track all company projects, tasks, and weekly updates"
+        subtitle="Track the projects, todos, and updates you collaborate on"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate("/projects/personal-todos")}>
+              <CheckCircle2 className="mr-1 h-4 w-4" /> My Personal Todos
+              <span className="ml-2 inline-flex items-center gap-1"><span className="font-semibold text-black">{personalTodoStats?.active ?? 0}</span><span className="font-semibold text-red-600">{personalTodoStats?.overdue ?? 0}</span></span>
+            </Button>
+            <ProjectNotificationsPanel />
+            {canToggleAllProjects && (
+              <Button variant="outline" size="sm" onClick={() => setShowAll((current) => !current)}>
+                {showAll ? "Show All" : "Show Mine"}
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => setDeptMgmtOpen(true)}>
               <Layers className="h-4 w-4 mr-1" /> Departments
             </Button>
