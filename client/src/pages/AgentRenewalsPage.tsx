@@ -11,11 +11,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { CalendarCheck2, CalendarClock, Check, FileText, Link as LinkIcon, Loader2, Plus, Search, TriangleAlert, Users, X } from "lucide-react";
+import { CalendarCheck2, CalendarClock, Check, FileText, Link as LinkIcon, Loader2, Search, TriangleAlert, Users, X } from "lucide-react";
 
 type Production = { t12Volume: number; t12Units: number; underContractVolume: number; underContractUnits: number };
 type Splits = { agent: number | null; savvy: number | null; groups: Array<{ name: string; split: number | null }> };
-type AgentContext = { agentId: number; agentName: string; agentEmail: string | null; markets: string[]; production: Production; splits: Splits };
+type AgentContext = { agentId: number; agentName: string; agentEmail: string | null; onboardedDate: string | null; renewalAnniversaryDate: string | null; markets: string[]; production: Production; splits: Splits };
 type Renewal = {
   id: number;
   agentId: number;
@@ -39,9 +39,9 @@ type UpcomingItem = AgentContext & { renewal: Renewal; isOverdue: boolean };
 type HistoryItem = AgentContext & { renewal: Renewal };
 type Overview = {
   upcoming: UpcomingItem[];
-  missingDates: AgentContext[];
+  missingOnboardedDates: AgentContext[];
   history: HistoryItem[];
-  summary: { due: number; overdue: number; missingDates: number; completedLast12Months: number };
+  summary: { due: number; overdue: number; missingOnboardedDates: number; completedLast12Months: number };
 };
 
 type CompletionForm = {
@@ -57,12 +57,6 @@ type CompletionForm = {
 function localToday(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function addDays(days: number): string {
-  const next = new Date();
-  next.setDate(next.getDate() + days);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
 }
 
 function formatCurrency(value: number): string {
@@ -115,7 +109,8 @@ function SplitsCell({ splits }: { splits: Splits }) {
 
 function RenewalContext({ item }: { item: AgentContext }) {
   return (
-    <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 text-sm sm:grid-cols-3">
+    <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+      <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Signed / onboarded</p><p className="mt-1 font-medium">{formatDate(item.onboardedDate)}</p><p className="text-xs text-muted-foreground">Renewal: {formatDate(item.renewalAnniversaryDate)}</p></div>
       <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Market</p><p className="mt-1 font-medium">{marketLabel(item.markets)}</p></div>
       <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">T12 production</p><p className="mt-1 font-medium">{formatCurrency(item.production.t12Volume)} · {item.production.t12Units} units</p><p className="text-xs text-muted-foreground">Under contract: {item.production.underContractUnits} · {formatCurrency(item.production.underContractVolume)}</p></div>
       <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current splits</p><p className="mt-1 font-medium">{splitLabel(item.splits)}</p>{item.splits.groups.map((group) => <p className="text-xs text-muted-foreground" key={group.name}>{group.name}: {group.split == null ? "not set" : `${group.split}% leader split`}</p>)}</div>
@@ -127,12 +122,12 @@ export default function AgentRenewalsPage() {
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.agentRenewals.getOverview.useQuery(undefined, { staleTime: 30_000 });
-  const overview = (data ?? { upcoming: [], missingDates: [], history: [], summary: { due: 0, overdue: 0, missingDates: 0, completedLast12Months: 0 } }) as Overview;
+  const overview = (data ?? { upcoming: [], missingOnboardedDates: [], history: [], summary: { due: 0, overdue: 0, missingOnboardedDates: 0, completedLast12Months: 0 } }) as Overview;
   const [search, setSearch] = useState("");
   const [completionItem, setCompletionItem] = useState<UpcomingItem | null>(null);
   const [historyItem, setHistoryItem] = useState<HistoryItem | null>(null);
-  const [scheduleItem, setScheduleItem] = useState<AgentContext | null>(null);
-  const [scheduleDate, setScheduleDate] = useState(addDays(30));
+  const [onboardingItem, setOnboardingItem] = useState<AgentContext | null>(null);
+  const [onboardedDate, setOnboardedDate] = useState("");
   const [agreementFile, setAgreementFile] = useState<File | null>(null);
   const [isUploadingAgreement, setIsUploadingAgreement] = useState(false);
   const [form, setForm] = useState<CompletionForm>({ meetingDate: localToday(), attendees: "", discussionSummary: "", productionReview: "", goalsAndCommitments: "", followUpItems: "", splitNotes: "" });
@@ -147,19 +142,19 @@ export default function AgentRenewalsPage() {
     onError: (error) => toast.error(error.message ?? "Unable to complete renewal"),
   });
 
-  const schedule = trpc.agentRenewals.schedule.useMutation({
-    onSuccess: () => {
-      toast.success("Renewal date scheduled");
-      setScheduleItem(null);
+  const setOnboarded = trpc.agentRenewals.setOnboardedDate.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Onboarded date saved. Renewal scheduled for ${formatDate(result.renewalDate)}.`);
+      setOnboardingItem(null);
       void utils.agentRenewals.getOverview.invalidate();
     },
-    onError: (error) => toast.error(error.message ?? "Unable to schedule renewal"),
+    onError: (error) => toast.error(error.message ?? "Unable to save onboarded date"),
   });
 
   const normalizedSearch = search.trim().toLowerCase();
   const matches = (item: AgentContext) => !normalizedSearch || [item.agentName, item.agentEmail, ...item.markets].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch);
   const upcoming = useMemo(() => overview.upcoming.filter(matches), [overview.upcoming, normalizedSearch]);
-  const missingDates = useMemo(() => overview.missingDates.filter(matches), [overview.missingDates, normalizedSearch]);
+  const missingOnboardedDates = useMemo(() => overview.missingOnboardedDates.filter(matches), [overview.missingOnboardedDates, normalizedSearch]);
   const history = useMemo(() => overview.history.filter(matches), [overview.history, normalizedSearch]);
 
   const openCompletion = (item: UpcomingItem) => {
@@ -199,7 +194,7 @@ export default function AgentRenewalsPage() {
           <div>
             <div className="mb-2 flex items-center gap-2 text-primary"><CalendarCheck2 className="h-5 w-5" /><span className="text-sm font-semibold">Agent Success</span></div>
             <h1 className="text-3xl font-bold tracking-tight">Agent Renewals</h1>
-            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Keep annual agent renewals on track, review live T12 production and current splits, and retain a clear record of every completed meeting.</p>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Renewals follow each agent’s signed/onboarded anniversary. Review live T12 production and current splits, and retain a clear record of every completed meeting.</p>
           </div>
           <Button variant="outline" onClick={() => navigate("/agent-directory")} className="w-fit"><Users className="mr-2 h-4 w-4" />Agent Directory</Button>
         </div>
@@ -208,25 +203,26 @@ export default function AgentRenewalsPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-lg bg-sky-100 p-2 text-sky-700"><CalendarClock className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{overview.summary.due}</p><p className="text-xs text-muted-foreground">Scheduled renewals</p></div></CardContent></Card>
         <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-lg bg-red-100 p-2 text-red-700"><TriangleAlert className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{overview.summary.overdue}</p><p className="text-xs text-muted-foreground">Overdue</p></div></CardContent></Card>
-        <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-lg bg-amber-100 p-2 text-amber-700"><CalendarClock className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{overview.summary.missingDates}</p><p className="text-xs text-muted-foreground">Need a renewal date</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-lg bg-amber-100 p-2 text-amber-700"><CalendarClock className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{overview.summary.missingOnboardedDates}</p><p className="text-xs text-muted-foreground">Need an onboarded date</p></div></CardContent></Card>
         <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-lg bg-emerald-100 p-2 text-emerald-700"><Check className="h-5 w-5" /></div><div><p className="text-2xl font-bold">{overview.summary.completedLast12Months}</p><p className="text-xs text-muted-foreground">Completed in 12 months</p></div></CardContent></Card>
       </section>
 
       <Tabs defaultValue="upcoming" className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <TabsList className="w-full sm:w-auto"><TabsTrigger value="upcoming" className="flex-1 sm:flex-none">Upcoming <span className="ml-1 text-xs text-muted-foreground">({overview.summary.due})</span></TabsTrigger><TabsTrigger value="missing" className="flex-1 sm:flex-none">No date <span className="ml-1 text-xs text-muted-foreground">({overview.summary.missingDates})</span></TabsTrigger><TabsTrigger value="history" className="flex-1 sm:flex-none">History <span className="ml-1 text-xs text-muted-foreground">({overview.summary.completedLast12Months})</span></TabsTrigger></TabsList>
+          <TabsList className="w-full sm:w-auto"><TabsTrigger value="upcoming" className="flex-1 sm:flex-none">Upcoming <span className="ml-1 text-xs text-muted-foreground">({overview.summary.due})</span></TabsTrigger><TabsTrigger value="missing" className="flex-1 sm:flex-none">Missing onboarding date <span className="ml-1 text-xs text-muted-foreground">({overview.summary.missingOnboardedDates})</span></TabsTrigger><TabsTrigger value="history" className="flex-1 sm:flex-none">History <span className="ml-1 text-xs text-muted-foreground">({overview.summary.completedLast12Months})</span></TabsTrigger></TabsList>
           <SearchInput value={search} onChange={setSearch} placeholder="Search agent or market…" />
         </div>
 
         <TabsContent value="upcoming" className="mt-0">
           <Card>
-            <CardHeader className="pb-3"><CardTitle className="text-base">Upcoming and overdue renewals</CardTitle><p className="text-sm text-muted-foreground">Overdue meetings stay here until an administrator completes the renewal form.</p></CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-base">Upcoming and overdue renewals</CardTitle><p className="text-sm text-muted-foreground">Renewal dates are calculated from the agent’s signed/onboarded date. Overdue meetings stay here until an administrator completes the renewal form.</p></CardHeader>
             <CardContent className="p-0">
               {isLoading ? <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading renewals…</div> : upcoming.length === 0 ? <div className="py-14 text-center text-sm text-muted-foreground"><CalendarCheck2 className="mx-auto mb-3 h-9 w-9 opacity-35" /><p>No scheduled renewals match the current search.</p></div> : (
                 <Table>
-                  <TableHeader><TableRow><TableHead>Agent</TableHead><TableHead>Renewal date</TableHead><TableHead>Market</TableHead><TableHead>T12 production / current under contract</TableHead><TableHead>Current splits</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Agent</TableHead><TableHead>Signed / onboarded</TableHead><TableHead>Renewal date</TableHead><TableHead>Market</TableHead><TableHead>T12 production / current under contract</TableHead><TableHead>Current splits</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
                   <TableBody>{upcoming.map((item) => <TableRow key={item.renewal.id} className={item.isOverdue ? "bg-red-50/45 hover:bg-red-50/65" : ""}>
                     <TableCell><div><p className="font-medium">{item.agentName}</p>{item.agentEmail && <p className="text-xs text-muted-foreground">{item.agentEmail}</p>}</div></TableCell>
+                    <TableCell className="whitespace-nowrap text-sm">{formatDate(item.onboardedDate)}</TableCell>
                     <TableCell><div className="flex flex-col items-start gap-1"><span className="font-medium">{formatDate(item.renewal.renewalDate)}</span>{item.isOverdue ? <Badge variant="destructive">Overdue</Badge> : <Badge variant="outline">Scheduled</Badge>}</div></TableCell>
                     <TableCell className="max-w-[180px] whitespace-normal text-sm text-muted-foreground">{marketLabel(item.markets)}</TableCell>
                     <TableCell><ProductionCell production={item.production} /></TableCell>
@@ -241,17 +237,17 @@ export default function AgentRenewalsPage() {
 
         <TabsContent value="missing" className="mt-0">
           <Card>
-            <CardHeader className="pb-3"><CardTitle className="text-base">Agents without a renewal date</CardTitle><p className="text-sm text-muted-foreground">Set the first renewal date for each agent listed here. Future annual renewals will be scheduled automatically once a meeting is completed.</p></CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-base">Agents missing a signed / onboarded date</CardTitle><p className="text-sm text-muted-foreground">This date is stored in the agent’s Extended User Profile and becomes the source of truth for their annual renewal anniversary.</p></CardHeader>
             <CardContent className="p-0">
-              {isLoading ? <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading agents…</div> : missingDates.length === 0 ? <div className="py-14 text-center text-sm text-muted-foreground"><Check className="mx-auto mb-3 h-9 w-9 opacity-35" /><p>Every active agent has a renewal date.</p></div> : (
+              {isLoading ? <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading agents…</div> : missingOnboardedDates.length === 0 ? <div className="py-14 text-center text-sm text-muted-foreground"><Check className="mx-auto mb-3 h-9 w-9 opacity-35" /><p>Every active agent has a signed / onboarded date.</p></div> : (
                 <Table>
                   <TableHeader><TableRow><TableHead>Agent</TableHead><TableHead>Market</TableHead><TableHead>T12 production / current under contract</TableHead><TableHead>Current splits</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
-                  <TableBody>{missingDates.map((item) => <TableRow key={item.agentId}>
+                  <TableBody>{missingOnboardedDates.map((item) => <TableRow key={item.agentId}>
                     <TableCell><div><p className="font-medium">{item.agentName}</p>{item.agentEmail && <p className="text-xs text-muted-foreground">{item.agentEmail}</p>}</div></TableCell>
                     <TableCell className="max-w-[180px] whitespace-normal text-sm text-muted-foreground">{marketLabel(item.markets)}</TableCell>
                     <TableCell><ProductionCell production={item.production} /></TableCell>
                     <TableCell><SplitsCell splits={item.splits} /></TableCell>
-                    <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => { setScheduleItem(item); setScheduleDate(addDays(30)); }}><Plus className="mr-1.5 h-4 w-4" />Set date</Button></TableCell>
+                    <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => { setOnboardingItem(item); setOnboardedDate(""); }}><CalendarCheck2 className="mr-1.5 h-4 w-4" />Set onboarded date</Button></TableCell>
                   </TableRow>)}</TableBody>
                 </Table>
               )}
@@ -301,8 +297,8 @@ export default function AgentRenewalsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={scheduleItem != null} onOpenChange={(open) => { if (!open && !schedule.isPending) setScheduleItem(null); }}>
-        <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Set renewal date — {scheduleItem?.agentName}</DialogTitle><DialogDescription>This creates the initial renewal record for this agent.</DialogDescription></DialogHeader>{scheduleItem && <div className="space-y-5"><RenewalContext item={scheduleItem} /><div className="space-y-2"><Label htmlFor="initial-renewal-date">Renewal date</Label><Input id="initial-renewal-date" type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} /></div></div>}<DialogFooter><Button type="button" variant="outline" onClick={() => setScheduleItem(null)} disabled={schedule.isPending}>Cancel</Button><Button type="button" disabled={schedule.isPending || !scheduleDate} onClick={() => scheduleItem && schedule.mutate({ agentId: scheduleItem.agentId, renewalDate: scheduleDate })}>{schedule.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save date</Button></DialogFooter></DialogContent>
+      <Dialog open={onboardingItem != null} onOpenChange={(open) => { if (!open && !setOnboarded.isPending) setOnboardingItem(null); }}>
+        <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Set signed / onboarded date — {onboardingItem?.agentName}</DialogTitle><DialogDescription>Save the date the agent signed or was onboarded. SavvyOS will automatically schedule their renewal one year later on the same anniversary.</DialogDescription></DialogHeader>{onboardingItem && <div className="space-y-5"><RenewalContext item={onboardingItem} /><div className="space-y-2"><Label htmlFor="agent-onboarded-date">Signed / onboarded date</Label><Input id="agent-onboarded-date" type="date" value={onboardedDate} onChange={(event) => setOnboardedDate(event.target.value)} /><p className="text-xs text-muted-foreground">This also updates the Onboarded Date in the agent’s Extended User Profile.</p></div></div>}<DialogFooter><Button type="button" variant="outline" onClick={() => setOnboardingItem(null)} disabled={setOnboarded.isPending}>Cancel</Button><Button type="button" disabled={setOnboarded.isPending || !onboardedDate} onClick={() => onboardingItem && setOnboarded.mutate({ agentId: onboardingItem.agentId, onboardedDate })}>{setOnboarded.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save and schedule renewal</Button></DialogFooter></DialogContent>
       </Dialog>
 
       <Dialog open={historyItem != null} onOpenChange={(open) => !open && setHistoryItem(null)}>

@@ -9,11 +9,13 @@ import {
   marketAgentAssignments,
   marketProfiles,
   transactions,
+  userProfiles,
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
+import { renewalDateFromOnboardedDate, syncScheduledRenewalWithOnboardedDate } from "../agentRenewalSchedule";
 
 const dateInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date in YYYY-MM-DD format.");
 
@@ -87,10 +89,14 @@ export const agentRenewalsRouter = router({
       email: users.email,
       commissionSplit: users.commissionSplit,
       marketProfileId: users.marketProfileId,
-    }).from(users).where(and(eq(users.role, "agent"), eq(users.isActive, true))).orderBy(asc(users.name));
+      onboardedDate: userProfiles.onboardedDate,
+    }).from(users)
+      .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+      .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
+      .orderBy(asc(users.name));
     const agentIds = agents.map((agent) => agent.id);
     if (agentIds.length === 0) {
-      return { upcoming: [], missingDates: [], history: [], summary: { due: 0, overdue: 0, missingDates: 0, completedLast12Months: 0 } };
+      return { upcoming: [], missingOnboardedDates: [], history: [], summary: { due: 0, overdue: 0, missingOnboardedDates: 0, completedLast12Months: 0 } };
     }
 
     const [renewalRows, transactionRows, assignmentRows, groupRows] = await Promise.all([
@@ -171,6 +177,8 @@ export const agentRenewalsRouter = router({
         agentId,
         agentName: agent.name ?? agent.email ?? `Agent #${agentId}`,
         agentEmail: agent.email ?? null,
+        onboardedDate: dateKey(agent.onboardedDate),
+        renewalAnniversaryDate: agent.onboardedDate ? renewalDateFromOnboardedDate(agent.onboardedDate) : null,
         markets: marketNames,
         production: productionByAgent.get(agentId) ?? { t12Volume: 0, t12Units: 0, underContractVolume: 0, underContractUnits: 0 },
         splits: {
@@ -191,6 +199,7 @@ export const agentRenewalsRouter = router({
     }
 
     const upcoming = scheduled
+      .filter((renewal) => Boolean(agentById.get(renewal.agentId)?.onboardedDate))
       .map((renewal) => ({
         renewal: { ...renewal, renewalDate: dateKey(renewal.renewalDate) },
         ...toAgentContext(renewal.agentId),
@@ -201,9 +210,8 @@ export const agentRenewalsRouter = router({
         return (a.renewal.renewalDate ?? "").localeCompare(b.renewal.renewalDate ?? "");
       });
 
-    const scheduledAgentIds = new Set(scheduled.map((renewal) => renewal.agentId));
-    const missingDates = agents
-      .filter((agent) => !scheduledAgentIds.has(agent.id))
+    const missingOnboardedDates = agents
+      .filter((agent) => !agent.onboardedDate)
       .map((agent) => toAgentContext(agent.id));
 
     const historyThreshold = twelveMonthsAgo();
@@ -222,19 +230,19 @@ export const agentRenewalsRouter = router({
 
     return {
       upcoming,
-      missingDates,
+      missingOnboardedDates,
       history,
       summary: {
         due: upcoming.length,
         overdue: upcoming.filter((item) => item.isOverdue).length,
-        missingDates: missingDates.length,
+        missingOnboardedDates: missingOnboardedDates.length,
         completedLast12Months: history.length,
       },
     };
   }),
 
-  schedule: protectedProcedure
-    .input(z.object({ agentId: z.number().int().positive(), renewalDate: dateInput }))
+  setOnboardedDate: protectedProcedure
+    .input(z.object({ agentId: z.number().int().positive(), onboardedDate: dateInput }))
     .mutation(async ({ ctx, input }) => {
       await requireRenewalAccess(ctx.user);
       const db = await getDb();
@@ -245,20 +253,26 @@ export const agentRenewalsRouter = router({
       if (!agent || agent.role !== "agent" || !agent.isActive) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Active agent not found." });
       }
-      const [existing] = await db.select({ id: agentRenewals.id }).from(agentRenewals)
-        .where(and(eq(agentRenewals.agentId, input.agentId), eq(agentRenewals.status, "scheduled"))).limit(1);
-      if (existing) throw new TRPCError({ code: "CONFLICT", message: "This agent already has a scheduled renewal." });
 
-      const result = await db.insert(agentRenewals).values({ agentId: input.agentId, renewalDate: dateFromKey(input.renewalDate) });
-      const renewalId = Number(result[0].insertId);
-      await db.insert(activityLog).values({
-        userId: ctx.user.id,
-        action: "scheduled_agent_renewal",
-        entityType: "agent_renewal",
-        entityId: renewalId,
-        details: { agentId: input.agentId, renewalDate: input.renewalDate },
+      const result = await db.transaction(async (tx) => {
+        const [profile] = await tx.select({ id: userProfiles.id }).from(userProfiles)
+          .where(eq(userProfiles.userId, input.agentId)).limit(1);
+        if (profile) {
+          await tx.update(userProfiles).set({ onboardedDate: dateFromKey(input.onboardedDate) }).where(eq(userProfiles.id, profile.id));
+        } else {
+          await tx.insert(userProfiles).values({ userId: input.agentId, onboardedDate: dateFromKey(input.onboardedDate) });
+        }
+        const renewal = await syncScheduledRenewalWithOnboardedDate(tx, input.agentId, input.onboardedDate);
+        await tx.insert(activityLog).values({
+          userId: ctx.user.id,
+          action: "set_agent_onboarded_date",
+          entityType: "agent_renewal",
+          entityId: renewal.renewalId,
+          details: { agentId: input.agentId, onboardedDate: input.onboardedDate, renewalDate: renewal.renewalDate, createdRenewal: renewal.created },
+        });
+        return renewal;
       });
-      return { id: renewalId };
+      return { success: true, ...result };
     }),
 
   complete: protectedProcedure

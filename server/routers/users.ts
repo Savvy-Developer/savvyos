@@ -14,8 +14,10 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut } from "../storage";
 import { invokeLLM } from "../_core/llm";
+import { syncScheduledRenewalWithOnboardedDate } from "../agentRenewalSchedule";
 import { nanoid } from "nanoid";
 import {
+  users,
   userDocuments,
   userProfiles,
   agentProfiles,
@@ -538,6 +540,15 @@ export const usersRouter = router({
         await db.update(userProfiles).set(data).where(eq(userProfiles.userId, userId));
       } else {
         await db.insert(userProfiles).values({ userId, ...data });
+      }
+      // The signed/onboarded date is the renewal source of truth for active agents.
+      // Keep the one scheduled renewal aligned whenever that profile date is maintained.
+      if (data.onboardedDate instanceof Date) {
+        const [targetUser] = await db.select({ role: users.role, isActive: users.isActive })
+          .from(users).where(eq(users.id, userId)).limit(1);
+        if (targetUser?.role === "agent" && targetUser.isActive) {
+          await syncScheduledRenewalWithOnboardedDate(db, userId, data.onboardedDate);
+        }
       }
       return { success: true };
     }),
