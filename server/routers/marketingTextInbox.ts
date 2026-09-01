@@ -613,10 +613,21 @@ export const marketingTextInboxRouter = router({
         if (query && !label.includes(query)) continue;
         if (!threads.has(key)) threads.set(key, row);
       }
-      return Array.from(threads.values()).map(thread => ({
-        ...thread,
-        isUnread: !thread.readAt,
-      }));
+      return Array.from(threads.values()).map(thread => {
+        const inboundAt = thread.receivedAt ?? thread.sentAt ?? thread.createdAt;
+        const hasReply = rows.some(row =>
+          row.contactId === thread.contactId &&
+          row.direction === "outbound" &&
+          new Date(row.sentAt ?? row.receivedAt ?? row.createdAt) > new Date(inboundAt),
+        );
+        const isUnread = !thread.readAt;
+        return {
+          ...thread,
+          isUnread,
+          awaitingReply: !isUnread && !hasReply,
+          awaitingReplySince: !isUnread && !hasReply ? inboundAt : null,
+        };
+      });
     }),
 
   /** Returns the complete thread with Smart Plan attribution for automation-originated texts. */
@@ -628,9 +639,11 @@ export const marketingTextInboxRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
       if (!line?.marketingNumberId) return [];
+      const sender = aliasedTable(users, "marketing_text_message_sender");
       const rows = await db
-        .select({ message: aircallMessages })
+        .select({ message: aircallMessages, sentByName: sender.name })
         .from(aircallMessages)
+        .leftJoin(sender, eq(sender.id, aircallMessages.savvyUserId))
         .where(
           and(
             eq(aircallMessages.contactId, input.contactId),
@@ -685,10 +698,61 @@ export const marketingTextInboxRouter = router({
           }
         }
       }
+      const providerMessageIds = rows
+        .map(row => row.message.aircallMessageId)
+        .filter((id): id is string => Boolean(id));
+      const followUpByMessageId = new Map<string, { id: number; dueAt: Date; sentAt: Date | null }>();
+      if (providerMessageIds.length) {
+        const sentFollowUps = await db
+          .select({
+            id: agentIntroductionFollowUps.id,
+            aircallMessageId: agentIntroductionFollowUps.aircallMessageId,
+            dueAt: agentIntroductionFollowUps.dueAt,
+            sentAt: agentIntroductionFollowUps.sentAt,
+          })
+          .from(agentIntroductionFollowUps)
+          .where(inArray(agentIntroductionFollowUps.aircallMessageId, providerMessageIds));
+        for (const followUp of sentFollowUps) {
+          if (followUp.aircallMessageId) followUpByMessageId.set(followUp.aircallMessageId, followUp);
+        }
+      }
+
+      const participantPhones = Array.from(new Set(rows
+        .flatMap(row => row.message.groupParticipants ?? [])
+        .map(number => normalizePhone(number))
+        .filter(Boolean)));
+      const participantsByConversation = new Map<string, string[]>();
+      for (const row of rows) {
+        if (row.message.groupConversationId && row.message.groupParticipants?.length) {
+          participantsByConversation.set(row.message.groupConversationId, row.message.groupParticipants);
+        }
+      }
+      const groupUsers = participantPhones.length
+        ? await db.select({ name: users.name, phone: users.phone }).from(users).where(isNotNull(users.phone))
+        : [];
+      const userNameByPhone = new Map(groupUsers
+        .map(user => [normalizePhone(user.phone), user.name] as const)
+        .filter(([phone, name]) => Boolean(phone && name)));
+
       return rows.map(row => {
         const attribution = planByProviderId.get(row.message.aircallMessageId);
+        const groupParticipants = row.message.groupParticipants ??
+          (row.message.groupConversationId
+            ? participantsByConversation.get(row.message.groupConversationId) ?? []
+            : []);
+        const groupAgentName = groupParticipants
+          .map(number => userNameByPhone.get(normalizePhone(number)))
+          .find((name): name is string => Boolean(name)) ?? null;
+        const followUp = row.message.aircallMessageId
+          ? followUpByMessageId.get(row.message.aircallMessageId)
+          : null;
         return {
           ...row.message,
+          sentByName: row.sentByName ?? null,
+          isGroupMessage: Boolean(row.message.groupConversationId),
+          groupAgentName,
+          autoFollowUpId: followUp?.id ?? null,
+          autoFollowUpDueAt: followUp?.dueAt ?? null,
           smartPlanName: attribution?.name ?? null,
           smartPlanStepOrder: attribution ? attribution.stepOrder + 1 : null,
         };
@@ -1043,15 +1107,29 @@ export const marketingTextInboxRouter = router({
         });
       }
 
-      const textPersistence = await persistAircallMessage(
-        nativeMessagePayload(groupTextResult.message, {
+      const groupPayload = nativeMessagePayload(groupTextResult.message, {
           messageId: groupTextResult.groupMessageId,
           body: input.groupText,
           destination: clientDestination,
           numberId: line.marketingNumberId,
           numberName: line.marketingNumberName,
           numberDigits: line.marketingNumberDigits,
-        }),
+        });
+      // The group-send response sometimes contains only the group message ID.
+      // Store the known participants ourselves so the inbox can immediately show
+      // "Connected with [agent] in a group" and later inbound events can resolve
+      // to this client even before Aircall repeats the participant list.
+      groupPayload.group_conversation_id =
+        groupTextResult.groupConversationId ??
+        groupPayload.group_conversation_id ??
+        undefined;
+      groupPayload.participants = [
+        line.marketingNumberDigits ?? "",
+        clientDestination,
+        agentDestination,
+      ].filter(Boolean);
+      const textPersistence = await persistAircallMessage(
+        groupPayload,
         { contactId: contact.id, savvyUserId: ctx.user.id }
       );
       if (textPersistence.communicationId) {
@@ -1134,6 +1212,99 @@ export const marketingTextInboxRouter = router({
         followUpId,
         followUpDueAt,
       };
+    }),
+
+  /** Lists post-introduction follow-ups pinned to the contact's text conversation. */
+  listIntroductionFollowUps: protectedProcedure
+    .input(z.object({ contactId: positiveId }))
+    .query(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const creator = aliasedTable(users, "introduction_follow_up_creator");
+      const agent = aliasedTable(users, "introduction_follow_up_agent");
+      return db
+        .select({
+          id: agentIntroductionFollowUps.id,
+          body: agentIntroductionFollowUps.body,
+          dueAt: agentIntroductionFollowUps.dueAt,
+          status: agentIntroductionFollowUps.status,
+          sentAt: agentIntroductionFollowUps.sentAt,
+          aircallMessageId: agentIntroductionFollowUps.aircallMessageId,
+          errorMessage: agentIntroductionFollowUps.errorMessage,
+          agentName: agent.name,
+          createdByName: creator.name,
+        })
+        .from(agentIntroductionFollowUps)
+        .leftJoin(agent, eq(agent.id, agentIntroductionFollowUps.agentId))
+        .leftJoin(creator, eq(creator.id, agentIntroductionFollowUps.createdById))
+        .where(eq(agentIntroductionFollowUps.contactId, input.contactId))
+        .orderBy(desc(agentIntroductionFollowUps.createdAt));
+    }),
+
+  /** Updates a queued introduction follow-up before the durable worker claims it. */
+  updateIntroductionFollowUp: protectedProcedure
+    .input(z.object({
+      id: positiveId,
+      body: z.string().trim().min(1).max(1600),
+      dueAt: z.coerce.date().refine(date => date.getTime() > Date.now(), "Choose a future send time."),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [followUp] = await db
+        .select()
+        .from(agentIntroductionFollowUps)
+        .where(eq(agentIntroductionFollowUps.id, input.id))
+        .limit(1);
+      if (!followUp) throw new TRPCError({ code: "NOT_FOUND", message: "Scheduled follow-up not found." });
+      if (followUp.status !== "queued") {
+        throw new TRPCError({ code: "CONFLICT", message: "Only follow-ups that have not started sending can be changed." });
+      }
+      await db.update(agentIntroductionFollowUps).set({ body: input.body, dueAt: input.dueAt })
+        .where(and(eq(agentIntroductionFollowUps.id, input.id), eq(agentIntroductionFollowUps.status, "queued")));
+      await logActivity({
+        userId: ctx.user.id,
+        action: "agent_introduction_follow_up_updated",
+        entityType: "agent_connection",
+        entityId: followUp.connectionId,
+        relatedContactId: followUp.contactId,
+        details: { followUpId: followUp.id, dueAt: input.dueAt.toISOString(), body: input.body },
+      });
+      return { success: true, contactId: followUp.contactId };
+    }),
+
+  /** Deletes a queued follow-up before it is delivered. Sent history is never deleted. */
+  deleteIntroductionFollowUp: protectedProcedure
+    .input(z.object({ id: positiveId }))
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [followUp] = await db
+        .select()
+        .from(agentIntroductionFollowUps)
+        .where(eq(agentIntroductionFollowUps.id, input.id))
+        .limit(1);
+      if (!followUp) throw new TRPCError({ code: "NOT_FOUND", message: "Scheduled follow-up not found." });
+      if (followUp.status !== "queued") {
+        throw new TRPCError({ code: "CONFLICT", message: "Only follow-ups that have not started sending can be deleted." });
+      }
+      const deleted = await db.delete(agentIntroductionFollowUps)
+        .where(and(eq(agentIntroductionFollowUps.id, input.id), eq(agentIntroductionFollowUps.status, "queued")));
+      if (Number((deleted as any)[0]?.affectedRows ?? 0) === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: "This follow-up began sending and was not deleted." });
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "agent_introduction_follow_up_deleted",
+        entityType: "agent_connection",
+        entityId: followUp.connectionId,
+        relatedContactId: followUp.contactId,
+        details: { followUpId: followUp.id, dueAt: followUp.dueAt.toISOString(), body: followUp.body },
+      });
+      return { success: true, contactId: followUp.contactId };
     }),
 
   /** Marks every visible inbound reply in one conversation as read. */

@@ -427,7 +427,17 @@ export async function getResendInboxThreads(userId: number, archived: boolean) {
   return threads.map((thread) => {
     const read = readByThread.get(thread.id);
     const isUnread = read?.markedUnread || !read?.lastReadAt || thread.lastIncomingAt > read.lastReadAt;
-    return { ...thread, isUnread, contact: contactByEmail.get(thread.participantEmail.toLowerCase()) ?? null };
+    // A thread is awaiting a response only after this inbox user has read its
+    // latest incoming message and no outbound email has been recorded since.
+    const hasReply = thread.lastMessageAt > thread.lastIncomingAt;
+    const awaitingReply = !isUnread && !hasReply;
+    return {
+      ...thread,
+      isUnread,
+      awaitingReply,
+      awaitingReplySince: awaitingReply ? thread.lastIncomingAt : null,
+      contact: contactByEmail.get(thread.participantEmail.toLowerCase()) ?? null,
+    };
   });
 }
 

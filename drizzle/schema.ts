@@ -3297,6 +3297,11 @@ export const aircallMessages = mysqlTable(
     fromNumber: varchar("fromNumber", { length: 32 }),
     toNumber: varchar("toNumber", { length: 32 }),
     body: text("body"),
+    // Native Aircall group texts retain one shared conversation between the
+    // client, referred agent, and SavvyOS. These fields link later replies back
+    // to that same CRM thread and identify the group in the inbox UI.
+    groupConversationId: varchar("groupConversationId", { length: 128 }),
+    groupParticipants: json("groupParticipants").$type<string[]>(),
     sentAt: timestamp("sentAt"),
     receivedAt: timestamp("receivedAt"),
     // Global admin-inbox read state for inbound messages on the marketing line.
@@ -3310,6 +3315,7 @@ export const aircallMessages = mysqlTable(
     index("aircall_messages_contact_sent_idx").on(table.contactId, table.sentAt),
     index("aircall_messages_isa_sent_idx").on(table.savvyUserId, table.sentAt),
     index("aircall_messages_number_sent_idx").on(table.aircallNumberId, table.sentAt),
+    index("aircall_messages_group_conversation_idx").on(table.groupConversationId),
     index("aircall_messages_number_inbound_read_idx").on(table.aircallNumberId, table.direction, table.readAt),
   ],
 );

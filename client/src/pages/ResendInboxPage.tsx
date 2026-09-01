@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
 import { Link } from "wouter";
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   CheckCheck,
@@ -35,12 +36,19 @@ type InboxThread = {
   lastMessageAt: Date | string;
   archivedAt: Date | string | null;
   isUnread: boolean;
+  awaitingReply: boolean;
+  awaitingReplySince: Date | string | null;
   contact: { id: number; name: string | null; email: string | null } | null;
 };
 
 function toDate(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function awaitingReplyLabel(value: Date | string | null) {
+  if (!value) return "Awaiting reply";
+  return `Awaiting reply · ${formatDistanceToNow(toDate(value))}`;
 }
 
 function plainTextFromHtml(html: string) {
@@ -192,6 +200,9 @@ export default function ResendInboxPage() {
   });
 
   const selectedThread = conversation?.thread as InboxThread | undefined;
+  const selectedThreadPreview = (threads as InboxThread[]).find(
+    thread => thread.id === selectedThread?.id
+  );
   const messages = (conversation?.messages ?? []) as Array<{
     id: number;
     direction: "inbound" | "outbound";
@@ -268,6 +279,14 @@ export default function ResendInboxPage() {
                       <div className="flex items-center gap-2">
                         <span className={`truncate text-sm ${thread.isUnread ? "font-semibold" : "font-medium"}`}>{thread.participantEmail}</span>
                         <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{formatDistanceToNow(toDate(thread.lastIncomingAt), { addSuffix: true })}</span>
+                        {thread.awaitingReply && (
+                          <span
+                            title={`Read but ${awaitingReplyLabel(thread.awaitingReplySince).toLowerCase()}`}
+                            className="flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                          >
+                            <AlertTriangle className="h-3 w-3" /> {formatDistanceToNow(toDate(thread.awaitingReplySince ?? thread.lastIncomingAt))}
+                          </span>
+                        )}
                       </div>
                       <p className={`mt-0.5 truncate text-sm ${thread.isUnread ? "font-semibold" : ""}`}>{thread.subject}</p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">Received by {thread.receivedAddress}</p>
@@ -294,6 +313,11 @@ export default function ResendInboxPage() {
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-base font-semibold">{selectedThread.subject}</h2>
                   <p className="truncate text-xs text-muted-foreground">To {selectedThread.receivedAddress} · {selectedThread.participantEmail}</p>
+                  {selectedThreadPreview?.awaitingReply && (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-700">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Read but {awaitingReplyLabel(selectedThreadPreview.awaitingReplySince).toLowerCase()}
+                    </p>
+                  )}
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setUnread.mutate({ threadId: selectedThread.id, markedUnread: !selectedThread.isUnread })} disabled={setUnread.isPending}>
                   {selectedThread.isUnread ? <CheckCheck className="mr-1.5 h-3.5 w-3.5" /> : <MailOpen className="mr-1.5 h-3.5 w-3.5" />}

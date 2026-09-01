@@ -39,6 +39,7 @@ import {
   Loader2,
   MailOpen,
   MessageSquare,
+  Pencil,
   Phone,
   RefreshCw,
   Search,
@@ -46,6 +47,8 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Timer,
+  Trash2,
   UserRoundPlus,
 } from "lucide-react";
 
@@ -67,6 +70,8 @@ type MarketingThread = {
   smsMarketingOptedOutAt: Date | string | null;
   archivedAt: Date | string | null;
   isUnread: boolean;
+  awaitingReply: boolean;
+  awaitingReplySince: Date | string | null;
 };
 
 type MarketingMessage = {
@@ -78,6 +83,23 @@ type MarketingMessage = {
   createdAt: Date | string;
   smartPlanName?: string | null;
   smartPlanStepOrder?: number | null;
+  sentByName?: string | null;
+  isGroupMessage?: boolean;
+  groupAgentName?: string | null;
+  autoFollowUpId?: number | null;
+  autoFollowUpDueAt?: Date | string | null;
+};
+
+type IntroductionFollowUp = {
+  id: number;
+  body: string;
+  dueAt: Date | string;
+  status: "queued" | "processing" | "sent" | "skipped" | "failed";
+  sentAt: Date | string | null;
+  aircallMessageId: string | null;
+  errorMessage: string | null;
+  agentName: string | null;
+  createdByName: string | null;
 };
 
 type IntroductionDraft = {
@@ -97,6 +119,27 @@ function formatTime(value: Date | string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatElapsed(value: Date | string | null | undefined, now = Date.now()) {
+  if (!value) return "";
+  const startedAt = new Date(value).getTime();
+  if (Number.isNaN(startedAt)) return "";
+  const minutes = Math.max(0, Math.floor((now - startedAt) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+  const days = Math.floor(hours / 24);
+  return `${days}d${hours % 24 ? ` ${hours % 24}h` : ""}`;
+}
+
+function toDateTimeLocal(value: Date | string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
 }
 
 function contactName(thread: MarketingThread) {
@@ -132,6 +175,10 @@ export default function MarketingTextInboxPage() {
   const [autoFollowUp, setAutoFollowUp] = useState(false);
   const [followUpDelayHours, setFollowUpDelayHours] = useState("24");
   const [followUpBody, setFollowUpBody] = useState("");
+  const [editingFollowUpId, setEditingFollowUpId] = useState<number | null>(null);
+  const [editingFollowUpBody, setEditingFollowUpBody] = useState("");
+  const [editingFollowUpDueAt, setEditingFollowUpDueAt] = useState("");
+  const [clock, setClock] = useState(() => Date.now());
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const isAdmin = user?.role === "admin";
   const permissions = trpc.permissions.getMyPermissions.useQuery(undefined, {
@@ -168,6 +215,10 @@ export default function MarketingTextInboxPage() {
     { contactId: selectedContactId ?? 1 },
     { enabled: canUseInbox && !!selectedContactId }
   );
+  const followUpsQuery = trpc.marketingTextInbox.listIntroductionFollowUps.useQuery(
+    { contactId: selectedContactId ?? 1 },
+    { enabled: canUseInbox && !!selectedContactId }
+  );
   const messages = ((threadQuery.data ?? []) as MarketingMessage[]).filter(
     message => Boolean(message.body?.trim())
   );
@@ -181,6 +232,11 @@ export default function MarketingTextInboxPage() {
   const selectedAgent = (agentsQuery.data ?? []).find(
     agent => String(agent.id) === selectedAgentId
   );
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const refreshInbox = () => {
     void configuration.refetch();
@@ -276,11 +332,30 @@ export default function MarketingTextInboxPage() {
         void threadQuery.refetch();
         void threadsQuery.refetch();
         void speedToLead.refetch();
+        void followUpsQuery.refetch();
       },
       onError: error =>
         toast.error(error.message || "Unable to send the introduction."),
     }
   );
+  const updateFollowUp =
+    trpc.marketingTextInbox.updateIntroductionFollowUp.useMutation({
+      onSuccess: () => {
+        toast.success("Scheduled follow-up updated.");
+        setEditingFollowUpId(null);
+        void followUpsQuery.refetch();
+      },
+      onError: error => toast.error(error.message),
+    });
+  const deleteFollowUp =
+    trpc.marketingTextInbox.deleteIntroductionFollowUp.useMutation({
+      onSuccess: () => {
+        toast.success("Scheduled follow-up deleted.");
+        setEditingFollowUpId(null);
+        void followUpsQuery.refetch();
+      },
+      onError: error => toast.error(error.message),
+    });
 
   useEffect(() => {
     if (selectedContactId)
@@ -535,6 +610,14 @@ export default function MarketingTextInboxPage() {
                           thread.receivedAt ?? thread.sentAt ?? thread.createdAt
                         )}
                       </span>
+                      {thread.awaitingReply && (
+                        <span
+                          title={`Read and awaiting a reply for ${formatElapsed(thread.awaitingReplySince, clock)}`}
+                          className="flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                        >
+                          <AlertTriangle className="h-3 w-3" /> {formatElapsed(thread.awaitingReplySince, clock)}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 flex items-center gap-2">
                       <p className="truncate text-xs text-muted-foreground">
@@ -579,6 +662,11 @@ export default function MarketingTextInboxPage() {
                     <p className="text-xs text-muted-foreground">
                       {selectedThread?.contactPhone || "Contact record"}
                     </p>
+                    {selectedThread?.awaitingReply && (
+                      <p className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-700">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Read and awaiting a reply for {formatElapsed(selectedThread.awaitingReplySince, clock)}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -658,6 +746,105 @@ export default function MarketingTextInboxPage() {
                   ref={conversationScrollRef}
                   className="flex-1 space-y-3 overflow-y-auto bg-muted/15 p-4"
                 >
+                  {((followUpsQuery.data ?? []) as IntroductionFollowUp[])
+                    .filter(followUp => followUp.status !== "sent")
+                    .map(followUp => {
+                      const editable = followUp.status === "queued";
+                      const isEditing = editingFollowUpId === followUp.id;
+                      return (
+                        <section
+                          key={followUp.id}
+                          className={`rounded-xl border p-3 shadow-sm ${followUp.status === "queued" ? "border-amber-300 bg-amber-50/70" : "border-destructive/30 bg-destructive/5"}`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="flex items-center gap-1.5 text-sm font-semibold">
+                                <Timer className="h-4 w-4 text-amber-700" />
+                                {followUp.status === "queued"
+                                  ? `Auto follow-up scheduled for ${formatTime(followUp.dueAt)}`
+                                  : `Auto follow-up ${followUp.status}`}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {followUp.status === "queued"
+                                  ? `Sending to this client after the introduction with ${followUp.agentName ?? "the agent"}.`
+                                  : followUp.errorMessage || "This scheduled text did not send."}
+                              </p>
+                            </div>
+                            {editable && !isEditing && (
+                              <div className="flex shrink-0 gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingFollowUpId(followUp.id);
+                                    setEditingFollowUpBody(followUp.body);
+                                    setEditingFollowUpDueAt(toDateTimeLocal(followUp.dueAt));
+                                  }}
+                                  disabled={deleteFollowUp.isPending}
+                                >
+                                  <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => deleteFollowUp.mutate({ id: followUp.id })}
+                                  disabled={deleteFollowUp.isPending}
+                                >
+                                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          {isEditing ? (
+                            <div className="mt-3 space-y-3 border-t border-amber-200 pt-3">
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`follow-up-body-${followUp.id}`}>Scheduled text</Label>
+                                <Textarea
+                                  id={`follow-up-body-${followUp.id}`}
+                                  value={editingFollowUpBody}
+                                  onChange={event => setEditingFollowUpBody(event.target.value)}
+                                  rows={3}
+                                  maxLength={1600}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`follow-up-due-at-${followUp.id}`}>Send at</Label>
+                                <Input
+                                  id={`follow-up-due-at-${followUp.id}`}
+                                  type="datetime-local"
+                                  value={editingFollowUpDueAt}
+                                  onChange={event => setEditingFollowUpDueAt(event.target.value)}
+                                />
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEditingFollowUpId(null)}
+                                  disabled={updateFollowUp.isPending}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => updateFollowUp.mutate({
+                                    id: followUp.id,
+                                    body: editingFollowUpBody.trim(),
+                                    dueAt: new Date(editingFollowUpDueAt),
+                                  })}
+                                  disabled={!editingFollowUpBody.trim() || !editingFollowUpDueAt || updateFollowUp.isPending}
+                                >
+                                  {updateFollowUp.isPending ? "Saving…" : "Save follow-up"}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-3 whitespace-pre-wrap text-sm">{followUp.body}</p>
+                          )}
+                        </section>
+                      );
+                    })}
                   {threadQuery.isLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading conversation…
@@ -686,12 +873,31 @@ export default function MarketingTextInboxPage() {
                               {message.smartPlanStepOrder}
                             </Badge>
                           )}
+                          {message.isGroupMessage && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <UserRoundPlus className="mr-1 h-3 w-3" />
+                              {message.direction === "outbound"
+                                ? `Connected with ${message.groupAgentName ?? "an agent"} in a group`
+                                : `Group conversation${message.groupAgentName ? ` with ${message.groupAgentName}` : ""}`}
+                            </Badge>
+                          )}
+                          {message.autoFollowUpId && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <Timer className="mr-1 h-3 w-3" /> Auto follow-up sent
+                            </Badge>
+                          )}
                           <p className="whitespace-pre-wrap">{message.body}</p>
                           <p
                             className={`mt-1 text-[10px] ${message.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}
                           >
                             {message.direction === "outbound"
-                              ? "Sent"
+                              ? `Sent by ${message.sentByName ?? "Savvy STR Agents"}`
                               : "Received"}{" "}
                             ·{" "}
                             {formatTime(

@@ -62,6 +62,21 @@ function toStoredPhone(value: string | null | undefined): string | null {
   return digits.length === 10 ? `+1${digits}` : `+${digits}`;
 }
 
+function groupConversationId(payload: AircallMessageData): string | null {
+  return typeof payload.group_conversation_id === "string" && payload.group_conversation_id.trim()
+    ? payload.group_conversation_id.trim()
+    : null;
+}
+
+function groupParticipants(payload: AircallMessageData): string[] | null {
+  if (!Array.isArray(payload.participants)) return null;
+  const participants = payload.participants
+    .filter((participant): participant is string => typeof participant === "string")
+    .map(participant => toStoredPhone(participant))
+    .filter((participant): participant is string => Boolean(participant));
+  return participants.length ? Array.from(new Set(participants)) : null;
+}
+
 /** Resolve Aircall's sender/recipient variants to a canonical CRM phone value. */
 export function messageParticipantNumber(payload: Pick<AircallMessageData, "raw_digits" | "external_number">): string | null {
   return toStoredPhone(payload.raw_digits ?? payload.external_number);
@@ -119,6 +134,8 @@ export async function persistAircallMessage(
   const status = payload.status?.trim() || (direction === "inbound" ? "received" : "pending");
   const participant = messageParticipantNumber(payload);
   const lineNumber = toStoredPhone(payload.number.digits);
+  const conversationId = groupConversationId(payload) ?? existing?.groupConversationId ?? null;
+  const participants = groupParticipants(payload) ?? existing?.groupParticipants ?? null;
   const sentAt = asDate(payload.sent_at ?? payload.created_at) ?? existing?.sentAt ?? null;
   const receivedAt = direction === "inbound" ? (sentAt ?? existing?.receivedAt ?? new Date()) : existing?.receivedAt ?? null;
   const body = payload.body?.trim() || existing?.body || null;
@@ -136,6 +153,21 @@ export async function persistAircallMessage(
       )[0] ?? null);
 
   let contactId = options.contactId ?? existing?.contactId ?? null;
+  // A referred agent's group reply originates from the agent's phone—not a CRM
+  // contact—so resolve the known group conversation before phone matching. This
+  // keeps every participant's response visible in the original client thread.
+  if (!contactId && conversationId) {
+    const [originatingMessage] = await db
+      .select({ contactId: aircallMessages.contactId })
+      .from(aircallMessages)
+      .where(and(
+        eq(aircallMessages.groupConversationId, conversationId),
+        eq(aircallMessages.aircallNumberId, payload.number.id),
+      ))
+      .orderBy(aircallMessages.createdAt)
+      .limit(1);
+    contactId = originatingMessage?.contactId ?? null;
+  }
   if (!contactId && participant) {
     const contact = await findContactByPhoneDB(participant, {
       aircallNumberId: payload.number.id,
@@ -188,6 +220,8 @@ export async function persistAircallMessage(
     fromNumber,
     toNumber,
     body,
+    groupConversationId: conversationId,
+    groupParticipants: participants,
     sentAt,
     receivedAt,
     rawPayload: options.rawPayload ?? payload as Record<string, unknown>,
