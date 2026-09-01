@@ -21,7 +21,7 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Not Currently Sent";
+type Recipient = "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
 type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
 type TriggerType = "Event" | "Scheduled";
 
@@ -51,6 +51,10 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "transaction_closed", name: "Transaction Closed", description: "Sent only to the agent assigned to the transaction when it is marked Closed.", trigger: "Transaction status set to 'closed'", triggerType: "Event", recipient: "Assigned Agent", category: "Transactions" },
   // ── Reporting ──────────────────────────────────────────────────────────────
   { id: "agent_production_report", name: "Agent Production Report", description: "Sends the current under-contract and closed production table to every active administrator.", trigger: "Every Friday at 6:00 PM Eastern", triggerType: "Scheduled", recipient: "Active Admins", category: "Reporting" },
+  { id: "vendor_featured_payment_invitation", name: "Featured Vendor Payment Invitation", description: "Sends a unique Stripe-hosted monthly checkout link to the vendor selected by an agent for a Featured placement.", trigger: "Agent selects Invite to Pay on a Featured vendor", triggerType: "Event", recipient: "Vendor", category: "Reporting" },
+  { id: "vendor_featured_payment_failed", name: "Featured Vendor Payment Alert", description: "Alerts the Vendor List agent and Tyler, Elana, Dyl, and Kryzll when a Stripe payment fails or a subscription becomes past due, unpaid, paused, canceled, or incomplete.", trigger: "Stripe billing event requires vendor follow-up", triggerType: "Event", recipient: "Vendor Agent + Designated Leadership", category: "Reporting" },
+  { id: "monthly_featured_vendor_earnings", name: "Featured Vendor Leadership Earnings", description: "Summarizes prior-month collections, each agent’s 75% amount due, and Savvy’s 25% share for Tyler, Elana, Dyl, and Kryzll.", trigger: "1st of each month at 9:00 AM Eastern", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
+  { id: "agent_featured_vendor_earnings", name: "Featured Vendor Agent Earnings", description: "Sends each agent a private, itemized statement of their 75% earnings from successful Featured vendor payments.", trigger: "1st of each month at 9:00 AM Eastern", triggerType: "Scheduled", recipient: "Assigned Agent", category: "Reporting" },
   // ── Commission ────────────────────────────────────────────────────────────
   { id: "commission_calculated", name: "Commission Calculated", description: "Sent only to the person recorded as the commission payout payee.", trigger: "Commission payout record created for a payee", triggerType: "Event", recipient: "Transaction Payee", category: "Commission" },
   { id: "payout_integrity_fail", name: "Payout Integrity Failure", description: "Sent only to the assigned transaction agent when a payout integrity check fails.", trigger: "Payout integrity check fails during transaction update", triggerType: "Event", recipient: "Assigned Agent", category: "Commission" },
@@ -142,6 +146,8 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Marketing Team + Creator": "bg-pink-100 text-pink-700",
   "Reporting Manager": "bg-teal-100 text-teal-700",
   "Requesting Employee": "bg-teal-100 text-teal-700",
+  "Vendor": "bg-cyan-100 text-cyan-700",
+  "Vendor Agent + Designated Leadership": "bg-violet-100 text-violet-700",
   "Not Currently Sent": "bg-zinc-100 text-zinc-600",
 };
 

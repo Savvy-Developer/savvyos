@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { userProfiles, users, vendorCategories, vendorLists, vendors } from "../../drizzle/schema";
+import { userProfiles, users, vendorCategories, vendorFeaturedSubscriptions, vendorLists, vendors } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "../../shared/phone";
+import { createFeaturedVendorCheckoutInvite } from "../vendorBilling";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -130,6 +131,23 @@ async function getListPayload(db: NonNullable<Awaited<ReturnType<typeof getDb>>>
       .where(inArray(vendors.vendorCategoryId, categoryIds))
       .orderBy(asc(vendors.sortOrder), asc(vendors.businessName))
     : [];
+  const vendorIds = vendorRows.map((vendor) => vendor.id);
+  const billingRows = vendorIds.length
+    ? await db.select({
+      vendorId: vendorFeaturedSubscriptions.vendorId,
+      monthlyAmountCents: vendorFeaturedSubscriptions.monthlyAmountCents,
+      billingStatus: vendorFeaturedSubscriptions.billingStatus,
+      checkoutUrl: vendorFeaturedSubscriptions.checkoutUrl,
+      invitationSentAt: vendorFeaturedSubscriptions.invitationSentAt,
+      createdAt: vendorFeaturedSubscriptions.createdAt,
+    }).from(vendorFeaturedSubscriptions)
+      .where(inArray(vendorFeaturedSubscriptions.vendorId, vendorIds))
+      .orderBy(desc(vendorFeaturedSubscriptions.createdAt))
+    : [];
+  const billingByVendor = new Map<number, typeof billingRows[number]>();
+  for (const row of billingRows) {
+    if (!billingByVendor.has(row.vendorId)) billingByVendor.set(row.vendorId, row);
+  }
   const vendorsByCategory = new Map<number, typeof vendorRows>();
   for (const vendor of vendorRows) {
     const collection = vendorsByCategory.get(vendor.vendorCategoryId) ?? [];
@@ -141,7 +159,10 @@ async function getListPayload(db: NonNullable<Awaited<ReturnType<typeof getDb>>>
     ...list,
     categories: categories.map((category) => ({
       ...category,
-      vendors: vendorsByCategory.get(category.id) ?? [],
+      vendors: (vendorsByCategory.get(category.id) ?? []).map((vendor) => ({
+        ...vendor,
+        billing: billingByVendor.get(vendor.id) ?? null,
+      })),
     })),
   };
 }
@@ -345,6 +366,29 @@ export const vendorsRouter = router({
         isVisible: input.isVisible,
       }).where(eq(vendors.id, input.id));
       return { success: true };
+    }),
+
+  /** Creates a vendor-specific monthly Stripe Checkout link and emails it to the Featured vendor. */
+  createFeaturedPaymentInvite: protectedProcedure
+    .input(z.object({
+      agentId: z.number().int().positive().optional(),
+      vendorId: z.number().int().positive(),
+      monthlyAmountDollars: z.number().int().min(1).max(10_000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const agentId = requireVendorManager(ctx, input.agentId);
+      try {
+        return await createFeaturedVendorCheckoutInvite({
+          vendorId: input.vendorId,
+          agentId,
+          monthlyAmountCents: input.monthlyAmountDollars * 100,
+        });
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "Could not create the Featured vendor payment invitation.",
+        });
+      }
     }),
 
   deleteVendor: protectedProcedure

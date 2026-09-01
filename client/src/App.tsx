@@ -141,6 +141,7 @@ import ShortLinksPage from "./pages/ShortLinksPage";
 import VendorListManagementPage from "./pages/VendorListManagementPage";
 import VendorListsAdminPage from "./pages/VendorListsAdminPage";
 import PublicVendorListPage from "./pages/PublicVendorListPage";
+import { VendorPaymentCanceledPage, VendorPaymentConfirmedPage } from "./pages/VendorPaymentStatusPage";
 import PtoPage from "./pages/PtoPage";
 import PtoManagerQueuePage from "./pages/PtoManagerQueuePage";
 import PtoAdministrationPage from "./pages/PtoAdministrationPage";
@@ -510,6 +511,8 @@ function App() {
             <Route path="/review" component={PublicReviewPage} />
             <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />
             <Route path="/vendors/:slug" component={PublicVendorListPage} />
+            <Route path="/vendor-payment-confirmed" component={VendorPaymentConfirmedPage} />
+            <Route path="/vendor-payment-canceled" component={VendorPaymentCanceledPage} />
             <Route path="/careers" component={CareersPage} />
             <Route path="/talent-profile" component={TalentProfilePage} />
             <Route path="/login" component={LoginPage} />

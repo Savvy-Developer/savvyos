@@ -74,7 +74,8 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
   "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
   "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
-  "pto_request_submitted", "pto_request_decision",
+  "pto_request_submitted", "pto_request_decision", "vendor_featured_payment_invitation", "vendor_featured_payment_failed",
+  "monthly_featured_vendor_earnings", "agent_featured_vendor_earnings",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
@@ -206,6 +207,15 @@ interface EmailContext {
   webinarRegistrationUrl?: string;
   webinarCreatorName?: string;
   webinarCreatorEmail?: string;
+  // Featured vendor billing fields
+  vendorBusinessName?: string;
+  vendorContactName?: string;
+  vendorMonthlyAmount?: string;
+  vendorPaymentUrl?: string;
+  vendorBillingReason?: string;
+  featuredVendorEarningsDate?: string;
+  featuredVendorEarningsHtml?: string;
+  featuredVendorEarningsSubject?: string;
 }
 
 const WEBINAR_TEMPLATE_BODY_START = "<!--WEBINAR_TEMPLATE_BODY_START-->";
@@ -979,6 +989,60 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       `${ctx.monthlyRenewalsHtml ?? bodyText("The monthly Agent Renewals report could not be generated. Please open SavvyOS to review the live renewal queue.")}`,
       `Monthly Agent Renewals — ${ctx.monthlyRenewalsDate ?? "current month"}`,
       800,
+    ),
+  }),
+
+  vendor_featured_payment_invitation: (ctx) => ({
+    subject: `Your Featured Vendor invitation from ${ctx.agentName ?? "Savvy STR Agents"}`,
+    html: emailLayout(
+      `${heading("Featured Vendor Invitation", "#0891B2")}
+      ${subheading("Savvy STR Agents Vendor List")}
+      ${greeting(ctx.recipientName ?? ctx.vendorContactName ?? ctx.vendorBusinessName)}
+      ${bodyText(`${escapeHtml(ctx.agentName ?? "Your Savvy STR Agent")} has invited <strong>${escapeHtml(ctx.vendorBusinessName ?? "your business")}</strong> to a Featured placement on their client-facing Vendor List.`)}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Monthly placement</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount ?? "—")} per month`,
+        "<strong style=\"color:#0A0A0A;\">Payment</strong>&nbsp;&nbsp; Secure recurring billing through Stripe",
+      ], "#0891B2")}
+      ${bodyText("Use the secure Stripe checkout link below to start the monthly subscription. Stripe will confirm the payment details before you complete checkout.")}
+      ${ctx.vendorPaymentUrl ? ctaButton("Review & Pay with Stripe", ctx.vendorPaymentUrl, "#0891B2") : ""}
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">Questions about your placement? Reply to this email to reach the Savvy STR Agents team.</p>`,
+      `Complete your Featured Vendor placement checkout for ${ctx.vendorMonthlyAmount ?? "your monthly subscription"}.`,
+    ),
+  }),
+
+  vendor_featured_payment_failed: (ctx) => ({
+    subject: `Featured Vendor payment needs attention — ${ctx.vendorBusinessName ?? "Vendor"}`,
+    html: emailLayout(
+      `${heading("Featured Vendor Payment Needs Attention", "#B91C1C")}
+      ${subheading("Action Required")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`The recurring Featured vendor payment for <strong>${escapeHtml(ctx.vendorBusinessName ?? "this vendor")}</strong> needs follow-up. Please reach out to the vendor to update their payment method or resolve the subscription status.`)}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Vendor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBusinessName ?? "—")}`,
+        ...(ctx.vendorContactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorContactName)}`] : []),
+        ...(ctx.vendorMonthlyAmount ? [`<strong style="color:${BLACK};">Monthly amount</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount)}`] : []),
+        ...(ctx.vendorBillingReason ? [`<strong style="color:${BLACK};">Status</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBillingReason)}`] : []),
+      ], "#B91C1C")}
+      ${ctaButton("Open Vendor List", APP_URL + "/vendors", "#B91C1C")}`,
+      `Featured vendor payment needs attention: ${ctx.vendorBusinessName ?? "Vendor"}.`,
+    ),
+  }),
+
+  monthly_featured_vendor_earnings: (ctx) => ({
+    subject: ctx.featuredVendorEarningsSubject ?? `Featured Vendor Earnings | ${ctx.featuredVendorEarningsDate ?? "Current Month"}`,
+    html: emailLayout(
+      `${ctx.featuredVendorEarningsHtml ?? bodyText("The Featured Vendor earnings report could not be generated. Please open SavvyOS to review Vendor Lists.")}`,
+      `Featured Vendor earnings — ${ctx.featuredVendorEarningsDate ?? "current month"}`,
+      800,
+    ),
+  }),
+
+  agent_featured_vendor_earnings: (ctx) => ({
+    subject: ctx.featuredVendorEarningsSubject ?? `Your Featured Vendor Earnings | ${ctx.featuredVendorEarningsDate ?? "Current Month"}`,
+    html: emailLayout(
+      `${ctx.featuredVendorEarningsHtml ?? bodyText("Your Featured Vendor earnings report could not be generated. Please open SavvyOS to review your Vendor List.")}`,
+      `Your Featured Vendor earnings — ${ctx.featuredVendorEarningsDate ?? "current month"}`,
+      720,
     ),
   }),
 

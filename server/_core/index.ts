@@ -38,6 +38,8 @@ import { scheduleAircallReliability } from "../aircallReliability";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
+import { constructStripeWebhookEvent, handleStripeWebhookEvent, isStripeConfigured } from "../vendorBilling";
+import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedVendorEarningsReport";
 import { ENV } from "./env";
 import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
@@ -131,6 +133,26 @@ async function startServer() {
     } catch (err: any) {
       console.error("[Resend Webhook] Error:", err.message);
       return res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
+  // Stripe signs the original request body. Keep this route before express.json()
+  // so signature verification remains valid and duplicate events can be handled safely.
+  app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+    if (!isStripeConfigured() || !process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
+      return res.status(503).json({ error: "Stripe billing is not configured." });
+    }
+    try {
+      const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+      const signature = req.headers["stripe-signature"] as string | undefined;
+      const event = constructStripeWebhookEvent(rawBody, signature);
+      const result = await handleStripeWebhookEvent(event);
+      return res.status(200).json({ received: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Stripe webhook processing failed";
+      const isSignatureError = /signature|Stripe-Signature/i.test(message);
+      console.error("[Stripe Webhook] Processing error:", message);
+      return res.status(isSignatureError ? 400 : 500).json({ error: isSignatureError ? "Invalid webhook signature." : "Stripe webhook processing failed." });
     }
   });
 
@@ -308,6 +330,9 @@ async function startServer() {
   scheduleDailyIsaActivitiesReport();
   // Shared Agent Renewals report: 9:00 AM Eastern on the first of every month.
   scheduleMonthlyAgentRenewalsReport();
+  // Featured vendor collections: leadership totals and private 75% agent earnings
+  // statements at 9:00 AM Eastern on the first of every month.
+  scheduleMonthlyFeaturedVendorEarningsReport();
   // Shared coaching leadership accountability report: Fridays at 12:00 PM Eastern
   scheduleWeeklyCoachingAccountabilityReport();
   // Coaching Tips For Today: shared leadership email at 8:00 AM Eastern on weekdays.

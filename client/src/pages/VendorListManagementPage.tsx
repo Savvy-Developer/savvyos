@@ -15,6 +15,7 @@ import {
   ArrowUp,
   CheckCircle2,
   Copy,
+  DollarSign,
   ExternalLink,
   FileText,
   Globe2,
@@ -27,6 +28,7 @@ import {
   Plus,
   Settings2,
   Star,
+  Send,
   Trash2,
   UsersRound,
   Wrench,
@@ -46,6 +48,12 @@ type Vendor = {
   description: string | null;
   isFeatured: boolean;
   isVisible: boolean;
+  billing: {
+    monthlyAmountCents: number;
+    billingStatus: string;
+    checkoutUrl: string | null;
+    invitationSentAt: Date | string | null;
+  } | null;
 };
 
 type VendorCategory = {
@@ -106,6 +114,30 @@ function formatWebsite(value: string): string {
   const trimmed = value.trim();
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
+}
+
+function monthlyAmount(value: number | null | undefined): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(value ?? 0) / 100);
+}
+
+function billingStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    pending_checkout: "Invitation pending",
+    checkout_complete: "Checkout complete",
+    active: "Billing active",
+    past_due: "Payment past due",
+    unpaid: "Payment unpaid",
+    paused: "Billing paused",
+    canceled: "Billing canceled",
+    incomplete: "Payment incomplete",
+    incomplete_expired: "Invite expired",
+    failed: "Invite failed",
+  };
+  return labels[status] ?? "Billing status unavailable";
+}
+
+function blocksNewInvite(status: string | null | undefined): boolean {
+  return ["pending_checkout", "checkout_complete", "active", "past_due", "unpaid", "paused", "incomplete"].includes(status ?? "");
 }
 
 function cleanVendorForm(form: VendorForm, agentId?: number) {
@@ -208,6 +240,9 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategoryForm);
   const [vendorForm, setVendorForm] = useState<VendorForm>(emptyVendorForm);
   const [settings, setSettings] = useState({ displayName: "", headline: "", intro: "", publicSlug: "", isPublished: false });
+  const [paymentVendor, setPaymentVendor] = useState<Vendor | null>(null);
+  const [monthlyAmountDollars, setMonthlyAmountDollars] = useState("75");
+  const [paymentInvite, setPaymentInvite] = useState<{ checkoutUrl: string; emailSent: boolean; emailError?: string } | null>(null);
 
   const totalVendors = useMemo(() => list?.categories.reduce((count, category) => count + category.vendors.length, 0) ?? 0, [list]);
   const mutationOptions = {
@@ -223,10 +258,19 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const reorderCategories = trpc.vendors.reorderCategories.useMutation(mutationOptions);
   const createVendor = trpc.vendors.createVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setVendorOpen(false); toast.success("Vendor added."); } });
   const updateVendor = trpc.vendors.updateVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setVendorOpen(false); toast.success("Vendor updated."); } });
+  const createFeaturedPaymentInvite = trpc.vendors.createFeaturedPaymentInvite.useMutation({
+    ...mutationOptions,
+    onSuccess: async (result) => {
+      await mutationOptions.onSuccess();
+      setPaymentInvite(result);
+      if (result.emailSent) toast.success("Payment invitation emailed to the vendor.");
+      else toast.warning("The payment link was created, but the email could not be confirmed. Copy the link below to send it yourself.");
+    },
+  });
   const deleteVendor = trpc.vendors.deleteVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); toast.success("Vendor deleted."); } });
   const reorderVendors = trpc.vendors.reorderVendors.useMutation(mutationOptions);
-  const anySaving = createList.isPending || updateList.isPending || createCategory.isPending || updateCategory.isPending || deleteCategory.isPending || reorderCategories.isPending || createVendor.isPending || updateVendor.isPending || deleteVendor.isPending || reorderVendors.isPending;
-  const mutationError = createList.error || updateList.error || createCategory.error || updateCategory.error || deleteCategory.error || reorderCategories.error || createVendor.error || updateVendor.error || deleteVendor.error || reorderVendors.error;
+  const anySaving = createList.isPending || updateList.isPending || createCategory.isPending || updateCategory.isPending || deleteCategory.isPending || reorderCategories.isPending || createVendor.isPending || updateVendor.isPending || createFeaturedPaymentInvite.isPending || deleteVendor.isPending || reorderVendors.isPending;
+  const mutationError = createList.error || updateList.error || createCategory.error || updateCategory.error || deleteCategory.error || reorderCategories.error || createVendor.error || updateVendor.error || createFeaturedPaymentInvite.error || deleteVendor.error || reorderVendors.error;
 
   const agentParam = targetAgentId ? { agentId: targetAgentId } : {};
 
@@ -270,6 +314,22 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
       isVisible: vendor.isVisible,
     });
     setVendorOpen(true);
+  }
+
+  function openPaymentInvite(vendor: Vendor) {
+    setPaymentVendor(vendor);
+    setMonthlyAmountDollars(vendor.billing ? String(Math.max(1, Math.round(vendor.billing.monthlyAmountCents / 100))) : "75");
+    setPaymentInvite(null);
+  }
+
+  async function copyPaymentLink() {
+    if (!paymentInvite?.checkoutUrl) return;
+    try {
+      await navigator.clipboard.writeText(paymentInvite.checkoutUrl);
+      toast.success("Stripe payment link copied to clipboard.");
+    } catch {
+      toast.error("Could not copy the link. Select the link below to copy it.");
+    }
   }
 
   async function copyPublicLink() {
@@ -368,7 +428,7 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
           </CardHeader>
           <CardContent className="p-0">
             {category.vendors.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No vendors in this category yet. Add someone you trust.</div> : <div className="divide-y">{category.vendors.map((vendor, vendorIndex) => <div key={vendor.id} className={!vendor.isVisible ? "bg-slate-50/70 p-5 opacity-70" : "p-5"}>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-900">{vendor.businessName}</h3>{vendor.isFeatured && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Star className="mr-1 h-3 w-3 fill-current" /> Featured</Badge>}{!vendor.isVisible && <Badge variant="secondary">Private</Badge>}</div>{vendor.contactName && <p className="mt-1 text-sm text-slate-600">Contact: {vendor.contactName}</p>}{vendor.description && <p className="mt-2 max-w-3xl whitespace-pre-line text-sm leading-6 text-slate-600">{vendor.description}</p>}<div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">{vendor.phone && <span className="inline-flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{vendor.phone}</span>}{vendor.email && <span className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{vendor.email}</span>}{vendor.serviceArea && <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" />{vendor.serviceArea}</span>}{vendor.website && <span className="inline-flex items-center gap-1.5"><Globe2 className="h-3.5 w-3.5" />Website</span>}</div></div><div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon" disabled={vendorIndex === 0 || anySaving} onClick={() => moveVendor(category, vendorIndex, -1)} title="Move vendor up"><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" disabled={vendorIndex === category.vendors.length - 1 || anySaving} onClick={() => moveVendor(category, vendorIndex, 1)} title="Move vendor down"><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => openEditVendor(vendor)} title="Edit vendor"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => { if (window.confirm(`Delete “${vendor.businessName}”?`)) deleteVendor.mutate({ ...agentParam, id: vendor.id }); }} title="Delete vendor"><Trash2 className="h-4 w-4" /></Button></div></div>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-900">{vendor.businessName}</h3>{vendor.isFeatured && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Star className="mr-1 h-3 w-3 fill-current" /> Featured</Badge>}{!vendor.isVisible && <Badge variant="secondary">Private</Badge>}</div>{vendor.contactName && <p className="mt-1 text-sm text-slate-600">Contact: {vendor.contactName}</p>}{vendor.description && <p className="mt-2 max-w-3xl whitespace-pre-line text-sm leading-6 text-slate-600">{vendor.description}</p>}<div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">{vendor.phone && <span className="inline-flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{vendor.phone}</span>}{vendor.email && <span className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{vendor.email}</span>}{vendor.serviceArea && <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" />{vendor.serviceArea}</span>}{vendor.website && <span className="inline-flex items-center gap-1.5"><Globe2 className="h-3.5 w-3.5" />Website</span>}</div>{vendor.isFeatured && <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">{vendor.billing ? <Badge variant={vendor.billing.billingStatus === "active" ? "default" : "secondary"}>{billingStatusLabel(vendor.billing.billingStatus)} · {monthlyAmount(vendor.billing.monthlyAmountCents)}/mo</Badge> : <span className="text-xs text-muted-foreground">Eligible for a paid Featured placement.</span>}</div>}</div><div className="flex shrink-0 flex-wrap justify-end gap-1">{vendor.isFeatured && <Button size="sm" variant="outline" disabled={!vendor.email || blocksNewInvite(vendor.billing?.billingStatus) || anySaving} onClick={() => openPaymentInvite(vendor)} title={!vendor.email ? "Add a vendor email before inviting them to pay" : blocksNewInvite(vendor.billing?.billingStatus) ? "This vendor already has an active or open payment invitation" : "Send a monthly Featured placement payment invitation"}><DollarSign className="mr-1.5 h-3.5 w-3.5" /> Invite to Pay</Button>}<Button variant="ghost" size="icon" disabled={vendorIndex === 0 || anySaving} onClick={() => moveVendor(category, vendorIndex, -1)} title="Move vendor up"><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" disabled={vendorIndex === category.vendors.length - 1 || anySaving} onClick={() => moveVendor(category, vendorIndex, 1)} title="Move vendor down"><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => openEditVendor(vendor)} title="Edit vendor"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => { if (window.confirm(`Delete “${vendor.businessName}”?`)) deleteVendor.mutate({ ...agentParam, id: vendor.id }); }} title="Delete vendor"><Trash2 className="h-4 w-4" /></Button></div></div>
             </div>)}</div>}
           </CardContent>
         </Card>
@@ -381,6 +441,8 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
       <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCategory ? "Edit category" : "Add category"}</DialogTitle><DialogDescription>Categories keep your recommendations easy for clients to browse.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="category-name">Category name</Label><Input id="category-name" value={categoryForm.name} maxLength={120} onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })} placeholder="Cleaners" /></div><div className="space-y-2"><Label htmlFor="category-description">Description</Label><Textarea id="category-description" value={categoryForm.description} maxLength={1500} onChange={(event) => setCategoryForm({ ...categoryForm, description: event.target.value })} placeholder="Optional note about the services in this category." rows={3} /></div><div className="flex items-center justify-between rounded-lg border p-3"><div><Label htmlFor="category-visible">Show publicly</Label><p className="mt-0.5 text-xs text-muted-foreground">Keep this category private until it is ready for clients.</p></div><Switch id="category-visible" checked={categoryForm.isVisible} onCheckedChange={(checked) => setCategoryForm({ ...categoryForm, isVisible: checked })} /></div></div><DialogFooter><Button variant="outline" onClick={() => setCategoryOpen(false)} disabled={createCategory.isPending || updateCategory.isPending}>Cancel</Button><Button onClick={() => { const data = { ...agentParam, name: categoryForm.name.trim(), description: categoryForm.description.trim() || null, isVisible: categoryForm.isVisible }; if (editingCategory) updateCategory.mutate({ ...data, id: editingCategory.id }); else createCategory.mutate(data); }} disabled={createCategory.isPending || updateCategory.isPending || categoryForm.name.trim().length < 2}>{(createCategory.isPending || updateCategory.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingCategory ? "Save category" : "Add category"}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={vendorOpen} onOpenChange={setVendorOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingVendor ? "Edit vendor" : "Add vendor"}</DialogTitle><DialogDescription>Provide the key contact details clients need to confidently reach out.</DialogDescription></DialogHeader><VendorFormFields form={vendorForm} setForm={setVendorForm} categories={list.categories} /><DialogFooter><Button variant="outline" onClick={() => setVendorOpen(false)} disabled={createVendor.isPending || updateVendor.isPending}>Cancel</Button><Button onClick={() => { const data = cleanVendorForm(vendorForm, targetAgentId); if (editingVendor) updateVendor.mutate({ ...data, id: editingVendor.id }); else createVendor.mutate(data); }} disabled={createVendor.isPending || updateVendor.isPending || !vendorForm.vendorCategoryId || vendorForm.businessName.trim().length < 2}>{(createVendor.isPending || updateVendor.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingVendor ? "Save vendor" : "Add vendor"}</Button></DialogFooter></DialogContent></Dialog>
+
+      <Dialog open={Boolean(paymentVendor)} onOpenChange={(open) => { if (!open) { setPaymentVendor(null); setPaymentInvite(null); } }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{paymentInvite ? "Payment invitation ready" : "Invite Featured vendor to pay"}</DialogTitle><DialogDescription>{paymentInvite ? `Use the Stripe-hosted checkout link below for ${paymentVendor?.businessName ?? "this vendor"}.` : `Send ${paymentVendor?.businessName ?? "this Featured vendor"} a secure Stripe link for their monthly Featured placement.`}</DialogDescription></DialogHeader>{paymentInvite ? <div className="space-y-4 py-2"><div className={paymentInvite.emailSent ? "rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" : "rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"}>{paymentInvite.emailSent ? `The payment invitation was emailed to ${paymentVendor?.email}. You can also copy it to share directly.` : `The payment link was created, but the email could not be confirmed${paymentInvite.emailError ? `: ${paymentInvite.emailError}` : "."} Copy it below to send it directly.`}</div><div className="space-y-2"><Label htmlFor="featured-payment-url">Stripe payment link</Label><Input id="featured-payment-url" readOnly value={paymentInvite.checkoutUrl} onFocus={(event) => event.currentTarget.select()} /></div></div> : <div className="space-y-4 py-2"><div className="rounded-lg border border-cyan-100 bg-cyan-50/50 p-3 text-sm text-cyan-950">The vendor will receive a unique Stripe-hosted checkout link at <strong>{paymentVendor?.email}</strong>. Every successful monthly payment is tracked for your 75% earnings report.</div><div className="space-y-2"><Label htmlFor="featured-monthly-amount">Monthly amount (USD)</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input id="featured-monthly-amount" className="pl-8" type="number" min="1" max="10000" step="1" inputMode="numeric" value={monthlyAmountDollars} onChange={(event) => setMonthlyAmountDollars(event.target.value)} /></div><p className="text-xs text-muted-foreground">Whole dollars from $1 to $10,000. Your share is 75% of each successful payment.</p></div></div>}<DialogFooter>{paymentInvite ? <><Button variant="outline" onClick={() => { setPaymentVendor(null); setPaymentInvite(null); }}>Done</Button><Button onClick={copyPaymentLink}><Copy className="mr-2 h-4 w-4" /> Copy payment link</Button></> : <><Button variant="outline" onClick={() => setPaymentVendor(null)} disabled={createFeaturedPaymentInvite.isPending}>Cancel</Button><Button onClick={() => paymentVendor && createFeaturedPaymentInvite.mutate({ ...agentParam, vendorId: paymentVendor.id, monthlyAmountDollars: Number(monthlyAmountDollars) })} disabled={createFeaturedPaymentInvite.isPending || !Number.isInteger(Number(monthlyAmountDollars)) || Number(monthlyAmountDollars) < 1 || Number(monthlyAmountDollars) > 10000}>{createFeaturedPaymentInvite.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Invite to Pay</Button></>}</DialogFooter></DialogContent></Dialog>
     </div>
   );
 }

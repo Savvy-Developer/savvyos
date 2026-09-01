@@ -2590,6 +2590,91 @@ export const vendors = mysqlTable("vendors", {
 export type Vendor = typeof vendors.$inferSelect;
 export type InsertVendor = typeof vendors.$inferInsert;
 
+// ─── Featured Vendor Billing ───────────────────────────────────────────────
+// A subscription is one auditable, vendor-specific Stripe checkout invitation.
+// Payments are an immutable revenue ledger used to calculate the agent's 75%
+// share. No card, bank-account, or Stripe secret data is stored in SavvyOS.
+export const vendorFeaturedSubscriptions = mysqlTable("vendor_featured_subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorId: int("vendorId").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id),
+  monthlyAmountCents: int("monthlyAmountCents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("usd"),
+  billingStatus: mysqlEnum("billingStatus", [
+    "pending_checkout", "checkout_complete", "active", "past_due", "unpaid",
+    "paused", "canceled", "incomplete", "incomplete_expired", "failed",
+  ]).notNull().default("pending_checkout"),
+  stripeCheckoutSessionId: varchar("stripeCheckoutSessionId", { length: 255 }).unique(),
+  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }).unique(),
+  checkoutUrl: text("checkoutUrl"),
+  checkoutExpiresAt: timestamp("checkoutExpiresAt"),
+  invitedAt: timestamp("invitedAt").defaultNow().notNull(),
+  invitationSentAt: timestamp("invitationSentAt"),
+  checkoutCompletedAt: timestamp("checkoutCompletedAt"),
+  activatedAt: timestamp("activatedAt"),
+  lastPaymentAt: timestamp("lastPaymentAt"),
+  lastFailureAt: timestamp("lastFailureAt"),
+  canceledAt: timestamp("canceledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("vendor_featured_subscriptions_vendor_status_idx").on(table.vendorId, table.billingStatus),
+  index("vendor_featured_subscriptions_agent_status_idx").on(table.agentId, table.billingStatus),
+  index("vendor_featured_subscriptions_customer_idx").on(table.stripeCustomerId),
+]);
+export type VendorFeaturedSubscription = typeof vendorFeaturedSubscriptions.$inferSelect;
+export type InsertVendorFeaturedSubscription = typeof vendorFeaturedSubscriptions.$inferInsert;
+
+export const vendorBillingPayments = mysqlTable("vendor_billing_payments", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorFeaturedSubscriptionId: int("vendorFeaturedSubscriptionId").notNull(),
+  stripeInvoiceId: varchar("stripeInvoiceId", { length: 255 }).notNull().unique(),
+  stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 255 }),
+  amountPaidCents: int("amountPaidCents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("usd"),
+  agentEarningsCents: int("agentEarningsCents").notNull(),
+  paymentStatus: mysqlEnum("paymentStatus", ["paid", "failed"]).notNull(),
+  paidAt: timestamp("paidAt"),
+  failureReason: text("failureReason"),
+  failureNotifiedAt: timestamp("failureNotifiedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  foreignKey({
+    columns: [table.vendorFeaturedSubscriptionId],
+    foreignColumns: [vendorFeaturedSubscriptions.id],
+    name: "vendor_billing_payment_subscription_fk",
+  }).onDelete("cascade"),
+  index("vendor_billing_payments_subscription_paid_idx").on(table.vendorFeaturedSubscriptionId, table.paidAt),
+  index("vendor_billing_payments_status_paid_idx").on(table.paymentStatus, table.paidAt),
+]);
+export type VendorBillingPayment = typeof vendorBillingPayments.$inferSelect;
+export type InsertVendorBillingPayment = typeof vendorBillingPayments.$inferInsert;
+
+// Stripe may retry a delivery, and providers do not guarantee event ordering.
+// The event ledger makes processing idempotent without storing raw payloads.
+export const vendorBillingWebhookEvents = mysqlTable("vendor_billing_webhook_events", {
+  id: int("id").autoincrement().primaryKey(),
+  stripeEventId: varchar("stripeEventId", { length: 255 }).notNull().unique(),
+  eventType: varchar("eventType", { length: 128 }).notNull(),
+  billingSubscriptionId: int("billingSubscriptionId"),
+  status: mysqlEnum("status", ["processing", "processed", "ignored", "failed"]).notNull().default("processing"),
+  errorMessage: text("errorMessage"),
+  processedAt: timestamp("processedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  foreignKey({
+    columns: [table.billingSubscriptionId],
+    foreignColumns: [vendorFeaturedSubscriptions.id],
+    name: "vendor_billing_webhook_subscription_fk",
+  }).onDelete("set null"),
+  index("vendor_billing_webhook_events_status_idx").on(table.status, table.createdAt),
+  index("vendor_billing_webhook_events_subscription_idx").on(table.billingSubscriptionId, table.createdAt),
+]);
+export type VendorBillingWebhookEvent = typeof vendorBillingWebhookEvents.$inferSelect;
+export type InsertVendorBillingWebhookEvent = typeof vendorBillingWebhookEvents.$inferInsert;
+
 // ─── Landing Pages ────────────────────────────────────────────────────────────
 // The published page document stays self-contained in JSON while submissions,
 // sessions, events, and SMS consent records are relational for reliable CRM linkage
