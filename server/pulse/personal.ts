@@ -396,8 +396,7 @@ export const pulsePersonalRouter = router({
     const todos = items.filter((item: any) => item.type === "todo").sort((left: any, right: any) => Number(right.isOverdue) - Number(left.isOverdue) || String(left.dueDate ?? "9999-12-31").localeCompare(String(right.dueDate ?? "9999-12-31")) || left.source.localeCompare(right.source));
     const issues = items.filter((item: any) => item.type === "issue" && !["solved", "dropped"].includes(item.status)).sort((left: any, right: any) => String(left.updatedAt).localeCompare(String(right.updatedAt)));
     const rocks = items.filter((item: any) => item.type === "rock" && !["done", "dropped"].includes(item.status)).sort((left: any, right: any) => (["off_track", "at_risk"].includes(left.status) ? -1 : 0) - (["off_track", "at_risk"].includes(right.status) ? -1 : 0) || String(left.updatedAt).localeCompare(String(right.updatedAt)));
-    const activeMeetingIds = new Set(meetings.map((meeting: any) => meeting.id));
-    const workspaceCascades = pendingCascades.filter((cascade: any) => workspaceId === "all" || (workspaceId !== "personal" && cascade.fromMeetingId === workspaceId));
+    const workspaceCascades = pendingCascades.filter((cascade: any) => workspaceId === "all" || (workspaceId !== "personal" && (cascade.fromMeetingId === workspaceId || cascade.recipientMeetingIds?.includes(workspaceId))));
 
     const notificationMeetingCondition = ids.length ? or(isNull(pulseNotifications.meetingId), inArray(pulseNotifications.meetingId, ids)) : isNull(pulseNotifications.meetingId);
     const messageRows = await db.select({

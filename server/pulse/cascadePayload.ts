@@ -18,6 +18,7 @@ export type CascadePayload = {
   acknowledgedCount: number;
   myAcknowledgedAt: Date | null;
   canAcknowledge: boolean;
+  recipientMeetingIds: string[];
   routing: ReturnType<typeof getCascadeRoutingPresentation>;
 };
 
@@ -49,6 +50,7 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
   const recipients = await db.select({
     cascadingMessageId: pulseCascadeRecipients.cascadingMessageId,
     personId: pulseCascadeRecipients.personId,
+    viaMeetingId: pulseCascadeRecipients.viaMeetingId,
     acknowledgedAt: pulseCascadeRecipients.acknowledgedAt,
   })
     .from(pulseCascadeRecipients)
@@ -61,11 +63,11 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
     destinationNames.set(destination.cascadingMessageId, names);
   });
 
-  const recipientStates = new Map<string, Map<number, { acknowledgedAt: Date | null }[]>>();
+  const recipientStates = new Map<string, Map<number, { acknowledgedAt: Date | null; viaMeetingId: string }[]>>();
   recipients.forEach((recipient: any) => {
     const byPerson = recipientStates.get(recipient.cascadingMessageId) ?? new Map();
     const rows = byPerson.get(recipient.personId) ?? [];
-    rows.push({ acknowledgedAt: recipient.acknowledgedAt });
+    rows.push({ acknowledgedAt: recipient.acknowledgedAt, viaMeetingId: recipient.viaMeetingId });
     byPerson.set(recipient.personId, rows);
     recipientStates.set(recipient.cascadingMessageId, byPerson);
   });
@@ -74,9 +76,9 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
     const byPerson = recipientStates.get(message.id) ?? new Map();
     const myRows = byPerson.get(viewerId) ?? [];
     const recipientCount = byPerson.size;
-    const allRecipientRows = Array.from(byPerson.values()) as Array<Array<{ acknowledgedAt: Date | null }>>;
+    const allRecipientRows = Array.from(byPerson.values()) as Array<Array<{ acknowledgedAt: Date | null; viaMeetingId: string }>>;
     const acknowledgedCount = allRecipientRows.filter((rows) => rows.length > 0 && rows.every((row) => !!row.acknowledgedAt)).length;
-    const myAcknowledgedAt = myRows.length && myRows.every((row: { acknowledgedAt: Date | null }) => !!row.acknowledgedAt)
+    const myAcknowledgedAt = myRows.length && myRows.every((row: { acknowledgedAt: Date | null; viaMeetingId: string }) => !!row.acknowledgedAt)
       ? myRows[0]?.acknowledgedAt ?? null
       : null;
     const details = {
@@ -92,6 +94,7 @@ async function hydrateCascadeMessages(db: any, viewerId: number, messageIds: str
       ...details,
       myAcknowledgedAt,
       canAcknowledge: myRows.length > 0 && !myAcknowledgedAt,
+      recipientMeetingIds: Array.from(new Set(myRows.map((row: any) => row.viaMeetingId))),
       routing: getCascadeRoutingPresentation(details),
     };
   });

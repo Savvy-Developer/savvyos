@@ -150,8 +150,8 @@ function buildAgentNav(hasActiveOnboarding: boolean, isGroupLeader: boolean, myO
 function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
   const icons: Record<string, React.ElementType> = {
     Home,
-    "My Work": CheckSquare,
-    "My Inputs": StickyNote,
+    "My EOS Dashboard": CheckSquare,
+    "Weekly Preparation": StickyNote,
     Meetings: Users,
     Settings,
   };

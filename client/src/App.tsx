@@ -442,7 +442,7 @@ function Router() {
           <Route path="/pulse/work">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/pulse/inputs">{() => <PulseRoute><PulseMyInputsPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings">{() => <PulseRoute><PulseSettingsHubPage /></PulseRoute>}</Route>
-          <Route path="/pulse">{() => <PulseRoute><PulseMissionControlPage /></PulseRoute>}</Route>
+          <Route path="/pulse">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
           <Route path="/market-match-call" component={MarketMatchCallPage} />

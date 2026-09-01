@@ -6,7 +6,7 @@ export type PulseNavShell = {
 };
 
 export type PulseNavDestination = {
-  label: "Home" | "My Work" | "My Inputs" | "Meetings" | "Settings" | string;
+  label: "Home" | "My EOS Dashboard" | "Weekly Preparation" | "Meetings" | "Settings" | string;
   path: string;
 };
 
@@ -18,13 +18,11 @@ export type PulseNavDestination = {
 export function getPulseNavDestinations(shell?: PulseNavShell): PulseNavDestination[] {
   const meetings = shell?.meetings ?? [];
   const canSeeSettings = shell?.canSeeSettings === true;
-  const isSingleMember = shell?.navMode === "single_meeting" && meetings.length === 1;
-
-  const items: PulseNavDestination[] = [{ label: "Home", path: "/pulse" }];
-  if (!isSingleMember && meetings.length > 1) items.push({ label: "My Work", path: "/pulse/work" });
-  items.push({ label: "My Inputs", path: "/pulse/inputs" });
-  if (isSingleMember) items.push({ label: meetings[0].name, path: `/pulse/meetings/${meetings[0].id}` });
-  else items.push({ label: "Meetings", path: "/pulse/meetings" });
+  const items: PulseNavDestination[] = [
+    { label: "My EOS Dashboard", path: "/pulse/dashboard" },
+    { label: "Weekly Preparation", path: "/pulse/weekly-prep" },
+  ];
+  items.push({ label: "Meetings", path: "/pulse/meetings" });
   if (canSeeSettings) items.push({ label: "Settings", path: "/pulse/settings" });
   return items.slice(0, 5);
 }
