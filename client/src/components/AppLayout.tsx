@@ -304,6 +304,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       label: "Overview",
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
+        { icon: CalendarDays, label: "Agent Renewals", path: "/agent-renewals" },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
@@ -342,7 +343,6 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
         { icon: Star, label: "Reviews", path: "/reviews" },
         { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
         { icon: Users, label: "Leadership Dashboard", path: "/leadership-dashboard" },
-        { icon: CalendarDays, label: "Agent Renewals", path: "/agent-renewals" },
         { icon: MessageSquare, label: "Coach Feedback", path: "/coach-feedback" },
         { icon: Target, label: "Goals", path: "/goals" },
         { icon: Wrench, label: "Vendors", path: "/admin/vendors" },
