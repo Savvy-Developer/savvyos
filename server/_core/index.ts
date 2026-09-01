@@ -20,6 +20,7 @@ import { scheduleWeeklyLeadReport } from "../weeklyLeadReportScheduler";
 import { scheduleWeeklyOperationsReports } from "../weeklyOperationsReportsScheduler";
 import { scheduleDailyAgentReports } from "../dailyAgentReportScheduler";
 import { scheduleDailyIsaActivitiesReport } from "../dailyIsaActivitiesReportScheduler";
+import { scheduleMonthlyAgentRenewalsReport } from "../monthlyAgentRenewalsReport";
 import { scheduleWeeklyCoachingAccountabilityReport } from "../coachingWeeklyAccountabilityReport";
 import { scheduleDailyCoachingTips } from "../dailyCoachingTipsScheduler";
 import { scheduleCoachFeedback } from "../coachingFeedback";
@@ -305,6 +306,8 @@ async function startServer() {
   scheduleDailyAgentReports();
   // Shared leadership ISA activity report: daily at 8:00 AM Eastern for the prior day
   scheduleDailyIsaActivitiesReport();
+  // Shared Agent Renewals report: 9:00 AM Eastern on the first of every month.
+  scheduleMonthlyAgentRenewalsReport();
   // Shared coaching leadership accountability report: Fridays at 12:00 PM Eastern
   scheduleWeeklyCoachingAccountabilityReport();
   // Coaching Tips For Today: shared leadership email at 8:00 AM Eastern on weekdays.

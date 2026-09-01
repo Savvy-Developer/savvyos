@@ -69,7 +69,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "task_due", "payout_integrity_fail", "listing_created", "listing_expiration_reminder", "onboarding_overdue",
   "commission_exception_warning", "market_match_intro", "client_intro", "connection_request_approved", "pm_mention",
   "partner_lead_confirmation", "partner_portal_access", "agent_production_report", "weekly_lead_report",
-  "weekly_webinar_report", "weekly_referral_report", "daily_agent_report", "daily_isa_activities", "coaching_weekly_accountability", "coaching_tips_for_today",
+  "weekly_webinar_report", "weekly_referral_report", "daily_agent_report", "daily_isa_activities", "monthly_agent_renewals", "coaching_weekly_accountability", "coaching_tips_for_today",
   "coaching_feedback_invitation", "coaching_feedback_weekly_summary", "pulse_overdue_digest", "pulse_rock_completed",
   "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
   "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
@@ -177,6 +177,10 @@ interface EmailContext {
   dailyIsaReportDate?: string;
   dailyIsaReportHtml?: string;
   dailyIsaReportSubject?: string;
+  // Monthly Agent Renewals report-specific fields
+  monthlyRenewalsDate?: string;
+  monthlyRenewalsHtml?: string;
+  monthlyRenewalsSubject?: string;
   // Coaching weekly accountability report-specific fields
   coachingReportDate?: string;
   coachingReportHtml?: string;
@@ -966,6 +970,15 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       `${ctx.dailyIsaReportHtml ?? bodyText("The Daily ISA Activities report could not be generated. Please open SavvyOS to review the ISA Dashboard.")}`,
       `Daily ISA activity report for ${ctx.dailyIsaReportDate ?? "the prior day"}`,
       720,
+    ),
+  }),
+
+  monthly_agent_renewals: (ctx) => ({
+    subject: ctx.monthlyRenewalsSubject ?? `Monthly Agent Renewals | ${ctx.monthlyRenewalsDate ?? "Current Month"}`,
+    html: emailLayout(
+      `${ctx.monthlyRenewalsHtml ?? bodyText("The monthly Agent Renewals report could not be generated. Please open SavvyOS to review the live renewal queue.")}`,
+      `Monthly Agent Renewals — ${ctx.monthlyRenewalsDate ?? "current month"}`,
+      800,
     ),
   }),
 
