@@ -17,6 +17,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import {
   aircallApiRequest,
   isAircallApiConfigured,
+  sendAircallGroupSMS,
   sendAircallSMS,
 } from "../_core/aircall";
 import { getDb, logActivity } from "../db";
@@ -288,15 +289,14 @@ function fallbackIntroductionDraft(input: {
   contactName: string;
   agentName: string;
   userName: string;
-  context: string;
+  conversationTopic: string;
 }) {
   const agentFirstName = firstName(input.agentName, "your Savvy agent");
   return {
-    clientText: `Hi ${input.contactFirstName}, I wanted to personally introduce you to ${input.agentName}. Based on our recent conversation${input.context ? ` about ${input.context}` : ""}, ${agentFirstName} is a great resource to help. ${agentFirstName}, meet ${input.contactFirstName}. I’ll let you both take it from here! — ${input.userName}`,
-    agentText: `Hi ${agentFirstName}, I’m connecting you with ${input.contactName}. They recently spoke with Savvy${input.context ? ` about ${input.context}` : ""}. ${input.contactFirstName}, meet ${agentFirstName}. I’ll let you both take it from here! — ${input.userName}`,
+    groupText: `Hi ${input.contactFirstName} and ${agentFirstName} — ${input.contactFirstName} recently replied to a Savvy STR Agents text${input.conversationTopic ? ` about ${input.conversationTopic}` : ""}. I wanted to connect you both directly so ${agentFirstName} can learn more about what would be most helpful. I’ll let you take it from here! — ${input.userName}`,
     emailSubject: `Introduction: ${input.contactName} + ${input.agentName}`,
-    emailBody: `Hi ${input.contactFirstName} and ${agentFirstName},\n\nI wanted to make a personal introduction. ${input.contactName} recently connected with Savvy${input.context ? ` about ${input.context}` : ""}, and ${input.agentName} is the right person to continue the conversation.\n\n${input.contactFirstName}, ${agentFirstName} will be in touch shortly. ${agentFirstName}, please feel free to connect directly and learn more about what would be most helpful.\n\nBest,\n${input.userName}`,
-    contextSummary: input.context || "Recent SavvyOS conversation history",
+    emailBody: `Hi ${input.contactFirstName} and ${agentFirstName},\n\nI wanted to personally connect you both. ${input.contactName} recently replied to a Savvy STR Agents message${input.conversationTopic ? ` about ${input.conversationTopic}` : ""}, and ${input.agentName} can continue the conversation directly.\n\n${agentFirstName}, ${input.contactFirstName} is copied here so you can connect directly. ${input.contactFirstName}, ${agentFirstName} will be glad to learn more about what you are looking for.\n\nBest,\n${input.userName}`,
+    contextSummary: input.conversationTopic ? `The client replied to our text about ${input.conversationTopic}.` : "The client replied to a recent Savvy STR Agents text.",
   };
 }
 
@@ -311,8 +311,7 @@ function parsedIntroductionDraft(
         ? parsed[key].trim().slice(0, max)
         : fallback[key as keyof typeof fallback];
     return {
-      clientText: get("clientText", 1600) as string,
-      agentText: get("agentText", 1600) as string,
+      groupText: get("groupText", 1600) as string,
       emailSubject: get("emailSubject", 255) as string,
       emailBody: get("emailBody", 20_000) as string,
       contextSummary: get("contextSummary", 700) as string,
@@ -659,6 +658,7 @@ export const marketingTextInboxRouter = router({
               body: aircallMessages.body,
               sentAt: aircallMessages.sentAt,
               receivedAt: aircallMessages.receivedAt,
+              createdAt: aircallMessages.createdAt,
             })
             .from(aircallMessages)
             .where(eq(aircallMessages.contactId, input.contactId))
@@ -696,38 +696,38 @@ export const marketingTextInboxRouter = router({
 
       const contactName = `${contact.firstName} ${contact.lastName}`.trim();
       const recentItems = [
-        ...textHistory.map(
-          message =>
-            `${message.direction === "inbound" ? "Client" : "Savvy"} text: ${plainText(message.body).slice(0, 360)}`
-        ),
-        ...communicationHistory.map(
-          message =>
-            `${message.direction} ${message.type}${message.subject ? ` (${message.subject})` : ""}: ${plainText(message.body).slice(0, 360)}`
-        ),
+        ...textHistory.map(message => ({
+          at: message.sentAt ?? message.receivedAt ?? message.createdAt,
+          item: `${message.direction === "inbound" ? "Client" : "Savvy"} text: ${plainText(message.body).slice(0, 360)}`,
+        })),
+        ...communicationHistory.map(message => ({
+          at: message.communicatedAt,
+          item: `${message.direction} ${message.type}${message.subject ? ` (${message.subject})` : ""}: ${plainText(message.body).slice(0, 360)}`,
+        })),
       ]
-        .filter(item => !/:\s*$/.test(item))
-        .slice(0, 18);
+        .filter(({ item }) => !/:\s*$/.test(item))
+        .sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime())
+        .slice(-18)
+        .map(({ item }) => item);
       const fallback = fallbackIntroductionDraft({
         contactFirstName: contact.firstName || "there",
         contactName,
         agentName: agent.name ?? "your Savvy agent",
         userName: ctx.user.name ?? "The Savvy team",
-        context:
-          recentItems[0]
-            ?.replace(/^(Client|Savvy) text:\s*/i, "")
-            .slice(0, 140) ?? "",
+        conversationTopic: "",
       });
 
       try {
         const result = await invokeLLM({
-          model: "gpt-5-mini",
-          maxTokens: 850,
+          model: "gpt-5",
+          maxTokens: 1200,
+          reasoning: { effort: "low" },
           responseFormat: { type: "json_object" },
           messages: [
             {
               role: "system",
               content:
-                "Write a warm, concise real-estate client introduction. Return JSON only with clientText, agentText, emailSubject, emailBody, and contextSummary. The client text addresses the client by first name and introduces the named agent. The agent text addresses the agent by first name and introduces the client. The email addresses both people. Mention the SavvyOS user as the personal introducer. Use only supplied history; do not invent facts, promises, appointments, or financial details. Texts must be under 700 characters. Email body must be plain text with paragraphs.",
+                "Write a warm, concise real-estate introduction. Return JSON only with groupText, emailSubject, emailBody, and contextSummary. The groupText is ONE genuine group SMS received by both the client and the agent, so it must directly greet both people by first name, explain the specific client context from the complete supplied history, and make a natural handoff. Identify what the client replied to and their meaningful response or question; when a very short reply depends on a prior Savvy text, use that prior text to explain the topic. Never use vague phrases such as 'based on our recent conversation,' 'our recent conversation about,' 'resource to help,' or a bare response such as 'Yes please' as the context. Never invent facts, promises, appointments, or financial details. Mention the named SavvyOS user as the personal introducer. Group texts must be under 700 characters. The email addresses both people, uses the same grounded context, and is plain text with paragraphs. contextSummary is a concise factual explanation of why the introduction is being made.",
             },
             {
               role: "user",
@@ -759,15 +759,14 @@ export const marketingTextInboxRouter = router({
       }
     }),
 
-  /** Creates or reuses the agent pipeline connection and sends the approved personal introduction. */
+  /** Creates or reuses the agent pipeline connection and sends the approved group introduction. */
   sendIntroduction: protectedProcedure
     .input(
       z
         .object({
           contactId: positiveId,
           agentId: positiveId,
-          clientText: z.string().trim().min(1).max(1600),
-          agentText: z.string().trim().min(1).max(1600),
+          groupText: z.string().trim().min(1).max(1600),
           emailSubject: z.string().trim().min(1).max(255),
           emailBody: z.string().trim().min(1).max(20_000),
           appointmentSet: z.boolean().default(false),
@@ -855,7 +854,7 @@ export const marketingTextInboxRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            "Both the client and selected agent need a valid mobile number for the paired introduction text.",
+            "Both the client and selected agent need a valid mobile number for the group introduction text.",
         });
       if (!contact.email || !agent.email)
         throw new TRPCError({
@@ -906,16 +905,10 @@ export const marketingTextInboxRouter = router({
           message: "Unable to create the agent connection.",
         });
 
-      const [clientTextResult, agentTextResult, emailResult] =
-        await Promise.all([
-          sendAircallSMS(
-            clientDestination,
-            input.clientText,
-            line.marketingNumberId
-          ),
-          sendAircallSMS(
-            agentDestination,
-            input.agentText,
+      const [groupTextResult, emailResult] = await Promise.all([
+          sendAircallGroupSMS(
+            [clientDestination, agentDestination],
+            input.groupText,
             line.marketingNumberId
           ),
           resend.emails.send({
@@ -927,20 +920,12 @@ export const marketingTextInboxRouter = router({
             html: emailHtml(input.emailBody),
           }),
         ]);
-      if (!clientTextResult.success || !clientTextResult.messageId) {
+      if (!groupTextResult.success || !groupTextResult.groupMessageId) {
         throw new TRPCError({
           code: "BAD_GATEWAY",
           message:
-            clientTextResult.error ??
-            "Aircall could not send the client introduction text.",
-        });
-      }
-      if (!agentTextResult.success || !agentTextResult.messageId) {
-        throw new TRPCError({
-          code: "BAD_GATEWAY",
-          message:
-            agentTextResult.error ??
-            "Aircall could not send the agent introduction text.",
+            groupTextResult.error ??
+            "Aircall could not send the group introduction text.",
         });
       }
       if (emailResult.error) {
@@ -953,9 +938,9 @@ export const marketingTextInboxRouter = router({
       }
 
       const textPersistence = await persistAircallMessage(
-        nativeMessagePayload(clientTextResult.message, {
-          messageId: clientTextResult.messageId,
-          body: input.clientText,
+        nativeMessagePayload(groupTextResult.message, {
+          messageId: groupTextResult.groupMessageId,
+          body: input.groupText,
           destination: clientDestination,
           numberId: line.marketingNumberId,
           numberName: line.marketingNumberName,
@@ -1010,8 +995,8 @@ export const marketingTextInboxRouter = router({
         sentByName: ctx.user.name ?? "Savvy team member",
         appointmentSet: input.appointmentSet,
         connectionCreated,
-        clientTextMessageId: clientTextResult.messageId,
-        agentTextMessageId: agentTextResult.messageId,
+        groupTextMessageId: groupTextResult.groupMessageId,
+        groupConversationId: groupTextResult.groupConversationId ?? null,
         emailMessageId: emailResult.data?.id ?? null,
         emailCommunicationId,
         autoFollowUp: Boolean(followUpId),

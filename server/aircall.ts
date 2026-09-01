@@ -15,6 +15,7 @@ import { storagePut } from "./storage";
 import {
   contacts,
   communications,
+  aircallMessages,
   users,
   aircallCalls,
   aircallUnmatchedCalls,
@@ -104,7 +105,8 @@ export async function findContactByPhone(
  * Used for production matching where we can't load all contacts.
  */
 export async function findContactByPhoneDB(
-  rawPhone: string
+  rawPhone: string,
+  options: { aircallNumberId?: number | null } = {},
 ): Promise<{ id: number; firstName: string; lastName: string } | null> {
   const db = await getDb();
   if (!db) return null;
@@ -127,6 +129,7 @@ export async function findContactByPhoneDB(
       secondaryPhone: contacts.secondaryPhone,
       thirdPhone: contacts.thirdPhone,
       spousePhone: contacts.spousePhone,
+      createdAt: contacts.createdAt,
     })
     .from(contacts)
     .where(
@@ -139,15 +142,43 @@ export async function findContactByPhoneDB(
     )
     .limit(100);
 
-  for (const row of rows) {
-    for (const phone of [row.phone, row.secondaryPhone, row.thirdPhone, row.spousePhone]) {
-      if (normalizePhone(phone) === norm) {
-        return { id: row.id, firstName: row.firstName, lastName: row.lastName };
-      }
+  const matches = rows.filter((row) =>
+    [row.phone, row.secondaryPhone, row.thirdPhone, row.spousePhone]
+      .some((phone) => normalizePhone(phone) === norm),
+  );
+  if (!matches.length) return null;
+  if (matches.length === 1) {
+    const contact = matches[0];
+    return { id: contact.id, firstName: contact.firstName, lastName: contact.lastName };
+  }
+
+  // Historical imports can leave multiple CRM contacts with one phone. For a
+  // reply on the marketing line, the record that most recently received an SMS
+  // on that exact line is the only safe conversation owner. This keeps replies
+  // together with the Smart Plan sequence rather than attaching them to an
+  // arbitrary duplicate chosen by database row order.
+  if (options.aircallNumberId) {
+    const [recentOutbound] = await db
+      .select({ contactId: aircallMessages.contactId })
+      .from(aircallMessages)
+      .where(and(
+        eq(aircallMessages.aircallNumberId, options.aircallNumberId),
+        eq(aircallMessages.direction, "outbound"),
+        inArray(aircallMessages.contactId, matches.map((contact) => contact.id)),
+      ))
+      .orderBy(desc(sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.createdAt})`))
+      .limit(1);
+    const campaignContact = matches.find((contact) => contact.id === recentOutbound?.contactId);
+    if (campaignContact) {
+      return { id: campaignContact.id, firstName: campaignContact.firstName, lastName: campaignContact.lastName };
     }
   }
 
-  return null;
+  // Without a matching line history, choose the newest candidate consistently.
+  // This is safer than the previous first-row behavior and gives newly-created
+  // lead records priority until duplicates are reconciled.
+  const newest = [...matches].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
+  return { id: newest.id, firstName: newest.firstName, lastName: newest.lastName };
 }
 
 // ─── Recording Download & Storage ─────────────────────────────────────────────

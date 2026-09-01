@@ -24,6 +24,9 @@ const REQUIRED_EVENTS = [
   "message.sent",
   "message.received",
   "message.status_updated",
+  "group_message.sent",
+  "group_message.received",
+  "group_message.status_updated",
 ];
 const WORKER_INTERVAL_MS = 15_000;
 const INVENTORY_INTERVAL_MS = 30 * 60_000;

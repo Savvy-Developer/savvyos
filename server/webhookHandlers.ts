@@ -20,7 +20,7 @@ async function getDb() {
   return db;
 }
 import { contacts, leadSources, agentConnections, users } from "../drizzle/schema";
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, sql } from "drizzle-orm";
 import type { WebhookEndpoint } from "../drizzle/schema";
 import { normalizeOptionalUsPhone } from "@shared/phone";
 import { sendTransactionalEmail } from "./_core/resendEmail";
@@ -159,12 +159,36 @@ async function findExistingContact(email?: string, phone?: string): Promise<numb
   if (email) conditions.push(eq(contacts.email, email));
   if (phone) conditions.push(eq(contacts.phone, phone));
 
-  const [row] = await db
-    .select({ id: contacts.id })
+  const rows = await db
+    .select({ id: contacts.id, phone: contacts.phone, secondaryPhone: contacts.secondaryPhone, thirdPhone: contacts.thirdPhone, spousePhone: contacts.spousePhone })
     .from(contacts)
     .where(or(...conditions))
-    .limit(1);
-  return row?.id ?? null;
+    .limit(20);
+  if (rows[0]) return rows[0].id;
+
+  // A CRM phone may be formatted as (347) 395-1455 while the website sends
+  // +13473951455. Resolve a small final-four candidate set and compare the full
+  // normalized number before creating a new lead record.
+  const phoneDigits = phone?.replace(/\D/g, "") ?? "";
+  const normalizedPhone = phoneDigits.length === 11 && phoneDigits.startsWith("1") ? phoneDigits.slice(1) : phoneDigits;
+  if (!normalizedPhone || normalizedPhone.length < 10) return null;
+  const finalFour = normalizedPhone.slice(-4);
+  const candidates = await db
+    .select({ id: contacts.id, phone: contacts.phone, secondaryPhone: contacts.secondaryPhone, thirdPhone: contacts.thirdPhone, spousePhone: contacts.spousePhone })
+    .from(contacts)
+    .where(or(
+      sql`${contacts.phone} LIKE ${`%${finalFour}`}`,
+      sql`${contacts.secondaryPhone} LIKE ${`%${finalFour}`}`,
+      sql`${contacts.thirdPhone} LIKE ${`%${finalFour}`}`,
+      sql`${contacts.spousePhone} LIKE ${`%${finalFour}`}`,
+    ))
+    .limit(100);
+  const matching = candidates.find((contact) => [contact.phone, contact.secondaryPhone, contact.thirdPhone, contact.spousePhone]
+    .some((value) => {
+      const digits = value?.replace(/\D/g, "") ?? "";
+      return (digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits) === normalizedPhone;
+    }));
+  return matching?.id ?? null;
 }
 
 async function resolveAgentId(
@@ -813,6 +837,7 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
 
   const email = pickField(data, rawPayload, ["leadEmail", "email"]);
   if (!email) throw new Error("leadEmail is required");
+  const submittedPhone = normalizeOptionalUsPhone(pickField(data, rawPayload, ["phone", "mobile", "cell"]));
 
   // Preserve the complete property location instead of collapsing it to a street
   // address. Different website events use different key names, so normalize the
@@ -839,7 +864,7 @@ const savvyWebEventHandler: HandlerFn = async (rawPayload, endpoint) => {
     pickField({}, rawPayload, ["timestamp"]) ??
     new Date().toISOString();
 
-  let contactId = await findExistingContact(email);
+  let contactId = await findExistingContact(email, submittedPhone ?? undefined);
   let createdContact = false;
 
   if (!contactId) {

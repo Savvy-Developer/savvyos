@@ -12,7 +12,10 @@ import { findContactByPhoneDB, normalizePhone } from "./aircall";
 import { pauseSmartPlansForSmsReply } from "./smartPlanReplyHandling";
 
 export type AircallMessageData = {
-  id: string;
+  id?: string;
+  group_message_id?: string;
+  group_conversation_id?: string;
+  participants?: string[];
   status?: string | null;
   direction?: "inbound" | "outbound" | null;
   created_at?: number | string | null;
@@ -70,8 +73,8 @@ function resolveDirection(value: unknown): "inbound" | "outbound" {
 
 /** Message webhook names are the authoritative source of message direction. */
 export function directionFromAircallMessageEvent(event: unknown): "inbound" | "outbound" | undefined {
-  if (event === "message.received") return "inbound";
-  if (event === "message.sent") return "outbound";
+  if (event === "message.received" || event === "group_message.received") return "inbound";
+  if (event === "message.sent" || event === "group_message.sent") return "outbound";
   return undefined;
 }
 
@@ -97,7 +100,8 @@ export async function persistAircallMessage(
 ): Promise<{ contactId: number | null; communicationId: number | null }> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
-  if (!payload?.id || !payload.number?.id) {
+  const providerMessageId = payload?.id ?? payload?.group_message_id;
+  if (!providerMessageId || !payload.number?.id) {
     throw new Error(
       "Aircall message payload is missing its message or number identifier"
     );
@@ -106,7 +110,7 @@ export async function persistAircallMessage(
   const [existing] = await db
     .select()
     .from(aircallMessages)
-    .where(eq(aircallMessages.aircallMessageId, String(payload.id)))
+    .where(eq(aircallMessages.aircallMessageId, String(providerMessageId)))
     .limit(1);
 
   // Status-update events do not repeat direction or the full message body, so
@@ -133,7 +137,9 @@ export async function persistAircallMessage(
 
   let contactId = options.contactId ?? existing?.contactId ?? null;
   if (!contactId && participant) {
-    const contact = await findContactByPhoneDB(participant);
+    const contact = await findContactByPhoneDB(participant, {
+      aircallNumberId: payload.number.id,
+    });
     contactId = contact?.id ?? null;
   }
   const savvyUserId =
@@ -221,7 +227,7 @@ export async function persistAircallMessage(
       .where(eq(aircallMessages.id, existing.id));
   } else {
     await db.insert(aircallMessages).values({
-      aircallMessageId: String(payload.id),
+      aircallMessageId: String(providerMessageId),
       ...values,
     });
   }
@@ -275,9 +281,9 @@ export function isAircallMessageWebhook(
   const candidate = payload as Partial<AircallMessageWebhook>;
   const event = candidate.event ?? candidate.event_name;
   return Boolean(
-    event?.startsWith("message.") &&
-      candidate.data &&
-      typeof candidate.data.id === "string" &&
+    (event?.startsWith("message.") || event?.startsWith("group_message.")) &&
+    candidate.data &&
+      (typeof candidate.data.id === "string" || typeof candidate.data.group_message_id === "string") &&
       typeof candidate.data.number?.id === "number"
   );
 }

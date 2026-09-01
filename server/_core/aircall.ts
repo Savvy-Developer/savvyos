@@ -52,6 +52,14 @@ export type AircallSmsSendResult = {
   message?: Record<string, unknown>;
 };
 
+export type AircallGroupSmsSendResult = {
+  success: boolean;
+  groupMessageId?: string;
+  groupConversationId?: string;
+  error?: string;
+  message?: Record<string, unknown>;
+};
+
 /**
  * Send SMS into an Aircall native conversation. Native mode keeps the
  * conversation available in Aircall while SavvyOS mirrors it through the
@@ -95,6 +103,62 @@ export async function sendAircallSMS(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[Aircall] SMS send error:", message);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Sends one genuine native Aircall group conversation. Every participant sees
+ * the other participant(s), and the conversation remains available in Aircall
+ * Workspace instead of being split into separate one-to-one SMS threads.
+ */
+export async function sendAircallGroupSMS(
+  participants: string[],
+  body: string,
+  senderNumberId?: number | string | null,
+): Promise<AircallGroupSmsSendResult> {
+  const auth = getAircallAuth();
+  const numberId = senderNumberId ?? process.env.AIRCALL_NUMBER_ID;
+  const normalizedParticipants = Array.from(new Set(
+    participants.map((participant) => participant.startsWith("+")
+      ? participant
+      : `+1${participant.replace(/\D/g, "")}`),
+  ));
+
+  if (!auth || !numberId) {
+    return { success: false, error: "Aircall marketing sender is not configured" };
+  }
+  if (normalizedParticipants.length < 2) {
+    return { success: false, error: "An Aircall group text requires at least two distinct recipients" };
+  }
+
+  try {
+    const response = await fetch(`${AIRCALL_API_BASE}/numbers/${numberId}/messages/group/native/send`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ participants: normalizedParticipants, body }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Aircall] Group SMS send failed (${response.status}):`, errorText);
+      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+    }
+    const data = await response.json() as Record<string, unknown>;
+    const groupMessageId = typeof data.group_message_id === "string"
+      ? data.group_message_id
+      : typeof data.id === "string" ? data.id : undefined;
+    return {
+      success: true,
+      groupMessageId,
+      groupConversationId: typeof data.group_conversation_id === "string" ? data.group_conversation_id : undefined,
+      message: data,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[Aircall] Group SMS send error:", message);
     return { success: false, error: message };
   }
 }

@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { SpeedToLeadStats } from "@/components/SpeedToLeadStats";
@@ -80,8 +81,7 @@ type MarketingMessage = {
 };
 
 type IntroductionDraft = {
-  clientText: string;
-  agentText: string;
+  groupText: string;
   emailSubject: string;
   emailBody: string;
   contextSummary: string;
@@ -124,8 +124,7 @@ export default function MarketingTextInboxPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
-  const [clientText, setClientText] = useState("");
-  const [agentText, setAgentText] = useState("");
+  const [groupText, setGroupText] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [contextSummary, setContextSummary] = useState("");
@@ -251,8 +250,7 @@ export default function MarketingTextInboxPage() {
   const draftIntroduction =
     trpc.marketingTextInbox.draftIntroduction.useMutation({
       onSuccess: (draft: IntroductionDraft) => {
-        setClientText(draft.clientText);
-        setAgentText(draft.agentText);
+        setGroupText(draft.groupText);
         setEmailSubject(draft.emailSubject);
         setEmailBody(draft.emailBody);
         setContextSummary(draft.contextSummary);
@@ -307,8 +305,7 @@ export default function MarketingTextInboxPage() {
 
   useEffect(() => {
     if (!connectOpen || !selectedContactId || !selectedAgentId) return;
-    setClientText("");
-    setAgentText("");
+    setGroupText("");
     setEmailSubject("");
     setEmailBody("");
     setContextSummary("");
@@ -343,8 +340,7 @@ export default function MarketingTextInboxPage() {
     archiveThread.isPending;
   const canSendIntroduction = Boolean(
     selectedAgentId &&
-      clientText.trim() &&
-      agentText.trim() &&
+      groupText.trim() &&
       emailSubject.trim() &&
       emailBody.trim() &&
       (!autoFollowUp ||
@@ -355,8 +351,7 @@ export default function MarketingTextInboxPage() {
     setAutoFollowUp(false);
     setFollowUpDelayHours("24");
     setSelectedAgentId("");
-    setClientText("");
-    setAgentText("");
+    setGroupText("");
     setEmailSubject("");
     setEmailBody("");
     setContextSummary("");
@@ -777,28 +772,35 @@ export default function MarketingTextInboxPage() {
               agent
             </DialogTitle>
             <DialogDescription>
-              Send a personal paired introduction by text and a group email. The
-              editable draft uses recent conversation history and records the
-              outcome in both contact and pipeline history.
+              Send one shared introduction text to both people and a group email.
+              The editable draft reads the full recent conversation, including the
+              outgoing Savvy messages the client is responding to.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
             <div className="space-y-2">
               <Label htmlFor="introduction-agent">Agent</Label>
-              <select
-                id="introduction-agent"
+              <SearchableSelect
                 value={selectedAgentId}
-                onChange={event => setSelectedAgentId(event.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
-              >
-                <option value="">Select an active agent…</option>
-                {(agentsQuery.data ?? []).map(agent => (
-                  <option key={agent.id} value={String(agent.id)}>
-                    {agent.name || agent.email}
-                    {agent.email ? ` — ${agent.email}` : ""}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setSelectedAgentId}
+                options={(agentsQuery.data ?? []).map(agent => ({
+                  value: String(agent.id),
+                  label: agent.name || agent.email || `Agent #${agent.id}`,
+                  description: [agent.email, agent.phone]
+                    .filter(Boolean)
+                    .join(" · "),
+                }))}
+                placeholder={
+                  agentsQuery.isLoading
+                    ? "Loading active agents…"
+                    : "Select an active agent…"
+                }
+                searchPlaceholder="Search agent name, email, or phone…"
+                emptyText="No active agents match that search."
+                disabled={agentsQuery.isLoading}
+                listClassName="max-h-72"
+                showSelectedDescription
+              />
             </div>
             {draftIntroduction.isPending && (
               <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
@@ -817,29 +819,18 @@ export default function MarketingTextInboxPage() {
                       "Recent conversation context will be included in the draft."}
                   </p>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="client-intro-text">Text to client</Label>
-                    <Textarea
-                      id="client-intro-text"
-                      value={clientText}
-                      onChange={event => setClientText(event.target.value)}
-                      rows={6}
-                      maxLength={1600}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="agent-intro-text">
-                      Text to {selectedAgent?.name || "agent"}
-                    </Label>
-                    <Textarea
-                      id="agent-intro-text"
-                      value={agentText}
-                      onChange={event => setAgentText(event.target.value)}
-                      rows={6}
-                      maxLength={1600}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="group-intro-text">Shared group text</Label>
+                  <Textarea
+                    id="group-intro-text"
+                    value={groupText}
+                    onChange={event => setGroupText(event.target.value)}
+                    rows={6}
+                    maxLength={1600}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Sent once through Aircall to {selectedThread ? contactName(selectedThread) : "the client"} and {selectedAgent?.name || "the selected agent"}; both can see and reply in the same group conversation.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="introduction-email-subject">
@@ -957,8 +948,7 @@ export default function MarketingTextInboxPage() {
                 sendIntroduction.mutate({
                   contactId: selectedContactId,
                   agentId: Number(selectedAgentId),
-                  clientText,
-                  agentText,
+                  groupText,
                   emailSubject,
                   emailBody,
                   appointmentSet,
@@ -982,7 +972,7 @@ export default function MarketingTextInboxPage() {
                 </>
               ) : (
                 <>
-                  <Send className="mr-1.5 h-4 w-4" /> Send text + email
+                  <Send className="mr-1.5 h-4 w-4" /> Send group text + email
                   introduction
                 </>
               )}
