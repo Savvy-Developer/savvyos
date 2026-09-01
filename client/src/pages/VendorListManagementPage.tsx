@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { formatPhone } from "@/lib/inputFormatters";
+import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -201,7 +201,7 @@ function VendorListHelpDialog() {
   );
 }
 
-function VendorFormFields({ form, setForm, categories }: { form: VendorForm; setForm: (form: VendorForm) => void; categories: VendorCategory[] }) {
+function VendorFormFields({ form, setForm, categories, showPhoneError, showEmailError }: { form: VendorForm; setForm: (form: VendorForm) => void; categories: VendorCategory[]; showPhoneError: boolean; showEmailError: boolean }) {
   const set = (key: keyof VendorForm, value: string | boolean) => setForm({ ...form, [key]: value });
   return (
     <div className="grid gap-4 py-2 sm:grid-cols-2">
@@ -214,8 +214,8 @@ function VendorFormFields({ form, setForm, categories }: { form: VendorForm; set
       </div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-business">Business name <span className="text-rose-600">*</span></Label><Input id="vendor-business" value={form.businessName} maxLength={255} onChange={(event) => set("businessName", event.target.value)} placeholder="Blue Ridge Turnover Co." /></div>
       <div className="space-y-2"><Label htmlFor="vendor-contact">Contact name</Label><Input id="vendor-contact" value={form.contactName} maxLength={160} onChange={(event) => set("contactName", event.target.value)} placeholder="Jordan Smith" /></div>
-      <div className="space-y-2"><Label htmlFor="vendor-phone">Phone</Label><Input id="vendor-phone" value={form.phone} inputMode="tel" maxLength={14} onChange={(event) => set("phone", formatPhone(event.target.value))} placeholder="(555) 555-5555" /></div>
-      <div className="space-y-2"><Label htmlFor="vendor-email">Email</Label><Input id="vendor-email" type="email" value={form.email} maxLength={320} onChange={(event) => set("email", event.target.value)} placeholder="hello@example.com" /></div>
+      <div className="space-y-2"><Label htmlFor="vendor-phone">Phone</Label><Input id="vendor-phone" value={form.phone} inputMode="tel" maxLength={14} aria-invalid={showPhoneError || undefined} onChange={(event) => set("phone", formatPhone(event.target.value))} placeholder="(555) 555-5555" />{showPhoneError && <p role="alert" className="text-xs text-destructive">Enter a 10-digit U.S. phone number, such as (801) 875-0800.</p>}</div>
+      <div className="space-y-2"><Label htmlFor="vendor-email">Email</Label><Input id="vendor-email" type="email" value={form.email} maxLength={320} aria-invalid={showEmailError || undefined} onChange={(event) => set("email", event.target.value)} placeholder="hello@example.com" />{showEmailError && <p role="alert" className="text-xs text-destructive">Enter a valid email address.</p>}</div>
       <div className="space-y-2"><Label htmlFor="vendor-website">Website</Label><Input id="vendor-website" type="text" inputMode="url" autoCapitalize="none" value={form.website} maxLength={512} onChange={(event) => set("website", event.target.value)} onBlur={(event) => set("website", formatWebsite(event.target.value))} placeholder="example.com" /></div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-area">Service area</Label><Input id="vendor-area" value={form.serviceArea} maxLength={255} onChange={(event) => set("serviceArea", event.target.value)} placeholder="Asheville, Black Mountain & Weaverville" /></div>
       <div className="space-y-2 sm:col-span-2"><Label htmlFor="vendor-address">Address</Label><Textarea id="vendor-address" value={form.address} maxLength={3000} onChange={(event) => set("address", event.target.value)} placeholder="Optional business address" rows={2} /></div>
@@ -239,6 +239,7 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategoryForm);
   const [vendorForm, setVendorForm] = useState<VendorForm>(emptyVendorForm);
+  const [vendorSubmitAttempted, setVendorSubmitAttempted] = useState(false);
   const [settings, setSettings] = useState({ displayName: "", headline: "", intro: "", publicSlug: "", isPublished: false });
   const [paymentVendor, setPaymentVendor] = useState<Vendor | null>(null);
   const [monthlyAmountDollars, setMonthlyAmountDollars] = useState("75");
@@ -256,8 +257,8 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   const updateCategory = trpc.vendors.updateCategory.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setCategoryOpen(false); toast.success("Category updated."); } });
   const deleteCategory = trpc.vendors.deleteCategory.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); toast.success("Category deleted."); } });
   const reorderCategories = trpc.vendors.reorderCategories.useMutation(mutationOptions);
-  const createVendor = trpc.vendors.createVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setVendorOpen(false); toast.success("Vendor added."); } });
-  const updateVendor = trpc.vendors.updateVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setVendorOpen(false); toast.success("Vendor updated."); } });
+  const createVendor = trpc.vendors.createVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setVendorOpen(false); toast.success("Vendor added."); }, onError: (error) => toast.error(error.message || "Could not add this vendor. Please try again.") });
+  const updateVendor = trpc.vendors.updateVendor.useMutation({ ...mutationOptions, onSuccess: async () => { await mutationOptions.onSuccess(); setVendorOpen(false); toast.success("Vendor updated."); }, onError: (error) => toast.error(error.message || "Could not update this vendor. Please try again.") });
   const createFeaturedPaymentInvite = trpc.vendors.createFeaturedPaymentInvite.useMutation({
     ...mutationOptions,
     onSuccess: async (result) => {
@@ -295,6 +296,7 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
   function openNewVendor(category: VendorCategory) {
     setEditingVendor(null);
     setVendorForm({ ...emptyVendorForm, vendorCategoryId: String(category.id) });
+    setVendorSubmitAttempted(false);
     setVendorOpen(true);
   }
 
@@ -313,6 +315,7 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
       isFeatured: vendor.isFeatured,
       isVisible: vendor.isVisible,
     });
+    setVendorSubmitAttempted(false);
     setVendorOpen(true);
   }
 
@@ -357,6 +360,17 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
     if (swapIndex < 0 || swapIndex >= orderedIds.length) return;
     [orderedIds[index], orderedIds[swapIndex]] = [orderedIds[swapIndex], orderedIds[index]];
     reorderVendors.mutate({ ...agentParam, vendorCategoryId: category.id, orderedIds });
+  }
+
+  function saveVendor() {
+    setVendorSubmitAttempted(true);
+    if (!isValidPhone(vendorForm.phone) || !isValidEmail(vendorForm.email)) {
+      toast.error("Check the highlighted vendor contact details before saving.");
+      return;
+    }
+    const data = cleanVendorForm(vendorForm, targetAgentId);
+    if (editingVendor) updateVendor.mutate({ ...data, id: editingVendor.id });
+    else createVendor.mutate(data);
   }
 
   if (listQuery.isLoading) {
@@ -440,7 +454,7 @@ export default function VendorListManagementPage({ agentId }: { agentId?: number
 
       <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCategory ? "Edit category" : "Add category"}</DialogTitle><DialogDescription>Categories keep your recommendations easy for clients to browse.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="category-name">Category name</Label><Input id="category-name" value={categoryForm.name} maxLength={120} onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })} placeholder="Cleaners" /></div><div className="space-y-2"><Label htmlFor="category-description">Description</Label><Textarea id="category-description" value={categoryForm.description} maxLength={1500} onChange={(event) => setCategoryForm({ ...categoryForm, description: event.target.value })} placeholder="Optional note about the services in this category." rows={3} /></div><div className="flex items-center justify-between rounded-lg border p-3"><div><Label htmlFor="category-visible">Show publicly</Label><p className="mt-0.5 text-xs text-muted-foreground">Keep this category private until it is ready for clients.</p></div><Switch id="category-visible" checked={categoryForm.isVisible} onCheckedChange={(checked) => setCategoryForm({ ...categoryForm, isVisible: checked })} /></div></div><DialogFooter><Button variant="outline" onClick={() => setCategoryOpen(false)} disabled={createCategory.isPending || updateCategory.isPending}>Cancel</Button><Button onClick={() => { const data = { ...agentParam, name: categoryForm.name.trim(), description: categoryForm.description.trim() || null, isVisible: categoryForm.isVisible }; if (editingCategory) updateCategory.mutate({ ...data, id: editingCategory.id }); else createCategory.mutate(data); }} disabled={createCategory.isPending || updateCategory.isPending || categoryForm.name.trim().length < 2}>{(createCategory.isPending || updateCategory.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingCategory ? "Save category" : "Add category"}</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={vendorOpen} onOpenChange={setVendorOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingVendor ? "Edit vendor" : "Add vendor"}</DialogTitle><DialogDescription>Provide the key contact details clients need to confidently reach out.</DialogDescription></DialogHeader><VendorFormFields form={vendorForm} setForm={setVendorForm} categories={list.categories} /><DialogFooter><Button variant="outline" onClick={() => setVendorOpen(false)} disabled={createVendor.isPending || updateVendor.isPending}>Cancel</Button><Button onClick={() => { const data = cleanVendorForm(vendorForm, targetAgentId); if (editingVendor) updateVendor.mutate({ ...data, id: editingVendor.id }); else createVendor.mutate(data); }} disabled={createVendor.isPending || updateVendor.isPending || !vendorForm.vendorCategoryId || vendorForm.businessName.trim().length < 2}>{(createVendor.isPending || updateVendor.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingVendor ? "Save vendor" : "Add vendor"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={vendorOpen} onOpenChange={(open) => { setVendorOpen(open); if (!open) setVendorSubmitAttempted(false); }}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingVendor ? "Edit vendor" : "Add vendor"}</DialogTitle><DialogDescription>Provide the key contact details clients need to confidently reach out.</DialogDescription></DialogHeader><VendorFormFields form={vendorForm} setForm={setVendorForm} categories={list.categories} showPhoneError={vendorSubmitAttempted && !isValidPhone(vendorForm.phone)} showEmailError={vendorSubmitAttempted && !isValidEmail(vendorForm.email)} /><DialogFooter><Button variant="outline" onClick={() => setVendorOpen(false)} disabled={createVendor.isPending || updateVendor.isPending}>Cancel</Button><Button onClick={saveVendor} disabled={createVendor.isPending || updateVendor.isPending || !vendorForm.vendorCategoryId || vendorForm.businessName.trim().length < 2}>{(createVendor.isPending || updateVendor.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingVendor ? "Save vendor" : "Add vendor"}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={Boolean(paymentVendor)} onOpenChange={(open) => { if (!open) { setPaymentVendor(null); setPaymentInvite(null); } }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{paymentInvite ? "Payment invitation ready" : "Invite Featured vendor to pay"}</DialogTitle><DialogDescription>{paymentInvite ? `Use the Stripe-hosted checkout link below for ${paymentVendor?.businessName ?? "this vendor"}.` : `Send ${paymentVendor?.businessName ?? "this Featured vendor"} a secure Stripe link for their monthly Featured placement.`}</DialogDescription></DialogHeader>{paymentInvite ? <div className="space-y-4 py-2"><div className={paymentInvite.emailSent ? "rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" : "rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"}>{paymentInvite.emailSent ? `The payment invitation was emailed to ${paymentVendor?.email}. You can also copy it to share directly.` : `The payment link was created, but the email could not be confirmed${paymentInvite.emailError ? `: ${paymentInvite.emailError}` : "."} Copy it below to send it directly.`}</div><div className="space-y-2"><Label htmlFor="featured-payment-url">Stripe payment link</Label><Input id="featured-payment-url" readOnly value={paymentInvite.checkoutUrl} onFocus={(event) => event.currentTarget.select()} /></div></div> : <div className="space-y-4 py-2"><div className="rounded-lg border border-cyan-100 bg-cyan-50/50 p-3 text-sm text-cyan-950">The vendor will receive a unique Stripe-hosted checkout link at <strong>{paymentVendor?.email}</strong>. Every successful monthly payment is tracked for your 75% earnings report.</div><div className="space-y-2"><Label htmlFor="featured-monthly-amount">Monthly amount (USD)</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input id="featured-monthly-amount" className="pl-8" type="number" min="1" max="10000" step="1" inputMode="numeric" value={monthlyAmountDollars} onChange={(event) => setMonthlyAmountDollars(event.target.value)} /></div><p className="text-xs text-muted-foreground">Whole dollars from $1 to $10,000. Your share is 75% of each successful payment.</p></div></div>}<DialogFooter>{paymentInvite ? <><Button variant="outline" onClick={() => { setPaymentVendor(null); setPaymentInvite(null); }}>Done</Button><Button onClick={copyPaymentLink}><Copy className="mr-2 h-4 w-4" /> Copy payment link</Button></> : <><Button variant="outline" onClick={() => setPaymentVendor(null)} disabled={createFeaturedPaymentInvite.isPending}>Cancel</Button><Button onClick={() => paymentVendor && createFeaturedPaymentInvite.mutate({ ...agentParam, vendorId: paymentVendor.id, monthlyAmountDollars: Number(monthlyAmountDollars) })} disabled={createFeaturedPaymentInvite.isPending || !Number.isInteger(Number(monthlyAmountDollars)) || Number(monthlyAmountDollars) < 1 || Number(monthlyAmountDollars) > 10000}>{createFeaturedPaymentInvite.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Invite to Pay</Button></>}</DialogFooter></DialogContent></Dialog>
     </div>
