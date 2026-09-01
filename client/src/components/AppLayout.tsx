@@ -314,6 +314,7 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
       items: [
         { icon: Users, label: "All Contacts", path: "/contacts" },
         { icon: GitBranch, label: "Agent Pipelines", path: "/pipeline" },
+        { icon: ClipboardList, label: "CRM Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
       ],
     },
     {
@@ -351,7 +352,6 @@ function buildAdminNav(pendingApprovals: number, pendingFeedback: number, pendin
     {
       label: "Work",
       items: [
-        { icon: ClipboardList, label: "Tasks", path: "/tasks", badge: myOverdueTasks > 0 ? myOverdueTasks : undefined },
         { icon: Activity, label: "Pulse", path: "/pulse" },
         { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },

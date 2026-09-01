@@ -53,6 +53,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   // CRM
   { key: "canViewContacts",               label: "All Contacts",               group: "CRM" },
   { key: "canViewPipeline",               label: "Agent Pipelines",            group: "CRM" },
+  { key: "canViewTasks",                  label: "CRM Tasks",                  group: "CRM" },
   // ISA
   { key: "canViewIsmDashboard",           label: "ISM Dashboard",              group: "ISA" },
   { key: "canViewHotLeads",               label: "Hot Leads",                  group: "ISA" },
@@ -81,7 +82,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewCoachFeedback",          label: "Coach Feedback",             group: "Agent Success Team" },
   { key: "canViewGoals",                  label: "Goals",                      group: "Agent Success Team" },
   // Work
-  { key: "canViewTasks",                  label: "Tasks",                      group: "Work" },
   { key: "canViewPulse",                  label: "Pulse",                      group: "Work" },
   { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Work" },
   { key: "canViewProjects",               label: "Projects",                   group: "Work" },
