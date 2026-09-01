@@ -277,6 +277,20 @@ async function startServer() {
       createContext,
     })
   );
+  // This one-time administrative cleanup is inert unless an operator enables the
+  // exact deployment variable. It calls the marker-bound fixture retirement
+  // logic and has no request route or user-facing execution surface.
+  if (ENV.isProduction && process.env.RETIRE_MARKED_PULSE_SLICE_FIXTURES === "true") {
+    const [{ getDb }, { retireMarkedPulseSliceFixtures }] = await Promise.all([
+      import("../db"),
+      import("../pulse/thinSlice"),
+    ]);
+    const db = await getDb();
+    if (!db) throw new Error("Pulse Slice fixture retirement could not connect to the database.");
+    const result = await retireMarkedPulseSliceFixtures(db);
+    console.log("[PulseFixtureCleanup] Retired marked Pulse Slice fixtures:", result);
+  }
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
