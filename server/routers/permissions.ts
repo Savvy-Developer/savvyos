@@ -81,9 +81,10 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewLeadershipDashboard",    label: "Leadership Dashboard",       group: "Agent Success Team" },
   { key: "canViewCoachFeedback",          label: "Coach Feedback",             group: "Agent Success Team" },
   { key: "canViewGoals",                  label: "Goals",                      group: "Agent Success Team" },
+  // Pulse
+  { key: "canViewPulse",                  label: "Pulse",                      group: "Pulse" },
+  { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Pulse" },
   // Work
-  { key: "canViewPulse",                  label: "Pulse",                      group: "Work" },
-  { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Work" },
   { key: "canViewProjects",               label: "Projects",                   group: "Work" },
   { key: "canViewJobBoard",               label: "Job Board",                  group: "Work" },
   { key: "canViewTalentProfile",          label: "Talent Profiles",            group: "Work" },
@@ -165,7 +166,7 @@ export const permissionsRouter = router({
       // Tyler always has full access — return synthetic all-true object
       if (targetUser.email === PROTECTED_EMAIL) {
         const allTrue: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = p.key === "canViewPulseSettings" ? false : true;
+        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = true;
         return { userId: input.userId, permissions: allTrue, isProtected: true };
       }
 
@@ -199,7 +200,7 @@ export const permissionsRouter = router({
       // Tyler always has full access
       if (email === PROTECTED_EMAIL) {
         const allTrue: Record<string, boolean> = {};
-        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = p.key === "canViewPulseSettings" ? false : true;
+        for (const p of ADMIN_NAV_PERMISSIONS) allTrue[p.key] = true;
         return allTrue;
       }
 
@@ -324,6 +325,7 @@ export const permissionsRouter = router({
         } else {
           // No row yet — defaults: most ON, except intentionally restricted views.
           const defaultOff = new Set<PermissionKey>([
+            "canViewPulse",
             "canViewProjects",
             "canViewSmartPlans",
             "canViewEmailNotifications",

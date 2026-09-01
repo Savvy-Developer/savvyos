@@ -2825,7 +2825,7 @@ export type InsertCustomReport = typeof customReports.$inferInsert;
 // Stores per-admin page-level permissions. One row per admin user.
 // Each boolean column corresponds to a nav link in the admin sidebar.
 // Tyler's permissions are never stored here — she always has full access.
-// Default for new admins: most pages ON, the 3 formerly-hidden pages OFF.
+// Default for new admins: most pages ON, while explicitly restricted pages remain OFF.
 export const adminPermissions = mysqlTable("admin_permissions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
@@ -2859,7 +2859,8 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canManageReferralAgreements: boolean("canManageReferralAgreements").default(true).notNull(),
   canEditHistoricalReferrals: boolean("canEditHistoricalReferrals").default(true).notNull(),
   // Pulse
-  canViewPulse: boolean("canViewPulse").default(true).notNull(),
+  // Default OFF: Pulse is restricted to explicitly authorized administrators.
+  canViewPulse: boolean("canViewPulse").default(false).notNull(),
   // Default OFF: an admin must be granted this explicitly before Pulse-wide settings appear.
   canViewPulseSettings: boolean("canViewPulseSettings").default(false).notNull(),
   // Operations
