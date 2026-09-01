@@ -131,14 +131,6 @@ export async function retirePulseThinSliceFixture(db: any) {
   return retireFixture(db);
 }
 
-/**
- * Production maintenance helper for one explicitly authorized cleanup. It does
- * not expose an endpoint and retains the fixture's own marker-based scope.
- */
-export async function retireMarkedPulseSliceFixtures(db: any) {
-  return retireFixture(db);
-}
-
 /** Creates only marked, reversible test records. This never touches live Pulse meetings. */
 export async function resetPulseThinSliceFixture(db: any) {
   requireThinSliceEnvironment();
