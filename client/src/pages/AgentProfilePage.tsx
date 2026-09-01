@@ -378,6 +378,7 @@ export default function AgentProfilePage() {
       toast.success("Profile updated.");
       utils.users.getById.invalidate({ id: agentId });
       utils.users.list.invalidate();
+      void utils.auth.me.invalidate();
       setEditProfileOpen(false);
     },
     onError: (e) => toast.error(e.message),

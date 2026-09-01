@@ -764,6 +764,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             : group)
           : [...permissionFilteredNavGroups, { label: "Shared", items: [passwordNavItem] }]
         : permissionFilteredNavGroups;
+  // My PTO is an employee benefit driven only by the authoritative W-2 tag.
+  // Approval and administration remain separately controlled through Super Permissions.
+  const ptoItem: NavItem = { icon: CalendarDays, label: "My PTO", path: "/pto" };
+  const employmentFilteredNavGroups = navGroups
+    .map((group) => {
+      if (group.label !== "Operations") return group;
+      const itemsWithoutMyPto = group.items.filter((item) => item.path !== "/pto");
+      if ((user as any).employmentType !== "w2") return { ...group, items: itemsWithoutMyPto };
+      const tasksIndex = itemsWithoutMyPto.findIndex((item) => item.path === "/tasks");
+      const insertionIndex = tasksIndex >= 0 ? tasksIndex + 1 : 0;
+      return { ...group, items: [...itemsWithoutMyPto.slice(0, insertionIndex), ptoItem, ...itemsWithoutMyPto.slice(insertionIndex)] };
+    })
+    .filter((group) => group.items.length > 0);
+  // Pulse navigation deliberately has no Operations group; W-2 PTO access must
+  // remain discoverable there and in any future role-specific shell.
+  if ((user as any).employmentType === "w2" && !employmentFilteredNavGroups.some((group) => group.items.some((item) => item.path === "/pto"))) {
+    employmentFilteredNavGroups.push({ label: "Operations", items: [ptoItem] });
+  }
   const roleLabel = role === "admin" ? "Admin" : role === "isa" ? "ISA" : role === "agent_support" ? "Agent Support" : "Agent";
   const roleBadgeClass =
     role === "admin"
@@ -778,7 +796,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarWidth = collapsed ? "w-[56px]" : "w-[240px]";
 
   const navProps = {
-    navGroups,
+    navGroups: employmentFilteredNavGroups,
     currentPath,
     collapsed,
     user: { ...user, profilePhotoUrl: (myCoreProfile as any)?.profilePhotoUrl ?? null },

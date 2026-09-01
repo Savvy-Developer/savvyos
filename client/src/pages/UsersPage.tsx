@@ -210,6 +210,7 @@ export default function UsersPage() {
     onSuccess: () => {
       toast.success("Team member updated");
       utils.users.listWithDocCounts.invalidate();
+      void utils.auth.me.invalidate();
       setEditTarget(null);
     },
     onError: (e) => toast.error(e.message),

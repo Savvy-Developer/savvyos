@@ -19,7 +19,10 @@ export function useAuth(options?: UseAuthOptions) {
     // after a deploy or long idle period. The global QueryClient default also
     // sets refetchOnWindowFocus: true, but we're explicit here for clarity.
     refetchOnWindowFocus: true,
-    staleTime: 30_000,
+    // Employment type controls My PTO eligibility. Refresh routinely so a
+    // user-management change reaches the affected user without a sign-out.
+    refetchInterval: 15_000,
+    staleTime: 15_000,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({
