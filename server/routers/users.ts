@@ -857,7 +857,9 @@ export const usersRouter = router({
     .query(async () => {
       const db = await getDb();
       if (!db) return [];
-      const all = await getAllUsers();
+      // The Org Chart is an operating-team view. Retired users, including
+      // decommissioned test fixtures, must not appear in its hierarchy.
+      const all = (await getAllUsers()).filter((user: any) => user.isActive !== false);
       // Market name lookup
       const mktRows = await db.select({ id: marketProfiles.id, name: marketProfiles.name }).from(marketProfiles);
       const mktMap = new Map(mktRows.map((m) => [m.id, m.name]));
