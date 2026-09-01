@@ -64,6 +64,11 @@ export function calculateAgentEarningsCents(collectedCents: number): number {
   return Math.round(collectedCents * 0.75);
 }
 
+/** The public list is only safe to include in external vendor email after publication. */
+export function publicVendorListUrl(publicSlug: string, isPublished: boolean): string | undefined {
+  return isPublished ? `${APP_URL}/vendors/${encodeURIComponent(publicSlug)}` : undefined;
+}
+
 function isRecoverableCheckout(subscription: { billingStatus: string; checkoutExpiresAt: Date | null }): boolean {
   if (subscription.billingStatus !== "pending_checkout") return false;
   return Boolean(subscription.checkoutExpiresAt && subscription.checkoutExpiresAt.getTime() < Date.now());
@@ -178,6 +183,35 @@ async function notifyBillingAttention(subscriptionId: number, eventId: string, r
   return delivery.sent;
 }
 
+async function notifyFeaturedVendorPaymentReceived(subscriptionId: number, invoiceId: string, amountPaidCents: number, paidAt: Date): Promise<boolean> {
+  const context = await getNotificationContext(subscriptionId);
+  if (!context?.agentEmail) {
+    console.warn(`[VendorBilling] Cannot send payment receipt for subscription ${subscriptionId}: agent email unavailable.`);
+    return false;
+  }
+  const delivery = await sendTransactionalEmail("vendor_featured_payment_received", {
+    recipientName: context.agentName ?? "Agent",
+    recipientEmail: context.agentEmail,
+    vendorBusinessName: context.vendorName,
+    vendorContactName: context.vendorContactName ?? undefined,
+    vendorPaymentReceivedAmount: formatUsdFromCents(amountPaidCents),
+    vendorPaymentReceivedDate: new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(paidAt),
+    vendorMonthlyAmount: formatUsdFromCents(context.subscription.monthlyAmountCents),
+  }, {
+    allowTemplateOverride: false,
+    idempotencyKey: `vendor-billing-received:${invoiceId}`,
+  });
+  if (!delivery.sent) {
+    console.warn(`[VendorBilling] Payment receipt could not be delivered for subscription ${subscriptionId}: ${delivery.reason ?? "unknown error"}`);
+  }
+  return delivery.sent;
+}
+
 /**
  * Builds a unique Stripe-hosted Checkout link and immediately sends it to the vendor.
  * The agent still receives the same URL so it can be copied into a personal outreach message.
@@ -204,6 +238,7 @@ export async function createFeaturedVendorCheckoutInvite(params: {
     isFeatured: vendors.isFeatured,
     agentId: vendorLists.agentId,
     publicSlug: vendorLists.publicSlug,
+    isPublished: vendorLists.isPublished,
     agentName: users.name,
   }).from(vendors)
     .innerJoin(vendorCategories, eq(vendors.vendorCategoryId, vendorCategories.id))
@@ -213,7 +248,6 @@ export async function createFeaturedVendorCheckoutInvite(params: {
     .limit(1);
 
   if (!vendor || vendor.agentId !== params.agentId) throw new Error("Vendor not found.");
-  if (!vendor.isFeatured) throw new Error("Only vendors marked Featured can receive a featured vendor payment invitation.");
   if (!vendor.email) throw new Error("Add the vendor’s email address before sending a payment invitation.");
 
   const existing = await db.select().from(vendorFeaturedSubscriptions)
@@ -298,6 +332,7 @@ export async function createFeaturedVendorCheckoutInvite(params: {
     agentName: vendor.agentName ?? undefined,
     vendorMonthlyAmount: formatUsdFromCents(params.monthlyAmountCents),
     vendorPaymentUrl: session.url,
+    vendorPublicListUrl: publicVendorListUrl(vendor.publicSlug, vendor.isPublished),
   }, {
     allowTemplateOverride: false,
     injectMagicLinks: false,
@@ -414,6 +449,12 @@ async function processInvoicePaid(event: Stripe.Event, invoice: Stripe.Invoice):
     activatedAt: subscription.activatedAt ?? paidAt,
     lastPaymentAt: paidAt,
   }).where(eq(vendorFeaturedSubscriptions.id, subscription.id));
+  // A successful invoice is the durable payment confirmation. Mark the vendor
+  // Featured only here, rather than at invite time, so client-facing placement
+  // is tied to an actual payment.
+  await db.update(vendors).set({ isFeatured: true }).where(eq(vendors.id, subscription.vendorId));
+  const receiptSent = await notifyFeaturedVendorPaymentReceived(subscription.id, stripeInvoiceId, amountPaidCents, paidAt);
+  if (!receiptSent) throw new Error("Featured vendor payment receipt could not be delivered; Stripe will retry this webhook.");
   return subscription.id;
 }
 

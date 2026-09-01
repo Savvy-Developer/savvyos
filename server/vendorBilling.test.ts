@@ -5,6 +5,7 @@ import {
   constructStripeWebhookEvent,
   formatUsdFromCents,
   isStripeConfigured,
+  publicVendorListUrl,
 } from "./vendorBilling";
 
 const originalSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -31,6 +32,11 @@ describe("vendor billing Stripe safeguards", () => {
     expect(isStripeConfigured()).toBe(false);
     process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
     expect(isStripeConfigured()).toBe(true);
+  });
+
+  it("includes a public Vendor List URL only after the agent publishes the list", () => {
+    expect(publicVendorListUrl("casey-vendors", true)).toBe("https://os.savvy-agents.com/vendors/casey-vendors");
+    expect(publicVendorListUrl("casey-vendors", false)).toBeUndefined();
   });
 
   it("accepts a correctly signed raw Stripe event and rejects a bad signature", () => {

@@ -74,7 +74,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
   "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
   "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
-  "pto_request_submitted", "pto_request_decision", "vendor_featured_payment_invitation", "vendor_featured_payment_failed",
+  "pto_request_submitted", "pto_request_decision", "vendor_featured_payment_invitation", "vendor_featured_payment_received", "vendor_featured_payment_failed",
   "monthly_featured_vendor_earnings", "agent_featured_vendor_earnings",
 ] as const;
 
@@ -212,6 +212,9 @@ interface EmailContext {
   vendorContactName?: string;
   vendorMonthlyAmount?: string;
   vendorPaymentUrl?: string;
+  vendorPublicListUrl?: string;
+  vendorPaymentReceivedAmount?: string;
+  vendorPaymentReceivedDate?: string;
   vendorBillingReason?: string;
   featuredVendorEarningsDate?: string;
   featuredVendorEarningsHtml?: string;
@@ -1005,8 +1008,28 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ], "#0891B2")}
       ${bodyText("Use the secure Stripe checkout link below to start the monthly subscription. Stripe will confirm the payment details before you complete checkout.")}
       ${ctx.vendorPaymentUrl ? ctaButton("Review & Pay with Stripe", ctx.vendorPaymentUrl, "#0891B2") : ""}
+      ${ctx.vendorPublicListUrl ? `${bodyText("Want to see the client-facing placement first? You can view the published Vendor List below.")}${ctaButton("View the Public Vendor List", ctx.vendorPublicListUrl, "#0891B2")}` : ""}
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">Questions about your placement? Reply to this email to reach the Savvy STR Agents team.</p>`,
       `Complete your Featured Vendor placement checkout for ${ctx.vendorMonthlyAmount ?? "your monthly subscription"}.`,
+    ),
+  }),
+
+  vendor_featured_payment_received: (ctx) => ({
+    subject: `Featured Vendor payment received — ${ctx.vendorBusinessName ?? "Vendor"}`,
+    html: emailLayout(
+      `${heading("Featured Vendor Payment Received", "#047857")}
+      ${subheading("Your Vendor List")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`<strong>${escapeHtml(ctx.vendorBusinessName ?? "A vendor")}</strong> has completed their Featured Vendor payment through Stripe. Their Vendor List recommendation is now marked Featured.`)}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Vendor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBusinessName ?? "—")}`,
+        ...(ctx.vendorPaymentReceivedAmount ? [`<strong style="color:${BLACK};">Payment received</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorPaymentReceivedAmount)}`] : []),
+        ...(ctx.vendorPaymentReceivedDate ? [`<strong style="color:${BLACK};">Received</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorPaymentReceivedDate)}`] : []),
+        ...(ctx.vendorMonthlyAmount ? [`<strong style="color:${BLACK};">Monthly placement</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount)}`] : []),
+      ], "#047857")}
+      ${bodyText("This successful payment will be included in your Featured Vendor earnings reporting at the 75% agent share.")}
+      ${ctaButton("Open My Vendor List", APP_URL + "/vendors", "#047857")}`,
+      `Featured Vendor payment received for ${ctx.vendorBusinessName ?? "a vendor"}.`,
     ),
   }),
 
