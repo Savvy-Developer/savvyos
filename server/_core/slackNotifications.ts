@@ -131,14 +131,17 @@ function changedLines(diff: string): string[] {
 }
 
 function findNavigationLocation(diff: string): NavigationLocation | null {
+  let firstLocation: NavigationLocation | null = null;
   for (const line of changedLines(diff)) {
     const label = line.match(/label:\s*["']([^"']+)["']/)?.[1];
     if (!label) continue;
     const group = line.match(/group:\s*["']([^"']+)["']/)?.[1];
     const path = line.match(/path:\s*["']([^"']+)["']/)?.[1];
-    return { label, group, path };
+    const location = { label, group, path };
+    if (group) return location;
+    if (!firstLocation) firstLocation = location;
   }
-  return null;
+  return firstLocation;
 }
 
 function findEnforcedRule(diff: string): string | null {
