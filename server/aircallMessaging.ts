@@ -247,10 +247,10 @@ export async function persistOutboundAircallSend(input: {
   responseMessage?: Record<string, unknown>;
   contactId: number;
   savvyUserId?: number | null;
-}): Promise<void> {
+}): Promise<{ contactId: number | null; communicationId: number | null }> {
   const response = input.responseMessage ?? {};
   const responseNumber = response.number as { id?: number; name?: string | null; digits?: string | null } | undefined;
-  await persistAircallMessage({
+  return persistAircallMessage({
     ...response,
     id: String(response.id ?? input.messageId),
     direction: "outbound",

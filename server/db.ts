@@ -1155,6 +1155,7 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
     case "type": orderBy = direction(transactions.transactionType); break;
     case "price": orderBy = direction(transactions.purchasePrice); break;
     case "gci": orderBy = direction(transactions.grossCommissionIncome); break;
+    case "savvy_net": orderBy = direction(sql`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), 0)`); break;
     case "status": orderBy = direction(transactions.status); break;
     case "contract_date": orderBy = direction(transactions.contractDate); break;
     case "closing_date":
@@ -1164,6 +1165,7 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   return db
     .select({
       transaction: transactions,
+      savvyNet: sql<string>`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), 0)`,
       agent: users,
       contact: contacts,
       property: properties,

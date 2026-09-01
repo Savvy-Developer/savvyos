@@ -1,20 +1,65 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+  aliasedTable,
+} from "drizzle-orm";
+import { Resend } from "resend";
 import { router, protectedProcedure } from "../_core/trpc";
-import { aircallApiRequest, isAircallApiConfigured, sendAircallSMS } from "../_core/aircall";
+import {
+  aircallApiRequest,
+  isAircallApiConfigured,
+  sendAircallSMS,
+} from "../_core/aircall";
 import { getDb, logActivity } from "../db";
 import {
+  agentConnections,
+  agentIntroductionFollowUps,
   aircallIntegrationState,
   aircallIsaAssignments,
   aircallMessages,
+  communications,
   contacts,
   marketingTextInboxThreads,
+  smartPlanExecutions,
+  smartPlanSteps,
+  smartPlans,
+  users,
 } from "../../drizzle/schema";
-import { persistAircallMessage, type AircallMessageData } from "../aircallMessaging";
+import {
+  persistAircallMessage,
+  type AircallMessageData,
+} from "../aircallMessaging";
 import { normalizePhone } from "../aircall";
+import { canAdminUsePermission } from "./permissions";
+import { invokeLLM } from "../_core/llm";
+import { ENV } from "../_core/env";
 
 const positiveId = z.number().int().positive();
+const SPEED_TO_LEAD_WINDOWS = [
+  { key: "today", label: "Today" },
+  { key: "7d", label: "7D", days: 7 },
+  { key: "30d", label: "30D", days: 30 },
+  { key: "90d", label: "90D", days: 90 },
+  { key: "ytd", label: "YTD" },
+  { key: "all", label: "All Time" },
+] as const;
+
+type SpeedToLeadWindow = {
+  key: string;
+  label: string;
+  averageMinutes: number | null;
+  respondedCount: number;
+  incomingCount: number;
+};
 
 interface AircallNumber {
   id: number;
@@ -27,9 +72,35 @@ interface AircallNumbersResponse {
   meta?: { next_page_link?: string | null };
 }
 
-function requireAdmin(role: string) {
-  if (role !== "admin") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+function startForWindow(
+  window: (typeof SPEED_TO_LEAD_WINDOWS)[number]
+): Date | null {
+  const now = new Date();
+  if (window.key === "all") return null;
+  if (window.key === "today") {
+    now.setHours(0, 0, 0, 0);
+    return now;
+  }
+  if (window.key === "ytd") return new Date(now.getFullYear(), 0, 1);
+  const start = new Date(now);
+  start.setDate(start.getDate() - (window.days ?? 0));
+  return start;
+}
+
+async function requireMarketingTextInboxAccess(user: {
+  id: number;
+  role: string;
+  email?: string | null;
+}) {
+  const permitted = await canAdminUsePermission(
+    user,
+    "canViewMarketingTextInbox"
+  );
+  if (!permitted) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to the Marketing Text Inbox",
+    });
   }
 }
 
@@ -37,7 +108,8 @@ function requireAircallApi() {
   if (!isAircallApiConfigured()) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
-      message: "Add the Aircall API credentials before selecting a marketing text number.",
+      message:
+        "Add the Aircall API credentials before selecting a marketing text number.",
     });
   }
 }
@@ -46,10 +118,34 @@ function toE164(value: string): string {
   const digits = normalizePhone(value);
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length >= 8 && digits.length <= 15) return `+${digits}`;
-  throw new TRPCError({ code: "BAD_REQUEST", message: "This contact does not have a valid mobile number." });
+  throw new TRPCError({
+    code: "BAD_REQUEST",
+    message: "This contact does not have a valid mobile number.",
+  });
 }
 
-async function marketingLine(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
+function plainText(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function emailHtml(value: string): string {
+  const escaped = value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<div style="font-family:Arial,sans-serif;color:#1f2937;font-size:16px;line-height:1.6"><p>${escaped.replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>")}</p></div>`;
+}
+
+function firstName(name: string | null | undefined, fallback: string) {
+  return name?.trim().split(/\s+/)[0] || fallback;
+}
+
+async function marketingLine(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>
+) {
   const [state] = await db
     .select()
     .from(aircallIntegrationState)
@@ -62,12 +158,16 @@ async function listAircallNumbers(): Promise<AircallNumber[]> {
   requireAircallApi();
   const numbers: AircallNumber[] = [];
   for (let page = 1; page <= 50; page += 1) {
-    const response = await aircallApiRequest(`/v1/numbers?page=${page}&per_page=50`);
+    const response = await aircallApiRequest(
+      `/v1/numbers?page=${page}&per_page=50`
+    );
     if (!response.ok) {
       const detail = (await response.text()).trim();
       throw new TRPCError({
         code: "BAD_GATEWAY",
-        message: detail ? `Aircall could not list phone numbers: ${detail.slice(0, 300)}` : "Aircall could not list phone numbers.",
+        message: detail
+          ? `Aircall could not list phone numbers: ${detail.slice(0, 300)}`
+          : "Aircall could not list phone numbers.",
       });
     }
     const data = (await response.json()) as AircallNumbersResponse;
@@ -79,28 +179,153 @@ async function listAircallNumbers(): Promise<AircallNumber[]> {
 
 function nativeMessagePayload(
   responseMessage: Record<string, unknown> | undefined,
-  fallback: { messageId: string; body: string; destination: string; numberId: number; numberName: string | null; numberDigits: string | null },
+  fallback: {
+    messageId: string;
+    body: string;
+    destination: string;
+    numberId: number;
+    numberName: string | null;
+    numberDigits: string | null;
+  }
 ): AircallMessageData {
-  const nestedNumber = responseMessage?.number as Partial<AircallMessageData["number"]> | undefined;
+  const nestedNumber = responseMessage?.number as
+    | Partial<AircallMessageData["number"]>
+    | undefined;
   return {
     ...(responseMessage ?? {}),
     id: String(responseMessage?.id ?? fallback.messageId),
     direction: "outbound",
-    status: typeof responseMessage?.status === "string" ? responseMessage.status : "pending",
-    body: typeof responseMessage?.body === "string" ? responseMessage.body : fallback.body,
-    raw_digits: typeof responseMessage?.raw_digits === "string" ? responseMessage.raw_digits : fallback.destination,
+    status:
+      typeof responseMessage?.status === "string"
+        ? responseMessage.status
+        : "pending",
+    body:
+      typeof responseMessage?.body === "string"
+        ? responseMessage.body
+        : fallback.body,
+    raw_digits:
+      typeof responseMessage?.raw_digits === "string"
+        ? responseMessage.raw_digits
+        : fallback.destination,
     number: {
-      id: typeof nestedNumber?.id === "number" ? nestedNumber.id : fallback.numberId,
-      name: typeof nestedNumber?.name === "string" ? nestedNumber.name : fallback.numberName,
-      digits: typeof nestedNumber?.digits === "string" ? nestedNumber.digits : fallback.numberDigits,
+      id:
+        typeof nestedNumber?.id === "number"
+          ? nestedNumber.id
+          : fallback.numberId,
+      name:
+        typeof nestedNumber?.name === "string"
+          ? nestedNumber.name
+          : fallback.numberName,
+      digits:
+        typeof nestedNumber?.digits === "string"
+          ? nestedNumber.digits
+          : fallback.numberDigits,
     },
   };
+}
+
+async function getMarketingTextSpeedToLead(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  marketingNumberId: number | null
+): Promise<SpeedToLeadWindow[]> {
+  if (!marketingNumberId) {
+    return SPEED_TO_LEAD_WINDOWS.map(window => ({
+      ...window,
+      averageMinutes: null,
+      respondedCount: 0,
+      incomingCount: 0,
+    }));
+  }
+
+  const inbound = aliasedTable(aircallMessages, "speed_to_lead_inbound_sms");
+  const outbound = aliasedTable(aircallMessages, "speed_to_lead_outbound_sms");
+  const inboundAt = sql<Date>`COALESCE(${inbound.receivedAt}, ${inbound.sentAt}, ${inbound.createdAt})`;
+  const responseAt = sql<Date | null>`(
+    SELECT MIN(COALESCE(${outbound.sentAt}, ${outbound.createdAt}))
+    FROM ${outbound}
+    WHERE ${outbound.contactId} = ${inbound.contactId}
+      AND ${outbound.aircallNumberId} = ${marketingNumberId}
+      AND ${outbound.direction} = 'outbound'
+      AND COALESCE(${outbound.sentAt}, ${outbound.createdAt}) > ${inboundAt}
+  )`;
+
+  return Promise.all(
+    SPEED_TO_LEAD_WINDOWS.map(async window => {
+      const start = startForWindow(window);
+      const [metrics] = await db
+        .select({
+          incomingCount: sql<number>`COUNT(*)`,
+          respondedCount: sql<number>`SUM(CASE WHEN ${responseAt} IS NOT NULL THEN 1 ELSE 0 END)`,
+          averageMinutes: sql<
+            number | null
+          >`AVG(CASE WHEN ${responseAt} IS NOT NULL THEN TIMESTAMPDIFF(SECOND, ${inboundAt}, ${responseAt}) / 60.0 ELSE NULL END)`,
+        })
+        .from(inbound)
+        .where(
+          and(
+            eq(inbound.aircallNumberId, marketingNumberId),
+            eq(inbound.direction, "inbound"),
+            isNotNull(inbound.contactId),
+            ...(start ? [gte(inboundAt, start)] : [])
+          )
+        );
+      return {
+        key: window.key,
+        label: window.label,
+        averageMinutes:
+          metrics?.averageMinutes == null
+            ? null
+            : Number(metrics.averageMinutes),
+        respondedCount: Number(metrics?.respondedCount ?? 0),
+        incomingCount: Number(metrics?.incomingCount ?? 0),
+      };
+    })
+  );
+}
+
+function fallbackIntroductionDraft(input: {
+  contactFirstName: string;
+  contactName: string;
+  agentName: string;
+  userName: string;
+  context: string;
+}) {
+  const agentFirstName = firstName(input.agentName, "your Savvy agent");
+  return {
+    clientText: `Hi ${input.contactFirstName}, I wanted to personally introduce you to ${input.agentName}. Based on our recent conversation${input.context ? ` about ${input.context}` : ""}, ${agentFirstName} is a great resource to help. ${agentFirstName}, meet ${input.contactFirstName}. I’ll let you both take it from here! — ${input.userName}`,
+    agentText: `Hi ${agentFirstName}, I’m connecting you with ${input.contactName}. They recently spoke with Savvy${input.context ? ` about ${input.context}` : ""}. ${input.contactFirstName}, meet ${agentFirstName}. I’ll let you both take it from here! — ${input.userName}`,
+    emailSubject: `Introduction: ${input.contactName} + ${input.agentName}`,
+    emailBody: `Hi ${input.contactFirstName} and ${agentFirstName},\n\nI wanted to make a personal introduction. ${input.contactName} recently connected with Savvy${input.context ? ` about ${input.context}` : ""}, and ${input.agentName} is the right person to continue the conversation.\n\n${input.contactFirstName}, ${agentFirstName} will be in touch shortly. ${agentFirstName}, please feel free to connect directly and learn more about what would be most helpful.\n\nBest,\n${input.userName}`,
+    contextSummary: input.context || "Recent SavvyOS conversation history",
+  };
+}
+
+function parsedIntroductionDraft(
+  raw: string | null | undefined,
+  fallback: ReturnType<typeof fallbackIntroductionDraft>
+) {
+  try {
+    const parsed = JSON.parse(raw ?? "") as Record<string, unknown>;
+    const get = (key: string, max: number) =>
+      typeof parsed[key] === "string" && parsed[key].trim().length > 0
+        ? parsed[key].trim().slice(0, max)
+        : fallback[key as keyof typeof fallback];
+    return {
+      clientText: get("clientText", 1600) as string,
+      agentText: get("agentText", 1600) as string,
+      emailSubject: get("emailSubject", 255) as string,
+      emailBody: get("emailBody", 20_000) as string,
+      contextSummary: get("contextSummary", 700) as string,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 export const marketingTextInboxRouter = router({
   /** Configuration status for the dedicated Smart Plan marketing line. */
   configuration: protectedProcedure.query(async ({ ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireMarketingTextInboxAccess(ctx.user);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const line = await marketingLine(db);
@@ -120,7 +345,7 @@ export const marketingTextInboxRouter = router({
 
   /** The sidebar badge count for unread replies on the dedicated marketing line. */
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireMarketingTextInboxAccess(ctx.user);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const line = await marketingLine(db);
@@ -128,36 +353,61 @@ export const marketingTextInboxRouter = router({
     const [result] = await db
       .select({ count: sql<number>`count(*)` })
       .from(aircallMessages)
-      .leftJoin(marketingTextInboxThreads, eq(marketingTextInboxThreads.contactId, aircallMessages.contactId))
-      .where(and(
-        eq(aircallMessages.aircallNumberId, line.marketingNumberId),
-        eq(aircallMessages.direction, "inbound"),
-        isNull(aircallMessages.readAt),
-        isNull(marketingTextInboxThreads.archivedAt),
-      ));
+      .leftJoin(
+        marketingTextInboxThreads,
+        eq(marketingTextInboxThreads.contactId, aircallMessages.contactId)
+      )
+      .where(
+        and(
+          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+          eq(aircallMessages.direction, "inbound"),
+          isNull(aircallMessages.readAt),
+          isNull(marketingTextInboxThreads.archivedAt)
+        )
+      );
     return { count: Number(result?.count ?? 0) };
+  }),
+
+  /** Mean elapsed time from each inbound marketing SMS to the first SavvyOS reply. */
+  speedToLead: protectedProcedure.query(async ({ ctx }) => {
+    await requireMarketingTextInboxAccess(ctx.user);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const line = await marketingLine(db);
+    return {
+      windows: await getMarketingTextSpeedToLead(
+        db,
+        line?.marketingNumberId ?? null
+      ),
+    };
   }),
 
   /** Lists Aircall numbers that are not reserved for an ISA's personal line. */
   listAvailableNumbers: protectedProcedure.query(async ({ ctx }) => {
-    requireAdmin(ctx.user.role);
+    await requireMarketingTextInboxAccess(ctx.user);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [numbers, assigned] = await Promise.all([
       listAircallNumbers(),
-      db.select({ aircallNumberId: aircallIsaAssignments.aircallNumberId }).from(aircallIsaAssignments),
+      db
+        .select({ aircallNumberId: aircallIsaAssignments.aircallNumberId })
+        .from(aircallIsaAssignments),
     ]);
-    const reservedIds = new Set(assigned.map((row) => row.aircallNumberId));
+    const reservedIds = new Set(assigned.map(row => row.aircallNumberId));
     return numbers
-      .filter((number) => !reservedIds.has(number.id))
-      .map((number) => ({ id: number.id, name: number.name ?? null, digits: number.digits ?? null }));
+      .filter(number => !reservedIds.has(number.id))
+      .map(number => ({
+        id: number.id,
+        name: number.name ?? null,
+        digits: number.digits ?? null,
+      }));
   }),
 
   /** Saves the shared line that Smart Plans and the marketing inbox use. */
   selectMarketingNumber: protectedProcedure
     .input(z.object({ numberId: positiveId }))
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -173,24 +423,33 @@ export const marketingTextInboxRouter = router({
         });
       }
 
-      const number = (await listAircallNumbers()).find((item) => item.id === input.numberId);
-      if (!number) throw new TRPCError({ code: "NOT_FOUND", message: "That Aircall number is no longer available." });
+      const number = (await listAircallNumbers()).find(
+        item => item.id === input.numberId
+      );
+      if (!number)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That Aircall number is no longer available.",
+        });
 
       const now = new Date();
-      await db.insert(aircallIntegrationState).values({
-        id: 1,
-        marketingNumberId: number.id,
-        marketingNumberName: number.name ?? null,
-        marketingNumberDigits: number.digits ?? null,
-        marketingNumberConfiguredAt: now,
-      }).onDuplicateKeyUpdate({
-        set: {
+      await db
+        .insert(aircallIntegrationState)
+        .values({
+          id: 1,
           marketingNumberId: number.id,
           marketingNumberName: number.name ?? null,
           marketingNumberDigits: number.digits ?? null,
           marketingNumberConfiguredAt: now,
-        },
-      });
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            marketingNumberId: number.id,
+            marketingNumberName: number.name ?? null,
+            marketingNumberDigits: number.digits ?? null,
+            marketingNumberConfiguredAt: now,
+          },
+        });
       await logActivity({
         userId: ctx.user.id,
         action: "marketing_text_number_selected",
@@ -198,17 +457,25 @@ export const marketingTextInboxRouter = router({
         entityId: number.id,
         details: { name: number.name ?? null, digits: number.digits ?? null },
       });
-      return { id: number.id, name: number.name ?? null, digits: number.digits ?? null };
+      return {
+        id: number.id,
+        name: number.name ?? null,
+        digits: number.digits ?? null,
+      };
     }),
 
   /** Lists only CRM contacts who have replied to the dedicated marketing line. */
   listThreads: protectedProcedure
-    .input(z.object({
-      search: z.string().trim().max(160).optional(),
-      archived: z.boolean().optional().default(false),
-    }).optional())
+    .input(
+      z
+        .object({
+          search: z.string().trim().max(160).optional(),
+          archived: z.boolean().optional().default(false),
+        })
+        .optional()
+    )
     .query(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
@@ -237,52 +504,552 @@ export const marketingTextInboxRouter = router({
         })
         .from(aircallMessages)
         .leftJoin(contacts, eq(contacts.id, aircallMessages.contactId))
-        .leftJoin(marketingTextInboxThreads, eq(marketingTextInboxThreads.contactId, aircallMessages.contactId))
+        .leftJoin(
+          marketingTextInboxThreads,
+          eq(marketingTextInboxThreads.contactId, aircallMessages.contactId)
+        )
         .where(eq(aircallMessages.aircallNumberId, line.marketingNumberId))
         .orderBy(desc(aircallMessages.sentAt), desc(aircallMessages.createdAt))
         .limit(750);
 
       const query = input?.search?.toLowerCase();
-      const threads = new Map<string, typeof rows[number]>();
+      const threads = new Map<string, (typeof rows)[number]>();
       for (const row of rows) {
-        // This is a reply inbox, not an outbound delivery log. Exclude status
-        // callbacks, blank-body records, and unmatched numbers so every row
-        // opens a useful, replyable CRM conversation.
-        if (row.direction !== "inbound" || !row.contactId || !row.body?.trim()) continue;
+        if (row.direction !== "inbound" || !row.contactId || !row.body?.trim())
+          continue;
         if (input?.archived ? !row.archivedAt : !!row.archivedAt) continue;
         const key = `contact:${row.contactId}`;
-        const label = `${row.contactFirstName ?? ""} ${row.contactLastName ?? ""} ${row.contactPhone ?? ""} ${row.fromNumber ?? ""} ${row.toNumber ?? ""} ${row.body ?? ""}`.toLowerCase();
+        const label =
+          `${row.contactFirstName ?? ""} ${row.contactLastName ?? ""} ${row.contactPhone ?? ""} ${row.fromNumber ?? ""} ${row.toNumber ?? ""} ${row.body ?? ""}`.toLowerCase();
         if (query && !label.includes(query)) continue;
         if (!threads.has(key)) threads.set(key, row);
       }
-      return Array.from(threads.values()).map((thread) => ({ ...thread, isUnread: !thread.readAt }));
+      return Array.from(threads.values()).map(thread => ({
+        ...thread,
+        isUnread: !thread.readAt,
+      }));
     }),
 
-  /** Returns the complete thread for a marketing contact. */
+  /** Returns the complete thread with Smart Plan attribution for automation-originated texts. */
   getThread: protectedProcedure
     .input(z.object({ contactId: positiveId }))
     .query(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
       if (!line?.marketingNumberId) return [];
       const rows = await db
-        .select()
+        .select({ message: aircallMessages })
         .from(aircallMessages)
-        // A reply surfaces a contact in this inbox; once selected, show their
-        // entire SMS record rather than a fragmented, line-specific thread.
-        .where(eq(aircallMessages.contactId, input.contactId))
-        .orderBy(asc(sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`), asc(aircallMessages.id))
+        .where(
+          and(
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId)
+          )
+        )
+        .orderBy(
+          asc(
+            sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`
+          ),
+          asc(aircallMessages.id)
+        )
         .limit(300);
-      return rows;
+      // `smartPlanExecutions.enrollmentId` is not a plan ID. Resolve the plan with a
+      // small secondary lookup only for executions that have a provider ID match.
+      const executionIds = rows
+        .map(row => row.message.aircallMessageId)
+        .filter((id): id is string => Boolean(id));
+      const planByProviderId = new Map<
+        string,
+        { name: string; stepOrder: number }
+      >();
+      if (executionIds.length > 0) {
+        const executionRows = await db
+          .select({
+            providerMessageId: smartPlanExecutions.providerMessageId,
+            planName: smartPlans.name,
+            stepOrder: smartPlanSteps.stepOrder,
+          })
+          .from(smartPlanExecutions)
+          .innerJoin(
+            smartPlanSteps,
+            eq(smartPlanSteps.id, smartPlanExecutions.stepId)
+          )
+          .innerJoin(smartPlans, eq(smartPlans.id, smartPlanSteps.planId))
+          .where(
+            and(
+              eq(smartPlanExecutions.channel, "sms"),
+              inArray(smartPlanExecutions.providerMessageId, executionIds)
+            )
+          );
+        for (const execution of executionRows) {
+          if (
+            execution.providerMessageId &&
+            execution.planName &&
+            execution.stepOrder !== null
+          ) {
+            planByProviderId.set(execution.providerMessageId, {
+              name: execution.planName,
+              stepOrder: execution.stepOrder,
+            });
+          }
+        }
+      }
+      return rows.map(row => {
+        const attribution = planByProviderId.get(row.message.aircallMessageId);
+        return {
+          ...row.message,
+          smartPlanName: attribution?.name ?? null,
+          smartPlanStepOrder: attribution ? attribution.stepOrder + 1 : null,
+        };
+      });
+    }),
+
+  /** Returns active agents who can be selected for a personal client introduction. */
+  listEligibleAgents: protectedProcedure.query(async ({ ctx }) => {
+    await requireMarketingTextInboxAccess(ctx.user);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        phone: users.phone,
+      })
+      .from(users)
+      .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
+      .orderBy(users.name);
+  }),
+
+  /** Generates an editable, personal two-way text and group-email introduction draft. */
+  draftIntroduction: protectedProcedure
+    .input(z.object({ contactId: positiveId, agentId: positiveId }))
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [contactRows, agentRows, textHistory, communicationHistory] =
+        await Promise.all([
+          db
+            .select()
+            .from(contacts)
+            .where(eq(contacts.id, input.contactId))
+            .limit(1),
+          db
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              phone: users.phone,
+            })
+            .from(users)
+            .where(
+              and(
+                eq(users.id, input.agentId),
+                eq(users.role, "agent"),
+                eq(users.isActive, true)
+              )
+            )
+            .limit(1),
+          db
+            .select({
+              direction: aircallMessages.direction,
+              body: aircallMessages.body,
+              sentAt: aircallMessages.sentAt,
+              receivedAt: aircallMessages.receivedAt,
+            })
+            .from(aircallMessages)
+            .where(eq(aircallMessages.contactId, input.contactId))
+            .orderBy(
+              desc(
+                sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`
+              )
+            )
+            .limit(12),
+          db
+            .select({
+              type: communications.type,
+              direction: communications.direction,
+              subject: communications.subject,
+              body: communications.body,
+              communicatedAt: communications.communicatedAt,
+            })
+            .from(communications)
+            .where(eq(communications.relatedContactId, input.contactId))
+            .orderBy(desc(communications.communicatedAt))
+            .limit(12),
+        ]);
+      const contact = contactRows[0];
+      const agent = agentRows[0];
+      if (!contact)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found.",
+        });
+      if (!agent)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Active agent not found.",
+        });
+
+      const contactName = `${contact.firstName} ${contact.lastName}`.trim();
+      const recentItems = [
+        ...textHistory.map(
+          message =>
+            `${message.direction === "inbound" ? "Client" : "Savvy"} text: ${plainText(message.body).slice(0, 360)}`
+        ),
+        ...communicationHistory.map(
+          message =>
+            `${message.direction} ${message.type}${message.subject ? ` (${message.subject})` : ""}: ${plainText(message.body).slice(0, 360)}`
+        ),
+      ]
+        .filter(item => !/:\s*$/.test(item))
+        .slice(0, 18);
+      const fallback = fallbackIntroductionDraft({
+        contactFirstName: contact.firstName || "there",
+        contactName,
+        agentName: agent.name ?? "your Savvy agent",
+        userName: ctx.user.name ?? "The Savvy team",
+        context:
+          recentItems[0]
+            ?.replace(/^(Client|Savvy) text:\s*/i, "")
+            .slice(0, 140) ?? "",
+      });
+
+      try {
+        const result = await invokeLLM({
+          model: "gpt-5-mini",
+          maxTokens: 850,
+          responseFormat: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content:
+                "Write a warm, concise real-estate client introduction. Return JSON only with clientText, agentText, emailSubject, emailBody, and contextSummary. The client text addresses the client by first name and introduces the named agent. The agent text addresses the agent by first name and introduces the client. The email addresses both people. Mention the SavvyOS user as the personal introducer. Use only supplied history; do not invent facts, promises, appointments, or financial details. Texts must be under 700 characters. Email body must be plain text with paragraphs.",
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                client: {
+                  firstName: contact.firstName,
+                  fullName: contactName,
+                  notes: plainText(contact.notes).slice(0, 1200),
+                },
+                agent: { name: agent.name },
+                introducedBy: ctx.user.name ?? "The Savvy team",
+                recentConversation: recentItems,
+              }),
+            },
+          ],
+        });
+        return parsedIntroductionDraft(
+          typeof result.choices[0]?.message.content === "string"
+            ? result.choices[0].message.content
+            : null,
+          fallback
+        );
+      } catch (error) {
+        console.warn(
+          "[MarketingTextInbox] AI introduction draft fallback:",
+          error
+        );
+        return fallback;
+      }
+    }),
+
+  /** Creates or reuses the agent pipeline connection and sends the approved personal introduction. */
+  sendIntroduction: protectedProcedure
+    .input(
+      z
+        .object({
+          contactId: positiveId,
+          agentId: positiveId,
+          clientText: z.string().trim().min(1).max(1600),
+          agentText: z.string().trim().min(1).max(1600),
+          emailSubject: z.string().trim().min(1).max(255),
+          emailBody: z.string().trim().min(1).max(20_000),
+          appointmentSet: z.boolean().default(false),
+          autoFollowUp: z.boolean().default(false),
+          followUpDelayHours: z.coerce.number().min(0.25).max(720).optional(),
+          followUpBody: z.string().trim().max(1600).optional(),
+        })
+        .superRefine((value, issue) => {
+          if (value.autoFollowUp && !value.followUpDelayHours) {
+            issue.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Enter when the follow-up text should send.",
+              path: ["followUpDelayHours"],
+            });
+          }
+          if (value.autoFollowUp && !value.followUpBody?.trim()) {
+            issue.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Enter the scheduled follow-up text.",
+              path: ["followUpBody"],
+            });
+          }
+        })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const line = await marketingLine(db);
+      const resend = ENV.resendApiKey ? new Resend(ENV.resendApiKey) : null;
+      const [contactRows, agentRows] = await Promise.all([
+        db
+          .select()
+          .from(contacts)
+          .where(eq(contacts.id, input.contactId))
+          .limit(1),
+        db
+          .select({
+            id: users.id,
+            name: users.name,
+            email: users.email,
+            phone: users.phone,
+          })
+          .from(users)
+          .where(
+            and(
+              eq(users.id, input.agentId),
+              eq(users.role, "agent"),
+              eq(users.isActive, true)
+            )
+          )
+          .limit(1),
+      ]);
+      const contact = contactRows[0];
+      const agent = agentRows[0];
+      if (!contact)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found.",
+        });
+      if (!agent)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Active agent not found.",
+        });
+      if (!line?.marketingNumberId)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Select a dedicated Aircall marketing number before sending an introduction.",
+        });
+      if (!resend)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Resend must be configured before sending an introduction email.",
+        });
+      if (contact.doNotContact || contact.smsMarketingOptedOutAt)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "This contact is opted out of SMS outreach and cannot receive an introduction text.",
+        });
+      if (!contact.phone || !agent.phone)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Both the client and selected agent need a valid mobile number for the paired introduction text.",
+        });
+      if (!contact.email || !agent.email)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Both the client and selected agent need an email address for the group introduction email.",
+        });
+
+      const clientDestination = toE164(contact.phone);
+      const agentDestination = toE164(agent.phone);
+      const now = new Date();
+      const [existingConnection] = await db
+        .select({ id: agentConnections.id })
+        .from(agentConnections)
+        .where(
+          and(
+            eq(agentConnections.agentId, agent.id),
+            eq(agentConnections.contactId, contact.id)
+          )
+        )
+        .limit(1);
+      let connectionId = existingConnection?.id;
+      let connectionCreated = false;
+      if (!connectionId) {
+        const result = await db.insert(agentConnections).values({
+          agentId: agent.id,
+          contactId: contact.id,
+          pipelineStatus: "new_lead",
+          appointmentSet: input.appointmentSet,
+          appointmentSetAt: input.appointmentSet ? now : null,
+          appointmentSetByUserId: input.appointmentSet ? ctx.user.id : null,
+        });
+        connectionId = Number((result as any)[0]?.insertId);
+        connectionCreated = true;
+      } else if (input.appointmentSet) {
+        await db
+          .update(agentConnections)
+          .set({
+            appointmentSet: true,
+            appointmentSetAt: now,
+            appointmentSetByUserId: ctx.user.id,
+          })
+          .where(eq(agentConnections.id, connectionId));
+      }
+      if (!connectionId)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unable to create the agent connection.",
+        });
+
+      const [clientTextResult, agentTextResult, emailResult] =
+        await Promise.all([
+          sendAircallSMS(
+            clientDestination,
+            input.clientText,
+            line.marketingNumberId
+          ),
+          sendAircallSMS(
+            agentDestination,
+            input.agentText,
+            line.marketingNumberId
+          ),
+          resend.emails.send({
+            from: "Savvy STR Agents <notifications@savvy-agents.com>",
+            to: [contact.email],
+            cc: [agent.email],
+            replyTo: ctx.user.email ?? undefined,
+            subject: input.emailSubject,
+            html: emailHtml(input.emailBody),
+          }),
+        ]);
+      if (!clientTextResult.success || !clientTextResult.messageId) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message:
+            clientTextResult.error ??
+            "Aircall could not send the client introduction text.",
+        });
+      }
+      if (!agentTextResult.success || !agentTextResult.messageId) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message:
+            agentTextResult.error ??
+            "Aircall could not send the agent introduction text.",
+        });
+      }
+      if (emailResult.error) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message:
+            emailResult.error.message ??
+            "Resend could not send the group introduction email.",
+        });
+      }
+
+      const textPersistence = await persistAircallMessage(
+        nativeMessagePayload(clientTextResult.message, {
+          messageId: clientTextResult.messageId,
+          body: input.clientText,
+          destination: clientDestination,
+          numberId: line.marketingNumberId,
+          numberName: line.marketingNumberName,
+          numberDigits: line.marketingNumberDigits,
+        }),
+        { contactId: contact.id, savvyUserId: ctx.user.id }
+      );
+      if (textPersistence.communicationId) {
+        await db
+          .update(communications)
+          .set({ relatedAgentConnectionId: connectionId })
+          .where(eq(communications.id, textPersistence.communicationId));
+      }
+      const emailCommunication = await db.insert(communications).values({
+        type: "email",
+        subject: input.emailSubject,
+        body: input.emailBody,
+        direction: "outbound",
+        authorId: ctx.user.id,
+        relatedContactId: contact.id,
+        relatedAgentConnectionId: connectionId,
+        communicatedAt: now,
+      });
+      const emailCommunicationId =
+        Number((emailCommunication as any)[0]?.insertId ?? 0) || null;
+
+      let followUpId: number | null = null;
+      let followUpDueAt: Date | null = null;
+      if (
+        input.autoFollowUp &&
+        input.followUpDelayHours &&
+        input.followUpBody?.trim()
+      ) {
+        followUpDueAt = new Date(
+          now.getTime() + input.followUpDelayHours * 60 * 60 * 1000
+        );
+        const followUp = await db.insert(agentIntroductionFollowUps).values({
+          contactId: contact.id,
+          agentId: agent.id,
+          connectionId,
+          createdById: ctx.user.id,
+          body: input.followUpBody.trim(),
+          dueAt: followUpDueAt,
+          status: "queued",
+        });
+        followUpId = Number((followUp as any)[0]?.insertId ?? 0) || null;
+      }
+
+      const details = {
+        contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+        agentName: agent.name ?? "Agent",
+        sentByName: ctx.user.name ?? "Savvy team member",
+        appointmentSet: input.appointmentSet,
+        connectionCreated,
+        clientTextMessageId: clientTextResult.messageId,
+        agentTextMessageId: agentTextResult.messageId,
+        emailMessageId: emailResult.data?.id ?? null,
+        emailCommunicationId,
+        autoFollowUp: Boolean(followUpId),
+        followUpId,
+        followUpDueAt: followUpDueAt?.toISOString() ?? null,
+      };
+      await Promise.all([
+        logActivity({
+          userId: ctx.user.id,
+          action: "agent_introduction_sent",
+          entityType: "contact",
+          entityId: contact.id,
+          relatedContactId: contact.id,
+          details,
+        }),
+        logActivity({
+          userId: ctx.user.id,
+          action: "agent_introduction_sent",
+          entityType: "agent_connection",
+          entityId: connectionId,
+          relatedContactId: contact.id,
+          details,
+        }),
+      ]);
+      return {
+        success: true,
+        connectionId,
+        connectionCreated,
+        followUpId,
+        followUpDueAt,
+      };
     }),
 
   /** Marks every visible inbound reply in one conversation as read. */
   markThreadRead: protectedProcedure
     .input(z.object({ contactId: positiveId }))
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
@@ -290,20 +1057,25 @@ export const marketingTextInboxRouter = router({
       const result = await db
         .update(aircallMessages)
         .set({ readAt: new Date() })
-        .where(and(
-          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
-          eq(aircallMessages.contactId, input.contactId),
-          eq(aircallMessages.direction, "inbound"),
-          isNull(aircallMessages.readAt),
-        ));
-      return { success: true, count: Number((result as any)[0]?.affectedRows ?? 0) };
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound"),
+            isNull(aircallMessages.readAt)
+          )
+        );
+      return {
+        success: true,
+        count: Number((result as any)[0]?.affectedRows ?? 0),
+      };
     }),
 
   /** Restores the unread indicator for every inbound reply in a conversation. */
   markThreadUnread: protectedProcedure
     .input(z.object({ contactId: positiveId }))
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
@@ -311,49 +1083,69 @@ export const marketingTextInboxRouter = router({
       const result = await db
         .update(aircallMessages)
         .set({ readAt: null })
-        .where(and(
-          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
-          eq(aircallMessages.contactId, input.contactId),
-          eq(aircallMessages.direction, "inbound"),
-        ));
-      return { success: true, count: Number((result as any)[0]?.affectedRows ?? 0) };
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound")
+          )
+        );
+      return {
+        success: true,
+        count: Number((result as any)[0]?.affectedRows ?? 0),
+      };
     }),
 
   /** Archives or restores a conversation without deleting its CRM history. */
   archiveThread: protectedProcedure
     .input(z.object({ contactId: positiveId, archived: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const line = await marketingLine(db);
-      if (!line?.marketingNumberId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Select a dedicated Aircall marketing number first." });
+      if (!line?.marketingNumberId)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Select a dedicated Aircall marketing number first.",
+        });
 
       const [reply] = await db
         .select({ id: aircallMessages.id })
         .from(aircallMessages)
-        .where(and(
-          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
-          eq(aircallMessages.contactId, input.contactId),
-          eq(aircallMessages.direction, "inbound"),
-        ))
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound")
+          )
+        )
         .limit(1);
-      if (!reply) throw new TRPCError({ code: "NOT_FOUND", message: "Marketing text conversation not found." });
+      if (!reply)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Marketing text conversation not found.",
+        });
 
       const now = new Date();
-      await db.insert(marketingTextInboxThreads).values({
-        contactId: input.contactId,
-        archivedAt: input.archived ? now : null,
-        archivedById: input.archived ? ctx.user.id : null,
-      }).onDuplicateKeyUpdate({
-        set: {
+      await db
+        .insert(marketingTextInboxThreads)
+        .values({
+          contactId: input.contactId,
           archivedAt: input.archived ? now : null,
           archivedById: input.archived ? ctx.user.id : null,
-        },
-      });
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            archivedAt: input.archived ? now : null,
+            archivedById: input.archived ? ctx.user.id : null,
+          },
+        });
       await logActivity({
         userId: ctx.user.id,
-        action: input.archived ? "marketing_text_thread_archived" : "marketing_text_thread_restored",
+        action: input.archived
+          ? "marketing_text_thread_archived"
+          : "marketing_text_thread_restored",
         entityType: "contact",
         entityId: input.contactId,
         relatedContactId: input.contactId,
@@ -364,39 +1156,79 @@ export const marketingTextInboxRouter = router({
 
   /** Sends a manual reply from the shared marketing line and writes it to the CRM immediately. */
   sendReply: protectedProcedure
-    .input(z.object({ contactId: positiveId, body: z.string().trim().min(1).max(1600) }))
+    .input(
+      z.object({
+        contactId: positiveId,
+        body: z.string().trim().min(1).max(1600),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const [line, contact] = await Promise.all([
         marketingLine(db),
-        db.select().from(contacts).where(eq(contacts.id, input.contactId)).limit(1).then((rows) => rows[0] ?? null),
+        db
+          .select()
+          .from(contacts)
+          .where(eq(contacts.id, input.contactId))
+          .limit(1)
+          .then(rows => rows[0] ?? null),
       ]);
       if (!line?.marketingNumberId) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Select a dedicated Aircall marketing number before sending texts." });
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Select a dedicated Aircall marketing number before sending texts.",
+        });
       }
-      if (!contact) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found." });
+      if (!contact)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found.",
+        });
       if (contact.doNotContact || contact.smsMarketingOptedOutAt) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "This contact is opted out of marketing outreach and cannot be texted." });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "This contact is opted out of marketing outreach and cannot be texted.",
+        });
       }
       const [latestInbound] = await db
         .select({ fromNumber: aircallMessages.fromNumber })
         .from(aircallMessages)
-        .where(and(
-          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
-          eq(aircallMessages.contactId, input.contactId),
-          eq(aircallMessages.direction, "inbound"),
-        ))
-        .orderBy(desc(sql`COALESCE(${aircallMessages.receivedAt}, ${aircallMessages.sentAt}, ${aircallMessages.createdAt})`))
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound")
+          )
+        )
+        .orderBy(
+          desc(
+            sql`COALESCE(${aircallMessages.receivedAt}, ${aircallMessages.sentAt}, ${aircallMessages.createdAt})`
+          )
+        )
         .limit(1);
       const replyNumber = latestInbound?.fromNumber ?? contact.phone;
-      if (!replyNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "This conversation does not have a valid reply number." });
+      if (!replyNumber)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This conversation does not have a valid reply number.",
+        });
 
       const destination = toE164(replyNumber);
-      const result = await sendAircallSMS(destination, input.body, line.marketingNumberId);
+      const result = await sendAircallSMS(
+        destination,
+        input.body,
+        line.marketingNumberId
+      );
       if (!result.success || !result.messageId) {
-        throw new TRPCError({ code: "BAD_GATEWAY", message: result.error || "Aircall did not return a message identifier." });
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message:
+            result.error || "Aircall did not return a message identifier.",
+        });
       }
       const payload = nativeMessagePayload(result.message, {
         messageId: result.messageId,
@@ -406,29 +1238,43 @@ export const marketingTextInboxRouter = router({
         numberName: line.marketingNumberName,
         numberDigits: line.marketingNumberDigits,
       });
-      await persistAircallMessage(payload, { contactId: contact.id, savvyUserId: ctx.user.id });
+      await persistAircallMessage(payload, {
+        contactId: contact.id,
+        savvyUserId: ctx.user.id,
+      });
       await logActivity({
         userId: ctx.user.id,
         action: "marketing_text_reply_sent",
         entityType: "contact",
         entityId: contact.id,
         relatedContactId: contact.id,
-        details: { aircallMessageId: result.messageId, aircallNumberId: line.marketingNumberId },
+        details: {
+          aircallMessageId: result.messageId,
+          aircallNumberId: line.marketingNumberId,
+        },
       });
       return { success: true, messageId: result.messageId };
     }),
 
   /** Records a contact's marketing-text opt-out immediately without overwriting a broader Do Not Contact preference. */
   optOutContact: protectedProcedure
-    .input(z.object({ contactId: positiveId, reason: z.string().trim().min(1).max(255) }))
+    .input(
+      z.object({
+        contactId: positiveId,
+        reason: z.string().trim().min(1).max(255),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
-      requireAdmin(ctx.user.role);
+      await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.update(contacts).set({
-        smsMarketingOptedOutAt: new Date(),
-        smsMarketingOptOutReason: input.reason,
-      }).where(eq(contacts.id, input.contactId));
+      await db
+        .update(contacts)
+        .set({
+          smsMarketingOptedOutAt: new Date(),
+          smsMarketingOptOutReason: input.reason,
+        })
+        .where(eq(contacts.id, input.contactId));
       await logActivity({
         userId: ctx.user.id,
         action: "contact_marked_sms_marketing_opt_out",

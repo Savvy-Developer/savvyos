@@ -13,6 +13,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { processOneTimeSmartPlanSends, processSmartPlanSteps } from "../smartPlanScheduler";
+import { processAgentIntroductionFollowUps } from "../agentIntroductionFollowUps";
 import { scheduleListingExpirationCheck } from "../listingExpirationScheduler";
 import { scheduleOnboardingOverdueCheck } from "../onboardingOverdueScheduler";
 import { scheduleAgentProductionReport } from "../agentProductionReportScheduler";
@@ -304,11 +305,13 @@ async function startServer() {
   setInterval(() => {
     processSmartPlanSteps().catch((err) => console.error("[SmartPlanScheduler] Cron error:", err));
     processOneTimeSmartPlanSends().catch((err) => console.error("[OneTimeSend] Cron error:", err));
+    processAgentIntroductionFollowUps().catch((err) => console.error("[AgentIntroductions] Cron error:", err));
   }, 5 * 60 * 1000);
   // Also run once shortly after startup.
   setTimeout(() => {
     processSmartPlanSteps().catch((err) => console.error("[SmartPlanScheduler] Startup run error:", err));
     processOneTimeSmartPlanSends().catch((err) => console.error("[OneTimeSend] Startup run error:", err));
+    processAgentIntroductionFollowUps().catch((err) => console.error("[AgentIntroductions] Startup run error:", err));
   }, 10_000);
 
   // Listing expiration reminder: daily at 8am

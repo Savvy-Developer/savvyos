@@ -38,27 +38,27 @@ import { useLocation } from "wouter";
 const GROUP_ORDER = [
   "Overview",
   "CRM",
+  "ISA",
   "Transactions",
-  "Outbound Referrals",
+  "Agent Success Team",
   "Pulse",
-  "Operations",
+  "Work",
+  "Marketing",
+  "Approvals",
   "Admin",
-  "Dev Tools",
-  "Resources",
-  "Projects & Plans",
 ];
 
 const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   "Overview":         { bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" },
   "CRM":              { bg: "#f5f3ff", text: "#6d28d9", border: "#ddd6fe" },
+  "ISA":              { bg: "#fdf4ff", text: "#a21caf", border: "#f5d0fe" },
   "Transactions":     { bg: "#ecfdf5", text: "#065f46", border: "#a7f3d0" },
-  "Outbound Referrals": { bg: "#fefce8", text: "#854d0e", border: "#fde68a" },
+  "Agent Success Team": { bg: "#fefce8", text: "#854d0e", border: "#fde68a" },
   "Pulse":            { bg: "#f0f9ff", text: "#075985", border: "#bae6fd" },
-  "Operations":       { bg: "#fffbeb", text: "#92400e", border: "#fde68a" },
+  "Work":             { bg: "#fffbeb", text: "#92400e", border: "#fde68a" },
+  "Marketing":        { bg: "#fff7ed", text: "#9a3412", border: "#fed7aa" },
+  "Approvals":        { bg: "#f0fdfa", text: "#134e4a", border: "#99f6e4" },
   "Admin":            { bg: "#fff1f2", text: "#9f1239", border: "#fecdd3" },
-  "Dev Tools":        { bg: "#f8fafc", text: "#475569", border: "#e2e8f0" },
-  "Resources":        { bg: "#f0fdfa", text: "#134e4a", border: "#99f6e4" },
-  "Projects & Plans": { bg: "#fff7ed", text: "#9a3412", border: "#fed7aa" },
 };
 
 const TEMP_DURATIONS = [

@@ -1,7 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { aliasedTable, and, eq, gte, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
+import { getDb } from "../db";
+import { resendInboxMessages } from "../../drizzle/schema";
 import {
   archiveResendInboxThread,
   backfillResendInbox,
@@ -20,6 +23,60 @@ async function assertInboxAccess(user: { id: number; role: string; email?: strin
   }
 }
 
+const SPEED_TO_LEAD_WINDOWS = [
+  { key: "today", label: "Today" },
+  { key: "7d", label: "7D", days: 7 },
+  { key: "30d", label: "30D", days: 30 },
+  { key: "90d", label: "90D", days: 90 },
+  { key: "ytd", label: "YTD" },
+  { key: "all", label: "All Time" },
+] as const;
+
+function startForWindow(window: typeof SPEED_TO_LEAD_WINDOWS[number]): Date | null {
+  const now = new Date();
+  if (window.key === "all") return null;
+  if (window.key === "today") {
+    now.setHours(0, 0, 0, 0);
+    return now;
+  }
+  if (window.key === "ytd") return new Date(now.getFullYear(), 0, 1);
+  const start = new Date(now);
+  start.setDate(start.getDate() - (window.days ?? 0));
+  return start;
+}
+
+async function getEmailSpeedToLead() {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  const inbound = aliasedTable(resendInboxMessages, "speed_to_lead_inbound_email");
+  const outbound = aliasedTable(resendInboxMessages, "speed_to_lead_outbound_email");
+  const responseAt = sql<Date | null>`(
+    SELECT MIN(${outbound.receivedAt})
+    FROM ${outbound}
+    WHERE ${outbound.threadId} = ${inbound.threadId}
+      AND ${outbound.direction} = 'outbound'
+      AND ${outbound.receivedAt} > ${inbound.receivedAt}
+  )`;
+  return Promise.all(SPEED_TO_LEAD_WINDOWS.map(async (window) => {
+    const start = startForWindow(window);
+    const [metrics] = await db.select({
+      incomingCount: sql<number>`COUNT(*)`,
+      respondedCount: sql<number>`SUM(CASE WHEN ${responseAt} IS NOT NULL THEN 1 ELSE 0 END)`,
+      averageMinutes: sql<number | null>`AVG(CASE WHEN ${responseAt} IS NOT NULL THEN TIMESTAMPDIFF(SECOND, ${inbound.receivedAt}, ${responseAt}) / 60.0 ELSE NULL END)`,
+    }).from(inbound).where(and(
+      eq(inbound.direction, "inbound"),
+      ...(start ? [gte(inbound.receivedAt, start)] : []),
+    ));
+    return {
+      key: window.key,
+      label: window.label,
+      averageMinutes: metrics?.averageMinutes == null ? null : Number(metrics.averageMinutes),
+      respondedCount: Number(metrics?.respondedCount ?? 0),
+      incomingCount: Number(metrics?.incomingCount ?? 0),
+    };
+  }));
+}
+
 export const resendInboxRouter = router({
   list: protectedProcedure
     .input(z.object({ archived: z.boolean().optional().default(false) }).optional())
@@ -31,6 +88,12 @@ export const resendInboxRouter = router({
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
     await assertInboxAccess(ctx.user);
     return { count: await getResendInboxUnreadCount(ctx.user.id) };
+  }),
+
+  /** Mean elapsed time from every inbound email to the first SavvyOS reply in its thread. */
+  speedToLead: protectedProcedure.query(async ({ ctx }) => {
+    await assertInboxAccess(ctx.user);
+    return { windows: await getEmailSpeedToLead() };
   }),
 
   getThread: protectedProcedure

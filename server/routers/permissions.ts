@@ -59,6 +59,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewHotLeads",               label: "Hot Leads",                  group: "ISA" },
   { key: "canViewMarketMatch",            label: "Market Match Hub",           group: "ISA" },
   { key: "canViewResendInbox",            label: "Resend Inbox",               group: "ISA" },
+  { key: "canViewMarketingTextInbox",     label: "Marketing Text Inbox",       group: "ISA" },
   { key: "canViewDuplicates",             label: "Duplicate Contacts",         group: "ISA" },
   // Transactions
   { key: "canViewTransactions",           label: "All Transactions",           group: "Transactions" },
@@ -81,6 +82,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewLeadershipDashboard",    label: "Leadership Dashboard",       group: "Agent Success Team" },
   { key: "canViewCoachFeedback",          label: "Coach Feedback",             group: "Agent Success Team" },
   { key: "canViewGoals",                  label: "Goals",                      group: "Agent Success Team" },
+  { key: "canViewVendorLists",            label: "Vendors",                    group: "Agent Success Team" },
   // Pulse
   { key: "canViewPulse",                  label: "Pulse",                      group: "Pulse" },
   { key: "canViewPulseSettings",          label: "Pulse Settings",             group: "Pulse" },
@@ -110,6 +112,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canApprovePto",                 label: "PTO Approvals",              group: "Admin" },
   { key: "canViewOnboarding",             label: "On/Offboarding",             group: "Admin" },
   { key: "canViewOrgChart",               label: "Org Chart",                  group: "Admin" },
+  { key: "canViewAgentDirectory",         label: "Agent Directory",            group: "Admin" },
   { key: "canViewAgentRenewals",          label: "Agent Renewals",             group: "Admin" },
   { key: "canViewRolesResponsibilities",  label: "Roles and Responsibilities", group: "Admin" },
   { key: "canViewFeedback",               label: "Feedback and Requests",      group: "Admin" },

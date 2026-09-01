@@ -3000,6 +3000,9 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities").default(true).notNull(),
   canViewFeedback: boolean("canViewFeedback").default(true).notNull(),
   canViewMarketingAdmin: boolean("canViewMarketingAdmin").default(true).notNull(),
+  // Admin navigation: directory and vendor management are separately visible.
+  canViewAgentDirectory: boolean("canViewAgentDirectory").default(true).notNull(),
+  canViewVendorLists: boolean("canViewVendorLists").default(true).notNull(),
   // Every admin sidebar entry must have a matching Super Permissions flag.
   canViewWebinars: boolean("canViewWebinars").default(true).notNull(),
   canViewTechRequests: boolean("canViewTechRequests").default(true).notNull(),
@@ -3026,6 +3029,9 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewFeatureUpdates: boolean("canViewFeatureUpdates").default(true).notNull(),
   // Inbox access is sensitive because it exposes inbound external correspondence.
   canViewResendInbox: boolean("canViewResendInbox").default(false).notNull(),
+  // Existing administrators could use this inbox before permissioning, so its
+  // default remains ON; Super Permissions can now restrict it deliberately.
+  canViewMarketingTextInbox: boolean("canViewMarketingTextInbox").default(true).notNull(),
   // Passwords
   canViewPasswords: boolean("canViewPasswords").default(true).notNull(),
   // Super admin tools — default OFF (page has its own access check anyway)
@@ -3123,7 +3129,32 @@ export const marketingTextInboxThreads = mysqlTable("marketing_text_inbox_thread
 ]);
 export type MarketingTextInboxThread = typeof marketingTextInboxThreads.$inferSelect;
 
-// ─── Email Behaviors ──────────────────────────────────────────────────────────
+// ─── Agent Introduction Follow-ups ──────────────────────────────────────────
+// A queued reminder created from the Marketing Text Inbox after an agent/client
+// introduction. Delivery is handled by the in-process worker, preserving a
+// durable audit trail even when a deployment restarts between scheduling and send.
+export const agentIntroductionFollowUps = mysqlTable("agent_introduction_follow_ups", {
+  id: int("id").autoincrement().primaryKey(),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  connectionId: int("connectionId").notNull().references(() => agentConnections.id, { onDelete: "cascade" }),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  dueAt: timestamp("dueAt").notNull(),
+  status: mysqlEnum("status", ["queued", "processing", "sent", "skipped", "failed"]).default("queued").notNull(),
+  sentAt: timestamp("sentAt"),
+  aircallMessageId: varchar("aircallMessageId", { length: 128 }),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("agent_intro_follow_ups_status_due_idx").on(table.status, table.dueAt),
+  index("agent_intro_follow_ups_contact_idx").on(table.contactId, table.createdAt),
+  index("agent_intro_follow_ups_connection_idx").on(table.connectionId, table.createdAt),
+]);
+export type AgentIntroductionFollowUp = typeof agentIntroductionFollowUps.$inferSelect;
+
+// ─── Email Behaviors ─────────────────────────────────────────────────────────
 // Stores email activity imported from Resend and GoHighLevel, matched to a
 // contact by email address. One row per email send event.
 export const emailBehaviors = mysqlTable(

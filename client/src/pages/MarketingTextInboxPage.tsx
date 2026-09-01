@@ -10,10 +10,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { SpeedToLeadStats } from "@/components/SpeedToLeadStats";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -21,8 +32,10 @@ import {
   ArchiveRestore,
   CheckCheck,
   CheckCircle2,
+  Clock3,
   ExternalLink,
   Inbox,
+  Loader2,
   MailOpen,
   MessageSquare,
   Phone,
@@ -31,6 +44,8 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Sparkles,
+  UserRoundPlus,
 } from "lucide-react";
 
 type MarketingThread = {
@@ -60,6 +75,16 @@ type MarketingMessage = {
   sentAt: Date | string | null;
   receivedAt: Date | string | null;
   createdAt: Date | string;
+  smartPlanName?: string | null;
+  smartPlanStepOrder?: number | null;
+};
+
+type IntroductionDraft = {
+  clientText: string;
+  agentText: string;
+  emailSubject: string;
+  emailBody: string;
+  contextSummary: string;
 };
 
 function formatTime(value: Date | string | null | undefined) {
@@ -97,24 +122,52 @@ export default function MarketingTextInboxPage() {
   const [selectedNumberId, setSelectedNumberId] = useState("");
   const [reply, setReply] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [clientText, setClientText] = useState("");
+  const [agentText, setAgentText] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [contextSummary, setContextSummary] = useState("");
+  const [appointmentSet, setAppointmentSet] = useState(false);
+  const [autoFollowUp, setAutoFollowUp] = useState(false);
+  const [followUpDelayHours, setFollowUpDelayHours] = useState("24");
+  const [followUpBody, setFollowUpBody] = useState("");
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const isAdmin = user?.role === "admin";
+  const permissions = trpc.permissions.getMyPermissions.useQuery(undefined, {
+    enabled: isAdmin,
+  });
+  const canUseInbox =
+    isAdmin &&
+    !!(permissions.data as Record<string, boolean> | undefined)
+      ?.canViewMarketingTextInbox;
 
   const configuration = trpc.marketingTextInbox.configuration.useQuery(
     undefined,
-    { enabled: isAdmin }
+    { enabled: canUseInbox }
   );
   const availableNumbers =
     trpc.marketingTextInbox.listAvailableNumbers.useQuery(undefined, {
-      enabled: isAdmin && !!configuration.data?.apiConfigured,
+      enabled: canUseInbox && !!configuration.data?.apiConfigured,
     });
+  const speedToLead = trpc.marketingTextInbox.speedToLead.useQuery(undefined, {
+    enabled: canUseInbox,
+    refetchInterval: 60_000,
+  });
+  const agentsQuery = trpc.marketingTextInbox.listEligibleAgents.useQuery(
+    undefined,
+    {
+      enabled: canUseInbox && connectOpen,
+    }
+  );
   const threadsQuery = trpc.marketingTextInbox.listThreads.useQuery(
     { search: search.trim() || undefined, archived: showArchived },
-    { enabled: isAdmin && !!configuration.data?.marketingNumber }
+    { enabled: canUseInbox && !!configuration.data?.marketingNumber }
   );
   const threadQuery = trpc.marketingTextInbox.getThread.useQuery(
     { contactId: selectedContactId ?? 1 },
-    { enabled: isAdmin && !!selectedContactId }
+    { enabled: canUseInbox && !!selectedContactId }
   );
   const messages = ((threadQuery.data ?? []) as MarketingMessage[]).filter(
     message => Boolean(message.body?.trim())
@@ -126,10 +179,14 @@ export default function MarketingTextInboxPage() {
       ) ?? null,
     [threadsQuery.data, selectedContactId]
   );
+  const selectedAgent = (agentsQuery.data ?? []).find(
+    agent => String(agent.id) === selectedAgentId
+  );
 
   const refreshInbox = () => {
     void configuration.refetch();
     void threadsQuery.refetch();
+    void speedToLead.refetch();
   };
 
   const selectNumber =
@@ -149,6 +206,7 @@ export default function MarketingTextInboxPage() {
       toast.success("Marketing text sent.");
       void threadQuery.refetch();
       void threadsQuery.refetch();
+      void speedToLead.refetch();
     },
     onError: error => toast.error(error.message),
   });
@@ -190,6 +248,41 @@ export default function MarketingTextInboxPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const draftIntroduction =
+    trpc.marketingTextInbox.draftIntroduction.useMutation({
+      onSuccess: (draft: IntroductionDraft) => {
+        setClientText(draft.clientText);
+        setAgentText(draft.agentText);
+        setEmailSubject(draft.emailSubject);
+        setEmailBody(draft.emailBody);
+        setContextSummary(draft.contextSummary);
+        setFollowUpBody(
+          current =>
+            current ||
+            `Hey ${selectedThread ? contactName(selectedThread).split(" ")[0] : "there"}, just wanted to check in and see how talking with ${selectedAgent?.name ?? "your Savvy agent"} went.`
+        );
+      },
+      onError: error =>
+        toast.error(error.message || "Unable to draft this introduction."),
+    });
+  const sendIntroduction = trpc.marketingTextInbox.sendIntroduction.useMutation(
+    {
+      onSuccess: result => {
+        toast.success(
+          result.connectionCreated
+            ? "Introduction sent and a new agent connection was created."
+            : "Introduction sent through the existing agent connection."
+        );
+        setConnectOpen(false);
+        setSelectedAgentId("");
+        void threadQuery.refetch();
+        void threadsQuery.refetch();
+        void speedToLead.refetch();
+      },
+      onError: error =>
+        toast.error(error.message || "Unable to send the introduction."),
+    }
+  );
 
   useEffect(() => {
     if (selectedContactId)
@@ -212,10 +305,31 @@ export default function MarketingTextInboxPage() {
     if (element) element.scrollTop = element.scrollHeight;
   }, [selectedContactId, messages.length, threadQuery.dataUpdatedAt]);
 
-  if (!isAdmin) {
+  useEffect(() => {
+    if (!connectOpen || !selectedContactId || !selectedAgentId) return;
+    setClientText("");
+    setAgentText("");
+    setEmailSubject("");
+    setEmailBody("");
+    setContextSummary("");
+    setFollowUpBody("");
+    draftIntroduction.mutate({
+      contactId: selectedContactId,
+      agentId: Number(selectedAgentId),
+    });
+  }, [connectOpen, selectedContactId, selectedAgentId]);
+
+  if (permissions.isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!canUseInbox) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        This inbox is available to administrators only.
+        You do not have access to the Marketing Text Inbox.
       </div>
     );
   }
@@ -227,6 +341,28 @@ export default function MarketingTextInboxPage() {
     markThreadRead.isPending ||
     markThreadUnread.isPending ||
     archiveThread.isPending;
+  const canSendIntroduction = Boolean(
+    selectedAgentId &&
+      clientText.trim() &&
+      agentText.trim() &&
+      emailSubject.trim() &&
+      emailBody.trim() &&
+      (!autoFollowUp ||
+        (Number(followUpDelayHours) >= 0.25 && followUpBody.trim()))
+  );
+  const openIntroduction = () => {
+    setAppointmentSet(false);
+    setAutoFollowUp(false);
+    setFollowUpDelayHours("24");
+    setSelectedAgentId("");
+    setClientText("");
+    setAgentText("");
+    setEmailSubject("");
+    setEmailBody("");
+    setContextSummary("");
+    setFollowUpBody("");
+    setConnectOpen(true);
+  };
 
   return (
     <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-5 p-4 md:p-6">
@@ -264,11 +400,13 @@ export default function MarketingTextInboxPage() {
           >
             <RefreshCw
               className={`mr-1.5 h-4 w-4 ${configuration.isFetching || threadsQuery.isFetching ? "animate-spin" : ""}`}
-            />
+            />{" "}
             Refresh
           </Button>
         </div>
       </div>
+
+      <SpeedToLeadStats windows={speedToLead.data?.windows} channel="text" />
 
       {!config?.sendReady && (
         <Card className="border-amber-200 bg-amber-50/50">
@@ -430,8 +568,8 @@ export default function MarketingTextInboxPage() {
                   Select a conversation
                 </p>
                 <p className="mt-1 text-sm">
-                  Choose a contact thread to review the full history and reply
-                  from the marketing line.
+                  Choose a contact thread to review the full history, connect
+                  them with an agent, or reply from the marketing line.
                 </p>
               </div>
             ) : (
@@ -448,6 +586,15 @@ export default function MarketingTextInboxPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={openIntroduction}
+                      disabled={showArchived || cannotReply}
+                    >
+                      <UserRoundPlus className="mr-1.5 h-3.5 w-3.5" /> Connect
+                      to agent
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -534,6 +681,16 @@ export default function MarketingTextInboxPage() {
                         <div
                           className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === "outbound" ? "bg-primary text-primary-foreground" : "border bg-background"}`}
                         >
+                          {message.smartPlanName && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <Sparkles className="mr-1 h-3 w-3" /> Smart Plan ·{" "}
+                              {message.smartPlanName} · Step{" "}
+                              {message.smartPlanStepOrder}
+                            </Badge>
+                          )}
                           <p className="whitespace-pre-wrap">{message.body}</p>
                           <p
                             className={`mt-1 text-[10px] ${message.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}
@@ -563,8 +720,8 @@ export default function MarketingTextInboxPage() {
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                       <p>
                         This contact is opted out of marketing SMS. SavvyOS will
-                        not send replies or Smart Plan texts from this marketing
-                        line.
+                        not send replies, introductions, or Smart Plan texts
+                        from this marketing line.
                       </p>
                     </div>
                   ) : (
@@ -610,6 +767,229 @@ export default function MarketingTextInboxPage() {
           </main>
         </div>
       )}
+
+      <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserRoundPlus className="h-5 w-5 text-primary" /> Connect{" "}
+              {selectedThread ? contactName(selectedThread) : "client"} to an
+              agent
+            </DialogTitle>
+            <DialogDescription>
+              Send a personal paired introduction by text and a group email. The
+              editable draft uses recent conversation history and records the
+              outcome in both contact and pipeline history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="introduction-agent">Agent</Label>
+              <select
+                id="introduction-agent"
+                value={selectedAgentId}
+                onChange={event => setSelectedAgentId(event.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
+              >
+                <option value="">Select an active agent…</option>
+                {(agentsQuery.data ?? []).map(agent => (
+                  <option key={agent.id} value={String(agent.id)}>
+                    {agent.name || agent.email}
+                    {agent.email ? ` — ${agent.email}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {draftIntroduction.isPending && (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Drafting a personal
+                introduction from the recent conversation…
+              </div>
+            )}
+            {selectedAgentId && !draftIntroduction.isPending && (
+              <>
+                <div className="rounded-lg border border-primary/15 bg-primary/[0.03] p-3">
+                  <p className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                    <Sparkles className="h-3.5 w-3.5" /> Why this introduction
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {contextSummary ||
+                      "Recent conversation context will be included in the draft."}
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="client-intro-text">Text to client</Label>
+                    <Textarea
+                      id="client-intro-text"
+                      value={clientText}
+                      onChange={event => setClientText(event.target.value)}
+                      rows={6}
+                      maxLength={1600}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-intro-text">
+                      Text to {selectedAgent?.name || "agent"}
+                    </Label>
+                    <Textarea
+                      id="agent-intro-text"
+                      value={agentText}
+                      onChange={event => setAgentText(event.target.value)}
+                      rows={6}
+                      maxLength={1600}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="introduction-email-subject">
+                    Group email subject
+                  </Label>
+                  <Input
+                    id="introduction-email-subject"
+                    value={emailSubject}
+                    onChange={event => setEmailSubject(event.target.value)}
+                    maxLength={255}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="introduction-email-body">Group email</Label>
+                  <Textarea
+                    id="introduction-email-body"
+                    value={emailBody}
+                    onChange={event => setEmailBody(event.target.value)}
+                    rows={8}
+                    maxLength={20_000}
+                  />
+                </div>
+                <Label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3">
+                  <Checkbox
+                    checked={appointmentSet}
+                    onCheckedChange={checked =>
+                      setAppointmentSet(checked === true)
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">
+                      Create this as an appointment
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Marks the connection as an appointment in the agent’s
+                      pipeline.
+                    </span>
+                  </span>
+                </Label>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label htmlFor="auto-follow-up" className="font-medium">
+                        Auto Text Follow Up
+                      </Label>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Schedule a personal check-in to the client after this
+                        introduction.
+                      </p>
+                    </div>
+                    <Switch
+                      id="auto-follow-up"
+                      checked={autoFollowUp}
+                      onCheckedChange={setAutoFollowUp}
+                    />
+                  </div>
+                  {autoFollowUp && (
+                    <div className="mt-4 space-y-3 border-t pt-4">
+                      <div className="grid gap-3 sm:grid-cols-[200px_1fr]">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="follow-up-hours">
+                            Send after (hours)
+                          </Label>
+                          <div className="relative">
+                            <Clock3 className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              id="follow-up-hours"
+                              className="pl-9"
+                              type="number"
+                              min="0.25"
+                              max="720"
+                              step="0.25"
+                              value={followUpDelayHours}
+                              onChange={event =>
+                                setFollowUpDelayHours(event.target.value)
+                              }
+                            />
+                          </div>
+                        </div>
+                        <p className="self-end pb-2 text-xs text-muted-foreground">
+                          Example: enter 24 for a check-in tomorrow.
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="follow-up-text">
+                          Scheduled follow-up text
+                        </Label>
+                        <Textarea
+                          id="follow-up-text"
+                          value={followUpBody}
+                          onChange={event =>
+                            setFollowUpBody(event.target.value)
+                          }
+                          rows={3}
+                          maxLength={1600}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConnectOpen(false)}
+              disabled={sendIntroduction.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                selectedContactId &&
+                sendIntroduction.mutate({
+                  contactId: selectedContactId,
+                  agentId: Number(selectedAgentId),
+                  clientText,
+                  agentText,
+                  emailSubject,
+                  emailBody,
+                  appointmentSet,
+                  autoFollowUp,
+                  followUpDelayHours: autoFollowUp
+                    ? Number(followUpDelayHours)
+                    : undefined,
+                  followUpBody: autoFollowUp ? followUpBody : undefined,
+                })
+              }
+              disabled={
+                !canSendIntroduction ||
+                draftIntroduction.isPending ||
+                sendIntroduction.isPending
+              }
+            >
+              {sendIntroduction.isPending ? (
+                <>
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Sending
+                  introduction…
+                </>
+              ) : (
+                <>
+                  <Send className="mr-1.5 h-4 w-4" /> Send text + email
+                  introduction
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

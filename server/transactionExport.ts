@@ -17,6 +17,7 @@ export const TRANSACTION_EXPORT_COLUMNS = [
   "Property ZIP",
   "Purchase Price",
   "Gross Commission Income",
+  "Savvy Net",
   "Commission Rate (%)",
   "Commission Type",
   "Contract Date",
@@ -35,6 +36,7 @@ export const TRANSACTION_EXPORT_COLUMNS = [
 
 type ExportTransactionRow = {
   transaction: Record<string, any>;
+  savvyNet: string | number | null;
   agent: Record<string, any> | null;
   contact: Record<string, any> | null;
   property: Record<string, any> | null;
@@ -91,6 +93,7 @@ export function buildTransactionCsv(rows: ExportTransactionRow[]) {
       row.property?.zip,
       tx.purchasePrice,
       tx.grossCommissionIncome,
+      row.savvyNet,
       formatCommissionRate(tx.commissionRate, tx.commissionType),
       tx.commissionType,
       formatDate(tx.contractDate),

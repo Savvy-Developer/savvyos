@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import RichEmailEditor from "@/components/RichEmailEditor";
+import { SpeedToLeadStats } from "@/components/SpeedToLeadStats";
 
 type InboxThread = {
   id: number;
@@ -66,6 +67,9 @@ export default function ResendInboxPage() {
     { archived: showArchived },
     { refetchInterval: 30_000 },
   );
+  const speedToLead = trpc.resendInbox.speedToLead.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
 
   const filteredThreads = useMemo(() => (threads as InboxThread[]).filter((thread) => {
     const haystack = `${thread.subject} ${thread.participantEmail} ${thread.receivedAddress}`.toLowerCase();
@@ -227,6 +231,10 @@ export default function ResendInboxPage() {
           </Button>
         </div>
       </header>
+
+      <div className="border-b bg-muted/10 px-4 py-3 md:px-6">
+        <SpeedToLeadStats windows={speedToLead.data?.windows} channel="email" />
+      </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className={`flex w-full shrink-0 flex-col border-r bg-card md:w-[360px] ${mobileDetail ? "hidden md:flex" : "flex"}`}>

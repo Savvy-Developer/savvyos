@@ -274,8 +274,11 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewEmailNotifications: "/email-notifications",
   canViewFeatureUpdates: "/daily-report-updates",
   canViewResendInbox: "/resend-inbox",
+  canViewMarketingTextInbox: "/marketing-text-inbox",
   canViewPasswords: "/passwords",
   canViewSuperPermissions: "/admin/super-permissions",
+  canViewAgentDirectory: "/agent-directory",
+  canViewVendorLists: "/admin/vendors",
 };
 
 function filterNavByPermissions(groups: NavGroup[], permissions: Record<string, boolean> | null | undefined): NavGroup[] {
@@ -668,9 +671,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     undefined,
     { enabled: canUseResendInbox, refetchInterval: 30000 }
   );
+  const canUseMarketingTextInbox = role === "admin" && !!(adminPerms as Record<string, boolean> | undefined)?.canViewMarketingTextInbox;
   const { data: marketingTextInboxUnreadData } = trpc.marketingTextInbox.unreadCount.useQuery(
     undefined,
-    { enabled: role === "admin", refetchInterval: 30000 },
+    { enabled: canUseMarketingTextInbox, refetchInterval: 30000 },
   );
 
   // Password navigation is available only to list owners, selected recipients, and designated super users.
