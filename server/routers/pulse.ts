@@ -349,6 +349,7 @@ export const pulseRouter = router({
         isNull(pulseWorkItems.deletedAt),
       ));
       if (!workItem) throw new TRPCError({ code: "NOT_FOUND", message: "This work item no longer exists in a meeting you can access." });
+      if (workItem.type !== "rock" && !input.toMeetingId) throw new TRPCError({ code: "BAD_REQUEST", message: "Every To-Do and Issue must stay in an authorized meeting forum." });
       if (input.toMeetingId) await require_visible_meeting(db, ctx.user.id, input.toMeetingId);
 
       await db.transaction(async (tx: any) => {

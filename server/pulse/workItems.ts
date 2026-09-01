@@ -359,6 +359,7 @@ export const pulseWorkItemsRouter = router({
     }).refine((input) => (input.meetingId === null) !== (input.ownerPersonId === null), {
       message: "Choose one place: a meeting or one person.",
     }).superRefine((input, context) => {
+      if (input.type !== "rock" && !input.meetingId) context.addIssue({ code: z.ZodIssueCode.custom, path: ["meetingId"], message: "Choose an authorized meeting destination for every To-Do and Issue." });
       if (input.type === "rock" && !input.quarter) context.addIssue({ code: z.ZodIssueCode.custom, path: ["quarter"], message: "Choose the rock's quarter." });
       if (input.type === "rock" && !input.definitionOfDone?.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["definitionOfDone"], message: "Every Rock needs a definition of done." });
       if (input.type !== "rock" && input.quarter) context.addIssue({ code: z.ZodIssueCode.custom, path: ["quarter"], message: "Only rocks use a quarter." });
@@ -670,6 +671,7 @@ export const pulseWorkItemsRouter = router({
       const db = await getDb();
       if (!db) throw unavailable();
       const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "rock" && !input.toMeetingId) throw new TRPCError({ code: "BAD_REQUEST", message: "Every To-Do and Issue must stay in an authorized meeting forum." });
       let destination: { id: string; name: string } | null = null;
       if (input.toMeetingId) {
         const targetMeeting = await require_visible_meeting(db, ctx.user.id, input.toMeetingId);
