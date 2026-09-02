@@ -121,7 +121,10 @@ function formatTime(value: Date | string | null | undefined) {
   }).format(date);
 }
 
-function formatElapsed(value: Date | string | null | undefined, now = Date.now()) {
+function formatElapsed(
+  value: Date | string | null | undefined,
+  now = Date.now()
+) {
   if (!value) return "";
   const startedAt = new Date(value).getTime();
   if (Number.isNaN(startedAt)) return "";
@@ -165,6 +168,8 @@ export default function MarketingTextInboxPage() {
   const [selectedNumberId, setSelectedNumberId] = useState("");
   const [reply, setReply] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [archiveOnFinish, setArchiveOnFinish] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [groupText, setGroupText] = useState("");
@@ -175,7 +180,9 @@ export default function MarketingTextInboxPage() {
   const [autoFollowUp, setAutoFollowUp] = useState(false);
   const [followUpDelayHours, setFollowUpDelayHours] = useState("24");
   const [followUpBody, setFollowUpBody] = useState("");
-  const [editingFollowUpId, setEditingFollowUpId] = useState<number | null>(null);
+  const [editingFollowUpId, setEditingFollowUpId] = useState<number | null>(
+    null
+  );
   const [editingFollowUpBody, setEditingFollowUpBody] = useState("");
   const [editingFollowUpDueAt, setEditingFollowUpDueAt] = useState("");
   const [clock, setClock] = useState(() => Date.now());
@@ -215,10 +222,11 @@ export default function MarketingTextInboxPage() {
     { contactId: selectedContactId ?? 1 },
     { enabled: canUseInbox && !!selectedContactId }
   );
-  const followUpsQuery = trpc.marketingTextInbox.listIntroductionFollowUps.useQuery(
-    { contactId: selectedContactId ?? 1 },
-    { enabled: canUseInbox && !!selectedContactId }
-  );
+  const followUpsQuery =
+    trpc.marketingTextInbox.listIntroductionFollowUps.useQuery(
+      { contactId: selectedContactId ?? 1 },
+      { enabled: canUseInbox && !!selectedContactId }
+    );
   const messages = ((threadQuery.data ?? []) as MarketingMessage[]).filter(
     message => Boolean(message.body?.trim())
   );
@@ -292,6 +300,21 @@ export default function MarketingTextInboxPage() {
       setSelectedContactId(null);
       void threadsQuery.refetch();
       void utils.marketingTextInbox.unreadCount.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const finishThread = trpc.marketingTextInbox.finishThread.useMutation({
+    onSuccess: (_, values) => {
+      toast.success(
+        values.archive
+          ? "Conversation finished and archived."
+          : "Conversation finished."
+      );
+      setFinishOpen(false);
+      setSelectedContactId(null);
+      void threadsQuery.refetch();
+      void utils.marketingTextInbox.unreadCount.invalidate();
+      void speedToLead.refetch();
     },
     onError: error => toast.error(error.message),
   });
@@ -620,7 +643,8 @@ export default function MarketingTextInboxPage() {
                           title={`Read and awaiting a reply for ${formatElapsed(thread.awaitingReplySince, clock)}`}
                           className="flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
                         >
-                          <AlertTriangle className="h-3 w-3" /> {formatElapsed(thread.awaitingReplySince, clock)}
+                          <AlertTriangle className="h-3 w-3" />{" "}
+                          {formatElapsed(thread.awaitingReplySince, clock)}
                         </span>
                       )}
                     </div>
@@ -669,7 +693,12 @@ export default function MarketingTextInboxPage() {
                     </p>
                     {selectedThread?.awaitingReply && (
                       <p className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-700">
-                        <AlertTriangle className="h-3.5 w-3.5" /> Read and awaiting a reply for {formatElapsed(selectedThread.awaitingReplySince, clock)}
+                        <AlertTriangle className="h-3.5 w-3.5" /> Read and
+                        awaiting a reply for{" "}
+                        {formatElapsed(
+                          selectedThread.awaitingReplySince,
+                          clock
+                        )}
                       </p>
                     )}
                   </div>
@@ -722,6 +751,21 @@ export default function MarketingTextInboxPage() {
                       )}
                       {showArchived ? "Restore" : "Archive"}
                     </Button>
+                    {!showArchived && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setArchiveOnFinish(false);
+                          setFinishOpen(true);
+                        }}
+                        disabled={
+                          messageControlsPending || finishThread.isPending
+                        }
+                      >
+                        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Finish
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -772,7 +816,8 @@ export default function MarketingTextInboxPage() {
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {followUp.status === "queued"
                                   ? `Sending to this client after the introduction with ${followUp.agentName ?? "the agent"}.`
-                                  : followUp.errorMessage || "This scheduled text did not send."}
+                                  : followUp.errorMessage ||
+                                    "This scheduled text did not send."}
                               </p>
                             </div>
                             {editable && !isEditing && (
@@ -783,7 +828,9 @@ export default function MarketingTextInboxPage() {
                                   onClick={() => {
                                     setEditingFollowUpId(followUp.id);
                                     setEditingFollowUpBody(followUp.body);
-                                    setEditingFollowUpDueAt(toDateTimeLocal(followUp.dueAt));
+                                    setEditingFollowUpDueAt(
+                                      toDateTimeLocal(followUp.dueAt)
+                                    );
                                   }}
                                   disabled={deleteFollowUp.isPending}
                                 >
@@ -793,10 +840,13 @@ export default function MarketingTextInboxPage() {
                                   size="sm"
                                   variant="outline"
                                   className="text-destructive hover:text-destructive"
-                                  onClick={() => deleteFollowUp.mutate({ id: followUp.id })}
+                                  onClick={() =>
+                                    deleteFollowUp.mutate({ id: followUp.id })
+                                  }
                                   disabled={deleteFollowUp.isPending}
                                 >
-                                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+                                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />{" "}
+                                  Delete
                                 </Button>
                               </div>
                             )}
@@ -804,22 +854,34 @@ export default function MarketingTextInboxPage() {
                           {isEditing ? (
                             <div className="mt-3 space-y-3 border-t border-amber-200 pt-3">
                               <div className="space-y-1.5">
-                                <Label htmlFor={`follow-up-body-${followUp.id}`}>Scheduled text</Label>
+                                <Label
+                                  htmlFor={`follow-up-body-${followUp.id}`}
+                                >
+                                  Scheduled text
+                                </Label>
                                 <Textarea
                                   id={`follow-up-body-${followUp.id}`}
                                   value={editingFollowUpBody}
-                                  onChange={event => setEditingFollowUpBody(event.target.value)}
+                                  onChange={event =>
+                                    setEditingFollowUpBody(event.target.value)
+                                  }
                                   rows={3}
                                   maxLength={1600}
                                 />
                               </div>
                               <div className="space-y-1.5">
-                                <Label htmlFor={`follow-up-due-at-${followUp.id}`}>Send at</Label>
+                                <Label
+                                  htmlFor={`follow-up-due-at-${followUp.id}`}
+                                >
+                                  Send at
+                                </Label>
                                 <Input
                                   id={`follow-up-due-at-${followUp.id}`}
                                   type="datetime-local"
                                   value={editingFollowUpDueAt}
-                                  onChange={event => setEditingFollowUpDueAt(event.target.value)}
+                                  onChange={event =>
+                                    setEditingFollowUpDueAt(event.target.value)
+                                  }
                                 />
                               </div>
                               <div className="flex justify-end gap-2">
@@ -833,19 +895,29 @@ export default function MarketingTextInboxPage() {
                                 </Button>
                                 <Button
                                   size="sm"
-                                  onClick={() => updateFollowUp.mutate({
-                                    id: followUp.id,
-                                    body: editingFollowUpBody.trim(),
-                                    dueAt: new Date(editingFollowUpDueAt),
-                                  })}
-                                  disabled={!editingFollowUpBody.trim() || !editingFollowUpDueAt || updateFollowUp.isPending}
+                                  onClick={() =>
+                                    updateFollowUp.mutate({
+                                      id: followUp.id,
+                                      body: editingFollowUpBody.trim(),
+                                      dueAt: new Date(editingFollowUpDueAt),
+                                    })
+                                  }
+                                  disabled={
+                                    !editingFollowUpBody.trim() ||
+                                    !editingFollowUpDueAt ||
+                                    updateFollowUp.isPending
+                                  }
                                 >
-                                  {updateFollowUp.isPending ? "Saving…" : "Save follow-up"}
+                                  {updateFollowUp.isPending
+                                    ? "Saving…"
+                                    : "Save follow-up"}
                                 </Button>
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-3 whitespace-pre-wrap text-sm">{followUp.body}</p>
+                            <p className="mt-3 whitespace-pre-wrap text-sm">
+                              {followUp.body}
+                            </p>
                           )}
                         </section>
                       );
@@ -894,7 +966,8 @@ export default function MarketingTextInboxPage() {
                               variant="secondary"
                               className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
                             >
-                              <Timer className="mr-1 h-3 w-3" /> Auto follow-up sent
+                              <Timer className="mr-1 h-3 w-3" /> Auto follow-up
+                              sent
                             </Badge>
                           )}
                           <p className="whitespace-pre-wrap">{message.body}</p>
@@ -974,6 +1047,56 @@ export default function MarketingTextInboxPage() {
         </div>
       )}
 
+      <Dialog open={finishOpen} onOpenChange={setFinishOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Finish this conversation?</DialogTitle>
+            <DialogDescription>
+              This marks the current client reply resolved and removes it from
+              Speed to Lead calculations. It does not delete the text history.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm">
+            <Checkbox
+              checked={archiveOnFinish}
+              onCheckedChange={checked => setArchiveOnFinish(checked === true)}
+            />
+            <span>
+              <span className="font-medium">
+                Also archive this conversation
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                You can restore it later from Archived.
+              </span>
+            </span>
+          </label>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setFinishOpen(false)}
+              disabled={finishThread.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                selectedContactId &&
+                finishThread.mutate({
+                  contactId: selectedContactId,
+                  archive: archiveOnFinish,
+                })
+              }
+              disabled={!selectedContactId || finishThread.isPending}
+            >
+              {finishThread.isPending && (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              )}{" "}
+              Finish conversation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
@@ -983,9 +1106,9 @@ export default function MarketingTextInboxPage() {
               agent
             </DialogTitle>
             <DialogDescription>
-              Send one shared introduction text to both people and a group email.
-              The editable draft reads the full recent conversation, including the
-              outgoing Savvy messages the client is responding to.
+              Send one shared introduction text to both people and a group
+              email. The editable draft reads the full recent conversation,
+              including the outgoing Savvy messages the client is responding to.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
@@ -1040,7 +1163,12 @@ export default function MarketingTextInboxPage() {
                     maxLength={1600}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Sent once through Aircall to {selectedThread ? contactName(selectedThread) : "the client"} and {selectedAgent?.name || "the selected agent"}; both can see and reply in the same group conversation.
+                    Sent once through Aircall to{" "}
+                    {selectedThread
+                      ? contactName(selectedThread)
+                      : "the client"}{" "}
+                    and {selectedAgent?.name || "the selected agent"}; both can
+                    see and reply in the same group conversation.
                   </p>
                 </div>
                 <div className="space-y-2">

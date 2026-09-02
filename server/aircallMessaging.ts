@@ -63,7 +63,8 @@ function toStoredPhone(value: string | null | undefined): string | null {
 }
 
 function groupConversationId(payload: AircallMessageData): string | null {
-  return typeof payload.group_conversation_id === "string" && payload.group_conversation_id.trim()
+  return typeof payload.group_conversation_id === "string" &&
+    payload.group_conversation_id.trim()
     ? payload.group_conversation_id.trim()
     : null;
 }
@@ -71,14 +72,18 @@ function groupConversationId(payload: AircallMessageData): string | null {
 function groupParticipants(payload: AircallMessageData): string[] | null {
   if (!Array.isArray(payload.participants)) return null;
   const participants = payload.participants
-    .filter((participant): participant is string => typeof participant === "string")
+    .filter(
+      (participant): participant is string => typeof participant === "string"
+    )
     .map(participant => toStoredPhone(participant))
     .filter((participant): participant is string => Boolean(participant));
   return participants.length ? Array.from(new Set(participants)) : null;
 }
 
 /** Resolve Aircall's sender/recipient variants to a canonical CRM phone value. */
-export function messageParticipantNumber(payload: Pick<AircallMessageData, "raw_digits" | "external_number">): string | null {
+export function messageParticipantNumber(
+  payload: Pick<AircallMessageData, "raw_digits" | "external_number">
+): string | null {
   return toStoredPhone(payload.raw_digits ?? payload.external_number);
 }
 
@@ -87,9 +92,13 @@ function resolveDirection(value: unknown): "inbound" | "outbound" {
 }
 
 /** Message webhook names are the authoritative source of message direction. */
-export function directionFromAircallMessageEvent(event: unknown): "inbound" | "outbound" | undefined {
-  if (event === "message.received" || event === "group_message.received") return "inbound";
-  if (event === "message.sent" || event === "group_message.sent") return "outbound";
+export function directionFromAircallMessageEvent(
+  event: unknown
+): "inbound" | "outbound" | undefined {
+  if (event === "message.received" || event === "group_message.received")
+    return "inbound";
+  if (event === "message.sent" || event === "group_message.sent")
+    return "outbound";
   return undefined;
 }
 
@@ -99,7 +108,8 @@ function messageTitle(direction: "inbound" | "outbound"): string {
     : "Outbound text via Aircall";
 }
 
-const SMS_MARKETING_OPT_OUT_PATTERN = /^(?:stop|unsubscribe|cancel|end|quit|revoke|opt\s*out)$/i;
+const SMS_MARKETING_OPT_OUT_PATTERN =
+  /^(?:stop|unsubscribe|cancel|end|quit|revoke|opt\s*out)$/i;
 
 function isMarketingOptOut(body: string | null | undefined): boolean {
   return !!body?.trim() && SMS_MARKETING_OPT_OUT_PATTERN.test(body.trim());
@@ -130,17 +140,35 @@ export async function persistAircallMessage(
 
   // Status-update events do not repeat direction or the full message body, so
   // retain the original record instead of converting a lead reply to outbound.
-  const direction = options.direction ?? (payload.direction ? resolveDirection(payload.direction) : existing?.direction ?? "outbound");
-  const status = payload.status?.trim() || (direction === "inbound" ? "received" : "pending");
+  const direction =
+    options.direction ??
+    (payload.direction
+      ? resolveDirection(payload.direction)
+      : (existing?.direction ?? "outbound"));
+  const status =
+    payload.status?.trim() ||
+    (direction === "inbound" ? "received" : "pending");
   const participant = messageParticipantNumber(payload);
   const lineNumber = toStoredPhone(payload.number.digits);
-  const conversationId = groupConversationId(payload) ?? existing?.groupConversationId ?? null;
-  const participants = groupParticipants(payload) ?? existing?.groupParticipants ?? null;
-  const sentAt = asDate(payload.sent_at ?? payload.created_at) ?? existing?.sentAt ?? null;
-  const receivedAt = direction === "inbound" ? (sentAt ?? existing?.receivedAt ?? new Date()) : existing?.receivedAt ?? null;
+  const conversationId =
+    groupConversationId(payload) ?? existing?.groupConversationId ?? null;
+  const participants =
+    groupParticipants(payload) ?? existing?.groupParticipants ?? null;
+  const sentAt =
+    asDate(payload.sent_at ?? payload.created_at) ?? existing?.sentAt ?? null;
+  const receivedAt =
+    direction === "inbound"
+      ? (sentAt ?? existing?.receivedAt ?? new Date())
+      : (existing?.receivedAt ?? null);
   const body = payload.body?.trim() || existing?.body || null;
-  const fromNumber = direction === "inbound" ? (participant ?? existing?.fromNumber ?? null) : (lineNumber ?? existing?.fromNumber ?? null);
-  const toNumber = direction === "inbound" ? (lineNumber ?? existing?.toNumber ?? null) : (participant ?? existing?.toNumber ?? null);
+  const fromNumber =
+    direction === "inbound"
+      ? (participant ?? existing?.fromNumber ?? null)
+      : (lineNumber ?? existing?.fromNumber ?? null);
+  const toNumber =
+    direction === "inbound"
+      ? (lineNumber ?? existing?.toNumber ?? null)
+      : (participant ?? existing?.toNumber ?? null);
 
   const assignment = options.savvyUserId
     ? null
@@ -160,10 +188,12 @@ export async function persistAircallMessage(
     const [originatingMessage] = await db
       .select({ contactId: aircallMessages.contactId })
       .from(aircallMessages)
-      .where(and(
-        eq(aircallMessages.groupConversationId, conversationId),
-        eq(aircallMessages.aircallNumberId, payload.number.id),
-      ))
+      .where(
+        and(
+          eq(aircallMessages.groupConversationId, conversationId),
+          eq(aircallMessages.aircallNumberId, payload.number.id)
+        )
+      )
       .orderBy(aircallMessages.createdAt)
       .limit(1);
     contactId = originatingMessage?.contactId ?? null;
@@ -224,32 +254,36 @@ export async function persistAircallMessage(
     groupParticipants: participants,
     sentAt,
     receivedAt,
-    rawPayload: options.rawPayload ?? payload as Record<string, unknown>,
+    rawPayload: options.rawPayload ?? (payload as Record<string, unknown>),
   };
 
-  // Honor standard carrier-recognized opt-out keywords sent to the dedicated
-  // marketing line as soon as the inbound message is persisted.
-  if (direction === "inbound" && contactId && isMarketingOptOut(payload.body)) {
+  // Fresh inbound replies reopen a resolved/archived shared marketing thread so
+  // it is visible in the working inbox and starts a new response obligation.
+  if (direction === "inbound" && contactId) {
     const [integration] = await db
       .select({ marketingNumberId: aircallIntegrationState.marketingNumberId })
       .from(aircallIntegrationState)
       .where(eq(aircallIntegrationState.id, 1))
       .limit(1);
     if (integration?.marketingNumberId === payload.number.id) {
-      await db
-        .update(contacts)
-        .set({
-          smsMarketingOptedOutAt: new Date(),
-          smsMarketingOptOutReason: `Inbound SMS keyword: ${(payload.body ?? "OPT-OUT").trim().toUpperCase()}`,
-        })
-        .where(eq(contacts.id, contactId));
-    }
-    // A fresh reply should return an archived marketing conversation to the
-    // working inbox, while preserving the CRM communication history.
-    if (integration?.marketingNumberId === payload.number.id) {
+      if (isMarketingOptOut(payload.body)) {
+        await db
+          .update(contacts)
+          .set({
+            smsMarketingOptedOutAt: new Date(),
+            smsMarketingOptOutReason: `Inbound SMS keyword: ${(payload.body ?? "OPT-OUT").trim().toUpperCase()}`,
+          })
+          .where(eq(contacts.id, contactId));
+      }
       await db
         .update(marketingTextInboxThreads)
-        .set({ archivedAt: null, archivedById: null })
+        .set({
+          archivedAt: null,
+          archivedById: null,
+          resolvedAt: null,
+          resolvedById: null,
+          speedToLeadExcludedAt: null,
+        })
         .where(eq(marketingTextInboxThreads.contactId, contactId));
     }
   }
@@ -289,23 +323,40 @@ export async function persistOutboundAircallSend(input: {
   savvyUserId?: number | null;
 }): Promise<{ contactId: number | null; communicationId: number | null }> {
   const response = input.responseMessage ?? {};
-  const responseNumber = response.number as { id?: number; name?: string | null; digits?: string | null } | undefined;
-  return persistAircallMessage({
-    ...response,
-    id: String(response.id ?? input.messageId),
-    direction: "outbound",
-    status: typeof response.status === "string" ? response.status : "pending",
-    body: typeof response.body === "string" ? response.body : input.body,
-    raw_digits: typeof response.raw_digits === "string" ? response.raw_digits : input.destination,
-    number: {
-      id: typeof responseNumber?.id === "number" ? responseNumber.id : input.aircallNumberId,
-      name: typeof responseNumber?.name === "string" ? responseNumber.name : input.aircallNumberName ?? null,
-      digits: typeof responseNumber?.digits === "string" ? responseNumber.digits : input.aircallNumberDigits ?? null,
+  const responseNumber = response.number as
+    | { id?: number; name?: string | null; digits?: string | null }
+    | undefined;
+  return persistAircallMessage(
+    {
+      ...response,
+      id: String(response.id ?? input.messageId),
+      direction: "outbound",
+      status: typeof response.status === "string" ? response.status : "pending",
+      body: typeof response.body === "string" ? response.body : input.body,
+      raw_digits:
+        typeof response.raw_digits === "string"
+          ? response.raw_digits
+          : input.destination,
+      number: {
+        id:
+          typeof responseNumber?.id === "number"
+            ? responseNumber.id
+            : input.aircallNumberId,
+        name:
+          typeof responseNumber?.name === "string"
+            ? responseNumber.name
+            : (input.aircallNumberName ?? null),
+        digits:
+          typeof responseNumber?.digits === "string"
+            ? responseNumber.digits
+            : (input.aircallNumberDigits ?? null),
+      },
     },
-  }, {
-    contactId: input.contactId,
-    savvyUserId: input.savvyUserId ?? null,
-  });
+    {
+      contactId: input.contactId,
+      savvyUserId: input.savvyUserId ?? null,
+    }
+  );
 }
 
 export function isAircallMessageWebhook(
@@ -316,8 +367,9 @@ export function isAircallMessageWebhook(
   const event = candidate.event ?? candidate.event_name;
   return Boolean(
     (event?.startsWith("message.") || event?.startsWith("group_message.")) &&
-    candidate.data &&
-      (typeof candidate.data.id === "string" || typeof candidate.data.group_message_id === "string") &&
+      candidate.data &&
+      (typeof candidate.data.id === "string" ||
+        typeof candidate.data.group_message_id === "string") &&
       typeof candidate.data.number?.id === "number"
   );
 }

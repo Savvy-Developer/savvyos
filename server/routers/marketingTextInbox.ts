@@ -263,11 +263,16 @@ async function getMarketingTextSpeedToLead(
           >`AVG(CASE WHEN ${responseAt} IS NOT NULL THEN TIMESTAMPDIFF(SECOND, ${inboundAt}, ${responseAt}) / 60.0 ELSE NULL END)`,
         })
         .from(inbound)
+        .leftJoin(
+          marketingTextInboxThreads,
+          eq(marketingTextInboxThreads.contactId, inbound.contactId)
+        )
         .where(
           and(
             eq(inbound.aircallNumberId, marketingNumberId),
             eq(inbound.direction, "inbound"),
             isNotNull(inbound.contactId),
+            sql`(${marketingTextInboxThreads.speedToLeadExcludedAt} IS NULL OR ${inboundAt} > ${marketingTextInboxThreads.resolvedAt})`,
             ...(start ? [gte(inboundAt, start)] : [])
           )
         );
@@ -300,7 +305,11 @@ type IntroductionContext = {
 };
 
 function cleanIntroductionSentence(value: string, maxLength = 260): string {
-  return plainText(value).replace(/\s+/g, " ").trim().slice(0, maxLength).replace(/[.\s]+$/, "");
+  return plainText(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength)
+    .replace(/[.\s]+$/, "");
 }
 
 /**
@@ -309,46 +318,70 @@ function cleanIntroductionSentence(value: string, maxLength = 260): string {
  * and then scans back through the thread for the explicit inquiry or property
  * that prompted the requested connection.
  */
-function deriveIntroductionContext(messages: IntroductionMessage[]): IntroductionContext {
+function deriveIntroductionContext(
+  messages: IntroductionMessage[]
+): IntroductionContext {
   const chronological = [...messages]
-    .filter((message) => Boolean(cleanIntroductionSentence(message.body ?? "")))
+    .filter(message => Boolean(cleanIntroductionSentence(message.body ?? "")))
     .sort((left, right) => {
       const leftAt = left.sentAt ?? left.receivedAt ?? left.createdAt;
       const rightAt = right.sentAt ?? right.receivedAt ?? right.createdAt;
       return leftAt.getTime() - rightAt.getTime();
     });
-  const latestInboundIndex = chronological.map((message) => message.direction).lastIndexOf("inbound");
-  const inbound = latestInboundIndex >= 0 ? chronological[latestInboundIndex] : null;
-  const precedingOutbound = latestInboundIndex >= 0
-    ? chronological.slice(0, latestInboundIndex).filter((message) => message.direction === "outbound")
-    : chronological.filter((message) => message.direction === "outbound");
+  const latestInboundIndex = chronological
+    .map(message => message.direction)
+    .lastIndexOf("inbound");
+  const inbound =
+    latestInboundIndex >= 0 ? chronological[latestInboundIndex] : null;
+  const precedingOutbound =
+    latestInboundIndex >= 0
+      ? chronological
+          .slice(0, latestInboundIndex)
+          .filter(message => message.direction === "outbound")
+      : chronological.filter(message => message.direction === "outbound");
   const reversedOutbound = [...precedingOutbound].reverse();
   // Prefer the actual inquiry/property request over a later logistical nudge
   // such as "Should I connect you?". That distinction is what makes a handoff
   // useful to the receiving agent.
-  const source = reversedOutbound.find((message) =>
-    /\b(?:inquiry|request|property|listing|showing|analysis|offer sheet)\b/i.test(message.body ?? ""),
-  ) ?? reversedOutbound.at(0) ?? null;
+  const source =
+    reversedOutbound.find(message =>
+      /\b(?:inquiry|request|property|listing|showing|analysis|offer sheet)\b/i.test(
+        message.body ?? ""
+      )
+    ) ??
+    reversedOutbound.at(0) ??
+    null;
   const sourceMessage = cleanIntroductionSentence(source?.body ?? "") || null;
 
   const topicMatch = sourceMessage?.match(
-    /\b(?:got|received|saw)?\s*(?:your\s+)?(?:inquiry|request)\s+(?:about|for|regarding)\s+(.+?)(?:\s*[,;—-]\s*(?:should|would|can|do|is)\b|[?.!]|$)/i,
+    /\b(?:got|received|saw)?\s*(?:your\s+)?(?:inquiry|request)\s+(?:about|for|regarding)\s+(.+?)(?:\s*[,;—-]\s*(?:should|would|can|do|is)\b|[?.!]|$)/i
   );
   const propertyMatch = sourceMessage?.match(
-    /\b(?:about|for|regarding)\s+(.+?)(?:\s*[,;—-]\s*(?:should|would|can|do|is)\b|[?.!]|$)/i,
+    /\b(?:about|for|regarding)\s+(.+?)(?:\s*[,;—-]\s*(?:should|would|can|do|is)\b|[?.!]|$)/i
   );
-  const topicValue = cleanIntroductionSentence(topicMatch?.[1] ?? propertyMatch?.[1] ?? "", 180);
+  const topicValue = cleanIntroductionSentence(
+    topicMatch?.[1] ?? propertyMatch?.[1] ?? "",
+    180
+  );
   const topic = topicValue ? topicValue.replace(/^the\s+/i, "") : null;
 
   const inboundMessage = cleanIntroductionSentence(inbound?.body ?? "", 280);
   let clientResponse: string | null = null;
   if (inboundMessage) {
-    if (/\b(?:text works|accept a text intro|text introduction)\b/i.test(inboundMessage)) {
-      const traveling = /\btravel(?:ing|ling)\b.*?\b(?:work|week)\b/i.test(inboundMessage);
+    if (
+      /\b(?:text works|accept a text intro|text introduction)\b/i.test(
+        inboundMessage
+      )
+    ) {
+      const traveling = /\btravel(?:ing|ling)\b.*?\b(?:work|week)\b/i.test(
+        inboundMessage
+      );
       clientResponse = traveling
         ? "confirmed that a text introduction works while he is traveling for work this week"
         : "confirmed that a text introduction works";
-    } else if (/\byes\b|\bsure\b|\bplease\b|\bsounds good\b/i.test(inboundMessage)) {
+    } else if (
+      /\byes\b|\bsure\b|\bplease\b|\bsounds good\b/i.test(inboundMessage)
+    ) {
       clientResponse = "confirmed that he would like the introduction";
     } else {
       clientResponse = `replied, “${inboundMessage}”`;
@@ -403,8 +436,14 @@ function parsedIntroductionDraft(
     };
     // Do not silently accept a superficially valid but context-free model draft
     // when the thread supplied enough evidence for the deterministic brief.
-    const fallbackHasSpecificContext = !/Recent Savvy STR Agents handoff conversation\.?$/i.test(fallback.contextSummary);
-    const genericReply = /\b(?:recently\s+)?replied to (?:a |our )?(?:Savvy STR Agents )?(?:text|message)\b/i.test(draft.groupText);
+    const fallbackHasSpecificContext =
+      !/Recent Savvy STR Agents handoff conversation\.?$/i.test(
+        fallback.contextSummary
+      );
+    const genericReply =
+      /\b(?:recently\s+)?replied to (?:a |our )?(?:Savvy STR Agents )?(?:text|message)\b/i.test(
+        draft.groupText
+      );
     if (fallbackHasSpecificContext && genericReply) return fallback;
     return draft;
   } catch {
@@ -591,6 +630,7 @@ export const marketingTextInboxRouter = router({
           smsMarketingOptedOutAt: contacts.smsMarketingOptedOutAt,
           readAt: aircallMessages.readAt,
           archivedAt: marketingTextInboxThreads.archivedAt,
+          resolvedAt: marketingTextInboxThreads.resolvedAt,
         })
         .from(aircallMessages)
         .leftJoin(contacts, eq(contacts.id, aircallMessages.contactId))
@@ -608,6 +648,9 @@ export const marketingTextInboxRouter = router({
         if (row.direction !== "inbound" || !row.contactId || !row.body?.trim())
           continue;
         if (input?.archived ? !row.archivedAt : !!row.archivedAt) continue;
+        const inboundAt = row.receivedAt ?? row.sentAt ?? row.createdAt;
+        if (!input?.archived && row.resolvedAt && inboundAt <= row.resolvedAt)
+          continue;
         const key = `contact:${row.contactId}`;
         const label =
           `${row.contactFirstName ?? ""} ${row.contactLastName ?? ""} ${row.contactPhone ?? ""} ${row.fromNumber ?? ""} ${row.toNumber ?? ""} ${row.body ?? ""}`.toLowerCase();
@@ -615,11 +658,14 @@ export const marketingTextInboxRouter = router({
         if (!threads.has(key)) threads.set(key, row);
       }
       return Array.from(threads.values()).map(thread => {
-        const inboundAt = thread.receivedAt ?? thread.sentAt ?? thread.createdAt;
-        const hasReply = rows.some(row =>
-          row.contactId === thread.contactId &&
-          row.direction === "outbound" &&
-          new Date(row.sentAt ?? row.receivedAt ?? row.createdAt) > new Date(inboundAt),
+        const inboundAt =
+          thread.receivedAt ?? thread.sentAt ?? thread.createdAt;
+        const hasReply = rows.some(
+          row =>
+            row.contactId === thread.contactId &&
+            row.direction === "outbound" &&
+            new Date(row.sentAt ?? row.receivedAt ?? row.createdAt) >
+              new Date(inboundAt)
         );
         const isUnread = !thread.readAt;
         return {
@@ -627,6 +673,9 @@ export const marketingTextInboxRouter = router({
           isUnread,
           awaitingReply: !isUnread && !hasReply,
           awaitingReplySince: !isUnread && !hasReply ? inboundAt : null,
+          isResolved: Boolean(
+            thread.resolvedAt && inboundAt <= thread.resolvedAt
+          ),
         };
       });
     }),
@@ -702,7 +751,10 @@ export const marketingTextInboxRouter = router({
       const providerMessageIds = rows
         .map(row => row.message.aircallMessageId)
         .filter((id): id is string => Boolean(id));
-      const followUpByMessageId = new Map<string, { id: number; dueAt: Date; sentAt: Date | null }>();
+      const followUpByMessageId = new Map<
+        string,
+        { id: number; dueAt: Date; sentAt: Date | null }
+      >();
       if (providerMessageIds.length) {
         const sentFollowUps = await db
           .select({
@@ -712,38 +764,63 @@ export const marketingTextInboxRouter = router({
             sentAt: agentIntroductionFollowUps.sentAt,
           })
           .from(agentIntroductionFollowUps)
-          .where(inArray(agentIntroductionFollowUps.aircallMessageId, providerMessageIds));
+          .where(
+            inArray(
+              agentIntroductionFollowUps.aircallMessageId,
+              providerMessageIds
+            )
+          );
         for (const followUp of sentFollowUps) {
-          if (followUp.aircallMessageId) followUpByMessageId.set(followUp.aircallMessageId, followUp);
+          if (followUp.aircallMessageId)
+            followUpByMessageId.set(followUp.aircallMessageId, followUp);
         }
       }
 
-      const participantPhones = Array.from(new Set(rows
-        .flatMap(row => row.message.groupParticipants ?? [])
-        .map(number => normalizePhone(number))
-        .filter(Boolean)));
+      const participantPhones = Array.from(
+        new Set(
+          rows
+            .flatMap(row => row.message.groupParticipants ?? [])
+            .map(number => normalizePhone(number))
+            .filter(Boolean)
+        )
+      );
       const participantsByConversation = new Map<string, string[]>();
       for (const row of rows) {
-        if (row.message.groupConversationId && row.message.groupParticipants?.length) {
-          participantsByConversation.set(row.message.groupConversationId, row.message.groupParticipants);
+        if (
+          row.message.groupConversationId &&
+          row.message.groupParticipants?.length
+        ) {
+          participantsByConversation.set(
+            row.message.groupConversationId,
+            row.message.groupParticipants
+          );
         }
       }
       const groupUsers = participantPhones.length
-        ? await db.select({ name: users.name, phone: users.phone }).from(users).where(isNotNull(users.phone))
+        ? await db
+            .select({ name: users.name, phone: users.phone })
+            .from(users)
+            .where(isNotNull(users.phone))
         : [];
-      const userNameByPhone = new Map(groupUsers
-        .map(user => [normalizePhone(user.phone), user.name] as const)
-        .filter(([phone, name]) => Boolean(phone && name)));
+      const userNameByPhone = new Map(
+        groupUsers
+          .map(user => [normalizePhone(user.phone), user.name] as const)
+          .filter(([phone, name]) => Boolean(phone && name))
+      );
 
       return rows.map(row => {
         const attribution = planByProviderId.get(row.message.aircallMessageId);
-        const groupParticipants = row.message.groupParticipants ??
+        const groupParticipants =
+          row.message.groupParticipants ??
           (row.message.groupConversationId
-            ? participantsByConversation.get(row.message.groupConversationId) ?? []
+            ? (participantsByConversation.get(
+                row.message.groupConversationId
+              ) ?? [])
             : []);
-        const groupAgentName = groupParticipants
-          .map(number => userNameByPhone.get(normalizePhone(number)))
-          .find((name): name is string => Boolean(name)) ?? null;
+        const groupAgentName =
+          groupParticipants
+            .map(number => userNameByPhone.get(normalizePhone(number)))
+            .find((name): name is string => Boolean(name)) ?? null;
         const followUp = row.message.aircallMessageId
           ? followUpByMessageId.get(row.message.aircallMessageId)
           : null;
@@ -862,7 +939,10 @@ export const marketingTextInboxRouter = router({
         })),
       ]
         .filter(({ item }) => !/:\s*$/.test(item))
-        .sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime())
+        .sort(
+          (left, right) =>
+            new Date(left.at).getTime() - new Date(right.at).getTime()
+        )
         .slice(-18)
         .map(({ item }) => item);
       const fallback = fallbackIntroductionDraft({
@@ -890,7 +970,12 @@ export const marketingTextInboxRouter = router({
                 emailBody: { type: "string" },
                 contextSummary: { type: "string" },
               },
-              required: ["groupText", "emailSubject", "emailBody", "contextSummary"],
+              required: [
+                "groupText",
+                "emailSubject",
+                "emailBody",
+                "contextSummary",
+              ],
             },
           },
           messages: [
@@ -1077,20 +1162,20 @@ export const marketingTextInboxRouter = router({
         });
 
       const [groupTextResult, emailResult] = await Promise.all([
-          sendAircallGroupSMS(
-            [clientDestination, agentDestination],
-            input.groupText,
-            line.marketingNumberId
-          ),
-          resend.emails.send({
-            from: "Savvy STR Agents <notifications@savvy-agents.com>",
-            to: [contact.email],
-            cc: [agent.email],
-            replyTo: ctx.user.email ?? undefined,
-            subject: input.emailSubject,
-            html: emailHtml(input.emailBody),
-          }),
-        ]);
+        sendAircallGroupSMS(
+          [clientDestination, agentDestination],
+          input.groupText,
+          line.marketingNumberId
+        ),
+        resend.emails.send({
+          from: "Savvy STR Agents <notifications@savvy-agents.com>",
+          to: [contact.email],
+          cc: [agent.email],
+          replyTo: ctx.user.email ?? undefined,
+          subject: input.emailSubject,
+          html: emailHtml(input.emailBody),
+        }),
+      ]);
       if (!groupTextResult.success || !groupTextResult.groupMessageId) {
         throw new TRPCError({
           code: "BAD_GATEWAY",
@@ -1109,13 +1194,13 @@ export const marketingTextInboxRouter = router({
       }
 
       const groupPayload = nativeMessagePayload(groupTextResult.message, {
-          messageId: groupTextResult.groupMessageId,
-          body: input.groupText,
-          destination: clientDestination,
-          numberId: line.marketingNumberId,
-          numberName: line.marketingNumberName,
-          numberDigits: line.marketingNumberDigits,
-        });
+        messageId: groupTextResult.groupMessageId,
+        body: input.groupText,
+        destination: clientDestination,
+        numberId: line.marketingNumberId,
+        numberName: line.marketingNumberName,
+        numberDigits: line.marketingNumberDigits,
+      });
       // The group-send response sometimes contains only the group message ID.
       // Store the known participants ourselves so the inbox can immediately show
       // "Connected with [agent] in a group" and later inbound events can resolve
@@ -1129,10 +1214,10 @@ export const marketingTextInboxRouter = router({
         clientDestination,
         agentDestination,
       ].filter(Boolean);
-      const textPersistence = await persistAircallMessage(
-        groupPayload,
-        { contactId: contact.id, savvyUserId: ctx.user.id }
-      );
+      const textPersistence = await persistAircallMessage(groupPayload, {
+        contactId: contact.id,
+        savvyUserId: ctx.user.id,
+      });
       if (textPersistence.communicationId) {
         await db
           .update(communications)
@@ -1238,18 +1323,28 @@ export const marketingTextInboxRouter = router({
         })
         .from(agentIntroductionFollowUps)
         .leftJoin(agent, eq(agent.id, agentIntroductionFollowUps.agentId))
-        .leftJoin(creator, eq(creator.id, agentIntroductionFollowUps.createdById))
+        .leftJoin(
+          creator,
+          eq(creator.id, agentIntroductionFollowUps.createdById)
+        )
         .where(eq(agentIntroductionFollowUps.contactId, input.contactId))
         .orderBy(desc(agentIntroductionFollowUps.createdAt));
     }),
 
   /** Updates a queued introduction follow-up before the durable worker claims it. */
   updateIntroductionFollowUp: protectedProcedure
-    .input(z.object({
-      id: positiveId,
-      body: z.string().trim().min(1).max(1600),
-      dueAt: z.coerce.date().refine(date => date.getTime() > Date.now(), "Choose a future send time."),
-    }))
+    .input(
+      z.object({
+        id: positiveId,
+        body: z.string().trim().min(1).max(1600),
+        dueAt: z.coerce
+          .date()
+          .refine(
+            date => date.getTime() > Date.now(),
+            "Choose a future send time."
+          ),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
@@ -1259,19 +1354,38 @@ export const marketingTextInboxRouter = router({
         .from(agentIntroductionFollowUps)
         .where(eq(agentIntroductionFollowUps.id, input.id))
         .limit(1);
-      if (!followUp) throw new TRPCError({ code: "NOT_FOUND", message: "Scheduled follow-up not found." });
+      if (!followUp)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Scheduled follow-up not found.",
+        });
       if (followUp.status !== "queued") {
-        throw new TRPCError({ code: "CONFLICT", message: "Only follow-ups that have not started sending can be changed." });
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Only follow-ups that have not started sending can be changed.",
+        });
       }
-      await db.update(agentIntroductionFollowUps).set({ body: input.body, dueAt: input.dueAt })
-        .where(and(eq(agentIntroductionFollowUps.id, input.id), eq(agentIntroductionFollowUps.status, "queued")));
+      await db
+        .update(agentIntroductionFollowUps)
+        .set({ body: input.body, dueAt: input.dueAt })
+        .where(
+          and(
+            eq(agentIntroductionFollowUps.id, input.id),
+            eq(agentIntroductionFollowUps.status, "queued")
+          )
+        );
       await logActivity({
         userId: ctx.user.id,
         action: "agent_introduction_follow_up_updated",
         entityType: "agent_connection",
         entityId: followUp.connectionId,
         relatedContactId: followUp.contactId,
-        details: { followUpId: followUp.id, dueAt: input.dueAt.toISOString(), body: input.body },
+        details: {
+          followUpId: followUp.id,
+          dueAt: input.dueAt.toISOString(),
+          body: input.body,
+        },
       });
       return { success: true, contactId: followUp.contactId };
     }),
@@ -1288,14 +1402,31 @@ export const marketingTextInboxRouter = router({
         .from(agentIntroductionFollowUps)
         .where(eq(agentIntroductionFollowUps.id, input.id))
         .limit(1);
-      if (!followUp) throw new TRPCError({ code: "NOT_FOUND", message: "Scheduled follow-up not found." });
+      if (!followUp)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Scheduled follow-up not found.",
+        });
       if (followUp.status !== "queued") {
-        throw new TRPCError({ code: "CONFLICT", message: "Only follow-ups that have not started sending can be deleted." });
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Only follow-ups that have not started sending can be deleted.",
+        });
       }
-      const deleted = await db.delete(agentIntroductionFollowUps)
-        .where(and(eq(agentIntroductionFollowUps.id, input.id), eq(agentIntroductionFollowUps.status, "queued")));
+      const deleted = await db
+        .delete(agentIntroductionFollowUps)
+        .where(
+          and(
+            eq(agentIntroductionFollowUps.id, input.id),
+            eq(agentIntroductionFollowUps.status, "queued")
+          )
+        );
       if (Number((deleted as any)[0]?.affectedRows ?? 0) === 0) {
-        throw new TRPCError({ code: "CONFLICT", message: "This follow-up began sending and was not deleted." });
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This follow-up began sending and was not deleted.",
+        });
       }
       await logActivity({
         userId: ctx.user.id,
@@ -1303,7 +1434,11 @@ export const marketingTextInboxRouter = router({
         entityType: "agent_connection",
         entityId: followUp.connectionId,
         relatedContactId: followUp.contactId,
-        details: { followUpId: followUp.id, dueAt: followUp.dueAt.toISOString(), body: followUp.body },
+        details: {
+          followUpId: followUp.id,
+          dueAt: followUp.dueAt.toISOString(),
+          body: followUp.body,
+        },
       });
       return { success: true, contactId: followUp.contactId };
     }),
@@ -1397,11 +1532,17 @@ export const marketingTextInboxRouter = router({
           contactId: input.contactId,
           archivedAt: input.archived ? now : null,
           archivedById: input.archived ? ctx.user.id : null,
+          resolvedAt: input.archived ? now : null,
+          resolvedById: input.archived ? ctx.user.id : null,
+          speedToLeadExcludedAt: input.archived ? now : null,
         })
         .onDuplicateKeyUpdate({
           set: {
             archivedAt: input.archived ? now : null,
             archivedById: input.archived ? ctx.user.id : null,
+            resolvedAt: input.archived ? now : null,
+            resolvedById: input.archived ? ctx.user.id : null,
+            speedToLeadExcludedAt: input.archived ? now : null,
           },
         });
       await logActivity({
@@ -1415,6 +1556,87 @@ export const marketingTextInboxRouter = router({
         details: { aircallNumberId: line.marketingNumberId },
       });
       return { success: true };
+    }),
+
+  /** Finishes a text thread and immediately removes its historical reply from Speed to Lead. */
+  finishThread: protectedProcedure
+    .input(
+      z.object({
+        contactId: positiveId,
+        archive: z.boolean().optional().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const line = await marketingLine(db);
+      if (!line?.marketingNumberId)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Select a dedicated Aircall marketing number first.",
+        });
+      const [reply] = await db
+        .select({ id: aircallMessages.id })
+        .from(aircallMessages)
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound")
+          )
+        )
+        .limit(1);
+      if (!reply)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Marketing text conversation not found.",
+        });
+      const now = new Date();
+      await db
+        .insert(marketingTextInboxThreads)
+        .values({
+          contactId: input.contactId,
+          resolvedAt: now,
+          resolvedById: ctx.user.id,
+          speedToLeadExcludedAt: now,
+          ...(input.archive
+            ? { archivedAt: now, archivedById: ctx.user.id }
+            : {}),
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            resolvedAt: now,
+            resolvedById: ctx.user.id,
+            speedToLeadExcludedAt: now,
+            ...(input.archive
+              ? { archivedAt: now, archivedById: ctx.user.id }
+              : {}),
+          },
+        });
+      await db
+        .update(aircallMessages)
+        .set({ readAt: now })
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound"),
+            isNull(aircallMessages.readAt)
+          )
+        );
+      await logActivity({
+        userId: ctx.user.id,
+        action: "marketing_text_thread_finished",
+        entityType: "contact",
+        entityId: input.contactId,
+        relatedContactId: input.contactId,
+        details: {
+          aircallNumberId: line.marketingNumberId,
+          archived: input.archive,
+        },
+      });
+      return { success: true, archived: input.archive };
     }),
 
   /** Sends a manual reply from the shared marketing line and writes it to the CRM immediately. */
