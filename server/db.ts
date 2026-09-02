@@ -963,7 +963,14 @@ export async function getTransactions(agentId?: number, status?: string, search?
   if (status) conditions.push(eq(transactions.status, status as any));
   if (search) {
     const txSearch = search.replace(/\s+/g, " ").trim();
-    conditions.push(or(like(transactions.transactionNumber, `%${txSearch}%`), like(contacts.firstName, `%${txSearch}%`), like(contacts.lastName, `%${txSearch}%`), sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${txSearch}%`}`, like(properties.address, `%${txSearch}%`), like(properties.city, `%${txSearch}%`)));
+    const memoNumberMatch = txSearch.includes(".")
+      ? sql`memo_payout.expMemoNumber = ${txSearch}`
+      : sql`(memo_payout.expMemoNumber = ${txSearch} OR memo_payout.expMemoNumber LIKE ${`${txSearch}.%`})`;
+    conditions.push(or(like(transactions.transactionNumber, `%${txSearch}%`), like(contacts.firstName, `%${txSearch}%`), like(contacts.lastName, `%${txSearch}%`), sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${txSearch}%`}`, like(properties.address, `%${txSearch}%`), like(properties.city, `%${txSearch}%`), sql`EXISTS (
+      SELECT 1 FROM transaction_payout_items memo_payout
+      WHERE memo_payout.transactionId = ${transactions.id}
+        AND ${memoNumberMatch}
+    )`));
   }
   if (contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${contractDateFrom}`);
   if (contractDateTo) conditions.push(sql`${transactions.contractDate} <= ${contractDateTo}`);
@@ -1022,6 +1029,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
           leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
           parentLeadSource: { id: txParentLS.id, name: txParentLS.name },
           savvyNet: sql<string>`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), NULL)`,
+          expMemoNumbers: sql<string | null>`NULLIF((SELECT GROUP_CONCAT(DISTINCT memo_payout.expMemoNumber ORDER BY memo_payout.expMemoNumber SEPARATOR ', ') FROM transaction_payout_items memo_payout WHERE memo_payout.transactionId = ${transactions.id} AND memo_payout.expMemoNumber IS NOT NULL), '')`,
         })
         .from(transactions)
         .leftJoin(users, eq(transactions.agentId, users.id))
@@ -1881,7 +1889,7 @@ export async function getAgentGroupLeadership(userId: number) {
 }
 
 // ─── All Payout Items (admin report) ─────────────────────────────────────────
-export async function getAllPayoutItems(filters?: { agentId?: number; payeeUserId?: number; paid?: boolean; payeeType?: string; dateFrom?: Date; dateTo?: Date; sortOrder?: "asc" | "desc" }) {
+export async function getAllPayoutItems(filters?: { agentId?: number; payeeUserId?: number; paid?: boolean; payeeType?: string; search?: string; dateFrom?: Date; dateTo?: Date; sortOrder?: "asc" | "desc" }) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
@@ -1889,6 +1897,12 @@ export async function getAllPayoutItems(filters?: { agentId?: number; payeeUserI
   if (filters?.payeeUserId !== undefined) conditions.push(eq(transactionPayoutItems.payeeUserId, filters.payeeUserId));
   if (filters?.payeeType !== undefined) conditions.push(eq(transactionPayoutItems.payeeType, filters.payeeType as any));
   if (filters?.agentId !== undefined) conditions.push(eq(transactions.agentId, filters.agentId));
+  if (filters?.search) {
+    const memoSearch = filters.search.replace(/\s+/g, " ").trim();
+    conditions.push(memoSearch.includes(".")
+      ? eq(transactionPayoutItems.expMemoNumber, memoSearch)
+      : or(eq(transactionPayoutItems.expMemoNumber, memoSearch), like(transactionPayoutItems.expMemoNumber, `${memoSearch}.%`)));
+  }
   if (filters?.dateFrom !== undefined) conditions.push(gte(transactions.closingDate, filters.dateFrom));
   if (filters?.dateTo !== undefined) conditions.push(lte(transactions.closingDate, filters.dateTo));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -3394,6 +3408,9 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
   if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
   if (filters.search) {
     const fSearch = filters.search.replace(/\s+/g, " ").trim();
+    const memoNumberMatch = fSearch.includes(".")
+      ? sql`memo_payout.expMemoNumber = ${fSearch}`
+      : sql`(memo_payout.expMemoNumber = ${fSearch} OR memo_payout.expMemoNumber LIKE ${`${fSearch}.%`})`;
     conditions.push(or(
       like(transactions.transactionNumber, `%${fSearch}%`),
       like(contacts.firstName, `%${fSearch}%`),
@@ -3401,6 +3418,11 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
       sql`CONCAT(TRIM(${contacts.firstName}), ' ', TRIM(${contacts.lastName})) LIKE ${`%${fSearch}%`}`,
       like(properties.address, `%${fSearch}%`),
       like(properties.city, `%${fSearch}%`),
+      sql`EXISTS (
+        SELECT 1 FROM transaction_payout_items memo_payout
+        WHERE memo_payout.transactionId = ${transactions.id}
+          AND ${memoNumberMatch}
+      )`,
     ));
   }
   if (filters.contractDateFrom) conditions.push(sql`${transactions.contractDate} >= ${filters.contractDateFrom}`);

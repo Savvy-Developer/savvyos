@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { DollarSign, CheckCircle2, Clock, TrendingUp, ArrowUpAZ, ArrowDownAZ } from "lucide-react";
+import { DollarSign, CheckCircle2, Clock, TrendingUp, ArrowUpAZ, ArrowDownAZ, Search } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import {
@@ -59,6 +59,7 @@ type PayoutRow = {
     payeeName: string | null;
     percentage: string;
     amount: string | null;
+    expMemoNumber: string | null;
     isPaid: boolean;
     paidDate: Date | null;
     notes: string | null;
@@ -115,6 +116,7 @@ export default function PayoutReportPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [memoSearch, setMemoSearch] = usePersistentState("payouts.memoSearch", "");
   const [payoutAggregateMode, setPayoutAggregateMode] = usePersistentState<AggregateMode>("payouts.aggregateMode", "sum");
   const [payoutPage, setPayoutPage] = usePersistentState("payouts.page", 1);
   const [payoutLimit, setPayoutLimit] = usePersistentState<number>("payouts.limit", 25);
@@ -125,10 +127,11 @@ export default function PayoutReportPage() {
     ...(paidFilter !== "all" ? { paid: paidFilter === "paid" } : {}),
     ...(agentFilter !== "all" ? { agentId: Number(agentFilter) } : {}),
     ...(payeeTypeFilter !== "all" ? { payeeType: payeeTypeFilter } : {}),
+    ...(memoSearch.trim() ? { search: memoSearch.trim() } : {}),
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
     sortOrder,
-  }), [paidFilter, agentFilter, payeeTypeFilter, dateFrom, dateTo, sortOrder]);
+  }), [paidFilter, agentFilter, payeeTypeFilter, memoSearch, dateFrom, dateTo, sortOrder]);
 
   const { data: payouts = [], isLoading } = trpc.payouts.listAll.useQuery(queryInput);
 
@@ -140,7 +143,7 @@ export default function PayoutReportPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", dateFrom, dateTo, paidFilter !== "all"].filter(Boolean).length;
+  const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", memoSearch.trim(), dateFrom, dateTo, paidFilter !== "all"].filter(Boolean).length;
 
   const rows = payouts as PayoutRow[];
   const payoutTotalPages = Math.max(1, Math.ceil(rows.length / payoutLimit));
@@ -173,6 +176,15 @@ export default function PayoutReportPage() {
 
         {/* Filter bar */}
         <div className="mt-4 flex flex-wrap gap-2 items-end">
+          <div className="relative w-full sm:w-56">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="h-9 pl-9"
+              value={memoSearch}
+              onChange={(event) => { setMemoSearch(event.target.value); setPayoutPage(1); }}
+              placeholder="Search eXp memo #..."
+            />
+          </div>
           {/* Sort toggle */}
           <Button
             variant="outline"
@@ -242,7 +254,7 @@ export default function PayoutReportPage() {
               variant="ghost"
               size="sm"
               className="text-xs h-9"
-              onClick={() => { setPaidFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
+              onClick={() => { setPaidFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setMemoSearch(""); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
             >
               Clear filters
             </Button>
@@ -321,6 +333,7 @@ export default function PayoutReportPage() {
               <TableHead>Contact</TableHead>
               <TableHead>Payee</TableHead>
               <TableHead>Type</TableHead>
+              <TableHead>Memo #</TableHead>
               <TableHead className="text-right">%</TableHead>
               <TableHead className="text-right">Amount</TableHead>
               <TableHead>Status</TableHead>
@@ -331,13 +344,13 @@ export default function PayoutReportPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
                   Loading payouts...
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
                   No payout records found.
                 </TableCell>
               </TableRow>
@@ -389,6 +402,9 @@ export default function PayoutReportPage() {
                       {PAYEE_TYPE_LABELS[r.payout.payeeType] ?? r.payout.payeeType}
                     </span>
                   </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                    {r.payout.expMemoNumber ?? "—"}
+                  </TableCell>
                   <TableCell className="text-right text-sm">
                     {r.payout.percentage}%
                   </TableCell>
@@ -427,7 +443,7 @@ export default function PayoutReportPage() {
           {pageRows.length > 0 && (
             <tfoot className="border-t bg-muted/50">
               <tr>
-                <td colSpan={4} className="py-2 px-4">
+                <td colSpan={5} className="py-2 px-4">
                   <AggregateModeSelector
                     mode={payoutAggregateMode}
                     onModeChange={setPayoutAggregateMode}

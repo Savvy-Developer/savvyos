@@ -258,8 +258,10 @@ export default function TransactionDetail() {
     percentage: "",
     amount: "",
     notes: "",
+    expMemoNumber: "",
   });
   const [payoutCommissionType, setPayoutCommissionType] = useState<"percentage" | "flat">("percentage");
+  const [payoutMemoDrafts, setPayoutMemoDrafts] = useState<Record<number, string>>({});
 
   // Document upload state
   const [docLabel, setDocLabel] = useState<string>("appraisal");
@@ -393,10 +395,25 @@ export default function TransactionDetail() {
     onSuccess: (data) => {
       toast.success("Payout added");
       if (!data.valid && data.total > 100) toast.warning(`Payout total is ${data.total.toFixed(1)}% — exceeds 100%`);
+      if (data.duplicateMemoExists) toast.warning("This eXp memo number already appears on another payout.");
       setPayoutOpen(false);
-      setPayoutForm({ payeeType: "agent", payeeUserId: "", payeeReferralPartnerId: "", payeeName: "", percentage: "", amount: "", notes: "" });
+      setPayoutForm({ payeeType: "agent", payeeUserId: "", payeeReferralPartnerId: "", payeeName: "", percentage: "", amount: "", notes: "", expMemoNumber: "" });
       refetchPayouts();
       refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updatePayoutMemo = trpc.transactions.updatePayout.useMutation({
+    onSuccess: (data, variables) => {
+      setPayoutMemoDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[variables.id];
+        return next;
+      });
+      if (data.duplicateMemoExists) toast.warning("This eXp memo number already appears on another payout.");
+      else toast.success("eXp memo number saved");
+      refetchPayouts();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -1286,6 +1303,11 @@ export default function TransactionDetail() {
                       Re-calculate Splits
                     </Button>
                   )}
+                  {isAdmin && (
+                    <Button variant="outline" size="sm" onClick={() => setPayoutOpen(true)}>
+                      <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Payout
+                    </Button>
+                  )}
                   {isAgent && (
                     <Button variant="outline" size="sm" onClick={() => setExceptionOpen(true)}>
                       Request Exception
@@ -1327,6 +1349,38 @@ export default function TransactionDetail() {
                           </div>
                           {(payout as any).overrideNote && <p className="text-xs text-amber-700 mt-0.5 italic">{(payout as any).overrideNote}</p>}
                           {payout.notes && !((payout as any).overrideNote) && <p className="text-xs text-muted-foreground mt-0.5">{payout.notes}</p>}
+                          {isAdmin ? (
+                            <div className="mt-3 max-w-xs">
+                              <Label htmlFor={`exp-memo-${payout.id}`} className="text-xs text-muted-foreground">eXp Memo Number</Label>
+                              <div className="mt-1 flex gap-2">
+                                <Input
+                                  id={`exp-memo-${payout.id}`}
+                                  inputMode="numeric"
+                                  pattern="[0-9]+(\\.[0-9]+)?"
+                                  className="h-8 text-xs"
+                                  placeholder="e.g. 3992138.0"
+                                  value={payoutMemoDrafts[payout.id] ?? payout.expMemoNumber ?? ""}
+                                  onChange={(event) => setPayoutMemoDrafts((drafts) => ({ ...drafts, [payout.id]: event.target.value }))}
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 shrink-0 text-xs"
+                                  disabled={updatePayoutMemo.isPending || (payoutMemoDrafts[payout.id] ?? payout.expMemoNumber ?? "") === (payout.expMemoNumber ?? "")}
+                                  onClick={() => updatePayoutMemo.mutate({
+                                    id: payout.id,
+                                    transactionId: txId,
+                                    data: { expMemoNumber: (payoutMemoDrafts[payout.id] ?? payout.expMemoNumber ?? "").trim() || null },
+                                  })}
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                              <p className="mt-1 text-[11px] text-muted-foreground">Digits with an optional side suffix, such as .0, .1, or .2.</p>
+                            </div>
+                          ) : payout.expMemoNumber ? (
+                            <p className="text-xs text-muted-foreground mt-1"><span className="font-medium text-foreground/70">eXp Memo #:</span> {payout.expMemoNumber}</p>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-lg font-bold text-foreground">{Number(payout.percentage).toFixed(1)}%</span>
@@ -2341,6 +2395,18 @@ export default function TransactionDetail() {
               </div>
             </div>
             <div>
+              <Label>eXp Memo Number</Label>
+              <Input
+                className="mt-1"
+                inputMode="numeric"
+                pattern="[0-9]+(\\.[0-9]+)?"
+                value={payoutForm.expMemoNumber}
+                onChange={(e) => setPayoutForm(f => ({ ...f, expMemoNumber: e.target.value }))}
+                placeholder="e.g. 3992138.0"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Optional. Use digits with an optional side suffix (.0, .1, .2, and beyond).</p>
+            </div>
+            <div>
               <Label>Notes</Label>
               <Textarea className="mt-1" value={payoutForm.notes} onChange={(e) => setPayoutForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
@@ -2357,6 +2423,7 @@ export default function TransactionDetail() {
                 percentage: payoutForm.percentage,
                 amount: (payoutForm.amount || autoAmount) || null,
                 notes: payoutForm.notes || null,
+                expMemoNumber: payoutForm.expMemoNumber.trim() || null,
               })}
               disabled={!payoutForm.percentage || addPayout.isPending}
             >

@@ -980,7 +980,7 @@ export default function TransactionsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by transaction number, contact name..."
+            placeholder="Search by transaction number, contact name, or eXp memo #..."
             value={txSearch}
             onChange={(e) => { setTxSearch(e.target.value); setTxPage(1); }}
             className="pl-9"
@@ -1331,6 +1331,7 @@ export default function TransactionsPage() {
                   { id: "contract_date", label: "Contract Date" },
                   { id: "date_added", label: "Date Added" },
                   { id: "transaction_number", label: "Transaction #" },
+                  { id: "memo_number", label: "Memo #" },
                 ] as const).map((col) => (
                   <label key={col.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 rounded px-1.5 py-1">
                     <input type="checkbox" className="rounded border-muted-foreground/30" checked={visibleColumns.includes(col.id)} onChange={(e) => { if (e.target.checked) { setVisibleColumns([...visibleColumns, col.id]); } else { setVisibleColumns(visibleColumns.filter(c => c !== col.id)); } }} />
@@ -1340,7 +1341,7 @@ export default function TransactionsPage() {
               </div>
               <div className="mt-2 pt-2 border-t flex gap-2">
                 <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "type", "price", "gci", "savvy_net", "status", "closing_date", "date_added"])}>Reset</Button>
-                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "lead_source", "type", "price", "gci", "savvy_net", "commission_rate", "status", "closing_date", "contract_date", "date_added", "transaction_number"])}>All</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs flex-1" onClick={() => setVisibleColumns(["contact", "property", "agent", "lead_source", "type", "price", "gci", "savvy_net", "commission_rate", "status", "closing_date", "contract_date", "date_added", "transaction_number", "memo_number"])}>All</Button>
                 <Button size="sm" className="h-7 text-xs flex-1" onClick={() => setColumnsMenuOpen(false)}>Done</Button>
               </div>
             </div>
@@ -1368,6 +1369,7 @@ export default function TransactionsPage() {
                   {visibleColumns.includes("contract_date") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("contract_date")}>Contract<SortIcon col="contract_date" /></th>}
                   {visibleColumns.includes("date_added") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("date_added")}>Date Added<SortIcon col="date_added" /></th>}
                   {visibleColumns.includes("transaction_number") && <th className="text-left py-3 px-4 text-muted-foreground font-medium select-none">Txn #</th>}
+                  {visibleColumns.includes("memo_number") && <th className="text-left py-3 px-4 text-muted-foreground font-medium select-none">Memo #</th>}
                   <th className="py-3 px-4"></th>
                 </tr>
               </thead>
@@ -1380,7 +1382,7 @@ export default function TransactionsPage() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(({ transaction, contact, agent, property, savvyNet, leadSource, parentLeadSource }: any) => {
+                  filtered.map(({ transaction, contact, agent, property, savvyNet, expMemoNumbers, leadSource, parentLeadSource }: any) => {
                     const lsLabel = leadSource?.name ? (parentLeadSource?.name ? `${parentLeadSource.name} \u203A ${leadSource.name}` : leadSource.name) : null;
                     return (
                     <tr key={transaction.id} className="border-b last:border-0 hover:bg-muted/20 cursor-pointer" onClick={() => navigate(`/transactions/${transaction.id}`)}>
@@ -1398,6 +1400,7 @@ export default function TransactionsPage() {
                       {visibleColumns.includes("contract_date") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.contractDate ? safeFormat(transaction.contractDate, "MMM d, yyyy") : "\u2014"}</td>}
                       {visibleColumns.includes("date_added") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.createdAt ? safeFormat(transaction.createdAt, "MMM d, yyyy") : "\u2014"}</td>}
                       {visibleColumns.includes("transaction_number") && <td className="py-3 px-4 text-muted-foreground text-xs">{transaction.transactionNumber ?? "\u2014"}</td>}
+                      {visibleColumns.includes("memo_number") && <td className="py-3 px-4 font-mono text-xs text-muted-foreground whitespace-nowrap">{expMemoNumbers ?? "—"}</td>}
                       <td className="py-3 px-4"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/transactions/${transaction.id}`); }}>View</Button></td>
                     </tr>
                     );

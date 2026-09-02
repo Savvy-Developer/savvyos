@@ -31,6 +31,7 @@ import { triggerSmartPlansForEvent } from "../smartPlanScheduler";
 import { syncIsaOutcomeAttribution } from "../isaOutcomeAttribution";
 import { sendReviewRequestsForClosedTransaction } from "./reviews";
 import { getDb } from "../db";
+import { isValidExpMemoNumber, normalizeExpMemoNumber } from "../expMemoNumber";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
 import { eq, and, sql, desc, aliasedTable, or, inArray } from "drizzle-orm";
@@ -45,6 +46,17 @@ const wholePercentageSchema = z.coerce
 function normalizeReferralPayoutPercentage(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   return value > 0 && value < 1 ? Number((value * 100).toFixed(2)) : value;
+}
+
+function validateExpMemoNumber(value: string | null | undefined): string | null | undefined {
+  const memoNumber = normalizeExpMemoNumber(value);
+  if (memoNumber && !isValidExpMemoNumber(memoNumber)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "eXp memo number must contain digits with an optional decimal suffix (for example, 3992138.0).",
+    });
+  }
+  return memoNumber;
 }
 
 /** Formats a persisted transaction price for agent-facing communication. */
@@ -616,12 +628,21 @@ export const transactionsRouter = router({
       isPaid: z.boolean().optional(),
       paidDate: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
+      expMemoNumber: z.string().max(64).optional().nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
+      const expMemoNumber = validateExpMemoNumber(input.expMemoNumber);
       const id = await createPayoutItem({
         ...input,
+        expMemoNumber,
         paidDate: input.paidDate ? new Date(input.paidDate) : null,
       } as any);
+      const db = await getDb();
+      const duplicateMemoExists = !!expMemoNumber && !!db && (await db
+        .select({ id: transactionPayoutItems.id })
+        .from(transactionPayoutItems)
+        .where(eq(transactionPayoutItems.expMemoNumber, expMemoNumber))
+        .limit(2)).some((payout) => payout.id !== id);
 
       // Re-validate integrity and auto-resolve flag if conditions are met
       const { resolved, total } = await validateAndAutoResolveFlag(input.transactionId);
@@ -645,7 +666,7 @@ export const transactionsRouter = router({
         entityId: input.transactionId,
         details: { payeeType: input.payeeType, percentage: input.percentage },
       });
-      return { id, valid, total };
+      return { id, valid, total, duplicateMemoExists };
     }),
 
   updatePayout: protectedProcedure
@@ -658,30 +679,40 @@ export const transactionsRouter = router({
         isPaid: z.boolean().optional(),
         paidDate: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        expMemoNumber: z.string().max(64).optional().nullable(),
       }),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can edit payout items." });
       // Fetch old payout values for history logging
       const db = await getDb();
-      let oldPayout: any = null;
-      if (db) {
-        const [old] = await db.select().from(transactionPayoutItems).where(eq(transactionPayoutItems.id, input.id));
-        oldPayout = old;
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const [oldPayout] = await db.select().from(transactionPayoutItems).where(eq(transactionPayoutItems.id, input.id));
+      if (!oldPayout || oldPayout.transactionId !== input.transactionId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payout item not found for this transaction." });
       }
       // Block edits on paid payout items (only allow marking as unpaid)
       if (oldPayout?.isPaid) {
         const keys = Object.keys(input.data).filter(k => input.data[k as keyof typeof input.data] !== undefined);
         const isOnlyMarkingUnpaid = keys.length === 1 && input.data.isPaid === false;
-        if (!isOnlyMarkingUnpaid) {
+        const isOnlyMemoUpdate = keys.length === 1 && input.data.expMemoNumber !== undefined;
+        if (!isOnlyMarkingUnpaid && !isOnlyMemoUpdate) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Paid payout items cannot be edited. Mark as unpaid first to make changes." });
         }
       }
-      const { paidDate, ...rest } = input.data;
-      await updatePayoutItem(input.id, {
+      const { paidDate, expMemoNumber: rawExpMemoNumber, ...rest } = input.data;
+      const expMemoNumber = rawExpMemoNumber === undefined ? undefined : validateExpMemoNumber(rawExpMemoNumber);
+      const updateData: Record<string, unknown> = {
         ...rest,
-        paidDate: paidDate ? new Date(paidDate) : null,
-      } as any);
+      };
+      if (paidDate !== undefined) updateData.paidDate = paidDate ? new Date(paidDate) : null;
+      if (expMemoNumber !== undefined) updateData.expMemoNumber = expMemoNumber;
+      await updatePayoutItem(input.id, updateData as any);
+      const duplicateMemoExists = !!expMemoNumber && (await db
+        .select({ id: transactionPayoutItems.id })
+        .from(transactionPayoutItems)
+        .where(eq(transactionPayoutItems.expMemoNumber, expMemoNumber))
+        .limit(2)).some((payout) => payout.id !== input.id);
       // Log payout edit in transaction history
       const changes: Array<{ field: string; from: unknown; to: unknown }> = [];
       if (oldPayout) {
@@ -696,6 +727,9 @@ export const transactionsRouter = router({
         }
         if (input.data.notes !== undefined && input.data.notes !== oldPayout.notes) {
           changes.push({ field: "Notes", from: oldPayout.notes ?? "(none)", to: input.data.notes ?? "(none)" });
+        }
+        if (expMemoNumber !== undefined && expMemoNumber !== oldPayout.expMemoNumber) {
+          changes.push({ field: "eXp Memo Number", from: oldPayout.expMemoNumber ?? "(none)", to: expMemoNumber ?? "(none)" });
         }
       }
       if (changes.length > 0) {
@@ -714,7 +748,7 @@ export const transactionsRouter = router({
       }
       const { resolved, total } = await validateAndAutoResolveFlag(input.transactionId);
       const valid = resolved || total <= 100;
-      return { success: true, valid, total };
+      return { success: true, valid, total, duplicateMemoExists, expMemoNumber: expMemoNumber ?? oldPayout.expMemoNumber ?? null };
     }),
 
   deletePayout: protectedProcedure
