@@ -37,6 +37,15 @@ jobs:
             git diff --unified=3 "$BEFORE_SHA" "$GITHUB_SHA" -- . ':!pnpm-lock.yaml' > "$RUNNER_TEMP/savvyos-release/release.diff"
           fi
 
+          # The trusted endpoint accepts a 60 KB diff. Preserve its payload
+          # contract even when a legitimate release changes large source files.
+          max_diff_bytes=59000
+          if [ "$(wc -c < "$RUNNER_TEMP/savvyos-release/release.diff")" -gt "$max_diff_bytes" ]; then
+            head -c "$max_diff_bytes" "$RUNNER_TEMP/savvyos-release/release.diff" > "$RUNNER_TEMP/savvyos-release/release.diff.truncated"
+            printf '\n\n[Diff truncated for release-summary delivery.]\n' >> "$RUNNER_TEMP/savvyos-release/release.diff.truncated"
+            mv "$RUNNER_TEMP/savvyos-release/release.diff.truncated" "$RUNNER_TEMP/savvyos-release/release.diff"
+          fi
+
           git log -1 --pretty=%B "$GITHUB_SHA" > "$RUNNER_TEMP/savvyos-release/commit-message.txt"
 
       - name: Send plain-language release update
