@@ -1257,6 +1257,10 @@ export const communications = mysqlTable(
       table.relatedContactId,
       table.isPinned
     ),
+    index("communications_contact_communicated_idx").on(
+      table.relatedContactId,
+      table.communicatedAt
+    ),
   ]
 );
 
@@ -1281,6 +1285,12 @@ export const activityLog = mysqlTable(
     index("idx_activity_log_contact").on(
       table.relatedContactId,
       table.createdAt
+    ),
+    index("idx_activity_log_hot_leads_views").on(
+      table.action,
+      table.entityType,
+      table.createdAt,
+      table.entityId
     ),
     index("idx_activity_log_user_created").on(table.userId, table.createdAt),
   ]
@@ -4550,6 +4560,42 @@ export const adminPermissions = mysqlTable("admin_permissions", {
 });
 export type AdminPermissions = typeof adminPermissions.$inferSelect;
 export type InsertAdminPermissions = typeof adminPermissions.$inferInsert;
+
+// ─── Admin Navigation Preferences ─────────────────────────────────────────────
+// Per-admin usage history and shortcuts. The sidebar remains permission-filtered
+// in the client, so a stored preference never grants access to a hidden feature.
+export const adminNavigationPreferences = mysqlTable(
+  "admin_navigation_preferences",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    path: varchar("path", { length: 512 }).notNull(),
+    isFavorite: boolean("isFavorite").notNull().default(false),
+    viewCount: int("viewCount").notNull().default(0),
+    lastViewedAt: timestamp("lastViewedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("admin_navigation_preferences_user_path_unique").on(
+      table.userId,
+      table.path
+    ),
+    index("admin_navigation_preferences_user_favorite_idx").on(
+      table.userId,
+      table.isFavorite
+    ),
+    index("admin_navigation_preferences_user_usage_idx").on(
+      table.userId,
+      table.viewCount,
+      table.lastViewedAt
+    ),
+  ]
+);
+export type AdminNavigationPreference =
+  typeof adminNavigationPreferences.$inferSelect;
 
 // ─── Resend Inbox ─────────────────────────────────────────────────────────────
 // A durable, access-controlled mailbox projection for emails received by Resend.

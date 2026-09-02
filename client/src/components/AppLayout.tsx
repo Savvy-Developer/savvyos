@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { trpc } from "@/lib/trpc";
 import {
-  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -82,7 +81,7 @@ import {
   Star,
   Search,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { getPulseNavDestinations, type PulseNavShell } from "@shared/pulseNav";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -591,6 +590,9 @@ function SidebarNav({
   roleLabel,
   roleBadgeClass,
   logout,
+  canManageFavorites = false,
+  favoritePaths = new Set<string>(),
+  onFavoriteChange,
 }: {
   navGroups: NavGroup[];
   currentPath: string;
@@ -600,6 +602,9 @@ function SidebarNav({
   roleLabel: string;
   roleBadgeClass: string;
   logout: () => void;
+  canManageFavorites?: boolean;
+  favoritePaths?: Set<string>;
+  onFavoriteChange?: (item: NavItem, isFavorite: boolean) => void;
   canSimulate?: boolean;
 }) {
   const initials = user.name
@@ -672,45 +677,87 @@ function SidebarNav({
                         ? currentPath === "/"
                         : currentPath.startsWith(item.path));
                     return (
-                      <li key={item.path} className="relative">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            item.external
-                              ? window.open(
-                                  item.path,
-                                  "_blank",
-                                  "noopener,noreferrer"
-                                )
-                              : onNavigate(item.path)
-                          }
-                          title={collapsed ? item.label : undefined}
-                          className={`w-full flex items-center gap-2.5 px-2 py-[9px] rounded-md text-sm transition-colors text-left ${
+                      <li key={item.path} className="group/item relative">
+                        <div
+                          className={`flex items-center gap-1 rounded-md pr-1 transition-colors ${
                             isActive
                               ? "bg-[oklch(0.74_0.14_200)]/15 text-[oklch(0.60_0.14_200)] font-semibold"
                               : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                           }`}
                         >
-                          <item.icon className="h-[16px] w-[16px] shrink-0" />
-                          {!collapsed && (
-                            <span className="truncate leading-tight flex-1">
-                              {item.label}
-                            </span>
-                          )}
-                          {!collapsed && item.external && (
-                            <Link2 className="h-3 w-3 shrink-0 opacity-60" />
-                          )}
-                          {!collapsed && item.badge != null && (
-                            <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
-                              {item.badge}
-                            </span>
-                          )}
-                          {collapsed && item.badge != null && (
-                            <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
-                              {item.badge}
-                            </span>
-                          )}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              item.external
+                                ? window.open(
+                                    item.path,
+                                    "_blank",
+                                    "noopener,noreferrer"
+                                  )
+                                : onNavigate(item.path)
+                            }
+                            title={collapsed ? item.label : undefined}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-[9px] text-left text-sm"
+                          >
+                            <item.icon className="h-[16px] w-[16px] shrink-0" />
+                            {!collapsed && (
+                              <span className="truncate leading-tight flex-1">
+                                {item.label}
+                              </span>
+                            )}
+                            {!collapsed && item.external && (
+                              <Link2 className="h-3 w-3 shrink-0 opacity-60" />
+                            )}
+                            {!collapsed && item.badge != null && (
+                              <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                                {item.badge}
+                              </span>
+                            )}
+                            {collapsed && item.badge != null && (
+                              <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                          {canManageFavorites &&
+                            !collapsed &&
+                            onFavoriteChange && (
+                              <button
+                                type="button"
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  onFavoriteChange(
+                                    item,
+                                    !favoritePaths.has(item.path)
+                                  );
+                                }}
+                                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                                  favoritePaths.has(item.path)
+                                    ? "text-amber-500"
+                                    : "text-muted-foreground opacity-0 group-hover/item:opacity-100 focus:opacity-100"
+                                }`}
+                                title={
+                                  favoritePaths.has(item.path)
+                                    ? `Remove ${item.label} from Favorites`
+                                    : `Add ${item.label} to Favorites`
+                                }
+                                aria-label={
+                                  favoritePaths.has(item.path)
+                                    ? `Remove ${item.label} from Favorites`
+                                    : `Add ${item.label} to Favorites`
+                                }
+                              >
+                                <Star
+                                  className="h-4 w-4"
+                                  fill={
+                                    favoritePaths.has(item.path)
+                                      ? "currentColor"
+                                      : "none"
+                                  }
+                                />
+                              </button>
+                            )}
+                        </div>
                       </li>
                     );
                   })}
@@ -808,6 +855,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     | "agent_support"
     | undefined;
   const isAdmin = role === "admin";
+  const utils = trpc.useUtils();
+  const adminNavigationPreferences = trpc.adminNavigation.preferences.useQuery(
+    undefined,
+    {
+      enabled: isAdmin,
+      staleTime: 30_000,
+    }
+  );
+  const trackAdminPage = trpc.adminNavigation.trackPage.useMutation({
+    onSuccess: () => void utils.adminNavigation.preferences.invalidate(),
+  });
+  const setAdminFavorite = trpc.adminNavigation.setFavorite.useMutation({
+    onSuccess: () => void utils.adminNavigation.preferences.invalidate(),
+  });
+  const lastTrackedAdminPath = useRef<string | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -823,6 +885,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (
+      !isAdmin ||
+      !currentPath ||
+      lastTrackedAdminPath.current === currentPath
+    )
+      return;
+    lastTrackedAdminPath.current = currentPath;
+    trackAdminPage.mutate({ path: currentPath });
+  }, [currentPath, isAdmin, trackAdminPage]);
 
   const isPulsePath =
     currentPath === "/pulse" || currentPath.startsWith("/pulse/");
@@ -1070,6 +1143,55 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ) {
     employmentFilteredNavGroups.push({ label: "Operations", items: [ptoItem] });
   }
+  // This is intentionally derived from the same permission-filtered navigation
+  // source used by the sidebar. New admin links therefore appear automatically
+  // in Search and cannot be favorited or surfaced without Super Permission.
+  const adminPreferenceByPath = new globalThis.Map<string, any>(
+    (adminNavigationPreferences.data ?? []).map(preference => [
+      preference.path,
+      preference,
+    ])
+  );
+  const adminFavoritePaths = new Set(
+    (adminNavigationPreferences.data ?? [])
+      .filter(preference => preference.isFavorite)
+      .map(preference => preference.path)
+  );
+  const availableAdminNavItems = employmentFilteredNavGroups.flatMap(group =>
+    group.items.map(item => ({ group: group.label, item }))
+  );
+  const favoriteNavItems = isAdmin
+    ? availableAdminNavItems
+        .filter(({ item }) => adminFavoritePaths.has(item.path))
+        .sort((left, right) => {
+          const usageDifference =
+            Number(adminPreferenceByPath.get(right.item.path)?.viewCount ?? 0) -
+            Number(adminPreferenceByPath.get(left.item.path)?.viewCount ?? 0);
+          return (
+            usageDifference || left.item.label.localeCompare(right.item.label)
+          );
+        })
+        .map(({ item }) => item)
+    : [];
+  const sidebarNavGroups: NavGroup[] =
+    favoriteNavItems.length > 0
+      ? [
+          { label: "Favorites", items: favoriteNavItems },
+          ...employmentFilteredNavGroups,
+        ]
+      : employmentFilteredNavGroups;
+  const rankedCommandItems = availableAdminNavItems.sort((left, right) => {
+    const usageDifference =
+      Number(adminPreferenceByPath.get(right.item.path)?.viewCount ?? 0) -
+      Number(adminPreferenceByPath.get(left.item.path)?.viewCount ?? 0);
+    if (usageDifference !== 0) return usageDifference;
+    const favoriteDifference =
+      Number(adminFavoritePaths.has(right.item.path)) -
+      Number(adminFavoritePaths.has(left.item.path));
+    return (
+      favoriteDifference || left.item.label.localeCompare(right.item.label)
+    );
+  });
   const roleLabel =
     role === "admin"
       ? "Admin"
@@ -1091,7 +1213,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarWidth = collapsed ? "w-[56px]" : "w-[240px]";
 
   const navProps = {
-    navGroups: employmentFilteredNavGroups,
+    navGroups: sidebarNavGroups,
     currentPath,
     collapsed,
     user: {
@@ -1101,6 +1223,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     roleLabel,
     roleBadgeClass,
     logout,
+    canManageFavorites: isAdmin,
+    favoritePaths: adminFavoritePaths,
+    onFavoriteChange: (item: NavItem, favorite: boolean) =>
+      setAdminFavorite.mutate({ path: item.path, isFavorite: favorite }),
   };
 
   return (
@@ -1116,36 +1242,40 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           open={commandOpen}
           onOpenChange={setCommandOpen}
           title="Navigate SavvyOS"
-          description="Search pages available to the current SavvyOS user"
-          className="max-w-xl"
+          description="Your most-used permitted pages appear first. Search to jump anywhere in SavvyOS."
+          className="max-w-3xl"
         >
           <CommandInput placeholder="Search SavvyOS pages…" />
           <CommandList className="max-h-[60vh]">
             <CommandEmpty>No matching pages available.</CommandEmpty>
-            {employmentFilteredNavGroups.map(group => (
-              <CommandGroup key={group.label} heading={group.label}>
-                {group.items.map(item => (
-                  <CommandItem
-                    key={item.path}
-                    value={`${item.label} ${group.label}`}
-                    onSelect={() => {
-                      setCommandOpen(false);
-                      if (item.external)
-                        window.open(item.path, "_blank", "noopener,noreferrer");
-                      else navigate(item.path);
-                    }}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                    {item.badge != null && (
-                      <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-                        {item.badge}
-                      </span>
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ))}
+            <CommandGroup heading="Pages">
+              {rankedCommandItems.map(({ group, item }) => (
+                <CommandItem
+                  key={item.path}
+                  value={`${item.label} ${group}`}
+                  onSelect={() => {
+                    setCommandOpen(false);
+                    if (item.external)
+                      window.open(item.path, "_blank", "noopener,noreferrer");
+                    else navigate(item.path);
+                  }}
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {group}
+                  </span>
+                  {adminFavoritePaths.has(item.path) && (
+                    <Star className="ml-auto h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+                  )}
+                  {item.badge != null && (
+                    <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                      {item.badge}
+                    </span>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
           </CommandList>
         </CommandDialog>
       )}
@@ -1261,7 +1391,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setCommandOpen(true)}
-                  className="hidden min-h-9 w-56 items-center gap-2 rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted md:flex"
+                  className="hidden min-h-9 w-[420px] items-center gap-2 rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted lg:w-[520px] md:flex"
                   aria-label="Search SavvyOS pages"
                 >
                   <Search className="h-4 w-4" />

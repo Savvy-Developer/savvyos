@@ -166,6 +166,7 @@ export default function HotLeadsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [withoutConnectedAgents, setWithoutConnectedAgents] = useState(false);
   const [withoutAssignedIsa, setWithoutAssignedIsa] = useState(false);
+  const [withoutContact, setWithoutContact] = useState(false);
   const [statsExpanded, setStatsExpanded] = useState(true);
   const [textLead, setTextLead] = useState<any | null>(null);
   const [textLeadType, setTextLeadType] =
@@ -180,7 +181,7 @@ export default function HotLeadsPage() {
   const [rvSortDir, setRvSortDir] = useState<SortDir>("desc");
   const [eeSortKey, setEeSortKey] = useState<EESortKey>("clicks");
   const [eeSortDir, setEeSortDir] = useState<SortDir>("desc");
-  const [dcSortKey, setDcSortKey] = useState<DCSortKey>("lastUpdatedAt");
+  const [dcSortKey, setDcSortKey] = useState<DCSortKey>("deadConnectionCount");
   const [dcSortDir, setDcSortDir] = useState<SortDir>("desc");
   const [favoritesSortKey, setFavoritesSortKey] =
     useState<IntentSortKey>("eventCount");
@@ -266,6 +267,7 @@ export default function HotLeadsPage() {
     ...(isAgent && statusFilter ? { pipelineStatus: statusFilter } : {}),
     ...(withoutConnectedAgents ? { hasNoConnectedAgents: true } : {}),
     ...(withoutAssignedIsa ? { hasNoAssignedIsa: true } : {}),
+    ...(withoutContact ? { hasNoContact: true } : {}),
   };
 
   const activeHotLeadType: HotLeadTextType =
@@ -340,6 +342,7 @@ export default function HotLeadsPage() {
       ...(leadSourceFilter ? { leadSourceId: parseInt(leadSourceFilter) } : {}),
       ...(withoutConnectedAgents ? { hasNoConnectedAgents: true } : {}),
       ...(withoutAssignedIsa ? { hasNoAssignedIsa: true } : {}),
+      ...(withoutContact ? { hasNoContact: true } : {}),
     },
     { enabled: isAdminOrIsa && activeTab === "dead-connections" }
   );
@@ -358,6 +361,7 @@ export default function HotLeadsPage() {
     ...(isAgent && statusFilter ? { pipelineStatus: statusFilter } : {}),
     ...(withoutConnectedAgents ? { hasNoConnectedAgents: true } : {}),
     ...(withoutAssignedIsa ? { hasNoAssignedIsa: true } : {}),
+    ...(withoutContact ? { hasNoContact: true } : {}),
   });
   const draftText = trpc.hotLeads.draftText.useMutation({
     onSuccess: result => setTextBody(result.body),
@@ -874,12 +878,17 @@ export default function HotLeadsPage() {
                 onStatusChange={handleStatusChange}
                 withoutConnectedAgents={withoutConnectedAgents}
                 withoutAssignedIsa={withoutAssignedIsa}
+                withoutContact={withoutContact}
                 onWithoutConnectedAgentsChange={value => {
                   setWithoutConnectedAgents(value);
                   resetPages();
                 }}
                 onWithoutAssignedIsaChange={value => {
                   setWithoutAssignedIsa(value);
+                  resetPages();
+                }}
+                onWithoutContactChange={value => {
+                  setWithoutContact(value);
                   resetPages();
                 }}
               />
@@ -893,6 +902,7 @@ export default function HotLeadsPage() {
                 totalPages={propertyViews.data?.totalPages ?? 1}
                 onPageChange={setPvPage}
                 limit={limit}
+                compact
                 headers={
                   <>
                     <TableHead className="w-[50px] text-center">#</TableHead>
@@ -936,7 +946,6 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead>Last Property</TableHead>
                     <TableHead>Last Contact</TableHead>
                     <TableHead>Last Contacted By</TableHead>
                     <TableHead
@@ -989,12 +998,6 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastViewed)}
                     </TableCell>
-                    <TableCell
-                      className="text-sm max-w-[200px] truncate"
-                      title={lead.lastPropertyAddress ?? ""}
-                    >
-                      {lead.lastPropertyAddress || "—"}
-                    </TableCell>
                     <LastContactCells lead={lead} />
                     <TableCell>
                       <LeadScoreBadge
@@ -1043,12 +1046,17 @@ export default function HotLeadsPage() {
                 onStatusChange={handleStatusChange}
                 withoutConnectedAgents={withoutConnectedAgents}
                 withoutAssignedIsa={withoutAssignedIsa}
+                withoutContact={withoutContact}
                 onWithoutConnectedAgentsChange={value => {
                   setWithoutConnectedAgents(value);
                   resetPages();
                 }}
                 onWithoutAssignedIsaChange={value => {
                   setWithoutAssignedIsa(value);
+                  resetPages();
+                }}
+                onWithoutContactChange={value => {
+                  setWithoutContact(value);
                   resetPages();
                 }}
               />
@@ -1223,12 +1231,17 @@ export default function HotLeadsPage() {
                 onStatusChange={handleStatusChange}
                 withoutConnectedAgents={withoutConnectedAgents}
                 withoutAssignedIsa={withoutAssignedIsa}
+                withoutContact={withoutContact}
                 onWithoutConnectedAgentsChange={value => {
                   setWithoutConnectedAgents(value);
                   resetPages();
                 }}
                 onWithoutAssignedIsaChange={value => {
                   setWithoutAssignedIsa(value);
+                  resetPages();
+                }}
+                onWithoutContactChange={value => {
+                  setWithoutContact(value);
                   resetPages();
                 }}
               />
@@ -1242,6 +1255,7 @@ export default function HotLeadsPage() {
                 totalPages={emailEngagement.data?.totalPages ?? 1}
                 onPageChange={setEePage}
                 limit={limit}
+                compact
                 headers={
                   <>
                     <TableHead className="w-[50px] text-center">#</TableHead>
@@ -1405,6 +1419,7 @@ export default function HotLeadsPage() {
           onStatusChange={handleStatusChange}
           withoutConnectedAgents={withoutConnectedAgents}
           withoutAssignedIsa={withoutAssignedIsa}
+          withoutContact={withoutContact}
           onWithoutConnectedAgentsChange={value => {
             setWithoutConnectedAgents(value);
             resetPages();
@@ -1413,11 +1428,16 @@ export default function HotLeadsPage() {
             setWithoutAssignedIsa(value);
             resetPages();
           }}
+          onWithoutContactChange={value => {
+            setWithoutContact(value);
+            resetPages();
+          }}
           sortKey={favoritesSortKey}
           sortDir={favoritesSortDir}
           onSort={handleFavoritesSort}
           onText={openTextDialog}
           canUseText={canUseMarketingTextInbox}
+          showText
         />
 
         <IntentLeadsTab
@@ -1445,6 +1465,7 @@ export default function HotLeadsPage() {
           onStatusChange={handleStatusChange}
           withoutConnectedAgents={withoutConnectedAgents}
           withoutAssignedIsa={withoutAssignedIsa}
+          withoutContact={withoutContact}
           onWithoutConnectedAgentsChange={value => {
             setWithoutConnectedAgents(value);
             resetPages();
@@ -1453,11 +1474,16 @@ export default function HotLeadsPage() {
             setWithoutAssignedIsa(value);
             resetPages();
           }}
+          onWithoutContactChange={value => {
+            setWithoutContact(value);
+            resetPages();
+          }}
           sortKey={analysisSortKey}
           sortDir={analysisSortDir}
           onSort={handleAnalysisSort}
           onText={openTextDialog}
           canUseText={canUseMarketingTextInbox}
+          showText={false}
         />
 
         {/* ─── Dead Connections Tab (Admin / ISA only) ────────────────────── */}
@@ -1590,12 +1616,17 @@ export default function HotLeadsPage() {
                   onStatusChange={handleStatusChange}
                   withoutConnectedAgents={withoutConnectedAgents}
                   withoutAssignedIsa={withoutAssignedIsa}
+                  withoutContact={withoutContact}
                   onWithoutConnectedAgentsChange={value => {
                     setWithoutConnectedAgents(value);
                     resetPages();
                   }}
                   onWithoutAssignedIsaChange={value => {
                     setWithoutAssignedIsa(value);
+                    resetPages();
+                  }}
+                  onWithoutContactChange={value => {
+                    setWithoutContact(value);
                     resetPages();
                   }}
                 />
@@ -1611,6 +1642,7 @@ export default function HotLeadsPage() {
                   totalPages={deadConnections.data?.totalPages ?? 1}
                   onPageChange={setDeadConnectionsPage}
                   limit={limit}
+                  compact
                   headers={
                     <>
                       <TableHead className="w-[50px] text-center">#</TableHead>
@@ -2175,8 +2207,10 @@ function FiltersBar({
   onStatusChange,
   withoutConnectedAgents,
   withoutAssignedIsa,
+  withoutContact,
   onWithoutConnectedAgentsChange,
   onWithoutAssignedIsaChange,
+  onWithoutContactChange,
 }: {
   showTimeRange?: boolean;
   days: DaysFilter;
@@ -2195,8 +2229,10 @@ function FiltersBar({
   onStatusChange: (v: string) => void;
   withoutConnectedAgents: boolean;
   withoutAssignedIsa: boolean;
+  withoutContact: boolean;
   onWithoutConnectedAgentsChange: (value: boolean) => void;
   onWithoutAssignedIsaChange: (value: boolean) => void;
+  onWithoutContactChange: (value: boolean) => void;
 }) {
   const { data: rawLeadSources = [] } = trpc.leadSources.listFlat.useQuery();
   const leadSources = rawLeadSources
@@ -2313,6 +2349,15 @@ function FiltersBar({
           />
           Has no assigned ISA
         </label>
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium">
+          <Checkbox
+            checked={withoutContact}
+            onCheckedChange={checked =>
+              onWithoutContactChange(checked === true)
+            }
+          />
+          No Contact
+        </label>
       </div>
 
       {/* Agent filter: pipeline status */}
@@ -2365,13 +2410,16 @@ type IntentLeadsTabProps = {
   onStatusChange: (value: string) => void;
   withoutConnectedAgents: boolean;
   withoutAssignedIsa: boolean;
+  withoutContact: boolean;
   onWithoutConnectedAgentsChange: (value: boolean) => void;
   onWithoutAssignedIsaChange: (value: boolean) => void;
+  onWithoutContactChange: (value: boolean) => void;
   sortKey: IntentSortKey;
   sortDir: SortDir;
   onSort: (key: IntentSortKey) => void;
   onText: (lead: any, type: HotLeadTextType) => void;
   canUseText: boolean;
+  showText: boolean;
 };
 
 function IntentLeadsTab({
@@ -2399,13 +2447,16 @@ function IntentLeadsTab({
   onStatusChange,
   withoutConnectedAgents,
   withoutAssignedIsa,
+  withoutContact,
   onWithoutConnectedAgentsChange,
   onWithoutAssignedIsaChange,
+  onWithoutContactChange,
   sortKey,
   sortDir,
   onSort,
   onText,
   canUseText,
+  showText,
 }: IntentLeadsTabProps) {
   const SortIcon = ({ col }: { col: IntentSortKey }) => {
     if (sortKey !== col)
@@ -2417,6 +2468,7 @@ function IntentLeadsTab({
     );
   };
   const items = query.data?.items ?? [];
+  const showLastProperty = value !== "property-favorites";
 
   return (
     <TabsContent value={value}>
@@ -2442,8 +2494,10 @@ function IntentLeadsTab({
             onStatusChange={onStatusChange}
             withoutConnectedAgents={withoutConnectedAgents}
             withoutAssignedIsa={withoutAssignedIsa}
+            withoutContact={withoutContact}
             onWithoutConnectedAgentsChange={onWithoutConnectedAgentsChange}
             onWithoutAssignedIsaChange={onWithoutAssignedIsaChange}
+            onWithoutContactChange={onWithoutContactChange}
           />
           <DataTable
             isLoading={query.isLoading}
@@ -2455,6 +2509,7 @@ function IntentLeadsTab({
             totalPages={query.data?.totalPages ?? 1}
             onPageChange={onPageChange}
             limit={limit}
+            compact={value === "property-favorites"}
             headers={
               <>
                 <TableHead className="w-[50px] text-center">#</TableHead>
@@ -2466,7 +2521,9 @@ function IntentLeadsTab({
                     Contact <SortIcon col="contact" />
                   </span>
                 </TableHead>
-                <TableHead className="text-center">Text</TableHead>
+                {showText && (
+                  <TableHead className="text-center">Text</TableHead>
+                )}
                 <TableHead
                   className="cursor-pointer select-none text-center"
                   onClick={() => onSort("eventCount")}
@@ -2483,7 +2540,7 @@ function IntentLeadsTab({
                     Most Recent <SortIcon col="lastEventAt" />
                   </span>
                 </TableHead>
-                <TableHead>Last Property</TableHead>
+                {showLastProperty && <TableHead>Last Property</TableHead>}
                 <TableHead>Last Contact</TableHead>
                 <TableHead>Last Contacted By</TableHead>
                 <TableHead
@@ -2523,28 +2580,32 @@ function IntentLeadsTab({
                 <TableCell>
                   <ContactCell lead={lead} isAgent={isAgent} />
                 </TableCell>
-                <HotLeadTextCell
-                  lead={lead}
-                  hotLeadType={
-                    value === "property-favorites"
-                      ? "property_favorites"
-                      : "analysis_requests"
-                  }
-                  onText={onText}
-                  enabled={canUseText}
-                />
+                {showText && (
+                  <HotLeadTextCell
+                    lead={lead}
+                    hotLeadType={
+                      value === "property-favorites"
+                        ? "property_favorites"
+                        : "analysis_requests"
+                    }
+                    onText={onText}
+                    enabled={canUseText}
+                  />
+                )}
                 <TableCell className="text-center">
                   <Badge variant="secondary">{lead.eventCount}</Badge>
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                   {formatRelativeDate(lead.lastEventAt)}
                 </TableCell>
-                <TableCell
-                  className="max-w-[200px] truncate text-sm"
-                  title={lead.lastPropertyAddress ?? ""}
-                >
-                  {lead.lastPropertyAddress || "—"}
-                </TableCell>
+                {showLastProperty && (
+                  <TableCell
+                    className="max-w-[200px] truncate text-sm"
+                    title={lead.lastPropertyAddress ?? ""}
+                  >
+                    {lead.lastPropertyAddress || "—"}
+                  </TableCell>
+                )}
                 <LastContactCells lead={lead} />
                 <TableCell>
                   <LeadScoreBadge
@@ -2707,6 +2768,7 @@ interface DataTableProps {
   limit: number;
   headers: React.ReactNode;
   rows: React.ReactNode[] | undefined;
+  compact?: boolean;
 }
 
 function DataTable({
@@ -2721,6 +2783,7 @@ function DataTable({
   limit,
   headers,
   rows,
+  compact = false,
 }: DataTableProps) {
   const paginationItems = getPaginationItems(page, totalPages);
 
@@ -2756,7 +2819,13 @@ function DataTable({
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <Table>
+        <Table
+          className={
+            compact
+              ? "table-fixed text-xs [&_th]:h-8 [&_th]:whitespace-normal [&_th]:px-1 [&_td]:whitespace-normal [&_td]:px-1 [&_td]:py-1.5"
+              : undefined
+          }
+        >
           <TableHeader>
             <TableRow>{headers}</TableRow>
           </TableHeader>

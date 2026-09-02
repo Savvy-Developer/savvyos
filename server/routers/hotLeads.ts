@@ -33,6 +33,7 @@ const hotLeadsInput = z
     pipelineStatus: z.string().optional(),
     hasNoConnectedAgents: z.boolean().optional().default(false),
     hasNoAssignedIsa: z.boolean().optional().default(false),
+    hasNoContact: z.boolean().optional().default(false),
     sortBy: z
       .enum([
         "viewCount",
@@ -62,6 +63,7 @@ const intentEventsInput = z
     pipelineStatus: z.string().optional(),
     hasNoConnectedAgents: z.boolean().optional().default(false),
     hasNoAssignedIsa: z.boolean().optional().default(false),
+    hasNoContact: z.boolean().optional().default(false),
     sortBy: z
       .enum([
         "eventCount",
@@ -85,6 +87,7 @@ const deadConnectionsInput = z
     leadSourceId: z.number().int().optional(),
     hasNoConnectedAgents: z.boolean().optional().default(false),
     hasNoAssignedIsa: z.boolean().optional().default(false),
+    hasNoContact: z.boolean().optional().default(false),
     sortBy: z
       .enum([
         "deadConnectionCount",
@@ -94,7 +97,7 @@ const deadConnectionsInput = z
         "assignedIsa",
         "leadScore",
       ])
-      .default("lastUpdatedAt"),
+      .default("deadConnectionCount"),
     sortDirection: z.enum(["asc", "desc"]).default("desc"),
   })
   .optional();
@@ -118,6 +121,7 @@ const hotLeadStatsInput = z
     pipelineStatus: z.string().optional(),
     hasNoConnectedAgents: z.boolean().optional().default(false),
     hasNoAssignedIsa: z.boolean().optional().default(false),
+    hasNoContact: z.boolean().optional().default(false),
   })
   .optional();
 
@@ -195,6 +199,7 @@ function addPresenceFilters(
     | {
         hasNoConnectedAgents?: boolean;
         hasNoAssignedIsa?: boolean;
+        hasNoContact?: boolean;
       }
     | null
     | undefined
@@ -204,6 +209,11 @@ function addPresenceFilters(
   if (input?.hasNoConnectedAgents) {
     conditions.push(
       sql`NOT EXISTS (SELECT 1 FROM agent_connections ac_presence WHERE ac_presence.contactId = ${contacts.id})`
+    );
+  }
+  if (input?.hasNoContact) {
+    conditions.push(
+      sql`NOT EXISTS (SELECT 1 FROM communications contact_presence WHERE contact_presence.relatedContactId = ${contacts.id})`
     );
   }
 }
@@ -345,10 +355,10 @@ async function batchLookupLastContactDetails(
         typeof row.lastContactedBy === "string"
           ? row.lastContactedBy
           : row.lastContactDirection === "inbound"
-            ? "Contact"
+            ? "Contact (inbound)"
             : row.lastContactDirection === "outbound"
-              ? "Savvy STR Agents"
-              : "SavvyOS",
+              ? "SavvyOS (shared line)"
+              : "SavvyOS (system)",
     };
   }
   return map;
@@ -850,6 +860,110 @@ async function getWebsiteIntentEvents(
 
 type HotLeadTab = z.infer<typeof hotLeadType>;
 
+function formatHotLeadStats(metrics: Record<string, unknown>) {
+  const totalCount = Number(metrics.totalCount ?? 0);
+  const percentage = (value: unknown) =>
+    totalCount ? Math.round((Number(value ?? 0) / totalCount) * 1000) / 10 : 0;
+  return {
+    totalCount,
+    assignedIsa: {
+      count: Number(metrics.assignedIsaCount ?? 0),
+      percent: percentage(metrics.assignedIsaCount),
+    },
+    connectedAgent: {
+      count: Number(metrics.connectedAgentCount ?? 0),
+      percent: percentage(metrics.connectedAgentCount),
+    },
+    contacted: {
+      "24h": {
+        count: Number(metrics.contacted24hCount ?? 0),
+        percent: percentage(metrics.contacted24hCount),
+      },
+      "48h": {
+        count: Number(metrics.contacted48hCount ?? 0),
+        percent: percentage(metrics.contacted48hCount),
+      },
+      "72h": {
+        count: Number(metrics.contacted72hCount ?? 0),
+        percent: percentage(metrics.contacted72hCount),
+      },
+      "7d": {
+        count: Number(metrics.contacted7dCount ?? 0),
+        percent: percentage(metrics.contacted7dCount),
+      },
+    },
+  };
+}
+
+/**
+ * Return Visitors previously evaluated a grouped repeat-visit subquery once for
+ * every contact in the CRM. Materializing the eligible contacts first keeps the
+ * stats panel bounded by website activity and prevents the tab from appearing to
+ * load indefinitely on a larger contact database.
+ */
+async function getReturnVisitorHotLeadStats(
+  db: any,
+  ctx: { user: { id: number; role: string } },
+  input: z.infer<typeof hotLeadStatsInput>
+) {
+  const days = parseInt(input?.days ?? "7", 10);
+  const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const conditions: any[] = [
+    eq(activityLog.action, "property_viewed"),
+    eq(activityLog.entityType, "contact"),
+    gte(activityLog.createdAt, sinceDate),
+    sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
+  ];
+  if (input?.leadSourceId)
+    conditions.push(eq(contacts.leadSourceId, input.leadSourceId));
+  addPresenceFilters(conditions, input);
+  if (ctx.user.role === "agent") {
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM agent_connections hl_scope
+      WHERE hl_scope.contactId = ${contacts.id}
+        AND hl_scope.agentId = ${ctx.user.id}
+        ${input?.pipelineStatus ? sql`AND hl_scope.pipelineStatus = ${input.pipelineStatus}` : sql``}
+    )`);
+  } else {
+    if (input?.isaId) conditions.push(eq(contacts.assignedIsaId, input.isaId));
+    if (input?.agentId)
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM agent_connections hl_agent WHERE hl_agent.contactId = ${contacts.id} AND hl_agent.agentId = ${input.agentId})`
+      );
+  }
+
+  const now = new Date();
+  const threshold = (hours: number) =>
+    new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const result = await db.execute(sql`
+    SELECT
+      COUNT(*) AS totalCount,
+      SUM(CASE WHEN hl_return_visitors.assignedIsaId IS NOT NULL THEN 1 ELSE 0 END) AS assignedIsaCount,
+      SUM(CASE WHEN EXISTS (SELECT 1 FROM agent_connections hl_connected WHERE hl_connected.contactId = hl_return_visitors.contactId) THEN 1 ELSE 0 END) AS connectedAgentCount,
+      SUM(CASE WHEN hl_last_contact.lastContacted >= ${threshold(24)} THEN 1 ELSE 0 END) AS contacted24hCount,
+      SUM(CASE WHEN hl_last_contact.lastContacted >= ${threshold(48)} THEN 1 ELSE 0 END) AS contacted48hCount,
+      SUM(CASE WHEN hl_last_contact.lastContacted >= ${threshold(72)} THEN 1 ELSE 0 END) AS contacted72hCount,
+      SUM(CASE WHEN hl_last_contact.lastContacted >= ${threshold(168)} THEN 1 ELSE 0 END) AS contacted7dCount
+    FROM (
+      SELECT
+        ${activityLog.entityId} AS contactId,
+        ${contacts.assignedIsaId} AS assignedIsaId
+      FROM ${activityLog}
+      INNER JOIN ${contacts} ON ${contacts.id} = ${activityLog.entityId}
+      WHERE ${sql.join(conditions, sql` AND `)}
+      GROUP BY ${activityLog.entityId}, ${contacts.assignedIsaId}
+      HAVING COUNT(DISTINCT DATE(${activityLog.createdAt})) >= 2
+    ) AS hl_return_visitors
+    LEFT JOIN (
+      SELECT ${communications.relatedContactId} AS contactId, MAX(${communications.communicatedAt}) AS lastContacted
+      FROM ${communications}
+      WHERE ${communications.relatedContactId} IS NOT NULL
+      GROUP BY ${communications.relatedContactId}
+    ) AS hl_last_contact ON hl_last_contact.contactId = hl_return_visitors.contactId
+  `);
+  return formatHotLeadStats(rowsFromResult(result)[0] ?? {});
+}
+
 /**
  * Computes list-wide metrics from the same eligibility rules as each Hot Leads
  * page. The derived latest-contact join keeps all time-window percentages based
@@ -861,6 +975,9 @@ async function getHotLeadStats(
   input: z.infer<typeof hotLeadStatsInput>
 ) {
   const tab: HotLeadTab = input?.tab ?? "property_views";
+  if (tab === "return_visitors") {
+    return getReturnVisitorHotLeadStats(db, ctx, input);
+  }
   const days = parseInt(input?.days ?? "7", 10);
   const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const conditions: any[] = [
@@ -888,15 +1005,11 @@ async function getHotLeadStats(
           ? "analysis_requested"
           : "property_viewed";
     const eventContact = sql`COALESCE(hl_event.relatedContactId, CASE WHEN hl_event.entityType = 'contact' THEN hl_event.entityId END)`;
-    const returnVisitClause =
-      tab === "return_visitors"
-        ? sql` GROUP BY ${eventContact} HAVING COUNT(DISTINCT DATE(hl_event.createdAt)) >= 2`
-        : sql``;
     conditions.push(sql`EXISTS (
       SELECT 1 FROM activity_log hl_event
       WHERE ${eventContact} = ${contacts.id}
         AND hl_event.action = ${action}
-        AND hl_event.createdAt >= ${sinceDate}${returnVisitClause}
+        AND hl_event.createdAt >= ${sinceDate}
     )`);
   }
 
@@ -1769,33 +1882,6 @@ export const hotLeadsRouter = router({
         batchLookupLastContactDetails(db, contactIds),
       ]);
 
-      // Last property address lookup
-      let lastPropertyMap: Record<number, string> = {};
-      if (contactIds.length > 0) {
-        const propRows = await db
-          .select({
-            entityId: activityLog.entityId,
-            details: activityLog.details,
-          })
-          .from(activityLog)
-          .where(
-            and(
-              eq(activityLog.action, "property_viewed"),
-              eq(activityLog.entityType, "contact"),
-              gte(activityLog.createdAt, sinceDate),
-              sql`${activityLog.entityId} IN (${sql.raw(contactIds.join(","))})`
-            )
-          )
-          .orderBy(desc(activityLog.createdAt));
-        for (const row of propRows) {
-          const cId = row.entityId!;
-          if (!lastPropertyMap[cId] && row.details) {
-            const d = row.details as any;
-            if (d.propertyAddress) lastPropertyMap[cId] = d.propertyAddress;
-          }
-        }
-      }
-
       const results = addLeadScores(
         rows.map(row => ({
           contactId: row.contactId!,
@@ -1812,7 +1898,6 @@ export const hotLeadsRouter = router({
             ? (leadSourceMap[row.leadSourceId] ?? null)
             : null,
           connectedAgents: agentMap[row.contactId!] ?? [],
-          lastPropertyAddress: lastPropertyMap[row.contactId!] ?? null,
           lastContacted: lastContactMap[row.contactId!]?.lastContacted ?? null,
           lastContactedBy:
             lastContactMap[row.contactId!]?.lastContactedBy ?? null,

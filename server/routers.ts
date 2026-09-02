@@ -46,6 +46,7 @@ import { ghlSyncRouter } from "./routers/ghlSync";
 import { pipelineEmailRouter } from "./routers/pipelineEmail";
 import { proformaEmailRouter } from "./routers/proformaEmail";
 import { permissionsRouter } from "./routers/permissions";
+import { adminNavigationRouter } from "./routers/adminNavigation";
 import { emailBehaviorsRouter } from "./routers/emailBehaviors";
 import { aircallRouter } from "./routers/aircall";
 import { aircallCallingRouter } from "./routers/aircallCalling";
@@ -268,6 +269,7 @@ export const appRouter = router({
   pipelineEmail: pipelineEmailRouter,
   proformaEmail: proformaEmailRouter,
   permissions: permissionsRouter,
+  adminNavigation: adminNavigationRouter,
   emailBehaviors: emailBehaviorsRouter,
   aircall: aircallRouter,
   aircallCalling: aircallCallingRouter,
