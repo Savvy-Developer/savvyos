@@ -10,9 +10,10 @@ const PULSE_SETTINGS_UNAVAILABLE = "This Pulse configuration is not available.";
 
 /**
  * These are the authoritative Pulse-wide capabilities. For SavvyOS administrators,
- * the Pulse Settings Super Permission is the centralized grant for the permission
- * matrix; it never grants meeting membership or the remaining Pulse capabilities.
- * Meeting data still requires active, explicit membership in the relevant L10.
+ * the Pulse Settings Super Permission is the centralized grant for permission-matrix
+ * administration and L10 workspace management; it never grants meeting membership or
+ * the remaining Pulse capabilities. Meeting data still requires active, explicit
+ * membership in the relevant L10.
  */
 export const PULSE_CAPABILITIES = [
   "manage_permission_matrix",
@@ -30,9 +31,10 @@ function unavailable(message: string) {
 
 export async function hasPulseCapability(db: any, user: PulseUser, capability: PulseCapability): Promise<boolean> {
   // For SavvyOS administrators, the Pulse Settings Super Permission is the
-  // authoritative matrix-administrator grant. This preserves the centralized
-  // access model and prevents a stale Pulse row from bypassing a revocation.
-  if (capability === "manage_permission_matrix" && user.role === "admin") {
+  // authoritative grant for matrix administration and L10 workspace management.
+  // This preserves the centralized access model and prevents a stale Pulse row
+  // from bypassing a Super Permissions revocation.
+  if ((capability === "manage_permission_matrix" || capability === "manage_l10s") && user.role === "admin") {
     return canAdminUsePermission({ id: user.id, role: user.role, email: user.email }, "canViewPulseSettings");
   }
 
