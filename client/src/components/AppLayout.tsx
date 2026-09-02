@@ -247,7 +247,9 @@ function buildAgentSupportNav(): NavGroup[] {
 
 function buildIsaNav(
   pendingConnReqs: number,
-  myOverdueTasks: number = 0
+  myOverdueTasks: number = 0,
+  resendInboxUnread: number = 0,
+  marketingTextInboxUnread: number = 0
 ): NavGroup[] {
   return [
     {
@@ -273,6 +275,19 @@ function buildIsaNav(
           label: "Connection Requests",
           path: "/connection-requests",
           badge: pendingConnReqs > 0 ? pendingConnReqs : undefined,
+        },
+        {
+          icon: Inbox,
+          label: "Resend Inbox",
+          path: "/resend-inbox",
+          badge: resendInboxUnread > 0 ? resendInboxUnread : undefined,
+        },
+        {
+          icon: MessageSquare,
+          label: "Marketing Text Inbox",
+          path: "/marketing-text-inbox",
+          badge:
+            marketingTextInboxUnread > 0 ? marketingTextInboxUnread : undefined,
         },
       ],
     },
@@ -987,16 +1002,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Resend Inbox is separately super-permissioned because it contains external correspondence.
   const canUseResendInbox =
-    role === "admin" &&
-    !!(adminPerms as Record<string, boolean> | undefined)?.canViewResendInbox;
+    role === "isa" ||
+    (role === "admin" &&
+      !!(adminPerms as Record<string, boolean> | undefined)?.canViewResendInbox);
   const { data: resendInboxUnreadData } = trpc.resendInbox.unreadCount.useQuery(
     undefined,
     { enabled: canUseResendInbox, refetchInterval: 30000 }
   );
   const canUseMarketingTextInbox =
-    role === "admin" &&
-    !!(adminPerms as Record<string, boolean> | undefined)
-      ?.canViewMarketingTextInbox;
+    role === "isa" ||
+    (role === "admin" &&
+      !!(adminPerms as Record<string, boolean> | undefined)
+        ?.canViewMarketingTextInbox);
   const { data: marketingTextInboxUnreadData } =
     trpc.marketingTextInbox.unreadCount.useQuery(undefined, {
       enabled: canUseMarketingTextInbox,
@@ -1053,7 +1070,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           pendingPtoApprovalsCount
         )
       : role === "isa"
-        ? buildIsaNav(pendingConnReqs, myOverdueTaskCount)
+        ? buildIsaNav(
+            pendingConnReqs,
+            myOverdueTaskCount,
+            resendInboxUnreadCount,
+            marketingTextInboxUnreadCount
+          )
         : role === "agent_support"
           ? buildAgentSupportNav()
           : buildAgentNav(

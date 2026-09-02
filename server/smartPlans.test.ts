@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─── Merge Tag Renderer ───────────────────────────────────────────────────────
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
-import { isDoNotContact, shouldBypassInitialSendWindow, smsMarketingEligibility } from "./smartPlanScheduler";
+import {
+  isDoNotContact,
+  oneTimeRecipientScheduledAt,
+  shouldBypassInitialSendWindow,
+  smsMarketingEligibility,
+} from "./smartPlanScheduler";
 import { directionFromAircallMessageEvent, messageParticipantNumber } from "./aircallMessaging";
 
 describe("renderMergeTags", () => {
@@ -105,6 +110,28 @@ describe("Smart Plan immediate restart window override", () => {
     expect(shouldBypassInitialSendWindow({ currentStepIndex: 0, bypassInitialSendWindow: true })).toBe(true);
     expect(shouldBypassInitialSendWindow({ currentStepIndex: 1, bypassInitialSendWindow: true })).toBe(false);
     expect(shouldBypassInitialSendWindow({ currentStepIndex: 0, bypassInitialSendWindow: false })).toBe(false);
+  });
+});
+
+describe("One-time send schedules", () => {
+  const campaignStartAt = new Date("2030-01-01T12:00:00.000Z");
+
+  it("keeps every recipient at the campaign start when staggering is disabled", () => {
+    expect(oneTimeRecipientScheduledAt(campaignStartAt, 14, null)).toEqual(
+      campaignStartAt
+    );
+  });
+
+  it("places recipients into consecutive hourly delivery batches", () => {
+    expect(
+      oneTimeRecipientScheduledAt(campaignStartAt, 0, 100).toISOString()
+    ).toBe("2030-01-01T12:00:00.000Z");
+    expect(
+      oneTimeRecipientScheduledAt(campaignStartAt, 99, 100).toISOString()
+    ).toBe("2030-01-01T12:00:00.000Z");
+    expect(
+      oneTimeRecipientScheduledAt(campaignStartAt, 100, 100).toISOString()
+    ).toBe("2030-01-01T13:00:00.000Z");
   });
 });
 

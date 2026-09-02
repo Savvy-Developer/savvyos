@@ -469,8 +469,8 @@ function Router() {
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
           <Route path="/daily-report-updates">{() => <AdminRoute><DailyReportFeatureUpdatesPage /></AdminRoute>}</Route>
           <Route path="/admin/vendors">{() => <AdminRoute><VendorListsAdminPage /></AdminRoute>}</Route>
-          <Route path="/resend-inbox">{() => <AdminRoute><ResendInboxPage /></AdminRoute>}</Route>
-          <Route path="/marketing-text-inbox">{() => <AdminRoute><MarketingTextInboxPage /></AdminRoute>}</Route>
+          <Route path="/resend-inbox">{() => <AdminOrIsaRoute><ResendInboxPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/marketing-text-inbox">{() => <AdminOrIsaRoute><MarketingTextInboxPage /></AdminOrIsaRoute>}</Route>
           <Route path="/partner-links">{() => <AdminRoute><PartnerLinksPage /></AdminRoute>}</Route>
           <Route path="/goals">{() => <AdminRoute><GoalsPage /></AdminRoute>}</Route>
           <Route path="/job-board">{() => <AdminRoute><JobBoardAdminPage /></AdminRoute>}</Route>

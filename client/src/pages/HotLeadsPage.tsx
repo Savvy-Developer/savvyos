@@ -150,7 +150,8 @@ export default function HotLeadsPage() {
   const role = (user as any)?.role as string | undefined;
   const isAgent = role === "agent";
   const isAdmin = role === "admin";
-  const isAdminOrIsa = isAdmin || role === "isa";
+  const isIsa = role === "isa";
+  const isAdminOrIsa = isAdmin || isIsa;
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const [pvPage, setPvPage] = useState(1);
@@ -249,11 +250,12 @@ export default function HotLeadsPage() {
     { enabled: isAdmin }
   );
   const canUseMarketingTextInbox =
-    isAdmin &&
-    Boolean(
-      (permissionsQuery.data as Record<string, boolean> | undefined)
-        ?.canViewMarketingTextInbox
-    );
+    isIsa ||
+    (isAdmin &&
+      Boolean(
+        (permissionsQuery.data as Record<string, boolean> | undefined)
+          ?.canViewMarketingTextInbox
+      ));
   const isas = usersList.filter((u: any) => u.role === "isa");
   const agents = usersList.filter((u: any) => u.role === "agent");
 

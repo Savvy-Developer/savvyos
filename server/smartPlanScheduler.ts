@@ -647,6 +647,19 @@ export async function bulkEnrollExistingContacts(planId: number): Promise<{ enro
 const ONE_TIME_SEND_BATCH_SIZE = 50; // Small database pages; the worker drains email pages in one run while provider pacing protects Resend.
 let isOneTimeSendRunning = false;
 
+/** Calculate the delivery time for the recipient's optional hourly batch. */
+export function oneTimeRecipientScheduledAt(
+  campaignStartAt: Date,
+  recipientIndex: number,
+  staggerPerHour: number | null
+): Date {
+  if (!staggerPerHour) return campaignStartAt;
+  return new Date(
+    campaignStartAt.getTime() +
+      Math.floor(recipientIndex / staggerPerHour) * 60 * 60 * 1000
+  );
+}
+
 function oneTimeMergeContext(contact: typeof contacts.$inferSelect, leadSourceName: string | null) {
   return {
     firstName: contact.firstName,
@@ -775,12 +788,16 @@ export async function processOneTimeSmartPlanSends(): Promise<void> {
   try {
     const db = await getDb();
     if (!db) return;
+    const now = new Date();
 
     const [send] = await db
       .select()
       .from(oneTimeSends)
-      .where(inArray(oneTimeSends.status, ["queued", "processing"]))
-      .orderBy(oneTimeSends.createdAt)
+      .where(and(
+        inArray(oneTimeSends.status, ["queued", "processing"]),
+        lte(oneTimeSends.scheduledAt, now)
+      ))
+      .orderBy(oneTimeSends.scheduledAt, oneTimeSends.createdAt)
       .limit(1);
     if (!send) return;
 
@@ -798,8 +815,12 @@ export async function processOneTimeSmartPlanSends(): Promise<void> {
         .select({ recipient: oneTimeSendRecipients, contact: contacts })
         .from(oneTimeSendRecipients)
         .innerJoin(contacts, eq(oneTimeSendRecipients.contactId, contacts.id))
-        .where(and(eq(oneTimeSendRecipients.sendId, send.id), eq(oneTimeSendRecipients.status, "queued")))
-        .orderBy(oneTimeSendRecipients.id)
+        .where(and(
+          eq(oneTimeSendRecipients.sendId, send.id),
+          eq(oneTimeSendRecipients.status, "queued"),
+          lte(oneTimeSendRecipients.scheduledAt, new Date())
+        ))
+        .orderBy(oneTimeSendRecipients.scheduledAt, oneTimeSendRecipients.id)
         .limit(ONE_TIME_SEND_BATCH_SIZE);
       if (pendingRecipients.length === 0) break;
 

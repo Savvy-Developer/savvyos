@@ -520,11 +520,11 @@ async function getHotLeadTextContact(db: any, contactId: number) {
 }
 
 function assertHotLeadTextAccess(role: string) {
-  if (role !== "admin") {
+  if (role !== "admin" && role !== "isa") {
     throw new TRPCError({
       code: "FORBIDDEN",
       message:
-        "Hot Leads text outreach is available to Marketing Text Inbox administrators only.",
+        "Hot Leads text outreach is available to Marketing Text Inbox users only.",
     });
   }
 }
@@ -1099,6 +1099,7 @@ export const hotLeadsRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertHotLeadTextAccess(ctx.user.role);
       if (
+        ctx.user.role !== "isa" &&
         !(await canAdminUsePermission(ctx.user, "canViewMarketingTextInbox"))
       ) {
         throw new TRPCError({
@@ -1175,6 +1176,7 @@ export const hotLeadsRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertHotLeadTextAccess(ctx.user.role);
       if (
+        ctx.user.role !== "isa" &&
         !(await canAdminUsePermission(ctx.user, "canViewMarketingTextInbox"))
       ) {
         throw new TRPCError({

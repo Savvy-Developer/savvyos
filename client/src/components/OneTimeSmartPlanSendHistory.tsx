@@ -200,7 +200,12 @@ function recipientActivity(recipient: any): {
       recipient.status === "queued"
         ? "Waiting in queue"
         : titleCase(recipient.status),
-    value: recipient.sentAt ? formatTime(recipient.sentAt) : "—",
+    value:
+      recipient.status === "queued" && recipient.scheduledAt
+        ? `Scheduled ${formatTime(recipient.scheduledAt)}`
+        : recipient.sentAt
+          ? formatTime(recipient.sentAt)
+          : "—",
     tone: "text-muted-foreground",
   };
 }
@@ -266,6 +271,10 @@ function RecipientHistoryDialog({
   const providerEligible = recipients.filter(
     (row: any) => row.recipient.provider === "resend"
   ).length;
+  const sendScheduledForFuture =
+    send?.status === "queued" &&
+    send?.scheduledAt &&
+    new Date(send.scheduledAt).getTime() > Date.now();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -306,7 +315,13 @@ function RecipientHistoryDialog({
                 icon={<Clock3 className="h-3.5 w-3.5" />}
                 label="Queued"
                 value={queueCount}
-                hint={send.status === "processing" ? "Sending now" : undefined}
+                hint={
+                  send.status === "processing"
+                    ? "Sending now"
+                    : sendScheduledForFuture
+                      ? `Starts ${formatTime(send.scheduledAt)}`
+                      : undefined
+                }
               />
               <Metric
                 icon={<Send className="h-3.5 w-3.5" />}
@@ -368,9 +383,15 @@ function RecipientHistoryDialog({
                   QUEUE TIMELINE
                 </p>
                 <p className="mt-1">
-                  Started {formatTime(send.startedAt)} · Completed{" "}
-                  {formatTime(send.completedAt)}
+                  Scheduled {formatTime(send.scheduledAt)} · Started{" "}
+                  {formatTime(send.startedAt)} · Completed {formatTime(send.completedAt)}
                 </p>
+                {send.staggerEnabled && send.staggerPerHour ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Staggered at up to {send.staggerPerHour.toLocaleString()} recipient
+                    {send.staggerPerHour === 1 ? "" : "s"} per hour.
+                  </p>
+                ) : null}
                 <p className="mt-1 text-xs text-muted-foreground">
                   This view refreshes automatically while the batch is queued or
                   processing.
@@ -650,9 +671,12 @@ export default function OneTimeSmartPlanSendHistory() {
                         {row.createdBy?.name ||
                           row.createdBy?.email ||
                           "Unknown sender"}{" "}
-                        · {formatTime(send.confirmedAt)} ·{" "}
+                        · scheduled {formatTime(send.scheduledAt)} ·{" "}
                         {metricNumber(send.totalRecipients).toLocaleString()}{" "}
                         recipient addresses
+                        {send.staggerEnabled && send.staggerPerHour
+                          ? ` · staggered at ${send.staggerPerHour.toLocaleString()}/hour`
+                          : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3 text-xs text-muted-foreground lg:justify-end">

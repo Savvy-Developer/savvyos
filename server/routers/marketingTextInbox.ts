@@ -93,6 +93,7 @@ async function requireMarketingTextInboxAccess(user: {
   role: string;
   email?: string | null;
 }) {
+  if (user.role === "isa") return;
   const permitted = await canAdminUsePermission(
     user,
     "canViewMarketingTextInbox"
@@ -514,6 +515,9 @@ export const marketingTextInboxRouter = router({
   /** Lists Aircall numbers that are not reserved for an ISA's personal line. */
   listAvailableNumbers: protectedProcedure.query(async ({ ctx }) => {
     await requireMarketingTextInboxAccess(ctx.user);
+    if (ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can change the marketing text line." });
+    }
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [numbers, assigned] = await Promise.all([
@@ -537,6 +541,9 @@ export const marketingTextInboxRouter = router({
     .input(z.object({ numberId: positiveId }))
     .mutation(async ({ ctx, input }) => {
       await requireMarketingTextInboxAccess(ctx.user);
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can change the marketing text line." });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 

@@ -188,13 +188,16 @@ export default function MarketingTextInboxPage() {
   const [clock, setClock] = useState(() => Date.now());
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const isAdmin = user?.role === "admin";
+  const isIsa = user?.role === "isa";
   const permissions = trpc.permissions.getMyPermissions.useQuery(undefined, {
     enabled: isAdmin,
   });
   const canUseInbox =
-    isAdmin &&
-    !!(permissions.data as Record<string, boolean> | undefined)
-      ?.canViewMarketingTextInbox;
+    isIsa ||
+    (isAdmin &&
+      !!(permissions.data as Record<string, boolean> | undefined)
+        ?.canViewMarketingTextInbox);
+  const canConfigureMarketingLine = isAdmin && canUseInbox;
 
   const configuration = trpc.marketingTextInbox.configuration.useQuery(
     undefined,
@@ -202,7 +205,7 @@ export default function MarketingTextInboxPage() {
   );
   const availableNumbers =
     trpc.marketingTextInbox.listAvailableNumbers.useQuery(undefined, {
-      enabled: canUseInbox && !!configuration.data?.apiConfigured,
+      enabled: canConfigureMarketingLine && !!configuration.data?.apiConfigured,
     });
   const speedToLead = trpc.marketingTextInbox.speedToLead.useQuery(undefined, {
     enabled: canUseInbox,
@@ -414,7 +417,7 @@ export default function MarketingTextInboxPage() {
     });
   }, [connectOpen, selectedContactId, selectedAgentId]);
 
-  if (permissions.isLoading) {
+  if (isAdmin && permissions.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -528,7 +531,7 @@ export default function MarketingTextInboxPage() {
                   SMS-enabled number.
                 </p>
               </div>
-            ) : (
+            ) : canConfigureMarketingLine ? (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="marketing-number">
@@ -574,6 +577,14 @@ export default function MarketingTextInboxPage() {
                   </p>
                 </div>
               </>
+            ) : (
+              <div className="flex gap-3 rounded-md border border-amber-200 bg-white/60 p-3 text-sm text-amber-950">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  A SavvyOS administrator needs to select the dedicated marketing
+                  number before the shared inbox can receive and send texts.
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>

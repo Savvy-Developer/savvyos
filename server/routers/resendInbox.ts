@@ -22,6 +22,7 @@ async function assertInboxAccess(user: {
   role: string;
   email?: string | null;
 }) {
+  if (user.role === "isa") return;
   const permitted = await canAdminUsePermission(user, "canViewResendInbox");
   if (!permitted) {
     throw new TRPCError({

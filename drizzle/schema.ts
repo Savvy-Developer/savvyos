@@ -1500,20 +1500,31 @@ export const oneTimeSends = mysqlTable(
     bouncedCount: int("bouncedCount").default(0).notNull(),
     complainedCount: int("complainedCount").default(0).notNull(),
     suppressedCount: int("suppressedCount").default(0).notNull(),
-    repliedCount: int("repliedCount").default(0).notNull(),
-    createdById: int("createdById").references(() => users.id),
-    confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
-    startedAt: timestamp("startedAt"),
-    completedAt: timestamp("completedAt"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
+   repliedCount: int("repliedCount").default(0).notNull(),
+   createdById: int("createdById").references(() => users.id),
+   confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
+    // A future campaign remains queued until this timestamp. Existing sends
+    // default to their confirmation time for immediate-delivery compatibility.
+    scheduledAt: timestamp("scheduledAt").defaultNow().notNull(),
+    // Optional pacing spreads recipient delivery across the requested hourly rate.
+    staggerEnabled: boolean("staggerEnabled").default(false).notNull(),
+    staggerPerHour: int("staggerPerHour"),
+   startedAt: timestamp("startedAt"),
+   completedAt: timestamp("completedAt"),
+   createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("one_time_sends_status_created_idx").on(
+   index("one_time_sends_status_created_idx").on(
+     table.status,
+     table.createdAt
+   ),
+    index("one_time_sends_status_scheduled_idx").on(
       table.status,
+      table.scheduledAt,
       table.createdAt
     ),
-    index("one_time_sends_createdBy_idx").on(table.createdById),
+   index("one_time_sends_createdBy_idx").on(table.createdById),
   ]
 );
 export type OneTimeSend = typeof oneTimeSends.$inferSelect;
@@ -1530,12 +1541,14 @@ export const oneTimeSendRecipients = mysqlTable(
       .notNull()
       .references(() => contacts.id),
     // The concrete email address or phone number chosen from the contact record.
-    recipientAddress: varchar("recipientAddress", { length: 320 }).notNull(),
-    status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"])
-      .default("queued")
-      .notNull(),
-    provider: varchar("provider", { length: 64 }),
-    providerMessageId: varchar("providerMessageId", { length: 255 }),
+   recipientAddress: varchar("recipientAddress", { length: 320 }).notNull(),
+   status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"])
+     .default("queued")
+     .notNull(),
+    // Staggered campaigns use deterministic per-recipient delivery timestamps.
+    scheduledAt: timestamp("scheduledAt").defaultNow().notNull(),
+   provider: varchar("provider", { length: 64 }),
+   providerMessageId: varchar("providerMessageId", { length: 255 }),
     // Used as the local part of an optional Resend inbound reply address.
     replyToken: varchar("replyToken", { length: 64 }),
     errorMessage: text("errorMessage"),
@@ -1561,11 +1574,16 @@ export const oneTimeSendRecipients = mysqlTable(
     uniqueIndex("one_time_send_recipients_reply_token_unique").on(
       table.replyToken
     ),
-    index("one_time_send_recipients_send_status_idx").on(
+   index("one_time_send_recipients_send_status_idx").on(
+     table.sendId,
+     table.status
+   ),
+    index("one_time_send_recipients_send_status_scheduled_idx").on(
       table.sendId,
-      table.status
+      table.status,
+      table.scheduledAt
     ),
-    index("one_time_send_recipients_provider_message_idx").on(
+   index("one_time_send_recipients_provider_message_idx").on(
       table.providerMessageId
     ),
   ]

@@ -27,6 +27,7 @@ import {
   countContactsMatchingPlan,
   countContactsMatchingTrigger,
   getCurrentContactIdsMatchingTrigger,
+  oneTimeRecipientScheduledAt,
   processOneTimeSmartPlanSends,
   contactChannelAddresses,
   bulkEnrollExistingContacts,
@@ -60,6 +61,17 @@ const oneTimeSendInput = z.object({
   body: z.string().trim().min(1).max(100_000),
   triggerType: smartPlanTriggerSchema,
   triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+  scheduledAt: z.coerce.date().optional(),
+  staggerEnabled: z.boolean().optional().default(false),
+  staggerPerHour: z.number().int().min(1).max(360).optional().nullable(),
+}).superRefine((input, ctx) => {
+  if (input.staggerEnabled && !input.staggerPerHour) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Enter the number of messages to send per hour.",
+      path: ["staggerPerHour"],
+    });
+  }
 });
 
 const CONTACT_QUERY_BATCH_SIZE = 1_000;
@@ -458,10 +470,10 @@ export const smartPlansRouter = router({
           excludedCount: contactIds.length - audience.eligibleContactCount,
           exclusionReasons: audience.exclusionReasons,
         };
-      }),
+    }),
 
     queue: protectedProcedure
-      .input(oneTimeSendInput.extend({ confirmed: z.literal(true) }))
+      .input(oneTimeSendInput.safeExtend({ confirmed: z.literal(true) }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         const db = await getDb();
@@ -478,6 +490,12 @@ export const smartPlansRouter = router({
         if (input.channel === "sms" && !(await selectedMarketingNumberId(db))) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Select a dedicated Aircall marketing number before queueing a text campaign." });
         }
+        const now = new Date();
+        const scheduledAt = input.scheduledAt ?? now;
+        if (scheduledAt.getTime() < now.getTime() - 60_000) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a scheduled date and time that has not already passed." });
+        }
+        const staggerPerHour = input.staggerEnabled ? input.staggerPerHour! : null;
 
         const contactIds = await getCurrentContactIdsMatchingTrigger(input);
         const audience = await oneTimeAudience(db, contactIds, input.channel);
@@ -496,15 +514,23 @@ export const smartPlansRouter = router({
           totalRecipients: audience.recipientTargets.length,
           createdById: ctx.user.id,
           confirmedAt: new Date(),
+          scheduledAt,
+          staggerEnabled: input.staggerEnabled,
+          staggerPerHour,
         });
         const sendId = Number((result as any).insertId);
         for (let start = 0; start < audience.recipientTargets.length; start += 500) {
           await db.insert(oneTimeSendRecipients).values(
-            audience.recipientTargets.slice(start, start + 500).map((target) => ({
+            audience.recipientTargets.slice(start, start + 500).map((target, offset) => ({
               sendId,
               contactId: target.contactId,
               recipientAddress: target.recipientAddress,
               status: "queued" as const,
+              scheduledAt: oneTimeRecipientScheduledAt(
+                scheduledAt,
+                start + offset,
+                staggerPerHour
+              ),
             })),
           );
         }
@@ -513,10 +539,28 @@ export const smartPlansRouter = router({
           action: "one_time_send_queued",
           entityType: "one_time_send",
           entityId: sendId,
-          details: { channel: input.channel, triggerType: input.triggerType, matchingContacts: contactIds.length, eligibleContacts: audience.eligibleContactCount, totalRecipients: audience.recipientTargets.length },
+          details: {
+            channel: input.channel,
+            triggerType: input.triggerType,
+            matchingContacts: contactIds.length,
+            eligibleContacts: audience.eligibleContactCount,
+            totalRecipients: audience.recipientTargets.length,
+            scheduledAt: scheduledAt.toISOString(),
+            staggerPerHour,
+          },
         });
-        void processOneTimeSmartPlanSends();
-        return { id: sendId, totalRecipients: audience.recipientTargets.length, eligibleContacts: audience.eligibleContactCount, excludedCount: contactIds.length - audience.eligibleContactCount };
+        if (scheduledAt.getTime() <= now.getTime()) void processOneTimeSmartPlanSends();
+        return {
+          id: sendId,
+          totalRecipients: audience.recipientTargets.length,
+          eligibleContacts: audience.eligibleContactCount,
+          excludedCount: contactIds.length - audience.eligibleContactCount,
+          scheduledAt,
+          staggerPerHour,
+          estimatedDurationHours: staggerPerHour
+            ? Math.ceil(audience.recipientTargets.length / staggerPerHour)
+            : 0,
+        };
       }),
 
     list: protectedProcedure.query(async ({ ctx }) => {
