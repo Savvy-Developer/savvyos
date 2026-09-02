@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { userProfiles, users, vendorCategories, vendorFeaturedSubscriptions, vendorLists, vendors } from "../../drizzle/schema";
+import { userProfiles, users, vendorBillingPayments, vendorCategories, vendorFeaturedSubscriptions, vendorLists, vendors } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "../../shared/phone";
@@ -439,6 +439,51 @@ export const vendorsRouter = router({
       updatedAt: vendorLists.updatedAt,
       categoryCount: sql<number>`count(distinct ${vendorCategories.id})`,
       vendorCount: sql<number>`count(distinct ${vendors.id})`,
+      invitedVendorCount: sql<number>`(
+        select count(distinct ${vendorFeaturedSubscriptions.vendorId})
+        from ${vendorFeaturedSubscriptions}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+      )`,
+      pendingInviteCount: sql<number>`(
+        select count(*)
+        from ${vendorFeaturedSubscriptions}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+          and ${vendorFeaturedSubscriptions.billingStatus} = 'pending_checkout'
+      )`,
+      activeSubscriptionCount: sql<number>`(
+        select count(*)
+        from ${vendorFeaturedSubscriptions}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+          and ${vendorFeaturedSubscriptions.billingStatus} = 'active'
+      )`,
+      activeMonthlyRevenueCents: sql<number>`coalesce((
+        select sum(${vendorFeaturedSubscriptions.monthlyAmountCents})
+        from ${vendorFeaturedSubscriptions}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+          and ${vendorFeaturedSubscriptions.billingStatus} = 'active'
+      ), 0)`,
+      activeAgentShareCents: sql<number>`coalesce((
+        select sum(round(${vendorFeaturedSubscriptions.monthlyAmountCents} * 0.75))
+        from ${vendorFeaturedSubscriptions}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+          and ${vendorFeaturedSubscriptions.billingStatus} = 'active'
+      ), 0)`,
+      collectedRevenueCents: sql<number>`coalesce((
+        select sum(${vendorBillingPayments.amountPaidCents})
+        from ${vendorBillingPayments}
+        inner join ${vendorFeaturedSubscriptions}
+          on ${vendorBillingPayments.vendorFeaturedSubscriptionId} = ${vendorFeaturedSubscriptions.id}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+          and ${vendorBillingPayments.paymentStatus} = 'paid'
+      ), 0)`,
+      agentEarningsCents: sql<number>`coalesce((
+        select sum(${vendorBillingPayments.agentEarningsCents})
+        from ${vendorBillingPayments}
+        inner join ${vendorFeaturedSubscriptions}
+          on ${vendorBillingPayments.vendorFeaturedSubscriptionId} = ${vendorFeaturedSubscriptions.id}
+        where ${vendorFeaturedSubscriptions.agentId} = ${vendorLists.agentId}
+          and ${vendorBillingPayments.paymentStatus} = 'paid'
+      ), 0)`,
     }).from(vendorLists)
       .innerJoin(users, eq(vendorLists.agentId, users.id))
       .leftJoin(vendorCategories, eq(vendorCategories.vendorListId, vendorLists.id))
