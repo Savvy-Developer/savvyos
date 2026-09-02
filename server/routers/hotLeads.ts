@@ -18,9 +18,16 @@ import { sendAircallSMS } from "../_core/aircall";
 import { normalizePhone } from "../aircall";
 import { persistOutboundAircallSend } from "../aircallMessaging";
 import { invokeLLM } from "../_core/llm";
+import { ENV } from "../_core/env";
+import { renderSavvyEmail } from "../_core/savvyEmailTemplate";
 import { canAdminUsePermission } from "./permissions";
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
+
+const HOT_LEAD_OUTREACH_FROM =
+  process.env.PIPELINE_EMAIL_FROM ??
+  "Savvy STR Agents <hello@savvy-agents.com>";
+const RESEND_EMAIL_ENDPOINT = "https://api.resend.com/emails";
 
 const hotLeadsInput = z
   .object({
@@ -43,6 +50,7 @@ const hotLeadsInput = z
         "opens",
         "lastViewed",
         "lastEngaged",
+        "lastContacted",
         "contact",
         "leadSource",
         "leadScore",
@@ -68,6 +76,7 @@ const intentEventsInput = z
       .enum([
         "eventCount",
         "lastEventAt",
+        "lastContacted",
         "contact",
         "leadSource",
         "assignedIsa",
@@ -92,6 +101,7 @@ const deadConnectionsInput = z
       .enum([
         "deadConnectionCount",
         "lastUpdatedAt",
+        "lastContacted",
         "contact",
         "leadSource",
         "assignedIsa",
@@ -136,6 +146,11 @@ const sendHotLeadTextInput = hotLeadTextInput.extend({
     .trim()
     .min(1, "Write a text message first.")
     .max(1600, "Texts are limited to 1,600 characters."),
+});
+
+const sendHotLeadEmailInput = hotLeadTextInput.extend({
+  subject: z.string().trim().min(1, "Add an email subject.").max(512),
+  body: z.string().trim().min(1, "Write an email message first.").max(5000),
 });
 
 const temporaryDeadConnectionsExclusionOptions = {
@@ -399,6 +414,200 @@ function hotLeadTextAvailability(contact: {
       !cooldownActive,
     nextTextAvailableAt: cooldownActive ? availableAt!.toISOString() : null,
   };
+}
+
+function hotLeadEmailAvailability(contact: {
+  email?: string | null;
+  doNotContact?: boolean | null;
+  emailStatus?: "valid" | "bounced" | "unsubscribed" | null;
+}) {
+  return {
+    canEmail:
+      Boolean(contact.email?.trim()) &&
+      !contact.doNotContact &&
+      contact.emailStatus !== "bounced" &&
+      contact.emailStatus !== "unsubscribed",
+  };
+}
+
+function hotLeadReplyToAddress(userName: string | null | undefined): string {
+  const firstName = (userName ?? "").trim().split(/\s+/)[0] ?? "";
+  const localPart = firstName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return `${localPart || "team"}@savvy-agents.com`;
+}
+
+function lastContactedSortExpression() {
+  return sql`(
+    SELECT MAX(hot_lead_last_contact.communicatedAt)
+    FROM \`communications\` AS hot_lead_last_contact
+    WHERE hot_lead_last_contact.relatedContactId = ${contacts.id}
+  )`;
+}
+
+async function requireHotLeadEmailAccess(user: {
+  id: number;
+  role: string;
+  email?: string | null;
+}) {
+  assertHotLeadTextAccess(user.role);
+  if (user.role === "isa") return;
+  if (!(await canAdminUsePermission(user, "canViewResendInbox"))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Resend Inbox permission is required for Hot Leads email outreach.",
+    });
+  }
+}
+
+async function getHotLeadEmailContact(db: any, contactId: number) {
+  const [contact] = await db
+    .select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      phone: contacts.phone,
+      doNotContact: contacts.doNotContact,
+      emailStatus: contacts.emailStatus,
+    })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .limit(1);
+  if (!contact)
+    throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found." });
+  if (contact.doNotContact) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This contact is marked Do Not Contact and cannot be emailed.",
+    });
+  }
+  if (contact.phone?.trim()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Use the Hot Leads text action when this contact has a primary phone number.",
+    });
+  }
+  if (
+    !contact.email ||
+    !z.string().email().safeParse(contact.email.trim()).success
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Add a valid primary email address to this contact before emailing.",
+    });
+  }
+  if (
+    contact.emailStatus === "bounced" ||
+    contact.emailStatus === "unsubscribed"
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "This contact's email address is unavailable for outreach.",
+    });
+  }
+  return contact;
+}
+
+async function sendHotLeadEmailViaResend(params: {
+  to: string;
+  replyTo: string;
+  subject: string;
+  body: string;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!ENV.resendApiKey)
+    return { success: false, error: "Resend is not configured" };
+  try {
+    const response = await fetch(RESEND_EMAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ENV.resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: HOT_LEAD_OUTREACH_FROM,
+        to: [params.to],
+        reply_to: params.replyTo,
+        subject: params.subject,
+        html: renderSavvyEmail(params.subject, params.body),
+        text: params.body,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      return {
+        success: false,
+        error: `Resend rejected the email (${response.status}): ${detail.slice(0, 500)}`,
+      };
+    }
+    const data = (await response.json()) as { id?: string };
+    return { success: true, messageId: data.id };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function buildHotLeadEmailFallback(input: {
+  hotLeadType: z.infer<typeof hotLeadType>;
+  firstName: string | null;
+  userName: string | null;
+  propertyAddress: string | null;
+}): { subject: string; body: string } {
+  const contactFirstName = input.firstName?.trim() || "there";
+  const senderFirstName =
+    input.userName?.trim().split(/\s+/)[0] || "the Savvy STR Agents team";
+  const signature = `\n\nBest,\n${senderFirstName}\nSavvy STR Agents`;
+  const propertyReference = input.propertyAddress
+    ? ` ${input.propertyAddress}`
+    : "";
+
+  switch (input.hotLeadType) {
+    case "property_views":
+      return {
+        subject: input.propertyAddress
+          ? `A quick question about ${input.propertyAddress}`
+          : "A quick question about STR opportunities",
+        body: `Hi ${contactFirstName},\n\nThis is ${senderFirstName} with Savvy STR Agents. I noticed you were looking at${propertyReference || " some STR opportunities"}. Are you actively evaluating a purchase or just keeping an eye on the market?${signature}`,
+      };
+    case "return_visitors":
+      return {
+        subject: "Still exploring STR opportunities?",
+        body: `Hi ${contactFirstName},\n\nThis is ${senderFirstName} with Savvy STR Agents. I noticed you have been back looking at STR opportunities. Are you actively considering a purchase, or are you still in the research stage?${signature}`,
+      };
+    case "email_engagement":
+      return {
+        subject: "A quick STR investing check-in",
+        body: `Hi ${contactFirstName},\n\nThis is ${senderFirstName} with Savvy STR Agents. I wanted to check in because STR investing may be back on your radar. Are you actively looking, or just keeping an eye on opportunities?${signature}`,
+      };
+    case "property_favorites":
+      return {
+        subject: input.propertyAddress
+          ? `A quick question about ${input.propertyAddress}`
+          : "A quick question about an STR you saved",
+        body: `Hi ${contactFirstName},\n\nThis is ${senderFirstName} with Savvy STR Agents. I saw you saved${propertyReference || " an STR opportunity"}. Is it one you are seriously considering, or did it simply catch your eye?${signature}`,
+      };
+    case "analysis_requests":
+      return {
+        subject: input.propertyAddress
+          ? `Your analysis request for ${input.propertyAddress}`
+          : "Your STR analysis request",
+        body: `Hi ${contactFirstName},\n\nThis is ${senderFirstName} with Savvy STR Agents. I saw your request for an analysis${propertyReference ? ` on ${input.propertyAddress}` : ""}. What questions can I help answer as you evaluate the opportunity?${signature}`,
+      };
+    case "dead_connections":
+      return {
+        subject: "Checking in on your STR plans",
+        body: `Hi ${contactFirstName},\n\nThis is ${senderFirstName} with Savvy STR Agents. I wanted to check back in since it has been a while. Are STRs still something you would consider buying, or has that moved off your radar?${signature}`,
+      };
+  }
 }
 
 function buildHotLeadTextFallback(input: {
@@ -737,13 +946,15 @@ async function getWebsiteIntentEvents(
   const sortExpression =
     sortBy === "lastEventAt"
       ? sql`lastEventAt`
-      : sortBy === "contact"
-        ? contacts.lastName
-        : sortBy === "leadSource"
-          ? leadSources.name
-          : sortBy === "assignedIsa"
-            ? users.name
-            : sql`eventCount`;
+      : sortBy === "lastContacted"
+        ? lastContactedSortExpression()
+        : sortBy === "contact"
+          ? contacts.lastName
+          : sortBy === "leadSource"
+            ? leadSources.name
+            : sortBy === "assignedIsa"
+              ? users.name
+              : sql`eventCount`;
   const rows = await db
     .select({
       contactId: contacts.id,
@@ -751,6 +962,7 @@ async function getWebsiteIntentEvents(
       lastName: contacts.lastName,
       email: contacts.email,
       phone: contacts.phone,
+      emailStatus: contacts.emailStatus,
       assignedIsaId: contacts.assignedIsaId,
       leadSourceId: contacts.leadSourceId,
       doNotContact: contacts.doNotContact,
@@ -825,6 +1037,7 @@ async function getWebsiteIntentEvents(
       lastName: row.lastName,
       email: row.email,
       phone: row.phone,
+      emailStatus: row.emailStatus,
       eventCount: Number(row.eventCount ?? 0),
       lastEventAt: ensureUtc(row.lastEventAt),
       lastPropertyAddress: lastPropertyMap[row.contactId] ?? null,
@@ -838,6 +1051,7 @@ async function getWebsiteIntentEvents(
       lastContacted: lastContactMap[row.contactId]?.lastContacted ?? null,
       lastContactedBy: lastContactMap[row.contactId]?.lastContactedBy ?? null,
       ...hotLeadTextAvailability(row),
+      ...hotLeadEmailAvailability(row),
     })),
     leadScoreByContact
   );
@@ -1168,6 +1382,90 @@ export const hotLeadsRouter = router({
         );
         return { body: fallback, propertyAddress, generatedWithAi: false };
       }
+    }),
+
+  /** Builds a reviewed email fallback when a Hot Lead has no primary phone number. */
+  draftEmail: protectedProcedure
+    .input(hotLeadTextInput)
+    .mutation(async ({ ctx, input }) => {
+      await requireHotLeadEmailAccess(ctx.user);
+      const db = await getDb();
+      if (!db)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Database unavailable.",
+        });
+      const contact = await getHotLeadEmailContact(db, input.contactId);
+      const propertyAddress = await latestHotLeadPropertyAddress(
+        db,
+        input.contactId,
+        input.hotLeadType
+      );
+      const draft = buildHotLeadEmailFallback({
+        hotLeadType: input.hotLeadType,
+        firstName: contact.firstName,
+        userName: ctx.user.name,
+        propertyAddress,
+      });
+      return { ...draft, replyTo: hotLeadReplyToAddress(ctx.user.name) };
+    }),
+
+  /** Sends a reviewed Hot Leads email through Resend when SMS has no destination. */
+  sendEmail: protectedProcedure
+    .input(sendHotLeadEmailInput)
+    .mutation(async ({ ctx, input }) => {
+      await requireHotLeadEmailAccess(ctx.user);
+      const db = await getDb();
+      if (!db)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Database unavailable.",
+        });
+      const contact = await getHotLeadEmailContact(db, input.contactId);
+      const replyTo = hotLeadReplyToAddress(ctx.user.name);
+      const result = await sendHotLeadEmailViaResend({
+        to: contact.email.trim(),
+        replyTo,
+        subject: input.subject,
+        body: input.body,
+      });
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: result.error || "Resend could not send this email.",
+        });
+      }
+      const now = new Date();
+      await Promise.all([
+        db.insert(communications).values({
+          type: "email",
+          subject: input.subject,
+          body: input.body,
+          direction: "outbound",
+          authorId: ctx.user.id,
+          relatedContactId: contact.id,
+          communicatedAt: now,
+        }),
+        logActivity({
+          userId: ctx.user.id,
+          action: "hot_lead_email_sent",
+          entityType: "contact",
+          entityId: contact.id,
+          relatedContactId: contact.id,
+          details: {
+            hotLeadType: input.hotLeadType,
+            resendMessageId: result.messageId ?? null,
+            recipient: contact.email.trim(),
+            replyTo,
+          },
+        }),
+      ]);
+      return {
+        success: true,
+        messageId: result.messageId ?? null,
+        sentAt: now.toISOString(),
+        replyTo,
+      };
     }),
 
   /** Sends a confirmed Hot Leads draft through the shared marketing Aircall line. */
@@ -1628,13 +1926,15 @@ export const hotLeadsRouter = router({
       const sortExpression =
         sortBy === "deadConnectionCount"
           ? sql`deadConnectionCount`
-          : sortBy === "contact"
-            ? sql`CONCAT(COALESCE(${contacts.lastName}, ''), ' ', COALESCE(${contacts.firstName}, ''))`
-            : sortBy === "leadSource"
-              ? sql`(SELECT source.\`name\` FROM \`lead_sources\` source WHERE source.\`id\` = ${contacts.leadSourceId})`
-              : sortBy === "assignedIsa"
-                ? sql`(SELECT isa.\`name\` FROM \`users\` isa WHERE isa.\`id\` = ${contacts.assignedIsaId})`
-                : sql`lastUpdatedAt`;
+          : sortBy === "lastContacted"
+            ? lastContactedSortExpression()
+            : sortBy === "contact"
+              ? sql`CONCAT(COALESCE(${contacts.lastName}, ''), ' ', COALESCE(${contacts.firstName}, ''))`
+              : sortBy === "leadSource"
+                ? sql`(SELECT source.\`name\` FROM \`lead_sources\` source WHERE source.\`id\` = ${contacts.leadSourceId})`
+                : sortBy === "assignedIsa"
+                  ? sql`(SELECT isa.\`name\` FROM \`users\` isa WHERE isa.\`id\` = ${contacts.assignedIsaId})`
+                  : sql`lastUpdatedAt`;
       const baseConditions = [
         sql`(${contacts.email} IS NULL OR ${contacts.email} NOT LIKE '%@savvy.realty')`,
         eq(contacts.doNotContact, false),
@@ -1662,6 +1962,7 @@ export const hotLeadsRouter = router({
           lastName: contacts.lastName,
           email: contacts.email,
           phone: contacts.phone,
+          emailStatus: contacts.emailStatus,
           assignedIsaId: contacts.assignedIsaId,
           leadSourceId: contacts.leadSourceId,
           doNotContact: contacts.doNotContact,
@@ -1722,6 +2023,7 @@ export const hotLeadsRouter = router({
           lastName: row.lastName,
           email: row.email,
           phone: row.phone,
+          emailStatus: row.emailStatus,
           deadConnectionCount: Number(row.deadConnectionCount ?? 0),
           lastUpdatedAt: ensureUtc(row.lastUpdatedAt),
           assignedIsa: row.assignedIsaId
@@ -1735,6 +2037,7 @@ export const hotLeadsRouter = router({
           lastContactedBy:
             lastContactMap[row.contactId]?.lastContactedBy ?? null,
           ...hotLeadTextAvailability(row),
+          ...hotLeadEmailAvailability(row),
         })),
         leadScoreByContact
       );
@@ -1820,11 +2123,13 @@ export const hotLeadsRouter = router({
       const sortExpression =
         sortBy === "lastViewed"
           ? sql`lastViewed`
-          : sortBy === "contact"
-            ? contacts.lastName
-            : sortBy === "leadSource"
-              ? leadSources.name
-              : sql`viewCount`;
+          : sortBy === "lastContacted"
+            ? lastContactedSortExpression()
+            : sortBy === "contact"
+              ? contacts.lastName
+              : sortBy === "leadSource"
+                ? leadSources.name
+                : sql`viewCount`;
       const rows = await db
         .select({
           contactId: activityLog.entityId,
@@ -1836,6 +2141,7 @@ export const hotLeadsRouter = router({
           lastName: contacts.lastName,
           email: contacts.email,
           phone: contacts.phone,
+          emailStatus: contacts.emailStatus,
           assignedIsaId: contacts.assignedIsaId,
           leadSourceId: contacts.leadSourceId,
           doNotContact: contacts.doNotContact,
@@ -1891,6 +2197,7 @@ export const hotLeadsRouter = router({
           lastName: row.lastName,
           email: row.email,
           phone: row.phone,
+          emailStatus: row.emailStatus,
           viewCount: row.viewCount,
           lastViewed: ensureUtc(row.lastViewed),
           assignedIsa: row.assignedIsaId
@@ -1904,6 +2211,7 @@ export const hotLeadsRouter = router({
           lastContactedBy:
             lastContactMap[row.contactId!]?.lastContactedBy ?? null,
           ...hotLeadTextAvailability(row),
+          ...hotLeadEmailAvailability(row),
         })),
         leadScoreByContact
       );
@@ -1987,11 +2295,13 @@ export const hotLeadsRouter = router({
           ? sql`totalViews`
           : sortBy === "lastViewed"
             ? sql`lastViewed`
-            : sortBy === "contact"
-              ? contacts.lastName
-              : sortBy === "leadSource"
-                ? leadSources.name
-                : sql`distinctDays`;
+            : sortBy === "lastContacted"
+              ? lastContactedSortExpression()
+              : sortBy === "contact"
+                ? contacts.lastName
+                : sortBy === "leadSource"
+                  ? leadSources.name
+                  : sql`distinctDays`;
       const rows = await db
         .select({
           contactId: activityLog.entityId,
@@ -2007,6 +2317,7 @@ export const hotLeadsRouter = router({
           lastName: contacts.lastName,
           email: contacts.email,
           phone: contacts.phone,
+          emailStatus: contacts.emailStatus,
           assignedIsaId: contacts.assignedIsaId,
           leadSourceId: contacts.leadSourceId,
           doNotContact: contacts.doNotContact,
@@ -2071,6 +2382,7 @@ export const hotLeadsRouter = router({
           lastName: row.lastName,
           email: row.email,
           phone: row.phone,
+          emailStatus: row.emailStatus,
           distinctDays: row.distinctDays,
           totalViews: row.totalViews,
           lastViewed: ensureUtc(row.lastViewed),
@@ -2085,6 +2397,7 @@ export const hotLeadsRouter = router({
           lastContactedBy:
             lastContactMap[row.contactId!]?.lastContactedBy ?? null,
           ...hotLeadTextAvailability(row),
+          ...hotLeadEmailAvailability(row),
         })),
         leadScoreByContact
       );
@@ -2167,11 +2480,13 @@ export const hotLeadsRouter = router({
           ? sql`opens`
           : sortBy === "lastEngaged"
             ? sql`lastEngaged`
-            : sortBy === "contact"
-              ? contacts.lastName
-              : sortBy === "leadSource"
-                ? leadSources.name
-                : sql`clicks`;
+            : sortBy === "lastContacted"
+              ? lastContactedSortExpression()
+              : sortBy === "contact"
+                ? contacts.lastName
+                : sortBy === "leadSource"
+                  ? leadSources.name
+                  : sql`clicks`;
       const rows = await db
         .select({
           contactId: emailBehaviors.contactId,
@@ -2191,6 +2506,7 @@ export const hotLeadsRouter = router({
           lastName: contacts.lastName,
           email: contacts.email,
           phone: contacts.phone,
+          emailStatus: contacts.emailStatus,
           assignedIsaId: contacts.assignedIsaId,
           leadSourceId: contacts.leadSourceId,
           doNotContact: contacts.doNotContact,
@@ -2243,6 +2559,7 @@ export const hotLeadsRouter = router({
           lastName: row.lastName,
           email: row.email,
           phone: row.phone,
+          emailStatus: row.emailStatus,
           opens: row.opens,
           clicks: row.clicks,
           lastEngaged: ensureUtc(row.lastEngaged),
@@ -2257,6 +2574,7 @@ export const hotLeadsRouter = router({
           lastContactedBy:
             lastContactMap[row.contactId!]?.lastContactedBy ?? null,
           ...hotLeadTextAvailability(row),
+          ...hotLeadEmailAvailability(row),
         })),
         leadScoreByContact
       );

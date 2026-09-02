@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -75,6 +76,7 @@ type HotLeadTextType =
 type PVSortKey =
   | "viewCount"
   | "lastViewed"
+  | "lastContacted"
   | "contact"
   | "leadSource"
   | "leadScore";
@@ -82,6 +84,7 @@ type RVSortKey =
   | "distinctDays"
   | "totalViews"
   | "lastViewed"
+  | "lastContacted"
   | "contact"
   | "leadSource"
   | "leadScore";
@@ -89,12 +92,14 @@ type EESortKey =
   | "clicks"
   | "opens"
   | "lastEngaged"
+  | "lastContacted"
   | "contact"
   | "leadSource"
   | "leadScore";
 type DCSortKey =
   | "deadConnectionCount"
   | "lastUpdatedAt"
+  | "lastContacted"
   | "contact"
   | "leadSource"
   | "assignedIsa"
@@ -102,6 +107,7 @@ type DCSortKey =
 type IntentSortKey =
   | "eventCount"
   | "lastEventAt"
+  | "lastContacted"
   | "contact"
   | "leadSource"
   | "assignedIsa"
@@ -172,7 +178,12 @@ export default function HotLeadsPage() {
   const [textLead, setTextLead] = useState<any | null>(null);
   const [textLeadType, setTextLeadType] =
     useState<HotLeadTextType>("property_views");
+  const [outreachChannel, setOutreachChannel] = useState<"text" | "email">(
+    "text"
+  );
   const [textBody, setTextBody] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailReplyTo, setEmailReplyTo] = useState("");
   const limit = 50;
 
   // Sort state for each tab
@@ -255,6 +266,13 @@ export default function HotLeadsPage() {
       Boolean(
         (permissionsQuery.data as Record<string, boolean> | undefined)
           ?.canViewMarketingTextInbox
+      ));
+  const canUseResendInbox =
+    isIsa ||
+    (isAdmin &&
+      Boolean(
+        (permissionsQuery.data as Record<string, boolean> | undefined)
+          ?.canViewResendInbox
       ));
   const isas = usersList.filter((u: any) => u.role === "isa");
   const agents = usersList.filter((u: any) => u.role === "agent");
@@ -369,6 +387,14 @@ export default function HotLeadsPage() {
     onSuccess: result => setTextBody(result.body),
     onError: error => toast.error(error.message),
   });
+  const draftEmail = trpc.hotLeads.draftEmail.useMutation({
+    onSuccess: result => {
+      setEmailSubject(result.subject);
+      setTextBody(result.body);
+      setEmailReplyTo(result.replyTo);
+    },
+    onError: error => toast.error(error.message),
+  });
   const sendText = trpc.hotLeads.sendText.useMutation({
     onSuccess: async () => {
       toast.success(
@@ -376,6 +402,27 @@ export default function HotLeadsPage() {
       );
       setTextLead(null);
       setTextBody("");
+      await Promise.all([
+        trpcUtils.hotLeads.propertyViews.invalidate(),
+        trpcUtils.hotLeads.returnVisitors.invalidate(),
+        trpcUtils.hotLeads.emailEngagement.invalidate(),
+        trpcUtils.hotLeads.propertyFavorites.invalidate(),
+        trpcUtils.hotLeads.analysisRequests.invalidate(),
+        trpcUtils.hotLeads.deadConnections.invalidate(),
+        trpcUtils.hotLeads.stats.invalidate(),
+      ]);
+    },
+    onError: error => toast.error(error.message),
+  });
+  const sendEmail = trpc.hotLeads.sendEmail.useMutation({
+    onSuccess: async () => {
+      toast.success(
+        "Hot Leads email sent. Replies will appear in Resend Inbox."
+      );
+      setTextLead(null);
+      setTextBody("");
+      setEmailSubject("");
+      setEmailReplyTo("");
       await Promise.all([
         trpcUtils.hotLeads.propertyViews.invalidate(),
         trpcUtils.hotLeads.returnVisitors.invalidate(),
@@ -436,6 +483,10 @@ export default function HotLeadsPage() {
           aVal = a.lastViewed ? new Date(a.lastViewed).getTime() : 0;
           bVal = b.lastViewed ? new Date(b.lastViewed).getTime() : 0;
           break;
+        case "lastContacted":
+          aVal = a.lastContacted ? new Date(a.lastContacted).getTime() : 0;
+          bVal = b.lastContacted ? new Date(b.lastContacted).getTime() : 0;
+          break;
         case "contact":
           aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`
             .trim()
@@ -484,6 +535,10 @@ export default function HotLeadsPage() {
         case "lastViewed":
           aVal = a.lastViewed ? new Date(a.lastViewed).getTime() : 0;
           bVal = b.lastViewed ? new Date(b.lastViewed).getTime() : 0;
+          break;
+        case "lastContacted":
+          aVal = a.lastContacted ? new Date(a.lastContacted).getTime() : 0;
+          bVal = b.lastContacted ? new Date(b.lastContacted).getTime() : 0;
           break;
         case "contact":
           aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`
@@ -534,6 +589,10 @@ export default function HotLeadsPage() {
           aVal = a.lastEngaged ? new Date(a.lastEngaged).getTime() : 0;
           bVal = b.lastEngaged ? new Date(b.lastEngaged).getTime() : 0;
           break;
+        case "lastContacted":
+          aVal = a.lastContacted ? new Date(a.lastContacted).getTime() : 0;
+          bVal = b.lastContacted ? new Date(b.lastContacted).getTime() : 0;
+          break;
         case "contact":
           aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`
             .trim()
@@ -578,6 +637,10 @@ export default function HotLeadsPage() {
         case "lastUpdatedAt":
           aVal = a.lastUpdatedAt ? new Date(a.lastUpdatedAt).getTime() : 0;
           bVal = b.lastUpdatedAt ? new Date(b.lastUpdatedAt).getTime() : 0;
+          break;
+        case "lastContacted":
+          aVal = a.lastContacted ? new Date(a.lastContacted).getTime() : 0;
+          bVal = b.lastContacted ? new Date(b.lastContacted).getTime() : 0;
           break;
         case "contact":
           aVal = `${a.firstName ?? ""} ${a.lastName ?? ""}`
@@ -729,12 +792,27 @@ export default function HotLeadsPage() {
     });
   };
 
-  const openTextDialog = (lead: any, hotLeadType: HotLeadTextType) => {
-    if (!lead.canText) return;
+  const openOutreachDialog = (lead: any, hotLeadType: HotLeadTextType) => {
+    const channel = lead.phone?.trim() ? "text" : "email";
     setTextLead(lead);
     setTextLeadType(hotLeadType);
+    setOutreachChannel(channel);
     setTextBody("");
-    draftText.mutate({ contactId: lead.contactId, hotLeadType });
+    setEmailSubject("");
+    setEmailReplyTo("");
+    if (channel === "text") {
+      draftText.mutate({ contactId: lead.contactId, hotLeadType });
+    } else {
+      draftEmail.mutate({ contactId: lead.contactId, hotLeadType });
+    }
+  };
+
+  const closeOutreachDialog = () => {
+    if (sendText.isPending || sendEmail.isPending) return;
+    setTextLead(null);
+    setTextBody("");
+    setEmailSubject("");
+    setEmailReplyTo("");
   };
 
   const handleDaysChange = (newDays: DaysFilter) => {
@@ -921,7 +999,6 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead className="text-center">Text</TableHead>
                     <TableHead
                       className="text-center cursor-pointer select-none"
                       onClick={() => handlePvSort("viewCount")}
@@ -948,8 +1025,11 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead>Last Contact</TableHead>
-                    <TableHead>Last Contacted By</TableHead>
+                    <LastContactHeader
+                      onClick={() => handlePvSort("lastContacted")}
+                      activeKey={pvSortKey}
+                      activeDir={pvSortDir}
+                    />
                     <TableHead
                       className="cursor-pointer select-none"
                       onClick={() => handlePvSort("leadScore")}
@@ -958,19 +1038,6 @@ export default function HotLeadsPage() {
                         Lead Score{" "}
                         <SortIcon
                           col="leadScore"
-                          activeKey={pvSortKey}
-                          activeDir={pvSortDir}
-                        />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer select-none"
-                      onClick={() => handlePvSort("leadSource")}
-                    >
-                      <span className="inline-flex items-center">
-                        Lead Source{" "}
-                        <SortIcon
-                          col="leadSource"
                           activeKey={pvSortKey}
                           activeDir={pvSortDir}
                         />
@@ -985,14 +1052,13 @@ export default function HotLeadsPage() {
                     <TableCell className="text-center text-muted-foreground text-xs">
                       {(pvPage - 1) * limit + idx + 1}
                     </TableCell>
-                    <TableCell>
-                      <ContactCell lead={lead} isAgent={isAgent} />
-                    </TableCell>
-                    <HotLeadTextCell
+                    <ContactCell
                       lead={lead}
+                      isAgent={isAgent}
                       hotLeadType="property_views"
-                      onText={openTextDialog}
-                      enabled={canUseMarketingTextInbox}
+                      onOutreach={openOutreachDialog}
+                      canUseText={canUseMarketingTextInbox}
+                      canUseEmail={canUseResendInbox}
                     />
                     <TableCell className="text-center">
                       <ViewCountBadge count={lead.viewCount} />
@@ -1000,15 +1066,12 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastViewed)}
                     </TableCell>
-                    <LastContactCells lead={lead} />
+                    <LastContactCell lead={lead} />
                     <TableCell>
                       <LeadScoreBadge
                         score={lead.leadScore}
                         signals={lead.leadScoreSignals}
                       />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {lead.leadSource || "—"}
                     </TableCell>
                     {!isAgent && (
                       <TableCell className="text-sm text-muted-foreground">
@@ -1090,7 +1153,6 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead className="text-center">Text</TableHead>
                     <TableHead
                       className="text-center cursor-pointer select-none"
                       onClick={() => handleRvSort("distinctDays")}
@@ -1130,8 +1192,11 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead>Last Contact</TableHead>
-                    <TableHead>Last Contacted By</TableHead>
+                    <LastContactHeader
+                      onClick={() => handleRvSort("lastContacted")}
+                      activeKey={rvSortKey}
+                      activeDir={rvSortDir}
+                    />
                     <TableHead
                       className="cursor-pointer select-none"
                       onClick={() => handleRvSort("leadScore")}
@@ -1140,19 +1205,6 @@ export default function HotLeadsPage() {
                         Lead Score{" "}
                         <SortIcon
                           col="leadScore"
-                          activeKey={rvSortKey}
-                          activeDir={rvSortDir}
-                        />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer select-none"
-                      onClick={() => handleRvSort("leadSource")}
-                    >
-                      <span className="inline-flex items-center">
-                        Lead Source{" "}
-                        <SortIcon
-                          col="leadSource"
                           activeKey={rvSortKey}
                           activeDir={rvSortDir}
                         />
@@ -1167,14 +1219,13 @@ export default function HotLeadsPage() {
                     <TableCell className="text-center text-muted-foreground text-xs">
                       {(rvPage - 1) * limit + idx + 1}
                     </TableCell>
-                    <TableCell>
-                      <ContactCell lead={lead} isAgent={isAgent} />
-                    </TableCell>
-                    <HotLeadTextCell
+                    <ContactCell
                       lead={lead}
+                      isAgent={isAgent}
                       hotLeadType="return_visitors"
-                      onText={openTextDialog}
-                      enabled={canUseMarketingTextInbox}
+                      onOutreach={openOutreachDialog}
+                      canUseText={canUseMarketingTextInbox}
+                      canUseEmail={canUseResendInbox}
                     />
                     <TableCell className="text-center">
                       <DaysBadge count={lead.distinctDays} />
@@ -1185,15 +1236,12 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastViewed)}
                     </TableCell>
-                    <LastContactCells lead={lead} />
+                    <LastContactCell lead={lead} />
                     <TableCell>
                       <LeadScoreBadge
                         score={lead.leadScore}
                         signals={lead.leadScoreSignals}
                       />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {lead.leadSource || "—"}
                     </TableCell>
                     {!isAgent && (
                       <TableCell className="text-sm text-muted-foreground">
@@ -1274,7 +1322,6 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead className="text-center">Text</TableHead>
                     <TableHead
                       className="text-center cursor-pointer select-none"
                       onClick={() => handleEeSort("clicks")}
@@ -1314,8 +1361,11 @@ export default function HotLeadsPage() {
                         />
                       </span>
                     </TableHead>
-                    <TableHead>Last Contact</TableHead>
-                    <TableHead>Last Contacted By</TableHead>
+                    <LastContactHeader
+                      onClick={() => handleEeSort("lastContacted")}
+                      activeKey={eeSortKey}
+                      activeDir={eeSortDir}
+                    />
                     <TableHead
                       className="cursor-pointer select-none"
                       onClick={() => handleEeSort("leadScore")}
@@ -1324,19 +1374,6 @@ export default function HotLeadsPage() {
                         Lead Score{" "}
                         <SortIcon
                           col="leadScore"
-                          activeKey={eeSortKey}
-                          activeDir={eeSortDir}
-                        />
-                      </span>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer select-none"
-                      onClick={() => handleEeSort("leadSource")}
-                    >
-                      <span className="inline-flex items-center">
-                        Lead Source{" "}
-                        <SortIcon
-                          col="leadSource"
                           activeKey={eeSortKey}
                           activeDir={eeSortDir}
                         />
@@ -1351,14 +1388,13 @@ export default function HotLeadsPage() {
                     <TableCell className="text-center text-muted-foreground text-xs">
                       {(eePage - 1) * limit + idx + 1}
                     </TableCell>
-                    <TableCell>
-                      <ContactCell lead={lead} isAgent={isAgent} />
-                    </TableCell>
-                    <HotLeadTextCell
+                    <ContactCell
                       lead={lead}
+                      isAgent={isAgent}
                       hotLeadType="email_engagement"
-                      onText={openTextDialog}
-                      enabled={canUseMarketingTextInbox}
+                      onOutreach={openOutreachDialog}
+                      canUseText={canUseMarketingTextInbox}
+                      canUseEmail={canUseResendInbox}
                     />
                     <TableCell className="text-center">
                       <ClicksBadge count={lead.clicks} />
@@ -1369,15 +1405,12 @@ export default function HotLeadsPage() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatRelativeDate(lead.lastEngaged)}
                     </TableCell>
-                    <LastContactCells lead={lead} />
+                    <LastContactCell lead={lead} />
                     <TableCell>
                       <LeadScoreBadge
                         score={lead.leadScore}
                         signals={lead.leadScoreSignals}
                       />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {lead.leadSource || "—"}
                     </TableCell>
                     {!isAgent && (
                       <TableCell className="text-sm text-muted-foreground">
@@ -1437,9 +1470,9 @@ export default function HotLeadsPage() {
           sortKey={favoritesSortKey}
           sortDir={favoritesSortDir}
           onSort={handleFavoritesSort}
-          onText={openTextDialog}
+          onOutreach={openOutreachDialog}
           canUseText={canUseMarketingTextInbox}
-          showText
+          canUseEmail={canUseResendInbox}
         />
 
         <IntentLeadsTab
@@ -1483,9 +1516,9 @@ export default function HotLeadsPage() {
           sortKey={analysisSortKey}
           sortDir={analysisSortDir}
           onSort={handleAnalysisSort}
-          onText={openTextDialog}
+          onOutreach={openOutreachDialog}
           canUseText={canUseMarketingTextInbox}
-          showText={false}
+          canUseEmail={canUseResendInbox}
         />
 
         {/* ─── Dead Connections Tab (Admin / ISA only) ────────────────────── */}
@@ -1661,7 +1694,6 @@ export default function HotLeadsPage() {
                           />
                         </span>
                       </TableHead>
-                      <TableHead className="text-center">Text</TableHead>
                       <TableHead
                         className="text-center cursor-pointer select-none"
                         onClick={() => handleDcSort("deadConnectionCount")}
@@ -1688,21 +1720,11 @@ export default function HotLeadsPage() {
                           />
                         </span>
                       </TableHead>
-                      <TableHead>Last Contact</TableHead>
-                      <TableHead>Last Contacted By</TableHead>
-                      <TableHead
-                        className="cursor-pointer select-none"
-                        onClick={() => handleDcSort("leadSource")}
-                      >
-                        <span className="inline-flex items-center">
-                          Lead Source{" "}
-                          <SortIcon
-                            col="leadSource"
-                            activeKey={dcSortKey}
-                            activeDir={dcSortDir}
-                          />
-                        </span>
-                      </TableHead>
+                      <LastContactHeader
+                        onClick={() => handleDcSort("lastContacted")}
+                        activeKey={dcSortKey}
+                        activeDir={dcSortDir}
+                      />
                       <TableHead
                         className="cursor-pointer select-none"
                         onClick={() => handleDcSort("assignedIsa")}
@@ -1745,18 +1767,14 @@ export default function HotLeadsPage() {
                       <TableCell className="text-center text-muted-foreground text-xs">
                         {(dcPage - 1) * limit + idx + 1}
                       </TableCell>
-                      <TableCell>
-                        <ContactCell
-                          lead={lead}
-                          isAgent={false}
-                          returnTo={deadConnectionsReturnTo}
-                        />
-                      </TableCell>
-                      <HotLeadTextCell
+                      <ContactCell
                         lead={lead}
+                        isAgent={false}
+                        returnTo={deadConnectionsReturnTo}
                         hotLeadType="dead_connections"
-                        onText={openTextDialog}
-                        enabled={canUseMarketingTextInbox}
+                        onOutreach={openOutreachDialog}
+                        canUseText={canUseMarketingTextInbox}
+                        canUseEmail={canUseResendInbox}
                       />
                       <TableCell className="text-center">
                         <Badge variant="destructive">
@@ -1766,10 +1784,7 @@ export default function HotLeadsPage() {
                       <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                         {formatRelativeDate(lead.lastUpdatedAt)}
                       </TableCell>
-                      <LastContactCells lead={lead} />
-                      <TableCell className="text-sm text-muted-foreground">
-                        {lead.leadSource || "—"}
-                      </TableCell>
+                      <LastContactCell lead={lead} />
                       <TableCell className="text-sm text-muted-foreground">
                         {lead.assignedIsa || "—"}
                       </TableCell>
@@ -1830,70 +1845,109 @@ export default function HotLeadsPage() {
       <Dialog
         open={Boolean(textLead)}
         onOpenChange={open => {
-          if (!open && !sendText.isPending) {
-            setTextLead(null);
-            setTextBody("");
-          }
+          if (!open) closeOutreachDialog();
         }}
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Draft Hot Leads text</DialogTitle>
+            <DialogTitle>
+              {outreachChannel === "email"
+                ? "Draft Hot Leads email"
+                : "Draft Hot Leads text"}
+            </DialogTitle>
             <DialogDescription>
-              Review and edit the AI-assisted draft before sending it from the
-              shared Marketing Text Inbox line to{" "}
-              {textLead?.firstName || "this contact"} {textLead?.lastName || ""}
-              .
+              {outreachChannel === "email"
+                ? `Review and edit the email before sending it to ${textLead?.firstName || "this contact"} ${textLead?.lastName || ""}.`
+                : `Review and edit the AI-assisted draft before sending it from the shared Marketing Text Inbox line to ${textLead?.firstName || "this contact"} ${textLead?.lastName || ""}.`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="hot-lead-text-body">Message</Label>
-            <Textarea
-              id="hot-lead-text-body"
-              value={textBody}
-              onChange={event => setTextBody(event.target.value)}
-              rows={6}
-              maxLength={1600}
-              disabled={draftText.isPending || sendText.isPending}
-              placeholder="Preparing a relevant text…"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>
-                {draftText.isPending
-                  ? "Preparing a personalized draft…"
-                  : "Replies will appear in Marketing Text Inbox."}
-              </span>
-              <span>{textBody.length}/1600</span>
+          <div className="space-y-3">
+            {outreachChannel === "email" && (
+              <div className="space-y-2">
+                <Label htmlFor="hot-lead-email-subject">Subject</Label>
+                <Input
+                  id="hot-lead-email-subject"
+                  value={emailSubject}
+                  onChange={event => setEmailSubject(event.target.value)}
+                  maxLength={512}
+                  disabled={draftEmail.isPending || sendEmail.isPending}
+                  placeholder="Email subject"
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="hot-lead-outreach-body">Message</Label>
+              <Textarea
+                id="hot-lead-outreach-body"
+                value={textBody}
+                onChange={event => setTextBody(event.target.value)}
+                rows={6}
+                maxLength={outreachChannel === "email" ? 5000 : 1600}
+                disabled={
+                  draftText.isPending ||
+                  draftEmail.isPending ||
+                  sendText.isPending ||
+                  sendEmail.isPending
+                }
+                placeholder={
+                  outreachChannel === "email"
+                    ? "Preparing a relevant email…"
+                    : "Preparing a relevant text…"
+                }
+              />
+              <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                <span>
+                  {draftText.isPending || draftEmail.isPending
+                    ? "Preparing a personalized draft…"
+                    : outreachChannel === "email"
+                      ? `Replies will appear in Resend Inbox${emailReplyTo ? ` via ${emailReplyTo}` : ""}.`
+                      : "Replies will appear in Marketing Text Inbox."}
+                </span>
+                <span>
+                  {textBody.length}/{outreachChannel === "email" ? 5000 : 1600}
+                </span>
+              </div>
             </div>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => {
-                setTextLead(null);
-                setTextBody("");
-              }}
-              disabled={sendText.isPending}
+              onClick={closeOutreachDialog}
+              disabled={sendText.isPending || sendEmail.isPending}
             >
               Cancel
             </Button>
             <Button
-              onClick={() =>
-                textLead &&
-                sendText.mutate({
-                  contactId: textLead.contactId,
-                  hotLeadType: textLeadType,
-                  body: textBody.trim(),
-                })
-              }
+              onClick={() => {
+                if (!textLead) return;
+                if (outreachChannel === "email") {
+                  sendEmail.mutate({
+                    contactId: textLead.contactId,
+                    hotLeadType: textLeadType,
+                    subject: emailSubject.trim(),
+                    body: textBody.trim(),
+                  });
+                } else {
+                  sendText.mutate({
+                    contactId: textLead.contactId,
+                    hotLeadType: textLeadType,
+                    body: textBody.trim(),
+                  });
+                }
+              }}
               disabled={
-                !textBody.trim() || draftText.isPending || sendText.isPending
+                !textBody.trim() ||
+                (outreachChannel === "email" && !emailSubject.trim()) ||
+                draftText.isPending ||
+                draftEmail.isPending ||
+                sendText.isPending ||
+                sendEmail.isPending
               }
             >
-              {sendText.isPending && (
+              {(sendText.isPending || sendEmail.isPending) && (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               )}{" "}
-              Send text
+              {outreachChannel === "email" ? "Send email" : "Send text"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2419,9 +2473,9 @@ type IntentLeadsTabProps = {
   sortKey: IntentSortKey;
   sortDir: SortDir;
   onSort: (key: IntentSortKey) => void;
-  onText: (lead: any, type: HotLeadTextType) => void;
+  onOutreach: (lead: any, type: HotLeadTextType) => void;
   canUseText: boolean;
-  showText: boolean;
+  canUseEmail: boolean;
 };
 
 function IntentLeadsTab({
@@ -2456,9 +2510,9 @@ function IntentLeadsTab({
   sortKey,
   sortDir,
   onSort,
-  onText,
+  onOutreach,
   canUseText,
-  showText,
+  canUseEmail,
 }: IntentLeadsTabProps) {
   const SortIcon = ({ col }: { col: IntentSortKey }) => {
     if (sortKey !== col)
@@ -2471,6 +2525,8 @@ function IntentLeadsTab({
   };
   const items = query.data?.items ?? [];
   const showLastProperty = value !== "property-favorites";
+  const hotLeadType: HotLeadTextType =
+    value === "property-favorites" ? "property_favorites" : "analysis_requests";
 
   return (
     <TabsContent value={value}>
@@ -2523,9 +2579,6 @@ function IntentLeadsTab({
                     Contact <SortIcon col="contact" />
                   </span>
                 </TableHead>
-                {showText && (
-                  <TableHead className="text-center">Text</TableHead>
-                )}
                 <TableHead
                   className="cursor-pointer select-none text-center"
                   onClick={() => onSort("eventCount")}
@@ -2543,22 +2596,17 @@ function IntentLeadsTab({
                   </span>
                 </TableHead>
                 {showLastProperty && <TableHead>Last Property</TableHead>}
-                <TableHead>Last Contact</TableHead>
-                <TableHead>Last Contacted By</TableHead>
+                <LastContactHeader
+                  onClick={() => onSort("lastContacted")}
+                  activeKey={sortKey}
+                  activeDir={sortDir}
+                />
                 <TableHead
                   className="cursor-pointer select-none"
                   onClick={() => onSort("leadScore")}
                 >
                   <span className="inline-flex items-center">
                     Lead Score <SortIcon col="leadScore" />
-                  </span>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer select-none"
-                  onClick={() => onSort("leadSource")}
-                >
-                  <span className="inline-flex items-center">
-                    Lead Source <SortIcon col="leadSource" />
                   </span>
                 </TableHead>
                 {!isAgent && (
@@ -2579,21 +2627,14 @@ function IntentLeadsTab({
                 <TableCell className="text-center text-xs text-muted-foreground">
                   {(page - 1) * limit + index + 1}
                 </TableCell>
-                <TableCell>
-                  <ContactCell lead={lead} isAgent={isAgent} />
-                </TableCell>
-                {showText && (
-                  <HotLeadTextCell
-                    lead={lead}
-                    hotLeadType={
-                      value === "property-favorites"
-                        ? "property_favorites"
-                        : "analysis_requests"
-                    }
-                    onText={onText}
-                    enabled={canUseText}
-                  />
-                )}
+                <ContactCell
+                  lead={lead}
+                  isAgent={isAgent}
+                  hotLeadType={hotLeadType}
+                  onOutreach={onOutreach}
+                  canUseText={canUseText}
+                  canUseEmail={canUseEmail}
+                />
                 <TableCell className="text-center">
                   <Badge variant="secondary">{lead.eventCount}</Badge>
                 </TableCell>
@@ -2608,15 +2649,12 @@ function IntentLeadsTab({
                     {lead.lastPropertyAddress || "—"}
                   </TableCell>
                 )}
-                <LastContactCells lead={lead} />
+                <LastContactCell lead={lead} />
                 <TableCell>
                   <LeadScoreBadge
                     score={lead.leadScore}
                     signals={lead.leadScoreSignals}
                   />
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {lead.leadSource || "—"}
                 </TableCell>
                 {!isAgent && (
                   <TableCell className="text-sm text-muted-foreground">
@@ -2655,65 +2693,64 @@ function AgentsList({
   );
 }
 
-function LastContactCells({
+function LastContactHeader({
+  onClick,
+  activeKey,
+  activeDir,
+}: {
+  onClick: () => void;
+  activeKey: string;
+  activeDir: SortDir;
+}) {
+  const isActive = activeKey === "lastContacted";
+  return (
+    <TableHead
+      className="cursor-pointer select-none"
+      onClick={onClick}
+      title="Sort by the most recent contact date"
+    >
+      <span className="inline-flex items-center">
+        Last Contact
+        {isActive ? (
+          activeDir === "asc" ? (
+            <ArrowUp className="ml-1 h-3 w-3 text-primary" />
+          ) : (
+            <ArrowDown className="ml-1 h-3 w-3 text-primary" />
+          )
+        ) : (
+          <ArrowUpDown className="ml-1 h-3 w-3 opacity-30" />
+        )}
+      </span>
+    </TableHead>
+  );
+}
+
+function LastContactCell({
   lead,
 }: {
   lead: { lastContacted?: string | null; lastContactedBy?: string | null };
 }) {
+  const hasLastContact = Boolean(lead.lastContacted);
   return (
-    <>
-      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-        {formatRelativeDate(lead.lastContacted ?? null)}
-      </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
-        {lead.lastContactedBy || "—"}
-      </TableCell>
-    </>
-  );
-}
-
-function HotLeadTextCell({
-  lead,
-  hotLeadType,
-  onText,
-  enabled,
-}: {
-  lead: {
-    firstName?: string | null;
-    lastName?: string | null;
-    canText?: boolean;
-    nextTextAvailableAt?: string | null;
-  };
-  hotLeadType: HotLeadTextType;
-  onText: (lead: any, type: HotLeadTextType) => void;
-  enabled: boolean;
-}) {
-  const name =
-    `${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() || "this contact";
-  if (!enabled || !lead.canText) {
-    const cooldown = lead.nextTextAvailableAt
-      ? `Available ${formatRelativeDate(lead.nextTextAvailableAt)}`
-      : "Text unavailable";
-    return (
-      <TableCell
-        className="whitespace-nowrap text-center text-xs text-muted-foreground"
-        title={cooldown}
-      >
-        —
-      </TableCell>
-    );
-  }
-  return (
-    <TableCell className="text-center">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => onText(lead, hotLeadType)}
-        title={`Draft text for ${name}`}
-      >
-        <MessageSquare className="mr-1.5 h-3.5 w-3.5" /> Text
-      </Button>
+    <TableCell className="min-w-[126px] whitespace-normal">
+      <div className="flex flex-col leading-tight">
+        <span
+          className={
+            hasLastContact
+              ? "text-sm text-foreground"
+              : "text-sm text-muted-foreground"
+          }
+        >
+          {hasLastContact
+            ? formatRelativeDate(lead.lastContacted ?? null)
+            : "Never"}
+        </span>
+        <span className="mt-0.5 text-xs text-muted-foreground">
+          {lead.lastContactedBy
+            ? `by ${lead.lastContactedBy}`
+            : "No logged activity"}
+        </span>
+      </div>
     </TableCell>
   );
 }
@@ -2722,6 +2759,10 @@ function ContactCell({
   lead,
   isAgent,
   returnTo,
+  hotLeadType,
+  onOutreach,
+  canUseText,
+  canUseEmail,
 }: {
   lead: {
     contactId: number;
@@ -2730,9 +2771,17 @@ function ContactCell({
     lastName: string | null;
     email: string | null;
     phone: string | null;
+    leadSource?: string | null;
+    canText?: boolean;
+    canEmail?: boolean;
+    nextTextAvailableAt?: string | null;
   };
   isAgent: boolean;
   returnTo?: string;
+  hotLeadType: HotLeadTextType;
+  onOutreach: (lead: any, type: HotLeadTextType) => void;
+  canUseText: boolean;
+  canUseEmail: boolean;
 }) {
   const link =
     isAgent && lead.connectedAgents.length > 0
@@ -2741,20 +2790,74 @@ function ContactCell({
   const contactLink = returnTo
     ? `${link}?returnTo=${encodeURIComponent(returnTo)}`
     : link;
+  const name =
+    `${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() || "this contact";
+  const hasPhone = Boolean(lead.phone?.trim());
+  const channel = hasPhone ? "text" : "email";
+  const enabled =
+    channel === "text"
+      ? canUseText && Boolean(lead.canText)
+      : canUseEmail && Boolean(lead.canEmail);
+  const unavailableReason =
+    channel === "text"
+      ? !canUseText
+        ? "Marketing Text Inbox access is required"
+        : lead.nextTextAvailableAt
+          ? `Text available ${formatRelativeDate(lead.nextTextAvailableAt)}`
+          : "Text unavailable"
+      : !canUseEmail
+        ? "Resend Inbox access is required"
+        : "Email unavailable";
+  const channelLabel = channel === "text" ? "Draft text" : "Draft email";
+  const contactMethod = lead.email || lead.phone || "No email or phone";
 
   return (
-    <div className="flex flex-col">
-      <Link
-        href={contactLink}
-        className="font-medium text-foreground hover:text-primary hover:underline flex items-center gap-1"
-      >
-        {lead.firstName} {lead.lastName}
-        <ExternalLink className="h-3 w-3 opacity-50" />
-      </Link>
-      <span className="text-xs text-muted-foreground">
-        {lead.email || lead.phone || "—"}
-      </span>
-    </div>
+    <TableCell className="min-w-[220px] max-w-[300px] whitespace-normal">
+      <div className="flex min-w-0 items-start gap-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:pointer-events-auto disabled:cursor-not-allowed"
+          onClick={() => enabled && onOutreach(lead, hotLeadType)}
+          disabled={!enabled}
+          title={enabled ? `${channelLabel} for ${name}` : unavailableReason}
+          aria-label={
+            enabled
+              ? `${channelLabel} for ${name}`
+              : `${channelLabel} unavailable for ${name}: ${unavailableReason}`
+          }
+        >
+          {channel === "text" ? (
+            <MessageSquare className="h-3.5 w-3.5" />
+          ) : (
+            <Mail className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        <div className="min-w-0">
+          <Link
+            href={contactLink}
+            className="flex items-center gap-1 truncate font-medium leading-5 text-foreground hover:text-primary hover:underline"
+            title={name}
+          >
+            <span className="truncate">{name}</span>
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-50" />
+          </Link>
+          <span
+            className="block truncate text-xs text-muted-foreground"
+            title={contactMethod}
+          >
+            {contactMethod}
+          </span>
+          <span
+            className="block truncate pt-0.5 text-[11px] text-muted-foreground"
+            title={lead.leadSource ?? "No lead source"}
+          >
+            {lead.leadSource ? `Source · ${lead.leadSource}` : "Source · —"}
+          </span>
+        </div>
+      </div>
+    </TableCell>
   );
 }
 
@@ -2824,8 +2927,8 @@ function DataTable({
         <Table
           className={
             compact
-              ? "table-fixed text-xs [&_th]:h-8 [&_th]:whitespace-normal [&_th]:px-1 [&_td]:whitespace-normal [&_td]:px-1 [&_td]:py-1.5"
-              : undefined
+              ? "min-w-[760px] table-fixed text-xs [&_th]:h-8 [&_th]:whitespace-normal [&_th]:px-1 [&_td]:whitespace-normal [&_td]:px-1 [&_td]:py-1.5"
+              : "min-w-[880px]"
           }
         >
           <TableHeader>
