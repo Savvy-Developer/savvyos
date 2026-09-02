@@ -1863,11 +1863,41 @@ export const onboardingTemplates = mysqlTable("onboarding_templates", {
 });
 export type OnboardingTemplate = typeof onboardingTemplates.$inferSelect;
 
+// Stages are editable group headers for related onboarding template tasks.
+export const onboardingTemplateStages = mysqlTable(
+  "onboarding_template_stages",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    templateId: int("templateId")
+      .notNull()
+      .references(() => onboardingTemplates.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("onboarding_template_stages_template_name_uq").on(
+      table.templateId,
+      table.name
+    ),
+    index("onboarding_template_stages_template_sort_idx").on(
+      table.templateId,
+      table.sortOrder
+    ),
+  ]
+);
+export type OnboardingTemplateStage =
+  typeof onboardingTemplateStages.$inferSelect;
+
 export const onboardingTemplateTasks = mysqlTable("onboarding_template_tasks", {
   id: int("id").autoincrement().primaryKey(),
   templateId: int("templateId")
     .notNull()
     .references(() => onboardingTemplates.id, { onDelete: "cascade" }),
+  stageId: int("stageId").references(() => onboardingTemplateStages.id, {
+    onDelete: "set null",
+  }),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   assignee: mysqlEnum("assignee", ["admin", "agent"])
@@ -1905,6 +1935,8 @@ export const onboardingInstanceTasks = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     instanceId: int("instanceId").notNull(),
     templateTaskId: int("templateTaskId"),
+    // Preserve the stage label that was assigned when the checklist launched.
+    stageName: varchar("stageName", { length: 120 }),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     assignee: mysqlEnum("assignee", ["admin", "agent"])
@@ -1931,7 +1963,7 @@ export const onboardingInstanceTasks = mysqlTable(
       name: "oit_template_task_fk",
       columns: [table.templateTaskId],
       foreignColumns: [onboardingTemplateTasks.id],
-    }),
+    }).onDelete("set null"),
   })
 );
 export type OnboardingInstanceTask =

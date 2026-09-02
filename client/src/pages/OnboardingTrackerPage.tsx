@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import PageHeader from "@/components/PageHeader";
@@ -12,9 +12,21 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -22,177 +34,377 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 import {
-  Users,
-  ClipboardCheck,
-  Clock,
-  CheckCircle2,
-  Eye,
-  UserCheck,
   AlertTriangle,
   Calendar,
   CalendarPlus,
-  Bell,
+  CheckCircle2,
+  ClipboardCheck,
+  Clock,
+  Eye,
+  Layers3,
   Pencil,
+  Trash2,
+  UserCheck,
+  Users,
 } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 
-function isOverdue(dueDate: Date | string | null | undefined, completed: boolean): boolean {
-  if (!dueDate || completed) return false;
-  const due = new Date(dueDate);
-  return due.getTime() < Date.now();
+type OnboardingTask = {
+  id: number;
+  title: string;
+  description: string | null;
+  assignee: "admin" | "agent";
+  stageName: string | null;
+  dueDate: Date | string | null;
+  completed: boolean;
+  completedAt: Date | string | null;
+};
+
+type TaskView = "all" | "incomplete" | "completed";
+type DueSort = "due_asc" | "due_desc";
+
+function isOverdue(
+  dueDate: Date | string | null | undefined,
+  completed: boolean
+): boolean {
+  return (
+    Boolean(dueDate) && !completed && new Date(dueDate!).getTime() < Date.now()
+  );
 }
 
 function formatDueDate(dueDate: Date | string | null | undefined): string {
-  if (!dueDate) return "";
-  return safeFormat(dueDate, "MMM d, yyyy");
+  return dueDate ? safeFormat(dueDate, "MMM d, yyyy") : "";
 }
 
-function toInputDate(d: Date | string | null | undefined): string {
-  if (!d) return "";
-  const date = new Date(d);
-  return date.toISOString().split("T")[0];
+function toInputDate(value: Date | string | null | undefined): string {
+  return value ? new Date(value).toISOString().split("T")[0] : "";
+}
+
+function sortTasks(tasks: OnboardingTask[], sort: DueSort) {
+  return [...tasks].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    const aDue = a.dueDate
+      ? new Date(a.dueDate).getTime()
+      : Number.POSITIVE_INFINITY;
+    const bDue = b.dueDate
+      ? new Date(b.dueDate).getTime()
+      : Number.POSITIVE_INFINITY;
+    if (aDue === bDue) return a.title.localeCompare(b.title);
+    return sort === "due_asc" ? aDue - bDue : bDue - aDue;
+  });
+}
+
+function stageGroups(tasks: OnboardingTask[]) {
+  const groups = new Map<string, OnboardingTask[]>();
+  tasks.forEach(task => {
+    const name = task.stageName?.trim() || "Other tasks";
+    groups.set(name, [...(groups.get(name) ?? []), task]);
+  });
+  return Array.from(groups.entries());
 }
 
 export default function OnboardingTrackerPage() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
-  const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "completed" | "overdue">("all");
-  const [selectedInstanceId, setSelectedInstanceId] = useState<number | null>(null);
-  const [bulkDays, setBulkDays] = useState<string>("7");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "in_progress" | "completed" | "overdue"
+  >("all");
+  const [selectedInstanceId, setSelectedInstanceId] = useState<number | null>(
+    null
+  );
+  const [bulkDays, setBulkDays] = useState("7");
   const [showBulkExtend, setShowBulkExtend] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
-  const [editDueDate, setEditDueDate] = useState<string>("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [taskView, setTaskView] = useState<TaskView>("incomplete");
+  const [dueSort, setDueSort] = useState<DueSort>("due_asc");
+  const [assignmentTarget, setAssignmentTarget] = useState<{
+    id: number;
+    agentUserId: number;
+    agentName: string;
+  } | null>(null);
+  const [assignmentAgentId, setAssignmentAgentId] = useState("");
+  const [instanceToRemove, setInstanceToRemove] = useState<{
+    id: number;
+    agentName: string;
+    templateName: string;
+  } | null>(null);
 
-  // "overdue" is client-side only — fetch in_progress and filter by overdueTasks > 0
-  const serverStatus = statusFilter === "overdue" ? "in_progress" : statusFilter;
-  const { data: rawInstances = [], isLoading } = trpc.onboarding.listInstances.useQuery({ status: serverStatus as any });
-  const instances = statusFilter === "overdue"
-    ? rawInstances.filter((i) => Number(i.overdueTasks) > 0)
-    : rawInstances;
+  const serverStatus =
+    statusFilter === "overdue" ? "in_progress" : statusFilter;
+  const { data: rawInstances = [], isLoading } =
+    trpc.onboarding.listInstances.useQuery({ status: serverStatus });
+  const instances =
+    statusFilter === "overdue"
+      ? rawInstances.filter(instance => Number(instance.overdueTasks) > 0)
+      : rawInstances;
   const { data: instanceDetail } = trpc.onboarding.getInstance.useQuery(
     { id: selectedInstanceId! },
-    { enabled: !!selectedInstanceId }
+    { enabled: Boolean(selectedInstanceId) }
+  );
+  const { data: agentUsers = [] } = trpc.users.list.useQuery(
+    { role: "agent" },
+    { enabled: user?.role === "admin" }
+  );
+  const activeAgents = agentUsers.filter(
+    (agent: any) => agent.isActive !== false
   );
 
   const toggleTaskMut = trpc.onboarding.toggleTask.useMutation({
     onSuccess: () => {
-      utils.onboarding.getInstance.invalidate();
-      utils.onboarding.listInstances.invalidate();
+      void utils.onboarding.getInstance.invalidate();
+      void utils.onboarding.listInstances.invalidate();
+      toast.success("Task updated");
     },
-    onError: (e) => toast.error(e.message),
+    onError: error => toast.error(error.message),
   });
-
   const bulkExtendMut = trpc.onboarding.bulkExtendDueDates.useMutation({
     onSuccess: () => {
       toast.success(`Due dates shifted by ${bulkDays} day(s)`);
-      utils.onboarding.getInstance.invalidate();
-      utils.onboarding.listInstances.invalidate();
+      void utils.onboarding.getInstance.invalidate();
+      void utils.onboarding.listInstances.invalidate();
       setShowBulkExtend(false);
     },
-    onError: (e) => toast.error(e.message),
+    onError: error => toast.error(error.message),
   });
-
   const updateTaskDueMut = trpc.onboarding.updateTaskDueDate.useMutation({
     onSuccess: () => {
       toast.success("Due date updated");
-      utils.onboarding.getInstance.invalidate();
-      utils.onboarding.listInstances.invalidate();
+      void utils.onboarding.getInstance.invalidate();
+      void utils.onboarding.listInstances.invalidate();
       setEditingTaskId(null);
     },
-    onError: (e) => toast.error(e.message),
+    onError: error => toast.error(error.message),
+  });
+  const updateAssignmentMut =
+    trpc.onboarding.updateInstanceAssignment.useMutation({
+      onSuccess: () => {
+        toast.success("Onboarding assignment updated");
+        void utils.onboarding.getInstance.invalidate();
+        void utils.onboarding.listInstances.invalidate();
+        setAssignmentTarget(null);
+      },
+      onError: error => toast.error(error.message),
+    });
+  const deleteInstanceMut = trpc.onboarding.deleteInstance.useMutation({
+    onSuccess: () => {
+      toast.success("Onboarding checklist removed");
+      void utils.onboarding.getInstance.invalidate();
+      void utils.onboarding.listInstances.invalidate();
+      setSelectedInstanceId(null);
+      setInstanceToRemove(null);
+    },
+    onError: error => toast.error(error.message),
   });
 
-  const triggerOverdueMut = trpc.onboarding.triggerOverdueCheck.useMutation({
-    onSuccess: () => toast.success("Overdue check completed — emails sent if any overdue tasks found"),
-    onError: (e) => toast.error(e.message),
-  });
+  const visibleTaskGroups = useMemo(() => {
+    const tasks = (instanceDetail?.tasks ?? []) as OnboardingTask[];
+    const matchesView = tasks.filter(
+      task =>
+        taskView === "all" ||
+        (taskView === "completed" ? task.completed : !task.completed)
+    );
+    const incomplete = sortTasks(
+      matchesView.filter(task => !task.completed),
+      dueSort
+    );
+    const completed = sortTasks(
+      matchesView.filter(task => task.completed),
+      dueSort
+    );
+    return {
+      incomplete: stageGroups(incomplete),
+      completed: stageGroups(completed),
+    };
+  }, [instanceDetail?.tasks, taskView, dueSort]);
 
   if (user?.role !== "admin") return null;
 
-  const inProgressCount = instances.filter((i) => i.instance.status === "in_progress").length;
-  const completedCount = instances.filter((i) => i.instance.status === "completed").length;
-  const overdueCount = instances.filter((i) => Number(i.overdueTasks) > 0).length;
+  const inProgressCount = instances.filter(
+    instance => instance.instance.status === "in_progress"
+  ).length;
+  const completedCount = instances.filter(
+    instance => instance.instance.status === "completed"
+  ).length;
+  const overdueCount = instances.filter(
+    instance => Number(instance.overdueTasks) > 0
+  ).length;
+
+  function openAssignment(instance: (typeof rawInstances)[number]) {
+    const agentName =
+      instance.agent?.name ?? instance.agent?.email ?? "this agent";
+    setAssignmentTarget({
+      id: instance.instance.id,
+      agentUserId: instance.instance.agentUserId,
+      agentName,
+    });
+    setAssignmentAgentId(String(instance.instance.agentUserId));
+  }
+
+  function renderTaskGroups(groups: [string, OnboardingTask[]][]) {
+    if (!groups.length)
+      return (
+        <p className="py-4 text-center text-sm text-muted-foreground">
+          No tasks match this filter.
+        </p>
+      );
+    return groups.map(([stageName, tasks]) => (
+      <section key={stageName} className="space-y-2">
+        <div className="flex items-center gap-2 border-b pb-2">
+          <Layers3 className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold">{stageName}</h3>
+          <Badge variant="secondary" className="text-xs">
+            {tasks.length}
+          </Badge>
+        </div>
+        {tasks.map(task => {
+          const overdue = isOverdue(task.dueDate, task.completed);
+          const isEditing = editingTaskId === task.id;
+          return (
+            <div
+              key={task.id}
+              className={`flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-start ${task.completed ? "bg-muted/50" : overdue ? "border-red-500/30 bg-red-500/5" : "bg-card"}`}
+            >
+              <Checkbox
+                checked={task.completed}
+                onCheckedChange={checked =>
+                  toggleTaskMut.mutate({
+                    taskId: task.id,
+                    completed: Boolean(checked),
+                  })
+                }
+                className="mt-0.5"
+                aria-label={`Mark ${task.title} ${task.completed ? "incomplete" : "complete"}`}
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className={`font-medium ${task.completed ? "text-muted-foreground line-through" : ""}`}
+                >
+                  {task.title}
+                </p>
+                {task.description && (
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {task.description}
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {task.assignee === "agent" ? "Agent task" : "Admin task"}
+                  </Badge>
+                  {isEditing ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        type="date"
+                        value={editDueDate}
+                        onChange={event => setEditDueDate(event.target.value)}
+                        className="h-8 w-[150px] text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8"
+                        onClick={() =>
+                          updateTaskDueMut.mutate({
+                            taskId: task.id,
+                            dueDate: editDueDate || null,
+                          })
+                        }
+                        disabled={updateTaskDueMut.isPending}
+                      >
+                        {updateTaskDueMut.isPending ? "Saving..." : "Save"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => setEditingTaskId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {task.dueDate ? (
+                        <span
+                          className={`flex items-center gap-1 text-xs ${overdue ? "font-semibold text-red-600" : "text-muted-foreground"}`}
+                        >
+                          <Calendar className="h-3 w-3" />
+                          {overdue ? "Overdue — " : "Due "}
+                          {formatDueDate(task.dueDate)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No due date
+                        </span>
+                      )}
+                      {!task.completed && (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={() => {
+                            setEditingTaskId(task.id);
+                            setEditDueDate(toInputDate(task.dueDate));
+                          }}
+                        >
+                          <Pencil className="mr-1 h-3 w-3" />
+                          {task.dueDate ? "Edit date" : "Set date"}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {task.completedAt && (
+                    <span className="text-xs text-emerald-700">
+                      Completed{" "}
+                      {safeFormat(task.completedAt, "MMM d, yyyy h:mm a")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </section>
+    ));
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="On/Offboarding Tracker"
-        actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => triggerOverdueMut.mutate()}
-            disabled={triggerOverdueMut.isPending}
-          >
-            <Bell className="h-4 w-4 mr-1" />
-            {triggerOverdueMut.isPending ? "Sending..." : "Send Overdue Alerts"}
-          </Button>
-        }
+        subtitle="Review every checklist, adjust launched assignments, and keep task dates on track."
       />
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10">
-                <Users className="h-5 w-5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total</p>
-                <p className="text-2xl font-bold">{instances.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-500/10">
-                <Clock className="h-5 w-5 text-amber-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">In Progress</p>
-                <p className="text-2xl font-bold">{inProgressCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-500/10">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Overdue Tasks</p>
-                <p className="text-2xl font-bold">{overdueCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold">{completedCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          icon={<Users className="h-5 w-5 text-blue-500" />}
+          label="Total"
+          value={instances.length}
+        />
+        <SummaryCard
+          icon={<Clock className="h-5 w-5 text-amber-500" />}
+          label="In Progress"
+          value={inProgressCount}
+        />
+        <SummaryCard
+          icon={<AlertTriangle className="h-5 w-5 text-red-500" />}
+          label="With Overdue Tasks"
+          value={overdueCount}
+        />
+        <SummaryCard
+          icon={<CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+          label="Completed"
+          value={completedCount}
+        />
       </div>
-
-      {/* Filter */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <span className="text-sm text-muted-foreground">Status:</span>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-          <SelectTrigger className="w-[180px]">
+        <Select
+          value={statusFilter}
+          onValueChange={value => setStatusFilter(value as typeof statusFilter)}
+        >
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -203,63 +415,102 @@ export default function OnboardingTrackerPage() {
           </SelectContent>
         </Select>
       </div>
-
-      {/* Instances List */}
       {isLoading ? (
-        <div className="text-center py-12 text-muted-foreground">Loading...</div>
+        <div className="py-12 text-center text-muted-foreground">
+          Loading...
+        </div>
       ) : instances.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            <ClipboardCheck className="h-12 w-12 mx-auto mb-3 opacity-40" />
+            <ClipboardCheck className="mx-auto mb-3 h-12 w-12 opacity-40" />
             <p className="text-lg font-medium">No onboarding instances yet</p>
-            <p className="text-sm mt-1">Start onboarding when adding a new team member.</p>
+            <p className="mt-1 text-sm">
+              Start onboarding when adding a new team member.
+            </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {instances.map((item) => {
+          {instances.map(item => {
             const total = Number(item.totalTasks);
             const completed = Number(item.completedTasks);
             const overdue = Number(item.overdueTasks);
-            const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+            const pct = total ? Math.round((completed / total) * 100) : 0;
+            const agentName =
+              item.agent?.name ?? item.agent?.email ?? "Unknown Agent";
             return (
-              <Card key={item.instance.id} className={`hover:shadow-md transition-shadow ${overdue > 0 ? "border-red-500/30" : ""}`}>
-                <CardContent className="py-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <Card
+                key={item.instance.id}
+                className={`transition-shadow hover:shadow-md ${overdue > 0 ? "border-red-500/30" : ""}`}
+              >
+                <CardContent className="p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
                         <UserCheck className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold truncate">
-                          {item.agent?.name ?? item.agent?.email ?? "Unknown Agent"}
-                        </span>
-                        <Badge variant={item.instance.status === "completed" ? "default" : "secondary"}>
-                          {item.instance.status === "completed" ? "Completed" : "In Progress"}
+                        <span className="font-semibold">{agentName}</span>
+                        <Badge
+                          variant={
+                            item.instance.status === "completed"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {item.instance.status === "completed"
+                            ? "Completed"
+                            : "In Progress"}
                         </Badge>
                         {overdue > 0 && (
                           <Badge variant="destructive" className="text-xs">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            <AlertTriangle className="mr-1 h-3 w-3" />
                             {overdue} overdue
                           </Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Template: {item.template?.name ?? "Unknown"} &middot; Started {safeFormat(item.instance.startedAt, "MMM d, yyyy")}
-                        {item.instance.completedAt && ` · Completed ${safeFormat(item.instance.completedAt, "MMM d, yyyy")}`}
+                        Template: {item.template?.name ?? "Unknown"} · Started{" "}
+                        {safeFormat(item.instance.startedAt, "MMM d, yyyy")}
+                        {item.instance.completedAt &&
+                          ` · Completed ${safeFormat(item.instance.completedAt, "MMM d, yyyy")}`}
                       </p>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Progress value={pct} className="flex-1 h-2" />
-                        <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
-                          {completed}/{total} tasks ({pct}%)
+                      <div className="mt-2 flex items-center gap-3">
+                        <Progress value={pct} className="h-2 flex-1" />
+                        <span className="whitespace-nowrap text-sm font-medium text-muted-foreground">
+                          {completed}/{total} ({pct}%)
                         </span>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedInstanceId(item.instance.id)}
-                    >
-                      <Eye className="h-4 w-4 mr-1" /> View
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openAssignment(item)}
+                      >
+                        <Pencil className="mr-1 h-4 w-4" /> Edit Assignment
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setSelectedInstanceId(item.instance.id)}
+                      >
+                        <Eye className="mr-1 h-4 w-4" /> View Checklist
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="text-destructive"
+                        aria-label={`Remove ${item.template?.name ?? "onboarding"} from ${agentName}`}
+                        onClick={() =>
+                          setInstanceToRemove({
+                            id: item.instance.id,
+                            agentName,
+                            templateName:
+                              item.template?.name ?? "Onboarding checklist",
+                          })
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -268,48 +519,101 @@ export default function OnboardingTrackerPage() {
         </div>
       )}
 
-      {/* Instance Detail Dialog */}
-      <Dialog open={!!selectedInstanceId} onOpenChange={(o) => { if (!o) { setSelectedInstanceId(null); setShowBulkExtend(false); setEditingTaskId(null); } }}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <Dialog
+        open={Boolean(selectedInstanceId)}
+        onOpenChange={open => {
+          if (!open) {
+            setSelectedInstanceId(null);
+            setShowBulkExtend(false);
+            setEditingTaskId(null);
+            setTaskView("incomplete");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardCheck className="h-5 w-5" />
-              Onboarding: {instanceDetail?.agent?.name ?? "Agent"}
+              Onboarding:{" "}
+              {instanceDetail?.agent?.name ??
+                instanceDetail?.agent?.email ??
+                "Agent"}
             </DialogTitle>
+            <DialogDescription>
+              Review the full checklist, task ownership, due dates, and
+              completion status.
+            </DialogDescription>
           </DialogHeader>
           {instanceDetail && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span>Template: <strong className="text-foreground">{instanceDetail.template?.name}</strong></span>
-                  <Badge variant={instanceDetail.instance.status === "completed" ? "default" : "secondary"}>
-                    {instanceDetail.instance.status === "completed" ? "Completed" : "In Progress"}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span>
+                    Template:{" "}
+                    <strong className="text-foreground">
+                      {instanceDetail.template?.name}
+                    </strong>
+                  </span>
+                  <Badge
+                    variant={
+                      instanceDetail.instance.status === "completed"
+                        ? "default"
+                        : "secondary"
+                    }
+                  >
+                    {instanceDetail.instance.status === "completed"
+                      ? "Completed"
+                      : "In Progress"}
                   </Badge>
                 </div>
-                {instanceDetail.instance.status === "in_progress" && (
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowBulkExtend(!showBulkExtend)}
+                    onClick={() => {
+                      setAssignmentTarget({
+                        id: instanceDetail.instance.id,
+                        agentUserId: instanceDetail.instance.agentUserId,
+                        agentName:
+                          instanceDetail.agent?.name ??
+                          instanceDetail.agent?.email ??
+                          "this agent",
+                      });
+                      setAssignmentAgentId(
+                        String(instanceDetail.instance.agentUserId)
+                      );
+                    }}
                   >
-                    <CalendarPlus className="h-4 w-4 mr-1" />
-                    Bulk Extend Dates
+                    <Pencil className="mr-1 h-4 w-4" />
+                    Edit Assignment
                   </Button>
-                )}
+                  {instanceDetail.instance.status === "in_progress" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowBulkExtend(!showBulkExtend)}
+                    >
+                      <CalendarPlus className="mr-1 h-4 w-4" />
+                      Bulk Extend
+                    </Button>
+                  )}
+                </div>
               </div>
-
-              {/* Bulk Extend Panel */}
               {showBulkExtend && (
                 <Card className="border-primary/30 bg-primary/5">
-                  <CardContent className="py-4">
-                    <p className="text-sm font-medium mb-3">Shift all due dates by a number of days</p>
-                    <div className="flex items-end gap-3">
+                  <CardContent className="p-4">
+                    <p className="mb-3 text-sm font-medium">
+                      Shift every due date on this checklist
+                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                       <div className="flex-1">
-                        <Label className="text-xs text-muted-foreground">Days to shift (negative to shorten)</Label>
+                        <Label className="text-xs text-muted-foreground">
+                          Days to shift (negative to shorten)
+                        </Label>
                         <Input
                           type="number"
                           value={bulkDays}
-                          onChange={(e) => setBulkDays(e.target.value)}
+                          onChange={event => setBulkDays(event.target.value)}
                           min={-365}
                           max={365}
                           className="mt-1"
@@ -318,124 +622,191 @@ export default function OnboardingTrackerPage() {
                       <Button
                         size="sm"
                         onClick={() => {
-                          const days = parseInt(bulkDays);
-                          if (isNaN(days) || days === 0) {
-                            toast.error("Enter a non-zero number of days");
-                            return;
-                          }
-                          bulkExtendMut.mutate({ instanceId: selectedInstanceId!, days });
+                          const days = Number.parseInt(bulkDays, 10);
+                          if (!Number.isFinite(days) || days === 0)
+                            return toast.error(
+                              "Enter a non-zero number of days"
+                            );
+                          bulkExtendMut.mutate({
+                            instanceId: selectedInstanceId!,
+                            days,
+                          });
                         }}
                         disabled={bulkExtendMut.isPending}
                       >
-                        {bulkExtendMut.isPending ? "Updating..." : `Shift ${parseInt(bulkDays) > 0 ? "+" : ""}${bulkDays} days`}
+                        {bulkExtendMut.isPending
+                          ? "Updating..."
+                          : `Shift ${Number.parseInt(bulkDays, 10) > 0 ? "+" : ""}${bulkDays} days`}
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
               )}
-
-              <div className="space-y-2">
-                {instanceDetail.tasks.map((task) => {
-                  const overdue = isOverdue(task.dueDate, task.completed);
-                  const isEditing = editingTaskId === task.id;
-                  return (
-                    <div
-                      key={task.id}
-                      className={`flex items-start gap-3 p-3 rounded-lg border ${
-                        task.completed ? "bg-muted/50" : overdue ? "bg-red-500/5 border-red-500/30" : "bg-card"
-                      }`}
-                    >
-                      <Checkbox
-                        checked={task.completed}
-                        onCheckedChange={(checked) =>
-                          toggleTaskMut.mutate({ taskId: task.id, completed: !!checked })
-                        }
-                        className="mt-0.5"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className={`font-medium ${task.completed ? "line-through text-muted-foreground" : ""}`}>
-                          {task.title}
-                        </p>
-                        {task.description && (
-                          <p className="text-sm text-muted-foreground mt-0.5">{task.description}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <Badge variant="outline" className="text-xs">
-                            {task.assignee === "agent" ? "Agent task" : "Admin task"}
-                          </Badge>
-
-                          {isEditing ? (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="date"
-                                value={editDueDate}
-                                onChange={(e) => setEditDueDate(e.target.value)}
-                                className="h-7 text-xs w-[140px]"
-                              />
-                              <Button
-                                variant="default"
-                                size="sm"
-                                className="h-7 text-xs px-2"
-                                onClick={() => {
-                                  updateTaskDueMut.mutate({
-                                    taskId: task.id,
-                                    dueDate: editDueDate || null,
-                                  });
-                                }}
-                                disabled={updateTaskDueMut.isPending}
-                              >
-                                Save
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-xs px-2"
-                                onClick={() => setEditingTaskId(null)}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          ) : (
-                            <>
-                              {task.dueDate && (
-                                <span className={`text-xs flex items-center gap-1 ${
-                                  overdue ? "text-red-600 font-semibold" : "text-muted-foreground"
-                                }`}>
-                                  <Calendar className="h-3 w-3" />
-                                  {overdue ? "Overdue — " : "Due "}
-                                  {formatDueDate(task.dueDate)}
-                                </span>
-                              )}
-                              {!task.completed && (
-                                <button
-                                  className="text-xs text-primary hover:underline flex items-center gap-0.5"
-                                  onClick={() => {
-                                    setEditingTaskId(task.id);
-                                    setEditDueDate(toInputDate(task.dueDate));
-                                  }}
-                                >
-                                  <Pencil className="h-3 w-3" />
-                                  {task.dueDate ? "Edit" : "Set date"}
-                                </button>
-                              )}
-                            </>
-                          )}
-
-                          {task.completedAt && (
-                            <span className="text-xs text-muted-foreground">
-                              Completed {safeFormat(task.completedAt, "MMM d, yyyy h:mm a")}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Show tasks
+                  </Label>
+                  <Select
+                    value={taskView}
+                    onValueChange={value => setTaskView(value as TaskView)}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All tasks</SelectItem>
+                      <SelectItem value="incomplete">
+                        Incomplete tasks
+                      </SelectItem>
+                      <SelectItem value="completed">Completed tasks</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Sort by due date
+                  </Label>
+                  <Select
+                    value={dueSort}
+                    onValueChange={value => setDueSort(value as DueSort)}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="due_asc">Earliest first</SelectItem>
+                      <SelectItem value="due_desc">Latest first</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-5">
+                {renderTaskGroups(visibleTaskGroups.incomplete)}
+                {visibleTaskGroups.completed.length > 0 &&
+                  taskView !== "incomplete" && (
+                    <section className="space-y-3 border-t pt-5">
+                      <h3 className="text-sm font-semibold text-muted-foreground">
+                        Completed tasks
+                      </h3>
+                      {renderTaskGroups(visibleTaskGroups.completed)}
+                    </section>
+                  )}
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={Boolean(assignmentTarget)}
+        onOpenChange={open =>
+          !open && !updateAssignmentMut.isPending && setAssignmentTarget(null)
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Onboarding Assignment</DialogTitle>
+            <DialogDescription>
+              Move this already-launched checklist to a different active agent.
+              Its task progress and dates stay intact.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>Assigned agent</Label>
+            <SearchableSelect
+              className="mt-1 w-full"
+              options={activeAgents.map((agent: any) => ({
+                value: String(agent.id),
+                label: agent.name ?? agent.email ?? `Agent #${agent.id}`,
+              }))}
+              value={assignmentAgentId}
+              onValueChange={setAssignmentAgentId}
+              placeholder="Select agent…"
+              searchPlaceholder="Search agents…"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAssignmentTarget(null)}
+              disabled={updateAssignmentMut.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!assignmentAgentId || updateAssignmentMut.isPending}
+              onClick={() =>
+                assignmentTarget &&
+                updateAssignmentMut.mutate({
+                  id: assignmentTarget.id,
+                  agentUserId: Number(assignmentAgentId),
+                })
+              }
+            >
+              {updateAssignmentMut.isPending ? "Saving..." : "Save Assignment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(instanceToRemove)}
+        onOpenChange={open =>
+          !open && !deleteInstanceMut.isPending && setInstanceToRemove(null)
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove onboarding checklist?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {instanceToRemove
+                ? `Remove “${instanceToRemove.templateName}” from ${instanceToRemove.agentName}? The checklist, its progress, and linked admin tasks will be deleted. This cannot be undone.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteInstanceMut.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteInstanceMut.isPending}
+              onClick={event => {
+                event.preventDefault();
+                if (instanceToRemove)
+                  deleteInstanceMut.mutate({ id: instanceToRemove.id });
+              }}
+            >
+              {deleteInstanceMut.isPending ? "Removing..." : "Remove Checklist"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+function SummaryCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-muted p-2">{icon}</div>
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold">{value}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

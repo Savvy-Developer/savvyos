@@ -56,7 +56,9 @@ vi.mock("./db", () => {
     createPayoutItem: vi.fn(),
     updatePayoutItem: vi.fn(),
     deletePayoutItem: vi.fn(),
-    validatePayoutIntegrity: vi.fn().mockResolvedValue({ valid: true, total: 0 }),
+    validatePayoutIntegrity: vi
+      .fn()
+      .mockResolvedValue({ valid: true, total: 0 }),
     getReferralPartners: vi.fn().mockResolvedValue([]),
     createReferralPartner: vi.fn(),
     updateReferralPartner: vi.fn(),
@@ -65,16 +67,26 @@ vi.mock("./db", () => {
     logActivity: vi.fn(),
     getActivityLog: vi.fn().mockResolvedValue([]),
     getAnalyticsOverview: vi.fn().mockResolvedValue({
-      totalContacts: 0, newContactsThisMonth: 0, totalTransactions: 0,
-      closedTransactions: 0, totalCommission: "0", avgDaysToClose: 0,
-      pendingTasks: 0, overdueTasksCount: 0,
+      totalContacts: 0,
+      newContactsThisMonth: 0,
+      totalTransactions: 0,
+      closedTransactions: 0,
+      totalCommission: "0",
+      avgDaysToClose: 0,
+      pendingTasks: 0,
+      overdueTasksCount: 0,
     }),
     getMonthlyRevenue: vi.fn().mockResolvedValue([]),
     getPipelineByStatus: vi.fn().mockResolvedValue([]),
     getAnalyticsSummary: vi.fn().mockResolvedValue({
-      totalContacts: 0, newContactsThisMonth: 0, totalTransactions: 0,
-      closedTransactions: 0, totalCommission: "0", avgDaysToClose: 0,
-      pendingTasks: 0, overdueTasksCount: 0,
+      totalContacts: 0,
+      newContactsThisMonth: 0,
+      totalTransactions: 0,
+      closedTransactions: 0,
+      totalCommission: "0",
+      avgDaysToClose: 0,
+      pendingTasks: 0,
+      overdueTasksCount: 0,
     }),
     getAgentPerformance: vi.fn().mockResolvedValue([]),
     getLeadSourceBreakdown: vi.fn().mockResolvedValue([]),
@@ -102,8 +114,18 @@ vi.mock("./db", () => {
 });
 
 vi.mock("./storage", () => ({
-  storagePut: vi.fn().mockResolvedValue({ key: "test-key", url: "https://cdn.example.com/test.pdf" }),
-  storageGet: vi.fn().mockResolvedValue({ key: "test-key", url: "https://cdn.example.com/test.pdf" }),
+  storagePut: vi
+    .fn()
+    .mockResolvedValue({
+      key: "test-key",
+      url: "https://cdn.example.com/test.pdf",
+    }),
+  storageGet: vi
+    .fn()
+    .mockResolvedValue({
+      key: "test-key",
+      url: "https://cdn.example.com/test.pdf",
+    }),
 }));
 
 vi.mock("./_core/emailAlerts", () => ({
@@ -145,8 +167,8 @@ function makeCtx(overrides: Partial<TrpcContext["user"]> = {}): TrpcContext {
 
 describe("onboarding", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Reset chainable mocks
+    Object.values(mockDb).forEach(mock => mock.mockReset());
+    // Reset chainable mocks and any queued test-specific implementation.
     mockDb.select.mockReturnThis();
     mockDb.from.mockReturnThis();
     mockDb.where.mockReturnThis();
@@ -181,6 +203,49 @@ describe("onboarding", () => {
       const { onboardingTemplates } = await import("../drizzle/schema");
       expect(onboardingTemplates.type).toBeDefined();
       expect(onboardingTemplates.type.name).toBe("type");
+    });
+
+    it("persists template stages and task stage assignments", async () => {
+      const {
+        onboardingTemplateStages,
+        onboardingTemplateTasks,
+        onboardingInstanceTasks,
+      } = await import("../drizzle/schema");
+      expect(onboardingTemplateStages.templateId).toBeDefined();
+      expect(onboardingTemplateTasks.stageId).toBeDefined();
+      expect(onboardingInstanceTasks.stageName).toBeDefined();
+    });
+  });
+
+  describe("template stages", () => {
+    it("adds a stage and accepts a task assigned to it", async () => {
+      mockDb.where
+        .mockResolvedValueOnce([{ max: 0 }])
+        .mockResolvedValueOnce([{ id: 8 }])
+        .mockResolvedValueOnce([{ max: 0 }]);
+      mockDb.values.mockResolvedValue([{ insertId: 8 }]);
+
+      const caller = appRouter.createCaller(makeCtx());
+      const stage = await caller.onboarding.createTemplateStage({
+        templateId: 1,
+        name: "Getting Started",
+      });
+      expect(stage.id).toBe(8);
+      const task = await caller.onboarding.addTemplateTask({
+        templateId: 1,
+        title: "Complete profile",
+        assignee: "agent",
+        stageId: 8,
+      });
+      expect(task.id).toBe(8);
+    });
+
+    it("removes a stage after safely unassigning its template tasks", async () => {
+      const caller = appRouter.createCaller(makeCtx());
+      const result = await caller.onboarding.deleteTemplateStage({ id: 8 });
+      expect(result.success).toBe(true);
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+      expect(mockDb.delete).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -223,7 +288,15 @@ describe("onboarding", () => {
     });
 
     it("updateTemplateTask can update dueDaysOffset", async () => {
-      mockDb.where.mockResolvedValueOnce(undefined);
+      mockDb.where.mockResolvedValueOnce([
+        {
+          id: 1,
+          templateId: 1,
+          assignee: "agent",
+          adminUserId: null,
+          stageId: null,
+        },
+      ]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.updateTemplateTask({
@@ -231,6 +304,14 @@ describe("onboarding", () => {
         dueDaysOffset: 7,
       });
       expect(result.success).toBe(true);
+    });
+
+    it("removes a template task without deleting launched checklist copies", async () => {
+      const caller = appRouter.createCaller(makeCtx());
+      const result = await caller.onboarding.deleteTemplateTask({ id: 1 });
+      expect(result.success).toBe(true);
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+      expect(mockDb.delete).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -240,18 +321,52 @@ describe("onboarding", () => {
     it("createInstance computes dueDate from startedAt + dueDaysOffset", async () => {
       let capturedValues: any[] = [];
 
-      mockDb.values.mockResolvedValueOnce([{ insertId: 100 }]);
-
-      mockDb.orderBy.mockResolvedValueOnce([
-        { id: 1, templateId: 1, title: "Task A", description: null, assignee: "agent", sortOrder: 0, dueDaysOffset: 3 },
-        { id: 2, templateId: 1, title: "Task B", description: null, assignee: "admin", sortOrder: 1, dueDaysOffset: null },
-        { id: 3, templateId: 1, title: "Task C", description: "Desc", assignee: "agent", sortOrder: 2, dueDaysOffset: 7 },
+      mockDb.where.mockResolvedValueOnce([
+        { id: 5, role: "agent", isActive: true },
       ]);
+      mockDb.values
+        .mockResolvedValueOnce([{ insertId: 100 }])
+        .mockImplementation((values: any) => {
+          capturedValues.push(values);
+          return Promise.resolve([{ insertId: 200 + capturedValues.length }]);
+        });
 
-      mockDb.values.mockImplementationOnce((vals: any[]) => {
-        capturedValues = vals;
-        return Promise.resolve([{ insertId: 200 }]);
-      });
+      mockDb.orderBy
+        .mockResolvedValueOnce([
+          {
+            id: 1,
+            templateId: 1,
+            stageId: 2,
+            title: "Task A",
+            description: null,
+            assignee: "agent",
+            sortOrder: 0,
+            dueDaysOffset: 3,
+          },
+          {
+            id: 2,
+            templateId: 1,
+            stageId: null,
+            title: "Task B",
+            description: null,
+            assignee: "admin",
+            sortOrder: 1,
+            dueDaysOffset: null,
+          },
+          {
+            id: 3,
+            templateId: 1,
+            stageId: 2,
+            title: "Task C",
+            description: "Desc",
+            assignee: "agent",
+            sortOrder: 2,
+            dueDaysOffset: 7,
+          },
+        ])
+        .mockResolvedValueOnce([
+          { id: 2, name: "Getting Started", sortOrder: 0 },
+        ]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.createInstance({
@@ -260,23 +375,56 @@ describe("onboarding", () => {
       });
       expect(result.id).toBe(100);
 
-      expect(capturedValues.length).toBe(3);
+      const instanceTaskValues = capturedValues.filter(
+        values => "instanceId" in values
+      );
+      expect(instanceTaskValues.length).toBe(3);
 
-      const taskA = capturedValues[0];
+      const taskA = instanceTaskValues[0];
       expect(taskA.title).toBe("Task A");
+      expect(taskA.stageName).toBe("Getting Started");
       expect(taskA.dueDate).toBeInstanceOf(Date);
       const threeDaysFromNow = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-      expect(Math.abs(taskA.dueDate.getTime() - threeDaysFromNow.getTime())).toBeLessThan(5000);
+      expect(
+        Math.abs(taskA.dueDate.getTime() - threeDaysFromNow.getTime())
+      ).toBeLessThan(5000);
 
-      const taskB = capturedValues[1];
+      const taskB = instanceTaskValues[1];
       expect(taskB.title).toBe("Task B");
       expect(taskB.dueDate).toBeNull();
 
-      const taskC = capturedValues[2];
+      const taskC = instanceTaskValues[2];
       expect(taskC.title).toBe("Task C");
       expect(taskC.dueDate).toBeInstanceOf(Date);
       const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      expect(Math.abs(taskC.dueDate.getTime() - sevenDaysFromNow.getTime())).toBeLessThan(5000);
+      expect(
+        Math.abs(taskC.dueDate.getTime() - sevenDaysFromNow.getTime())
+      ).toBeLessThan(5000);
+    });
+  });
+
+  describe("launched assignment management", () => {
+    it("moves a launched checklist to another active agent", async () => {
+      mockDb.where
+        .mockResolvedValueOnce([{ id: 7, role: "agent", isActive: true }])
+        .mockResolvedValueOnce([{ id: 100 }]);
+      const caller = appRouter.createCaller(makeCtx());
+      const result = await caller.onboarding.updateInstanceAssignment({
+        id: 100,
+        agentUserId: 7,
+      });
+      expect(result.success).toBe(true);
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+    });
+
+    it("removes a launched checklist and its linked standard tasks", async () => {
+      mockDb.where
+        .mockResolvedValueOnce([{ id: 100 }])
+        .mockResolvedValueOnce([{ linkedTaskId: 22 }, { linkedTaskId: null }]);
+      const caller = appRouter.createCaller(makeCtx());
+      const result = await caller.onboarding.deleteInstance({ id: 100 });
+      expect(result.success).toBe(true);
+      expect(mockDb.delete).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -305,7 +453,9 @@ describe("onboarding", () => {
   describe("bulkExtendDueDates", () => {
     it("shifts all due dates by positive days", async () => {
       // Mock select for instance existence check
-      mockDb.where.mockResolvedValueOnce([{ id: 1, agentUserId: 5, status: "in_progress" }]);
+      mockDb.where.mockResolvedValueOnce([
+        { id: 1, agentUserId: 5, status: "in_progress" },
+      ]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.bulkExtendDueDates({
@@ -313,11 +463,13 @@ describe("onboarding", () => {
         days: 7,
       });
       expect(result.success).toBe(true);
-      expect(mockDb.execute).toHaveBeenCalledTimes(1);
+      expect(mockDb.execute).toHaveBeenCalledTimes(2);
     });
 
     it("shifts all due dates by negative days (shorten)", async () => {
-      mockDb.where.mockResolvedValueOnce([{ id: 1, agentUserId: 5, status: "in_progress" }]);
+      mockDb.where.mockResolvedValueOnce([
+        { id: 1, agentUserId: 5, status: "in_progress" },
+      ]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.bulkExtendDueDates({
@@ -325,7 +477,7 @@ describe("onboarding", () => {
         days: -3,
       });
       expect(result.success).toBe(true);
-      expect(mockDb.execute).toHaveBeenCalledTimes(1);
+      expect(mockDb.execute).toHaveBeenCalledTimes(2);
     });
 
     it("rejects if instance not found", async () => {
@@ -381,14 +533,20 @@ describe("onboarding", () => {
 
       const caller = appRouter.createCaller(makeCtx());
       await expect(
-        caller.onboarding.updateTaskDueDate({ taskId: 999, dueDate: "2026-04-15" })
+        caller.onboarding.updateTaskDueDate({
+          taskId: 999,
+          dueDate: "2026-04-15",
+        })
       ).rejects.toThrow("NOT_FOUND");
     });
 
     it("is forbidden for agents", async () => {
       const caller = appRouter.createCaller(makeCtx({ role: "agent" }));
       await expect(
-        caller.onboarding.updateTaskDueDate({ taskId: 10, dueDate: "2026-04-15" })
+        caller.onboarding.updateTaskDueDate({
+          taskId: 10,
+          dueDate: "2026-04-15",
+        })
       ).rejects.toThrow("FORBIDDEN");
     });
   });
@@ -407,7 +565,9 @@ describe("onboarding", () => {
 
     it("is forbidden for agents", async () => {
       const caller = appRouter.createCaller(makeCtx({ role: "agent" }));
-      await expect(caller.onboarding.triggerOverdueCheck()).rejects.toThrow("FORBIDDEN");
+      await expect(caller.onboarding.triggerOverdueCheck()).rejects.toThrow(
+        "FORBIDDEN"
+      );
     });
   });
 
@@ -416,12 +576,14 @@ describe("onboarding", () => {
   describe("getReport", () => {
     it("returns summary and agent breakdown", async () => {
       // Mock totals query: db.select().from()
-      mockDb.from.mockResolvedValueOnce([{
-        totalInstances: 5,
-        completedInstances: 3,
-        inProgressInstances: 2,
-        avgCompletionDays: 12,
-      }]);
+      mockDb.from.mockResolvedValueOnce([
+        {
+          totalInstances: 5,
+          completedInstances: 3,
+          inProgressInstances: 2,
+          avgCompletionDays: 12,
+        },
+      ]);
 
       // Mock overdue stats query: db.select().from().innerJoin().where()
       // from() returns mockDb which needs innerJoin
@@ -432,10 +594,12 @@ describe("onboarding", () => {
       });
 
       // Mock on-time stats query: db.select().from()
-      mockDb.from.mockResolvedValueOnce([{
-        totalCompletedWithDue: 10,
-        completedOnTime: 8,
-      }]);
+      mockDb.from.mockResolvedValueOnce([
+        {
+          totalCompletedWithDue: 10,
+          completedOnTime: 8,
+        },
+      ]);
 
       // Mock agent breakdown query: db.select().from().innerJoin().groupBy().orderBy()
       mockDb.from.mockReturnValueOnce({
@@ -472,12 +636,14 @@ describe("onboarding", () => {
     });
 
     it("returns 100% on-time rate when no tasks with due dates completed", async () => {
-      mockDb.from.mockResolvedValueOnce([{
-        totalInstances: 1,
-        completedInstances: 0,
-        inProgressInstances: 1,
-        avgCompletionDays: null,
-      }]);
+      mockDb.from.mockResolvedValueOnce([
+        {
+          totalInstances: 1,
+          completedInstances: 0,
+          inProgressInstances: 1,
+          avgCompletionDays: null,
+        },
+      ]);
 
       mockDb.from.mockReturnValueOnce({
         innerJoin: vi.fn().mockReturnValue({
@@ -485,10 +651,12 @@ describe("onboarding", () => {
         }),
       });
 
-      mockDb.from.mockResolvedValueOnce([{
-        totalCompletedWithDue: 0,
-        completedOnTime: 0,
-      }]);
+      mockDb.from.mockResolvedValueOnce([
+        {
+          totalCompletedWithDue: 0,
+          completedOnTime: 0,
+        },
+      ]);
 
       mockDb.from.mockReturnValueOnce({
         innerJoin: vi.fn().mockReturnValue({
@@ -518,15 +686,26 @@ describe("onboarding", () => {
     it("returns active instances for a given agent (admin)", async () => {
       mockDb.orderBy.mockResolvedValueOnce([
         {
-          instance: { id: 1, agentUserId: 5, status: "in_progress", startedAt: new Date() },
-          template: { id: 10, name: "Offboarding Checklist", type: "offboarding" },
+          instance: {
+            id: 1,
+            agentUserId: 5,
+            status: "in_progress",
+            startedAt: new Date(),
+          },
+          template: {
+            id: 10,
+            name: "Offboarding Checklist",
+            type: "offboarding",
+          },
           totalTasks: 5,
           completedTasks: 2,
         },
       ]);
 
       const caller = appRouter.createCaller(makeCtx());
-      const result = await caller.onboarding.agentOnboardingStatus({ agentUserId: 5 });
+      const result = await caller.onboarding.agentOnboardingStatus({
+        agentUserId: 5,
+      });
       expect(result).toHaveLength(1);
       expect(result[0].template?.type).toBe("offboarding");
       expect(Number(result[0].totalTasks)).toBe(5);
@@ -536,7 +715,9 @@ describe("onboarding", () => {
       mockDb.orderBy.mockResolvedValueOnce([]);
 
       const caller = appRouter.createCaller(makeCtx());
-      const result = await caller.onboarding.agentOnboardingStatus({ agentUserId: 99 });
+      const result = await caller.onboarding.agentOnboardingStatus({
+        agentUserId: 99,
+      });
       expect(result).toHaveLength(0);
     });
 
@@ -584,7 +765,9 @@ describe("onboarding", () => {
   describe("access control", () => {
     it("listTemplates is forbidden for agents", async () => {
       const caller = appRouter.createCaller(makeCtx({ role: "agent" }));
-      await expect(caller.onboarding.listTemplates()).rejects.toThrow("FORBIDDEN");
+      await expect(caller.onboarding.listTemplates()).rejects.toThrow(
+        "FORBIDDEN"
+      );
     });
 
     it("addTemplateTask is forbidden for agents", async () => {
@@ -607,7 +790,9 @@ describe("onboarding", () => {
 
     it("listInstances is forbidden for agents", async () => {
       const caller = appRouter.createCaller(makeCtx({ role: "agent" }));
-      await expect(caller.onboarding.listInstances()).rejects.toThrow("FORBIDDEN");
+      await expect(caller.onboarding.listInstances()).rejects.toThrow(
+        "FORBIDDEN"
+      );
     });
   });
 

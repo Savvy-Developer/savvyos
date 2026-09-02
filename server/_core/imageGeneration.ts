@@ -16,7 +16,7 @@
  *   });
  */
 import { storagePut } from "server/storage";
-import { ENV } from "./env";
+import { getOpenAiCompatibleProvider, openAiCompatibleUrl } from "./llm";
 
 export type GenerateImageOptions = {
   prompt: string;
@@ -34,14 +34,13 @@ export type GenerateImageResponse = {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
-  if (!ENV.forgeApiUrl) {
-    throw new Error("BUILT_IN_FORGE_API_URL is not configured");
-  }
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+  const provider = getOpenAiCompatibleProvider();
+  if (!provider.apiKey) {
+    throw new Error(
+      "OpenAI-compatible image generation credentials are not configured"
+    );
   }
 
-  const baseUrl = ENV.forgeApiUrl.replace(/\/$/, "");
   const originals = options.originalImages ?? [];
 
   let response: Response;
@@ -63,7 +62,7 @@ export async function generateImage(
         const download = await fetch(original.url);
         if (!download.ok) {
           throw new Error(
-          `Failed to download original image (HTTP ${download.status})`
+            `Failed to download original image (HTTP ${download.status})`
           );
         }
         mime = download.headers.get("content-type") || mime;
@@ -72,29 +71,36 @@ export async function generateImage(
         continue;
       }
 
-      const ext =
-        mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
+      const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
       formData.append(
         "image[]",
-        new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: mime }),
+        new Blob(
+          [
+            bytes.buffer.slice(
+              bytes.byteOffset,
+              bytes.byteOffset + bytes.byteLength
+            ) as ArrayBuffer,
+          ],
+          { type: mime }
+        ),
         `original-${index}.${ext}`
       );
     }
 
-    response = await fetch(`${baseUrl}/v1/images/edits`, {
+    response = await fetch(openAiCompatibleUrl("images/edits"), {
       method: "POST",
       headers: {
-        authorization: `Bearer ${ENV.forgeApiKey}`,
+        authorization: `Bearer ${provider.apiKey}`,
       },
       body: formData,
     });
   } else {
     // Generation flow: JSON to /v1/images/generations
-    response = await fetch(`${baseUrl}/v1/images/generations`, {
+    response = await fetch(openAiCompatibleUrl("images/generations"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${ENV.forgeApiKey}`,
+        authorization: `Bearer ${provider.apiKey}`,
       },
       body: JSON.stringify({
         model: "gpt-image-1",

@@ -5,33 +5,88 @@ import { getDb } from "../db";
 
 async function getDatabase() {
   const d = await getDb();
-  if (!d) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+  if (!d)
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Database unavailable",
+    });
   return d;
 }
 
-async function requireAdminAssignee(db: Awaited<ReturnType<typeof getDatabase>>, adminUserId: number | null | undefined): Promise<number> {
+async function requireAdminAssignee(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  adminUserId: number | null | undefined
+): Promise<number> {
   if (!adminUserId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Select an admin user for admin-assigned onboarding tasks." });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Select an admin user for admin-assigned onboarding tasks.",
+    });
   }
   const [adminUser] = await db
     .select({ id: users.id, role: users.role, isActive: users.isActive })
     .from(users)
     .where(eq(users.id, adminUserId));
   if (!adminUser || adminUser.role !== "admin" || !adminUser.isActive) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "The selected user must be an active admin user." });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The selected user must be an active admin user.",
+    });
   }
   return adminUser.id;
 }
 import {
   onboardingTemplates,
+  onboardingTemplateStages,
   onboardingTemplateTasks,
   onboardingInstances,
   onboardingInstanceTasks,
   tasks as tasksTable,
   users,
 } from "../../drizzle/schema";
-import { eq, asc, and, desc, sql, isNotNull, lt } from "drizzle-orm";
+import { eq, asc, and, desc, sql, isNotNull, lt, inArray } from "drizzle-orm";
 import { checkOverdueOnboardingTasks } from "../onboardingOverdueScheduler";
+
+async function requireOnboardingAgent(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  agentUserId: number
+): Promise<number> {
+  const [agent] = await db
+    .select({ id: users.id, role: users.role, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, agentUserId));
+  if (!agent || agent.role !== "agent" || !agent.isActive) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Select an active agent for this onboarding assignment.",
+    });
+  }
+  return agent.id;
+}
+
+async function requireTemplateStage(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  templateId: number,
+  stageId: number | null | undefined
+): Promise<number | null> {
+  if (stageId == null) return null;
+  const [stage] = await db
+    .select({ id: onboardingTemplateStages.id })
+    .from(onboardingTemplateStages)
+    .where(
+      and(
+        eq(onboardingTemplateStages.id, stageId),
+        eq(onboardingTemplateStages.templateId, templateId)
+      )
+    );
+  if (!stage) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Select a stage that belongs to this template.",
+    });
+  }
+  return stage.id;
+}
 
 export const onboardingRouter = router({
   // ─── Templates CRUD (admin only) ──────────────────────────────────────────
@@ -46,8 +101,14 @@ export const onboardingRouter = router({
         description: onboardingTemplates.description,
         type: onboardingTemplates.type,
         createdAt: onboardingTemplates.createdAt,
-        taskCount: sql<number>`(SELECT COUNT(*) FROM onboarding_template_tasks WHERE templateId = ${onboardingTemplates.id})`.as("taskCount"),
-        instanceCount: sql<number>`(SELECT COUNT(*) FROM onboarding_instances WHERE templateId = ${onboardingTemplates.id})`.as("instanceCount"),
+        taskCount:
+          sql<number>`(SELECT COUNT(*) FROM onboarding_template_tasks WHERE templateId = ${onboardingTemplates.id})`.as(
+            "taskCount"
+          ),
+        instanceCount:
+          sql<number>`(SELECT COUNT(*) FROM onboarding_instances WHERE templateId = ${onboardingTemplates.id})`.as(
+            "instanceCount"
+          ),
       })
       .from(onboardingTemplates)
       .orderBy(desc(onboardingTemplates.createdAt));
@@ -69,15 +130,22 @@ export const onboardingRouter = router({
         .from(onboardingTemplateTasks)
         .where(eq(onboardingTemplateTasks.templateId, input.id))
         .orderBy(asc(onboardingTemplateTasks.sortOrder));
-      return { ...template, tasks };
+      const stages = await db
+        .select()
+        .from(onboardingTemplateStages)
+        .where(eq(onboardingTemplateStages.templateId, input.id))
+        .orderBy(asc(onboardingTemplateStages.sortOrder));
+      return { ...template, tasks, stages };
     }),
 
   createTemplate: protectedProcedure
-    .input(z.object({
-      name: z.string().min(1),
-      description: z.string().optional(),
-      type: z.enum(["onboarding", "offboarding"]).default("onboarding"),
-    }))
+    .input(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        type: z.enum(["onboarding", "offboarding"]).default("onboarding"),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
@@ -86,17 +154,92 @@ export const onboardingRouter = router({
     }),
 
   updateTemplate: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      name: z.string().min(1).optional(),
-      description: z.string().optional().nullable(),
-      type: z.enum(["onboarding", "offboarding"]).optional(),
-    }))
+    .input(
+      z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        description: z.string().optional().nullable(),
+        type: z.enum(["onboarding", "offboarding"]).optional(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
       const { id, ...data } = input;
-      await db.update(onboardingTemplates).set(data).where(eq(onboardingTemplates.id, id));
+      await db
+        .update(onboardingTemplates)
+        .set(data)
+        .where(eq(onboardingTemplates.id, id));
+      return { success: true };
+    }),
+
+  // ─── Template Stages CRUD ─────────────────────────────────────────────────
+
+  createTemplateStage: protectedProcedure
+    .input(
+      z.object({
+        templateId: z.number(),
+        name: z.string().trim().min(1).max(120),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      const [maxOrder] = await db
+        .select({ max: sql<number>`COALESCE(MAX(sortOrder), -1)` })
+        .from(onboardingTemplateStages)
+        .where(eq(onboardingTemplateStages.templateId, input.templateId));
+      try {
+        const [result] = await db.insert(onboardingTemplateStages).values({
+          templateId: input.templateId,
+          name: input.name,
+          sortOrder: Number(maxOrder?.max ?? -1) + 1,
+        });
+        return { id: result.insertId };
+      } catch (error: any) {
+        if (error?.code === "ER_DUP_ENTRY") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This template already has a stage with that name.",
+          });
+        }
+        throw error;
+      }
+    }),
+
+  updateTemplateStage: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        name: z.string().trim().min(1).max(120).optional(),
+        sortOrder: z.number().int().min(0).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      const { id, ...data } = input;
+      await db
+        .update(onboardingTemplateStages)
+        .set(data)
+        .where(eq(onboardingTemplateStages.id, id));
+      return { success: true };
+    }),
+
+  deleteTemplateStage: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      // Clear the assignment first so stage removal is always safe, even on a
+      // database that has not yet applied the SET NULL foreign-key migration.
+      await db
+        .update(onboardingTemplateTasks)
+        .set({ stageId: null })
+        .where(eq(onboardingTemplateTasks.stageId, input.id));
+      await db
+        .delete(onboardingTemplateStages)
+        .where(eq(onboardingTemplateStages.id, input.id));
       return { success: true };
     }),
 
@@ -111,42 +254,58 @@ export const onboardingRouter = router({
         .from(onboardingInstances)
         .where(eq(onboardingInstances.templateId, input.id));
       if (inUse && Number(inUse.count) > 0) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cannot delete a template that has active onboarding instances." });
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Cannot delete a template that has active onboarding instances.",
+        });
       }
-      await db.delete(onboardingTemplates).where(eq(onboardingTemplates.id, input.id));
+      await db
+        .delete(onboardingTemplates)
+        .where(eq(onboardingTemplates.id, input.id));
       return { success: true };
     }),
 
   // ─── Template Tasks CRUD ──────────────────────────────────────────────────
 
   addTemplateTask: protectedProcedure
-    .input(z.object({
-      templateId: z.number(),
-      title: z.string().min(1),
-      description: z.string().optional(),
-      assignee: z.enum(["admin", "agent"]).default("admin"),
-      adminUserId: z.number().nullable().optional(),
-      sortOrder: z.number().default(0),
-      dueDaysOffset: z.number().min(1).nullable().optional(),
-    }))
+    .input(
+      z.object({
+        templateId: z.number(),
+        title: z.string().min(1),
+        description: z.string().optional(),
+        assignee: z.enum(["admin", "agent"]).default("admin"),
+        adminUserId: z.number().nullable().optional(),
+        stageId: z.number().nullable().optional(),
+        sortOrder: z.number().default(0),
+        dueDaysOffset: z.number().min(1).nullable().optional(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
-      const adminUserId = input.assignee === "admin"
-        ? await requireAdminAssignee(db, input.adminUserId)
-        : null;
+      const adminUserId =
+        input.assignee === "admin"
+          ? await requireAdminAssignee(db, input.adminUserId)
+          : null;
+      const stageId = await requireTemplateStage(
+        db,
+        input.templateId,
+        input.stageId
+      );
       // Auto-set sortOrder to next available
       const [maxOrder] = await db
         .select({ max: sql<number>`COALESCE(MAX(sortOrder), -1)` })
         .from(onboardingTemplateTasks)
         .where(eq(onboardingTemplateTasks.templateId, input.templateId));
-      const sortOrder = input.sortOrder || (Number(maxOrder?.max ?? -1) + 1);
+      const sortOrder = input.sortOrder || Number(maxOrder?.max ?? -1) + 1;
       const [result] = await db.insert(onboardingTemplateTasks).values({
         templateId: input.templateId,
         title: input.title,
         description: input.description,
         assignee: input.assignee,
         adminUserId,
+        stageId,
         sortOrder,
         dueDaysOffset: input.dueDaysOffset ?? null,
       });
@@ -154,15 +313,18 @@ export const onboardingRouter = router({
     }),
 
   updateTemplateTask: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      title: z.string().min(1).optional(),
-      description: z.string().optional().nullable(),
-      assignee: z.enum(["admin", "agent"]).optional(),
-      adminUserId: z.number().nullable().optional(),
-      sortOrder: z.number().optional(),
-      dueDaysOffset: z.number().min(1).nullable().optional(),
-    }))
+    .input(
+      z.object({
+        id: z.number(),
+        title: z.string().min(1).optional(),
+        description: z.string().optional().nullable(),
+        assignee: z.enum(["admin", "agent"]).optional(),
+        adminUserId: z.number().nullable().optional(),
+        stageId: z.number().nullable().optional(),
+        sortOrder: z.number().optional(),
+        dueDaysOffset: z.number().min(1).nullable().optional(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
@@ -173,11 +335,34 @@ export const onboardingRouter = router({
       if (!currentTask) throw new TRPCError({ code: "NOT_FOUND" });
 
       const assignee = input.assignee ?? currentTask.assignee;
-      const adminUserId = assignee === "admin"
-        ? await requireAdminAssignee(db, input.adminUserId !== undefined ? input.adminUserId : currentTask.adminUserId)
-        : null;
-      const { id, adminUserId: _adminUserId, assignee: _assignee, ...data } = input;
-      await db.update(onboardingTemplateTasks).set({ ...data, assignee, adminUserId }).where(eq(onboardingTemplateTasks.id, id));
+      const adminUserId =
+        assignee === "admin"
+          ? await requireAdminAssignee(
+              db,
+              input.adminUserId !== undefined
+                ? input.adminUserId
+                : currentTask.adminUserId
+            )
+          : null;
+      const stageId =
+        input.stageId !== undefined
+          ? await requireTemplateStage(
+              db,
+              currentTask.templateId,
+              input.stageId
+            )
+          : currentTask.stageId;
+      const {
+        id,
+        adminUserId: _adminUserId,
+        assignee: _assignee,
+        stageId: _stageId,
+        ...data
+      } = input;
+      await db
+        .update(onboardingTemplateTasks)
+        .set({ ...data, assignee, adminUserId, stageId })
+        .where(eq(onboardingTemplateTasks.id, id));
       return { success: true };
     }),
 
@@ -186,20 +371,32 @@ export const onboardingRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
-      await db.delete(onboardingTemplateTasks).where(eq(onboardingTemplateTasks.id, input.id));
+      // Launched checklists retain their copied task details. Clear this
+      // optional source reference first so a template task can be removed even
+      // when historical instances still point to it.
+      await db
+        .update(onboardingInstanceTasks)
+        .set({ templateTaskId: null })
+        .where(eq(onboardingInstanceTasks.templateTaskId, input.id));
+      await db
+        .delete(onboardingTemplateTasks)
+        .where(eq(onboardingTemplateTasks.id, input.id));
       return { success: true };
     }),
 
   // ─── Onboarding Instances ─────────────────────────────────────────────────
 
   createInstance: protectedProcedure
-    .input(z.object({
-      agentUserId: z.number(),
-      templateId: z.number(),
-    }))
+    .input(
+      z.object({
+        agentUserId: z.number(),
+        templateId: z.number(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
+      await requireOnboardingAgent(db, input.agentUserId);
       // Create the instance
       const startedAt = new Date();
       const [instResult] = await db.insert(onboardingInstances).values({
@@ -213,24 +410,44 @@ export const onboardingRouter = router({
         .from(onboardingTemplateTasks)
         .where(eq(onboardingTemplateTasks.templateId, input.templateId))
         .orderBy(asc(onboardingTemplateTasks.sortOrder));
+      const templateStages = await db
+        .select()
+        .from(onboardingTemplateStages)
+        .where(eq(onboardingTemplateStages.templateId, input.templateId))
+        .orderBy(asc(onboardingTemplateStages.sortOrder));
+      const stageNamesById = new Map(
+        templateStages.map(stage => [stage.id, stage.name])
+      );
       if (templateTasks.length > 0) {
         for (const templateTask of templateTasks) {
           let dueDate: Date | null = null;
-          if (templateTask.dueDaysOffset != null && templateTask.dueDaysOffset > 0) {
-            dueDate = new Date(startedAt.getTime() + templateTask.dueDaysOffset * 24 * 60 * 60 * 1000);
+          if (
+            templateTask.dueDaysOffset != null &&
+            templateTask.dueDaysOffset > 0
+          ) {
+            dueDate = new Date(
+              startedAt.getTime() +
+                templateTask.dueDaysOffset * 24 * 60 * 60 * 1000
+            );
           }
 
-          const adminUserId = templateTask.assignee === "admin" ? templateTask.adminUserId : null;
-          const [instanceTaskResult] = await db.insert(onboardingInstanceTasks).values({
-            instanceId,
-            templateTaskId: templateTask.id,
-            title: templateTask.title,
-            description: templateTask.description,
-            assignee: templateTask.assignee,
-            adminUserId,
-            sortOrder: templateTask.sortOrder,
-            dueDate,
-          });
+          const adminUserId =
+            templateTask.assignee === "admin" ? templateTask.adminUserId : null;
+          const [instanceTaskResult] = await db
+            .insert(onboardingInstanceTasks)
+            .values({
+              instanceId,
+              templateTaskId: templateTask.id,
+              stageName: templateTask.stageId
+                ? (stageNamesById.get(templateTask.stageId) ?? null)
+                : null,
+              title: templateTask.title,
+              description: templateTask.description,
+              assignee: templateTask.assignee,
+              adminUserId,
+              sortOrder: templateTask.sortOrder,
+              dueDate,
+            });
           const onboardingInstanceTaskId = instanceTaskResult.insertId;
 
           // Admin-assigned checklist items also become standard tasks so they
@@ -238,7 +455,10 @@ export const onboardingRouter = router({
           if (adminUserId) {
             const [linkedTaskResult] = await db.insert(tasksTable).values({
               title: templateTask.title,
-              description: [templateTask.description, `Onboarding checklist item for agent #${input.agentUserId}.`]
+              description: [
+                templateTask.description,
+                `Onboarding checklist item for agent #${input.agentUserId}.`,
+              ]
                 .filter(Boolean)
                 .join("\n\n"),
               assignedToId: adminUserId,
@@ -247,7 +467,8 @@ export const onboardingRouter = router({
               taskType: "other",
               onboardingInstanceTaskId,
             });
-            await db.update(onboardingInstanceTasks)
+            await db
+              .update(onboardingInstanceTasks)
               .set({ linkedTaskId: linkedTaskResult.insertId })
               .where(eq(onboardingInstanceTasks.id, onboardingInstanceTaskId));
           }
@@ -256,8 +477,73 @@ export const onboardingRouter = router({
       return { id: instanceId };
     }),
 
+  updateInstanceAssignment: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        agentUserId: z.number(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      await requireOnboardingAgent(db, input.agentUserId);
+      const [instance] = await db
+        .select({ id: onboardingInstances.id })
+        .from(onboardingInstances)
+        .where(eq(onboardingInstances.id, input.id));
+      if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+      await db
+        .update(onboardingInstances)
+        .set({ agentUserId: input.agentUserId })
+        .where(eq(onboardingInstances.id, input.id));
+      return { success: true };
+    }),
+
+  deleteInstance: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      const [instance] = await db
+        .select({ id: onboardingInstances.id })
+        .from(onboardingInstances)
+        .where(eq(onboardingInstances.id, input.id));
+      if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const instanceTasks = await db
+        .select({ linkedTaskId: onboardingInstanceTasks.linkedTaskId })
+        .from(onboardingInstanceTasks)
+        .where(eq(onboardingInstanceTasks.instanceId, input.id));
+      const linkedTaskIds = instanceTasks
+        .map(task => task.linkedTaskId)
+        .filter((taskId): taskId is number => taskId != null);
+
+      // Unlink before deleting the matching standard task to satisfy the
+      // instance-task foreign key. The instance deletion then cascades safely.
+      if (linkedTaskIds.length > 0) {
+        await db
+          .update(onboardingInstanceTasks)
+          .set({ linkedTaskId: null })
+          .where(eq(onboardingInstanceTasks.instanceId, input.id));
+        await db
+          .delete(tasksTable)
+          .where(inArray(tasksTable.id, linkedTaskIds));
+      }
+      await db
+        .delete(onboardingInstances)
+        .where(eq(onboardingInstances.id, input.id));
+      return { success: true };
+    }),
+
   listInstances: protectedProcedure
-    .input(z.object({ status: z.enum(["in_progress", "completed", "all"]).default("all") }).optional())
+    .input(
+      z
+        .object({
+          status: z.enum(["in_progress", "completed", "all"]).default("all"),
+        })
+        .optional()
+    )
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
@@ -270,14 +556,29 @@ export const onboardingRouter = router({
         .select({
           instance: onboardingInstances,
           agent: { id: users.id, name: users.name, email: users.email },
-          template: { id: onboardingTemplates.id, name: onboardingTemplates.name },
-          totalTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id})`.as("totalTasks"),
-          completedTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = true)`.as("completedTasks"),
-          overdueTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = false AND dueDate IS NOT NULL AND dueDate < NOW())`.as("overdueTasks"),
+          template: {
+            id: onboardingTemplates.id,
+            name: onboardingTemplates.name,
+          },
+          totalTasks:
+            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id})`.as(
+              "totalTasks"
+            ),
+          completedTasks:
+            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = true)`.as(
+              "completedTasks"
+            ),
+          overdueTasks:
+            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = false AND dueDate IS NOT NULL AND dueDate < NOW())`.as(
+              "overdueTasks"
+            ),
         })
         .from(onboardingInstances)
         .leftJoin(users, eq(onboardingInstances.agentUserId, users.id))
-        .leftJoin(onboardingTemplates, eq(onboardingInstances.templateId, onboardingTemplates.id))
+        .leftJoin(
+          onboardingTemplates,
+          eq(onboardingInstances.templateId, onboardingTemplates.id)
+        )
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(onboardingInstances.startedAt));
       return instances;
@@ -291,15 +592,24 @@ export const onboardingRouter = router({
         .select({
           instance: onboardingInstances,
           agent: { id: users.id, name: users.name, email: users.email },
-          template: { id: onboardingTemplates.id, name: onboardingTemplates.name },
+          template: {
+            id: onboardingTemplates.id,
+            name: onboardingTemplates.name,
+          },
         })
         .from(onboardingInstances)
         .leftJoin(users, eq(onboardingInstances.agentUserId, users.id))
-        .leftJoin(onboardingTemplates, eq(onboardingInstances.templateId, onboardingTemplates.id))
+        .leftJoin(
+          onboardingTemplates,
+          eq(onboardingInstances.templateId, onboardingTemplates.id)
+        )
         .where(eq(onboardingInstances.id, input.id));
       if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
       // Check access: admin can see all, agent can only see their own
-      if (ctx.user.role !== "admin" && instance.instance.agentUserId !== ctx.user.id) {
+      if (
+        ctx.user.role !== "admin" &&
+        instance.instance.agentUserId !== ctx.user.id
+      ) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       const tasks = await db
@@ -316,14 +626,22 @@ export const onboardingRouter = router({
     const [instance] = await db
       .select({
         instance: onboardingInstances,
-        template: { id: onboardingTemplates.id, name: onboardingTemplates.name },
+        template: {
+          id: onboardingTemplates.id,
+          name: onboardingTemplates.name,
+        },
       })
       .from(onboardingInstances)
-      .leftJoin(onboardingTemplates, eq(onboardingInstances.templateId, onboardingTemplates.id))
-      .where(and(
-        eq(onboardingInstances.agentUserId, ctx.user.id),
-        eq(onboardingInstances.status, "in_progress")
-      ))
+      .leftJoin(
+        onboardingTemplates,
+        eq(onboardingInstances.templateId, onboardingTemplates.id)
+      )
+      .where(
+        and(
+          eq(onboardingInstances.agentUserId, ctx.user.id),
+          eq(onboardingInstances.status, "in_progress")
+        )
+      )
       .orderBy(desc(onboardingInstances.startedAt))
       .limit(1);
     if (!instance) return null;
@@ -341,10 +659,12 @@ export const onboardingRouter = router({
     const [result] = await db
       .select({ count: sql<number>`COUNT(*)` })
       .from(onboardingInstances)
-      .where(and(
-        eq(onboardingInstances.agentUserId, ctx.user.id),
-        eq(onboardingInstances.status, "in_progress")
-      ));
+      .where(
+        and(
+          eq(onboardingInstances.agentUserId, ctx.user.id),
+          eq(onboardingInstances.status, "in_progress")
+        )
+      );
     return { active: Number(result?.count ?? 0) > 0 };
   }),
 
@@ -352,47 +672,69 @@ export const onboardingRouter = router({
 
   /** Shift all due dates on an instance by N days (positive = extend, negative = shorten) */
   bulkExtendDueDates: protectedProcedure
-    .input(z.object({
-      instanceId: z.number(),
-      days: z.number().min(-365).max(365),
-    }))
+    .input(
+      z.object({
+        instanceId: z.number(),
+        days: z.number().min(-365).max(365),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
       // Verify instance exists
-      const [instance] = await db.select().from(onboardingInstances).where(eq(onboardingInstances.id, input.instanceId));
+      const [instance] = await db
+        .select()
+        .from(onboardingInstances)
+        .where(eq(onboardingInstances.id, input.instanceId));
       if (!instance) throw new TRPCError({ code: "NOT_FOUND" });
       // Update all tasks that have a dueDate
       await db.execute(
         sql`UPDATE onboarding_instance_tasks SET dueDate = DATE_ADD(dueDate, INTERVAL ${input.days} DAY) WHERE instanceId = ${input.instanceId} AND dueDate IS NOT NULL`
+      );
+      await db.execute(
+        sql`UPDATE tasks t INNER JOIN onboarding_instance_tasks oit ON oit.linkedTaskId = t.id SET t.dueDate = DATE_ADD(t.dueDate, INTERVAL ${input.days} DAY) WHERE oit.instanceId = ${input.instanceId} AND t.dueDate IS NOT NULL`
       );
       return { success: true };
     }),
 
   /** Update a single instance task's due date */
   updateTaskDueDate: protectedProcedure
-    .input(z.object({
-      taskId: z.number(),
-      dueDate: z.string().nullable(), // ISO date string or null to clear
-    }))
+    .input(
+      z.object({
+        taskId: z.number(),
+        dueDate: z.string().nullable(), // ISO date string or null to clear
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
-      const [task] = await db.select().from(onboardingInstanceTasks).where(eq(onboardingInstanceTasks.id, input.taskId));
+      const [task] = await db
+        .select()
+        .from(onboardingInstanceTasks)
+        .where(eq(onboardingInstanceTasks.id, input.taskId));
       if (!task) throw new TRPCError({ code: "NOT_FOUND" });
-      await db.update(onboardingInstanceTasks).set({
-        dueDate: input.dueDate ? new Date(input.dueDate) : null,
-      }).where(eq(onboardingInstanceTasks.id, input.taskId));
+      const dueDate = input.dueDate ? new Date(input.dueDate) : null;
+      await db
+        .update(onboardingInstanceTasks)
+        .set({
+          dueDate,
+        })
+        .where(eq(onboardingInstanceTasks.id, input.taskId));
+      if (task.linkedTaskId) {
+        await db
+          .update(tasksTable)
+          .set({ dueDate })
+          .where(eq(tasksTable.id, task.linkedTaskId));
+      }
       return { success: true };
     }),
 
   /** Manually trigger overdue check (admin only) */
-  triggerOverdueCheck: protectedProcedure
-    .mutation(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      await checkOverdueOnboardingTasks();
-      return { success: true };
-    }),
+  triggerOverdueCheck: protectedProcedure.mutation(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    await checkOverdueOnboardingTasks();
+    return { success: true };
+  }),
 
   // ─── Onboarding Report / Metrics (admin only) ─────────────────────────────
 
@@ -401,45 +743,62 @@ export const onboardingRouter = router({
     const db = await getDatabase();
 
     // Summary stats
-    const [totals] = await db.select({
-      totalInstances: sql<number>`COUNT(*)`,
-      completedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'completed' THEN 1 ELSE 0 END)`,
-      inProgressInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'in_progress' THEN 1 ELSE 0 END)`,
-      avgCompletionDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} = 'completed' AND ${onboardingInstances.completedAt} IS NOT NULL THEN DATEDIFF(${onboardingInstances.completedAt}, ${onboardingInstances.startedAt}) ELSE NULL END)`,
-    }).from(onboardingInstances);
+    const [totals] = await db
+      .select({
+        totalInstances: sql<number>`COUNT(*)`,
+        completedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'completed' THEN 1 ELSE 0 END)`,
+        inProgressInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'in_progress' THEN 1 ELSE 0 END)`,
+        avgCompletionDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} = 'completed' AND ${onboardingInstances.completedAt} IS NOT NULL THEN DATEDIFF(${onboardingInstances.completedAt}, ${onboardingInstances.startedAt}) ELSE NULL END)`,
+      })
+      .from(onboardingInstances);
 
     // Overdue task count across all active instances
-    const [overdueStats] = await db.select({
-      overdueTaskCount: sql<number>`COUNT(*)`,
-    }).from(onboardingInstanceTasks)
-      .innerJoin(onboardingInstances, eq(onboardingInstanceTasks.instanceId, onboardingInstances.id))
-      .where(and(
-        eq(onboardingInstanceTasks.completed, false),
-        isNotNull(onboardingInstanceTasks.dueDate),
-        lt(onboardingInstanceTasks.dueDate, new Date()),
-        eq(onboardingInstances.status, "in_progress")
-      ));
+    const [overdueStats] = await db
+      .select({
+        overdueTaskCount: sql<number>`COUNT(*)`,
+      })
+      .from(onboardingInstanceTasks)
+      .innerJoin(
+        onboardingInstances,
+        eq(onboardingInstanceTasks.instanceId, onboardingInstances.id)
+      )
+      .where(
+        and(
+          eq(onboardingInstanceTasks.completed, false),
+          isNotNull(onboardingInstanceTasks.dueDate),
+          lt(onboardingInstanceTasks.dueDate, new Date()),
+          eq(onboardingInstances.status, "in_progress")
+        )
+      );
 
     // On-time completion rate: tasks completed before or on their due date
-    const [onTimeStats] = await db.select({
-      totalCompletedWithDue: sql<number>`SUM(CASE WHEN ${onboardingInstanceTasks.completed} = true AND ${onboardingInstanceTasks.dueDate} IS NOT NULL THEN 1 ELSE 0 END)`,
-      completedOnTime: sql<number>`SUM(CASE WHEN ${onboardingInstanceTasks.completed} = true AND ${onboardingInstanceTasks.dueDate} IS NOT NULL AND ${onboardingInstanceTasks.completedAt} <= ${onboardingInstanceTasks.dueDate} THEN 1 ELSE 0 END)`,
-    }).from(onboardingInstanceTasks);
+    const [onTimeStats] = await db
+      .select({
+        totalCompletedWithDue: sql<number>`SUM(CASE WHEN ${onboardingInstanceTasks.completed} = true AND ${onboardingInstanceTasks.dueDate} IS NOT NULL THEN 1 ELSE 0 END)`,
+        completedOnTime: sql<number>`SUM(CASE WHEN ${onboardingInstanceTasks.completed} = true AND ${onboardingInstanceTasks.dueDate} IS NOT NULL AND ${onboardingInstanceTasks.completedAt} <= ${onboardingInstanceTasks.dueDate} THEN 1 ELSE 0 END)`,
+      })
+      .from(onboardingInstanceTasks);
 
-    const totalCompletedWithDue = Number(onTimeStats?.totalCompletedWithDue ?? 0);
+    const totalCompletedWithDue = Number(
+      onTimeStats?.totalCompletedWithDue ?? 0
+    );
     const completedOnTime = Number(onTimeStats?.completedOnTime ?? 0);
-    const onTimeRate = totalCompletedWithDue > 0 ? Math.round((completedOnTime / totalCompletedWithDue) * 100) : 100;
+    const onTimeRate =
+      totalCompletedWithDue > 0
+        ? Math.round((completedOnTime / totalCompletedWithDue) * 100)
+        : 100;
 
     // Per-agent breakdown
-    const agentBreakdown = await db.select({
-      agentId: users.id,
-      agentName: users.name,
-      agentEmail: users.email,
-      totalInstances: sql<number>`COUNT(DISTINCT ${onboardingInstances.id})`,
-      completedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'completed' THEN 1 ELSE 0 END)`,
-      avgDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} = 'completed' AND ${onboardingInstances.completedAt} IS NOT NULL THEN DATEDIFF(${onboardingInstances.completedAt}, ${onboardingInstances.startedAt}) ELSE NULL END)`,
-      overdueTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks oit INNER JOIN onboarding_instances oi2 ON oit.instanceId = oi2.id WHERE oi2.agentUserId = ${users.id} AND oit.completed = false AND oit.dueDate IS NOT NULL AND oit.dueDate < NOW() AND oi2.status = 'in_progress')`,
-    })
+    const agentBreakdown = await db
+      .select({
+        agentId: users.id,
+        agentName: users.name,
+        agentEmail: users.email,
+        totalInstances: sql<number>`COUNT(DISTINCT ${onboardingInstances.id})`,
+        completedInstances: sql<number>`SUM(CASE WHEN ${onboardingInstances.status} = 'completed' THEN 1 ELSE 0 END)`,
+        avgDays: sql<number>`AVG(CASE WHEN ${onboardingInstances.status} = 'completed' AND ${onboardingInstances.completedAt} IS NOT NULL THEN DATEDIFF(${onboardingInstances.completedAt}, ${onboardingInstances.startedAt}) ELSE NULL END)`,
+        overdueTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks oit INNER JOIN onboarding_instances oi2 ON oit.instanceId = oi2.id WHERE oi2.agentUserId = ${users.id} AND oit.completed = false AND oit.dueDate IS NOT NULL AND oit.dueDate < NOW() AND oi2.status = 'in_progress')`,
+      })
       .from(onboardingInstances)
       .innerJoin(users, eq(onboardingInstances.agentUserId, users.id))
       .groupBy(users.id, users.name, users.email)
@@ -450,11 +809,14 @@ export const onboardingRouter = router({
         totalInstances: Number(totals?.totalInstances ?? 0),
         completedInstances: Number(totals?.completedInstances ?? 0),
         inProgressInstances: Number(totals?.inProgressInstances ?? 0),
-        avgCompletionDays: totals?.avgCompletionDays != null ? Math.round(Number(totals.avgCompletionDays)) : null,
+        avgCompletionDays:
+          totals?.avgCompletionDays != null
+            ? Math.round(Number(totals.avgCompletionDays))
+            : null,
         overdueTaskCount: Number(overdueStats?.overdueTaskCount ?? 0),
         onTimeRate,
       },
-      agentBreakdown: agentBreakdown.map((a) => ({
+      agentBreakdown: agentBreakdown.map(a => ({
         agentId: a.agentId,
         agentName: a.agentName,
         agentEmail: a.agentEmail,
@@ -475,16 +837,31 @@ export const onboardingRouter = router({
       const instances = await db
         .select({
           instance: onboardingInstances,
-          template: { id: onboardingTemplates.id, name: onboardingTemplates.name, type: onboardingTemplates.type },
-          totalTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id})`.as("totalTasks"),
-          completedTasks: sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = true)`.as("completedTasks"),
+          template: {
+            id: onboardingTemplates.id,
+            name: onboardingTemplates.name,
+            type: onboardingTemplates.type,
+          },
+          totalTasks:
+            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id})`.as(
+              "totalTasks"
+            ),
+          completedTasks:
+            sql<number>`(SELECT COUNT(*) FROM onboarding_instance_tasks WHERE instanceId = ${onboardingInstances.id} AND completed = true)`.as(
+              "completedTasks"
+            ),
         })
         .from(onboardingInstances)
-        .leftJoin(onboardingTemplates, eq(onboardingInstances.templateId, onboardingTemplates.id))
-        .where(and(
-          eq(onboardingInstances.agentUserId, input.agentUserId),
-          eq(onboardingInstances.status, "in_progress")
-        ))
+        .leftJoin(
+          onboardingTemplates,
+          eq(onboardingInstances.templateId, onboardingTemplates.id)
+        )
+        .where(
+          and(
+            eq(onboardingInstances.agentUserId, input.agentUserId),
+            eq(onboardingInstances.status, "in_progress")
+          )
+        )
         .orderBy(desc(onboardingInstances.startedAt));
       return instances;
     }),
@@ -511,44 +888,61 @@ export const onboardingRouter = router({
           throw new TRPCError({ code: "FORBIDDEN" });
         }
         if (task.assignee !== "agent") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "You can only complete tasks assigned to you." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only complete tasks assigned to you.",
+          });
         }
       }
       const completedAt = input.completed ? new Date() : null;
-      await db.update(onboardingInstanceTasks).set({
-        completed: input.completed,
-        completedAt,
-        completedByUserId: input.completed ? ctx.user.id : null,
-      }).where(eq(onboardingInstanceTasks.id, input.taskId));
+      await db
+        .update(onboardingInstanceTasks)
+        .set({
+          completed: input.completed,
+          completedAt,
+          completedByUserId: input.completed ? ctx.user.id : null,
+        })
+        .where(eq(onboardingInstanceTasks.id, input.taskId));
 
       // Keep the linked standard task in sync when a checklist item is completed
       // directly from the onboarding tracker.
       if (task.linkedTaskId) {
-        await db.update(tasksTable).set({
-          status: input.completed ? "completed" : "pending",
-          completedAt,
-        }).where(eq(tasksTable.id, task.linkedTaskId));
+        await db
+          .update(tasksTable)
+          .set({
+            status: input.completed ? "completed" : "pending",
+            completedAt,
+          })
+          .where(eq(tasksTable.id, task.linkedTaskId));
       }
 
       // Check if all tasks are completed → auto-complete instance
       const [remaining] = await db
         .select({ count: sql<number>`COUNT(*)` })
         .from(onboardingInstanceTasks)
-        .where(and(
-          eq(onboardingInstanceTasks.instanceId, task.instanceId),
-          eq(onboardingInstanceTasks.completed, false)
-        ));
+        .where(
+          and(
+            eq(onboardingInstanceTasks.instanceId, task.instanceId),
+            eq(onboardingInstanceTasks.completed, false)
+          )
+        );
       if (input.completed && Number(remaining?.count ?? 1) === 0) {
-        await db.update(onboardingInstances).set({
-          status: "completed",
-          completedAt: new Date(),
-        }).where(eq(onboardingInstances.id, task.instanceId));
+        await db
+          .update(onboardingInstances)
+          .set({
+            status: "completed",
+            completedAt: new Date(),
+          })
+          .where(eq(onboardingInstances.id, task.instanceId));
       } else if (!input.completed) {
         // If unchecking a task, reopen the instance
-        await db.update(onboardingInstances).set({
-          status: "in_progress",
-          completedAt: null,
-        }).where(eq(onboardingInstances.id, task.instanceId));
+        await db
+          .update(onboardingInstances)
+          .set({
+            status: "in_progress",
+            completedAt: null,
+          })
+          .where(eq(onboardingInstances.id, task.instanceId));
       }
       return { success: true };
     }),

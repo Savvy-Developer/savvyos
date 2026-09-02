@@ -7,7 +7,11 @@
  *  - transcribeAndSummarize() — orchestrates both and updates the communications row
  */
 
-import { ENV } from "./_core/env";
+import {
+  getOpenAiCompatibleProvider,
+  invokeLLM,
+  openAiCompatibleUrl,
+} from "./_core/llm";
 import { getDb } from "./db";
 import { communications } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -22,12 +26,11 @@ export async function transcribeRecording(
   audioUrl: string,
   callId: number | string
 ): Promise<string | null> {
-  // Prefer the explicitly configured production OpenAI key. The legacy
-  // built-in route is a distinct credential and may belong to another account.
-  const useDirectOpenAi = Boolean(ENV.openaiApiKey);
-  const useForge = !useDirectOpenAi && Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
-  if (!useForge && !useDirectOpenAi) {
-    console.warn("[Aircall Transcribe] No transcription credentials are configured — skipping transcription");
+  const provider = getOpenAiCompatibleProvider();
+  if (!provider.apiKey) {
+    console.warn(
+      "[Aircall Transcribe] No transcription credentials are configured — skipping transcription"
+    );
     return null;
   }
 
@@ -42,7 +45,9 @@ export async function transcribeRecording(
       clearTimeout(timeout);
     }
     if (!audioResponse.ok) {
-      console.error(`[Aircall Transcribe] Failed to download audio for call ${callId}: HTTP ${audioResponse.status}`);
+      console.error(
+        `[Aircall Transcribe] Failed to download audio for call ${callId}: HTTP ${audioResponse.status}`
+      );
       return null;
     }
 
@@ -56,15 +61,11 @@ export async function transcribeRecording(
     formData.append("language", "en");
     formData.append("response_format", "verbose_json");
 
-    const forgeBaseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
-    const directOpenAiBase = (process.env.OPENAI_API_BASE ?? "https://api.openai.com/v1").replace(/\/$/, "");
-    const transcriptionUrl = useForge
-      ? new URL("v1/audio/transcriptions", forgeBaseUrl).toString()
-      : `${directOpenAiBase}/audio/transcriptions`;
+    const transcriptionUrl = openAiCompatibleUrl("audio/transcriptions");
     const response = await fetch(transcriptionUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${useDirectOpenAi ? ENV.openaiApiKey : ENV.forgeApiKey}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         "Accept-Encoding": "identity",
       },
       body: formData,
@@ -72,16 +73,22 @@ export async function transcribeRecording(
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error(`[Aircall Transcribe] Whisper API error for call ${callId}: ${response.status} ${errText}`);
+      console.error(
+        `[Aircall Transcribe] Whisper API error for call ${callId}: ${response.status} ${errText}`
+      );
       return null;
     }
 
-    const payload = await response.json() as { text?: string };
+    const payload = (await response.json()) as { text?: string };
     const transcript = payload.text?.trim() ?? "";
-    console.log(`[Aircall Transcribe] Transcribed call ${callId} — ${transcript.length} chars`);
+    console.log(
+      `[Aircall Transcribe] Transcribed call ${callId} — ${transcript.length} chars`
+    );
     return transcript || null;
   } catch (err: any) {
-    console.error(`[Aircall Transcribe] Error transcribing call ${callId}: ${err.message}`);
+    console.error(
+      `[Aircall Transcribe] Error transcribing call ${callId}: ${err.message}`
+    );
     return null;
   }
 }
@@ -102,10 +109,11 @@ export async function generateCallSummary(
     agentName?: string;
   }
 ): Promise<string | null> {
-  const useDirectOpenAi = Boolean(ENV.openaiApiKey);
-  const useForge = !useDirectOpenAi && Boolean(ENV.forgeApiKey && ENV.forgeApiUrl);
-  if (!useForge && !useDirectOpenAi) {
-    console.warn("[Aircall Transcribe] No summary credentials are configured — skipping summary");
+  const provider = getOpenAiCompatibleProvider();
+  if (!provider.apiKey) {
+    console.warn(
+      "[Aircall Transcribe] No summary credentials are configured — skipping summary"
+    );
     return null;
   }
 
@@ -114,7 +122,9 @@ export async function generateCallSummary(
   }
 
   const dir = callMeta.direction === "inbound" ? "inbound" : "outbound";
-  const dur = callMeta.duration ? `${Math.round(callMeta.duration / 60)} minutes` : "unknown duration";
+  const dur = callMeta.duration
+    ? `${Math.round(callMeta.duration / 60)} minutes`
+    : "unknown duration";
   const contact = callMeta.contactName ?? "the contact";
   const agent = callMeta.agentName ?? "the agent";
 
@@ -129,41 +139,24 @@ ${transcript.slice(0, 4000)}
 Write 2–4 sentences. Include: main topic, key points discussed, any next steps or commitments made, and overall outcome.`;
 
   try {
-    const forgeBaseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
-    const directOpenAiBase = (process.env.OPENAI_API_BASE ?? "https://api.openai.com/v1").replace(/\/$/, "");
-    const summaryUrl = useForge
-      ? new URL("v1/chat/completions", forgeBaseUrl).toString()
-      : `${directOpenAiBase}/chat/completions`;
-    const response = await fetch(summaryUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${useDirectOpenAi ? ENV.openaiApiKey : ENV.forgeApiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-5-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        // GPT-5 models only accept the default temperature. Keep optional
-        // controls off for proxy compatibility and reserve enough output budget
-        // for the model's internal processing plus the concise final summary.
-        max_completion_tokens: 1_500,
-      }),
+    const response = await invokeLLM({
+      model: "gpt-5-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      // GPT-5 models only accept the default temperature. Keep optional
+      // controls off for provider compatibility and reserve enough output budget
+      // for the model's internal processing plus the concise final summary.
+      maxTokens: 1_500,
     });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[Aircall Transcribe] GPT summary error: ${response.status} ${errText}`);
-      return null;
-    }
-
-    const data = await response.json() as any;
-    const summary = data?.choices?.[0]?.message?.content?.trim();
+    const content = response.choices?.[0]?.message?.content;
+    const summary = typeof content === "string" ? content.trim() : null;
     return summary || null;
   } catch (err: any) {
-    console.error(`[Aircall Transcribe] Error generating summary: ${err.message}`);
+    console.error(
+      `[Aircall Transcribe] Error generating summary: ${err.message}`
+    );
     return null;
   }
 }
@@ -201,7 +194,10 @@ export async function transcribeAndSummarize(opts: {
   // Check if already transcribed
   if (!opts.forceRetranscribe) {
     const existing = await db
-      .select({ transcription: communications.transcription, body: communications.body })
+      .select({
+        transcription: communications.transcription,
+        body: communications.body,
+      })
       .from(communications)
       .where(eq(communications.id, opts.communicationId))
       .limit(1);
@@ -225,7 +221,8 @@ export async function transcribeAndSummarize(opts: {
         agentName: opts.agentName,
       });
       if (summary) {
-        await db.update(communications)
+        await db
+          .update(communications)
           .set({ body: `${existing[0].body ?? ""}\n\nAI Summary:\n${summary}` })
           .where(eq(communications.id, opts.communicationId));
       }
@@ -235,7 +232,9 @@ export async function transcribeAndSummarize(opts: {
         transcript,
         summary,
         skipped: !summary,
-        reason: summary ? undefined : "Already transcribed; summary unavailable",
+        reason: summary
+          ? undefined
+          : "Already transcribed; summary unavailable",
       };
     }
   }
@@ -253,7 +252,10 @@ export async function transcribeAndSummarize(opts: {
   }
 
   // Transcribe
-  const transcript = await transcribeRecording(opts.audioUrl, opts.aircallCallId);
+  const transcript = await transcribeRecording(
+    opts.audioUrl,
+    opts.aircallCallId
+  );
 
   // Generate summary
   let summary: string | null = null;
@@ -281,7 +283,10 @@ export async function transcribeAndSummarize(opts: {
     if (summary) {
       // Replace any existing AI Summary section or append
       if (newBody.includes("\n\nAI Summary:")) {
-        newBody = newBody.replace(/\n\nAI Summary:[\s\S]*$/, `\n\nAI Summary:\n${summary}`);
+        newBody = newBody.replace(
+          /\n\nAI Summary:[\s\S]*$/,
+          `\n\nAI Summary:\n${summary}`
+        );
       } else {
         newBody = `${newBody}\n\nAI Summary:\n${summary}`;
       }

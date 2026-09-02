@@ -218,34 +218,45 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () => {
-  // Never silently fall back to api.openai.com. SavvyOS is configured to use
-  // the Manus OpenAI-compatible proxy, which keeps application AI usage on
-  // the intended provider and avoids a separate OpenAI billing dependency.
+export type OpenAiCompatibleProvider = {
+  baseUrl: string;
+  apiKey: string;
+};
+
+/**
+ * Returns the OpenAI-compatible endpoint and its matching credential.
+ * Forge proxy services use BUILT_IN_FORGE_API_KEY; native api.openai.com
+ * calls use OPENAI_API_KEY. Keeping this decision in one place prevents a
+ * funded production key from being shadowed by an unrelated legacy key.
+ */
+export function getOpenAiCompatibleProvider(): OpenAiCompatibleProvider {
   const configuredBase =
     ENV.forgeApiUrl ||
     process.env.OPENAI_API_BASE ||
     "https://api.manus.im/api/llm-proxy/v1";
-  // Forge deployments conventionally provide the service root, whereas standard
-  // OpenAI-compatible environment variables commonly already end in `/v1`.
-  // Support both forms without generating a `/v1/v1/...` request URL.
-  const base = configuredBase.replace(/\/$/, "");
-  return base.endsWith("/v1")
-    ? `${base}/chat/completions`
-    : `${base}/v1/chat/completions`;
-};
-
-const getApiKey = () => {
+  const baseUrl = configuredBase.replace(/\/$/, "");
   // Railway hosts this project against the native OpenAI endpoint. In that
   // configuration, use OPENAI_API_KEY rather than a stale Forge credential.
   // Keep Forge first for its own proxy endpoint so a future provider change is
   // paired with the appropriate credential automatically.
-  const configuredBase = ENV.forgeApiUrl || process.env.OPENAI_API_BASE || "";
-  if (/^https:\/\/api\.openai\.com(?:\/|$)/i.test(configuredBase)) {
-    return ENV.openaiApiKey || ENV.forgeApiKey;
-  }
-  return ENV.forgeApiKey || ENV.openaiApiKey;
-};
+  const apiKey = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(baseUrl)
+    ? ENV.openaiApiKey || ENV.forgeApiKey
+    : ENV.forgeApiKey || ENV.openaiApiKey;
+  return { baseUrl, apiKey };
+}
+
+/** Builds an OpenAI-compatible endpoint without accidentally duplicating /v1. */
+export function openAiCompatibleUrl(path: string): string {
+  const { baseUrl } = getOpenAiCompatibleProvider();
+  const normalizedPath = path.replace(/^\/+/, "");
+  return baseUrl.endsWith("/v1")
+    ? `${baseUrl}/${normalizedPath}`
+    : `${baseUrl}/v1/${normalizedPath}`;
+}
+
+const resolveApiUrl = () => openAiCompatibleUrl("chat/completions");
+
+const getApiKey = () => getOpenAiCompatibleProvider().apiKey;
 
 const assertApiKey = () => {
   if (!getApiKey()) {
