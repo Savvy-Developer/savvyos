@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import { kbCategories, kbArticles } from "../../drizzle/schema";
 import { eq, asc, and, inArray } from "drizzle-orm";
 import { invokeLLM } from "../_core/llm";
+import { formatKnowledgeBaseFallback } from "../_core/llmFallbacks";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -283,12 +284,13 @@ export const knowledgeBaseRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       requireAdmin(ctx.user.role);
-      const result = await invokeLLM({
-        model: "gpt-5-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are a professional technical writer for a short-term rental real estate brokerage called Savvy STR Agents.
+      try {
+        const result = await invokeLLM({
+          model: "gpt-5-mini",
+          messages: [
+            {
+              role: "system",
+              content: `You are a professional technical writer for a short-term rental real estate brokerage called Savvy STR Agents.
 Your job is to take raw, unformatted, or poorly formatted content and rewrite it into clean, well-structured Markdown.
 
 Rules:
@@ -298,20 +300,27 @@ Rules:
 - Break long walls of text into logical sections with clear headings.
 - If the content is already well-formatted, return it as-is with only minor improvements.
 - Return ONLY the Markdown — no preamble, no explanation, no code fences around the whole response.`,
-          },
-          {
-            role: "user",
-            content: `Please format the following content:\n\n${input.content}`,
-          },
-        ],
-        maxTokens: 8192,
-      });
+            },
+            {
+              role: "user",
+              content: `Please format the following content:\n\n${input.content}`,
+            },
+          ],
+          maxTokens: 8192,
+        });
 
-      const markdown = result.choices[0]?.message?.content;
-      if (typeof markdown !== "string") {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI returned no content" });
+        const markdown = result.choices[0]?.message?.content;
+        if (typeof markdown !== "string") {
+          throw new Error("AI returned no content");
+        }
+        return { markdown: markdown.trim(), source: "ai" as const };
+      } catch (error) {
+        // Keep an editorial workflow available during a provider outage. This
+        // conservative fallback preserves content and performs only mechanical
+        // Markdown cleanup; it never presents a generated rewrite as AI output.
+        console.error("Knowledgebase AI formatter unavailable; using safe cleanup", error);
+        return { markdown: formatKnowledgeBaseFallback(input.content), source: "fallback" as const };
       }
-      return { markdown: markdown.trim() };
     }),
 
   /** Search articles by title (respects visibility) */

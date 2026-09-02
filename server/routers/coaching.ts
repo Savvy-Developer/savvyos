@@ -32,6 +32,7 @@ import { eq, desc, asc, and, sql, or, inArray, isNull, isNotNull, ne, gte, lte, 
 import { aliasedTable } from "drizzle-orm";
 import { logActivity } from "../db";
 import { invokeLLM } from "../_core/llm";
+import { extractCoachingFallbackCommitments } from "../_core/llmFallbacks";
 import { getSavvyOsAdoptionReport } from "../analytics/adoptionReport";
 import {
   buildWeeklyCoachingAccountabilityReport,
@@ -477,22 +478,7 @@ function buildLiveCallGuide({
 // ─── Session-summary fallback — preserve coaching continuity during provider outages ──
 function buildSessionSummaryFallback({ content, agentName, profile }: { content: string; agentName: string; profile: any }) {
   const normalizedContent = content.replace(/\r/g, "").trim();
-  const lines = normalizedContent
-    .split("\n")
-    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
-    .filter(Boolean);
-  const commitmentPatterns = /\b(will|commit(?:s|ted)? to|follow up|call|email|send|schedule|complete|review|reach out|contact|update)\b/i;
-  const commitments = lines
-    .filter((line) => line.length >= 12 && line.length <= 300 && commitmentPatterns.test(line))
-    .slice(0, 5)
-    .map((description) => ({
-      description,
-      owner: "agent",
-      dueDate: null,
-      expectedResult: "Coach to verify completion at the next session.",
-      relatedMetric: null,
-      confidence: "medium",
-    }));
+  const commitments = extractCoachingFallbackCommitments(normalizedContent);
   const excerpt = normalizedContent.length > 2200
     ? `${normalizedContent.slice(0, 2200).trim()}…`
     : normalizedContent;

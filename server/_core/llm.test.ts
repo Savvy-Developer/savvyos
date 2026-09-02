@@ -81,4 +81,23 @@ describe("invokeLLM", () => {
       invokeLLM({ messages: [{ role: "user", content: "Reply only: ok" }] })
     ).rejects.toThrow("LLM provider returned an invalid completion – Unsupported model");
   });
+
+  it("does not retry a terminal billing or quota 429", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { message: "You have no credits remaining. Add credits to continue using the API." },
+        }),
+        { status: 429, statusText: "Too Many Requests" }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { invokeLLM } = await importClient();
+
+    await expect(
+      invokeLLM({ messages: [{ role: "user", content: "Reply only: ok" }] })
+    ).rejects.toThrow("You have no credits remaining");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

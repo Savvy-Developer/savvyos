@@ -87,7 +87,7 @@ export default function KBArticleEditor({
         const html = markdownToHtml(data.markdown);
         editor.commands.setContent(html);
         onChange(data.markdown);
-        toast.success("Content formatted by AI");
+        toast.success(data.source === "fallback" ? "Content cleaned up with safe formatting" : "Content formatted by AI");
       }
     },
     onError: (e) => {

@@ -40,6 +40,65 @@ function isNonManualLeadSource(name: string | null | undefined): boolean {
   return NON_MANUAL_LEAD_SOURCE_NAMES.has((name ?? "").trim().toLowerCase());
 }
 
+function excerpt(value: string | null | undefined, fallback: string, maxLength = 600): string {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized) return fallback;
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength).trim()}…` : normalized;
+}
+
+/**
+ * Retains a practical CRM briefing when the external AI provider is unavailable.
+ * This is intentionally source-based and does not infer facts that are absent
+ * from the contact record.
+ */
+function buildContactSummaryFallback({
+  contactName,
+  contact,
+  leadSourceLabel,
+  lastContact,
+  agentConnsSummary,
+  buyBoxes,
+  callsSummary,
+  otherCommsSummary,
+  tasksSummary,
+  contactTxs,
+  contactListings,
+  linkedProperties,
+  smartPlanEnrollments,
+}: {
+  contactName: string;
+  contact: any;
+  leadSourceLabel: string;
+  lastContact: string;
+  agentConnsSummary: string;
+  buyBoxes: string;
+  callsSummary: string;
+  otherCommsSummary: string;
+  tasksSummary: string;
+  contactTxs: unknown[];
+  contactListings: unknown[];
+  linkedProperties: unknown[];
+  smartPlanEnrollments: unknown[];
+}): string {
+  const identity = `${contactName} is a Savvy STR contact from ${leadSourceLabel}. ` +
+    `Email: ${contact.email ?? "not recorded"}; phone: ${contact.phone ?? "not recorded"}. ` +
+    `Current ISA status: ${contact.isaStatus ?? "not set"}. ${excerpt(contact.notes, "No general contact notes are saved.", 500)}`;
+
+  const engagement = `Last recorded contact: ${lastContact}. ` +
+    `Agent connections: ${excerpt(agentConnsSummary, "No agents are assigned.", 700)} ` +
+    `Recent calls: ${excerpt(callsSummary, "No calls are logged.", 700)} ` +
+    `Other recent communication: ${excerpt(otherCommsSummary, "No other communications are logged.", 500)}`;
+
+  const currentBusiness = `Investment criteria: ${excerpt(buyBoxes, "No buy box is defined.", 600)} ` +
+    `Open and recent tasks: ${excerpt(tasksSummary, "No tasks are recorded.", 700)} ` +
+    `Related record counts: ${contactTxs.length} transaction${contactTxs.length === 1 ? "" : "s"}, ` +
+    `${contactListings.length} listing${contactListings.length === 1 ? "" : "s"}, ` +
+    `${linkedProperties.length} linked propert${linkedProperties.length === 1 ? "y" : "ies"}, and ` +
+    `${smartPlanEnrollments.length} smart-plan enrollment${smartPlanEnrollments.length === 1 ? "" : "s"}.`;
+
+  return `${identity}\n\n${engagement}\n\n${currentBusiness}\n\nRecommended next action: Review the most recent conversation and open task context, confirm the current investment criteria, and set one specific next outreach action with a date. This source-based summary was prepared while AI generation was temporarily unavailable.`;
+}
+
 const contactInput = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -776,6 +835,7 @@ ${smartPlansSummary}
 Please write the comprehensive AI summary now.`;
 
       let summary = "";
+      let source: "ai" | "fallback" = "ai";
       try {
         const response = await invokeLLM({
           messages: [
@@ -783,9 +843,32 @@ Please write the comprehensive AI summary now.`;
             { role: "user", content: userPrompt },
           ],
         });
-        summary = (response.choices?.[0]?.message?.content as string) ?? "Unable to generate summary.";
+        const generatedSummary = response.choices?.[0]?.message?.content;
+        if (typeof generatedSummary !== "string" || !generatedSummary.trim()) {
+          throw new Error("AI summary response did not include usable content");
+        }
+        summary = generatedSummary;
       } catch (err) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI summary generation failed" });
+        // Never leave a contact detail view unusable because the provider is
+        // rate-limited, unavailable, or out of credits. The fallback is cached
+        // with the same seven-day policy as an AI-generated summary.
+        console.error("Contact AI summary unavailable; using source-based fallback", err);
+        summary = buildContactSummaryFallback({
+          contactName,
+          contact,
+          leadSourceLabel,
+          lastContact,
+          agentConnsSummary,
+          buyBoxes,
+          callsSummary,
+          otherCommsSummary,
+          tasksSummary,
+          contactTxs,
+          contactListings,
+          linkedProperties,
+          smartPlanEnrollments,
+        });
+        source = "fallback";
       }
 
       // Cache the summary
@@ -793,7 +876,7 @@ Please write the comprehensive AI summary now.`;
         .set({ aiSummary: summary, aiSummaryUpdatedAt: now })
         .where(eq(contactsTable.id, input.id));
 
-      return { summary, updatedAt: now, cached: false };
+      return { summary, updatedAt: now, cached: false, source };
     }),
 
   getHistory: protectedProcedure

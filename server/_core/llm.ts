@@ -19,7 +19,12 @@ export type FileContent = {
   type: "file_url";
   file_url: {
     url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4";
+    mime_type?:
+      | "audio/mpeg"
+      | "audio/wav"
+      | "application/pdf"
+      | "audio/mp4"
+      | "video/mp4";
   };
 };
 
@@ -217,7 +222,10 @@ const resolveApiUrl = () => {
   // Never silently fall back to api.openai.com. SavvyOS is configured to use
   // the Manus OpenAI-compatible proxy, which keeps application AI usage on
   // the intended provider and avoids a separate OpenAI billing dependency.
-  const configuredBase = ENV.forgeApiUrl || process.env.OPENAI_API_BASE || "https://api.manus.im/api/llm-proxy/v1";
+  const configuredBase =
+    ENV.forgeApiUrl ||
+    process.env.OPENAI_API_BASE ||
+    "https://api.manus.im/api/llm-proxy/v1";
   // Forge deployments conventionally provide the service root, whereas standard
   // OpenAI-compatible environment variables commonly already end in `/v1`.
   // Support both forms without generating a `/v1/v1/...` request URL.
@@ -291,6 +299,14 @@ const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 45_000;
 
+const isBillingOrQuotaError = (message: string | null) =>
+  Boolean(
+    message &&
+      /\b(no credits remaining|add credits|billing|quota|insufficient[_ ](?:quota|funds)|exceeded your current quota)\b/i.test(
+        message
+      )
+  );
+
 export function resolveLlmModel(model?: string): string {
   const requestedModel = model?.trim();
   if (!requestedModel) return DEFAULT_LLM_MODEL;
@@ -353,15 +369,22 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   const maxTokens = params.maxTokens ?? params.max_tokens ?? 4096;
-  payload[resolvedModel.startsWith("gpt-") || resolvedModel.startsWith("o")
-    ? "max_completion_tokens"
-    : "max_tokens"] = maxTokens;
+  payload[
+    resolvedModel.startsWith("gpt-") || resolvedModel.startsWith("o")
+      ? "max_completion_tokens"
+      : "max_tokens"
+  ] = maxTokens;
 
   // GPT-5 models use the OpenAI-compatible `reasoning` object. Preserve the
   // legacy `reasoning_effort` shape for o-series callers until they migrate.
   if (reasoning?.effort && resolvedModel.startsWith("gpt-5")) {
     payload.reasoning = reasoning;
-  } else if (reasoning?.effort && (resolvedModel.startsWith("o1") || resolvedModel.startsWith("o3") || resolvedModel.startsWith("o-"))) {
+  } else if (
+    reasoning?.effort &&
+    (resolvedModel.startsWith("o1") ||
+      resolvedModel.startsWith("o3") ||
+      resolvedModel.startsWith("o-"))
+  ) {
     payload.reasoning_effort = reasoning.effort;
   }
 
@@ -397,10 +420,17 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       }
 
       if (!response.ok) {
+        const providerError = readProviderError(body) ?? responseText;
         const error = new Error(
-          `LLM invoke failed: ${response.status} ${response.statusText} – ${readProviderError(body) ?? responseText}`
+          `LLM invoke failed: ${response.status} ${response.statusText} – ${providerError}`
         );
-        if (attempt < MAX_ATTEMPTS && RETRYABLE_STATUSES.has(response.status)) {
+        // A 429 can mean transient rate limiting or a terminal billing/quota
+        // failure. Retrying the latter only delays fallbacks and user actions.
+        if (
+          attempt < MAX_ATTEMPTS &&
+          RETRYABLE_STATUSES.has(response.status) &&
+          !isBillingOrQuotaError(providerError)
+        ) {
           await sleep(250 * 2 ** (attempt - 1));
           continue;
         }
@@ -416,8 +446,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       return body;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      const isKnownProviderError = lastError.message.startsWith("LLM invoke failed:") ||
-        lastError.message.startsWith("LLM provider returned an invalid completion");
+      const isKnownProviderError =
+        lastError.message.startsWith("LLM invoke failed:") ||
+        lastError.message.startsWith(
+          "LLM provider returned an invalid completion"
+        );
       if (attempt < MAX_ATTEMPTS && !isKnownProviderError) {
         await sleep(250 * 2 ** (attempt - 1));
         continue;
