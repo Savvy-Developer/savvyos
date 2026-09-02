@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseActivityLog,
@@ -642,7 +642,7 @@ export const pulseL10Router = router({
     const db = await database();
     await requirePulseCapability(db, ctx.user, "manage_permission_matrix");
     const [people, grants] = await Promise.all([
-      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.isActive, true)).orderBy(asc(users.name)),
+      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.isActive, true), ne(users.role, "agent"))).orderBy(asc(users.name)),
       db.select({ personId: pulsePermissions.personId, capability: pulsePermissions.capability, allowed: pulsePermissions.allowed, grantedById: pulsePermissions.grantedById }).from(pulsePermissions),
     ]);
     return { people, grants, capabilityKeys: PULSE_CAPABILITIES };
@@ -655,8 +655,8 @@ export const pulseL10Router = router({
       const rows = await db.select({ personId: pulsePermissions.personId }).from(pulsePermissions).where(and(eq(pulsePermissions.capability, "manage_permission_matrix"), eq(pulsePermissions.allowed, true)));
       if (rows.length <= 1 && rows[0]?.personId === input.personId) throw new TRPCError({ code: "BAD_REQUEST", message: "Pulse must retain at least one permission-matrix administrator." });
     }
-    const [person] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, input.personId), eq(users.isActive, true))).limit(1);
-    if (!person) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active SavvyOS person." });
+    const [person] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, input.personId), eq(users.isActive, true), ne(users.role, "agent"))).limit(1);
+    if (!person) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active non-agent SavvyOS person." });
     await db.insert(pulsePermissions).values({ id: id(), personId: input.personId, capability: input.capability, allowed: input.allowed, grantedById: ctx.user.id }).onDuplicateKeyUpdate({ set: { allowed: input.allowed, grantedById: ctx.user.id } });
     await writeActivity(db, ctx.user.id, "permission", `${input.personId}:${input.capability}`, input.allowed ? "granted" : "revoked");
     return { success: true };
