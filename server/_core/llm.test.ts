@@ -65,6 +65,28 @@ describe("invokeLLM", () => {
     });
   });
 
+  it("uses OPENAI_API_KEY when the configured provider is api.openai.com", async () => {
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://api.openai.com");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "stale-forge-key");
+    vi.stubEnv("OPENAI_API_KEY", "funded-openai-key");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { invokeLLM } = await importClient();
+
+    await invokeLLM({ messages: [{ role: "user", content: "Reply only: ok" }] });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/chat/completions",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer funded-openai-key" }),
+      })
+    );
+  });
+
   it("rejects a malformed success response instead of returning an unusable completion", async () => {
     vi.stubGlobal(
       "fetch",

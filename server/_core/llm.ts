@@ -235,7 +235,17 @@ const resolveApiUrl = () => {
     : `${base}/v1/chat/completions`;
 };
 
-const getApiKey = () => ENV.forgeApiKey || ENV.openaiApiKey;
+const getApiKey = () => {
+  // Railway hosts this project against the native OpenAI endpoint. In that
+  // configuration, use OPENAI_API_KEY rather than a stale Forge credential.
+  // Keep Forge first for its own proxy endpoint so a future provider change is
+  // paired with the appropriate credential automatically.
+  const configuredBase = ENV.forgeApiUrl || process.env.OPENAI_API_BASE || "";
+  if (/^https:\/\/api\.openai\.com(?:\/|$)/i.test(configuredBase)) {
+    return ENV.openaiApiKey || ENV.forgeApiKey;
+  }
+  return ENV.forgeApiKey || ENV.openaiApiKey;
+};
 
 const assertApiKey = () => {
   if (!getApiKey()) {
