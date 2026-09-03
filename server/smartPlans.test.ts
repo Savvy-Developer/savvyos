@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
 import {
   isDoNotContact,
+  dateAddedFilterBounds,
   oneTimeRecipientScheduledAt,
   shouldBypassInitialSendWindow,
   smsMarketingEligibility,
@@ -132,6 +133,25 @@ describe("One-time send schedules", () => {
     expect(
       oneTimeRecipientScheduledAt(campaignStartAt, 100, 100).toISOString()
     ).toBe("2030-01-01T13:00:00.000Z");
+  });
+});
+
+describe("One-time send date-added filters", () => {
+  it("uses an inclusive start and the day after the end as the exclusive bound", () => {
+    const bounds = dateAddedFilterBounds({
+      dateAddedFrom: "2030-02-01",
+      dateAddedTo: "2030-02-28",
+    });
+
+    expect(bounds.from?.toISOString()).toBe("2030-02-01T00:00:00.000Z");
+    expect(bounds.before?.toISOString()).toBe("2030-03-01T00:00:00.000Z");
+  });
+
+  it("permits a one-sided date-added bound", () => {
+    expect(dateAddedFilterBounds({ dateAddedFrom: "2030-02-01" })).toMatchObject({
+      from: new Date("2030-02-01T00:00:00.000Z"),
+      before: undefined,
+    });
   });
 });
 

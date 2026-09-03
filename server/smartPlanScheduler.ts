@@ -19,7 +19,7 @@ import {
   oneTimeSendRecipients,
   aircallIntegrationState,
 } from "../drizzle/schema";
-import { and, eq, gte, inArray, lte, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, lte, isNotNull, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
 import { sendAircallSMS } from "./_core/aircall";
@@ -444,12 +444,37 @@ export type TriggerConfiguration = {
   triggerType: SmartPlanTriggerType;
   triggerLeadSourceIds?: number[] | null;
   triggerLeadSourceId?: number | null;
+  dateAddedFrom?: string | null;
+  dateAddedTo?: string | null;
 };
 
 function normalizedLeadSourceIds(config: TriggerConfiguration): number[] {
   const ids = [...(config.triggerLeadSourceIds ?? [])];
   if (config.triggerLeadSourceId) ids.push(config.triggerLeadSourceId);
   return Array.from(new Set(ids));
+}
+
+/** Convert a calendar date to the UTC boundary used by contact createdAt. */
+function calendarDateStart(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+/** Gives inclusive/exclusive createdAt bounds for a calendar-date audience filter. */
+export function dateAddedFilterBounds(config: Pick<TriggerConfiguration, "dateAddedFrom" | "dateAddedTo">) {
+  const from = config.dateAddedFrom ? calendarDateStart(config.dateAddedFrom) : undefined;
+  if (!config.dateAddedTo) return { from, before: undefined };
+  const before = calendarDateStart(config.dateAddedTo);
+  before.setUTCDate(before.getUTCDate() + 1);
+  return { from, before };
+}
+
+/** Builds optional createdAt bounds for one-time lead-source audience previews. */
+function dateAddedConditions(config: TriggerConfiguration) {
+  const conditions = [];
+  const { from, before } = dateAddedFilterBounds(config);
+  if (from) conditions.push(gte(contacts.createdAt, from));
+  if (before) conditions.push(lt(contacts.createdAt, before));
+  return conditions;
 }
 
 function contactIdsForTransaction(
@@ -477,14 +502,21 @@ async function matchingCurrentContactIds(config: TriggerConfiguration): Promise<
   const triggerType = config.triggerType ?? "lead_source";
   if (triggerType === "all_lead_sources") {
     // Explicit all-source selection for one-time broadcasts and Smart Plan enrollment.
-    const rows = await db.select({ id: contacts.id }).from(contacts);
+    // Date-added filtering is intentionally limited to source audiences. Other
+    // event-based triggers continue to resolve their full current audience.
+    const conditions = dateAddedConditions(config);
+    const query = db.select({ id: contacts.id }).from(contacts);
+    const rows = conditions.length ? await query.where(and(...conditions)) : await query;
     return rows.map((row) => row.id);
   }
 
   if (triggerType === "lead_source") {
     const sourceIds = normalizedLeadSourceIds(config);
     if (!sourceIds.length) return [];
-    const rows = await db.select({ id: contacts.id }).from(contacts).where(inArray(contacts.leadSourceId, sourceIds));
+    const rows = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(inArray(contacts.leadSourceId, sourceIds), ...dateAddedConditions(config)));
     return rows.map((row) => row.id);
   }
 

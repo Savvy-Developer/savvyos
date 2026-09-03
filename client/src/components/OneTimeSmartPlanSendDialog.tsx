@@ -122,6 +122,23 @@ function hourEstimate(recipientCount: number, perHour: number) {
   return Math.ceil(recipientCount / perHour);
 }
 
+function formatCalendarDate(value: string) {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateAddedRange(from: string | null, to: string | null) {
+  if (from && to) return `${formatCalendarDate(from)} through ${formatCalendarDate(to)}`;
+  if (from) return `${formatCalendarDate(from)} or later`;
+  if (to) return `${formatCalendarDate(to)} or earlier`;
+  return "All dates";
+}
+
 export default function OneTimeSmartPlanSendDialog({
   onClose,
 }: {
@@ -134,6 +151,9 @@ export default function OneTimeSmartPlanSendDialog({
   const [body, setBody] = useState("");
   const [triggerType, setTriggerType] = useState<TriggerType>("lead_source");
   const [triggerLeadSourceIds, setTriggerLeadSourceIds] = useState<number[]>([]);
+  const [dateAddedFilterEnabled, setDateAddedFilterEnabled] = useState(false);
+  const [dateAddedFrom, setDateAddedFrom] = useState("");
+  const [dateAddedTo, setDateAddedTo] = useState("");
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("now");
   const [scheduledAtInput, setScheduledAtInput] = useState("");
   const [staggerEnabled, setStaggerEnabled] = useState(false);
@@ -144,6 +164,24 @@ export default function OneTimeSmartPlanSendDialog({
   const [testSendOpen, setTestSendOpen] = useState(false);
 
   const isLeadSourceTrigger = triggerType === "lead_source";
+  const supportsDateAddedFilter =
+    triggerType === "lead_source" || triggerType === "all_lead_sources";
+  const dateAddedFilterAvailable =
+    triggerType === "all_lead_sources" ||
+    (isLeadSourceTrigger && triggerLeadSourceIds.length > 0);
+  const dateAddedRangeIsValid =
+    !dateAddedFilterEnabled ||
+    (dateAddedFilterAvailable &&
+      (!!dateAddedFrom || !!dateAddedTo) &&
+      (!dateAddedFrom || !dateAddedTo || dateAddedFrom <= dateAddedTo));
+  const activeDateAddedFrom =
+    supportsDateAddedFilter && dateAddedFilterEnabled
+      ? dateAddedFrom || null
+      : null;
+  const activeDateAddedTo =
+    supportsDateAddedFilter && dateAddedFilterEnabled
+      ? dateAddedTo || null
+      : null;
   const selectedTrigger =
     TRIGGERS.find(trigger => trigger.value === triggerType) ?? TRIGGERS[0];
   const leadSources = (sourceRows as any[]).map(row => ({
@@ -171,6 +209,7 @@ export default function OneTimeSmartPlanSendDialog({
     (channel === "sms" || !!subject.trim()) &&
     (!isLeadSourceTrigger || triggerLeadSourceIds.length > 0) &&
     (channel === "email" || body.length <= 160) &&
+    dateAddedRangeIsValid &&
     scheduleIsValid &&
     staggerIsValid;
 
@@ -182,6 +221,8 @@ export default function OneTimeSmartPlanSendDialog({
       body: body || " ",
       triggerType,
       triggerLeadSourceIds: isLeadSourceTrigger ? triggerLeadSourceIds : null,
+      dateAddedFrom: activeDateAddedFrom,
+      dateAddedTo: activeDateAddedTo,
       scheduledAt,
       staggerEnabled,
       staggerPerHour: staggerEnabled ? staggerRate : null,
@@ -189,6 +230,8 @@ export default function OneTimeSmartPlanSendDialog({
     [
       body,
       channel,
+      activeDateAddedFrom,
+      activeDateAddedTo,
       isLeadSourceTrigger,
       name,
       scheduledAt,
@@ -238,6 +281,11 @@ export default function OneTimeSmartPlanSendDialog({
         return toast.error("Text messages are limited to 160 characters");
       if (isLeadSourceTrigger && !triggerLeadSourceIds.length)
         return toast.error("Choose at least one lead source");
+      if (!dateAddedRangeIsValid) {
+        if (!dateAddedFrom && !dateAddedTo)
+          return toast.error("Choose a date added range or turn off the filter");
+        return toast.error("The date added start must be on or before the end date");
+      }
       if (!scheduleIsValid)
         return toast.error("Choose a valid scheduled date and time");
       if (staggerEnabled && !staggerIsValid)
@@ -368,6 +416,59 @@ export default function OneTimeSmartPlanSendDialog({
                       </Badge>
                     ))}
                   </div>
+                </div>
+              )}
+              {dateAddedFilterAvailable && (
+                <div className="space-y-3 border-t pt-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <Label htmlFor="one-time-send-date-added-filter">Filter by date added</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Limit this audience to contacts added to SavvyOS during a selected date range.
+                      </p>
+                    </div>
+                    <Switch
+                      id="one-time-send-date-added-filter"
+                      checked={dateAddedFilterEnabled}
+                      onCheckedChange={checked => {
+                        setDateAddedFilterEnabled(checked);
+                        resetReview();
+                      }}
+                    />
+                  </div>
+                  {dateAddedFilterEnabled && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="one-time-send-date-added-from">Date added from</Label>
+                        <Input
+                          id="one-time-send-date-added-from"
+                          type="date"
+                          value={dateAddedFrom}
+                          max={dateAddedTo || undefined}
+                          onChange={event => {
+                            setDateAddedFrom(event.target.value);
+                            resetReview();
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="one-time-send-date-added-to">Date added through</Label>
+                        <Input
+                          id="one-time-send-date-added-to"
+                          type="date"
+                          value={dateAddedTo}
+                          min={dateAddedFrom || undefined}
+                          onChange={event => {
+                            setDateAddedTo(event.target.value);
+                            resetReview();
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground sm:col-span-2">
+                        Choose a start date, an end date, or both. These dates only filter Lead Source and All Lead Sources audiences.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
@@ -546,6 +647,11 @@ export default function OneTimeSmartPlanSendDialog({
               <p className="mt-1 text-xs text-muted-foreground">
                 {channel === "email" ? `Email: ${subject}` : "Text message"} · {selectedTrigger.label}
               </p>
+              {activeDateAddedFrom || activeDateAddedTo ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Date added to SavvyOS: {formatDateAddedRange(activeDateAddedFrom, activeDateAddedTo)}
+                </p>
+              ) : null}
               <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock3 className="h-3.5 w-3.5" />
                 {scheduledAt ? `Scheduled for ${formatScheduledAt(scheduledAt)}` : "Sending immediately"}

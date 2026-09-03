@@ -38,6 +38,14 @@ import { compareSmartPlanStepsByTiming } from "../smartPlanStepOrder";
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
 
+const calendarDateInput = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a calendar date in YYYY-MM-DD format.")
+  .refine(value => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "Enter a valid calendar date.");
+
 const planInput = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
@@ -61,6 +69,8 @@ const oneTimeSendInput = z.object({
   body: z.string().trim().min(1).max(100_000),
   triggerType: smartPlanTriggerSchema,
   triggerLeadSourceIds: z.array(z.number()).optional().nullable(),
+  dateAddedFrom: calendarDateInput.optional().nullable(),
+  dateAddedTo: calendarDateInput.optional().nullable(),
   scheduledAt: z.coerce.date().optional(),
   staggerEnabled: z.boolean().optional().default(false),
   staggerPerHour: z.number().int().min(1).max(360).optional().nullable(),
@@ -70,6 +80,22 @@ const oneTimeSendInput = z.object({
       code: z.ZodIssueCode.custom,
       message: "Enter the number of messages to send per hour.",
       path: ["staggerPerHour"],
+    });
+  }
+  const supportsDateAddedFilter =
+    input.triggerType === "lead_source" || input.triggerType === "all_lead_sources";
+  if (!supportsDateAddedFilter && (input.dateAddedFrom || input.dateAddedTo)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Date added filters are available only for Lead Source and All Lead Sources audiences.",
+      path: ["dateAddedFrom"],
+    });
+  }
+  if (input.dateAddedFrom && input.dateAddedTo && input.dateAddedFrom > input.dateAddedTo) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "The date added start must be on or before the end date.",
+      path: ["dateAddedFrom"],
     });
   }
 });
@@ -510,6 +536,8 @@ export const smartPlansRouter = router({
           body: input.body,
           triggerType: input.triggerType,
           triggerLeadSourceIds: input.triggerType === "lead_source" ? input.triggerLeadSourceIds ?? null : null,
+          dateAddedFrom: input.dateAddedFrom ?? null,
+          dateAddedTo: input.dateAddedTo ?? null,
           status: "queued",
           totalRecipients: audience.recipientTargets.length,
           createdById: ctx.user.id,
@@ -542,6 +570,8 @@ export const smartPlansRouter = router({
           details: {
             channel: input.channel,
             triggerType: input.triggerType,
+            dateAddedFrom: input.dateAddedFrom ?? null,
+            dateAddedTo: input.dateAddedTo ?? null,
             matchingContacts: contactIds.length,
             eligibleContacts: audience.eligibleContactCount,
             totalRecipients: audience.recipientTargets.length,

@@ -79,6 +79,23 @@ function formatTime(
   }).format(date);
 }
 
+function formatCalendarDate(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateAddedRange(from: string | null, to: string | null): string {
+  if (from && to) return `${formatCalendarDate(from)} through ${formatCalendarDate(to)}`;
+  if (from) return `${formatCalendarDate(from)} or later`;
+  if (to) return `${formatCalendarDate(to)} or earlier`;
+  return "All dates";
+}
+
 function percent(numerator: number, denominator: number): string {
   if (!denominator) return "0.0%";
   return `${((numerator / denominator) * 100).toFixed(1)}%`;
@@ -304,6 +321,11 @@ function RecipientHistoryDialog({
               </span>
               <StatusBadge value={send.status} />
             </div>
+            {(send.dateAddedFrom || send.dateAddedTo) && (
+              <p className="text-xs text-muted-foreground">
+                Date added to SavvyOS: {formatDateAddedRange(send.dateAddedFrom, send.dateAddedTo)}
+              </p>
+            )}
 
             <div className="flex flex-wrap gap-2">
               <Metric

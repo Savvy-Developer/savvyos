@@ -1481,6 +1481,10 @@ export const oneTimeSends = mysqlTable(
       "seller_closed",
     ]).notNull(),
     triggerLeadSourceIds: json("triggerLeadSourceIds").$type<number[]>(),
+    // Calendar-date constraints used only when a one-time send targets a lead
+    // source or all lead sources. They preserve the original audience intent.
+    dateAddedFrom: date("dateAddedFrom", { mode: "string" }),
+    dateAddedTo: date("dateAddedTo", { mode: "string" }),
     status: mysqlEnum("status", [
       "queued",
       "processing",
