@@ -57,9 +57,9 @@ export function SpeedToLeadStats({
           <div>
             <h2 className="text-sm font-semibold">Speed to lead</h2>
             <p className="text-xs text-muted-foreground">
-              Average time to the first SavvyOS{" "}
-              {isText ? "text reply" : "email reply"} after an inbound {channel}
-              .
+              Average first-response time across all inbound {channel} messages.
+              Open messages accrue until they are replied to, finished, or
+              archived.
             </p>
           </div>
         </div>
@@ -68,7 +68,7 @@ export function SpeedToLeadStats({
             ? "Loading response data…"
             : errorMessage
               ? "Response data unavailable"
-              : "Responded conversations only"}
+              : "All inbound messages"}
         </p>
       </div>
       <div className="grid grid-cols-2 divide-x divide-y sm:grid-cols-3 lg:grid-cols-6 lg:divide-y-0">

@@ -601,6 +601,18 @@ export async function archiveResendInboxThread(
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   const now = new Date();
+  if (archived) {
+    await db
+      .update(resendInboxMessages)
+      .set({ speedToLeadStoppedAt: now })
+      .where(
+        and(
+          eq(resendInboxMessages.threadId, threadId),
+          eq(resendInboxMessages.direction, "inbound"),
+          isNull(resendInboxMessages.speedToLeadStoppedAt)
+        )
+      );
+  }
   await db
     .update(resendInboxThreads)
     .set({
@@ -608,7 +620,7 @@ export async function archiveResendInboxThread(
       archivedById: archived ? userId : null,
       // Archiving an unanswered conversation is an explicit resolution choice:
       // it often represents spam, irrelevant mail, or a conversation that does
-      // not require a Savvy response. Keep it out of Speed to Lead immediately.
+      // not require a Savvy response. Its current elapsed time is frozen above.
       resolvedAt: archived ? now : null,
       resolvedById: archived ? userId : null,
       speedToLeadExcludedAt: archived ? now : null,
@@ -619,8 +631,8 @@ export async function archiveResendInboxThread(
 
 /**
  * Marks the current thread resolved and optionally archives it. Resolution is
- * durable, shared by the inbox, and excludes its received messages from Speed
- * to Lead without deleting any mail or CRM context.
+ * durable and shared by the inbox. Each currently open inbound message freezes
+ * its Speed to Lead time without deleting mail or CRM context.
  */
 export async function finishResendInboxThread(
   threadId: number,
@@ -630,6 +642,16 @@ export async function finishResendInboxThread(
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   const now = new Date();
+  await db
+    .update(resendInboxMessages)
+    .set({ speedToLeadStoppedAt: now })
+    .where(
+      and(
+        eq(resendInboxMessages.threadId, threadId),
+        eq(resendInboxMessages.direction, "inbound"),
+        isNull(resendInboxMessages.speedToLeadStoppedAt)
+      )
+    );
   await db
     .update(resendInboxThreads)
     .set({

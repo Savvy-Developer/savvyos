@@ -1,10 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { aliasedTable, and, eq, gte, isNull, sql } from "drizzle-orm";
+import { aliasedTable, and, eq, gte, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
 import { getDb } from "../db";
-import { resendInboxMessages, resendInboxThreads } from "../../drizzle/schema";
+import { resendInboxMessages } from "../../drizzle/schema";
 import {
   archiveResendInboxThread,
   backfillResendInbox,
@@ -79,26 +79,39 @@ async function getEmailSpeedToLead() {
       AND ${outbound.direction} = 'outbound'
       AND ${outbound.receivedAt} > ${inbound.receivedAt}
   )`;
+  // Count every real inbound email. Open messages accrue until a reply, finish,
+  // or archive event; closing a thread retains the response time already earned.
+  const stoppedAt = sql<Date>`COALESCE(${inbound.speedToLeadStoppedAt}, NOW())`;
+  const elapsedUntil = sql<Date>`CASE
+    WHEN ${responseAt} IS NOT NULL AND ${responseAt} < ${stoppedAt} THEN ${responseAt}
+    ELSE ${stoppedAt}
+  END`;
+  // DMARC aggregate reports are the single automated email category that is
+  // intentionally excluded. This also covers legacy rows stored before the
+  // inbox began filtering those reports at ingest time.
+  const isDmarcAggregateReport = sql<boolean>`(
+    LOWER(${inbound.subject}) REGEXP '^report[[:space:]]+domain:[[:space:]]*[^[:space:]]+.*report-id[[:space:]]*:'
+    OR (
+      LOWER(${inbound.fromEmail}) REGEXP '(^|[.@_-])dmarc([.@_-]|$)'
+      AND LOWER(${inbound.subject}) REGEXP 'dmarc[[:space:]]+(aggregate|rua)[[:space:]]+report'
+    )
+  )`;
   return Promise.all(
     SPEED_TO_LEAD_WINDOWS.map(async window => {
       const start = startForWindow(window);
       const [metrics] = await db
         .select({
           incomingCount: sql<number>`COUNT(*)`,
-          respondedCount: sql<number>`SUM(CASE WHEN ${responseAt} IS NOT NULL THEN 1 ELSE 0 END)`,
+          respondedCount: sql<number>`SUM(CASE WHEN ${responseAt} IS NOT NULL AND ${responseAt} <= ${stoppedAt} THEN 1 ELSE 0 END)`,
           averageMinutes: sql<
             number | null
-          >`AVG(CASE WHEN ${responseAt} IS NOT NULL THEN TIMESTAMPDIFF(SECOND, ${inbound.receivedAt}, ${responseAt}) / 60.0 ELSE NULL END)`,
+          >`AVG(TIMESTAMPDIFF(SECOND, ${inbound.receivedAt}, ${elapsedUntil}) / 60.0)`,
         })
         .from(inbound)
-        .innerJoin(
-          resendInboxThreads,
-          eq(resendInboxThreads.id, inbound.threadId)
-        )
         .where(
           and(
             eq(inbound.direction, "inbound"),
-            isNull(resendInboxThreads.speedToLeadExcludedAt),
+            sql`NOT ${isDmarcAggregateReport}`,
             ...(start ? [gte(inbound.receivedAt, start)] : [])
           )
         );

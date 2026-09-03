@@ -151,6 +151,7 @@ export default function ResendInboxPage() {
       utils.resendInbox.list.invalidate(),
       utils.resendInbox.getThread.invalidate(),
       utils.resendInbox.unreadCount.invalidate(),
+      utils.resendInbox.speedToLead.invalidate(),
     ]);
   };
 
@@ -702,8 +703,8 @@ export default function ResendInboxPage() {
           <DialogHeader>
             <DialogTitle>Finish this conversation?</DialogTitle>
             <DialogDescription>
-              This marks the current inbound email resolved and removes it from
-              Speed to Lead calculations. It does not delete the conversation.
+              This marks the current inbound email resolved and freezes any open
+              Speed to Lead time. It does not delete the conversation.
             </DialogDescription>
           </DialogHeader>
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm">

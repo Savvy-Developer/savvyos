@@ -4,23 +4,33 @@
  * The complete Savvy campaign shell lives in savvyEmailTemplate so direct
  * outreach and Smart Plan campaigns share one editable branded default.
  */
-import { renderSavvyEmail } from "./savvyEmailTemplate";
+import {
+  renderSavvyEmail,
+  withEmailUnsubscribeUrl,
+} from "./savvyEmailTemplate";
+import { createMarketingUnsubscribeUrl } from "../marketingEmailUnsubscribe";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 const FROM_ADDRESS = "Savvy STR Agents <hello@savvy-agents.com>";
 
-const GLOBAL_FOOTER_TEXT = `
+function plainTextFooter(unsubscribeUrl: string): string {
+  return `
 
 ---
 You are receiving this email because you are a contact of Savvy STR Agents.
-To unsubscribe, visit: {{{RESEND_UNSUBSCRIBE_URL}}}
+To unsubscribe, visit: ${unsubscribeUrl}
 Savvy STR Agents | hello@savvy-agents.com`;
+}
 
 /**
  * Backward-compatible Smart Plan renderer. The template can be replaced in the
  * shared module without changing Smart Plan scheduling or sending logic.
  */
-export function renderSavvyCampaignEmail(subject: string, body: string, isHtml = false): string {
+export function renderSavvyCampaignEmail(
+  subject: string,
+  body: string,
+  isHtml = false
+): string {
   return renderSavvyEmail(subject, body, isHtml);
 }
 
@@ -38,16 +48,29 @@ export async function sendSmartPlanEmail(params: {
     console.warn("[SmartPlanEmail] RESEND_API_KEY not configured.");
     return { success: false, error: "Resend not configured" };
   }
-  if (!params.to) return { success: false, error: "No recipient email address" };
+  if (!params.to)
+    return { success: false, error: "No recipient email address" };
 
-  const htmlContent = renderSavvyCampaignEmail(params.subject, params.body, params.isHtml);
-  const textContent = params.body.replace(/<[^>]+>/g, " ") + GLOBAL_FOOTER_TEXT;
+  const unsubscribeUrl = createMarketingUnsubscribeUrl(params.to);
+  if (!unsubscribeUrl) {
+    console.error(
+      "[SmartPlanEmail] Unable to create campaign unsubscribe URL."
+    );
+    return { success: false, error: "Campaign unsubscribe link unavailable" };
+  }
+
+  const htmlContent = withEmailUnsubscribeUrl(
+    renderSavvyCampaignEmail(params.subject, params.body, params.isHtml),
+    unsubscribeUrl
+  );
+  const textContent =
+    params.body.replace(/<[^>]+>/g, " ") + plainTextFooter(unsubscribeUrl);
 
   try {
     const response = await fetch(RESEND_API_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       signal: AbortSignal.timeout(20_000),
@@ -59,17 +82,20 @@ export async function sendSmartPlanEmail(params: {
         html: htmlContent,
         text: textContent,
         headers: {
-          "List-Unsubscribe": "<{{{RESEND_UNSUBSCRIBE_URL}}}>",
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         },
       }),
     });
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[SmartPlanEmail] Send failed (${response.status}):`, errorText);
+      console.error(
+        `[SmartPlanEmail] Send failed (${response.status}):`,
+        errorText
+      );
       return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
-    const data = await response.json() as { id?: string };
+    const data = (await response.json()) as { id?: string };
     return { success: true, messageId: data.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

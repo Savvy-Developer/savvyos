@@ -4664,9 +4664,9 @@ export const resendInboxThreads = mysqlTable(
     archivedById: int("archivedById").references(() => users.id, {
       onDelete: "set null",
     }),
-    // Finishing a conversation resolves it for response handling. Archiving an
-    // unanswered thread also sets these fields so spam and irrelevant emails do
-    // not distort the Speed to Lead metrics.
+    // Finishing a conversation resolves it for response handling. Individual
+    // inbound messages retain their own Speed to Lead stop timestamp so later
+    // replies cannot restart already-finished historical response time.
     resolvedAt: timestamp("resolvedAt"),
     resolvedById: int("resolvedById").references(() => users.id, {
       onDelete: "set null",
@@ -4723,6 +4723,7 @@ export const resendInboxMessages = mysqlTable(
       onDelete: "set null",
     }),
     receivedAt: timestamp("receivedAt").notNull(),
+    speedToLeadStoppedAt: timestamp("speedToLeadStoppedAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [
@@ -5040,6 +5041,9 @@ export const aircallMessages = mysqlTable(
     receivedAt: timestamp("receivedAt"),
     // Global admin-inbox read state for inbound messages on the marketing line.
     readAt: timestamp("readAt"),
+    // The exact archive/finish time for an inbound reply, if it ended before a
+    // SavvyOS response. Historical time remains in Speed to Lead after closure.
+    speedToLeadStoppedAt: timestamp("speedToLeadStoppedAt"),
     rawPayload: json("rawPayload"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

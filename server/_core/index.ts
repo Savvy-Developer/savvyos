@@ -47,6 +47,7 @@ import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
+import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -165,6 +166,10 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Campaign emails are sent through the Resend Emails API, so SavvyOS owns the
+  // browser and RFC 8058 one-click unsubscribe flow for Smart Plan outreach.
+  registerMarketingEmailUnsubscribeRoutes(app);
 
   // Lightweight process liveness endpoint for Railway deployment health checks.
   // It must remain independent of the database and frontend fallback so a 200

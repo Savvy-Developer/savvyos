@@ -303,6 +303,7 @@ export default function MarketingTextInboxPage() {
       setSelectedContactId(null);
       void threadsQuery.refetch();
       void utils.marketingTextInbox.unreadCount.invalidate();
+      void speedToLead.refetch();
     },
     onError: error => toast.error(error.message),
   });
@@ -402,7 +403,12 @@ export default function MarketingTextInboxPage() {
   useEffect(() => {
     const element = conversationScrollRef.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [selectedContactId, messages.length, threadQuery.dataUpdatedAt]);
+  }, [
+    selectedContactId,
+    messages.length,
+    threadQuery.dataUpdatedAt,
+    followUpsQuery.dataUpdatedAt,
+  ]);
 
   useEffect(() => {
     if (!connectOpen || !selectedContactId || !selectedAgentId) return;
@@ -581,8 +587,9 @@ export default function MarketingTextInboxPage() {
               <div className="flex gap-3 rounded-md border border-amber-200 bg-white/60 p-3 text-sm text-amber-950">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>
-                  A SavvyOS administrator needs to select the dedicated marketing
-                  number before the shared inbox can receive and send texts.
+                  A SavvyOS administrator needs to select the dedicated
+                  marketing number before the shared inbox can receive and send
+                  texts.
                 </p>
               </div>
             )}
@@ -806,6 +813,72 @@ export default function MarketingTextInboxPage() {
                   ref={conversationScrollRef}
                   className="flex-1 space-y-3 overflow-y-auto bg-muted/15 p-4"
                 >
+                  {threadQuery.isLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      Loading conversation…
+                    </p>
+                  ) : messages.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No text messages recorded for this contact on the
+                      marketing line.
+                    </p>
+                  ) : (
+                    messages.map(message => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === "outbound" ? "bg-primary text-primary-foreground" : "border bg-background"}`}
+                        >
+                          {message.smartPlanName && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <Sparkles className="mr-1 h-3 w-3" /> Smart Plan ·{" "}
+                              {message.smartPlanName} · Step{" "}
+                              {message.smartPlanStepOrder}
+                            </Badge>
+                          )}
+                          {message.isGroupMessage && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <UserRoundPlus className="mr-1 h-3 w-3" />
+                              {message.direction === "outbound"
+                                ? `Connected with ${message.groupAgentName ?? "an agent"} in a group`
+                                : `Group conversation${message.groupAgentName ? ` with ${message.groupAgentName}` : ""}`}
+                            </Badge>
+                          )}
+                          {message.autoFollowUpId && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <Timer className="mr-1 h-3 w-3" /> Auto follow-up
+                              sent
+                            </Badge>
+                          )}
+                          <p className="whitespace-pre-wrap">{message.body}</p>
+                          <p
+                            className={`mt-1 text-[10px] ${message.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}
+                          >
+                            {message.direction === "outbound"
+                              ? `Sent by ${message.sentByName ?? "Savvy STR Agents"}`
+                              : "Received"}{" "}
+                            ·{" "}
+                            {formatTime(
+                              message.sentAt ??
+                                message.receivedAt ??
+                                message.createdAt
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
                   {((followUpsQuery.data ?? []) as IntroductionFollowUp[])
                     .filter(followUp => followUp.status !== "sent")
                     .map(followUp => {
@@ -933,72 +1006,6 @@ export default function MarketingTextInboxPage() {
                         </section>
                       );
                     })}
-                  {threadQuery.isLoading ? (
-                    <p className="text-sm text-muted-foreground">
-                      Loading conversation…
-                    </p>
-                  ) : messages.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No text messages recorded for this contact on the
-                      marketing line.
-                    </p>
-                  ) : (
-                    messages.map(message => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.direction === "outbound" ? "justify-end" : "justify-start"}`}
-                      >
-                        <div
-                          className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.direction === "outbound" ? "bg-primary text-primary-foreground" : "border bg-background"}`}
-                        >
-                          {message.smartPlanName && (
-                            <Badge
-                              variant="secondary"
-                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
-                            >
-                              <Sparkles className="mr-1 h-3 w-3" /> Smart Plan ·{" "}
-                              {message.smartPlanName} · Step{" "}
-                              {message.smartPlanStepOrder}
-                            </Badge>
-                          )}
-                          {message.isGroupMessage && (
-                            <Badge
-                              variant="secondary"
-                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
-                            >
-                              <UserRoundPlus className="mr-1 h-3 w-3" />
-                              {message.direction === "outbound"
-                                ? `Connected with ${message.groupAgentName ?? "an agent"} in a group`
-                                : `Group conversation${message.groupAgentName ? ` with ${message.groupAgentName}` : ""}`}
-                            </Badge>
-                          )}
-                          {message.autoFollowUpId && (
-                            <Badge
-                              variant="secondary"
-                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
-                            >
-                              <Timer className="mr-1 h-3 w-3" /> Auto follow-up
-                              sent
-                            </Badge>
-                          )}
-                          <p className="whitespace-pre-wrap">{message.body}</p>
-                          <p
-                            className={`mt-1 text-[10px] ${message.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}
-                          >
-                            {message.direction === "outbound"
-                              ? `Sent by ${message.sentByName ?? "Savvy STR Agents"}`
-                              : "Received"}{" "}
-                            ·{" "}
-                            {formatTime(
-                              message.sentAt ??
-                                message.receivedAt ??
-                                message.createdAt
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
                 </div>
                 <div className="border-t p-4">
                   {showArchived ? (
@@ -1063,8 +1070,8 @@ export default function MarketingTextInboxPage() {
           <DialogHeader>
             <DialogTitle>Finish this conversation?</DialogTitle>
             <DialogDescription>
-              This marks the current client reply resolved and removes it from
-              Speed to Lead calculations. It does not delete the text history.
+              This marks the current client reply resolved and freezes any open
+              Speed to Lead time. It does not delete the text history.
             </DialogDescription>
           </DialogHeader>
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm">

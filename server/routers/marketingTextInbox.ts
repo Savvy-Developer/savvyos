@@ -251,6 +251,15 @@ async function getMarketingTextSpeedToLead(
       AND ${outbound.direction} = 'outbound'
       AND COALESCE(${outbound.sentAt}, ${outbound.createdAt}) > ${inboundAt}
   )`;
+  // Every inbound message remains in the denominator. Its elapsed time ends at
+  // the first reply, an explicit archive/finish timestamp, or now when it is
+  // still awaiting attention. This preserves the time it spent unarchived
+  // rather than retroactively dropping the entire conversation from the metric.
+  const stoppedAt = sql<Date>`COALESCE(${inbound.speedToLeadStoppedAt}, NOW())`;
+  const elapsedUntil = sql<Date>`CASE
+    WHEN ${responseAt} IS NOT NULL AND ${responseAt} < ${stoppedAt} THEN ${responseAt}
+    ELSE ${stoppedAt}
+  END`;
 
   return Promise.all(
     SPEED_TO_LEAD_WINDOWS.map(async window => {
@@ -258,22 +267,17 @@ async function getMarketingTextSpeedToLead(
       const [metrics] = await db
         .select({
           incomingCount: sql<number>`COUNT(*)`,
-          respondedCount: sql<number>`SUM(CASE WHEN ${responseAt} IS NOT NULL THEN 1 ELSE 0 END)`,
+          respondedCount: sql<number>`SUM(CASE WHEN ${responseAt} IS NOT NULL AND ${responseAt} <= ${stoppedAt} THEN 1 ELSE 0 END)`,
           averageMinutes: sql<
             number | null
-          >`AVG(CASE WHEN ${responseAt} IS NOT NULL THEN TIMESTAMPDIFF(SECOND, ${inboundAt}, ${responseAt}) / 60.0 ELSE NULL END)`,
+          >`AVG(TIMESTAMPDIFF(SECOND, ${inboundAt}, ${elapsedUntil}) / 60.0)`,
         })
         .from(inbound)
-        .leftJoin(
-          marketingTextInboxThreads,
-          eq(marketingTextInboxThreads.contactId, inbound.contactId)
-        )
         .where(
           and(
             eq(inbound.aircallNumberId, marketingNumberId),
             eq(inbound.direction, "inbound"),
             isNotNull(inbound.contactId),
-            sql`(${marketingTextInboxThreads.speedToLeadExcludedAt} IS NULL OR ${inboundAt} > ${marketingTextInboxThreads.resolvedAt})`,
             ...(start ? [gte(inboundAt, start)] : [])
           )
         );
@@ -516,7 +520,10 @@ export const marketingTextInboxRouter = router({
   listAvailableNumbers: protectedProcedure.query(async ({ ctx }) => {
     await requireMarketingTextInboxAccess(ctx.user);
     if (ctx.user.role !== "admin") {
-      throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can change the marketing text line." });
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Only administrators can change the marketing text line.",
+      });
     }
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -542,7 +549,10 @@ export const marketingTextInboxRouter = router({
     .mutation(async ({ ctx, input }) => {
       await requireMarketingTextInboxAccess(ctx.user);
       if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can change the marketing text line." });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only administrators can change the marketing text line.",
+        });
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -1533,6 +1543,19 @@ export const marketingTextInboxRouter = router({
         });
 
       const now = new Date();
+      if (input.archived) {
+        await db
+          .update(aircallMessages)
+          .set({ speedToLeadStoppedAt: now })
+          .where(
+            and(
+              eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+              eq(aircallMessages.contactId, input.contactId),
+              eq(aircallMessages.direction, "inbound"),
+              isNull(aircallMessages.speedToLeadStoppedAt)
+            )
+          );
+      }
       await db
         .insert(marketingTextInboxThreads)
         .values({
@@ -1565,7 +1588,7 @@ export const marketingTextInboxRouter = router({
       return { success: true };
     }),
 
-  /** Finishes a text thread and immediately removes its historical reply from Speed to Lead. */
+  /** Finishes a text thread and freezes any open reply time without removing history from Speed to Lead. */
   finishThread: protectedProcedure
     .input(
       z.object({
@@ -1600,6 +1623,17 @@ export const marketingTextInboxRouter = router({
           message: "Marketing text conversation not found.",
         });
       const now = new Date();
+      await db
+        .update(aircallMessages)
+        .set({ speedToLeadStoppedAt: now })
+        .where(
+          and(
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.contactId, input.contactId),
+            eq(aircallMessages.direction, "inbound"),
+            isNull(aircallMessages.speedToLeadStoppedAt)
+          )
+        );
       await db
         .insert(marketingTextInboxThreads)
         .values({

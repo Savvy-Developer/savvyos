@@ -30,7 +30,7 @@ const SAVVY_EMAIL_TEMPLATE_HTML = `
             <tr>
               <td style="padding:22px 32px 26px; background-color:#ffffff; border-top:1px solid #e5e7eb; font-size:12px; line-height:1.65; color:#64748b;">
                 <p style="margin:0 0 8px;">You are receiving this email because you are a contact of Savvy STR Agents.</p>
-                <p style="margin:0 0 8px;"><a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color:#475569; text-decoration:underline;">Unsubscribe</a><span style="padding:0 6px;">|</span>Savvy STR Agents<span style="padding:0 6px;">|</span><a href="mailto:hello@savvy-agents.com" style="color:#475569; text-decoration:underline;">hello@savvy-agents.com</a></p>
+                <p style="margin:0 0 8px;"><a href="{{UNSUBSCRIBE_URL}}" style="color:#475569; text-decoration:underline;">Unsubscribe</a><span style="padding:0 6px;">|</span>Savvy STR Agents<span style="padding:0 6px;">|</span><a href="mailto:hello@savvy-agents.com" style="color:#475569; text-decoration:underline;">hello@savvy-agents.com</a></p>
                 <p style="margin:0;">&copy; ${new Date().getFullYear()} Savvy STR Agents. All rights reserved.</p>
               </td>
             </tr>
@@ -75,6 +75,11 @@ export function renderSavvyEmail(subject: string, body: string, isHtml = false):
   return SAVVY_EMAIL_TEMPLATE_HTML
     .replace("{{SUBJECT}}", escapeEmailHtml(subject))
     .replace("{{BODY}}", `<div style="font-size:16px; line-height:1.65; color:#334155;">${bodyHtml}</div>`);
+}
+
+/** Replaces the campaign unsubscribe placeholder with its recipient-specific URL. */
+export function withEmailUnsubscribeUrl(html: string, unsubscribeUrl: string): string {
+  return html.replaceAll("{{UNSUBSCRIBE_URL}}", escapeEmailHtml(unsubscribeUrl));
 }
 
 /**
