@@ -205,9 +205,7 @@ function buildAgentNav(
 /** The Pulse shell is intentionally capped at five destinations. */
 function buildPulseNav(shell?: PulseNavShell): NavGroup[] {
   const icons: Record<string, React.ElementType> = {
-    Home,
     "My EOS Dashboard": CheckSquare,
-    "Weekly Preparation": StickyNote,
     Meetings: Users,
     Settings,
   };

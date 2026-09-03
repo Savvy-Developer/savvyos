@@ -440,9 +440,9 @@ function Router() {
           <Route path="/pulse/settings/permissioning">{() => <PulseRoute><PulsePermissioningPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings/effectiveness">{() => <PulseRoute><PulseMeetingEffectivenessPage /></PulseRoute>}</Route>
           <Route path="/pulse/dashboard">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
-          <Route path="/pulse/weekly-prep">{() => <PulseRoute><PulseMyInputsPage /></PulseRoute>}</Route>
+          <Route path="/pulse/weekly-prep">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/pulse/work">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
-          <Route path="/pulse/inputs">{() => <PulseRoute><PulseMyInputsPage /></PulseRoute>}</Route>
+          <Route path="/pulse/inputs">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/pulse/settings">{() => <PulseRoute><PulseSettingsHubPage /></PulseRoute>}</Route>
           <Route path="/pulse">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />

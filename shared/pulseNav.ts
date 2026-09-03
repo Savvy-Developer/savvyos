@@ -6,23 +6,20 @@ export type PulseNavShell = {
 };
 
 export type PulseNavDestination = {
-  label: "Home" | "My EOS Dashboard" | "Weekly Preparation" | "Meetings" | "Settings" | string;
+  label: "My EOS Dashboard" | "Meetings" | "Settings" | string;
   path: string;
 };
 
 /**
- * The single source of truth for the intentionally small Pulse navigation.
- * It returns plain data so both the React shell and server-side model checks
- * prove the exact same destinations.
+ * Pulse navigation intentionally stays small. Weekly preparation lives within
+ * My EOS Dashboard rather than competing as a second destination.
  */
 export function getPulseNavDestinations(shell?: PulseNavShell): PulseNavDestination[] {
-  const meetings = shell?.meetings ?? [];
   const canSeeSettings = shell?.canSeeSettings === true;
   const items: PulseNavDestination[] = [
     { label: "My EOS Dashboard", path: "/pulse/dashboard" },
-    { label: "Weekly Preparation", path: "/pulse/weekly-prep" },
+    { label: "Meetings", path: "/pulse/meetings" },
   ];
-  items.push({ label: "Meetings", path: "/pulse/meetings" });
   if (canSeeSettings) items.push({ label: "Settings", path: "/pulse/settings" });
-  return items.slice(0, 5);
+  return items;
 }

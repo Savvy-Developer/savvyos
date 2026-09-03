@@ -368,11 +368,11 @@ export const pulsePersonalRouter = router({
     return { success: true };
   }),
 
-  dashboard: pulseProcedure.input(z.object({ workspaceId: z.union([z.literal("all"), z.literal("personal"), z.string().uuid()]).optional() }).optional()).query(async ({ ctx, input }) => {
+  dashboard: pulseProcedure.input(z.object({ workspaceId: z.union([z.literal("all"), z.string().uuid()]).optional() }).optional()).query(async ({ ctx, input }) => {
     const db = await dbOrThrow();
     const ids = await myMeetingIds(db, ctx.user.id);
     const workspaceId = input?.workspaceId ?? "all";
-    if (workspaceId !== "all" && workspaceId !== "personal" && !ids.includes(workspaceId)) {
+    if (workspaceId !== "all" && !ids.includes(workspaceId)) {
       throw new TRPCError({ code: "NOT_FOUND", message: "That workspace is not available." });
     }
 
@@ -387,16 +387,16 @@ export const pulsePersonalRouter = router({
       hasPulseCapability(db, ctx.user, "run_l10s"),
     ]);
 
-    const ownedItems = allItems.filter((item: any) => item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id)
-      .map((item: any) => ({ ...item, source: item.meetingName ?? "Personal work", sourceHref: item.meetingId ? `/pulse/meetings/${item.meetingId}` : `/pulse/work?item=${item.id}` }));
-    const inWorkspace = (item: any) => workspaceId === "all" || (workspaceId === "personal" ? !item.meetingId : item.meetingId === workspaceId);
+    const ownedItems = allItems.filter((item: any) => (item.assigneeId === ctx.user.id || item.ownerPersonId === ctx.user.id) && Boolean(item.meetingId))
+      .map((item: any) => ({ ...item, source: item.meetingName ?? "L10", sourceHref: `/pulse/meetings/${item.meetingId}` }));
+    const inWorkspace = (item: any) => workspaceId === "all" || item.meetingId === workspaceId;
     const items = ownedItems.filter(inWorkspace);
     const today = todayEastern();
     const dueSoonDate = dateOnly(addDays(new Date(), 7));
     const todos = items.filter((item: any) => item.type === "todo").sort((left: any, right: any) => Number(right.isOverdue) - Number(left.isOverdue) || String(left.dueDate ?? "9999-12-31").localeCompare(String(right.dueDate ?? "9999-12-31")) || left.source.localeCompare(right.source));
     const issues = items.filter((item: any) => item.type === "issue" && !["solved", "dropped"].includes(item.status)).sort((left: any, right: any) => String(left.updatedAt).localeCompare(String(right.updatedAt)));
     const rocks = items.filter((item: any) => item.type === "rock" && !["done", "dropped"].includes(item.status)).sort((left: any, right: any) => (["off_track", "at_risk"].includes(left.status) ? -1 : 0) - (["off_track", "at_risk"].includes(right.status) ? -1 : 0) || String(left.updatedAt).localeCompare(String(right.updatedAt)));
-    const workspaceCascades = pendingCascades.filter((cascade: any) => workspaceId === "all" || (workspaceId !== "personal" && (cascade.fromMeetingId === workspaceId || cascade.recipientMeetingIds?.includes(workspaceId))));
+    const workspaceCascades = pendingCascades.filter((cascade: any) => workspaceId === "all" || cascade.fromMeetingId === workspaceId || cascade.recipientMeetingIds?.includes(workspaceId));
 
     const notificationMeetingCondition = ids.length ? or(isNull(pulseNotifications.meetingId), inArray(pulseNotifications.meetingId, ids)) : isNull(pulseNotifications.meetingId);
     const messageRows = await db.select({
@@ -412,8 +412,8 @@ export const pulsePersonalRouter = router({
       .where(and(eq(pulseNotifications.personId, ctx.user.id), eq(pulseNotifications.requiresAction, true), isNull(pulseNotifications.clearedAt), notificationMeetingCondition))
       .orderBy(desc(pulseNotifications.createdAt)).limit(20);
     const messages = messageRows.filter((message: any) => message.notificationType !== "cascade")
-      .filter((message: any) => workspaceId === "all" || (workspaceId === "personal" ? !message.meetingId : message.meetingId === workspaceId))
-      .map((message: any) => ({ ...message, source: message.meetingName ?? "Personal work", sourceHref: message.meetingId ? `/pulse/meetings/${message.meetingId}` : "/pulse/work" }));
+      .filter((message: any) => Boolean(message.meetingId) && (workspaceId === "all" || message.meetingId === workspaceId))
+      .map((message: any) => ({ ...message, source: message.meetingName ?? "L10", sourceHref: `/pulse/meetings/${message.meetingId}` }));
 
     const itemIds = ownedItems.map((item: any) => item.id);
     const activity = itemIds.length ? await db.select({
@@ -427,10 +427,10 @@ export const pulsePersonalRouter = router({
       .map((entry: any) => ({ ...entry, item: sourceByItemId.get(entry.entityId) }));
 
     const missingMeasurables = prep.fields.filter((field: any) => field.kind === "number" && !isFieldComplete(field))
-      .filter((field: any) => workspaceId === "all" || (workspaceId !== "personal" && field.meetingId === workspaceId))
+      .filter((field: any) => workspaceId === "all" || field.meetingId === workspaceId)
       .map((field: any) => ({ ...field, source: field.meetingName, sourceHref: `/pulse/meetings/${field.meetingId}` }));
     const nextMeetings = meetings
-      .filter((meeting: any) => workspaceId === "all" || (workspaceId !== "personal" && meeting.id === workspaceId))
+      .filter((meeting: any) => workspaceId === "all" || meeting.id === workspaceId)
       .map((meeting: any) => ({ ...meeting, nextOccursAt: nextOccurrence(meeting.dayOfWeek, meeting.startTime), canRun: canRun && meeting.label === "level_10" }))
       .filter((meeting: any) => meeting.nextOccursAt)
       .sort((left: any, right: any) => String(left.nextOccursAt).localeCompare(String(right.nextOccursAt))).slice(0, 4);
@@ -441,7 +441,7 @@ export const pulsePersonalRouter = router({
       .map((item: any) => ({ ...item, needsUpdate: !["at_risk", "off_track"].includes(item.status) }));
 
     return {
-      workspaces: [{ id: "all", name: "All My Work", type: "all" }, { id: "personal", name: "Personal work", type: "personal" }, ...meetings.map((meeting: any) => ({ id: meeting.id, name: meeting.name, type: meeting.label }))],
+      workspaces: [{ id: "all", name: "All L10s", type: "all" }, ...meetings.map((meeting: any) => ({ id: meeting.id, name: meeting.name, type: meeting.label }))],
       selectedWorkspaceId: workspaceId,
       meetings,
       items: { todos, issues, rocks },
