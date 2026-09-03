@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
-import PulseWorkItemsPage from "@/pages/PulseWorkItemsPage";
 import PulseMeetingDashboardPage from "@/pages/PulseMeetingDashboardPage";
 import PulseMyInputsPage from "@/pages/PulseMyInputsPage";
 import PulseMyWorkPage from "@/pages/PulseMyWorkPage";

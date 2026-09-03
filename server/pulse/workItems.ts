@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import sanitizeHtml from "sanitize-html";
 import { pulseMemberProcedure } from "./authorization";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -6,6 +7,7 @@ import {
   pulseActivityLog,
   pulseIssueResultingTodos,
   pulseMeetingMembers,
+  pulseMeetingSessions,
   pulseMeetings,
   pulseRockMilestones,
   pulseRockRaciAssignments,
@@ -15,6 +17,7 @@ import {
   pulseWorkItemNotifications,
   pulseNotifications,
   pulseWorkItemStatusNotes,
+  pulseWorkItemAttachments,
   pulseWorkItems,
   users,
 } from "../../drizzle/schema";
@@ -31,6 +34,22 @@ const rockStatusSchema = z.enum(["on_track", "at_risk", "off_track", "done", "dr
 const quarterSchema = z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.");
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date in YYYY-MM-DD format.");
 const raciRoleSchema = z.enum(["responsible", "accountable", "consulted", "informed"]);
+const priorityLevelSchema = z.enum(["low", "medium", "high", "urgent"]);
+const issueTimeframeSchema = z.enum(["short_term", "long_term"]);
+const editorStatusSchema = z.enum(["open", "done", "dropped", "discussing", "solved", "on_track", "at_risk", "off_track"]);
+
+function sanitizeDetails(value?: string | null) {
+  if (!value?.trim()) return null;
+  const sanitized = sanitizeHtml(value, {
+    allowedTags: ["p", "br", "strong", "em", "b", "i", "ul", "ol", "li", "a"],
+    allowedAttributes: { a: ["href", "target", "rel"] },
+    allowedSchemes: ["http", "https", "mailto"],
+    transformTags: {
+      a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
+    },
+  }).trim();
+  return sanitized || null;
+}
 
 function uuid() {
   return crypto.randomUUID();
@@ -202,6 +221,8 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
     dueDate: pulseWorkItems.dueDate,
     carriedOverCount: pulseWorkItems.carriedOverCount,
     priority: pulseWorkItems.priority,
+    priorityLevel: pulseWorkItems.priorityLevel,
+    issueTimeframe: pulseWorkItems.issueTimeframe,
     solvedNote: pulseWorkItems.solvedNote,
     quarter: pulseWorkItems.quarter,
     percentComplete: pulseWorkItems.percentComplete,
@@ -235,6 +256,102 @@ export const pulseWorkItemsRouter = router({
       return listAccessibleItems(db, ctx.user.id, input ?? {});
     }),
 
+  editorOptions: pulseMemberProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw unavailable();
+    const visibleIds = await visible_meeting_ids(db, ctx.user.id);
+    const [meetings, people, memberships] = await Promise.all([
+      visibleIds.length ? db.select({ id: pulseMeetings.id, name: pulseMeetings.name }).from(pulseMeetings).where(and(inArray(pulseMeetings.id, visibleIds), isNull(pulseMeetings.deletedAt))).orderBy(asc(pulseMeetings.name)) : Promise.resolve([]),
+      db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.isActive, true), sql`${users.openId} NOT LIKE 'pulse_slice_fixture_%'`)).orderBy(asc(users.name), asc(users.email)),
+      visibleIds.length ? db.select({ meetingId: pulseMeetingMembers.meetingId, personId: pulseMeetingMembers.personId }).from(pulseMeetingMembers).where(and(inArray(pulseMeetingMembers.meetingId, visibleIds), isNull(pulseMeetingMembers.removedAt), isNull(pulseMeetingMembers.deletedAt))) : Promise.resolve([]),
+    ]);
+    const accessByPerson = new Map<number, string[]>();
+    for (const membership of memberships) accessByPerson.set(membership.personId, [...(accessByPerson.get(membership.personId) ?? []), membership.meetingId]);
+    return {
+      destinations: [{ id: "personal", name: "Personal work", type: "personal" as const }, ...meetings.map((meeting: any) => ({ ...meeting, type: "meeting" as const }))],
+      people: people.map((person: any) => ({ ...person, destinationIds: [...(person.id === ctx.user.id ? ["personal"] : []), ...(accessByPerson.get(person.id) ?? [])] })),
+    };
+  }),
+
+  saveEditor: pulseMemberProcedure
+    .input(z.object({
+      workItemId: z.string().uuid().optional(),
+      type: z.enum(["todo", "issue"]),
+      title: z.string().trim().min(1).max(500),
+      description: z.string().max(50_000).nullable().optional(),
+      assigneeId: z.number().int().positive(),
+      dueDate: dateSchema,
+      priorityLevel: priorityLevelSchema.default("medium"),
+      status: editorStatusSchema,
+      issueTimeframe: issueTimeframeSchema.nullable().optional(),
+      statusNote: z.string().trim().max(2000).nullable().optional(),
+      destinationId: z.union([z.literal("personal"), z.string().uuid()]),
+      sourceSessionId: z.string().uuid().nullable().optional(),
+      attachments: z.array(z.object({ fileName: z.string().trim().min(1).max(500), fileKey: z.string().trim().min(1).max(1024), url: z.string().url().max(2048), mimeType: z.string().trim().max(128).nullable().optional(), fileSize: z.number().int().min(0).max(16 * 1024 * 1024).nullable().optional() })).max(10).default([]),
+    }).superRefine((input, refinement) => {
+      if (!statusIsValidForType(input.type, input.status)) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "Choose a status that applies to this item type." });
+      if (input.type === "issue" && !input.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["issueTimeframe"], message: "Choose whether this issue is short-term or long-term." });
+      if (input.type === "todo" && input.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["issueTimeframe"], message: "Only issues use a timeframe." });
+      if (input.type === "issue" && input.status === "solved" && !input.statusNote?.trim()) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["statusNote"], message: "Add a short resolution note before marking an Issue solved." });
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const isPersonal = input.destinationId === "personal";
+      const targetMeeting = isPersonal ? null : await require_visible_meeting(db, ctx.user.id, input.destinationId);
+      if (isPersonal && input.assigneeId !== ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal work can only be assigned to you. Choose a meeting to assign it to someone else." });
+      if (targetMeeting) await requireMeetingMember(db, input.assigneeId, targetMeeting);
+      const sourceSessionId = input.sourceSessionId && targetMeeting
+        ? await db.select({ id: pulseMeetingSessions.id }).from(pulseMeetingSessions).where(and(eq(pulseMeetingSessions.id, input.sourceSessionId), eq(pulseMeetingSessions.meetingId, targetMeeting.id))).limit(1).then((rows: any[]) => rows[0]?.id ?? null)
+        : null;
+      if (input.sourceSessionId && targetMeeting && !sourceSessionId) throw new TRPCError({ code: "BAD_REQUEST", message: "The active session does not belong to the selected destination meeting." });
+      const details = sanitizeDetails(input.description);
+      const destinationValues = targetMeeting ? { meetingId: targetMeeting.id, ownerPersonId: null } : { meetingId: null, ownerPersonId: ctx.user.id };
+      const complete = input.type === "todo" ? input.status === "done" : input.status === "solved";
+      if (!input.workItemId) {
+        const id = uuid();
+        await db.transaction(async (tx: any) => {
+          await tx.insert(pulseWorkItems).values({
+            id, type: input.type, title: input.title, description: details, ...destinationValues, sourceSessionId, assigneeId: input.assigneeId, createdById: ctx.user.id,
+            status: input.status, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null,
+            solvedNote: input.type === "issue" && input.status === "solved" ? input.statusNote!.trim() : null, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null,
+            percentComplete: 0, percentSource: "manual",
+          });
+          if (input.attachments.length) await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
+          await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, destinationId: input.destinationId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, issueTimeframe: input.issueTimeframe ?? null });
+          if (complete) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: id, fromStatus: null, toStatus: input.status, note: input.statusNote ?? null, personId: ctx.user.id });
+        });
+        return { id, created: true };
+      }
+      const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== input.type) throw new TRPCError({ code: "BAD_REQUEST", message: "An existing work item cannot change between To-Do and Issue." });
+      const destinationChanged = item.meetingId !== destinationValues.meetingId || item.ownerPersonId !== destinationValues.ownerPersonId;
+      await db.transaction(async (tx: any) => {
+        const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: input.type === "issue" && input.status === "solved" ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
+        await tx.update(pulseWorkItems).set(values).where(eq(pulseWorkItems.id, item.id));
+        if (destinationChanged) await tx.insert(pulseWorkItemMoves).values({ id: uuid(), workItemId: item.id, fromMeetingId: item.meetingId, toMeetingId: destinationValues.meetingId, movedById: ctx.user.id, reason: "Destination changed in the shared Pulse editor." });
+        if (item.status !== input.status) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote ?? null, personId: ctx.user.id });
+        if (input.attachments.length) await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: item.id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, destinationChanged ? "moved_and_updated" : "updated", undefined, undefined, { destinationId: input.destinationId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, status: input.status, issueTimeframe: input.issueTimeframe ?? null });
+      });
+      return { id: item.id, created: false };
+    }),
+
+  removeAttachment: pulseMemberProcedure
+    .input(z.object({ attachmentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const [attachment] = await db.select().from(pulseWorkItemAttachments).where(and(eq(pulseWorkItemAttachments.id, input.attachmentId), isNull(pulseWorkItemAttachments.deletedAt))).limit(1);
+      if (!attachment) throw new TRPCError({ code: "NOT_FOUND", message: "This attachment no longer exists." });
+      await getAccessibleWorkItem(db, ctx.user.id, attachment.workItemId);
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItemAttachments).set({ deletedAt: new Date() }).where(eq(pulseWorkItemAttachments.id, attachment.id));
+        await writeActivity(tx, ctx.user.id, "work_item", attachment.workItemId, "attachment_removed", "attachment", { id: attachment.id, fileName: attachment.fileName }, null);
+      });
+      return { success: true };
+    }),
+
   detail: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -246,7 +363,7 @@ export const pulseWorkItemsRouter = router({
         ? await db.select({ name: users.name }).from(users).where(eq(users.id, item.ownerPersonId)).limit(1)
         : [];
       const [creator] = await db.select({ name: users.name }).from(users).where(eq(users.id, item.createdById)).limit(1);
-      const [milestones, notes, moves, comments, activity, members, rolloverPrompts, raci] = await Promise.all([
+      const [milestones, notes, moves, comments, activity, members, rolloverPrompts, raci, attachments] = await Promise.all([
         item.type === "rock" ? milestonesFor(db, item.id) : Promise.resolve([]),
         db.select({
           id: pulseWorkItemStatusNotes.id,
@@ -299,6 +416,9 @@ export const pulseWorkItemsRouter = router({
         item.type === "rock" ? db.select({ personId: pulseRockRaciAssignments.personId, role: pulseRockRaciAssignments.role, name: users.name, email: users.email })
           .from(pulseRockRaciAssignments).leftJoin(users, eq(users.id, pulseRockRaciAssignments.personId))
           .where(and(eq(pulseRockRaciAssignments.workItemId, item.id), isNull(pulseRockRaciAssignments.deletedAt))) : Promise.resolve([]),
+        db.select({ id: pulseWorkItemAttachments.id, fileName: pulseWorkItemAttachments.fileName, fileKey: pulseWorkItemAttachments.fileKey, url: pulseWorkItemAttachments.url, mimeType: pulseWorkItemAttachments.mimeType, fileSize: pulseWorkItemAttachments.fileSize, uploadedById: pulseWorkItemAttachments.uploadedById, uploadedByName: users.name, createdAt: pulseWorkItemAttachments.createdAt })
+          .from(pulseWorkItemAttachments).leftJoin(users, eq(users.id, pulseWorkItemAttachments.uploadedById))
+          .where(and(eq(pulseWorkItemAttachments.workItemId, item.id), isNull(pulseWorkItemAttachments.deletedAt))).orderBy(desc(pulseWorkItemAttachments.createdAt)),
       ]);
 
       const commentIds = comments.map((comment) => comment.id);
@@ -336,6 +456,7 @@ export const pulseWorkItemsRouter = router({
           toMeetingName: move.toMeetingId ? historicalName.get(move.toMeetingId) ?? "another meeting" : "personal work",
         })),
         activity,
+        attachments,
         members,
         quarterRolloverPending: rolloverPrompts.length > 0,
         raci: item.type === "rock" ? [{ personId: item.assigneeId, role: "responsible", name: assignee?.name ?? null }, ...raci] : [],

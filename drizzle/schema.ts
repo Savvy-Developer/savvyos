@@ -6903,7 +6903,10 @@ export const pulseWorkItems = mysqlTable(
     carriedOverCount: int("carriedOverCount").default(0).notNull(),
     // Issues are ordered by drag position. solvedNote is required by the API before an
     // issue can transition to solved; resulting to-dos are held in a FK-backed join table.
+    // Numeric priority preserves issue ordering; priorityLevel is the human-facing urgency.
     priority: int("priority"),
+    priorityLevel: mysqlEnum("priorityLevel", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
+    issueTimeframe: mysqlEnum("issueTimeframe", ["short_term", "long_term"]),
     solvedNote: text("solvedNote"),
     // Rocks require a durable, testable completion condition.
     definitionOfDone: text("definitionOfDone"),
@@ -6978,6 +6981,28 @@ export const pulseWorkItems = mysqlTable(
   ]
 );
 export type PulseWorkItem = typeof pulseWorkItems.$inferSelect;
+
+/** Document metadata for Pulse items; file content remains in the existing SavvyOS S3 storage path. */
+export const pulseWorkItemAttachments = mysqlTable(
+  "pulse_work_item_attachments",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    workItemId: varchar("workItemId", { length: 36 }).notNull().references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+    fileName: varchar("fileName", { length: 500 }).notNull(),
+    fileKey: varchar("fileKey", { length: 1024 }).notNull(),
+    url: varchar("url", { length: 2048 }).notNull(),
+    mimeType: varchar("mimeType", { length: 128 }),
+    fileSize: bigint("fileSize", { mode: "number" }),
+    uploadedById: int("uploadedById").notNull().references(() => users.id),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    deletedAt: timestamp("deletedAt"),
+  },
+  table => [
+    index("pulse_work_item_attachments_item_idx").on(table.workItemId, table.deletedAt),
+    index("pulse_work_item_attachments_uploader_idx").on(table.uploadedById, table.createdAt),
+  ]
+);
+export type PulseWorkItemAttachment = typeof pulseWorkItemAttachments.$inferSelect;
 
 /** One accountable owner is held on the work item; this table records the remaining RACI collaborators. */
 export const pulseRockRaciAssignments = mysqlTable(

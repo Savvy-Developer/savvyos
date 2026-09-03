@@ -219,7 +219,7 @@ async function getRocks(db: any, targetMeetingId: string) {
 }
 
 async function getTodos(db: any, targetMeetingId: string) {
-  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, sourceSessionId: pulseWorkItems.sourceSessionId, createdAt: pulseWorkItems.createdAt })
+  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, sourceSessionId: pulseWorkItems.sourceSessionId, createdAt: pulseWorkItems.createdAt })
     .from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt)))
@@ -227,7 +227,7 @@ async function getTodos(db: any, targetMeetingId: string) {
 }
 
 async function getIssues(db: any, targetMeetingId: string) {
-  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, description: pulseWorkItems.description, status: pulseWorkItems.status, priority: pulseWorkItems.priority, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, createdAt: pulseWorkItems.createdAt })
+  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, description: pulseWorkItems.description, status: pulseWorkItems.status, priority: pulseWorkItems.priority, priorityLevel: pulseWorkItems.priorityLevel, issueTimeframe: pulseWorkItems.issueTimeframe, dueDate: pulseWorkItems.dueDate, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, createdAt: pulseWorkItems.createdAt })
     .from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "issue"), isNull(pulseWorkItems.deletedAt)))
