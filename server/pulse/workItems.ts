@@ -233,6 +233,9 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
     meetingName: pulseMeetings.name,
     createdAt: pulseWorkItems.createdAt,
     updatedAt: pulseWorkItems.updatedAt,
+    commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"),
+    attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"),
+    linkedSubTodoCount: sql<number>`(select count(*) from ${pulseIssueResultingTodos} where ${pulseIssueResultingTodos.issueWorkItemId} = ${pulseWorkItems.id})`.as("linkedSubTodoCount"),
   }).from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
@@ -363,7 +366,7 @@ export const pulseWorkItemsRouter = router({
         ? await db.select({ name: users.name }).from(users).where(eq(users.id, item.ownerPersonId)).limit(1)
         : [];
       const [creator] = await db.select({ name: users.name }).from(users).where(eq(users.id, item.createdById)).limit(1);
-      const [milestones, notes, moves, comments, activity, members, rolloverPrompts, raci, attachments] = await Promise.all([
+      const [milestones, notes, moves, comments, activity, members, rolloverPrompts, raci, attachments, linkedSubTodos] = await Promise.all([
         item.type === "rock" ? milestonesFor(db, item.id) : Promise.resolve([]),
         db.select({
           id: pulseWorkItemStatusNotes.id,
@@ -419,6 +422,9 @@ export const pulseWorkItemsRouter = router({
         db.select({ id: pulseWorkItemAttachments.id, fileName: pulseWorkItemAttachments.fileName, fileKey: pulseWorkItemAttachments.fileKey, url: pulseWorkItemAttachments.url, mimeType: pulseWorkItemAttachments.mimeType, fileSize: pulseWorkItemAttachments.fileSize, uploadedById: pulseWorkItemAttachments.uploadedById, uploadedByName: users.name, createdAt: pulseWorkItemAttachments.createdAt })
           .from(pulseWorkItemAttachments).leftJoin(users, eq(users.id, pulseWorkItemAttachments.uploadedById))
           .where(and(eq(pulseWorkItemAttachments.workItemId, item.id), isNull(pulseWorkItemAttachments.deletedAt))).orderBy(desc(pulseWorkItemAttachments.createdAt)),
+        item.type === "issue" ? db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeName: users.name, meetingId: pulseWorkItems.meetingId })
+          .from(pulseIssueResultingTodos).innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseIssueResultingTodos.todoWorkItemId)).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
+          .where(and(eq(pulseIssueResultingTodos.issueWorkItemId, item.id), isNull(pulseWorkItems.deletedAt))).orderBy(desc(pulseIssueResultingTodos.createdAt)) : Promise.resolve([]),
       ]);
 
       const commentIds = comments.map((comment) => comment.id);
@@ -457,6 +463,7 @@ export const pulseWorkItemsRouter = router({
         })),
         activity,
         attachments,
+        linkedSubTodos: linkedSubTodos.map((todo: any) => ({ ...todo, dueDate: dateValue(todo.dueDate) })),
         members,
         quarterRolloverPending: rolloverPrompts.length > 0,
         raci: item.type === "rock" ? [{ personId: item.assigneeId, role: "responsible", name: assignee?.name ?? null }, ...raci] : [],

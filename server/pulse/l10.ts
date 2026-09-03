@@ -17,6 +17,9 @@ import {
   pulseSessionReports,
   pulseWorkItemMoves,
   pulseWorkItemStatusNotes,
+  pulseWorkItemComments,
+  pulseWorkItemAttachments,
+  pulseIssueResultingTodos,
   pulseWorkItems,
   rrMetricValues,
   rrScorecardMetrics,
@@ -219,7 +222,7 @@ async function getRocks(db: any, targetMeetingId: string) {
 }
 
 async function getTodos(db: any, targetMeetingId: string) {
-  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, sourceSessionId: pulseWorkItems.sourceSessionId, createdAt: pulseWorkItems.createdAt })
+  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, sourceSessionId: pulseWorkItems.sourceSessionId, createdAt: pulseWorkItems.createdAt, commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"), attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"), linkedSubTodoCount: sql<number>`0`.as("linkedSubTodoCount") })
     .from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt)))
@@ -227,7 +230,7 @@ async function getTodos(db: any, targetMeetingId: string) {
 }
 
 async function getIssues(db: any, targetMeetingId: string) {
-  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, description: pulseWorkItems.description, status: pulseWorkItems.status, priority: pulseWorkItems.priority, priorityLevel: pulseWorkItems.priorityLevel, issueTimeframe: pulseWorkItems.issueTimeframe, dueDate: pulseWorkItems.dueDate, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, createdAt: pulseWorkItems.createdAt })
+  return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, description: pulseWorkItems.description, status: pulseWorkItems.status, priority: pulseWorkItems.priority, priorityLevel: pulseWorkItems.priorityLevel, issueTimeframe: pulseWorkItems.issueTimeframe, dueDate: pulseWorkItems.dueDate, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, createdAt: pulseWorkItems.createdAt, commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"), attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"), linkedSubTodoCount: sql<number>`(select count(*) from ${pulseIssueResultingTodos} where ${pulseIssueResultingTodos.issueWorkItemId} = ${pulseWorkItems.id})`.as("linkedSubTodoCount") })
     .from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "issue"), isNull(pulseWorkItems.deletedAt)))
