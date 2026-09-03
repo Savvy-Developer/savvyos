@@ -14,6 +14,9 @@ const REPORT_KEY = "monthly_agent_renewals";
 const REPORT_HOUR = 9;
 const UPCOMING_WINDOW_DAYS = 60;
 const STALE_RUN_MS = 60 * 60 * 1000;
+// Node clamps a timeout above ~24.8 days to 1 ms. Recheck daily so a report
+// scheduled more than 24 days away cannot start a tight rescheduling loop.
+const MAX_TIMER_DELAY_MS = 24 * 60 * 60 * 1000;
 const APP_URL = "https://os.savvy-agents.com";
 
 /** The shared leadership report is intentionally restricted to the four recipients Tyler named. */
@@ -311,16 +314,26 @@ export function getNextMonthlyAgentRenewalsAt9AmEastern(now = new Date()): Date 
   return easternDateTimeToUtc(`${year}-${String(month).padStart(2, "0")}-01`, REPORT_HOUR);
 }
 
+export function monthlyAgentRenewalsTimerDelay(
+  nextRun: Date,
+  now = new Date()
+): number {
+  return Math.min(
+    Math.max(nextRun.getTime() - now.getTime(), 1_000),
+    MAX_TIMER_DELAY_MS
+  );
+}
+
 let schedulerTimer: NodeJS.Timeout | undefined;
 let startupRecoveryTimer: NodeJS.Timeout | undefined;
 
 function scheduleNextReport(): void {
   if (schedulerTimer) clearTimeout(schedulerTimer);
   const nextRun = getNextMonthlyAgentRenewalsAt9AmEastern();
-  const delay = Math.max(nextRun.getTime() - Date.now(), 1_000);
+  const delay = monthlyAgentRenewalsTimerDelay(nextRun);
   console.info(`[MonthlyAgentRenewals] Next report scheduled for ${nextRun.toLocaleString("en-US", { timeZone: EASTERN_TIME_ZONE })}.`);
   schedulerTimer = setTimeout(async () => {
-    await sendMonthlyAgentRenewalsReport();
+    if (Date.now() >= nextRun.getTime()) await sendMonthlyAgentRenewalsReport();
     scheduleNextReport();
   }, delay);
 }

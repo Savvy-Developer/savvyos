@@ -71,7 +71,12 @@ async function reserveSmsCapacity(db: NonNullable<Awaited<ReturnType<typeof getD
     const [oneTime] = await db
       .select({ count: sql<number>`COUNT(*)` })
       .from(oneTimeSendRecipients)
-      .where(and(eq(oneTimeSendRecipients.status, "sent"), gte(oneTimeSendRecipients.sentAt, dayStart)));
+      .innerJoin(oneTimeSends, eq(oneTimeSendRecipients.sendId, oneTimeSends.id))
+      .where(and(
+        eq(oneTimeSendRecipients.status, "sent"),
+        eq(oneTimeSends.channel, "sms"),
+        gte(oneTimeSendRecipients.sentAt, dayStart),
+      ));
     const [smartPlan] = await db
       .select({ count: sql<number>`COUNT(*)` })
       .from(smartPlanExecutions)
