@@ -30,6 +30,8 @@ import {
   communications,
   contacts,
   marketingTextInboxThreads,
+  oneTimeSendRecipients,
+  oneTimeSends,
   smartPlanExecutions,
   smartPlanSteps,
   smartPlans,
@@ -765,6 +767,32 @@ export const marketingTextInboxRouter = router({
           }
         }
       }
+      const oneTimeSendByProviderId = new Map<string, { name: string }>();
+      if (executionIds.length > 0) {
+        const oneTimeSendRows = await db
+          .select({
+            providerMessageId: oneTimeSendRecipients.providerMessageId,
+            sendName: oneTimeSends.name,
+          })
+          .from(oneTimeSendRecipients)
+          .innerJoin(
+            oneTimeSends,
+            eq(oneTimeSends.id, oneTimeSendRecipients.sendId)
+          )
+          .where(
+            and(
+              eq(oneTimeSends.channel, "sms"),
+              inArray(oneTimeSendRecipients.providerMessageId, executionIds)
+            )
+          );
+        for (const oneTimeSend of oneTimeSendRows) {
+          if (oneTimeSend.providerMessageId && oneTimeSend.sendName) {
+            oneTimeSendByProviderId.set(oneTimeSend.providerMessageId, {
+              name: oneTimeSend.sendName,
+            });
+          }
+        }
+      }
       const providerMessageIds = rows
         .map(row => row.message.aircallMessageId)
         .filter((id): id is string => Boolean(id));
@@ -827,6 +855,9 @@ export const marketingTextInboxRouter = router({
 
       return rows.map(row => {
         const attribution = planByProviderId.get(row.message.aircallMessageId);
+        const oneTimeSend = oneTimeSendByProviderId.get(
+          row.message.aircallMessageId
+        );
         const groupParticipants =
           row.message.groupParticipants ??
           (row.message.groupConversationId
@@ -850,6 +881,7 @@ export const marketingTextInboxRouter = router({
           autoFollowUpDueAt: followUp?.dueAt ?? null,
           smartPlanName: attribution?.name ?? null,
           smartPlanStepOrder: attribution ? attribution.stepOrder + 1 : null,
+          oneTimeSendName: oneTimeSend?.name ?? null,
         };
       });
     }),

@@ -83,6 +83,7 @@ type MarketingMessage = {
   createdAt: Date | string;
   smartPlanName?: string | null;
   smartPlanStepOrder?: number | null;
+  oneTimeSendName?: string | null;
   sentByName?: string | null;
   isGroupMessage?: boolean;
   groupAgentName?: string | null;
@@ -839,6 +840,14 @@ export default function MarketingTextInboxPage() {
                               <Sparkles className="mr-1 h-3 w-3" /> Smart Plan ·{" "}
                               {message.smartPlanName} · Step{" "}
                               {message.smartPlanStepOrder}
+                            </Badge>
+                          )}
+                          {message.oneTimeSendName && (
+                            <Badge
+                              variant="secondary"
+                              className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
+                            >
+                              <Sparkles className="mr-1 h-3 w-3" /> One Time Text Smart Plan · {message.oneTimeSendName}
                             </Badge>
                           )}
                           {message.isGroupMessage && (
