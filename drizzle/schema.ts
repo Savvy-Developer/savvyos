@@ -437,8 +437,8 @@ export const contacts = mysqlTable(
       .notNull(),
     emailBouncedAt: timestamp("emailBouncedAt"),
     emailUnsubscribedAt: timestamp("emailUnsubscribedAt"),
-    // Marketing SMS compliance. Smart Plans may send campaign texts only after
-    // consent is recorded; an opt-out always overrides an earlier consent.
+    // Optional marketing SMS consent metadata from source integrations. Campaign
+    // texts are blocked by an explicit opt-out, not by a missing consent record.
     smsMarketingConsentAt: timestamp("smsMarketingConsentAt"),
     smsMarketingConsentSource: varchar("smsMarketingConsentSource", {
       length: 255,

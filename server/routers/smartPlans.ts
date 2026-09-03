@@ -125,11 +125,10 @@ type OneTimeExclusionReasons = {
   emailNotVerified: number;
   noEmailAddress: number;
   noPhoneAddress: number;
-  smsNoConsent: number;
   smsOptedOut: number;
 };
 
-function oneTimeExclusionReason(contact: typeof contacts.$inferSelect, channel: "email" | "sms"): keyof OneTimeExclusionReasons | null {
+export function oneTimeExclusionReason(contact: typeof contacts.$inferSelect, channel: "email" | "sms"): keyof OneTimeExclusionReasons | null {
   if (contact.doNotContact || contact.isaStatus === "do_not_contact") return "doNotContact";
   if (channel === "email") {
     if (contact.emailStatus === "bounced") return "bounced";
@@ -138,7 +137,6 @@ function oneTimeExclusionReason(contact: typeof contacts.$inferSelect, channel: 
     return contactChannelAddresses(contact, channel).length ? null : "noEmailAddress";
   }
   if (contact.smsMarketingOptedOutAt) return "smsOptedOut";
-  if (!contact.smsMarketingConsentAt) return "smsNoConsent";
   return contactChannelAddresses(contact, channel).length ? null : "noPhoneAddress";
 }
 
@@ -165,7 +163,6 @@ async function oneTimeAudience(db: any, contactIds: number[], channel: "email" |
     emailNotVerified: 0,
     noEmailAddress: 0,
     noPhoneAddress: 0,
-    smsNoConsent: 0,
     smsOptedOut: 0,
   };
   let eligibleContactCount = 0;

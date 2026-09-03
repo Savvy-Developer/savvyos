@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { smartPlansRouter } from "./smartPlans";
+import { oneTimeExclusionReason, smartPlansRouter } from "./smartPlans";
 
 const adminContext = {
   user: { id: 1, role: "admin", name: "Tyler" },
@@ -37,5 +37,26 @@ describe("one-time send date-added audience validation", () => {
         dateAddedTo: "2030-02-01",
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("one-time SMS eligibility", () => {
+  const smsContact = {
+    doNotContact: false,
+    isaStatus: null,
+    smsMarketingOptedOutAt: null,
+    phone: "+15551234567",
+    secondaryPhone: null,
+    thirdPhone: null,
+    spousePhone: null,
+  } as any;
+
+  it("allows a contact with a phone number when no recorded consent field exists", () => {
+    expect(oneTimeExclusionReason(smsContact, "sms")).toBeNull();
+  });
+
+  it("continues to block explicit SMS opt-outs and Do Not Contact contacts", () => {
+    expect(oneTimeExclusionReason({ ...smsContact, smsMarketingOptedOutAt: new Date() }, "sms")).toBe("smsOptedOut");
+    expect(oneTimeExclusionReason({ ...smsContact, doNotContact: true }, "sms")).toBe("doNotContact");
   });
 });

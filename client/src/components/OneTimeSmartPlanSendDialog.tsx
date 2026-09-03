@@ -607,7 +607,7 @@ export default function OneTimeSmartPlanSendDialog({
             {channel === "sms" && (
               <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
-                <p>Text sends use the dedicated Aircall marketing number. Contacts without a phone number, without recorded SMS marketing consent, or marked Do Not Contact or SMS opt-out are excluded before delivery.</p>
+                <p>Text sends use the dedicated Aircall marketing number. Contacts without a phone number or marked Do Not Contact or SMS opt-out are excluded before delivery.</p>
               </div>
             )}
           </div>
@@ -659,7 +659,6 @@ export default function OneTimeSmartPlanSendDialog({
                       {preview.data.exclusionReasons.bounced > 0 && <p><strong>{preview.data.exclusionReasons.bounced.toLocaleString()}</strong> with a hard-bounced email</p>}
                       {preview.data.exclusionReasons.unsubscribed > 0 && <p><strong>{preview.data.exclusionReasons.unsubscribed.toLocaleString()}</strong> unsubscribed from email</p>}
                       {preview.data.exclusionReasons.doNotContact > 0 && <p><strong>{preview.data.exclusionReasons.doNotContact.toLocaleString()}</strong> marked Do Not Contact</p>}
-                      {(preview.data.exclusionReasons as any).smsNoConsent > 0 && <p><strong>{(preview.data.exclusionReasons as any).smsNoConsent.toLocaleString()}</strong> without recorded SMS marketing consent</p>}
                       {(preview.data.exclusionReasons as any).smsOptedOut > 0 && <p><strong>{(preview.data.exclusionReasons as any).smsOptedOut.toLocaleString()}</strong> opted out of marketing SMS</p>}
                       {preview.data.exclusionReasons.emailNotVerified > 0 && <p><strong>{preview.data.exclusionReasons.emailNotVerified.toLocaleString()}</strong> with an unverified email status</p>}
                     </div>
