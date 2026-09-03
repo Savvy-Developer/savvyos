@@ -1,6 +1,6 @@
 import {
+  reconcileRecentAircallConversationIntelligence,
   reconcileRecentAircallRecordings,
-  reconcileRecentAircallSummaries,
   reconcileUnmatchedAircallCalls,
 } from "./aircall";
 
@@ -9,8 +9,8 @@ const DAILY_RECONCILIATION_MINUTE = 30;
 const RECENT_RECORDING_LOOKBACK_DAYS = 7;
 const RECENT_RECORDING_PAGE_SIZE = 100;
 const RECENT_RECORDING_MAX_ATTEMPTS = 5;
-const RECENT_SUMMARY_LOOKBACK_DAYS = 7;
-const RECENT_SUMMARY_BATCH_SIZE = 100;
+const RECENT_CONVERSATION_INTELLIGENCE_LOOKBACK_DAYS = 7;
+const RECENT_CONVERSATION_INTELLIGENCE_BATCH_SIZE = 100;
 const INITIAL_RECONCILIATION_DELAY_MS = 15_000;
 const TIME_ZONE = "America/New_York";
 const INTERNAL_BATCH_SIZE = 250;
@@ -112,12 +112,9 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
     console.error("[AircallReconciliation] Full nightly unmatched-call sweep failed:", error);
   }
 
-  // Summary recovery does not call Aircall, so run it concurrently with the
-  // deliberately paced media recovery. This restores existing transcripts
-  // promptly without competing for Aircall API capacity.
-  const summaryRecovery = reconcileRecentAircallSummaries({
-    lookbackDays: RECENT_SUMMARY_LOOKBACK_DAYS,
-    batchSize: RECENT_SUMMARY_BATCH_SIZE,
+  const intelligenceRecovery = reconcileRecentAircallConversationIntelligence({
+    lookbackDays: RECENT_CONVERSATION_INTELLIGENCE_LOOKBACK_DAYS,
+    batchSize: RECENT_CONVERSATION_INTELLIGENCE_BATCH_SIZE,
   });
 
   try {
@@ -134,12 +131,12 @@ export async function reconcileAllUnmatchedAircallCalls(): Promise<void> {
   }
 
   try {
-    const summaryResult = await summaryRecovery;
+    const intelligenceResult = await intelligenceRecovery;
     console.log(
-      `[AircallReconciliation] Recent summary recovery complete: ${summaryResult.recovered} recovered, ${summaryResult.skipped} skipped, ${summaryResult.errors} errors from ${summaryResult.candidates} candidates.`
+      `[AircallReconciliation] Native transcript and summary recovery complete: ${intelligenceResult.recovered} recovered, ${intelligenceResult.skipped} skipped, ${intelligenceResult.errors} errors from ${intelligenceResult.candidates} candidates.`
     );
   } catch (error) {
-    console.error("[AircallReconciliation] Recent summary recovery failed:", error);
+    console.error("[AircallReconciliation] Native conversation intelligence recovery failed:", error);
   } finally {
     isRunning = false;
   }

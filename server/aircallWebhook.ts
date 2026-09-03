@@ -10,6 +10,9 @@ import type { Express, Request, Response } from "express";
 import type { AircallCallData } from "./aircall";
 import { directionFromAircallMessageEvent, isAircallMessageWebhook, persistAircallMessage, type AircallMessageData } from "./aircallMessaging";
 import {
+  asAircallConversationIntelligenceWebhook,
+  persistAircallConversationIntelligenceWebhook,
+  persistAircallLiveTranscript,
   persistAircallWebhook,
   processDueAircallWebhookEvents,
   verifyAircallWebhookToken,
@@ -44,7 +47,8 @@ export function registerAircallWebhook(app: Express): void {
     const payload = req.body as unknown;
     const messagePayload = isAircallMessageWebhook(payload);
     const callPayload = isValidPayload(payload);
-    if (!callPayload && !messagePayload) {
+    const conversationIntelligencePayload = asAircallConversationIntelligenceWebhook(payload);
+    if (!callPayload && !messagePayload && !conversationIntelligencePayload) {
       console.warn("[Aircall Webhook] Rejected malformed payload");
       res.sendStatus(400);
       return;
@@ -52,10 +56,10 @@ export function registerAircallWebhook(app: Express): void {
 
     const eventName = messagePayload
       ? (payload.event ?? payload.event_name ?? "message.unknown")
-      : payload.event;
+      : conversationIntelligencePayload?.event ?? (payload as AircallWebhookPayload).event;
 
     try {
-      const tokenValid = await verifyAircallWebhookToken(payload.token);
+      const tokenValid = await verifyAircallWebhookToken((payload as { token?: string }).token);
       if (!tokenValid) {
         console.error(`[Aircall Webhook] Rejected token for ${eventName}`);
         res.sendStatus(401);
@@ -74,16 +78,35 @@ export function registerAircallWebhook(app: Express): void {
         return;
       }
 
+      // Live utterances are intentionally stored as provisional source data only.
+      // Future in-call features can consume them without treating them as the final
+      // CRM transcript that Aircall produces after the call has ended.
+      if (conversationIntelligencePayload?.event === "realtime_transcription.utterances_received") {
+        await persistAircallLiveTranscript(conversationIntelligencePayload);
+        res.sendStatus(204);
+        return;
+      }
+
+      // Aircall tells us when a completed transcript is ready and includes the
+      // standard summary directly. Both are queued durably before acknowledgement.
+      if (conversationIntelligencePayload) {
+        await persistAircallConversationIntelligenceWebhook(conversationIntelligencePayload);
+        res.sendStatus(204);
+        void processDueAircallWebhookEvents();
+        return;
+      }
+
       // Acknowledge unrelated Aircall events after validation. The integration
-      // self-check intentionally subscribes only to the durable call events.
-      if (!DURABLE_CALL_EVENTS.has(payload.event)) {
+      // self-check intentionally subscribes only to the durable media-ready call events.
+      const callEventPayload = payload as AircallWebhookPayload;
+      if (!DURABLE_CALL_EVENTS.has(callEventPayload.event)) {
         res.sendStatus(204);
         return;
       }
 
       // The DB insert is the acknowledgement boundary. Once it succeeds, a
       // restart or a transient S3/AI/Aircall issue cannot lose the event.
-      await persistAircallWebhook(payload);
+      await persistAircallWebhook(callEventPayload);
       res.sendStatus(204);
 
       // Opportunistic low-latency processing; the persistent worker will pick

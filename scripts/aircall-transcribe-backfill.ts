@@ -1,29 +1,28 @@
 /**
- * Aircall Transcript Backfill Script
- * ====================================
- * Re-runnable script that transcribes and summarizes all historical Aircall
- * call recordings that have an audio file but no transcript yet.
+ * Aircall Conversation Intelligence Backfill
+ * ===========================================
+ * Re-runnable recovery tool that retrieves native Aircall transcripts and
+ * summaries for historical calls already matched to SavvyOS contacts.
  *
  * Usage:
  *   pnpm aircall:transcribe-backfill
  *
  * Options (env vars):
- *   AIRCALL_TRANSCRIBE_LIMIT=100   — max calls to process (default: all)
- *   AIRCALL_TRANSCRIBE_DRY_RUN=true — preview without writing
- *   AIRCALL_TRANSCRIBE_FORCE=true  — re-transcribe even if transcript exists
- *   AIRCALL_TRANSCRIBE_CONTACT_ID=123 — process only one contact’s calls
- *   AIRCALL_SUMMARY_ONLY=true — generate summaries for existing transcripts only
- *
- * Rate limiting:
- *   Whisper API: no hard limit, but we add a 600ms delay between calls
- *   to avoid overwhelming the API and S3.
+ *   AIRCALL_TRANSCRIBE_LIMIT=100        — maximum calls to process (default: all)
+ *   AIRCALL_TRANSCRIBE_DRY_RUN=true     — preview without writing
+ *   AIRCALL_TRANSCRIBE_FORCE=true       — retrieve both native artifacts again
+ *   AIRCALL_TRANSCRIBE_CONTACT_ID=123   — process one contact's calls
+ *   AIRCALL_SUMMARY_ONLY=true           — retrieve only Aircall summaries
  */
 
 import "dotenv/config";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { aircallCalls, communications } from "../drizzle/schema";
+import {
+  syncAircallSummary,
+  syncAircallTranscript,
+} from "../server/aircallConversationIntelligence";
 import { getDb } from "../server/db";
-import { communications, aircallCalls, contacts } from "../drizzle/schema";
-import { eq, isNull, isNotNull, and, inArray } from "drizzle-orm";
-import { transcribeAndSummarize } from "../server/aircallTranscribe";
 
 const DRY_RUN = process.env.AIRCALL_TRANSCRIBE_DRY_RUN === "true";
 const FORCE = process.env.AIRCALL_TRANSCRIBE_FORCE === "true";
@@ -34,16 +33,11 @@ const CONTACT_ID = process.env.AIRCALL_TRANSCRIBE_CONTACT_ID
   ? parseInt(process.env.AIRCALL_TRANSCRIBE_CONTACT_ID, 10)
   : null;
 const SUMMARY_ONLY = process.env.AIRCALL_SUMMARY_ONLY === "true";
-const DELAY_MS = 600; // ms between calls to avoid rate limits
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 async function main() {
-  console.log("=== Aircall Transcript Backfill ===");
+  console.log("=== Aircall Conversation Intelligence Backfill ===");
   console.log(`Mode: ${DRY_RUN ? "DRY RUN (no writes)" : "LIVE"}`);
-  console.log(`Force re-transcribe: ${FORCE}`);
+  console.log(`Force native refresh: ${FORCE}`);
   console.log(`Limit: ${LIMIT === Infinity ? "all" : LIMIT}`);
   console.log(`Contact scope: ${CONTACT_ID ?? "all"}`);
   console.log(`Summary only: ${SUMMARY_ONLY}`);
@@ -52,125 +46,83 @@ async function main() {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
 
-  // Find all communications that:
-  // - are type "call"
-  // - have an audioFileUrl (recording stored in S3)
-  // - either have no transcription yet, or FORCE is set
+  const needsRecovery = SUMMARY_ONLY
+    ? sql`COALESCE(${communications.body}, '') NOT LIKE '%Aircall Summary:%'`
+    : or(
+        isNull(communications.transcription),
+        sql`CHAR_LENGTH(TRIM(COALESCE(${communications.transcription}, ''))) = 0`,
+        sql`COALESCE(${communications.body}, '') NOT LIKE '%Aircall Summary:%'`,
+      );
   const conditions = [
     eq(communications.type, "call"),
-    isNotNull(communications.audioFileUrl),
-    ...(SUMMARY_ONLY
-      ? [isNotNull(communications.transcription)]
-      : FORCE ? [] : [isNull(communications.transcription)]),
+    ...(FORCE ? [] : [needsRecovery]),
+    ...(SUMMARY_ONLY ? [isNotNull(communications.transcription)] : []),
     ...(CONTACT_ID ? [eq(communications.relatedContactId, CONTACT_ID)] : []),
   ];
 
-  const rows = await db
-    .select({
-      commId: communications.id,
-      audioFileUrl: communications.audioFileUrl,
-      transcription: communications.transcription,
-      direction: communications.direction,
-      aircallCallId: aircallCalls.aircallCallId,
-      duration: aircallCalls.duration,
-      agentName: aircallCalls.aircallNumberName,
-      contactId: communications.relatedContactId,
-    })
-    .from(communications)
-    .leftJoin(aircallCalls, eq(aircallCalls.communicationId, communications.id))
+  const rows = await db.select({
+    communicationId: communications.id,
+    aircallCallId: aircallCalls.aircallCallId,
+    transcription: communications.transcription,
+    body: communications.body,
+    contactId: communications.relatedContactId,
+  }).from(aircallCalls)
+    .innerJoin(communications, eq(communications.id, aircallCalls.communicationId))
     .where(and(...conditions))
     .orderBy(communications.communicatedAt);
 
   const toProcess = rows.slice(0, LIMIT === Infinity ? rows.length : LIMIT);
-
-  console.log(`Found ${rows.length} calls with recordings and no transcript`);
-  console.log(`Processing ${toProcess.length} calls...\n`);
+  console.log(`Found ${rows.length} call(s) requiring native Aircall data`);
+  console.log(`Processing ${toProcess.length} call(s)...\n`);
 
   if (DRY_RUN) {
-    console.log("DRY RUN — would process:");
     for (const row of toProcess.slice(0, 20)) {
-      console.log(`  comm ${row.commId} | call ${row.aircallCallId} | ${row.direction} | ${(row.audioFileUrl ?? "").slice(0, 60)}...`);
+      console.log(`  communication ${row.communicationId} | Aircall call ${row.aircallCallId} | contact ${row.contactId ?? "unmatched"}`);
     }
     if (toProcess.length > 20) console.log(`  ... and ${toProcess.length - 20} more`);
     return;
   }
 
-  // Fetch contact names for better summaries
-  const contactIds = [...new Set(toProcess.map((r) => r.contactId).filter(Boolean))] as number[];
-  const contactRows = contactIds.length > 0
-    ? await db
-        .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName })
-        .from(contacts)
-        .where(inArray(contacts.id, contactIds))
-    : [];
-  const contactMap = new Map(contactRows.map((c) => [c.id, `${c.firstName} ${c.lastName}`]));
-
-  // Process each call
-  let transcribed = 0;
+  let recovered = 0;
   let skipped = 0;
   let errors = 0;
-
-  for (let i = 0; i < toProcess.length; i++) {
-    const row = toProcess[i];
-    const progress = `[${i + 1}/${toProcess.length}]`;
-
-    if (!row.audioFileUrl) {
-      console.log(`${progress} comm ${row.commId} — no audio URL, skipping`);
-      skipped++;
-      continue;
-    }
-
-    if (!row.aircallCallId) {
-      console.log(`${progress} comm ${row.commId} — no aircall call ID, skipping`);
-      skipped++;
-      continue;
-    }
-
+  for (let index = 0; index < toProcess.length; index += 1) {
+    const row = toProcess[index];
+    const progress = `[${index + 1}/${toProcess.length}]`;
     try {
-      const contactName = row.contactId ? contactMap.get(row.contactId) : undefined;
-
-      const result = await transcribeAndSummarize({
-        communicationId: row.commId,
-        aircallCallId: row.aircallCallId,
-        audioUrl: row.audioFileUrl,
-        direction: row.direction ?? "outbound",
-        duration: row.duration,
-        contactName,
-        agentName: row.agentName ?? undefined,
-        forceRetranscribe: FORCE && !SUMMARY_ONLY,
-      });
-
-      if (result.skipped) {
-        console.log(`${progress} comm ${row.commId} — skipped: ${result.reason}`);
-        skipped++;
-      } else {
-        const transcriptLen = result.transcript ? result.transcript.length : 0;
-        const hasSummary = !!result.summary;
-        console.log(
-          `${progress} comm ${row.commId} (call ${row.aircallCallId}) — ` +
-          `transcript: ${transcriptLen} chars, summary: ${hasSummary ? "yes" : "no"}`
-        );
-        transcribed++;
+      const needsTranscript = !SUMMARY_ONLY && (FORCE || !row.transcription?.trim());
+      const needsSummary = FORCE || !(row.body ?? "").includes("Aircall Summary:");
+      if (!needsTranscript && !needsSummary) {
+        console.log(`${progress} call ${row.aircallCallId} — already complete`);
+        skipped += 1;
+        continue;
       }
-    } catch (err: any) {
-      console.error(`${progress} comm ${row.commId} — ERROR: ${err.message}`);
-      errors++;
-    }
 
-    // Rate limiting delay
-    if (i < toProcess.length - 1) {
-      await sleep(DELAY_MS);
+      const transcript = needsTranscript
+        ? await syncAircallTranscript(row.communicationId, row.aircallCallId)
+        : null;
+      const summary = needsSummary
+        ? await syncAircallSummary(row.communicationId, row.aircallCallId)
+        : null;
+      console.log(
+        `${progress} call ${row.aircallCallId} — transcript: ${transcript ? `${transcript.transcript.length} chars` : "unchanged"}, summary: ${summary ? "stored" : "unchanged"}`,
+      );
+      recovered += 1;
+    } catch (error) {
+      errors += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`${progress} call ${row.aircallCallId} — ERROR: ${message}`);
     }
   }
 
   console.log("\n=== Backfill Complete ===");
-  console.log(`Transcribed: ${transcribed}`);
-  console.log(`Skipped:     ${skipped}`);
-  console.log(`Errors:      ${errors}`);
-  console.log(`Total:       ${toProcess.length}`);
+  console.log(`Recovered: ${recovered}`);
+  console.log(`Skipped:   ${skipped}`);
+  console.log(`Errors:    ${errors}`);
+  console.log(`Total:     ${toProcess.length}`);
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
+main().catch(error => {
+  console.error("Fatal error:", error);
   process.exit(1);
 });

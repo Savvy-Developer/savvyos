@@ -18,7 +18,7 @@ import {
   communications,
 } from "../../drizzle/schema";
 import { eq, desc, count, isNull, and, gte, lte, sql, type SQL } from "drizzle-orm";
-import { processAircallCall, scheduleAircallTranscription, type AircallCallData } from "../aircall";
+import { processAircallCall, type AircallCallData } from "../aircall";
 
 function adminOnly() {
   return protectedProcedure.use(({ ctx, next }) => {
@@ -59,12 +59,15 @@ function asDate(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function extractAiSummary(body: string): string | null {
-  const marker = "AI Summary:";
-  const index = body.lastIndexOf(marker);
-  if (index < 0) return null;
-  const summary = body.slice(index + marker.length).trim();
-  return summary || null;
+function extractCallSummary(body: string): string | null {
+  for (const marker of ["Aircall Summary:", "AI Summary:"]) {
+    const index = body.lastIndexOf(marker);
+    if (index >= 0) {
+      const summary = body.slice(index + marker.length).trim();
+      if (summary) return summary;
+    }
+  }
+  return null;
 }
 
 const aircallLogInput = z.object({
@@ -179,7 +182,7 @@ function serializeCallRow(row: CallLogRow, detail = false) {
     contactName: asString(row.contactName) || null,
     contactEmail: asString(row.contactEmail) || null,
     contactPhone: asString(row.contactPhone) || null,
-    summary: extractAiSummary(body),
+    summary: extractCallSummary(body),
     hasTranscript: Boolean(transcript),
     transcript: detail ? (transcript || null) : undefined,
     activityBody: detail ? (body || null) : undefined,
@@ -339,10 +342,6 @@ export const aircallRouter = router({
 
       const callData = input.rawPayload as unknown as AircallCallData;
       const result = await processAircallCall(callData);
-      if (result.action === "created" && result.communicationId) {
-        scheduleAircallTranscription(result.communicationId, callData);
-      }
-
       return result;
     }),
 });

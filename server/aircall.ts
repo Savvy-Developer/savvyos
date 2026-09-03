@@ -20,8 +20,8 @@ import {
   aircallCalls,
   aircallUnmatchedCalls,
 } from "../drizzle/schema";
-import { asc, eq, or, and, like, inArray, desc, isNull, isNotNull, lt, gte, sql } from "drizzle-orm";
-import { transcribeAndSummarize } from "./aircallTranscribe";
+import { asc, eq, or, and, like, inArray, desc, isNull, lt, gte, sql } from "drizzle-orm";
+import { syncAircallSummary, syncAircallTranscript } from "./aircallConversationIntelligence";
 import { formatUsPhoneDigits } from "@shared/phone";
 
 // ─── Phone Normalisation ──────────────────────────────────────────────────────
@@ -293,44 +293,6 @@ export interface ProcessCallResult {
 type AircallContactMatch = { id: number; firstName: string; lastName: string };
 
 /**
- * Start transcription after a call has been linked to a CRM activity. This is
- * intentionally non-blocking, so webhook ingestion and contact edits never
- * wait on audio downloads or AI processing.
- */
-export function scheduleAircallTranscription(
-  communicationId: number,
-  call: AircallCallData
-): void {
-  if (!call.recording && !call.voicemail) return;
-
-  void (async () => {
-    const db = await getDb();
-    if (!db) return;
-    const rows = await db
-      .select({ audioFileUrl: communications.audioFileUrl })
-      .from(communications)
-      .where(eq(communications.id, communicationId))
-      .limit(1);
-    const audioUrl = rows[0]?.audioFileUrl;
-    if (!audioUrl) return;
-
-    await transcribeAndSummarize({
-      communicationId,
-      aircallCallId: call.id,
-      audioUrl,
-      direction: call.direction,
-      duration: call.duration ?? null,
-      agentName: call.user?.name,
-    });
-  })().catch((error: unknown) => {
-    console.error(
-      `[Aircall] Transcription error for communication ${communicationId}:`,
-      error instanceof Error ? error.message : error
-    );
-  });
-}
-
-/**
  * Aircall can emit call.ended before the recording URL is downloadable. Retry a
  * bounded number of times, then update the existing activity and continue the
  * normal transcription flow instead of leaving an unplayable call permanently.
@@ -373,7 +335,6 @@ function scheduleAircallMediaRetry(
           ? { recordingUrl: recording.url, recordingKey: recording.key }
           : { voicemailUrl: voicemail!.url, voicemailKey: voicemail!.key })
         .where(eq(aircallCalls.communicationId, communicationId));
-      scheduleAircallTranscription(communicationId, call);
     })().catch((error: unknown) => {
       console.error(`[Aircall] Recording retry ${attempt} failed for communication ${communicationId}:`, error);
       if (attempt < maxAttempts) scheduleAircallMediaRetry(communicationId, call, attempt + 1);
@@ -406,7 +367,7 @@ function aircallBasicAuth(): string | null {
 }
 
 const AIRCALL_RECOVERY_REQUEST_SPACING_MS = 1_500;
-const AIRCALL_SUMMARY_RECOVERY_CONCURRENCY = 4;
+const AIRCALL_CONVERSATION_INTELLIGENCE_RECOVERY_CONCURRENCY = 2;
 let lastAircallRecoveryRequestAt = 0;
 
 function wait(ms: number): Promise<void> {
@@ -552,7 +513,6 @@ export async function reconcileRecentAircallRecordings(
           recordingRecoveryLastError: null,
           recordingRecoveryAttempts: sql`${aircallCalls.recordingRecoveryAttempts} + 1`,
         }).where(eq(aircallCalls.id, row.id));
-        scheduleAircallTranscription(row.communicationId, freshCall);
         result.recovered += 1;
       } catch (error) {
         result.errors += 1;
@@ -570,14 +530,14 @@ export async function reconcileRecentAircallRecordings(
   return result;
 }
 
-export type AircallSummaryRecoveryOptions = {
+export type AircallConversationIntelligenceRecoveryOptions = {
   /** Only revisit calls completed within this window. Defaults to 7 days. */
   lookbackDays?: number;
-  /** Maximum number of summaries to recover in one run. Defaults to 100. */
+  /** Maximum number of completed calls to reconcile in one run. Defaults to 100. */
   batchSize?: number;
 };
 
-export type AircallSummaryRecoveryResult = {
+export type AircallConversationIntelligenceRecoveryResult = {
   candidates: number;
   recovered: number;
   skipped: number;
@@ -585,14 +545,13 @@ export type AircallSummaryRecoveryResult = {
 };
 
 /**
- * Recover summaries for recent calls that were successfully transcribed while
- * the summary request was unavailable. The existing orchestrator sees the
- * stored transcript and generates only the missing summary, so no media is
- * downloaded and no transcription work is duplicated.
+ * Recover native Aircall transcripts and summaries when a webhook delivery was
+ * unavailable. This is a bounded safety net; normal calls are stored from their
+ * Conversation Intelligence webhooks without downloading audio or using OpenAI.
  */
-export async function reconcileRecentAircallSummaries(
-  options: AircallSummaryRecoveryOptions = {},
-): Promise<AircallSummaryRecoveryResult> {
+export async function reconcileRecentAircallConversationIntelligence(
+  options: AircallConversationIntelligenceRecoveryOptions = {},
+): Promise<AircallConversationIntelligenceRecoveryResult> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
 
@@ -603,47 +562,42 @@ export async function reconcileRecentAircallSummaries(
     .select({
       communicationId: communications.id,
       aircallCallId: aircallCalls.aircallCallId,
-      direction: aircallCalls.direction,
-      duration: aircallCalls.duration,
-      audioFileUrl: communications.audioFileUrl,
+      transcription: communications.transcription,
+      body: communications.body,
     })
     .from(aircallCalls)
     .innerJoin(communications, eq(communications.id, aircallCalls.communicationId))
     .where(and(
       gte(aircallCalls.startedAt, since),
-      isNotNull(communications.transcription),
-      sql`CHAR_LENGTH(TRIM(${communications.transcription})) >= 20`,
-      sql`COALESCE(${communications.body}, '') NOT LIKE '%AI Summary:%'`,
+      or(
+        isNull(communications.transcription),
+        sql`CHAR_LENGTH(TRIM(COALESCE(${communications.transcription}, ''))) = 0`,
+        sql`COALESCE(${communications.body}, '') NOT LIKE '%Aircall Summary:%'`,
+      ),
     ))
     .orderBy(desc(aircallCalls.startedAt))
     .limit(batchSize);
 
-  const result: AircallSummaryRecoveryResult = {
+  const result: AircallConversationIntelligenceRecoveryResult = {
     candidates: rows.length,
     recovered: 0,
     skipped: 0,
     errors: 0,
   };
 
-  for (let start = 0; start < rows.length; start += AIRCALL_SUMMARY_RECOVERY_CONCURRENCY) {
-    const batch = rows.slice(start, start + AIRCALL_SUMMARY_RECOVERY_CONCURRENCY);
+  for (let start = 0; start < rows.length; start += AIRCALL_CONVERSATION_INTELLIGENCE_RECOVERY_CONCURRENCY) {
+    const batch = rows.slice(start, start + AIRCALL_CONVERSATION_INTELLIGENCE_RECOVERY_CONCURRENCY);
     await Promise.all(batch.map(async row => {
       try {
-        const recovery = await transcribeAndSummarize({
-          communicationId: row.communicationId,
-          aircallCallId: row.aircallCallId,
-          // A transcript is already present, so the orchestrator never downloads
-          // this placeholder URL; it generates only the missing summary.
-          audioUrl: row.audioFileUrl ?? "",
-          direction: row.direction,
-          duration: row.duration,
-        });
-        if (recovery.summary) result.recovered += 1;
-        else result.skipped += 1;
+        const hasTranscript = Boolean(row.transcription?.trim());
+        const hasSummary = (row.body ?? "").includes("Aircall Summary:");
+        if (!hasTranscript) await syncAircallTranscript(row.communicationId, row.aircallCallId);
+        if (!hasSummary) await syncAircallSummary(row.communicationId, row.aircallCallId);
+        result.recovered += 1;
       } catch (error) {
         result.errors += 1;
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`[Aircall] Summary recovery failed for call ${row.aircallCallId}:`, message);
+        console.error(`[Aircall] Conversation intelligence recovery failed for call ${row.aircallCallId}:`, message);
       }
     }));
   }
@@ -885,7 +839,6 @@ export async function rematchUnmatchedAircallCallsForContact(
         await db
           .delete(aircallUnmatchedCalls)
           .where(eq(aircallUnmatchedCalls.id, row.id));
-        if (result.communicationId) scheduleAircallTranscription(result.communicationId, call);
         matched += 1;
       } else if (result.action === "skipped") {
         // Heal a rare stale record if a matched row already exists for this call.
@@ -995,9 +948,6 @@ export async function reconcileUnmatchedAircallCalls(
         await db
           .delete(aircallUnmatchedCalls)
           .where(eq(aircallUnmatchedCalls.id, row.id));
-        if (result.communicationId && !skipMediaDownload) {
-          scheduleAircallTranscription(result.communicationId, call);
-        }
         matched += 1;
       } else if (result.action === "skipped") {
         await db

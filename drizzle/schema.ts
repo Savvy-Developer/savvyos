@@ -5222,6 +5222,31 @@ export type AircallWebhookEvent = typeof aircallWebhookEvents.$inferSelect;
 export type InsertAircallWebhookEvent =
   typeof aircallWebhookEvents.$inferInsert;
 
+// ─── Aircall Live Transcript Events ───────────────────────────────────────────
+// Live utterances are retained separately from the completed transcript so future
+// in-call assistance can use them without exposing provisional text as final CRM data.
+export const aircallLiveTranscriptEvents = mysqlTable(
+  "aircall_live_transcript_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventKey: varchar("eventKey", { length: 160 }).notNull(),
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    payload: json("payload").notNull(),
+    receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("aircall_live_transcript_events_event_key_unique").on(table.eventKey),
+    index("aircall_live_transcript_events_call_received_idx").on(
+      table.aircallCallId,
+      table.receivedAt
+    ),
+  ]
+);
+export type AircallLiveTranscriptEvent =
+  typeof aircallLiveTranscriptEvents.$inferSelect;
+export type InsertAircallLiveTranscriptEvent =
+  typeof aircallLiveTranscriptEvents.$inferInsert;
+
 // Singleton state retained for webhook self-healing, verification and alerting.
 export const aircallIntegrationState = mysqlTable("aircall_integration_state", {
   id: int("id").primaryKey(),
