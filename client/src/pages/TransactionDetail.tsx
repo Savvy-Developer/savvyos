@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import PageHeader from "@/components/PageHeader";
 import { TransactionStatusBadge, PriorityBadge } from "@/components/StatusBadge";
+import { PayoutStatusControl } from "@/components/PayoutStatusControl";
 import { toast } from "sonner";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Plus, DollarSign, Edit2, Link2, Info, Upload, FileText, Trash2, Send, MessageSquare, Pencil, Search, Loader2, Download, Eye, MoreHorizontal, History, TrendingUp, Home, Building2, Calendar, ArrowRight, RefreshCw, Users, X, FolderOpen } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -418,8 +419,8 @@ export default function TransactionDetail() {
     onError: (e) => toast.error(e.message),
   });
 
-  const markPaid = trpc.transactions.updatePayout.useMutation({
-    onSuccess: () => { toast.success("Marked as paid"); refetchPayouts(); },
+  const setPayoutStatus = trpc.transactions.setPayoutStatus.useMutation({
+    onSuccess: (data) => { toast.success(data.overrideRecorded ? "Settled payout status overridden" : data.isLocked ? "Payout settled and locked" : "Payout status updated"); refetchPayouts(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -1385,13 +1386,7 @@ export default function TransactionDetail() {
                         <div className="flex items-center gap-3">
                           <span className="text-lg font-bold text-foreground">{Number(payout.percentage).toFixed(1)}%</span>
                           {payout.amount && <span className="text-sm text-emerald-700 font-semibold">${Number(payout.amount).toLocaleString()}</span>}
-                          {payout.isPaid ? (
-                            <span className="text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Paid</span>
-                          ) : (
-                            <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => markPaid.mutate({ id: payout.id, transactionId: txId, data: { isPaid: true, paidDate: new Date().toISOString() } })}>
-                              Mark Paid
-                            </Button>
-                          )}
+                          <PayoutStatusControl status={payout.status} isPaid={payout.isPaid} canEdit={isAdmin} canOverrideSettled={Boolean(payouts?.canAdministerSettledPayouts)} isPending={setPayoutStatus.isPending} onChange={(change) => setPayoutStatus.mutate({ id: payout.id, transactionId: txId, ...change })} />
                           {isAdmin && (
                             <Button
                               size="sm"

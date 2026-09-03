@@ -4,6 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PayoutStatusBadge } from "@/components/PayoutStatusControl";
 import PageHeader from "@/components/PageHeader";
 import { DollarSign, TrendingUp, Clock, Users, CheckCircle2 } from "lucide-react";
 import { useLocation } from "wouter";
@@ -211,11 +212,7 @@ export default function GroupLeaderCommissionsPage() {
                         <td className="py-3 px-4 text-right">{row.payout.percentage}%</td>
                         <td className="py-3 px-4 text-right font-semibold">${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td className="py-3 px-4 text-center">
-                          {row.payout.isPaid ? (
-                            <Badge variant="default" className="bg-emerald-600 text-white text-xs">Paid</Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-xs">Unpaid</Badge>
-                          )}
+                          <PayoutStatusBadge status={row.payout.status} isPaid={row.payout.isPaid} />
                         </td>
                         <td className="py-3 px-4 text-xs text-muted-foreground">
                           {row.payout.paidDate

@@ -25,6 +25,9 @@ import { toast } from "sonner";
 import { DollarSign, CheckCircle2, Clock, TrendingUp, ArrowUpAZ, ArrowDownAZ, Search } from "lucide-react";
 import { safeFormat } from "@/lib/safeFormat";
 import { usePersistentState } from "@/hooks/usePersistentState";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { PayoutStatusBadge, PayoutStatusControl } from "@/components/PayoutStatusControl";
+import { PAYOUT_STATUS_LABELS, resolvePayoutStatus, type PayoutStatus } from "@shared/payoutStatus";
 import {
   AggregateMode,
   AggregateModeSelector,
@@ -60,6 +63,7 @@ type PayoutRow = {
     percentage: string;
     amount: string | null;
     expMemoNumber: string | null;
+    status: PayoutStatus;
     isPaid: boolean;
     paidDate: Date | null;
     notes: string | null;
@@ -110,7 +114,10 @@ function formatAggregatePercentage(value: number) {
 export default function PayoutReportPage() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
-  const [paidFilter, setPaidFilter] = useState<"all" | "paid" | "unpaid">("all");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { data: myPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const [statusFilter, setStatusFilter] = useState<"all" | PayoutStatus>("all");
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [payeeTypeFilter, setPayeeTypeFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -124,26 +131,26 @@ export default function PayoutReportPage() {
   const { data: agentList = [] } = trpc.users.list.useQuery({ role: "agent" });
 
   const queryInput = useMemo(() => ({
-    ...(paidFilter !== "all" ? { paid: paidFilter === "paid" } : {}),
+    ...(statusFilter !== "all" ? { status: statusFilter } : {}),
     ...(agentFilter !== "all" ? { agentId: Number(agentFilter) } : {}),
     ...(payeeTypeFilter !== "all" ? { payeeType: payeeTypeFilter } : {}),
     ...(memoSearch.trim() ? { search: memoSearch.trim() } : {}),
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
     sortOrder,
-  }), [paidFilter, agentFilter, payeeTypeFilter, memoSearch, dateFrom, dateTo, sortOrder]);
+  }), [statusFilter, agentFilter, payeeTypeFilter, memoSearch, dateFrom, dateTo, sortOrder]);
 
   const { data: payouts = [], isLoading } = trpc.payouts.listAll.useQuery(queryInput);
 
-  const markPaidMutation = trpc.payouts.markPaid.useMutation({
-    onSuccess: () => {
-      toast.success("Payout status updated");
+  const setStatusMutation = trpc.payouts.setStatus.useMutation({
+    onSuccess: (data) => {
+      toast.success(data.overrideRecorded ? "Settled payout status overridden" : data.isLocked ? "Payout settled and locked" : "Payout status updated");
       utils.payouts.listAll.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", memoSearch.trim(), dateFrom, dateTo, paidFilter !== "all"].filter(Boolean).length;
+  const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", memoSearch.trim(), dateFrom, dateTo, statusFilter !== "all"].filter(Boolean).length;
 
   const rows = payouts as PayoutRow[];
   const payoutTotalPages = Math.max(1, Math.ceil(rows.length / payoutLimit));
@@ -154,6 +161,7 @@ export default function PayoutReportPage() {
   const unpaidAmount = totalAmount - paidAmount;
   const paidCount = rows.filter((r) => r.payout.isPaid).length;
   const unpaidCount = rows.filter((r) => !r.payout.isPaid).length;
+  const statusCount = (status: PayoutStatus) => rows.filter((r) => resolvePayoutStatus(r.payout.status, r.payout.isPaid) === status).length;
 
   return (
     <div className="space-y-6">
@@ -195,15 +203,13 @@ export default function PayoutReportPage() {
           >
             {sortOrder === "asc" ? <><ArrowUpAZ className="h-4 w-4" /><span className="hidden sm:inline">A → Z</span></> : <><ArrowDownAZ className="h-4 w-4" /><span className="hidden sm:inline">Z → A</span></>}
           </Button>
-          {/* Paid/Unpaid */}
-          <Select value={paidFilter} onValueChange={(v) => { setPaidFilter(v as "all" | "paid" | "unpaid"); setPayoutPage(1); }}>
+          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as "all" | PayoutStatus); setPayoutPage(1); }}>
             <SelectTrigger className="w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Payouts</SelectItem>
-              <SelectItem value="unpaid">Unpaid Only</SelectItem>
-              <SelectItem value="paid">Paid Only</SelectItem>
+              {(Object.entries(PAYOUT_STATUS_LABELS) as Array<[PayoutStatus, string]>).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
             </SelectContent>
           </Select>
 
@@ -254,7 +260,7 @@ export default function PayoutReportPage() {
               variant="ghost"
               size="sm"
               className="text-xs h-9"
-              onClick={() => { setPaidFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setMemoSearch(""); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
+              onClick={() => { setStatusFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setMemoSearch(""); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
             >
               Clear filters
             </Button>
@@ -285,9 +291,9 @@ export default function PayoutReportPage() {
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Paid Out</p>
+                <p className="text-xs text-muted-foreground">Paid / Settled</p>
                 <p className="text-xl font-bold text-green-700">{fmt(paidAmount.toString())}</p>
-                <p className="text-xs text-muted-foreground">{paidCount} items</p>
+                <p className="text-xs text-muted-foreground">{paidCount} items · {statusCount("paid")} paid / {statusCount("settled")} settled</p>
               </div>
             </div>
           </CardContent>
@@ -299,9 +305,9 @@ export default function PayoutReportPage() {
                 <Clock className="h-4 w-4 text-amber-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Pending</p>
+                <p className="text-xs text-muted-foreground">Unreviewed / Reviewed</p>
                 <p className="text-xl font-bold text-amber-700">{fmt(unpaidAmount.toString())}</p>
-                <p className="text-xs text-muted-foreground">{unpaidCount} items</p>
+                <p className="text-xs text-muted-foreground">{unpaidCount} items · {statusCount("unreviewed")} unreviewed / {statusCount("reviewed")} reviewed</p>
               </div>
             </div>
           </CardContent>
@@ -412,9 +418,7 @@ export default function PayoutReportPage() {
                     {fmt(r.payout.amount)}
                   </TableCell>
                   <TableCell>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.payout.isPaid ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
-                      {r.payout.isPaid ? "Paid" : "Not Paid"}
-                    </span>
+                    <PayoutStatusBadge status={r.payout.status} isPaid={r.payout.isPaid} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {r.payout.paidDate ? safeFormat(r.payout.paidDate, "MMM d, yyyy") : "—"}
@@ -422,18 +426,7 @@ export default function PayoutReportPage() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
 
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs h-7"
-                        onClick={() => markPaidMutation.mutate({
-                          id: r.payout.id,
-                          paid: !r.payout.isPaid,
-                        })}
-                        disabled={markPaidMutation.isPending}
-                      >
-                        {r.payout.isPaid ? "Mark Unpaid" : "Mark Paid"}
-                      </Button>
+                      <PayoutStatusControl status={r.payout.status} isPaid={r.payout.isPaid} canEdit={Boolean(isAdmin)} canOverrideSettled={Boolean(myPermissions?.canAdministerTransactions)} isPending={setStatusMutation.isPending} onChange={(change) => setStatusMutation.mutate({ id: r.payout.id, transactionId: r.payout.transactionId, ...change })} />
                     </div>
                   </TableCell>
                 </TableRow>

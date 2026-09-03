@@ -24,6 +24,7 @@ export const TRANSACTION_EXPORT_COLUMNS = [
   "Closing Date",
   "Lead Source Category",
   "Lead Source",
+  "Payee Status Summary",
   "Payout Integrity Flag",
   "Payout Integrity Note",
   "Termination Reason",
@@ -37,6 +38,7 @@ export const TRANSACTION_EXPORT_COLUMNS = [
 type ExportTransactionRow = {
   transaction: Record<string, any>;
   savvyNet: string | number | null;
+  payoutStatusSummary?: string | null;
   agent: Record<string, any> | null;
   contact: Record<string, any> | null;
   property: Record<string, any> | null;
@@ -100,6 +102,7 @@ export function buildTransactionCsv(rows: ExportTransactionRow[]) {
       formatDate(tx.closingDate),
       row.parentLeadSource?.name,
       row.leadSource?.name,
+      row.payoutStatusSummary,
       tx.payoutIntegrityFlag ? "Yes" : "No",
       tx.payoutIntegrityNote,
       tx.terminationReason,

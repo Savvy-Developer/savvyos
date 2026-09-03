@@ -1174,6 +1174,24 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
     .select({
       transaction: transactions,
       savvyNet: sql<string>`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), 0)`,
+      payoutStatusSummary: sql<string | null>`(
+        SELECT GROUP_CONCAT(
+          CONCAT(
+            COALESCE(NULLIF(pi.payeeName, ''), REPLACE(pi.payeeType, '_', ' ')),
+            ': ',
+            CASE pi.status
+              WHEN 'unreviewed' THEN 'Unreviewed'
+              WHEN 'reviewed' THEN 'Reviewed'
+              WHEN 'paid' THEN 'Paid'
+              WHEN 'settled' THEN 'Settled'
+              ELSE pi.status
+            END
+          )
+          ORDER BY pi.id SEPARATOR ' | '
+        )
+        FROM transaction_payout_items pi
+        WHERE pi.transactionId = ${transactions.id}
+      )`,
       agent: users,
       contact: contacts,
       property: properties,
@@ -1304,6 +1322,12 @@ export async function upsertAutoPayoutItem(data: typeof transactionPayoutItems.$
     )
     .limit(1);
   if (existing) {
+    const [existingPayout] = await db
+      .select({ status: transactionPayoutItems.status })
+      .from(transactionPayoutItems)
+      .where(eq(transactionPayoutItems.id, existing.id))
+      .limit(1);
+    if (existingPayout?.status === "settled") return existing.id;
     // Update the existing row instead of inserting a duplicate
     await db
       .update(transactionPayoutItems)
@@ -1889,11 +1913,14 @@ export async function getAgentGroupLeadership(userId: number) {
 }
 
 // ─── All Payout Items (admin report) ─────────────────────────────────────────
-export async function getAllPayoutItems(filters?: { agentId?: number; payeeUserId?: number; paid?: boolean; payeeType?: string; search?: string; dateFrom?: Date; dateTo?: Date; sortOrder?: "asc" | "desc" }) {
+export async function getAllPayoutItems(filters?: { agentId?: number; payeeUserId?: number; paid?: boolean; status?: "unreviewed" | "reviewed" | "paid" | "settled"; payeeType?: string; search?: string; dateFrom?: Date; dateTo?: Date; sortOrder?: "asc" | "desc" }) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
-  if (filters?.paid !== undefined) conditions.push(eq(transactionPayoutItems.isPaid, filters.paid));
+  if (filters?.status !== undefined) conditions.push(eq(transactionPayoutItems.status, filters.status));
+  else if (filters?.paid !== undefined) {
+    conditions.push(inArray(transactionPayoutItems.status, filters.paid ? ["paid", "settled"] : ["unreviewed", "reviewed"]));
+  }
   if (filters?.payeeUserId !== undefined) conditions.push(eq(transactionPayoutItems.payeeUserId, filters.payeeUserId));
   if (filters?.payeeType !== undefined) conditions.push(eq(transactionPayoutItems.payeeType, filters.payeeType as any));
   if (filters?.agentId !== undefined) conditions.push(eq(transactions.agentId, filters.agentId));

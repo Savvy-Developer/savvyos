@@ -32,6 +32,7 @@ describe("transaction export CSV", () => {
         updatedAt: new Date("2026-02-03T00:00:00.000Z"),
       },
       agent: { name: "Alex Agent", email: "alex@example.com" },
+      payoutStatusSummary: "Alex Agent: Paid | Savvy STR Agents: Settled",
       contact: { firstName: "Jamie", lastName: "Buyer", email: "jamie@example.com", phone: "555-0100" },
       property: { address: "123 Main St", city: "Asheville", state: "NC", zip: "28801" },
       leadSource: { id: 2, name: "Partner", parentId: 1 },
@@ -45,6 +46,7 @@ describe("transaction export CSV", () => {
     expect(lines[1]).toContain('"3.00"');
     expect(lines[1]).toContain('"Referral"');
     expect(lines[1]).toContain('"Partner"');
+    expect(lines[1]).toContain('"Alex Agent: Paid | Savvy STR Agents: Settled"');
   });
 });
 

@@ -763,21 +763,23 @@ export async function getCommissionSummaryReport(opts?: {
       payeeType: transactionPayoutItems.payeeType,
       totalAmount: sql<string>`COALESCE(SUM(${transactionPayoutItems.amount}), 0)`,
       count: sql<number>`COUNT(*)`,
-      unpaidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.isPaid} = 0 THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
-      paidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.isPaid} = 1 THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
+      unpaidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.status} IN ('unreviewed', 'reviewed') THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
+      paidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.status} IN ('paid', 'settled') THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
     })
     .from(transactionPayoutItems)
     .innerJoin(transactions, eq(transactionPayoutItems.transactionId, transactions.id))
     .where(txWhere)
     .groupBy(transactionPayoutItems.payeeType);
 
+  const payoutsByStatus = await db.select({ status: transactionPayoutItems.status, totalAmount: sql<string>`COALESCE(SUM(${transactionPayoutItems.amount}), 0)`, count: sql<number>`COUNT(*)` }).from(transactionPayoutItems).innerJoin(transactions, eq(transactionPayoutItems.transactionId, transactions.id)).where(txWhere).groupBy(transactionPayoutItems.status);
+
   const agentPayouts = await db
     .select({
       agentId: transactionPayoutItems.payeeUserId,
       agentName: users.name,
       totalAmount: sql<string>`COALESCE(SUM(${transactionPayoutItems.amount}), 0)`,
-      unpaidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.isPaid} = 0 THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
-      paidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.isPaid} = 1 THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
+      unpaidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.status} IN ('unreviewed', 'reviewed') THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
+      paidAmount: sql<string>`COALESCE(SUM(CASE WHEN ${transactionPayoutItems.status} IN ('paid', 'settled') THEN ${transactionPayoutItems.amount} ELSE 0 END), 0)`,
       count: sql<number>`COUNT(*)`,
     })
     .from(transactionPayoutItems)
@@ -806,6 +808,7 @@ export async function getCommissionSummaryReport(opts?: {
       paidAmount: Number(p.paidAmount),
       count: Number(p.count),
     })),
+    payoutsByStatus: payoutsByStatus.map((p) => ({ status: p.status, totalAmount: Number(p.totalAmount), count: Number(p.count) })),
     agentPayouts: agentPayouts.map((a) => ({
       agentId: a.agentId,
       agentName: a.agentName ?? "Unknown",

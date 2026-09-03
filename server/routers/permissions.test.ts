@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../db";
-import { permissionsRouter } from "./permissions";
+import { ADMIN_NAV_PERMISSIONS, permissionsRouter } from "./permissions";
 
 vi.mock("../db", () => ({
   getDb: vi.fn(),
@@ -109,5 +109,11 @@ describe("Super Permissions active-admin eligibility", () => {
 
     rows[0].adminStatus = "active";
     await expect(caller.getAllAdminsPermissions()).resolves.toHaveLength(1);
+  });
+});
+
+describe("Transactions Admin permission", () => {
+  it("registers the settled-payout override toggle in its own Super Permissions category", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canAdministerTransactions", label: "Transactions Admin", group: "Transactions Admin" });
   });
 });

@@ -32,9 +32,11 @@ import { syncIsaOutcomeAttribution } from "../isaOutcomeAttribution";
 import { sendReviewRequestsForClosedTransaction } from "./reviews";
 import { getDb } from "../db";
 import { isValidExpMemoNumber, normalizeExpMemoNumber } from "../expMemoNumber";
+import { canAdministerSettledPayouts, setPayoutStatus } from "../payoutStatusWorkflow";
+import { PAYOUT_STATUSES, resolvePayoutStatus } from "@shared/payoutStatus";
 import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
-import { eq, and, sql, desc, aliasedTable, or, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, aliasedTable, or, inArray, ne } from "drizzle-orm";
 
 const wholePercentageSchema = z.coerce
   .number({ error: "Percentage must be a number from 0 to 100." })
@@ -609,10 +611,10 @@ export const transactionsRouter = router({
   // ─── Payout Items ─────────────────────────────────────────────────────────
   getPayouts: protectedProcedure
     .input(z.object({ transactionId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const items = await getPayoutItems(input.transactionId);
       const { valid, total } = await validatePayoutIntegrity(input.transactionId);
-      return { items, valid, total };
+      return { items, valid, total, canAdministerSettledPayouts: await canAdministerSettledPayouts(ctx.user) };
     }),
 
   addPayout: protectedProcedure
@@ -634,8 +636,10 @@ export const transactionsRouter = router({
       const expMemoNumber = validateExpMemoNumber(input.expMemoNumber);
       const id = await createPayoutItem({
         ...input,
+        status: "unreviewed",
+        isPaid: false,
         expMemoNumber,
-        paidDate: input.paidDate ? new Date(input.paidDate) : null,
+        paidDate: null,
       } as any);
       const db = await getDb();
       const duplicateMemoExists = !!expMemoNumber && !!db && (await db
@@ -669,6 +673,17 @@ export const transactionsRouter = router({
       return { id, valid, total, duplicateMemoExists };
     }),
 
+  setPayoutStatus: protectedProcedure
+    .input(z.object({
+      id: z.number(), transactionId: z.number(), status: z.enum(PAYOUT_STATUSES),
+      confirmSettlement: z.boolean().optional(), overrideSettled: z.boolean().optional(),
+      overrideReason: z.string().trim().max(1000).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => setPayoutStatus(ctx.user, {
+      payoutItemId: input.id, transactionId: input.transactionId, status: input.status,
+      confirmSettlement: input.confirmSettlement, overrideSettled: input.overrideSettled, overrideReason: input.overrideReason,
+    })),
+
   updatePayout: protectedProcedure
     .input(z.object({
       id: z.number(),
@@ -691,13 +706,16 @@ export const transactionsRouter = router({
       if (!oldPayout || oldPayout.transactionId !== input.transactionId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Payout item not found for this transaction." });
       }
-      // Block edits on paid payout items (only allow marking as unpaid)
+      if (input.data.isPaid !== undefined) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use the payout status control to change payment status." });
+      }
+      // Preserve the existing edit restriction for Paid and Settled payout items.
       if (oldPayout?.isPaid) {
         const keys = Object.keys(input.data).filter(k => input.data[k as keyof typeof input.data] !== undefined);
-        const isOnlyMarkingUnpaid = keys.length === 1 && input.data.isPaid === false;
         const isOnlyMemoUpdate = keys.length === 1 && input.data.expMemoNumber !== undefined;
-        if (!isOnlyMarkingUnpaid && !isOnlyMemoUpdate) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Paid payout items cannot be edited. Mark as unpaid first to make changes." });
+        if (!isOnlyMemoUpdate) {
+          const status = resolvePayoutStatus(oldPayout.status, oldPayout.isPaid);
+          throw new TRPCError({ code: "FORBIDDEN", message: `${status === "settled" ? "Settled" : "Paid"} payout items cannot be edited.` });
         }
       }
       const { paidDate, expMemoNumber: rawExpMemoNumber, ...rest } = input.data;
@@ -721,9 +739,6 @@ export const transactionsRouter = router({
         }
         if (input.data.amount !== undefined && input.data.amount !== oldPayout.amount) {
           changes.push({ field: "Amount", from: `$${oldPayout.amount ?? 0}`, to: `$${input.data.amount ?? 0}` });
-        }
-        if (input.data.isPaid !== undefined && input.data.isPaid !== oldPayout.isPaid) {
-          changes.push({ field: "Paid Status", from: oldPayout.isPaid ? "Paid" : "Unpaid", to: input.data.isPaid ? "Paid" : "Unpaid" });
         }
         if (input.data.notes !== undefined && input.data.notes !== oldPayout.notes) {
           changes.push({ field: "Notes", from: oldPayout.notes ?? "(none)", to: input.data.notes ?? "(none)" });
@@ -913,7 +928,7 @@ export const transactionsRouter = router({
       return { count: Number(row?.count ?? 0) };
     }),
 
-  // Admin: count of unpaid payout items for nav badge
+  // Admin: count of payout items still moving through the payment workflow.
   unpaidPayoutsCount: protectedProcedure
     .query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") return { count: 0 };
@@ -922,7 +937,7 @@ export const transactionsRouter = router({
       const [row] = await db
         .select({ count: sql<number>`count(*)` })
         .from(transactionPayoutItems)
-        .where(eq(transactionPayoutItems.isPaid, false));
+        .where(inArray(transactionPayoutItems.status, ["unreviewed", "reviewed"]));
       return { count: Number(row?.count ?? 0) };
     }),
 
@@ -1106,14 +1121,26 @@ export const transactionsRouter = router({
         transaction_updated: "Transaction details updated",
         transaction_closed: "Transaction closed",
         transaction_terminated: "Transaction terminated",
+        payout_status_changed: "Payout status changed",
+        payout_status_settled: "Payout settled and locked",
+        payout_status_override: "Settled payout status overridden",
       };
       for (const r of actRows) {
+        const details = (r.log.details ?? {}) as Record<string, unknown>;
+        const isPayoutStatusEvent = ["payout_status_changed", "payout_status_settled", "payout_status_override"].includes(r.log.action);
+        const previousStatus = typeof details.previousStatus === "string" ? details.previousStatus : null;
+        const newStatus = typeof details.newStatus === "string" ? details.newStatus : null;
+        const payee = typeof details.payee === "string" ? details.payee : null;
+        const reason = typeof details.reason === "string" ? details.reason : null;
         events.push({
           id: `activity-${r.log.id}`,
           type: "activity",
           date: r.log.createdAt,
           title: ACTION_LABELS[r.log.action] ?? r.log.action.replace(/_/g, " "),
-          subtitle: (r.user as any)?.name ? `By ${(r.user as any).name}` : "",
+          subtitle: isPayoutStatusEvent
+            ? `${payee ?? "Payout"}${previousStatus && newStatus ? `: ${previousStatus} → ${newStatus}` : ""}${(r.user as any)?.name ? ` · By ${(r.user as any).name}` : ""}`
+            : (r.user as any)?.name ? `By ${(r.user as any).name}` : "",
+          meta: isPayoutStatusEvent ? { payee, previousStatus, newStatus, reason } : undefined,
         });
       }
 
@@ -1137,14 +1164,14 @@ export const transactionsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      // Delete ALL auto-generated payout items (including referral/lead source rows).
-      // Override rows (isOverride=true) are preserved so manual admin adjustments survive recalc.
+      // Settled rows are financial records and must survive any recalculation.
       await db
         .delete(transactionPayoutItems)
         .where(
           and(
             eq(transactionPayoutItems.transactionId, input.id),
-            eq(transactionPayoutItems.isAutoGenerated, true)
+            eq(transactionPayoutItems.isAutoGenerated, true),
+            ne(transactionPayoutItems.status, "settled")
           )
         );
 

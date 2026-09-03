@@ -871,6 +871,9 @@ export const transactionPayoutItems = mysqlTable(
       .default("percentage")
       .notNull(),
     amount: decimal("amount", { precision: 12, scale: 2 }),
+    status: mysqlEnum("status", ["unreviewed", "reviewed", "paid", "settled"])
+      .default("unreviewed")
+      .notNull(),
     isPaid: boolean("isPaid").default(false).notNull(),
     paidDate: timestamp("paidDate"),
     // eXp assigns a memo number to each individual payout side, not the transaction as a whole.
@@ -893,6 +896,7 @@ export const transactionPayoutItems = mysqlTable(
     expMemoNumberIdx: index("transaction_payout_items_exp_memo_number_idx").on(
       table.expMemoNumber
     ),
+    statusIdx: index("transaction_payout_items_status_idx").on(table.status),
   })
 );
 
@@ -4488,6 +4492,9 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewHotLeads: boolean("canViewHotLeads").default(true).notNull(),
   // Transactions
   canViewTransactions: boolean("canViewTransactions").default(true).notNull(),
+  canAdministerTransactions: boolean("canAdministerTransactions")
+    .default(false)
+    .notNull(),
   canViewTransactionExports: boolean("canViewTransactionExports")
     .default(true)
     .notNull(),

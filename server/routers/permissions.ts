@@ -76,6 +76,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canUpdateReferralPayments",     label: "Update Referral Payments",   group: "Transactions" },
   { key: "canManageReferralAgreements",   label: "Manage Agreements",          group: "Transactions" },
   { key: "canEditHistoricalReferrals",    label: "Edit Historical Referrals",  group: "Transactions" },
+  { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions Admin" },
   // Agent Success Team
   { key: "canViewReviews",                label: "Reviews",                    group: "Agent Success Team" },
   { key: "canViewCoachingHub",            label: "Coaching Hub",               group: "Agent Success Team" },
@@ -344,6 +345,7 @@ export const permissionsRouter = router({
             "canPublishLandingPages",
             "canArchiveLandingPages",
             "canViewShortLinks",
+            "canAdministerTransactions",
           ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
             perms[p.key] = !defaultOff.has(p.key);

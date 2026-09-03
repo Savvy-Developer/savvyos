@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
 import { TransactionStatusBadge } from "@/components/StatusBadge";
+import { PayoutStatusBadge } from "@/components/PayoutStatusControl";
 import { AlertTriangle, CheckCircle2, DollarSign, TrendingUp, Clock, Wallet, Users } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
@@ -279,22 +280,7 @@ function AgentCommissionView({ hideHeader }: { hideHeader?: boolean } = {}) {
                           {amount != null ? `$${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
                         </td>
                         <td className="py-3 px-4">
-                          {payout.isPaid ? (
-                            <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Paid
-                              {payout.paidDate && (
-                                <span className="text-muted-foreground font-normal ml-1">
-                                  {safeFormat(payout.paidDate, "MMM d")}
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-                              <Clock className="h-3.5 w-3.5" />
-                              Pending
-                            </span>
-                          )}
+                          <PayoutStatusBadge status={payout.status} isPaid={payout.isPaid} />
                         </td>
                         <td className="py-3 px-4">
                           {transaction?.id && (
@@ -664,9 +650,7 @@ function GroupLeaderTab() {
                     {payout.amount != null ? `$${Number(payout.amount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
                   </td>
                   <td className="py-3 px-4">
-                    {payout.isPaid
-                      ? <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium"><CheckCircle2 className="h-3.5 w-3.5" />Paid</span>
-                      : <span className="flex items-center gap-1 text-xs text-amber-600 font-medium"><Clock className="h-3.5 w-3.5" />Pending</span>}
+                    <PayoutStatusBadge status={payout.status} isPaid={payout.isPaid} />
                   </td>
                   <td className="py-3 px-4">
                     {(transaction as any)?.id && (
