@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,9 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import RichEmailEditor from "@/components/RichEmailEditor";
 import EmailMessagePreviewDialog from "@/components/EmailMessagePreviewDialog";
 import SmartPlanTestSendDialog from "@/components/SmartPlanTestSendDialog";
-import LeadSourceTriggerPicker, {
-  formatLeadSourcePath,
-} from "@/components/LeadSourceTriggerPicker";
+import OneTimeLeadSourceAudiencePicker from "@/components/OneTimeLeadSourceAudiencePicker";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -38,7 +35,6 @@ import {
   MessageSquare,
   Send,
   Users,
-  X,
 } from "lucide-react";
 
 type TriggerType =
@@ -189,9 +185,6 @@ export default function OneTimeSmartPlanSendDialog({
     name: row.ls?.name ?? row.name,
     parentId: row.ls?.parentId ?? row.parentId ?? null,
   })) as LeadSource[];
-  const selectedSources = triggerLeadSourceIds
-    .map(id => leadSources.find(source => source.id === id))
-    .filter(Boolean) as LeadSource[];
   const scheduledAt =
     scheduleMode === "scheduled" && scheduledAtInput
       ? new Date(scheduledAtInput)
@@ -386,36 +379,14 @@ export default function OneTimeSmartPlanSendDialog({
               {isLeadSourceTrigger && (
                 <div className="space-y-2 pt-1">
                   <Label>Lead sources</Label>
-                  <LeadSourceTriggerPicker
+                  <OneTimeLeadSourceAudiencePicker
                     sources={leadSources}
                     selectedIds={triggerLeadSourceIds}
-                    onAdd={id => {
-                      setTriggerLeadSourceIds(current =>
-                        current.includes(id) ? current : [...current, id]
-                      );
+                    onSelectedIdsChange={ids => {
+                      setTriggerLeadSourceIds(ids);
                       resetReview();
                     }}
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {selectedSources.map(source => (
-                      <Badge key={source.id} variant="secondary" className="gap-1.5 py-1">
-                        {formatLeadSourcePath(source, leadSources)}
-                        <button
-                          type="button"
-                          aria-label={`Remove ${formatLeadSourcePath(source, leadSources)}`}
-                          className="ml-0.5 text-muted-foreground hover:text-destructive"
-                          onClick={() => {
-                            setTriggerLeadSourceIds(current =>
-                              current.filter(id => id !== source.id)
-                            );
-                            resetReview();
-                          }}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
                 </div>
               )}
               {dateAddedFilterAvailable && (
