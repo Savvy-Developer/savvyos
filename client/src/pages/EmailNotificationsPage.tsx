@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus } from "lucide-react";
+import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus, UsersRound } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
+type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Active Admins + ISAs + Agents" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
 type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
 type TriggerType = "Event" | "Scheduled";
 
@@ -81,6 +81,8 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "transaction_review_received", name: "Transaction Review Received", description: "Sent to the transaction agent and, if assigned, that agent's coach of record.", trigger: "A client submits a transaction review", triggerType: "Event", recipient: "Assigned Agent + Coach", category: "Transactions" },
   // ── Reporting and coaching ───────────────────────────────────────────────
   { id: "weekly_lead_report", name: "Weekly Lead Report", description: "Sent only to the designated leadership distribution list.", trigger: "Weekly scheduled report", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
+  { id: "weekly_webinar_report", name: "Upcoming Webinars Report", description: "Sent to every active administrator, ISA, and agent with an email address.", trigger: "Monday scheduled report", triggerType: "Scheduled", recipient: "Active Admins + ISAs + Agents", category: "Reporting" },
+  { id: "weekly_referral_report", name: "Weekly Referral Report", description: "Sent only to the designated referral leadership distribution list.", trigger: "Monday scheduled report", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
   { id: "daily_agent_report", name: "Daily Agent Report", description: "Each active full-user agent receives only their own live priorities, leads, and tasks.", trigger: "Daily scheduled report", triggerType: "Scheduled", recipient: "Full-User Agent", category: "Reporting" },
   { id: "daily_isa_activities", name: "Daily ISA Activities Report", description: "Sent only to the designated ISA leadership distribution list.", trigger: "Daily scheduled report", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
   { id: "monthly_agent_renewals", name: "Monthly Agent Renewals", description: "Sent to Phil, Elana, Dyl, and Tyler with all overdue renewals plus renewals due in the next 60 days.", trigger: "1st of each month at 9:00 AM Eastern", triggerType: "Scheduled", recipient: "Designated Leadership", category: "Reporting" },
@@ -125,6 +127,11 @@ const CATEGORY_COLORS: Record<Category, string> = {
 };
 
 const RECIPIENT_COLORS: Record<Recipient, string> = {
+  "Agent": "bg-slate-100 text-slate-700",
+  "Admin": "bg-red-100 text-red-700",
+  "ISA": "bg-violet-100 text-violet-700",
+  "Agent + Admin": "bg-orange-100 text-orange-700",
+  "Agent + Client": "bg-cyan-100 text-cyan-700",
   "Assigned Agent": "bg-slate-100 text-slate-700",
   "Assigned User": "bg-slate-100 text-slate-700",
   "Transaction Payee": "bg-slate-100 text-slate-700",
@@ -135,6 +142,7 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Client + Assigned Agent": "bg-cyan-100 text-cyan-700",
   "Assigned Agent + Optional Client Copy": "bg-cyan-100 text-cyan-700",
   "Active Admins": "bg-red-100 text-red-700",
+  "Active Admins + ISAs + Agents": "bg-indigo-100 text-indigo-700",
   "Designated Leadership": "bg-violet-100 text-violet-700",
   "Full-User Agent": "bg-slate-100 text-slate-700",
   "Coached Agent": "bg-slate-100 text-slate-700",
@@ -231,7 +239,7 @@ export default function EmailNotificationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Email Notifications"
-        subtitle="Review each automated email's built-in audience and manage whether SavvyOS sends it"
+        subtitle="Review each automated email's recipient audience and manage whether SavvyOS sends it"
         actions={
           <Button onClick={() => setBuilderOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -362,14 +370,15 @@ export default function EmailNotificationsPage() {
                         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border-0 ${CATEGORY_COLORS[n.category]}`}>
                           {n.category}
                         </Badge>
-                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border-0 ${RECIPIENT_COLORS[n.recipient]}`}>
-                          → {n.recipient}
-                        </Badge>
                         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border-0 ${n.triggerType === "Scheduled" ? "bg-purple-50 text-purple-600" : "bg-amber-50 text-amber-600"}`}>
                           {n.triggerType}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-1.5">{n.description}</p>
+                      <div className={`mb-1.5 flex items-start gap-2 rounded-md px-2.5 py-2 text-xs ${RECIPIENT_COLORS[n.recipient]}`}>
+                        <UsersRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span><span className="font-semibold">Recipients:</span> {n.recipient}</span>
+                      </div>
                       <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
                         <Zap className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/60" />
                         <span><span className="font-medium text-foreground/70">Trigger:</span> {n.trigger}</span>
