@@ -320,7 +320,7 @@ export default function IsaStatsPage() {
             </div>
           </div>
           <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5 text-xs leading-5 text-blue-900">
-            <strong>Activity window:</strong> lead, appointment, completed-task, Market Match, and Closed-in-period metrics follow the selected dates. <strong>Current Under Contract</strong> ignores the date range, and <strong>Lifetime Closed</strong> is always all-time. The lead-status filter affects lead and appointment activity only; it does not remove attributed transaction outcomes.
+            <strong>Activity window:</strong> lead, appointment, completed-task, and Closed-in-period metrics follow the selected dates. <strong>Current Under Contract</strong> ignores the date range, and <strong>Lifetime Closed</strong> is always all-time. The lead-status filter affects lead and appointment activity only; it does not remove attributed transaction outcomes.
           </div>
         </CardContent>
       </Card>
@@ -486,10 +486,9 @@ export default function IsaStatsPage() {
           <UserRoundCheck className="h-4 w-4 text-primary" />
           <h2 className="text-base font-semibold">Lead Engagement & Activity</h2>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard label="Engaged Leads" value={summary?.engagedLeads ?? 0} description={`${formatPct(summary?.engagementRate)} of leads moved beyond new`} icon={Users} tone="violet" />
           <MetricCard label="Completed Follow-ups" value={summary?.completedFollowUps ?? 0} description={`${summary?.overdueFollowUps ?? 0} overdue follow-up${summary?.overdueFollowUps === 1 ? "" : "s"}`} icon={ClipboardCheck} tone={summary?.overdueFollowUps ? "rose" : "emerald"} />
-          <MetricCard label="Market Match Sessions" value={summary?.completedMarketMatchSessions ?? 0} description={`${summary?.marketMatchSessions ?? 0} total session${summary?.marketMatchSessions === 1 ? "" : "s"} started`} icon={PhoneCall} tone="indigo" />
           <MetricCard label="Active Lead Conversations" value={summary?.activeLeads ?? 0} description={`${summary?.untouchedLeads ?? 0} leads still need a first touch`} icon={Flame} tone="amber" />
         </div>
       </section>

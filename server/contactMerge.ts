@@ -75,7 +75,6 @@ const CONTACT_REFERENCE_COLUMNS: Array<[string, string]> = [
   ["contact_properties", "contactId"],
   ["listings", "contactId"],
   ["one_time_send_recipients", "contactId"],
-  ["market_match_sessions", "contactId"],
   ["pipeline_email_sends", "contactId"],
   ["webhook_logs", "contactId"],
   ["landing_page_submissions", "contactId"],

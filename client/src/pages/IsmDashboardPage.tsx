@@ -17,7 +17,6 @@ import {
   Loader2,
   PhoneCall,
   RefreshCw,
-  ShieldAlert,
   Target,
   TrendingUp,
   UserRoundCheck,
@@ -67,8 +66,7 @@ type QueueKey =
   | "recentUnassigned"
   | "untouchedAssigned"
   | "staleLeads"
-  | "overdueTasks"
-  | "stuckSessions";
+  | "overdueTasks";
 type SortKey =
   | "isaName"
   | "activeBook"
@@ -80,9 +78,6 @@ type SortKey =
   | "staleSevenDays"
   | "openTasks"
   | "overdueTasks"
-  | "sessions"
-  | "completedSessions"
-  | "stuckSessions"
   | "callAttempts"
   | "connectedThirtySeconds"
   | "talkMinutes"
@@ -340,16 +335,9 @@ function QueueDialog({
       rows: data.attention.overdueTasks,
       destination: `/tasks?analytics=1&status=overdue${selectedIsaIds.length === 1 ? `&assignedToId=${selectedIsaIds[0]}` : ""}`,
     },
-    stuckSessions: {
-      title: "Stuck Market Match sessions",
-      description:
-        "Active Market Match sessions open for more than 24 hours. Open the contact to complete the session, CRM writeback, and next action.",
-      rows: data.attention.stuckSessions,
-    },
   };
   const selected = config[queueKey];
   const isTask = queueKey === "overdueTasks";
-  const isSession = queueKey === "stuckSessions";
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -393,9 +381,7 @@ function QueueDialog({
                 {selected.rows.map((row: any) => {
                   const id = isTask
                     ? row.taskId
-                    : isSession
-                      ? row.sessionId
-                      : row.contactId;
+                    : row.contactId;
                   const contactId = row.contactId ?? null;
                   const target = isTask
                     ? `/tasks/${row.taskId}`
@@ -420,20 +406,15 @@ function QueueDialog({
                       <td className="px-3 py-3">
                         <p>{row.isaName ?? "Unassigned"}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {isSession
-                            ? "Active session"
-                            : isTask
-                              ? titleCase(row.priority)
-                              : titleCase(row.isaStatus)}
+                          {isTask
+                            ? titleCase(row.priority)
+                            : titleCase(row.isaStatus)}
                         </p>
                       </td>
                       <td className="px-3 py-3 text-muted-foreground">
-                        {isSession
-                          ? (row.nextActionRecommendation ??
-                            "No next action recorded")
-                          : isTask
-                            ? `Due ${dateTime(row.dueDate)}`
-                            : row.sourceName}
+                        {isTask
+                          ? `Due ${dateTime(row.dueDate)}`
+                          : row.sourceName}
                       </td>
                       <td className="px-3 py-3 text-right font-medium tabular-nums">
                         {ageLabel(row.ageHours)}
@@ -652,14 +633,6 @@ export default function IsmDashboardPage() {
       icon: Flame,
       tone: "bg-amber-50 text-amber-700",
     },
-    {
-      key: "stuckSessions",
-      label: "Stuck sessions",
-      count: data.summary.stuckSessions,
-      detail: "Market Match sessions active for more than 24 hours.",
-      icon: ShieldAlert,
-      tone: "bg-violet-50 text-violet-700",
-    },
   ];
 
   const sourceTotal = (data.sourceMix ?? []).reduce(
@@ -828,7 +801,7 @@ export default function IsmDashboardPage() {
 
       <section>
         <div className="mb-3 flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-rose-600" />
+          <AlertTriangle className="h-4 w-4 text-rose-600" />
           <h2 className="text-base font-semibold">Needs attention now</h2>
           <Badge variant="secondary">Action queues</Badge>
         </div>
@@ -855,7 +828,7 @@ export default function IsmDashboardPage() {
             {dateFrom} → {dateTo}
           </Badge>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <SummaryMetric
             label="Recent contacts"
             value={number(data.summary.recentContacts)}
@@ -886,14 +859,6 @@ export default function IsmDashboardPage() {
             icon={ClipboardCheck}
             tone="text-amber-700"
             definition={definitions.overdueFollowUps}
-          />
-          <SummaryMetric
-            label="Completed sessions"
-            value={number(data.summary.completedSessions)}
-            detail={`${number(data.summary.stuckSessions)} currently stuck`}
-            icon={CheckCircle2}
-            tone="text-emerald-700"
-            definition={definitions.completedSessions}
           />
           <SummaryMetric
             label="Aircall attempts"
@@ -928,7 +893,7 @@ export default function IsmDashboardPage() {
             <div>
               <CardTitle className="text-base">ISA team scorecard</CardTitle>
               <CardDescription>
-                Sortable workload, follow-up, session, and call indicators.
+                Sortable workload, follow-up, and call indicators.
                 Click an ISA name or metric to open the underlying operational
                 view.
               </CardDescription>
@@ -938,7 +903,7 @@ export default function IsmDashboardPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1900px] text-sm">
+            <table className="w-full min-w-[1600px] text-sm">
               <thead>
                 <tr className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                   <SortHeader
@@ -1003,24 +968,6 @@ export default function IsmDashboardPage() {
                   <SortHeader
                     label="Overdue"
                     column="overdueTasks"
-                    sort={sort}
-                    onSort={updateSort}
-                  />
-                  <SortHeader
-                    label="Sessions"
-                    column="sessions"
-                    sort={sort}
-                    onSort={updateSort}
-                  />
-                  <SortHeader
-                    label="Completed"
-                    column="completedSessions"
-                    sort={sort}
-                    onSort={updateSort}
-                  />
-                  <SortHeader
-                    label="Stuck"
-                    column="stuckSessions"
                     sort={sort}
                     onSort={updateSort}
                   />
@@ -1154,17 +1101,6 @@ export default function IsmDashboardPage() {
                         {number(isa.overdueTasks)}
                       </button>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums">
-                      {number(isa.sessions)}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums">
-                      {number(isa.completedSessions)}
-                    </td>
-                    <td
-                      className={`px-3 py-3 text-right font-medium tabular-nums ${isa.stuckSessions > 0 ? "text-rose-700" : ""}`}
-                    >
-                      {number(isa.stuckSessions)}
-                    </td>
                     <td className="px-3 py-3 text-right font-medium tabular-nums">
                       {number(isa.callAttempts)}
                     </td>
@@ -1204,7 +1140,7 @@ export default function IsmDashboardPage() {
             </CardTitle>
             <CardDescription>
               Selected-period assigned intake, Aircall attempts, completed
-              Market Match sessions, and completed ISA tasks.
+              ISA tasks.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1239,14 +1175,6 @@ export default function IsmDashboardPage() {
                     dataKey="callAttempts"
                     name="Aircall attempts"
                     stroke="#7C3AED"
-                    strokeWidth={2.5}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="completedSessions"
-                    name="Completed sessions"
-                    stroke="#059669"
                     strokeWidth={2.5}
                     dot={false}
                   />

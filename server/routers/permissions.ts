@@ -57,7 +57,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   // ISA
   { key: "canViewIsmDashboard",           label: "ISM Dashboard",              group: "ISA" },
   { key: "canViewHotLeads",               label: "Hot Leads",                  group: "ISA" },
-  { key: "canViewMarketMatch",            label: "Market Match Hub",           group: "ISA" },
   { key: "canViewResendInbox",            label: "Resend Inbox",               group: "ISA" },
   { key: "canViewMarketingTextInbox",     label: "Marketing Text Inbox",       group: "ISA" },
   { key: "canViewDuplicates",             label: "Duplicate Contacts",         group: "ISA" },
@@ -78,6 +77,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canEditHistoricalReferrals",    label: "Edit Historical Referrals",  group: "Transactions" },
   { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions Admin" },
   // Agent Success Team
+  { key: "canViewAgentMarkets",           label: "Agent Markets",              group: "Agent Success Team" },
   { key: "canViewReviews",                label: "Reviews",                    group: "Agent Success Team" },
   { key: "canViewCoachingHub",            label: "Coaching Hub",               group: "Agent Success Team" },
   { key: "canViewLeadershipDashboard",    label: "Leadership Dashboard",       group: "Agent Success Team" },

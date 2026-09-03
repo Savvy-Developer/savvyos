@@ -298,12 +298,6 @@ function buildIsaNav(
           path: "/tasks",
           badge: myOverdueTasks > 0 ? myOverdueTasks : undefined,
         },
-        { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
-        {
-          icon: PhoneCall,
-          label: "Market Match Call",
-          path: "/market-match-call",
-        },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: Users, label: "Agent Directory", path: "/agent-directory" },
       ],
@@ -345,7 +339,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewActivityLog: "/admin/activity",
   canViewUsers: "/users",
   canViewAdminApprovals: "/approvals",
-  canViewMarketMatch: "/market-match-config",
+  canViewAgentMarkets: "/agent-markets",
   canViewOrgChart: "/org-chart",
   canViewRolesResponsibilities: "/roles-responsibilities",
   canViewFeedback: "/feedback",
@@ -439,7 +433,6 @@ function buildAdminNav(
       items: [
         { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
         { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
-        { icon: Map, label: "Market Match Hub", path: "/market-match-config" },
         {
           icon: Inbox,
           label: "Resend Inbox",
@@ -477,6 +470,7 @@ function buildAdminNav(
     {
       label: "Agent Success Team",
       items: [
+        { icon: Map, label: "Agent Markets", path: "/agent-markets" },
         { icon: Star, label: "Reviews", path: "/reviews" },
         { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
         {

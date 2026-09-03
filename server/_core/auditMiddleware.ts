@@ -71,9 +71,14 @@ const MANUALLY_LOGGED_PATHS = new Set([
   "coaching.sessions.cancel",
   "coaching.goals.create",
   "coaching.goals.update",
-  // market match
-  "marketMatch.startSession",
-  "marketMatch.completeSession",
+  // Agent Markets
+  "agentMarkets.create",
+  "agentMarkets.update",
+  "agentMarkets.addNote",
+  "agentMarkets.uploadSource",
+  "agentMarkets.deleteSource",
+  "agentMarkets.upsertAssignment",
+  "agentMarkets.removeAssignment",
   // users (already logged)
   "users.uploadDocument",
   "users.updateEmailSignatureForUser",
@@ -120,7 +125,7 @@ function inferEntityType(path: string): string {
     onboarding: "onboarding",
     leadership: "leadership",
     commissionExceptions: "commission_exception",
-    marketMatch: "market_match",
+    agentMarkets: "market",
     marketingRequests: "marketing_request",
     pm: "project",
     kb: "knowledge_base",

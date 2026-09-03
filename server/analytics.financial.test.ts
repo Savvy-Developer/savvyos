@@ -17,7 +17,6 @@ vi.mock("../drizzle/schema", () => ({
   commissionExceptions: {},
   onboardingInstances: {},
   onboardingInstanceTasks: {},
-  marketMatchSessions: {},
   duplicateContactPairs: {},
   agentGoals: {},
 }));

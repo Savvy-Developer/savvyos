@@ -67,7 +67,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "lead_assigned", "transaction_created", "transaction_status_changed", "transaction_closed",
   "transaction_review_request", "transaction_review_received", "commission_calculated", "task_assigned",
   "task_due", "payout_integrity_fail", "listing_created", "listing_expiration_reminder", "onboarding_overdue",
-  "commission_exception_warning", "market_match_intro", "client_intro", "connection_request_approved", "pm_mention",
+  "commission_exception_warning", "client_intro", "connection_request_approved", "pm_mention",
   "partner_lead_confirmation", "partner_portal_access", "agent_production_report", "weekly_lead_report",
   "weekly_webinar_report", "weekly_referral_report", "daily_agent_report", "daily_isa_activities", "monthly_agent_renewals", "coaching_weekly_accountability", "coaching_tips_for_today",
   "coaching_feedback_invitation", "coaching_feedback_weekly_summary", "pulse_overdue_digest", "pulse_rock_completed",
@@ -141,17 +141,9 @@ interface EmailContext {
   taskList?: string;
   // Client intro-specific
   agentBookingLink?: string;
+  isaName?: string;
   // Connection request-specific
   pipelineStatus?: string;
-  // Market Match intro-specific
-  investorFirstName?: string;
-  marketName?: string;
-  marketState?: string;
-  investorBudget?: string;
-  investorGoals?: string;
-  callSummarySnippet?: string;
-  handoffNotes?: string;
-  isaName?: string;
   // Partner-specific fields
   partnerName?: string;
   partnerEmail?: string;
@@ -414,28 +406,6 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
   website_financing_request: (ctx) => websiteLeadHandoffTemplate(ctx, "financing"),
 
   website_showing_request: (ctx) => websiteLeadHandoffTemplate(ctx, "showing"),
-
-  market_match_intro: (ctx) => ({
-    subject: `Introduction: ${ctx.investorFirstName ?? "An Investor"} × ${ctx.marketName ?? "Your Market"} — STR Opportunity`,
-    html: emailLayout(
-      `${heading("Investor Introduction", "#0891B2")}
-      ${subheading("Market Match Call — Agent Handoff")}
-      ${greeting(ctx.recipientName)}
-      ${bodyText(`You've been matched with a qualified STR investor through our Market Match Call system. Please reach out within 24 hours to introduce yourself and schedule a discovery call.`)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Investor</strong>&nbsp;&nbsp; ${ctx.investorFirstName ?? "Investor"}`,
-        ...(ctx.marketName ? [`<strong style="color:${BLACK};">Target Market</strong>&nbsp;&nbsp; ${ctx.marketName}${ctx.marketState ? `, ${ctx.marketState}` : ""}`] : []),
-        ...(ctx.investorBudget ? [`<strong style="color:${BLACK};">Budget Range</strong>&nbsp;&nbsp; ${ctx.investorBudget}`] : []),
-        ...(ctx.investorGoals ? [`<strong style="color:${BLACK};">Investment Goals</strong>&nbsp;&nbsp; ${ctx.investorGoals}`] : []),
-        ...(ctx.isaName ? [`<strong style="color:${BLACK};">Introduced by</strong>&nbsp;&nbsp; ${ctx.isaName}`] : []),
-      ], "#0891B2")}
-      ${ctx.callSummarySnippet ? `<p style="margin:16px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Call Summary</p><p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;background:#F9FAFB;border-radius:6px;padding:12px 16px;">${ctx.callSummarySnippet}</p>` : ""}
-      ${ctx.handoffNotes ? `<p style="margin:16px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Handoff Notes from ISA</p><p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;background:#F0F9FF;border-radius:6px;padding:12px 16px;border-left:3px solid #0891B2;">${ctx.handoffNotes}</p>` : ""}
-      ${bodyText("Please reach out to this investor within 24 hours to introduce yourself and schedule a discovery call.")}
-      ${ctaButton("View Investor Profile", APP_URL + "/market-match-call" + (ctx.contactId ? `?contactId=${ctx.contactId}` : ""), "#0891B2")}`,
-      `New investor introduction — ${ctx.investorFirstName ?? "Investor"} is interested in ${ctx.marketName ?? "your market"}`
-    ),
-  }),
 
   lead_assigned: (ctx) => ({
     subject: `New Lead Assigned: ${ctx.contactName ?? "New Contact"}`,

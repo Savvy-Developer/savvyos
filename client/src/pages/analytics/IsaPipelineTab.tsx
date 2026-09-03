@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, FunnelChart, Funnel, LabelList } from "recharts";
-import { UserCheck, Phone, CheckCircle2, TrendingUp, CalendarCheck } from "lucide-react";
+import { UserCheck, CheckCircle2, TrendingUp, CalendarCheck } from "lucide-react";
 import { fmtNum, DateRangeFilter, useDateRange, KpiCard, EmptyState, ExportButton, CHART_COLORS, PIPELINE_LABELS, Th, Td } from "./shared";
 
 export default function IsaPipelineTab() {
@@ -35,7 +35,6 @@ export default function IsaPipelineTab() {
     [report]
   );
 
-  const sessions = report?.marketMatchSessions;
   const totalAppointments = (report as any)?.totalAppointmentsSet ?? 0;
 
   return (
@@ -62,8 +61,7 @@ export default function IsaPipelineTab() {
       </div>
 
       {/* Secondary KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
-        <KpiCard label="Market Match Sessions" value={fmtNum(sessions?.total ?? 0)} sub={`${sessions?.completed ?? 0} completed`} icon={<Phone className="h-5 w-5" />} />
+      <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
         <KpiCard
           label="Avg Appt Rate"
           value={(() => {

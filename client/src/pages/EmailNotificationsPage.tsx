@@ -22,7 +22,7 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
 type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Active Admins + ISAs + Agents" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
-type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Market Match" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
+type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
 type TriggerType = "Event" | "Scheduled";
 
 interface NotifMeta {
@@ -72,8 +72,6 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "pto_request_decision", name: "PTO Request Decision", description: "Sent only to the requesting employee when their reporting manager approves or declines PTO.", trigger: "Reporting manager approves or declines a PTO request", triggerType: "Event", recipient: "Requesting Employee", category: "PTO" },
   // ── Onboarding ──────────────────────────────────────────────────────────
   { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Sends every active administrator the overdue instance; also sends the agent their own overdue agent tasks.", trigger: "Nightly scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Active Admins", category: "Onboarding" },
-  // ── Market Match ──────────────────────────────────────────────────────────
-  { id: "market_match_intro", name: "Market Match Intro", description: "Sent to the recommended agent; the operator may also send the same handoff copy to the matched investor.", trigger: "Market Match call completed and intro triggered by ISA or admin", triggerType: "Event", recipient: "Assigned Agent + Optional Client Copy", category: "Market Match" },
   // ── Projects ──────────────────────────────────────────────────────────────────────────────────────
   { id: "pm_mention", name: "Project Mention Notification", description: "Notifies a user when they are @mentioned in a project note or comment.", trigger: "@mention detected in a project note", triggerType: "Event", recipient: "Mentioned User", category: "Projects" },
   // ── Transaction reviews ──────────────────────────────────────────────────
@@ -108,14 +106,13 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "password_reset", name: "Password Reset", description: "Sent only to the SavvyOS account holder who requested the password reset.", trigger: "Account password reset is requested", triggerType: "Event", recipient: "Account Holder", category: "Account Security" },
   { id: "webinar_marketing_request", name: "Webinar Marketing Request", description: "Sent to the marketing inbox, with the SavvyOS webinar creator copied.", trigger: "A webinar is created in SavvyOS", triggerType: "Event", recipient: "Marketing Team + Creator", category: "Marketing" },
 ];
-const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Pulse", "Partner & Access", "Account Security", "Marketing", "Reporting", "PTO"];
+const CATEGORIES: Category[] = ["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Commission", "Projects", "Pulse", "Partner & Access", "Account Security", "Marketing", "Reporting", "PTO"];
 const CATEGORY_COLORS: Record<Category, string> = {
   "Transactions": "bg-blue-100 text-blue-700",
   "Listings": "bg-purple-100 text-purple-700",
   "Tasks": "bg-amber-100 text-amber-700",
   "Leads & CRM": "bg-emerald-100 text-emerald-700",
   "Onboarding": "bg-cyan-100 text-cyan-700",
-  "Market Match": "bg-indigo-100 text-indigo-700",
   "Commission": "bg-rose-100 text-rose-700",
   "Projects": "bg-orange-100 text-orange-700",
   "Pulse": "bg-fuchsia-100 text-fuchsia-700",

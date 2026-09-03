@@ -28,6 +28,7 @@ import {
   contactProperties,
   markets,
   marketProfiles,
+  marketAgentAssignments,
   feedback,
   taskNotes,
   proformas,
@@ -2519,7 +2520,8 @@ export async function getMarketPerformance() {
       annualGciGoal: marketProfiles.annualGciGoal,
     })
     .from(marketProfiles)
-    .leftJoin(users, eq(users.marketProfileId, marketProfiles.id))
+    .leftJoin(marketAgentAssignments, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
+    .leftJoin(users, eq(users.id, marketAgentAssignments.agentId))
     .leftJoin(transactions, eq(transactions.agentId, users.id))
     .groupBy(marketProfiles.id, marketProfiles.name, marketProfiles.annualGciGoal)
     .orderBy(desc(sql`COALESCE(SUM(CASE WHEN ${transactions.status} = 'closed' THEN CAST(${transactions.grossCommissionIncome} AS DECIMAL(15,2)) ELSE 0 END), 0)`));
@@ -2549,8 +2551,8 @@ export async function getMarketMonthlyTrend(months = 12) {
       deals: sql<number>`COUNT(*)`,
     })
     .from(transactions)
-    .innerJoin(users, eq(transactions.agentId, users.id))
-    .innerJoin(marketProfiles, eq(users.marketProfileId, marketProfiles.id))
+    .innerJoin(marketAgentAssignments, eq(transactions.agentId, marketAgentAssignments.agentId))
+    .innerJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
     .where(
       and(
         eq(transactions.status, "closed" as any),
@@ -2581,8 +2583,9 @@ export async function getMarketAgentLeaderboard(marketId: number) {
       contactCount: sql<number>`(SELECT COUNT(DISTINCT ${agentConnections.contactId}) FROM ${agentConnections} WHERE ${agentConnections.agentId} = ${users.id})`,
     })
     .from(users)
+    .innerJoin(marketAgentAssignments, eq(marketAgentAssignments.agentId, users.id))
     .leftJoin(transactions, eq(transactions.agentId, users.id))
-    .where(eq(users.marketProfileId, marketId))
+    .where(eq(marketAgentAssignments.marketProfileId, marketId))
     .groupBy(users.id, users.name)
     .orderBy(desc(sql`totalGci`));
   return rows.map(r => ({

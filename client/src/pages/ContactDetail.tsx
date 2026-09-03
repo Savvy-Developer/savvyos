@@ -888,16 +888,6 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 </Button>
               </>
             )}
-            {(isIsa || isAdmin) && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-primary border-primary/40 hover:bg-primary/10"
-                onClick={() => navigate(`/market-match-call?contactId=${contactId}`)}
-              >
-                <Zap className="h-4 w-4 mr-1" /> Market Match Call
-              </Button>
-            )}
             {canAssign && (
               <Button variant="outline" size="sm" onClick={() => setAssignOpen(true)}>
                 <Link2 className="h-4 w-4 mr-1" /> Assign to Agent

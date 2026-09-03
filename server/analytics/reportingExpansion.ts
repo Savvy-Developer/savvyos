@@ -70,10 +70,6 @@ function hasWhere(scope: SQL): boolean {
   return scope.queryChunks.length > 0;
 }
 
-function withCondition(scope: SQL, condition: SQL): SQL {
-  return hasWhere(scope) ? sql`${scope} AND ${condition}` : sql`WHERE ${condition}`;
-}
-
 function pagination(filters: ExpansionFilters) {
   const page = Math.max(1, Math.floor(asNumber(filters.page) || 1));
   const limit = Math.min(500, Math.max(10, Math.floor(asNumber(filters.limit) || 25)));
@@ -82,6 +78,15 @@ function pagination(filters: ExpansionFilters) {
 
 function paginationResult(page: number, limit: number, total: number) {
   return { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) };
+}
+
+/** Supports an agent's primary and additional Agent Markets assignments. */
+function agentInMarket(agentId: SQL, marketProfileId: number): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM \`market_agent_assignments\` market_assignment
+    WHERE market_assignment.\`agentId\` = ${agentId}
+      AND market_assignment.\`marketProfileId\` = ${marketProfileId}
+  )`;
 }
 
 function onboardingScope(filters: ExpansionFilters): SQL {
@@ -93,10 +98,7 @@ function onboardingScope(filters: ExpansionFilters): SQL {
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = oi.\`agentUserId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
-    filters.marketProfileId ? sql`EXISTS (
-      SELECT 1 FROM \`users\` onboarding_agent
-      WHERE onboarding_agent.id = oi.\`agentUserId\` AND onboarding_agent.\`marketProfileId\` = ${filters.marketProfileId}
-    )` : undefined,
+    filters.marketProfileId ? agentInMarket(sql`oi.\`agentUserId\``, filters.marketProfileId) : undefined,
     filters.dateFrom ? sql`DATE(oi.\`startedAt\`) >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`DATE(oi.\`startedAt\`) <= ${filters.dateTo}` : undefined,
   ]);
@@ -111,10 +113,7 @@ function taskPeriodScope(filters: ExpansionFilters): SQL {
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = tk.\`assignedToId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
-    filters.marketProfileId ? sql`EXISTS (
-      SELECT 1 FROM \`users\` task_owner
-      WHERE task_owner.id = tk.\`assignedToId\` AND task_owner.\`marketProfileId\` = ${filters.marketProfileId}
-    )` : undefined,
+    filters.marketProfileId ? agentInMarket(sql`tk.\`assignedToId\``, filters.marketProfileId) : undefined,
     filters.dateFrom ? sql`DATE(tk.\`createdAt\`) >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`DATE(tk.\`createdAt\`) <= ${filters.dateTo}` : undefined,
   ]);
@@ -146,42 +145,11 @@ function contactScope(filters: ExpansionFilters): SQL {
       WHERE ac.\`contactId\` = c.id AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
     filters.marketProfileId ? sql`EXISTS (
-      SELECT 1
-      FROM \`agent_connections\` ac
-      INNER JOIN \`users\` market_agent ON market_agent.id = ac.\`agentId\`
-      WHERE ac.\`contactId\` = c.id AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
+      SELECT 1 FROM \`agent_connections\` ac
+      WHERE ac.\`contactId\` = c.id AND ${agentInMarket(sql`ac.\`agentId\``, filters.marketProfileId)}
     )` : undefined,
     filters.dateFrom ? sql`DATE(c.\`createdAt\`) >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`DATE(c.\`createdAt\`) <= ${filters.dateTo}` : undefined,
-  ]);
-}
-
-function sessionScope(filters: ExpansionFilters): SQL {
-  return where([
-    (filters.isaIds?.length ? sql`ms.\`isaId\` IN (${sql.join(filters.isaIds.map((id) => sql`${id}`), sql`, `)})` : filters.isaId ? sql`ms.\`isaId\` = ${filters.isaId}` : undefined),
-    (filters.leadSourceIds?.length ? sql`c.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined),
-    (filters.agentIds?.length ? sql`EXISTS (
-      SELECT 1 FROM \`agent_connections\` ac
-      WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` IN (${sql.join(filters.agentIds.map((id) => sql`${id}`), sql`, `)})
-    )` : filters.agentId ? sql`EXISTS (
-      SELECT 1 FROM \`agent_connections\` ac
-      WHERE ac.\`contactId\` = c.id AND ac.\`agentId\` = ${filters.agentId}
-    )` : undefined),
-    filters.groupLeaderId ? sql`EXISTS (
-      SELECT 1
-      FROM \`agent_connections\` ac
-      INNER JOIN \`group_members\` gm ON gm.\`userId\` = ac.\`agentId\`
-      INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
-      WHERE ac.\`contactId\` = c.id AND g.\`leaderId\` = ${filters.groupLeaderId}
-    )` : undefined,
-    filters.marketProfileId ? sql`EXISTS (
-      SELECT 1
-      FROM \`agent_connections\` ac
-      INNER JOIN \`users\` market_agent ON market_agent.id = ac.\`agentId\`
-      WHERE ac.\`contactId\` = c.id AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
-    )` : undefined,
-    filters.dateFrom ? sql`DATE(ms.\`startedAt\`) >= ${filters.dateFrom}` : undefined,
-    filters.dateTo ? sql`DATE(ms.\`startedAt\`) <= ${filters.dateTo}` : undefined,
   ]);
 }
 
@@ -198,10 +166,7 @@ function appointmentScope(filters: ExpansionFilters): SQL {
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = ac.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
-    filters.marketProfileId ? sql`EXISTS (
-      SELECT 1 FROM \`users\` market_agent
-      WHERE market_agent.id = ac.\`agentId\` AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
-    )` : undefined,
+    filters.marketProfileId ? agentInMarket(sql`ac.\`agentId\``, filters.marketProfileId) : undefined,
     filters.dateFrom ? sql`DATE(COALESCE(ac.\`appointmentSetAt\`, ac.\`createdAt\`)) >= ${filters.dateFrom}` : undefined,
     filters.dateTo ? sql`DATE(COALESCE(ac.\`appointmentSetAt\`, ac.\`createdAt\`)) <= ${filters.dateTo}` : undefined,
   ]);
@@ -218,7 +183,7 @@ function agentRosterScope(filters: ExpansionFilters): SQL {
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = u.\`id\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
-    filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
+    filters.marketProfileId ? agentInMarket(sql`u.\`id\``, filters.marketProfileId) : undefined,
   ]);
 }
 
@@ -236,10 +201,7 @@ function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolea
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
-    filters.marketProfileId ? sql`EXISTS (
-      SELECT 1 FROM \`users\` market_agent
-      WHERE market_agent.id = t.\`agentId\` AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
-    )` : undefined,
+    filters.marketProfileId ? agentInMarket(sql`t.\`agentId\``, filters.marketProfileId) : undefined,
     (filters.leadSourceIds?.length ? sql`EXISTS (
       SELECT 1 FROM \`contacts\` source_contact
       WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})
@@ -667,12 +629,9 @@ export async function getTasksReportingData(filters: ExpansionFilters = {}) {
 
 export async function getIsaActivitiesReportingData(filters: ExpansionFilters = {}) {
   const contactsWhere = contactScope(filters);
-  const sessionsWhere = sessionScope(filters);
   const appointmentWhere = appointmentScope(filters);
   const agentRosterWhere = agentRosterScope(filters);
-  const followUpSessionsWhere = withCondition(sessionsWhere, sql`ms.\`status\` IN ('active', 'abandoned')`);
-  const { page, limit, offset } = pagination(filters);
-  const [summaryRows, funnelRows, isaRows, agentAppointmentRows, sessionRows, queueRows, monthlyRows, queueCountRows] = await Promise.all([
+  const [summaryRows, funnelRows, isaRows, agentAppointmentRows, monthlyRows] = await Promise.all([
     runRows<Row>(sql`
       SELECT
         COUNT(*) AS contacts,
@@ -729,34 +688,6 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
     `),
     runRows<Row>(sql`
       SELECT
-        COUNT(*) AS total,
-        SUM(CASE WHEN ms.\`status\` = 'completed' THEN 1 ELSE 0 END) AS completed,
-        SUM(CASE WHEN ms.\`status\` = 'active' THEN 1 ELSE 0 END) AS active,
-        SUM(CASE WHEN ms.\`status\` = 'abandoned' THEN 1 ELSE 0 END) AS abandoned,
-        AVG(ms.\`durationSeconds\`) AS averageDurationSeconds
-      FROM \`market_match_sessions\` ms
-      INNER JOIN \`contacts\` c ON c.id = ms.\`contactId\`
-      ${sessionsWhere}
-    `),
-    runRows<Row>(sql`
-      SELECT
-        ms.id AS sessionId,
-        ms.\`status\` AS status,
-        ms.\`startedAt\` AS startedAt,
-        ms.\`nextActionRecommendation\` AS nextActionRecommendation,
-        ms.\`overallConfidenceScore\` AS confidenceScore,
-        c.id AS contactId,
-        CONCAT(c.\`firstName\`, ' ', c.\`lastName\`) AS contactName,
-        u.\`name\` AS isaName
-      FROM \`market_match_sessions\` ms
-      INNER JOIN \`contacts\` c ON c.id = ms.\`contactId\`
-      LEFT JOIN \`users\` u ON u.id = ms.\`isaId\`
-      ${followUpSessionsWhere}
-      ORDER BY FIELD(ms.\`status\`, 'active', 'abandoned'), ms.\`startedAt\` ASC
-      LIMIT ${limit} OFFSET ${offset}
-    `),
-    runRows<Row>(sql`
-      SELECT
         DATE_FORMAT(c.\`createdAt\`, '%Y-%m') AS month,
         COUNT(*) AS leads,
         SUM(CASE WHEN c.\`isa_status\` IN ('active_client', 'under_contract') THEN 1 ELSE 0 END) AS activeClients,
@@ -766,17 +697,10 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
       GROUP BY DATE_FORMAT(c.\`createdAt\`, '%Y-%m')
       ORDER BY month ASC
     `),
-    runRows<Row>(sql`
-      SELECT COUNT(*) AS total
-      FROM \`market_match_sessions\` ms
-      INNER JOIN \`contacts\` c ON c.id = ms.\`contactId\`
-      ${followUpSessionsWhere}
-    `),
   ]);
   const summary = summaryRows[0] ?? {};
   const contacts = asNumber(summary.contacts);
   const closed = asNumber(summary.closed);
-  const session = sessionRows[0] ?? {};
   const funnelOrder = ["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead", "unclassified"];
   const funnelMap = new Map(funnelRows.map((row) => [String(row.status ?? "unclassified"), asNumber(row.count)]));
   return {
@@ -789,11 +713,6 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
       dead: asNumber(summary.dead),
       unassigned: asNumber(summary.unassigned),
       closeRate: contacts ? (closed / contacts) * 100 : null,
-      sessions: asNumber(session.total),
-      completedSessions: asNumber(session.completed),
-      activeSessions: asNumber(session.active),
-      abandonedSessions: asNumber(session.abandoned),
-      averageSessionMinutes: asNullableNumber(session.averageDurationSeconds) === null ? null : asNumber(session.averageDurationSeconds) / 60,
     },
     funnel: funnelOrder.map((status) => ({ status, count: funnelMap.get(status) ?? 0 })),
     isaPerformance: isaRows.map((row) => {
@@ -807,12 +726,7 @@ export async function getIsaActivitiesReportingData(filters: ExpansionFilters = 
       marketName: String(row.marketName ?? "No market assigned"),
       appointmentsSet: asNumber(row.appointmentsSet),
     })),
-    sessions: {
-      total: asNumber(session.total), completed: asNumber(session.completed), active: asNumber(session.active), abandoned: asNumber(session.abandoned), averageDurationMinutes: asNullableNumber(session.averageDurationSeconds) === null ? null : asNumber(session.averageDurationSeconds) / 60,
-    },
     monthly: monthlyRows.map((row) => ({ month: String(row.month ?? ""), leads: asNumber(row.leads), activeClients: asNumber(row.activeClients), closed: asNumber(row.closed) })),
-    followUpQueue: queueRows.map((row) => ({ sessionId: asNumber(row.sessionId), status: String(row.status ?? "active"), startedAt: asDay(row.startedAt), nextActionRecommendation: row.nextActionRecommendation ? String(row.nextActionRecommendation) : null, confidenceScore: asNullableNumber(row.confidenceScore), contactId: asNumber(row.contactId), contactName: String(row.contactName ?? "Unknown contact"), isaName: String(row.isaName ?? "Unknown") })),
-    pagination: paginationResult(page, limit, asNumber(queueCountRows[0]?.total)),
   };
 }
 
@@ -832,10 +746,7 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       INNER JOIN \`groups\` g ON g.id = gm.\`groupId\`
       WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
-    filters.marketProfileId ? sql`EXISTS (
-      SELECT 1 FROM \`users\` market_agent
-      WHERE market_agent.id = t.\`agentId\` AND market_agent.\`marketProfileId\` = ${filters.marketProfileId}
-    )` : undefined,
+    filters.marketProfileId ? agentInMarket(sql`t.\`agentId\``, filters.marketProfileId) : undefined,
     (filters.leadSourceIds?.length ? sql`EXISTS (
       SELECT 1 FROM \`contacts\` source_contact
       WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})

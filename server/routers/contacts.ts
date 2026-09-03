@@ -1052,9 +1052,6 @@ Please write the comprehensive AI summary now.`;
         // Duplicate management
         duplicate_merged: "Duplicate contact merged",
         duplicate_dismissed: "Duplicate pair dismissed",
-        // Market Match
-        market_match_session_started: "Market Match session started",
-        market_match_session_completed: "Market Match session completed",
         // Smart Plan enrollment
         smart_plan_enrollment_enrolled: "Enrolled in Smart Plan",
         smart_plan_enrollment_cancelled: "Smart Plan enrollment cancelled",

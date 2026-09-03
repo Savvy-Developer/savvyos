@@ -46,7 +46,6 @@ import ListingDetail from "./pages/ListingDetail";
 import SmartPlansPage from "./pages/SmartPlansPage";
 import SmartPlanEditorPage from "./pages/SmartPlanEditorPage";
 import EmailTestPage from "./pages/EmailTestPage";
-import MarketsPage from "./pages/MarketsPage";
 import OrgChartPage from "./pages/OrgChartPage";
 import AgentDirectoryPage from "./pages/AgentDirectoryPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
@@ -61,10 +60,8 @@ import MyOnboardingPage from "./pages/MyOnboardingPage";
 import OnboardingReportPage from "./pages/OnboardingReportPage";
 import LeadershipDashboardPage from "./pages/LeadershipDashboardPage";
 import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
-import MarketMatchCallPage from "./pages/MarketMatchCallPage";
-import MarketMatchConfigPage from "./pages/MarketMatchConfigPage";
-import MarketProfileEditorPage from "./pages/MarketProfileEditorPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
+import AgentMarketsPage from "./pages/AgentMarketsPage";
 import MarketingRequestsPage from "./pages/MarketingRequestsPage";
 import MarketingAdminPage from "./pages/MarketingAdminPage";
 import TechRequestsPage from "./pages/TechRequestsPage";
@@ -249,6 +246,16 @@ function CustomReportsRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AgentMarketsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewAgentMarkets) return <NotFound />;
+  return <>{children}</>;
+}
+
 function LandingPagesRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
@@ -409,7 +416,7 @@ function Router() {
           <Route path="/listings" component={ListingsPage} />
           <Route path="/listings/:id" component={ListingDetail} />
           <Route path="/email-test">{() => <AdminRoute><EmailTestPage /></AdminRoute>}</Route>
-          <Route path="/markets">{() => <AdminRoute><MarketsPage /></AdminRoute>}</Route>
+          <Route path="/agent-markets">{() => <AgentMarketsRoute><AgentMarketsPage /></AgentMarketsRoute>}</Route>
           <Route path="/market-performance">{() => <AdminRoute><MarketPerformancePage /></AdminRoute>}</Route>
           <Route path="/transaction-reporting">{() => <AdminRoute><TransactionReportingPage /></AdminRoute>}</Route>
           <Route path="/feedback">{() => <AdminRoute><FeedbackPage /></AdminRoute>}</Route>
@@ -447,10 +454,6 @@ function Router() {
           <Route path="/pulse">{() => <PulseRoute><PulseMyWorkPage /></PulseRoute>}</Route>
           <Route path="/profile" component={ProfilePage} />
           <Route path="/agents/:id" component={AgentProfilePage} />
-          <Route path="/market-match-call" component={MarketMatchCallPage} />
-          <Route path="/market-match-config">{() => <AdminOrIsaRoute><MarketMatchConfigPage /></AdminOrIsaRoute>}</Route>
-          <Route path="/market-profile/new">{() => <AdminRoute><MarketProfileEditorPage /></AdminRoute>}</Route>
-          <Route path="/market-profile/:id">{(params: any) => <AdminRoute><MarketProfileEditorPage marketId={Number(params.id)} /></AdminRoute>}</Route>
           <Route path="/analytics/market/:id">{(params: any) => <AdminRoute><MarketDrillDownPage /></AdminRoute>}</Route>
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>

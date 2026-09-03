@@ -172,7 +172,6 @@ export function mergeWeeklyTrend(
   period: string;
   label: string;
   assignedLeads: number;
-  completedSessions: number;
   callAttempts: number;
   completedTasks: number;
 }> {
@@ -189,7 +188,6 @@ export function mergeWeeklyTrend(
     period: string;
     label: string;
     assignedLeads: number;
-    completedSessions: number;
     callAttempts: number;
     completedTasks: number;
   }> = [];
@@ -203,9 +201,8 @@ export function mergeWeeklyTrend(
       period,
       label: formatWeekLabel(period),
       assignedLeads: maps[0]?.get(period) ?? 0,
-      completedSessions: maps[1]?.get(period) ?? 0,
-      callAttempts: maps[2]?.get(period) ?? 0,
-      completedTasks: maps[3]?.get(period) ?? 0,
+      callAttempts: maps[1]?.get(period) ?? 0,
+      completedTasks: maps[2]?.get(period) ?? 0,
     });
   }
   return result;
@@ -251,17 +248,6 @@ const metricDefinitions: Record<
       "Pending or in-progress tasks assigned to an ISA with a due date before the current time.",
     confidence: "trusted",
   },
-  completedSessions: {
-    label: "Completed Market Match sessions",
-    description:
-      "Market Match sessions started in the selected period whose current status is completed.",
-    confidence: "trusted",
-  },
-  stuckSessions: {
-    label: "Stuck Market Match sessions",
-    description: "Active Market Match sessions started more than 24 hours ago.",
-    confidence: "trusted",
-  },
   callAttempts: {
     label: "Aircall attempts",
     description:
@@ -296,10 +282,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
   const taskIsaScope =
     idScope(sql`t.\`assignedToId\``, ids) ??
     sql`t.\`assignedToId\` IN (SELECT active_isa.id FROM \`users\` active_isa WHERE active_isa.\`role\` = 'isa' AND active_isa.\`isActive\` = 1)`;
-  const sessionIsaScope =
-    idScope(sql`ms.\`isaId\``, ids) ??
-    sql`ms.\`isaId\` IN (SELECT active_isa.id FROM \`users\` active_isa WHERE active_isa.\`role\` = 'isa' AND active_isa.\`isActive\` = 1)`;
-
   const contactSourceJoin = sourceId
     ? sql`AND c.\`leadSourceId\` = ${sourceId}`
     : sql``;
@@ -309,26 +291,19 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
   const taskSourceJoin = sourceId
     ? sql`AND EXISTS (SELECT 1 FROM \`contacts\` task_contact WHERE task_contact.id = t.\`relatedContactId\` AND task_contact.\`leadSourceId\` = ${sourceId})`
     : sql``;
-  const sessionSourceJoin = sourceId
-    ? sql`AND EXISTS (SELECT 1 FROM \`contacts\` session_contact WHERE session_contact.id = ms.\`contactId\` AND session_contact.\`leadSourceId\` = ${sourceId})`
-    : sql``;
-
   const [
     rosterRows,
     leadSourceRows,
     intakeRows,
     contactRows,
     taskRows,
-    sessionRows,
     callRows,
     unassignedQueueRows,
     untouchedQueueRows,
     staleQueueRows,
     overdueTaskQueueRows,
-    stuckSessionQueueRows,
     sourceMixRows,
     assignedTrendRows,
-    sessionTrendRows,
     callTrendRows,
     taskTrendRows,
     appointmentRows,
@@ -407,19 +382,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
         SUM(CASE WHEN t.status = 'completed' AND ${inclusiveDateRange(sql`t.\`completedAt\``, range.dateFrom, range.dateTo)} THEN 1 ELSE 0 END) AS completedTasks
       FROM \`users\` u
       LEFT JOIN \`tasks\` t ON t.\`assignedToId\` = u.id ${taskSourceJoin}
-      ${userWhere}
-      GROUP BY u.id
-    `),
-    runRows<Row>(sql`
-      SELECT
-        u.id AS isaId,
-        SUM(CASE WHEN ${inclusiveDateRange(sql`ms.\`startedAt\``, range.dateFrom, range.dateTo)} THEN 1 ELSE 0 END) AS sessions,
-        SUM(CASE WHEN ms.status = 'completed' AND ${inclusiveDateRange(sql`ms.\`startedAt\``, range.dateFrom, range.dateTo)} THEN 1 ELSE 0 END) AS completedSessions,
-        SUM(CASE WHEN ms.status = 'active' THEN 1 ELSE 0 END) AS activeSessions,
-        SUM(CASE WHEN ms.status = 'active' AND ms.\`startedAt\` < NOW() - INTERVAL 1 DAY THEN 1 ELSE 0 END) AS stuckSessions,
-        SUM(CASE WHEN ms.status = 'active' AND (ms.\`nextActionRecommendation\` IS NULL OR TRIM(ms.\`nextActionRecommendation\`) = '') THEN 1 ELSE 0 END) AS missingNextAction
-      FROM \`users\` u
-      LEFT JOIN \`market_match_sessions\` ms ON ms.\`isaId\` = u.id ${sessionSourceJoin}
       ${userWhere}
       GROUP BY u.id
     `),
@@ -572,30 +534,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
     `),
     runRows<Row>(sql`
       SELECT
-        ms.id AS sessionId,
-        ms.\`contactId\`,
-        CONCAT_WS(' ', c.\`firstName\`, c.\`lastName\`) AS contactName,
-        ms.\`isaId\`,
-        u.name AS isaName,
-        ms.status,
-        ms.\`startedAt\`,
-        ms.\`nextActionRecommendation\`,
-        ms.\`overallConfidenceScore\`,
-        TIMESTAMPDIFF(HOUR, ms.\`startedAt\`, NOW()) AS ageHours
-      FROM \`market_match_sessions\` ms
-      INNER JOIN \`users\` u ON u.id = ms.\`isaId\` AND u.\`role\` = 'isa' AND u.\`isActive\` = 1
-      INNER JOIN \`contacts\` c ON c.id = ms.\`contactId\`
-      ${where([
-        sessionIsaScope,
-        sql`ms.status = 'active'`,
-        sql`ms.\`startedAt\` < NOW() - INTERVAL 1 DAY`,
-        contactSourceWhere,
-      ])}
-      ORDER BY ms.\`startedAt\` ASC
-      LIMIT 50
-    `),
-    runRows<Row>(sql`
-      SELECT
         c.\`leadSourceId\` AS sourceId,
         COALESCE(ls.name, c.\`leadSourceType\`, 'Unclassified') AS sourceName,
         parent.name AS parentName,
@@ -624,23 +562,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
         sql`c.\`archived_at\` IS NULL`,
         assignedContactScope,
         inclusiveDateRange(sql`c.\`createdAt\``, range.dateFrom, range.dateTo),
-        contactSourceWhere,
-      ])}
-      GROUP BY weekStart
-      ORDER BY weekStart ASC
-    `),
-    runRows<Row>(sql`
-      SELECT DATE_SUB(DATE(ms.\`completedAt\`), INTERVAL WEEKDAY(ms.\`completedAt\`) DAY) AS weekStart, COUNT(*) AS value
-      FROM \`market_match_sessions\` ms
-      INNER JOIN \`contacts\` c ON c.id = ms.\`contactId\`
-      ${where([
-        sessionIsaScope,
-        sql`ms.status = 'completed'`,
-        inclusiveDateRange(
-          sql`ms.\`completedAt\``,
-          range.dateFrom,
-          range.dateTo
-        ),
         contactSourceWhere,
       ])}
       GROUP BY weekStart
@@ -717,15 +638,11 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
 
   const intake = intakeRows[0] ?? {};
   const taskMap = new Map(taskRows.map(row => [asNumber(row.isaId), row]));
-  const sessionMap = new Map(
-    sessionRows.map(row => [asNumber(row.isaId), row])
-  );
   const callMap = new Map(callRows.map(row => [asNumber(row.isaId), row]));
 
   const scorecard = contactRows.map(row => {
     const isaId = asNumber(row.isaId);
     const task = taskMap.get(isaId) ?? {};
-    const session = sessionMap.get(isaId) ?? {};
     const calls = callMap.get(isaId) ?? {};
     const callAttempts = asNumber(calls.callAttempts);
     const matchedCalls = asNumber(calls.matchedCalls);
@@ -748,11 +665,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
       openTasks: asNumber(task.openTasks),
       overdueTasks: asNumber(task.overdueTasks),
       completedTasks: asNumber(task.completedTasks),
-      sessions: asNumber(session.sessions),
-      completedSessions: asNumber(session.completedSessions),
-      activeSessions: asNumber(session.activeSessions),
-      stuckSessions: asNumber(session.stuckSessions),
-      missingNextAction: asNumber(session.missingNextAction),
       callAttempts,
       matchedCalls,
       connectedThirtySeconds: asNumber(calls.connectedThirtySeconds),
@@ -773,14 +685,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
     (sum, row) => sum + row.matchedCalls,
     0
   );
-  const totalStuckSessions = scorecard.reduce(
-    (sum, row) => sum + row.stuckSessions,
-    0
-  );
-  const totalMissingNextAction = scorecard.reduce(
-    (sum, row) => sum + row.missingNextAction,
-    0
-  );
   const appointment = appointmentRows[0] ?? {};
   const connections = asNumber(appointment.connections);
   const appointmentsSet = asNumber(appointment.appointmentsSet);
@@ -796,11 +700,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
     untouched: scorecard.reduce((sum, row) => sum + row.untouched, 0),
     openFollowUps: scorecard.reduce((sum, row) => sum + row.openTasks, 0),
     overdueFollowUps: scorecard.reduce((sum, row) => sum + row.overdueTasks, 0),
-    completedSessions: scorecard.reduce(
-      (sum, row) => sum + row.completedSessions,
-      0
-    ),
-    stuckSessions: totalStuckSessions,
     callAttempts: totalCallAttempts,
     talkMinutes:
       Math.round(
@@ -866,20 +765,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
         "Contacts created in the selected period with no current ISA pipeline status.",
     },
     {
-      key: "stuck_sessions",
-      label: "Stuck Market Match sessions",
-      value: totalStuckSessions,
-      denominator: scorecard.reduce((sum, row) => sum + row.activeSessions, 0),
-      rate: percentage(
-        totalStuckSessions,
-        scorecard.reduce((sum, row) => sum + row.activeSessions, 0)
-      ),
-      status:
-        totalStuckSessions > 0 ? ("critical" as const) : ("healthy" as const),
-      confidence: "trusted" as const,
-      description: `${totalMissingNextAction} active sessions are also missing a next-action recommendation.`,
-    },
-    {
       key: "appointment_capture",
       label: "Appointment capture",
       value: appointmentsSet,
@@ -920,7 +805,7 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
       summaryIsTeamwide: true,
       note: [
         ids.length
-          ? "Team intake and unassigned metrics remain teamwide; roster scorecard, ISA queues, tasks, sessions, and calls reflect the selected ISAs."
+          ? "Team intake and unassigned metrics remain teamwide; roster scorecard, ISA queues, tasks, and calls reflect the selected ISAs."
           : "All active ISAs are included.",
         sourceId
           ? "Aircall metrics remain all-source because unmatched calls cannot be attributed to a lead source."
@@ -961,20 +846,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
         contactName: row.contactName ? asString(row.contactName) : null,
         ageHours: asNumber(row.ageHours),
       })),
-      stuckSessions: stuckSessionQueueRows.map(row => ({
-        sessionId: asNumber(row.sessionId),
-        contactId: asNumber(row.contactId),
-        contactName: asString(row.contactName, "Unknown contact"),
-        isaId: asNumber(row.isaId),
-        isaName: asString(row.isaName, "Unknown ISA"),
-        status: asString(row.status, "active"),
-        startedAt: asDateTime(row.startedAt),
-        nextActionRecommendation: row.nextActionRecommendation
-          ? asString(row.nextActionRecommendation)
-          : null,
-        confidenceScore: asNullableNumber(row.overallConfidenceScore),
-        ageHours: asNumber(row.ageHours),
-      })),
     },
     scorecard,
     sourceMix: sourceMixRows.map(row => ({
@@ -989,7 +860,6 @@ export async function getIsmDashboard(filters: IsmDashboardFilters = {}) {
     })),
     trend: mergeWeeklyTrend(range.dateFrom, range.dateTo, [
       normalizeTrend(assignedTrendRows),
-      normalizeTrend(sessionTrendRows),
       normalizeTrend(callTrendRows),
       normalizeTrend(taskTrendRows),
     ]),

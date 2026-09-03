@@ -53,7 +53,7 @@ describe("Offer Sheet referral property extraction", () => {
     expect(
       isOfferSheetReferralPlan(
         OFFER_SHEET_REFERRAL_PLAN_NAME,
-        "The Offer Sheet Market Match"
+        "The Offer Sheet Referral Campaign"
       )
     ).toBe(false);
   });

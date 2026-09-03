@@ -38,6 +38,7 @@ import { registerZoomWebhook } from "../zoomWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
+import { scheduleMarketIntelligenceRefresh } from "../agentMarketsIntelligence";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { constructStripeWebhookEvent, handleStripeWebhookEvent, isStripeConfigured } from "../vendorBilling";
 import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedVendorEarningsReport";
@@ -356,6 +357,10 @@ async function startServer() {
   // Company-wide AI Business Insights: one shared cache, checked daily and
   // regenerated weekly. A manual admin refresh uses the same protected lifecycle.
   scheduleBusinessInsightRefresh();
+
+  // Agent Markets: refresh source-grounded market intelligence only when its
+  // bounded evidence fingerprint changes, preserving a living market profile.
+  scheduleMarketIntelligenceRefresh();
 
   // Email Behaviors: sync Resend + GHL email activity every 4 hours
   scheduleEmailBehaviorsSync();

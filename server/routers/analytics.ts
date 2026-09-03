@@ -198,7 +198,7 @@ async function getCommandCenterAccess(ctx: { user: NonNullable<import("../_core/
     canAdminUsePermission(ctx.user, "canViewPipeline"),
     canAdminUsePermission(ctx.user, "canViewTasks"),
     canAdminUsePermission(ctx.user, "canViewUsers"),
-    canAdminUsePermission(ctx.user, "canViewMarketMatch"),
+    canAdminUsePermission(ctx.user, "canViewAgentMarkets"),
     canAdminUsePermission(ctx.user, "canViewReporting"),
   ]);
   if (!dashboard) {
@@ -865,7 +865,7 @@ Return only valid JSON array.`;
       assignedToId: input?.assignedToId, taskType: input?.taskType, priority: input?.priority,
     })),
 
-  /** ISA report with market match sessions */
+  /** ISA operational report */
   isaReport: protectedProcedure
     .input(z.object({
       dateFrom: z.string().optional(), dateTo: z.string().optional(), isaId: z.number().optional(),

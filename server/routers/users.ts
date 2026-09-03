@@ -94,8 +94,6 @@ function describeIsaPage(path: string): string {
     [/^\/request-connection$/, "Request Connection"],
     [/^\/tasks(?:\/|$)/, "Tasks"],
     [/^\/isa-stats$/, "My Performance"],
-    [/^\/market-match-call$/, "Market Match Call"],
-    [/^\/market-match-config$/, "Market Match Hub"],
     [/^\/org-chart$/, "Org Chart"],
     [/^\/referrals(?:\/|$)/, "Referrals"],
     [/^\/kb$/, "Knowledge Base"],

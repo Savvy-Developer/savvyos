@@ -73,10 +73,6 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> =
     subject: "⚠️ Commission Exception Warning — Transaction #{{transactionNumber}}",
     bodyText: "A commission exception was approved for a transaction with the following warnings. Please review and take action if needed.",
   },
-  market_match_intro: {
-    subject: "Introduction: {{investorFirstName}} × {{marketName}} — STR Opportunity",
-    bodyText: "We have a new investor who is interested in short-term rental properties in your market. Please review their profile and reach out to schedule a discovery call.",
-  },
   client_intro: {
     subject: "Meet {{agentName}} — Savvy STR Agents",
     bodyText: "We're excited to introduce you to your dedicated agent, who will be working with you on your short-term rental journey. Your agent specializes in STR properties and is ready to help you find the perfect investment.",
@@ -182,17 +178,6 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
     { key: "transactionNumber", description: "Transaction ID" },
     { key: "notes", description: "Warning notes / reason" },
   ],
-  market_match_intro: [
-    { key: "recipientName", description: "Agent's name" },
-    { key: "investorFirstName", description: "Investor's first name" },
-    { key: "marketName", description: "Target market city/area" },
-    { key: "marketState", description: "Target market state" },
-    { key: "investorBudget", description: "Investor's budget range" },
-    { key: "investorGoals", description: "Investor's goals / return targets" },
-    { key: "isaName", description: "ISA who handled the call" },
-    { key: "callSummarySnippet", description: "Short summary of the discovery call" },
-    { key: "handoffNotes", description: "Notes for the agent from the ISA" },
-  ],
   client_intro: [
     { key: "recipientName", description: "Client's name" },
     { key: "agentName", description: "Agent's full name" },
@@ -230,7 +215,6 @@ const EMAIL_TYPES = [
   { key: "listing_expiration_reminder", label: "Listing Expiration Reminder", description: "Sent daily when an active listing has passed its expiration date" },
   { key: "onboarding_overdue", label: "Onboarding Overdue", description: "Sent when onboarding tasks are past their due date" },
   { key: "commission_exception_warning", label: "Commission Exception Warning", description: "Sent when a commission exception is approved with warnings" },
-  { key: "market_match_intro", label: "Market Match Intro", description: "Sent to introduce an investor to an agent in their target market" },
   { key: "client_intro", label: "Client Introduction", description: "Sent to introduce a client to their assigned agent, with agent CC'd" },
   { key: "connection_request_approved", label: "Connection Request Approved", description: "Sent to an agent when their connection request is approved by an admin" },
   { key: "pm_mention", label: "Project Mention", description: "Sent when a user is @mentioned in a project note" },

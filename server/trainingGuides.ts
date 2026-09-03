@@ -122,7 +122,7 @@ Before you end the day, confirm that every meaningful interaction has one of thr
 
 ## Your operating rhythm
 
-SavvyOS is the working environment for lead stewardship, agent matching, follow-up discipline, and market-match operations. Start each shift in the **ISA Dashboard**, clear time-sensitive work in **Tasks**, and then work the appropriate leads from **All Contacts**, **Hot Leads**, and **Agent Pipelines**. Every conversation should leave the record with a clear status, documented outcome, and next owner or next action.
+SavvyOS is the working environment for lead stewardship, agent coordination, and follow-up discipline. Start each shift in the **ISA Dashboard**, clear time-sensitive work in **Tasks**, and then work the appropriate leads from **All Contacts**, **Hot Leads**, and **Agent Pipelines**. Every conversation should leave the record with a clear status, documented outcome, and next owner or next action.
 
 > **The handoff principle:** An ISA creates momentum, but the record—not memory—carries that momentum forward. Keep contact facts, activity, connection status, and next steps current before moving on.
 
@@ -157,8 +157,6 @@ SavvyOS is the working environment for lead stewardship, agent matching, follow-
 | Section | Use it for | Core workflow |
 |---|---|---|
 | **Tasks** | Assigned follow-up, call preparation, and operational commitments. | Complete work when finished; otherwise update the due date, owner, or context so the work does not become ambiguous. |
-| **Market Match Hub** | Supporting market-match configuration and matching workflows. | Review the applicable requirements, keep market information accurate, and use the structured workflow rather than maintaining parallel notes outside the system. |
-| **Market Match Call** | Running or supporting the market-match call workflow. | Prepare from the current record, capture meaningful outcomes and next steps, and route follow-up to the proper owner. |
 | **Org Chart** | Understanding reporting and cross-functional relationships. | Use it to find the right leader or team when a lead, request, or exception needs escalation. |
 | **Agent Directory** | Finding agent information. | Confirm the agent’s identity and details before coordinating a connection or follow-up. |
 
@@ -189,10 +187,6 @@ Open the lead from **Hot Leads** or **All Contacts**, review the last meaningful
 ### Processing a connection request
 
 Open **Connection Requests**, verify the contact and agent context, follow the applicable assignment or approval process, and update the status so both the ISA and agent can understand what happened. Avoid informal side-channel handoffs that leave no record.
-
-### Conducting market-match work
-
-Use **Market Match Hub** to prepare the structured market context and **Market Match Call** to support the live workflow. Capture only confirmed information, distinguish preferences from requirements, and create or update follow-up work immediately after the call.
 
 ## Quality standard
 
@@ -350,7 +344,7 @@ Administrators have the broadest SavvyOS access and are responsible for keeping 
 |---|---|---|
 | **Users** | Creating, activating, and maintaining user accounts. | Assign the correct role and keep identity information current; review access changes promptly. |
 | **Admin Approvals** | Reviewing workflow approvals, including items requiring administrator action. | Confirm the underlying record and policy basis before approving or declining. |
-| **Market Match Hub** | Managing market-match configuration and operations. | Keep market data and workflow settings current; use the linked record for supporting details. |
+| **Agent Markets** | Managing market coverage and living market intelligence. | Assign agents, upload or paste research, and refresh the evidence-backed profile when new market context is available. |
 | **Org Chart** | Maintaining and viewing organizational relationships. | Keep reporting lines accurate so routing and accountability remain clear. |
 | **Agent Directory** | Organization-wide agent reference. | Use it to confirm agent details and directory presence before outreach or assignment changes. |
 | **Roles & Responsibilities** | Defining role expectations and ownership. | Update responsibilities when the operating model changes, then communicate the impact through the appropriate channel. |

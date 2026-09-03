@@ -34,7 +34,7 @@ import { feedbackRouter } from "./routers/feedback";
 import { onboardingRouter } from "./routers/onboarding";
 import { leadershipRouter } from "./routers/leadership";
 import { commissionExceptionsRouter } from "./routers/commissionExceptions";
-import { marketMatchRouter } from "./routers/marketMatch";
+import { agentMarketsRouter } from "./routers/agentMarkets";
 import { marketingRequestsRouter } from "./routers/marketingRequests";
 import { techRequestsRouter } from "./routers/techRequests";
 import { pmRouter } from "./routers/pm";
@@ -90,7 +90,6 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
     ["listing_expiration_reminder", { ...ctx2, listingAddress: "456 Blue Ridge Pkwy, Asheville, NC", contactName: "Bob Seller", listPrice: "$875,000", expirationDate: "March 1, 2026" }],
     ["onboarding_overdue", { ...ctx2, overdueCount: "3", taskList: "• Complete W-9 form\n• Upload license copy\n• Sign brokerage agreement" }],
     ["commission_exception_warning", { ...ctx2, transactionNumber: "TXN-TEST-001", notes: "Total payout exceeds 100% — please review split" }],
-    ["market_match_intro", { ...ctx2, investorFirstName: "Alex", marketName: "Asheville", marketState: "NC", investorBudget: "$400k–$600k", investorGoals: "Cash-flowing STR with 15%+ CoC return", isaName: "Jordan Lee", callSummarySnippet: "Alex is looking for a 3BR cabin near downtown Asheville with strong Airbnb history.", handoffNotes: "Pre-approved, ready to move within 60 days. Prefers off-market deals." }],
     ["client_intro", { ...ctx2, agentName: "Sarah Mitchell", contactName: "Alex Johnson", isaName: "Jordan Lee", agentBookingLink: "https://calendly.com/sarah-mitchell" }],
     ["connection_request_approved", { ...ctx2, contactName: "Jane Smith", agentName: "Sarah Mitchell", pipelineStatus: "Nurture" }],
     ["pm_mention", { ...ctx2, mentionedByName: "Tyler Coon", projectTitle: "Website Redesign Q2", noteContent: "Hey, can you review the wireframes for the landing page before Friday?", projectUrl: "https://os.savvy-agents.com/projects/1" }],
@@ -252,12 +251,13 @@ export const appRouter = router({
   approvalRequests: approvalRequestsRouter,
   listings: listingsRouter,
   smartPlans: smartPlansRouter,
+  // Shared market selector data used by reporting and agent administration.
   markets: marketsRouter,
   feedback: feedbackRouter,
   onboarding: onboardingRouter,
   leadership: leadershipRouter,
   commissionExceptions: commissionExceptionsRouter,
-  marketMatch: marketMatchRouter,
+  agentMarkets: agentMarketsRouter,
   marketingRequests: marketingRequestsRouter,
   techRequests: techRequestsRouter,
   pm: pmRouter,
@@ -341,7 +341,7 @@ export const appRouter = router({
         trigger: z.string().trim().min(2).max(255),
         triggerType: z.enum(["Event", "Scheduled"]),
         recipient: z.enum(["Agent", "Admin", "ISA", "Agent + Admin", "Mentioned User"]),
-        category: z.enum(["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Market Match", "Commission", "Projects", "Recognition", "Reporting"]),
+        category: z.enum(["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Commission", "Projects", "Recognition", "Reporting"]),
         subject: z.string().trim().min(1).max(512),
         bodyText: z.string().trim().min(1),
         isEnabled: z.boolean(),

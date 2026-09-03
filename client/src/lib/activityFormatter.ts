@@ -728,17 +728,6 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "alert";
       break;
 
-    // ── Market Match ──────────────────────────────────────────────────────────
-    case "market_match_session_started":
-      title = "Market Match call started";
-      lines = details.contactName ? [`Contact: ${details.contactName}`] : [];
-      icon = "plus";
-      break;
-    case "market_match_session_completed":
-      title = "Market Match call completed";
-      icon = "check";
-      break;
-
     // ── User Login ────────────────────────────────────────────────────────────
     case "user_login":
       title = "Logged in";

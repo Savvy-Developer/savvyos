@@ -58,6 +58,15 @@ function sqlList(values: readonly string[]): SQL {
   return sql.join(values.map((value) => sql`${value}`), sql`, `);
 }
 
+/** Supports both primary and additional Agent Markets assignments. */
+function agentInMarket(agentId: SQL, marketProfileId: number): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM market_agent_assignments market_assignment
+    WHERE market_assignment.agentId = ${agentId}
+      AND market_assignment.marketProfileId = ${marketProfileId}
+  )`;
+}
+
 function previousEquivalentRange(filters: CommandCenterFilters) {
   const duration = filters.dateTo.getTime() - filters.dateFrom.getTime() + 1;
   return {
@@ -76,7 +85,7 @@ function transactionScope(
   const scopedStatus = options.status ?? filters.transactionStatus;
   if (scopedStatus) conditions.push(sql`t.status = ${scopedStatus}`);
   if (filters.agentId) conditions.push(sql`t.agentId = ${filters.agentId}`);
-  if (filters.marketProfileId) conditions.push(sql`owner.marketProfileId = ${filters.marketProfileId}`);
+  if (filters.marketProfileId) conditions.push(agentInMarket(sql`owner.id`, filters.marketProfileId));
   if (filters.leadSourceId) conditions.push(sql`contact.leadSourceId = ${filters.leadSourceId}`);
   if (filters.transactionType) conditions.push(sql`t.transactionType = ${filters.transactionType}`);
   if (options.applyDate !== false) {
@@ -95,7 +104,7 @@ function connectionScope(
     conditions.push(sql`connection.pipelineStatus NOT IN ('closed', 'dead', 'do_not_contact')`);
   }
   if (filters.agentId) conditions.push(sql`connection.agentId = ${filters.agentId}`);
-  if (filters.marketProfileId) conditions.push(sql`agent.marketProfileId = ${filters.marketProfileId}`);
+  if (filters.marketProfileId) conditions.push(agentInMarket(sql`agent.id`, filters.marketProfileId));
   if (filters.isaId) conditions.push(sql`contact.assignedIsaId = ${filters.isaId}`);
   if (filters.leadSourceId) conditions.push(sql`contact.leadSourceId = ${filters.leadSourceId}`);
   if (filters.pipelineStatus) conditions.push(sql`connection.pipelineStatus = ${filters.pipelineStatus}`);
@@ -113,7 +122,7 @@ function contactScope(filters: CommandCenterFilters, applyDate = true): SQL {
   if (filters.agentId || filters.marketProfileId) {
     const connectionConditions: SQL[] = [sql`scope_connection.contactId = contact.id`];
     if (filters.agentId) connectionConditions.push(sql`scope_connection.agentId = ${filters.agentId}`);
-    if (filters.marketProfileId) connectionConditions.push(sql`scope_agent.marketProfileId = ${filters.marketProfileId}`);
+    if (filters.marketProfileId) connectionConditions.push(agentInMarket(sql`scope_agent.id`, filters.marketProfileId));
     conditions.push(sql`EXISTS (SELECT 1 FROM agent_connections scope_connection LEFT JOIN users scope_agent ON scope_agent.id = scope_connection.agentId WHERE ${sqlAnd(connectionConditions)})`);
   }
   if (applyDate) {
@@ -380,7 +389,7 @@ export async function getAdminCommandCenter(input: {
       LEFT JOIN agent_goals annualGoal ON annualGoal.agentId = agent.id AND annualGoal.year = ${currentYear} AND annualGoal.month = 0
       WHERE agent.role = 'agent' AND agent.isActive = 1
         ${filters.agentId ? sql`AND agent.id = ${filters.agentId}` : sql``}
-        ${filters.marketProfileId ? sql`AND agent.marketProfileId = ${filters.marketProfileId}` : sql``}
+        ${filters.marketProfileId ? sql`AND ${agentInMarket(sql`agent.id`, filters.marketProfileId)}` : sql``}
       ORDER BY units90 DESC, gci90 DESC, activeClients DESC LIMIT 30`)
     : Promise.resolve(null);
 
@@ -396,7 +405,8 @@ export async function getAdminCommandCenter(input: {
         MAX(capacity.maxLeadCapacity) AS configuredCapacity,
         MAX(capacity.currentLeadCount) AS configuredLeadCount
       FROM market_profiles market
-      LEFT JOIN users agent ON agent.marketProfileId = market.id
+      LEFT JOIN market_agent_assignments marketAssignment ON marketAssignment.marketProfileId = market.id
+      LEFT JOIN users agent ON agent.id = marketAssignment.agentId
       LEFT JOIN transactions closed90 ON closed90.agentId = agent.id AND closed90.status = 'closed' AND closed90.closingDate >= DATE_SUB(${now}, INTERVAL 90 DAY)
       LEFT JOIN transactions underContract ON underContract.agentId = agent.id AND underContract.status = 'under_contract'
       LEFT JOIN transactions closedPeriod ON closedPeriod.agentId = agent.id AND closedPeriod.status = 'closed' AND closedPeriod.closingDate >= ${filters.dateFrom} AND closedPeriod.closingDate <= ${filters.dateTo}
@@ -429,7 +439,7 @@ export async function getAdminCommandCenter(input: {
       LEFT JOIN transactions relatedTransaction ON relatedTransaction.id = task.relatedTransactionId
       WHERE task.status IN ('pending', 'in_progress') AND task.dueDate IS NOT NULL AND task.dueDate < ${now}
         ${filters.agentId ? sql`AND (relatedTransaction.agentId = ${filters.agentId} OR task.assignedToId = ${filters.agentId})` : sql``}
-        ${filters.marketProfileId ? sql`AND relatedTransaction.agentId IN (SELECT id FROM users WHERE marketProfileId = ${filters.marketProfileId})` : sql``}
+        ${filters.marketProfileId ? sql`AND ${agentInMarket(sql`relatedTransaction.agentId`, filters.marketProfileId)}` : sql``}
       ORDER BY FIELD(task.priority, 'urgent', 'high', 'medium', 'low'), task.dueDate ASC LIMIT 30`)
     : Promise.resolve(null);
 

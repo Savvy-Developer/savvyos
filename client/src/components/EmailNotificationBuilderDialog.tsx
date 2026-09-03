@@ -15,7 +15,6 @@ const CATEGORIES = [
   "Tasks",
   "Leads & CRM",
   "Onboarding",
-  "Market Match",
   "Commission",
   "Projects",
   "Recognition",

@@ -85,7 +85,6 @@ type FormState = {
   marketProfileId: string;    // string for select
   commissionSplit: string; // free numeric input (0-100)
   callBookingLink: string;
-  newMarketName: string;
   enableOnboarding: boolean;
   onboardingTemplateId: string;
 };
@@ -95,7 +94,6 @@ const EMPTY_FORM: FormState = {
   phone: "", title: "", reportsToId: "", marketProfileId: "",
   commissionSplit: "",
   callBookingLink: "",
-  newMarketName: "",
   enableOnboarding: false,
   onboardingTemplateId: "",
 };
@@ -155,7 +153,6 @@ export default function UsersPage() {
   const [usersTab, setUsersTab] = useState("members");
   const [activityUserId, setActivityUserId] = useState("");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [creatingMarket, setCreatingMarket] = useState(false);
 
   // Admin headshot upload state
   const [headshotPreview, setHeadshotPreview] = useState<string | null>(null);
@@ -175,16 +172,6 @@ export default function UsersPage() {
       utils.users.orgChart.invalidate();
       utils.users.getCoreProfile.invalidate({ userId: variables.userId });
     },
-  });
-
-  const createMarketMutation = trpc.markets.create.useMutation({
-    onSuccess: (newMarket) => {
-      utils.markets.list.invalidate();
-      setForm((f) => ({ ...f, marketProfileId: String(newMarket.id), newMarketName: "" }));
-      setCreatingMarket(false);
-      toast.success(`Market "${newMarket.name}" created`);
-    },
-    onError: (e) => toast.error(e.message),
   });
 
   const startOnboardingMut = trpc.onboarding.createInstance.useMutation({
@@ -248,7 +235,6 @@ export default function UsersPage() {
 
   function openAdd() {
     setForm(EMPTY_FORM);
-    setCreatingMarket(false);
     setAddOpen(true);
   }
 
@@ -264,11 +250,9 @@ export default function UsersPage() {
       marketProfileId: u.marketProfileId ? String(u.marketProfileId) : "",
       commissionSplit: (u as any).commissionSplit ? String((u as any).commissionSplit) : "",
       callBookingLink: (u as any).callBookingLink ?? "",
-      newMarketName: "",
       enableOnboarding: false,
       onboardingTemplateId: "",
     });
-    setCreatingMarket(false);
     setEditTarget(u);
     // Reset headshot upload state for this edit session
     setHeadshotPreview(null);
@@ -316,11 +300,6 @@ export default function UsersPage() {
       commissionSplit: form.commissionSplit ? Number(form.commissionSplit) : null,
       callBookingLink: form.callBookingLink || null,
     };
-  }
-
-  async function handleSaveNewMarket() {
-    if (!form.newMarketName.trim()) return;
-    createMarketMutation.mutate({ name: form.newMarketName.trim() });
   }
 
   // Agent Support assignment management
@@ -510,42 +489,14 @@ export default function UsersPage() {
         {form.role === "agent" && (
         <div className="space-y-1.5">
           <Label>Market</Label>
-          {!creatingMarket ? (
-            <div className="flex gap-2">
-              <SearchableSelect
-                className="flex-1"
-                options={[{ value: "none", label: "— None —" }, ...marketList.map((m) => ({ value: String(m.id), label: m.name }))]}
-                value={form.marketProfileId || "none"}
-                onValueChange={(v) => setForm((f) => ({ ...f, marketProfileId: v === "none" ? "" : v }))}
-                placeholder="Select market"
-                searchPlaceholder="Search markets…"
-              />
-              <Button type="button" variant="outline" size="sm" onClick={() => setCreatingMarket(true)}>
-                + New
-              </Button>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <Input
-                placeholder="Market name"
-                value={form.newMarketName}
-                onChange={(e) => setForm((f) => ({ ...f, newMarketName: e.target.value }))}
-                onKeyDown={(e) => e.key === "Enter" && handleSaveNewMarket()}
-                autoFocus
-              />
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleSaveNewMarket}
-                disabled={!form.newMarketName.trim() || createMarketMutation.isPending}
-              >
-                Save
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setCreatingMarket(false)}>
-                Cancel
-              </Button>
-            </div>
-          )}
+          <SearchableSelect
+            options={[{ value: "none", label: "— None —" }, ...marketList.map((m) => ({ value: String(m.id), label: m.name }))]}
+            value={form.marketProfileId || "none"}
+            onValueChange={(v) => setForm((f) => ({ ...f, marketProfileId: v === "none" ? "" : v }))}
+            placeholder="Select market"
+            searchPlaceholder="Search markets…"
+          />
+          <p className="text-xs text-muted-foreground">Create and manage market coverage in <button type="button" className="font-medium text-primary hover:underline" onClick={() => navigate("/agent-markets")}>Agent Markets</button>.</p>
         </div>
         )}
         {isEdit && (

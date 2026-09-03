@@ -35,7 +35,6 @@ type ActivityType =
   | "communication"
   | "task"
   | "agent_connection"
-  | "market_match"
   | "auth";
 
 const ACTIVITY_TYPE_OPTIONS: Array<{ value: ActivityType; label: string }> = [
@@ -46,7 +45,6 @@ const ACTIVITY_TYPE_OPTIONS: Array<{ value: ActivityType; label: string }> = [
   { value: "communication", label: "Notes & communications" },
   { value: "task", label: "Tasks" },
   { value: "agent_connection", label: "Pipeline & connections" },
-  { value: "market_match", label: "Market Match" },
   { value: "auth", label: "Sign-ins" },
 ];
 

@@ -45,7 +45,6 @@ const ENTITY_TYPE_OPTIONS = [
   { value: "group", label: "Groups" },
   { value: "permissions", label: "Permissions" },
   { value: "commission_exception", label: "Commission Exceptions" },
-  { value: "market_match", label: "Market Match" },
   { value: "marketing_request", label: "Marketing Requests" },
   { value: "onboarding", label: "Onboarding" },
   { value: "auth", label: "Auth" },

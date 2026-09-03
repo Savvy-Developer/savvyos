@@ -21,7 +21,6 @@ import {
   leadSources,
   onboardingInstances,
   onboardingInstanceTasks,
-  marketMatchSessions,
   duplicateContactPairs,
   agentGoals,
   properties,
@@ -961,22 +960,6 @@ export async function getIsaReport(opts?: {
   );
   const totalAppointmentsSet = appointmentRows.reduce((sum, r) => sum + Number(r.appointmentsSet), 0);
 
-  const sessionWhere = and(
-    dateFrom ? gte(marketMatchSessions.startedAt, dateFrom) : undefined,
-    dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined,
-    isaId ? eq(marketMatchSessions.isaId, isaId) : undefined,
-  );
-
-  const [sessionSummary] = await db
-    .select({
-      total: sql<number>`COUNT(*)`,
-      completed: sql<number>`SUM(CASE WHEN ${marketMatchSessions.status} = 'completed' THEN 1 ELSE 0 END)`,
-      abandoned: sql<number>`SUM(CASE WHEN ${marketMatchSessions.status} = 'abandoned' THEN 1 ELSE 0 END)`,
-      avgDurationSeconds: sql<string>`AVG(${marketMatchSessions.durationSeconds})`,
-    })
-    .from(marketMatchSessions)
-    .where(sessionWhere);
-
   const order = ["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"];
   const statusMap = new Map(statusFunnel.map((s) => [s.isaStatus ?? "unknown", Number(s.count)]));
 
@@ -1002,13 +985,6 @@ export async function getIsaReport(opts?: {
       };
     }),
     totalAppointmentsSet,
-    marketMatchSessions: {
-      total: Number(sessionSummary.total),
-      completed: Number(sessionSummary.completed),
-      abandoned: Number(sessionSummary.abandoned),
-      avgDurationMinutes: sessionSummary.avgDurationSeconds
-        ? Math.round(Number(sessionSummary.avgDurationSeconds) / 60) : null,
-    },
   };
 }
 
@@ -1570,7 +1546,7 @@ export type IsaDashboardStatus = (typeof ISA_DASHBOARD_STATUSES)[number];
  * A personal ISA performance view. The selected date range is applied to the
  * relevant activity date for each metric: contacts use creation date,
  * appointments use appointmentSetAt (falling back to connection creation for
- * legacy records), sessions use startedAt, and completed tasks use completedAt.
+ * legacy records), and completed tasks use completedAt.
  * Transaction outcomes come from durable ISA attribution records: current Under
  * Contract ignores the selected date range, while Closed in period uses closedAt.
  */
@@ -1603,12 +1579,6 @@ export async function getIsaDashboardStats(opts: {
     dateTo ? sql`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt}) <= ${dateTo}` : undefined,
     contactStatusFilter,
     isNull(contacts.archivedAt),
-  );
-
-  const sessionWhere = and(
-    isaId ? eq(marketMatchSessions.isaId, isaId) : undefined,
-    dateFrom ? gte(marketMatchSessions.startedAt, dateFrom) : undefined,
-    dateTo ? lte(marketMatchSessions.startedAt, dateTo) : undefined,
   );
 
   const taskCompletionWhere = and(
@@ -1647,7 +1617,6 @@ export async function getIsaDashboardStats(opts: {
     closedPeriodRows,
     lifetimeClosedRows,
     attributedOutcomeRows,
-    sessionRows,
     completedTaskRows,
     overdueTaskRows,
     trendRows,
@@ -1704,14 +1673,6 @@ export async function getIsaDashboardStats(opts: {
       .orderBy(sql`COALESCE(${isaOutcomeAttributions.closedAt}, ${isaOutcomeAttributions.underContractAt}, ${isaOutcomeAttributions.createdAt}) DESC`)
       .limit(12),
     db
-      .select({
-        total: sql<number>`COUNT(*)`,
-        completed: sql<number>`SUM(CASE WHEN ${marketMatchSessions.status} = 'completed' THEN 1 ELSE 0 END)`,
-        avgDurationSeconds: sql<number>`AVG(${marketMatchSessions.durationSeconds})`,
-      })
-      .from(marketMatchSessions)
-      .where(sessionWhere),
-    db
       .select({ completed: sql<number>`COUNT(*)` })
       .from(tasks)
       .where(taskCompletionWhere),
@@ -1734,7 +1695,6 @@ export async function getIsaDashboardStats(opts: {
 
   const leads = leadRows[0] ?? {};
   const appointments = appointmentRows[0] ?? {};
-  const sessions = sessionRows[0] ?? {};
   const assignedLeads = Number(leads.assignedLeads ?? 0);
   const engagedLeads = Number(leads.engagedLeads ?? 0);
   const appointmentsSet = Number(appointments.appointmentsSet ?? 0);
@@ -1756,11 +1716,6 @@ export async function getIsaDashboardStats(opts: {
       lifetimeClosed,
       completedFollowUps: Number(completedTaskRows[0]?.completed ?? 0),
       overdueFollowUps: Number(overdueTaskRows[0]?.overdue ?? 0),
-      marketMatchSessions: Number(sessions.total ?? 0),
-      completedMarketMatchSessions: Number(sessions.completed ?? 0),
-      averageMarketMatchMinutes: sessions.avgDurationSeconds
-        ? Number(sessions.avgDurationSeconds) / 60
-        : null,
     },
     attributedOutcomes: attributedOutcomeRows.map((row) => ({
       transactionId: row.transactionId,

@@ -2679,7 +2679,7 @@ export const companyGoals = mysqlTable(
 export type CompanyGoal = typeof companyGoals.$inferSelect;
 export type InsertCompanyGoal = typeof companyGoals.$inferInsert;
 
-// ─── Market Match Call ────────────────────────────────────────────────────────
+// ─── Agent Markets Identity ───────────────────────────────────────────────────
 
 export const marketProfiles = mysqlTable("market_profiles", {
   id: int("id").autoincrement().primaryKey(),
@@ -2689,65 +2689,94 @@ export const marketProfiles = mysqlTable("market_profiles", {
   status: mysqlEnum("status", ["active", "recruiting", "paused", "future"])
     .default("active")
     .notNull(),
-  idealInvestorProfile: text("idealInvestorProfile"),
-  notGoodFor: text("notGoodFor"),
-  budgetMin: decimal("budgetMin", { precision: 15, scale: 2 }),
-  budgetMax: decimal("budgetMax", { precision: 15, scale: 2 }),
-  commonPropertyTypes: varchar("commonPropertyTypes", { length: 255 }),
-  commonBedroomRanges: varchar("commonBedroomRanges", { length: 100 }),
-  commonAmenities: text("commonAmenities"),
-  cashFlowProfile: mysqlEnum("cashFlowProfile", [
-    "low",
-    "medium",
-    "high",
-    "very_high",
-  ]).default("medium"),
-  appreciationProfile: mysqlEnum("appreciationProfile", [
-    "low",
-    "medium",
-    "high",
-    "very_high",
-  ]).default("medium"),
-  regulationRisk: mysqlEnum("regulationRisk", [
-    "low",
-    "medium",
-    "high",
-  ]).default("medium"),
-  managementDifficulty: mysqlEnum("managementDifficulty", [
-    "low",
-    "medium",
-    "high",
-  ]).default("medium"),
-  seasonalityProfile: mysqlEnum("seasonalityProfile", [
-    "year_round",
-    "seasonal",
-    "highly_seasonal",
-  ]).default("year_round"),
-  personalUseAttractiveness: mysqlEnum("personalUseAttractiveness", [
-    "low",
-    "medium",
-    "high",
-  ]).default("medium"),
-  remoteOwnershipFriendly: boolean("remoteOwnershipFriendly").default(true),
-  vibeTag: varchar("vibeTag", { length: 100 }),
-  talkingPoints: text("talkingPoints"),
-  commonObjections: text("commonObjections"),
-  sampleBuyerScenarios: text("sampleBuyerScenarios"),
-  regulationNotes: text("regulationNotes"),
-  internalNotes: text("internalNotes"),
-  scoringWeightCashFlow: int("scoringWeightCashFlow").default(20),
-  scoringWeightAppreciation: int("scoringWeightAppreciation").default(15),
-  scoringWeightRegulation: int("scoringWeightRegulation").default(15),
-  scoringWeightManagement: int("scoringWeightManagement").default(10),
-  scoringWeightPersonalUse: int("scoringWeightPersonalUse").default(10),
-  scoringWeightBudget: int("scoringWeightBudget").default(20),
-  scoringWeightVibe: int("scoringWeightVibe").default(10),
   annualGciGoal: decimal("annualGciGoal", { precision: 15, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type MarketProfile = typeof marketProfiles.$inferSelect;
 export type InsertMarketProfile = typeof marketProfiles.$inferInsert;
+
+// ─── Agent Markets Intelligence ──────────────────────────────────────────────
+// `market_profiles` remains the shared market identity used by reporting and
+// agent assignment. These tables replace the former hand-authored fit/scoring
+// configuration with traceable source material and a generated living profile.
+export const marketProfileSources = mysqlTable(
+  "market_profile_sources",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    marketProfileId: int("marketProfileId")
+      .notNull()
+      .references(() => marketProfiles.id, { onDelete: "cascade" }),
+    sourceType: mysqlEnum("sourceType", ["file", "note"]).notNull(),
+    title: varchar("title", { length: 512 }).notNull(),
+    content: mediumtext("content"),
+    fileUrl: text("fileUrl"),
+    fileKey: varchar("fileKey", { length: 1024 }),
+    fileName: varchar("fileName", { length: 512 }),
+    mimeType: varchar("mimeType", { length: 128 }),
+    fileSize: bigint("fileSize", { mode: "number" }),
+    extractionStatus: mysqlEnum("extractionStatus", [
+      "ready",
+      "pending",
+      "failed",
+    ])
+      .default("ready")
+      .notNull(),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("market_profile_sources_market_created_idx").on(
+      table.marketProfileId,
+      table.createdAt
+    ),
+  ]
+);
+export type MarketProfileSource = typeof marketProfileSources.$inferSelect;
+
+export const marketIntelligenceProfiles = mysqlTable(
+  "market_intelligence_profiles",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    marketProfileId: int("marketProfileId")
+      .notNull()
+      .references(() => marketProfiles.id, { onDelete: "cascade" }),
+    // Strictly structured AI output. It is regenerated from source material and
+    // aggregate/current SavvyOS signals rather than edited as a static rubric.
+    profileJson: json("profileJson"),
+    // A concise, non-PII evidence inventory retained for administrators to audit
+    // what data categories and record counts informed the latest profile.
+    evidenceSnapshot: mediumtext("evidenceSnapshot"),
+    sourceSnapshot: json("sourceSnapshot"),
+    status: mysqlEnum("status", ["ready", "refreshing", "failed"])
+      .default("refreshing")
+      .notNull(),
+    model: varchar("model", { length: 128 }),
+    refreshReason: mysqlEnum("refreshReason", [
+      "manual",
+      "source_added",
+      "scheduled",
+    ]),
+    generatedAt: timestamp("generatedAt"),
+    errorMessage: text("errorMessage"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("market_intelligence_profile_market_unique").on(
+      table.marketProfileId
+    ),
+    index("market_intelligence_profile_status_updated_idx").on(
+      table.status,
+      table.updatedAt
+    ),
+  ]
+);
+export type MarketIntelligenceProfile =
+  typeof marketIntelligenceProfiles.$inferSelect;
 
 export const marketAgentAssignments = mysqlTable("market_agent_assignments", {
   id: int("id").autoincrement().primaryKey(),
@@ -2764,58 +2793,10 @@ export const marketAgentAssignments = mysqlTable("market_agent_assignments", {
   isAvailable: boolean("isAvailable").default(true),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => [
+  uniqueIndex("market_agent_assignment_market_agent_unique").on(table.marketProfileId, table.agentId),
+]);
 export type MarketAgentAssignment = typeof marketAgentAssignments.$inferSelect;
-
-export const marketCaseStudies = mysqlTable("market_case_studies", {
-  id: int("id").autoincrement().primaryKey(),
-  marketProfileId: int("marketProfileId")
-    .notNull()
-    .references(() => marketProfiles.id),
-  title: varchar("title", { length: 255 }).notNull(),
-  propertyType: varchar("propertyType", { length: 100 }),
-  bedrooms: int("bedrooms"),
-  purchasePrice: decimal("purchasePrice", { precision: 15, scale: 2 }),
-  annualRevenue: decimal("annualRevenue", { precision: 15, scale: 2 }),
-  cashOnCashReturn: decimal("cashOnCashReturn", { precision: 5, scale: 2 }),
-  description: text("description"),
-  keyAmenities: text("keyAmenities"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-export type MarketCaseStudy = typeof marketCaseStudies.$inferSelect;
-
-export const marketMatchSessions = mysqlTable("market_match_sessions", {
-  id: int("id").autoincrement().primaryKey(),
-  contactId: int("contactId")
-    .notNull()
-    .references(() => contacts.id),
-  isaId: int("isaId")
-    .notNull()
-    .references(() => users.id),
-  status: mysqlEnum("status", ["active", "completed", "abandoned"])
-    .default("active")
-    .notNull(),
-  callNotes: text("callNotes"),
-  investorProfile: json("investorProfile"),
-  aiInferences: json("aiInferences"),
-  topMarketRecommendations: json("topMarketRecommendations"),
-  recommendedAgentId: int("recommendedAgentId").references(() => users.id),
-  overallConfidenceScore: int("overallConfidenceScore"),
-  callSummary: text("callSummary"),
-  followUpEmailDraft: text("followUpEmailDraft"),
-  handoffNotes: text("handoffNotes"),
-  nextActionRecommendation: text("nextActionRecommendation"),
-  crmWritebackCompleted: boolean("crmWritebackCompleted").default(false),
-  contactStatusSuggestion: varchar("contactStatusSuggestion", { length: 50 }),
-  tagsApplied: varchar("tagsApplied", { length: 500 }),
-  startedAt: timestamp("startedAt").defaultNow().notNull(),
-  completedAt: timestamp("completedAt"),
-  durationSeconds: int("durationSeconds"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-export type MarketMatchSession = typeof marketMatchSessions.$inferSelect;
-export type InsertMarketMatchSession = typeof marketMatchSessions.$inferInsert;
 
 // ─── Marketing Requests ───────────────────────────────────────────────────────
 export const marketingRequests = mysqlTable("marketing_requests", {
@@ -4553,7 +4534,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewAdminApprovals: boolean("canViewAdminApprovals")
     .default(true)
     .notNull(),
-  canViewMarketMatch: boolean("canViewMarketMatch").default(true).notNull(),
+  canViewAgentMarkets: boolean("canViewAgentMarkets").default(true).notNull(),
   canViewOrgChart: boolean("canViewOrgChart").default(true).notNull(),
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities")
     .default(true)

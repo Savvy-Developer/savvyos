@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 // Configure AWS S3 Client using credentials from process.env
 const s3Client = new S3Client({
@@ -59,3 +59,11 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   return { key, url };
 }
 
+/** Deletes one application-owned object from S3. */
+export async function storageDelete(relKey: string): Promise<void> {
+  const bucketName = process.env.AWS_BUCKET_NAME || "savvyos";
+  await s3Client.send(new DeleteObjectCommand({
+    Bucket: bucketName,
+    Key: normalizeKey(relKey),
+  }));
+}

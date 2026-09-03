@@ -50,7 +50,6 @@ describe("ISM dashboard metric helpers", () => {
   it("fills missing weekly trend series with zeroes and preserves source ordering", () => {
     const trend = mergeWeeklyTrend("2026-08-03", "2026-08-16", [
       [{ weekStart: "2026-08-03", value: 12 }],
-      [{ weekStart: "2026-08-10", value: 3 }],
       [
         { weekStart: "2026-08-03", value: 90 },
         { weekStart: "2026-08-10", value: 110 },
@@ -62,14 +61,12 @@ describe("ISM dashboard metric helpers", () => {
     expect(trend[0]).toMatchObject({
       period: "2026-08-03",
       assignedLeads: 12,
-      completedSessions: 0,
       callAttempts: 90,
       completedTasks: 0,
     });
     expect(trend[1]).toMatchObject({
       period: "2026-08-10",
       assignedLeads: 0,
-      completedSessions: 3,
       callAttempts: 110,
       completedTasks: 0,
     });
@@ -77,11 +74,11 @@ describe("ISM dashboard metric helpers", () => {
 });
 
 describe("ISM dashboard permission registration", () => {
-  it("is a distinct default-managed admin permission in the Overview group", () => {
+  it("is a distinct default-managed admin permission in the ISA group", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({
       key: "canViewIsmDashboard",
       label: "ISM Dashboard",
-      group: "Overview",
+      group: "ISA",
     });
   });
 });
