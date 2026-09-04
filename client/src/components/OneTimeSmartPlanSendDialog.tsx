@@ -194,6 +194,7 @@ export default function OneTimeSmartPlanSendDialog({
     (!!scheduledAt && !Number.isNaN(scheduledAt.getTime()));
   const staggerRate = Number(staggerPerHour);
   const staggerIsValid =
+    channel === "email" ||
     !staggerEnabled ||
     (Number.isInteger(staggerRate) && staggerRate >= 1 && staggerRate <= 360);
   const formIsComplete =
@@ -217,8 +218,8 @@ export default function OneTimeSmartPlanSendDialog({
       dateAddedFrom: activeDateAddedFrom,
       dateAddedTo: activeDateAddedTo,
       scheduledAt,
-      staggerEnabled,
-      staggerPerHour: staggerEnabled ? staggerRate : null,
+      staggerEnabled: channel === "sms" && staggerEnabled,
+      staggerPerHour: channel === "sms" && staggerEnabled ? staggerRate : null,
     }),
     [
       body,
@@ -260,6 +261,7 @@ export default function OneTimeSmartPlanSendDialog({
 
   const changeChannel = (value: Channel) => {
     setChannel(value);
+    if (value === "email") setStaggerEnabled(false);
     setName(current =>
       current === "One-time email" || current === "One-time text"
         ? `One-time ${value === "email" ? "email" : "text"}`
@@ -281,7 +283,7 @@ export default function OneTimeSmartPlanSendDialog({
       }
       if (!scheduleIsValid)
         return toast.error("Choose a valid scheduled date and time");
-      if (staggerEnabled && !staggerIsValid)
+      if (channel === "sms" && staggerEnabled && !staggerIsValid)
         return toast.error("Enter a whole-number delivery rate from 1 to 360 per hour");
       return toast.error(
         channel === "email" && !subject.trim()
@@ -303,7 +305,7 @@ export default function OneTimeSmartPlanSendDialog({
 
   const estimatedDurationHours = hourEstimate(
     preview.data?.recipientCount ?? 0,
-    staggerEnabled ? staggerRate : 0
+    channel === "sms" && staggerEnabled ? staggerRate : 0
   );
 
   return (
@@ -485,23 +487,32 @@ export default function OneTimeSmartPlanSendDialog({
                 Scheduled times use your browser&apos;s local time. Delivery begins within five minutes of the selected time.
               </p>
 
-              <div className="flex items-start justify-between gap-4 rounded-md border bg-muted/20 p-3">
-                <div>
-                  <Label htmlFor="stagger-one-time-send">Stagger delivery</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Optional. Spread messages across an hourly delivery rate instead of sending the full audience at once.
+              {channel === "email" ? (
+                <div className="flex gap-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-950">
+                  <Mail className="h-4 w-4 shrink-0 text-sky-700" />
+                  <p>
+                    One Time Emails are sent as a Resend Marketing Broadcast. SavvyOS securely creates a campaign-specific audience and Resend manages delivery pacing, unsubscribe requests, and engagement tracking without using the Transactional email quota.
                   </p>
                 </div>
-                <Switch
-                  id="stagger-one-time-send"
-                  checked={staggerEnabled}
-                  onCheckedChange={checked => {
-                    setStaggerEnabled(checked);
-                    resetReview();
-                  }}
-                />
-              </div>
-              {staggerEnabled && (
+              ) : (
+                <div className="flex items-start justify-between gap-4 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <Label htmlFor="stagger-one-time-send">Stagger delivery</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Optional. Spread messages across an hourly delivery rate instead of sending the full audience at once.
+                    </p>
+                  </div>
+                  <Switch
+                    id="stagger-one-time-send"
+                    checked={staggerEnabled}
+                    onCheckedChange={checked => {
+                      setStaggerEnabled(checked);
+                      resetReview();
+                    }}
+                  />
+                </div>
+              )}
+              {channel === "sms" && staggerEnabled && (
                 <div className="space-y-2">
                   <Label htmlFor="stagger-per-hour">Messages per hour</Label>
                   <Input
@@ -626,7 +637,11 @@ export default function OneTimeSmartPlanSendDialog({
               <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock3 className="h-3.5 w-3.5" />
                 {scheduledAt ? `Scheduled for ${formatScheduledAt(scheduledAt)}` : "Sending immediately"}
-                {staggerEnabled && staggerIsValid ? ` · Staggered at ${staggerRate.toLocaleString()} per hour` : ""}
+                {channel === "email"
+                  ? " · Delivered through Resend Marketing Broadcasts"
+                  : staggerEnabled && staggerIsValid
+                    ? ` · Staggered at ${staggerRate.toLocaleString()} per hour`
+                    : ""}
               </p>
             </div>
             {preview.isLoading ? (
@@ -641,7 +656,7 @@ export default function OneTimeSmartPlanSendDialog({
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><p className="text-xs text-emerald-700">Messages to send</p><p className="mt-1 text-2xl font-semibold text-emerald-800">{preview.data.recipientCount.toLocaleString()}</p></div>
                   <div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Excluded contacts</p><p className="mt-1 text-2xl font-semibold">{preview.data.excludedCount.toLocaleString()}</p></div>
                 </div>
-                {staggerEnabled && estimatedDurationHours > 0 && (
+                {channel === "sms" && staggerEnabled && estimatedDurationHours > 0 && (
                   <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
                     <p className="font-medium">Estimated staggered delivery time</p>
                     <p className="mt-1 text-sky-900/90">

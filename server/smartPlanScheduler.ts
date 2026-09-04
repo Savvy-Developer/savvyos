@@ -22,6 +22,16 @@ import {
 import { and, eq, gte, inArray, lt, lte, isNotNull, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { sendSmartPlanEmail } from "./_core/smartPlanEmail";
+import {
+  buildOneTimeBroadcastCsv,
+  createResendBroadcast,
+  createResendContactImport,
+  createResendSegment,
+  getResendBroadcast,
+  getResendContactImport,
+  renderOneTimeBroadcastEmail,
+  sendResendBroadcast,
+} from "./_core/resendMarketingBroadcast";
 import { sendAircallSMS } from "./_core/aircall";
 import { renderMergeTags } from "./_core/smartPlanMergeTags";
 import { persistOutboundAircallSend } from "./aircallMessaging";
@@ -683,6 +693,18 @@ export async function bulkEnrollExistingContacts(planId: number): Promise<{ enro
 
 const ONE_TIME_SEND_BATCH_SIZE = 50; // Small database pages; the worker drains email pages in one run while provider pacing protects Resend.
 let isOneTimeSendRunning = false;
+const BROADCAST_IMPORT_RECHECK_MS = 30_000;
+const scheduledBroadcastImportChecks = new Set<number>();
+
+function scheduleBroadcastImportRecheck(sendId: number): void {
+  if (scheduledBroadcastImportChecks.has(sendId)) return;
+  scheduledBroadcastImportChecks.add(sendId);
+  const timer = setTimeout(() => {
+    scheduledBroadcastImportChecks.delete(sendId);
+    void processOneTimeSmartPlanSends();
+  }, BROADCAST_IMPORT_RECHECK_MS);
+  timer.unref?.();
+}
 
 /** Calculate the delivery time for the recipient's optional hourly batch. */
 export function oneTimeRecipientScheduledAt(
@@ -716,6 +738,230 @@ async function incrementOneTimeSendCounts(
     .update(oneTimeSends)
     .set({ [outcome === "sent" ? "sentCount" : outcome === "skipped" ? "skippedCount" : "failedCount"]: sql`${field} + 1` })
     .where(eq(oneTimeSends.id, sendId));
+}
+
+function isOneTimeEmailBroadcast(send: typeof oneTimeSends.$inferSelect): boolean {
+  return send.channel === "email" && send.emailDeliveryMethod === "resend_broadcast";
+}
+
+async function failOneTimeEmailBroadcast(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  send: typeof oneTimeSends.$inferSelect,
+  errorMessage: string,
+): Promise<void> {
+  const now = new Date();
+  await db.transaction(async tx => {
+    await tx
+      .update(oneTimeSendRecipients)
+      .set({
+        status: "failed",
+        errorMessage,
+        sentAt: now,
+      })
+      .where(and(
+        eq(oneTimeSendRecipients.sendId, send.id),
+        eq(oneTimeSendRecipients.status, "queued"),
+      ));
+    await tx
+      .update(oneTimeSends)
+      .set({
+        status: "failed",
+        failedCount: send.totalRecipients,
+        resendBroadcastStatus: "failed",
+        resendBroadcastError: errorMessage,
+        completedAt: now,
+      })
+      .where(eq(oneTimeSends.id, send.id));
+  });
+}
+
+async function completeOneTimeEmailBroadcast(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  send: typeof oneTimeSends.$inferSelect,
+  providerStatus: string,
+): Promise<void> {
+  const now = new Date();
+  await db.transaction(async tx => {
+    await tx
+      .update(oneTimeSendRecipients)
+      .set({
+        status: "sent",
+        provider: "resend",
+        sentAt: now,
+        errorMessage: null,
+      })
+      .where(and(
+        eq(oneTimeSendRecipients.sendId, send.id),
+        eq(oneTimeSendRecipients.status, "queued"),
+      ));
+    await tx
+      .update(oneTimeSends)
+      .set({
+        status: "completed",
+        sentCount: send.totalRecipients,
+        resendBroadcastStatus: providerStatus,
+        resendBroadcastError: null,
+        completedAt: now,
+      })
+      .where(eq(oneTimeSends.id, send.id));
+  });
+  await refreshOneTimeSendMetrics(db, send.id);
+}
+
+/**
+ * Starts or resumes a Resend Marketing Broadcast for a queued One Time Email.
+ * A campaign-specific Segment protects audience intent: contacts imported for a
+ * later campaign cannot join a previously created Broadcast.
+ */
+async function processOneTimeEmailBroadcast(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  send: typeof oneTimeSends.$inferSelect,
+): Promise<void> {
+  let currentSend = send;
+
+  if (!currentSend.resendSegmentId) {
+    const segmentResult = await createResendSegment(
+      `SavvyOS One Time Email #${currentSend.id} — ${currentSend.name}`.slice(0, 255)
+    );
+    if (!segmentResult.success) {
+      await db
+        .update(oneTimeSends)
+        .set({ resendBroadcastStatus: "segment_failed", resendBroadcastError: segmentResult.error })
+        .where(eq(oneTimeSends.id, currentSend.id));
+      return;
+    }
+    await db
+      .update(oneTimeSends)
+      .set({
+        resendSegmentId: segmentResult.data.id,
+        resendBroadcastStatus: "segment_created",
+        resendBroadcastError: null,
+      })
+      .where(eq(oneTimeSends.id, currentSend.id));
+    currentSend = { ...currentSend, resendSegmentId: segmentResult.data.id };
+  }
+
+  if (!currentSend.resendContactImportId) {
+    const rows = await db
+      .select({
+        recipientAddress: oneTimeSendRecipients.recipientAddress,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        leadSource: leadSources.name,
+      })
+      .from(oneTimeSendRecipients)
+      .innerJoin(contacts, eq(oneTimeSendRecipients.contactId, contacts.id))
+      .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+      .where(and(
+        eq(oneTimeSendRecipients.sendId, currentSend.id),
+        eq(oneTimeSendRecipients.status, "queued"),
+      ));
+    const importResult = await createResendContactImport({
+      csv: buildOneTimeBroadcastCsv(rows.map(row => ({
+        email: row.recipientAddress,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        leadSource: row.leadSource,
+      }))),
+      segmentId: currentSend.resendSegmentId!,
+    });
+    if (!importResult.success) {
+      await db
+        .update(oneTimeSends)
+        .set({ resendBroadcastStatus: "import_failed", resendBroadcastError: importResult.error })
+        .where(eq(oneTimeSends.id, currentSend.id));
+      return;
+    }
+    await db
+      .update(oneTimeSends)
+      .set({
+        resendContactImportId: importResult.data.id,
+        resendBroadcastStatus: "importing",
+        resendBroadcastError: null,
+      })
+      .where(eq(oneTimeSends.id, currentSend.id));
+    scheduleBroadcastImportRecheck(currentSend.id);
+    return;
+  }
+
+  if (!currentSend.resendBroadcastId) {
+    const importResult = await getResendContactImport(currentSend.resendContactImportId);
+    if (!importResult.success) {
+      await db
+        .update(oneTimeSends)
+        .set({ resendBroadcastStatus: "import_status_unavailable", resendBroadcastError: importResult.error })
+        .where(eq(oneTimeSends.id, currentSend.id));
+      return;
+    }
+    if (importResult.data.status !== "completed") {
+      if (importResult.data.status === "failed") {
+        await failOneTimeEmailBroadcast(
+          db,
+          currentSend,
+          "Resend could not finish importing this campaign audience."
+        );
+      } else {
+        await db
+          .update(oneTimeSends)
+          .set({ resendBroadcastStatus: `import_${importResult.data.status}`, resendBroadcastError: null })
+          .where(eq(oneTimeSends.id, currentSend.id));
+        scheduleBroadcastImportRecheck(currentSend.id);
+      }
+      return;
+    }
+
+    const rendered = renderOneTimeBroadcastEmail({
+      subject: currentSend.subject || currentSend.name,
+      body: currentSend.body,
+    });
+    const broadcastResult = await createResendBroadcast({
+      name: `SavvyOS One Time Email #${currentSend.id} — ${currentSend.name}`.slice(0, 255),
+      segmentId: currentSend.resendSegmentId!,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+    });
+    if (!broadcastResult.success) {
+      await db
+        .update(oneTimeSends)
+        .set({ resendBroadcastStatus: "broadcast_failed", resendBroadcastError: broadcastResult.error })
+        .where(eq(oneTimeSends.id, currentSend.id));
+      return;
+    }
+    await db
+      .update(oneTimeSends)
+      .set({
+        resendBroadcastId: broadcastResult.data.id,
+        resendBroadcastStatus: "draft",
+        resendBroadcastError: null,
+      })
+      .where(eq(oneTimeSends.id, currentSend.id));
+    currentSend = { ...currentSend, resendBroadcastId: broadcastResult.data.id };
+  }
+
+  const existingBroadcast = await getResendBroadcast(currentSend.resendBroadcastId!);
+  if (!existingBroadcast.success) {
+    await db
+      .update(oneTimeSends)
+      .set({ resendBroadcastStatus: "broadcast_status_unavailable", resendBroadcastError: existingBroadcast.error })
+      .where(eq(oneTimeSends.id, currentSend.id));
+    return;
+  }
+  if (["sent", "queued"].includes(existingBroadcast.data.status)) {
+    await completeOneTimeEmailBroadcast(db, currentSend, existingBroadcast.data.status);
+    return;
+  }
+
+  const sendResult = await sendResendBroadcast(currentSend.resendBroadcastId!);
+  if (!sendResult.success) {
+    await db
+      .update(oneTimeSends)
+      .set({ resendBroadcastStatus: "send_failed", resendBroadcastError: sendResult.error })
+      .where(eq(oneTimeSends.id, currentSend.id));
+    return;
+  }
+
+  await completeOneTimeEmailBroadcast(db, currentSend, "sent");
 }
 
 async function deliverOneTimeRecipient(
@@ -840,6 +1086,11 @@ export async function processOneTimeSmartPlanSends(): Promise<void> {
 
     if (send.status === "queued") {
       await db.update(oneTimeSends).set({ status: "processing", startedAt: new Date() }).where(eq(oneTimeSends.id, send.id));
+    }
+
+    if (isOneTimeEmailBroadcast(send)) {
+      await processOneTimeEmailBroadcast(db, send);
+      return;
     }
 
     // Drain all queued email recipients during this worker run. Resend pacing keeps

@@ -321,6 +321,22 @@ function RecipientHistoryDialog({
               </span>
               <StatusBadge value={send.status} />
             </div>
+            {send.emailDeliveryMethod === "resend_broadcast" && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm text-sky-950">
+                <p className="font-medium">Resend Marketing Broadcast</p>
+                <p className="mt-1 text-xs text-sky-900/85">
+                  {send.resendBroadcastStatus
+                    ? `Provider status: ${titleCase(send.resendBroadcastStatus)}.`
+                    : "Preparing the campaign-specific Resend audience."}
+                  {send.resendBroadcastError ? ` ${send.resendBroadcastError}` : ""}
+                </p>
+                {send.resendBroadcastId && (
+                  <p className="mt-1 font-mono text-[10px] text-sky-900/75 break-all">
+                    Broadcast ID: {send.resendBroadcastId}
+                  </p>
+                )}
+              </div>
+            )}
             {(send.dateAddedFrom || send.dateAddedTo) && (
               <p className="text-xs text-muted-foreground">
                 Date added to SavvyOS: {formatDateAddedRange(send.dateAddedFrom, send.dateAddedTo)}
@@ -449,6 +465,7 @@ function RecipientHistoryDialog({
               )}
             </div>
 
+            {send.emailDeliveryMethod !== "resend_broadcast" && (
             <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="font-medium text-sm">Resend provider status</p>
@@ -472,6 +489,7 @@ function RecipientHistoryDialog({
                 Refresh Resend Status
               </Button>
             </div>
+            )}
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>

@@ -156,6 +156,10 @@ async function contactsForIds(db: any, contactIds: number[]): Promise<Array<type
 async function oneTimeAudience(db: any, contactIds: number[], channel: "email" | "sms") {
   const matchingContacts = await contactsForIds(db, contactIds);
   const recipientTargets: OneTimeRecipientTarget[] = [];
+  // Resend Marketing Broadcasts operate on contact email addresses rather than
+  // CRM records. Avoid importing or emailing a shared address twice while
+  // retaining the first associated SavvyOS contact for activity reporting.
+  const selectedEmailAddresses = new Set<string>();
   const exclusionReasons: OneTimeExclusionReasons = {
     doNotContact: 0,
     bounced: 0,
@@ -174,7 +178,12 @@ async function oneTimeAudience(db: any, contactIds: number[], channel: "email" |
     }
     const addresses = recipientTargetsForContact(contact, channel);
     eligibleContactCount++;
-    recipientTargets.push(...addresses.map((recipientAddress) => ({ contactId: contact.id, recipientAddress })));
+    for (const recipientAddress of addresses) {
+      const normalizedAddress = recipientAddress.trim().toLowerCase();
+      if (channel === "email" && selectedEmailAddresses.has(normalizedAddress)) continue;
+      if (channel === "email") selectedEmailAddresses.add(normalizedAddress);
+      recipientTargets.push({ contactId: contact.id, recipientAddress });
+    }
   }
   return { recipientTargets, eligibleContactCount, exclusionReasons };
 }
@@ -518,7 +527,11 @@ export const smartPlansRouter = router({
         if (scheduledAt.getTime() < now.getTime() - 60_000) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a scheduled date and time that has not already passed." });
         }
-        const staggerPerHour = input.staggerEnabled ? input.staggerPerHour! : null;
+        // Resend's Marketing Broadcast service owns email pacing. Keep the
+        // existing hourly throttle only for Aircall text messages.
+        const staggerPerHour = input.channel === "sms" && input.staggerEnabled
+          ? input.staggerPerHour!
+          : null;
 
         const contactIds = await getCurrentContactIdsMatchingTrigger(input);
         const audience = await oneTimeAudience(db, contactIds, input.channel);
@@ -535,12 +548,13 @@ export const smartPlansRouter = router({
           triggerLeadSourceIds: input.triggerType === "lead_source" ? input.triggerLeadSourceIds ?? null : null,
           dateAddedFrom: input.dateAddedFrom ?? null,
           dateAddedTo: input.dateAddedTo ?? null,
+          emailDeliveryMethod: input.channel === "email" ? "resend_broadcast" : null,
           status: "queued",
           totalRecipients: audience.recipientTargets.length,
           createdById: ctx.user.id,
           confirmedAt: new Date(),
           scheduledAt,
-          staggerEnabled: input.staggerEnabled,
+          staggerEnabled: input.channel === "sms" && input.staggerEnabled,
           staggerPerHour,
         });
         const sendId = Number((result as any).insertId);

@@ -1489,6 +1489,15 @@ export const oneTimeSends = mysqlTable(
     // source or all lead sources. They preserve the original audience intent.
     dateAddedFrom: date("dateAddedFrom", { mode: "string" }),
     dateAddedTo: date("dateAddedTo", { mode: "string" }),
+    // New one-time emails are sent through Resend Marketing Broadcasts. Keep
+    // this nullable so historical direct-delivery records retain their exact
+    // original behavior and audit trail.
+    emailDeliveryMethod: varchar("emailDeliveryMethod", { length: 64 }),
+    resendSegmentId: varchar("resendSegmentId", { length: 255 }),
+    resendContactImportId: varchar("resendContactImportId", { length: 255 }),
+    resendBroadcastId: varchar("resendBroadcastId", { length: 255 }),
+    resendBroadcastStatus: varchar("resendBroadcastStatus", { length: 64 }),
+    resendBroadcastError: text("resendBroadcastError"),
     status: mysqlEnum("status", [
       "queued",
       "processing",
@@ -1532,7 +1541,8 @@ export const oneTimeSends = mysqlTable(
       table.scheduledAt,
       table.createdAt
     ),
-   index("one_time_sends_createdBy_idx").on(table.createdById),
+    index("one_time_sends_resend_broadcast_idx").on(table.resendBroadcastId),
+    index("one_time_sends_createdBy_idx").on(table.createdById),
   ]
 );
 export type OneTimeSend = typeof oneTimeSends.$inferSelect;

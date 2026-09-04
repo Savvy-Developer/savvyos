@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import { and, eq, or } from "drizzle-orm";
 import { ENV } from "./_core/env";
+import { unsubscribeResendMarketingContact } from "./_core/resendMarketingBroadcast";
 import { getDb } from "./db";
 import { contacts } from "../drizzle/schema";
 
@@ -95,6 +96,11 @@ export async function unsubscribeMarketingEmail(
         )
       )
     );
+
+  // Broadcasts use Resend's contact-level unsubscribe list. The SavvyOS state
+  // above is authoritative; mirror successful legacy unsubscribe requests so a
+  // later Marketing Broadcast also protects this address.
+  void unsubscribeResendMarketingContact(email);
 
   return { valid: true, email };
 }

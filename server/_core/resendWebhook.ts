@@ -11,10 +11,11 @@ import {
   emailBehaviors,
   smartPlanExecutions,
   smartPlanMessageEvents,
+  oneTimeSends,
   oneTimeSendRecipients,
   oneTimeSendMessageEvents,
 } from "../../drizzle/schema";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { refreshOneTimeSendMetrics } from "../oneTimeSendTracking";
 import { createHmac } from "crypto";
 import { ingestResendReceivedEmail } from "../resendInbox";
@@ -48,12 +49,14 @@ type ResendWebhookEvent = {
   created_at?: string;
   data: {
     email_id?: string;
+    broadcast_id?: string;
     to?: string[];
     from?: string;
     subject?: string;
     created_at?: string;
     // Suppression and inbound receiving events can identify an address as `email`.
     email?: string;
+    unsubscribed?: boolean;
     message_id?: string;
   };
 };
@@ -66,6 +69,7 @@ const SMART_PLAN_EVENT_TYPES = new Set([
   "email.complained",
   "email.suppressed",
   "email.failed",
+  "email.sent",
   "email.received",
 ]);
 
@@ -108,27 +112,48 @@ async function recordOneTimeSendEvent(
   }
 
   const replyToken = event.type === "email.received" ? inboundReplyToken(event.data.to) : null;
-  const recipientRows = replyToken
-    ? await db
-        .select()
-        .from(oneTimeSendRecipients)
-        .where(eq(oneTimeSendRecipients.replyToken, replyToken))
-        .limit(1)
-    : event.data.email_id
-      ? await db
-          .select()
-          .from(oneTimeSendRecipients)
-          .where(and(
-            eq(oneTimeSendRecipients.provider, "resend"),
-            eq(oneTimeSendRecipients.providerMessageId, event.data.email_id),
-          ))
-          .limit(1)
-      : [];
-  const recipient = recipientRows[0];
+  const broadcastRecipientAddress = event.type === "email.received"
+    ? inboundSenderEmail(event.data.from)
+    : event.data.to?.[0]?.trim().toLowerCase() ?? null;
+  let recipient: typeof oneTimeSendRecipients.$inferSelect | undefined;
+  if (replyToken) {
+    [recipient] = await db
+      .select()
+      .from(oneTimeSendRecipients)
+      .where(eq(oneTimeSendRecipients.replyToken, replyToken))
+      .limit(1);
+  } else if (event.data.email_id) {
+    [recipient] = await db
+      .select()
+      .from(oneTimeSendRecipients)
+      .where(and(
+        eq(oneTimeSendRecipients.provider, "resend"),
+        eq(oneTimeSendRecipients.providerMessageId, event.data.email_id),
+      ))
+      .limit(1);
+  }
+  // A Broadcast recipient does not have an individual Resend email ID until
+  // its first lifecycle webhook arrives, so fall back to campaign + address.
+  if (!recipient && event.data.broadcast_id && broadcastRecipientAddress) {
+    const rows = await db
+      .select({ recipient: oneTimeSendRecipients })
+      .from(oneTimeSendRecipients)
+      .innerJoin(oneTimeSends, eq(oneTimeSendRecipients.sendId, oneTimeSends.id))
+      .where(and(
+        eq(oneTimeSends.resendBroadcastId, event.data.broadcast_id),
+        sql`lower(${oneTimeSendRecipients.recipientAddress}) = ${broadcastRecipientAddress}`,
+      ))
+      .limit(1);
+    recipient = rows[0]?.recipient;
+  }
   if (!recipient) return {};
 
   const occurredAt = eventTimestamp(event);
-  const projection: Partial<typeof oneTimeSendRecipients.$inferInsert> = {};
+  const projection: Partial<typeof oneTimeSendRecipients.$inferInsert> = {
+    providerLastEvent: event.type.replace(/^email\./, ""),
+    providerStatusCheckedAt: new Date(),
+    ...(event.data.email_id ? { providerMessageId: event.data.email_id } : {}),
+  };
   switch (event.type) {
     case "email.delivered":
       projection.deliveredAt = occurredAt;
@@ -172,6 +197,7 @@ async function recordOneTimeSendEvent(
       occurredAt,
       metadata: {
         emailId: event.data.email_id ?? null,
+        broadcastId: event.data.broadcast_id ?? null,
         from: event.data.from ?? null,
         to: event.data.to ?? [],
         subject: event.data.subject ?? null,
@@ -286,6 +312,27 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
   const { type, data } = event;
   const recipientEmail = (data.to && data.to[0]) || data.email || null;
   const emailId = data.email_id;
+
+  // Broadcast unsubscribe actions are processed by Resend, then echoed here.
+  // Do not change a contact back to valid from this webhook; SavvyOS remains
+  // the local source of truth for deliverability, while a true provider opt-out
+  // must immediately protect future SavvyOS sends.
+  if (type === "contact.updated" && data.unsubscribed === true && data.email) {
+    const db = await getDb();
+    if (!db) return { handled: false, reason: "db_unavailable" };
+    const address = inboundSenderEmail(data.email);
+    if (!address) return { handled: false, reason: "invalid_contact_email" };
+    await db
+      .update(contacts)
+      .set({ emailStatus: "unsubscribed", emailUnsubscribedAt: eventTimestamp(event) })
+      .where(or(
+        eq(contacts.email, address),
+        eq(contacts.secondaryEmail, address),
+        eq(contacts.thirdEmail, address),
+        eq(contacts.spouseEmail, address),
+      ));
+    return { handled: true, action: "marked_unsubscribed_contact_update", email: address };
+  }
 
   // Persist inbox content before analytics correlations. This keeps retries safe:
   // the inbox insert is idempotent by provider email ID, while downstream event
