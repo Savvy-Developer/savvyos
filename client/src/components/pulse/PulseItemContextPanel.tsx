@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock3, ExternalLink, FileText, History, Link as LinkIcon, MapPin, MessageCircle, Pencil, Send, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { PulseCompletionCelebration, usePulseCompletionCelebration } from "@/components/pulse/PulseCompletionCelebration";
 
-type Props = { workItemId: string; title: string; onEdit: () => void; onAddSubTodo?: () => void; onChanged: () => void; sourceSessionId?: string | null };
+type Props = { workItemId: string; title: string; completionRequest?: number; onEdit: () => void; onAddSubTodo?: () => void; onChanged: () => void; sourceSessionId?: string | null };
 
 const statuses = [
   ["not_started", "Not Started"],
@@ -39,13 +39,14 @@ function Timeline({ detail }: { detail: any }) {
   return <section className="rounded-md border p-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><History className="h-4 w-4 text-primary" />Activity</h3><div className="mt-2 space-y-2 border-l border-border pl-3">{entries.map((entry: any, index: number) => <article key={`${entry.at}-${index}`} className="relative text-sm"><span className="absolute -left-[1.22rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground">{entry.icon}</span><p>{entry.text}</p>{entry.detail ? <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{entry.detail}</p> : null}<p className="mt-0.5 text-[11px] text-muted-foreground">{when(entry.at)}</p></article>)}</div></section>;
 }
 
-export function PulseItemContextPanel({ workItemId, title, onEdit, onAddSubTodo, onChanged }: Props) {
+export function PulseItemContextPanel({ workItemId, title, completionRequest = 0, onEdit, onAddSubTodo, onChanged }: Props) {
   const utils = trpc.useUtils();
   const detail = trpc.pulse.workItems.detail.useQuery({ workItemId });
   const [nextStatus, setNextStatus] = useState<string | null>(null);
   const [statusNote, setStatusNote] = useState("");
   const statusAnchor = useRef<HTMLDivElement>(null);
   const { celebration, celebrate } = usePulseCompletionCelebration();
+  useEffect(() => { if (completionRequest && detail.data?.item?.status !== "completed") setNextStatus("completed"); }, [completionRequest, detail.data?.item?.status]);
   const setStatus = trpc.pulse.workItems.setWorkflowStatus.useMutation({ onSuccess: (_result, variables) => { const completed = variables.status === "completed"; const issue = detail.data?.item?.type === "issue"; const message = issue ? "Issue resolved" : "To-Do completed"; if (completed) { celebrate(statusAnchor.current, issue ? "issue" : "todo", message); toast.success(message); } else toast.success("Status update saved."); setNextStatus(null); setStatusNote(""); void detail.refetch(); void utils.pulse.workItems.invalidate(); void utils.pulse.personal.invalidate(); void utils.pulse.l10.invalidate(); onChanged(); }, onError: error => toast.error(error.message) });
   if (detail.isLoading || !detail.data) return <div className="border-t bg-muted/10 px-3 py-4 text-sm text-muted-foreground">Loading item context…</div>;
   const item = detail.data.item;
