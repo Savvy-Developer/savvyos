@@ -187,6 +187,30 @@ function responseText(value: Awaited<ReturnType<typeof invokeLLM>>): string {
   return "";
 }
 
+/**
+ * Structured-output capable providers occasionally preserve a Markdown fence or
+ * a short preface despite receiving a JSON-schema response format. Recover the
+ * single JSON object without persisting or logging source conversation content.
+ */
+function parseStructuredResponse(raw: string): unknown {
+  const candidates = [
+    raw.trim(),
+    raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) candidates.push(raw.slice(firstBrace, lastBrace + 1));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next safe representation of the same model response.
+    }
+  }
+  throw new Error("Contact Intelligence model did not return valid structured output");
+}
+
 function cleanText(value: unknown, maxLength = 1_500): string {
   if (typeof value !== "string") return "";
   const cleaned = value.replace(/\s+/g, " ").trim();
@@ -416,12 +440,7 @@ Rules:
     ],
   });
   const raw = responseText(response);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Contact Intelligence model did not return valid structured output");
-  }
+  const parsed = parseStructuredResponse(raw);
   if (!parsed || typeof parsed !== "object") throw new Error("Contact Intelligence model response was empty");
   const result = parsed as Record<string, unknown>;
   const profile = normalProfile(result.profile);
@@ -746,4 +765,5 @@ export const __testables__ = {
   mergeProfiles,
   normalProfile,
   normalSignals,
+  parseStructuredResponse,
 };
