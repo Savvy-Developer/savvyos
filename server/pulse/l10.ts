@@ -232,7 +232,7 @@ async function getTodos(db: any, targetMeetingId: string) {
   return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, sourceSessionId: pulseWorkItems.sourceSessionId, parentWorkItemId: pulseWorkItems.parentWorkItemId, createdAt: pulseWorkItems.createdAt, commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"), attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"), linkedSubTodoCount: sql<number>`(select count(*) from \`pulse_work_items\` child where child.\`parentWorkItemId\` = ${pulseWorkItems.id} and child.\`deletedAt\` is null)`.as("linkedSubTodoCount") })
     .from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
-    .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt)))
+    .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "todo"), ne(pulseWorkItems.status, "completed"), isNull(pulseWorkItems.deletedAt)))
     .orderBy(asc(pulseWorkItems.status), asc(pulseWorkItems.dueDate), desc(pulseWorkItems.createdAt));
 }
 
@@ -240,7 +240,7 @@ async function getIssues(db: any, targetMeetingId: string) {
   return db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, description: pulseWorkItems.description, status: pulseWorkItems.status, priority: pulseWorkItems.priority, priorityLevel: pulseWorkItems.priorityLevel, issueTimeframe: pulseWorkItems.issueTimeframe, dueDate: pulseWorkItems.dueDate, parentWorkItemId: pulseWorkItems.parentWorkItemId, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, createdAt: pulseWorkItems.createdAt, commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"), attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"), linkedSubTodoCount: sql<number>`(select count(*) from \`pulse_work_items\` child where child.\`parentWorkItemId\` = ${pulseWorkItems.id} and child.\`deletedAt\` is null)`.as("linkedSubTodoCount") })
     .from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
-    .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "issue"), isNull(pulseWorkItems.deletedAt)))
+    .where(and(eq(pulseWorkItems.meetingId, targetMeetingId), eq(pulseWorkItems.type, "issue"), ne(pulseWorkItems.status, "completed"), isNull(pulseWorkItems.deletedAt)))
     .orderBy(asc(pulseWorkItems.status), asc(pulseWorkItems.priority), asc(pulseWorkItems.createdAt));
 }
 
@@ -282,7 +282,6 @@ function healthFromReports(reports: any[], scheduledMinutes: number) {
 
 async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: string) {
   const meeting = await require_visible_meeting(db, user.id, targetMeetingId);
-  if (meeting.label !== "level_10") throw notFound("This workspace is not a Level 10 meeting.");
   const [members, scorecard, rocks, todos, issues, segue, headlines, briefs, reports, activeSession] = await Promise.all([
     listMembers(db, targetMeetingId),
     getScorecard(db, targetMeetingId, Math.max(1, Math.min(16, meeting.scorecardHistoryWeeks ?? 8))),
@@ -313,6 +312,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     meeting: {
       id: meeting.id,
       name: meeting.name,
+      label: meeting.label,
       purpose: meeting.purpose,
       dayOfWeek: meeting.dayOfWeek,
       startTime: meeting.startTime,
@@ -328,7 +328,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     },
     members,
     activeSession,
-    permissions: { canConfigure, canRun, canViewAllHealth },
+    permissions: { canConfigure, canRun: meeting.label === "level_10" && canRun, canViewAllHealth },
     sections: {
       overview: { attention, latestReport: reports[0]?.report ?? null, health: healthFromReports(reports, meeting.durationMinutes) },
       segue,

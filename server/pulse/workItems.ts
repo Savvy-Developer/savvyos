@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import sanitizeHtml from "sanitize-html";
 import { pulseMemberProcedure } from "./authorization";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   pulseActivityLog,
@@ -255,6 +255,71 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
 }
 
 export const pulseWorkItemsRouter = router({
+  history: pulseMemberProcedure
+    .input(z.object({
+      contextId: z.union([z.literal("personal"), z.string().uuid()]).optional(),
+      type: z.enum(["todo", "issue"]).optional(),
+      search: z.string().trim().max(200).optional(),
+      dateFrom: dateSchema.optional(),
+      dateTo: dateSchema.optional(),
+      onlyMine: z.boolean().default(false),
+    }).superRefine((input, refinement) => {
+      if (input.dateFrom && input.dateTo && input.dateFrom > input.dateTo) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["dateTo"], message: "Choose an end date on or after the start date." });
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const visibleIds = await visible_meeting_ids(db, ctx.user.id);
+      const accessCondition = visibleIds.length
+        ? or(inArray(pulseWorkItems.meetingId, visibleIds), eq(pulseWorkItems.ownerPersonId, ctx.user.id))
+        : eq(pulseWorkItems.ownerPersonId, ctx.user.id);
+      const conditions: any[] = [accessCondition, isNull(pulseWorkItems.deletedAt), eq(pulseWorkItems.status, "completed"), inArray(pulseWorkItems.type, input.type ? [input.type] : ["todo", "issue"] as any)];
+      if (input.contextId === "personal") conditions.push(isNull(pulseWorkItems.meetingId), eq(pulseWorkItems.ownerPersonId, ctx.user.id));
+      else if (input.contextId) {
+        await require_visible_meeting(db, ctx.user.id, input.contextId);
+        conditions.push(eq(pulseWorkItems.meetingId, input.contextId));
+      }
+      if (input.onlyMine) conditions.push(or(eq(pulseWorkItems.assigneeId, ctx.user.id), eq(pulseWorkItems.ownerPersonId, ctx.user.id)));
+      if (input.search) {
+        const pattern = `%${input.search}%`;
+        conditions.push(or(like(pulseWorkItems.title, pattern), like(pulseWorkItems.description, pattern), like(pulseWorkItems.solvedNote, pattern)));
+      }
+      if (input.dateFrom) conditions.push(gte(pulseWorkItems.completedAt, new Date(`${input.dateFrom}T00:00:00.000Z`)));
+      if (input.dateTo) {
+        const exclusiveEnd = new Date(`${input.dateTo}T00:00:00.000Z`);
+        exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+        conditions.push(lt(pulseWorkItems.completedAt, exclusiveEnd));
+      }
+      const rows = await db.select({
+        id: pulseWorkItems.id, type: pulseWorkItems.type, title: pulseWorkItems.title, description: pulseWorkItems.description,
+        meetingId: pulseWorkItems.meetingId, meetingName: pulseMeetings.name, meetingLabel: pulseMeetings.label, parentWorkItemId: pulseWorkItems.parentWorkItemId,
+        ownerPersonId: pulseWorkItems.ownerPersonId, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, status: pulseWorkItems.status,
+        dueDate: pulseWorkItems.dueDate, completedAt: pulseWorkItems.completedAt, completedById: pulseWorkItems.completedById, priorityLevel: pulseWorkItems.priorityLevel,
+        issueTimeframe: pulseWorkItems.issueTimeframe, solvedNote: pulseWorkItems.solvedNote, createdAt: pulseWorkItems.createdAt, updatedAt: pulseWorkItems.updatedAt,
+        commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"),
+        attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"),
+        linkedSubTodoCount: sql<number>`(select count(*) from \`pulse_work_items\` child where child.\`parentWorkItemId\` = ${pulseWorkItems.id} and child.\`deletedAt\` is null)`.as("linkedSubTodoCount"),
+      }).from(pulseWorkItems).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId)).leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
+        .where(and(...conditions)).orderBy(desc(pulseWorkItems.completedAt), desc(pulseWorkItems.updatedAt)).limit(300);
+      return rows.map((row: any) => itemResponse(row, row.meetingName ?? null));
+    }),
+
+  reopen: pulseMemberProcedure
+    .input(z.object({ workItemId: z.string().uuid(), reason: z.string().trim().min(1).max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Only To-Dos and Issues can be reopened." });
+      if (item.status !== "completed") return { success: true, unchanged: true };
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItems).set({ status: "not_started", completedAt: null, completedById: null }).where(eq(pulseWorkItems.id, item.id));
+        await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: "completed", toStatus: "not_started", note: input.reason, personId: ctx.user.id });
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "reopened", "status", "completed", { status: "not_started", reason: input.reason });
+      });
+      return { success: true, unchanged: false };
+    }),
+
   list: pulseMemberProcedure
     .input(z.object({
       type: workItemTypeSchema.optional(),
@@ -350,6 +415,7 @@ export const pulseWorkItemsRouter = router({
       const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== input.type) throw new TRPCError({ code: "BAD_REQUEST", message: "An existing work item cannot change between To-Do and Issue." });
       const destinationChanged = item.meetingId !== destinationValues.meetingId || item.ownerPersonId !== destinationValues.ownerPersonId;
+      const assigneeChanged = item.assigneeId !== input.assigneeId;
       const statusChanged = item.status !== input.status;
       if (statusChanged && !input.statusNote?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: input.status === "completed" ? "Describe what completed looks like before marking this item completed." : "Describe this status update before saving it." });
       if (item.parentWorkItemId && destinationChanged) throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent To-Do first; its sub-To-Dos must stay in the same destination." });
@@ -358,6 +424,7 @@ export const pulseWorkItemsRouter = router({
         const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: statusChanged && complete ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
         await tx.update(pulseWorkItems).set(values).where(eq(pulseWorkItems.id, item.id));
         if (destinationChanged) await tx.insert(pulseWorkItemMoves).values({ id: uuid(), workItemId: item.id, fromMeetingId: item.meetingId, toMeetingId: destinationValues.meetingId, movedById: ctx.user.id, reason: "Destination changed in the shared Pulse editor." });
+        if (assigneeChanged) await writeActivity(tx, ctx.user.id, "work_item", item.id, "assignee_changed", "assigneeId", item.assigneeId, input.assigneeId);
         if (statusChanged) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote!.trim(), personId: ctx.user.id });
         if (input.attachments.length) {
           await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: item.id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
@@ -380,7 +447,7 @@ export const pulseWorkItemsRouter = router({
       await db.transaction(async (tx: any) => {
         await tx.update(pulseWorkItems).set({ status: input.status, solvedNote: completed ? input.statusNote : item.solvedNote, completedAt: completed ? new Date() : null, completedById: completed ? ctx.user.id : null }).where(eq(pulseWorkItems.id, item.id));
         await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote, personId: ctx.user.id });
-        await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, { status: input.status, statusNote: input.statusNote });
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, item.status === "completed" && input.status !== "completed" ? "reopened" : "status_changed", "status", item.status, { status: input.status, statusNote: input.statusNote });
       });
       return { success: true, unchanged: false };
     }),
