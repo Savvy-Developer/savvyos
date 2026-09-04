@@ -14,6 +14,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 interface MockState {
   /** email → contact id, for findExistingContact */
   contactsByEmail: Record<string, number>;
+  /** canonical phone → contact id, for findExistingContact */
+  contactsByPhone: Record<string, number>;
   /** rows passed to db.insert(contacts).values(...) */
   inserted: Record<string, unknown>[];
   /** calls to logActivity */
@@ -28,6 +30,7 @@ const state = globalThis as unknown as { __mock: MockState };
 
 state.__mock = {
   contactsByEmail: {},
+  contactsByPhone: {},
   inserted: [],
   activities: [],
   ghlSynced: [],
@@ -42,9 +45,12 @@ vi.mock("./db", () => ({
           limit: async () => {
             const m = (globalThis as any).__mock as MockState;
             const email = (globalThis as any).__lastLookupEmail as
-              | string
-              | undefined;
-            const id = email ? m.contactsByEmail[email] : undefined;
+              string | undefined;
+            const phone = (globalThis as any).__lastLookupPhone as
+              string | undefined;
+            const id =
+              (email ? m.contactsByEmail[email] : undefined) ??
+              (phone ? m.contactsByPhone[phone] : undefined);
             return id ? [{ id }] : [];
           },
         }),
@@ -70,7 +76,9 @@ vi.mock("./_core/ghlSync", () => ({
   }),
 }));
 
-const mockTriggerSmartPlansForContact = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+const mockTriggerSmartPlansForContact = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(1)
+);
 vi.mock("./smartPlanScheduler", () => ({
   triggerSmartPlansForContact: mockTriggerSmartPlansForContact,
   resumeSmartPlansAwaitingSmsConsent: vi.fn().mockResolvedValue(undefined),
@@ -82,6 +90,9 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, value: unknown) => {
     if (typeof value === "string" && value.includes("@")) {
       (globalThis as any).__lastLookupEmail = value;
+    }
+    if (typeof value === "string" && /^\(\d{3}\) \d{3}-\d{4}$/.test(value)) {
+      (globalThis as any).__lastLookupPhone = value;
     }
     return { _eq: value };
   }),
@@ -126,11 +137,13 @@ function envelope(event: string, data: Record<string, unknown>) {
 
 beforeEach(() => {
   state.__mock.contactsByEmail = {};
+  state.__mock.contactsByPhone = {};
   state.__mock.inserted = [];
   state.__mock.activities = [];
   state.__mock.ghlSynced = [];
   state.__mock.nextInsertId = 900;
   (globalThis as any).__lastLookupEmail = undefined;
+  (globalThis as any).__lastLookupPhone = undefined;
   mockTriggerSmartPlansForContact.mockClear();
 });
 
@@ -314,7 +327,7 @@ describe("unmatched email", () => {
         leadEmail: "smart-plan@example.com",
         name: "Smart Plan",
       }),
-      endpoint,
+      endpoint
     );
     expect(mockTriggerSmartPlansForContact).toHaveBeenCalledWith(900, 42);
   });
@@ -326,6 +339,23 @@ describe("unmatched email", () => {
       endpoint
     );
     expect(r.action).toBe("logged");
+    expect(state.__mock.inserted).toHaveLength(0);
+    expect(state.__mock.ghlSynced).toEqual([]);
+  });
+
+  it("matches an existing contact by phone when a website email alias differs", async () => {
+    state.__mock.contactsByPhone["(555) 555-0123"] = 83;
+
+    const result = await savvyWebEventHandler(
+      envelope("lead.created", {
+        leadEmail: "known+website@example.com",
+        phone: "555-555-0123",
+        name: "Known Contact",
+      }),
+      endpoint
+    );
+
+    expect(result).toMatchObject({ contactId: 83, action: "logged" });
     expect(state.__mock.inserted).toHaveLength(0);
     expect(state.__mock.ghlSynced).toEqual([]);
   });

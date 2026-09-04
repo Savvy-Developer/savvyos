@@ -162,7 +162,7 @@ async function findExistingContact(email?: string, phone?: string): Promise<numb
   const rows = await db
     .select({ id: contacts.id, phone: contacts.phone, secondaryPhone: contacts.secondaryPhone, thirdPhone: contacts.thirdPhone, spousePhone: contacts.spousePhone })
     .from(contacts)
-    .where(or(...conditions))
+    .where(and(isNull(contacts.archivedAt), or(...conditions)))
     .limit(20);
   if (rows[0]) return rows[0].id;
 
@@ -176,11 +176,14 @@ async function findExistingContact(email?: string, phone?: string): Promise<numb
   const candidates = await db
     .select({ id: contacts.id, phone: contacts.phone, secondaryPhone: contacts.secondaryPhone, thirdPhone: contacts.thirdPhone, spousePhone: contacts.spousePhone })
     .from(contacts)
-    .where(or(
-      sql`${contacts.phone} LIKE ${`%${finalFour}`}`,
-      sql`${contacts.secondaryPhone} LIKE ${`%${finalFour}`}`,
-      sql`${contacts.thirdPhone} LIKE ${`%${finalFour}`}`,
-      sql`${contacts.spousePhone} LIKE ${`%${finalFour}`}`,
+    .where(and(
+      isNull(contacts.archivedAt),
+      or(
+        sql`${contacts.phone} LIKE ${`%${finalFour}`}`,
+        sql`${contacts.secondaryPhone} LIKE ${`%${finalFour}`}`,
+        sql`${contacts.thirdPhone} LIKE ${`%${finalFour}`}`,
+        sql`${contacts.spousePhone} LIKE ${`%${finalFour}`}`,
+      ),
     ))
     .limit(100);
   const matching = candidates.find((contact) => [contact.phone, contact.secondaryPhone, contact.thirdPhone, contact.spousePhone]

@@ -31,6 +31,7 @@ import { useCelebration } from "@/hooks/useCelebration";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
 import { useAppBack } from "@/lib/navigationHistory";
+import { sortActivityTimeline } from "@shared/activityTimeline";
 
 // ─── US Timezone Options ─────────────────────────────────────────────────────
 const US_TIMEZONES = [
@@ -504,6 +505,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const activityEntries = (activityLog ?? []).map((entry) => ({
     ...formatActivityEntry(entry as any),
     action: (entry as any)?.log?.action ?? (entry as any)?.action ?? "",
+    occurredAt: (entry as any)?.log?.createdAt ?? (entry as any)?.createdAt ?? null,
   }));
   const websiteActivityActions = new Set([
     "property_viewed",
@@ -525,6 +527,17 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const filteredCommunications = (comms ?? []).filter(({ communication }: any) =>
     !communication.isPinned && (activityTypeFilter === "all" || activityTypeFilter === communication.type),
   );
+  // Communications and system events arrive from separate data sources. Combine
+  // them before rendering so the Activity tab always shows the latest event first.
+  const timelineEntries = sortActivityTimeline([
+    ...filteredActivityEntries.map((entry) => ({ kind: "activity" as const, entry, occurredAt: entry.occurredAt })),
+    ...filteredCommunications.map(({ communication, author }: any) => ({
+      kind: "communication" as const,
+      communication,
+      author,
+      occurredAt: communication.communicatedAt,
+    })),
+  ]);
 
   const contactTransactions = transactions;
 
@@ -1239,7 +1252,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   </SelectContent>
                 </Select>
               </div>
-              {filteredCommunications.length === 0 && filteredActivityEntries.length === 0 ? (
+              {timelineEntries.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center text-muted-foreground">
                     <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -1248,38 +1261,39 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 </Card>
               ) : (
                 <div className="space-y-3">
-                  {/* System activity-log entries (e.g. property views) */}
-                  {filteredActivityEntries.map((entry) => (
-                    <Card key={`activity-${entry.id}`}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between mb-1">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">{entry.title}</Badge>
-                            <span className="text-xs text-muted-foreground">{entry.actor}</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                  {timelineEntries.map((timelineEntry) => timelineEntry.kind === "activity" ? (
+                    (() => {
+                      const { entry } = timelineEntry;
+                      return (
+                  <Card key={`activity-${entry.id}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">{entry.title}</Badge>
+                          <span className="text-xs text-muted-foreground">{entry.actor}</span>
                         </div>
-                        {entry.lines.length > 0 && (
-                          <div className="mt-1 space-y-0.5">
-                            {entry.lines.map((line, i) => (
-                              <p key={i} className="text-sm text-muted-foreground">{line}</p>
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                  {filteredCommunications.map(({ communication, author }: any) => (
-                    <Card key={communication.id} className={communication.isPinned ? "border-primary/50 bg-primary/[0.03]" : undefined}>
+                        <span className="text-xs text-muted-foreground">{entry.timestamp}</span>
+                      </div>
+                      {entry.lines.length > 0 && (
+                        <div className="mt-1 space-y-0.5">
+                          {entry.lines.map((line, i) => (
+                            <p key={i} className="text-sm text-muted-foreground">{line}</p>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                      );
+                    })()
+                  ) : (
+                    (() => {
+                      const { communication, author } = timelineEntry;
+                      return (
+                    <Card key={communication.id}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-1">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs capitalize">{communication.type}</Badge>
-                            {communication.isPinned && (
-                              <Badge className="gap-1 bg-primary text-primary-foreground text-xs">
-                                <Pin className="h-3 w-3" /> Pinned
-                              </Badge>
-                            )}
                             <span className="text-xs text-muted-foreground">{author?.name ?? "System"}</span>
                             {communication.editedAt && (
                               <span className="text-xs text-muted-foreground italic">(edited)</span>
@@ -1375,6 +1389,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                         )}
                       </CardContent>
                     </Card>
+                      );
+                    })()
                   ))}
                 </div>
               )}
