@@ -41,9 +41,11 @@ import {
   onboardingTemplateTasks,
   onboardingInstances,
   onboardingInstanceTasks,
+  onboardingOverdueNotificationRecipients,
   tasks as tasksTable,
   users,
 } from "../../drizzle/schema";
+import { emailNotificationSettings } from "../../drizzle/schema";
 import { eq, asc, and, desc, sql, isNotNull, lt, inArray } from "drizzle-orm";
 import { checkOverdueOnboardingTasks } from "../onboardingOverdueScheduler";
 
@@ -726,6 +728,145 @@ export const onboardingRouter = router({
           .set({ dueDate })
           .where(eq(tasksTable.id, task.linkedTaskId));
       }
+      return { success: true };
+    }),
+
+  // ─── Overdue Alert Audience (admin only) ───────────────────────────────────
+
+  getOverdueAlertSettings: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    const db = await getDatabase();
+    const [notificationSetting] = await db
+      .select({ isEnabled: emailNotificationSettings.isEnabled })
+      .from(emailNotificationSettings)
+      .where(
+        eq(emailNotificationSettings.notificationKey, "onboarding_overdue")
+      )
+      .limit(1);
+    const [audienceSetting] = await db
+      .select({
+        recipientUserIds:
+          onboardingOverdueNotificationRecipients.recipientUserIds,
+        includeAffectedAgent:
+          onboardingOverdueNotificationRecipients.includeAffectedAgent,
+      })
+      .from(onboardingOverdueNotificationRecipients)
+      .orderBy(desc(onboardingOverdueNotificationRecipients.updatedAt))
+      .limit(1);
+
+    const savedRecipientIds = Array.from(
+      new Set(
+        (audienceSetting?.recipientUserIds ?? []).filter(
+          (id): id is number => Number.isInteger(id) && id > 0
+        )
+      )
+    );
+    const recipients = savedRecipientIds.length
+      ? await db
+          .select({ id: users.id, name: users.name, email: users.email })
+          .from(users)
+          .where(
+            and(
+              inArray(users.id, savedRecipientIds),
+              eq(users.role, "admin"),
+              eq(users.isActive, true),
+              isNotNull(users.email)
+            )
+          )
+      : [];
+    const includeAffectedAgent = Boolean(audienceSetting?.includeAffectedAgent);
+
+    return {
+      // A legacy email-notification row can be enabled before an audience is
+      // configured. Treat that incomplete state as off in the purpose-built UI.
+      isEnabled: Boolean(
+        notificationSetting?.isEnabled &&
+          (recipients.length > 0 || includeAffectedAgent)
+      ),
+      recipientUserIds: recipients.map(recipient => recipient.id),
+      includeAffectedAgent,
+      recipients,
+    };
+  }),
+
+  updateOverdueAlertSettings: protectedProcedure
+    .input(
+      z.object({
+        recipientUserIds: z.array(z.number().int().positive()).max(50),
+        includeAffectedAgent: z.boolean(),
+        isEnabled: z.boolean(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDatabase();
+      const recipientUserIds = Array.from(new Set(input.recipientUserIds));
+      if (
+        input.isEnabled &&
+        recipientUserIds.length === 0 &&
+        !input.includeAffectedAgent
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Select at least one admin recipient or include the affected agent before enabling overdue alerts.",
+        });
+      }
+
+      if (recipientUserIds.length > 0) {
+        const activeAdmins = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            and(
+              inArray(users.id, recipientUserIds),
+              eq(users.role, "admin"),
+              eq(users.isActive, true),
+              isNotNull(users.email)
+            )
+          );
+        if (activeAdmins.length !== recipientUserIds.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Every selected recipient must be an active admin user with an email address.",
+          });
+        }
+      }
+
+      const [existingAudience] = await db
+        .select({ id: onboardingOverdueNotificationRecipients.id })
+        .from(onboardingOverdueNotificationRecipients)
+        .orderBy(desc(onboardingOverdueNotificationRecipients.updatedAt))
+        .limit(1);
+      const audienceValues = {
+        recipientUserIds,
+        includeAffectedAgent: input.includeAffectedAgent,
+        updatedBy: ctx.user.id,
+      };
+      if (existingAudience) {
+        await db
+          .update(onboardingOverdueNotificationRecipients)
+          .set(audienceValues)
+          .where(
+            eq(onboardingOverdueNotificationRecipients.id, existingAudience.id)
+          );
+      } else {
+        await db
+          .insert(onboardingOverdueNotificationRecipients)
+          .values(audienceValues);
+      }
+
+      await db
+        .insert(emailNotificationSettings)
+        .values({
+          notificationKey: "onboarding_overdue",
+          isEnabled: input.isEnabled,
+          updatedBy: ctx.user.id,
+        })
+        .onDuplicateKeyUpdate({
+          set: { isEnabled: input.isEnabled, updatedBy: ctx.user.id },
+        });
       return { success: true };
     }),
 

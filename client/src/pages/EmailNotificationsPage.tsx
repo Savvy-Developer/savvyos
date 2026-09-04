@@ -21,7 +21,7 @@ import EmailNotificationBuilderDialog, { type CustomNotificationFormValues } fro
 
 // ─── Static metadata ──────────────────────────────────────────────────────────
 
-type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Active Admins + ISAs + Agents" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
+type Recipient = "Agent" | "Admin" | "ISA" | "Agent + Admin" | "Agent + Client" | "Assigned Agent" | "Assigned User" | "Transaction Payee" | "Listing Agent" | "Brokerage Owner" | "Transaction Client" | "Assigned Agent + Coach" | "Client + Assigned Agent" | "Assigned Agent + Optional Client Copy" | "Active Admins" | "Configured Admins + Optional Agent" | "Active Admins + ISAs + Agents" | "Designated Leadership" | "Full-User Agent" | "Coached Agent" | "Coach + Leaders" | "Pulse Member(s)" | "Pulse Work Assignee(s)" | "Mentioned User" | "Partner" | "Account Holder" | "Marketing Team + Creator" | "Reporting Manager" | "Requesting Employee" | "Vendor" | "Vendor Agent + Designated Leadership" | "Not Currently Sent";
 type Category = "Transactions" | "Listings" | "Tasks" | "Leads & CRM" | "Onboarding" | "Commission" | "Projects" | "Pulse" | "Partner & Access" | "Account Security" | "Marketing" | "Reporting" | "PTO";
 type TriggerType = "Event" | "Scheduled";
 
@@ -71,7 +71,7 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "pto_request_submitted", name: "PTO Request Submitted", description: "Sent only to the employee's current reporting manager when a PTO request is submitted.", trigger: "Employee submits a PTO request", triggerType: "Event", recipient: "Reporting Manager", category: "PTO" },
   { id: "pto_request_decision", name: "PTO Request Decision", description: "Sent only to the requesting employee when their reporting manager approves or declines PTO.", trigger: "Reporting manager approves or declines a PTO request", triggerType: "Event", recipient: "Requesting Employee", category: "PTO" },
   // ── Onboarding ──────────────────────────────────────────────────────────
-  { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Sends every active administrator the overdue instance; also sends the agent their own overdue agent tasks.", trigger: "Nightly scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Active Admins", category: "Onboarding" },
+  { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Sends the overdue checklist to the specific active administrators chosen in On/Offboarding → Overdue Alerts. An optional private copy can be sent to each affected agent for their own tasks.", trigger: "Daily scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Configured Admins + Optional Agent", category: "Onboarding" },
   // ── Projects ──────────────────────────────────────────────────────────────────────────────────────
   { id: "pm_mention", name: "Project Mention Notification", description: "Notifies a user when they are @mentioned in a project note or todo comment.", trigger: "@mention detected in a project note or todo comment", triggerType: "Event", recipient: "Mentioned User", category: "Projects" },
   // ── Transaction reviews ──────────────────────────────────────────────────
@@ -139,6 +139,7 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Client + Assigned Agent": "bg-cyan-100 text-cyan-700",
   "Assigned Agent + Optional Client Copy": "bg-cyan-100 text-cyan-700",
   "Active Admins": "bg-red-100 text-red-700",
+  "Configured Admins + Optional Agent": "bg-red-100 text-red-700",
   "Active Admins + ISAs + Agents": "bg-indigo-100 text-indigo-700",
   "Designated Leadership": "bg-violet-100 text-violet-700",
   "Full-User Agent": "bg-slate-100 text-slate-700",

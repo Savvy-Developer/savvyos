@@ -215,6 +215,18 @@ describe("onboarding", () => {
       expect(onboardingTemplateTasks.stageId).toBeDefined();
       expect(onboardingInstanceTasks.stageName).toBeDefined();
     });
+
+    it("persists a dedicated audience for onboarding overdue alerts", async () => {
+      const { onboardingOverdueNotificationRecipients } = await import(
+        "../drizzle/schema"
+      );
+      expect(
+        onboardingOverdueNotificationRecipients.recipientUserIds
+      ).toBeDefined();
+      expect(
+        onboardingOverdueNotificationRecipients.includeAffectedAgent
+      ).toBeDefined();
+    });
   });
 
   describe("template stages", () => {
@@ -555,8 +567,8 @@ describe("onboarding", () => {
 
   describe("triggerOverdueCheck", () => {
     it("runs overdue check for admin", async () => {
-      // The scheduler will query DB and find no overdue tasks
-      mockDb.where.mockResolvedValueOnce([]);
+      // The scheduler first finds no enabled SavvyOS email notification setting.
+      mockDb.limit.mockResolvedValueOnce([]);
 
       const caller = appRouter.createCaller(makeCtx());
       const result = await caller.onboarding.triggerOverdueCheck();

@@ -2005,6 +2005,27 @@ export const onboardingInstanceTasks = mysqlTable(
 export type OnboardingInstanceTask =
   typeof onboardingInstanceTasks.$inferSelect;
 
+// ─── Onboarding Overdue Alert Recipients ─────────────────────────────────────
+// This separates the intended audience for sensitive onboarding alerts from the
+// generic email enable/disable switch. Administrators select individual active
+// admins; the affected agent can separately receive only their own tasks.
+export const onboardingOverdueNotificationRecipients = mysqlTable(
+  "onboarding_overdue_notification_recipients",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    recipientUserIds: json("recipientUserIds").$type<number[]>(),
+    includeAffectedAgent: boolean("includeAffectedAgent")
+      .notNull()
+      .default(false),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    updatedBy: int("updatedBy").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  }
+);
+export type OnboardingOverdueNotificationRecipient =
+  typeof onboardingOverdueNotificationRecipients.$inferSelect;
+
 // ─── Leadership 1-on-1 Feedback ──────────────────────────────────────────────
 export const leadershipFeedback = mysqlTable("leadership_feedback", {
   id: int("id").autoincrement().primaryKey(),
