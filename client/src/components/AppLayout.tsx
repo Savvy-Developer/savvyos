@@ -406,11 +406,6 @@ function buildAdminNav(
       label: "Overview",
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
-        {
-          icon: CalendarDays,
-          label: "Agent Renewals",
-          path: "/agent-renewals",
-        },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
@@ -546,6 +541,11 @@ function buildAdminNav(
       label: "Admin",
       items: [
         { icon: UserCheck, label: "Users", path: "/users" },
+        {
+          icon: CalendarDays,
+          label: "Agent Renewals",
+          path: "/agent-renewals",
+        },
         { icon: Tag, label: "Lead Sources", path: "/lead-sources" },
         { icon: Activity, label: "Activity Log", path: "/admin/activity" },
         { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
