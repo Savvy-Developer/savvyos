@@ -35,6 +35,7 @@ import { onboardingRouter } from "./routers/onboarding";
 import { leadershipRouter } from "./routers/leadership";
 import { commissionExceptionsRouter } from "./routers/commissionExceptions";
 import { agentMarketsRouter } from "./routers/agentMarkets";
+import { marketMatchRouter } from "./routers/marketMatch";
 import { marketingRequestsRouter } from "./routers/marketingRequests";
 import { techRequestsRouter } from "./routers/techRequests";
 import { pmRouter } from "./routers/pm";
@@ -258,6 +259,7 @@ export const appRouter = router({
   leadership: leadershipRouter,
   commissionExceptions: commissionExceptionsRouter,
   agentMarkets: agentMarketsRouter,
+  marketMatch: marketMatchRouter,
   marketingRequests: marketingRequestsRouter,
   techRequests: techRequestsRouter,
   pm: pmRouter,

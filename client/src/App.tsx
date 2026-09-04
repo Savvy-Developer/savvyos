@@ -62,6 +62,7 @@ import LeadershipDashboardPage from "./pages/LeadershipDashboardPage";
 import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import AgentMarketsPage from "./pages/AgentMarketsPage";
+import MarketMatchCallPage from "./pages/MarketMatchCallPage";
 import MarketingRequestsPage from "./pages/MarketingRequestsPage";
 import MarketingAdminPage from "./pages/MarketingAdminPage";
 import TechRequestsPage from "./pages/TechRequestsPage";
@@ -374,6 +375,7 @@ function Router() {
           <Route path="/isa-stats">{() => <AdminOrIsaRoute><IsaStatsPage /></AdminOrIsaRoute>}</Route>
           <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
           <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
+          <Route path="/market-match/:id">{() => <AdminOrIsaRoute><MarketMatchCallPage /></AdminOrIsaRoute>}</Route>
           <Route path="/transactions" component={TransactionsPage} />
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>

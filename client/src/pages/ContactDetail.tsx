@@ -721,6 +721,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     onSuccess: () => { toast.success("Contact archived"); navigate("/contacts"); },
     onError: (e) => toast.error(e.message),
   });
+  const startMarketMatchCall = trpc.marketMatch.start.useMutation({
+    onSuccess: ({ sessionToken }) => {
+      navigate(`/market-match/${contactId}?session=${encodeURIComponent(sessionToken)}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const deleteContactMutation = trpc.contacts.delete.useMutation({
     onSuccess: () => { toast.success("Contact deleted"); navigate("/contacts"); },
     onError: (e) => toast.error(e.message),
@@ -814,6 +820,10 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     openCommunicationsHub({ contactId, tab: "texts" });
   }
 
+  function handleStartMarketMatchCall() {
+    startMarketMatchCall.mutate({ contactId });
+  }
+
   function handleAssign() {
     if (!assignForm.agentId) { toast.error("Please select an agent"); return; }
     createConnection.mutate({
@@ -879,7 +889,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
         title={`${contact.firstName} ${contact.lastName}`}
         subtitle="Contact profile and relationship history"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isIsa && (
               <>
                 <Button
@@ -900,6 +910,17 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                   <MessageSquare className="h-4 w-4 mr-1" /> Text now
                 </Button>
               </>
+            )}
+            {(isAdmin || isIsa) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleStartMarketMatchCall}
+                disabled={startMarketMatchCall.isPending}
+                title="Confirm the active Aircall call and open live market recommendations"
+              >
+                <Sparkles className="h-4 w-4 mr-1" /> {startMarketMatchCall.isPending ? "Confirming call…" : "Start Market Match Call"}
+              </Button>
             )}
             {canAssign && (
               <Button variant="outline" size="sm" onClick={() => setAssignOpen(true)}>
