@@ -328,7 +328,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     },
     members,
     activeSession,
-    permissions: { canConfigure, canRun: meeting.label === "level_10" && canRun, canViewAllHealth },
+    permissions: { canConfigure, canRun: meeting.label === "level_10" && canRun, canRecallCompletedInRun: meeting.label === "level_10" && meeting.administratorId === user.id, canViewAllHealth },
     sections: {
       overview: { attention, latestReport: reports[0]?.report ?? null, health: healthFromReports(reports, meeting.durationMinutes) },
       segue,
