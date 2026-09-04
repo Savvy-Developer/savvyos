@@ -98,6 +98,7 @@ interface EmailContext {
   pulseRecapHtml?: string;
   // PM mention-specific
   mentionedByName?: string;
+  mentionType?: "note" | "comment";
   projectTitle?: string;
   noteContent?: string;
   projectUrl?: string;
@@ -853,14 +854,14 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
   }),
 
   pm_mention: (ctx) => ({
-    subject: `${ctx.mentionedByName ?? "Someone"} mentioned you in a project note — ${ctx.projectTitle ?? "SavvyOS"}`,
+    subject: `${ctx.mentionedByName ?? "Someone"} mentioned you in a project ${ctx.mentionType ?? "note"} — ${ctx.projectTitle ?? "SavvyOS"}`,
     html: emailLayout(
-      `${heading("You were mentioned in a project note", CYAN)}
+      `${heading(`You were mentioned in a project ${ctx.mentionType ?? "note"}`, CYAN)}
       ${subheading(ctx.projectTitle ?? "Project Update")}
       ${greeting(ctx.recipientName)}
-      ${bodyText(`<strong>${ctx.mentionedByName ?? "A teammate"}</strong> mentioned you in a note on the project <strong>${ctx.projectTitle ?? "a project"}</strong>.`)}
+      ${bodyText(`<strong>${ctx.mentionedByName ?? "A teammate"}</strong> mentioned you in a ${ctx.mentionType ?? "note"} on the project <strong>${ctx.projectTitle ?? "a project"}</strong>.`)}
       ${ctx.noteContent ? `<div style="margin:20px 0;background:#F9FAFB;border-radius:8px;border-left:3px solid ${CYAN};padding:14px 18px;font-size:14px;color:#374151;line-height:1.6;">${ctx.noteContent}</div>` : ""}
-      ${ctaButton("View Project", ctx.projectUrl ?? APP_URL)}`,
+      ${ctaButton(`View ${ctx.mentionType === "comment" ? "Comment" : "Note"}`, ctx.projectUrl ?? APP_URL)}`,
       `${ctx.mentionedByName ?? "Someone"} mentioned you in ${ctx.projectTitle ?? "a project"}`
     ),
   }),

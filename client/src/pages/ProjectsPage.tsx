@@ -527,8 +527,8 @@ export default function ProjectsPage() {
             </Button>
             <ProjectNotificationsPanel />
             {canToggleAllProjects && (
-              <Button variant="outline" size="sm" onClick={() => setShowAll((current) => !current)}>
-                {showAll ? "Show All" : "Show Mine"}
+              <Button variant="outline" size="sm" aria-pressed={showAll} onClick={() => setShowAll((current) => !current)}>
+                {showAll ? "Show Mine" : "Show All"}
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={() => setDeptMgmtOpen(true)}>

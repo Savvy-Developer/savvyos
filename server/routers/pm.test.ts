@@ -91,6 +91,11 @@ describe("PM Router – task comment validation", () => {
     expect(isValidComment("   ")).toBe(false);
     expect(isValidComment("Great progress!")).toBe(true);
   });
+
+  it("deduplicates mentions and excludes the comment author", () => {
+    const normaliseMentions = (ids: number[], authorId: number) => [...new Set(ids.filter((id) => id !== authorId))];
+    expect(normaliseMentions([2, 4, 2, 6, 4], 2)).toEqual([4, 6]);
+  });
 });
 
 describe("PM Router – department list", () => {

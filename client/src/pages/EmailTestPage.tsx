@@ -82,8 +82,8 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> =
     bodyText: "Your connection request has been approved. You can now view and manage this contact in your pipeline.",
   },
   pm_mention: {
-    subject: "{{mentionedByName}} mentioned you in a project note",
-    bodyText: "You were mentioned in a note on a project. Click below to view the full note and respond.",
+    subject: "{{mentionedByName}} mentioned you in a project note or comment",
+    bodyText: "You were mentioned in a project note or comment. Click below to open the exact activity and respond.",
   },
 };
 
@@ -193,10 +193,10 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
   ],
   pm_mention: [
     { key: "recipientName", description: "Mentioned user's name" },
-    { key: "mentionedByName", description: "Name of person who wrote the note" },
+    { key: "mentionedByName", description: "Name of person who wrote the note or comment" },
     { key: "projectTitle", description: "Project title" },
-    { key: "noteContent", description: "First 300 chars of the note" },
-    { key: "projectUrl", description: "Direct link to the project" },
+    { key: "noteContent", description: "First 300 characters of the note or comment" },
+    { key: "projectUrl", description: "Direct link to the exact note or comment" },
   ],
 };
 
@@ -217,7 +217,7 @@ const EMAIL_TYPES = [
   { key: "commission_exception_warning", label: "Commission Exception Warning", description: "Sent when a commission exception is approved with warnings" },
   { key: "client_intro", label: "Client Introduction", description: "Sent to introduce a client to their assigned agent, with agent CC'd" },
   { key: "connection_request_approved", label: "Connection Request Approved", description: "Sent to an agent when their connection request is approved by an admin" },
-  { key: "pm_mention", label: "Project Mention", description: "Sent when a user is @mentioned in a project note" },
+  { key: "pm_mention", label: "Project Mention", description: "Sent when a user is @mentioned in a project note or todo comment" },
 ];
 
 export default function EmailTestPage() {

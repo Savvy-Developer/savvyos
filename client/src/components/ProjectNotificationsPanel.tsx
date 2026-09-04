@@ -16,6 +16,7 @@ type NotificationItem = {
   content: string;
   createdAt: Date;
   isUnread: boolean;
+  isMentioned: boolean;
 };
 
 export default function ProjectNotificationsPanel() {
@@ -34,7 +35,10 @@ export default function ProjectNotificationsPanel() {
       if (item.type === "note") markNoteRead.mutate({ noteId: item.id });
       else markComment.mutate({ commentId: item.id });
     }
-    navigate(`/projects/${item.projectId}${item.taskId ? `#todo-${item.taskId}` : ""}`);
+    const target = item.type === "note"
+      ? `/projects/${item.projectId}?tab=notes#note-${item.id}`
+      : `/projects/${item.projectId}?tab=tasks#todo-${item.taskId}-comment-${item.id}`;
+    navigate(target);
     setOpen(false);
   }
 
@@ -61,7 +65,7 @@ export default function ProjectNotificationsPanel() {
         <div className="max-h-[28rem] overflow-y-auto">
           {(items as NotificationItem[]).length === 0 ? <div className="py-10 text-center text-muted-foreground"><Bell className="mx-auto mb-2 h-7 w-7 opacity-30" /><p className="text-sm">You are all caught up.</p></div> : <div className="divide-y divide-border">{(items as NotificationItem[]).map((item) => <button key={`${item.type}-${item.id}`} type="button" onClick={() => visit(item)} className={`flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/60 ${item.isUnread ? "bg-primary/5" : ""}`}>
             <span className="mt-0.5 shrink-0">{item.type === "note" ? <StickyNote className="h-4 w-4 text-primary" /> : <MessageSquare className="h-4 w-4 text-blue-500" />}</span>
-            <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5"><span className="truncate text-xs font-medium">{item.authorName ?? "Someone"}</span>{item.isUnread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.content}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">{item.projectTitle} · {formatDate(item.createdAt)}</span></span>
+            <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5"><span className="truncate text-xs font-medium">{item.isMentioned ? `${item.authorName ?? "Someone"} mentioned you` : item.authorName ?? "Someone"}</span>{item.isUnread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.content}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">{item.projectTitle} · {formatDate(item.createdAt)}</span></span>
             <span className="flex shrink-0 flex-col gap-1"><span onClick={(event) => toggleUnread(event, item)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title={item.isUnread ? "Mark read" : "Mark unread"}>{item.isUnread ? <Check className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}</span><span onClick={(event) => { event.stopPropagation(); dismiss.mutate({ type: item.type, id: item.id }); }} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive" title="Remove notification"><Trash2 className="h-3.5 w-3.5" /></span></span>
           </button>)}</div>}
         </div>

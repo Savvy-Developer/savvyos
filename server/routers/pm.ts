@@ -7,6 +7,7 @@ import {
   pmProjectCollaborators,
   pmTasks,
   pmTaskComments,
+  pmTaskCommentMentions,
   pmWeeklyUpdates,
   pmProjectActivity,
   pmDepartments,
@@ -530,7 +531,11 @@ export const pmRouter = router({
       }),
 
     addComment: protectedProcedure
-      .input(z.object({ taskId: z.number(), content: z.string().min(1) }))
+      .input(z.object({
+        taskId: z.number(),
+        content: z.string().trim().min(1).max(20_000),
+        mentionedUserIds: z.array(z.number().int().positive()).optional().default([]),
+      }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
@@ -538,13 +543,59 @@ export const pmRouter = router({
         const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.taskId)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
+
+        const requestedMentionIds = Array.from(new Set(input.mentionedUserIds.filter((id) => id !== ctx.user.id)));
+        const collaborators = requestedMentionIds.length > 0
+          ? await db.select({ userId: pmProjectCollaborators.userId })
+            .from(pmProjectCollaborators)
+            .where(and(
+              eq(pmProjectCollaborators.projectId, task.projectId),
+              inArray(pmProjectCollaborators.userId, requestedMentionIds),
+            ))
+          : [];
+        const allowedMentionIds = collaborators.map((collaborator) => collaborator.userId);
         const [result] = await db.insert(pmTaskComments).values({
           taskId: input.taskId,
           authorId: ctx.user.id,
           content: input.content,
         });
+        const commentId = result.insertId;
+        if (allowedMentionIds.length > 0) {
+          await db.insert(pmTaskCommentMentions).values(
+            allowedMentionIds.map((mentionedUserId) => ({ commentId, mentionedUserId }))
+          );
+        }
         await logActivity(task.projectId, ctx.user.id, "comment_added", "Comment on todo", input.taskId);
-        return { id: result.insertId };
+
+        if (allowedMentionIds.length > 0) {
+          try {
+            const [[project], mentionedUsers] = await Promise.all([
+              db.select({ title: pmProjects.title }).from(pmProjects).where(eq(pmProjects.id, task.projectId)).limit(1),
+              db.select({ id: users.id, name: users.name, email: users.email })
+                .from(users)
+                .where(and(inArray(users.id, allowedMentionIds), eq(users.isActive, true))),
+            ]);
+            const authorName = ctx.user.name ?? ctx.user.email ?? "A teammate";
+            const projectTitle = project?.title ?? "a project";
+            const projectUrl = `https://os.savvy-agents.com/projects/${task.projectId}?tab=tasks#todo-${input.taskId}-comment-${commentId}`;
+            for (const mentionedUser of mentionedUsers) {
+              if (!mentionedUser.email) continue;
+              await sendTransactionalEmail("pm_mention", {
+                recipientEmail: mentionedUser.email,
+                recipientName: mentionedUser.name ?? undefined,
+                mentionedByName: authorName,
+                mentionType: "comment",
+                projectTitle,
+                noteContent: input.content.slice(0, 300) + (input.content.length > 300 ? "..." : ""),
+                projectUrl,
+              });
+            }
+          } catch (emailErr) {
+            console.warn("[PM] Failed to send comment mention emails:", emailErr);
+          }
+        }
+
+        return { id: commentId };
       }),
 
     getComments: protectedProcedure
@@ -556,7 +607,7 @@ export const pmRouter = router({
         const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.taskId)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
-        return db
+        const comments = await db
           .select({
             id: pmTaskComments.id,
             content: pmTaskComments.content,
@@ -568,6 +619,20 @@ export const pmRouter = router({
           .leftJoin(users, eq(pmTaskComments.authorId, users.id))
           .where(eq(pmTaskComments.taskId, input.taskId))
           .orderBy(asc(pmTaskComments.createdAt));
+        if (comments.length === 0) return [];
+        const commentIds = comments.map((comment) => comment.id);
+        const mentions = await db
+          .select({ commentId: pmTaskCommentMentions.commentId, userId: pmTaskCommentMentions.mentionedUserId, name: users.name })
+          .from(pmTaskCommentMentions)
+          .leftJoin(users, eq(pmTaskCommentMentions.mentionedUserId, users.id))
+          .where(inArray(pmTaskCommentMentions.commentId, commentIds));
+        const mentionsByComment = new Map<number, { userId: number; name: string | null }[]>();
+        for (const mention of mentions) {
+          const group = mentionsByComment.get(mention.commentId) ?? [];
+          group.push({ userId: mention.userId, name: mention.name });
+          mentionsByComment.set(mention.commentId, group);
+        }
+        return comments.map((comment) => ({ ...comment, mentions: mentionsByComment.get(comment.id) ?? [] }));
       }),
   }),
 
@@ -581,9 +646,14 @@ export const pmRouter = router({
       if (!isPersonalTodoManager(ctx.user)) {
         return [{ id: ctx.user.id, name: ctx.user.name ?? ctx.user.email ?? "My todos", email: ctx.user.email ?? null }];
       }
+      const peopleWithTodos = await db.select({ userId: pmPersonalTodos.userId })
+        .from(pmPersonalTodos)
+        .groupBy(pmPersonalTodos.userId);
+      const userIds = peopleWithTodos.map((person) => person.userId);
+      if (userIds.length === 0) return [];
       return db.select({ id: users.id, name: users.name, email: users.email })
         .from(users)
-        .where(eq(users.isActive, true))
+        .where(and(eq(users.isActive, true), inArray(users.id, userIds)))
         .orderBy(asc(users.name));
     }),
 
@@ -1204,16 +1274,17 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
             const mentionedUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(inArray(users.id, allowedMentionIds), eq(users.isActive, true)));
             const authorName = ctx.user.name ?? ctx.user.email ?? "A teammate";
             const projectTitle = project?.title ?? "a project";
-            const projectUrl = `https://os.savvy-agents.com/projects/${input.projectId}`;
+            const projectUrl = `https://os.savvy-agents.com/projects/${input.projectId}?tab=notes#note-${noteId}`;
             for (const u of mentionedUsers) {
               if (!u.email || u.id === ctx.user.id) continue;
               await sendTransactionalEmail("pm_mention", {
                 recipientEmail: u.email,
                 recipientName: u.name ?? undefined,
                 mentionedByName: authorName,
+                mentionType: "note",
                 projectTitle,
                 noteContent: input.content.slice(0, 300) + (input.content.length > 300 ? "..." : ""),
-                projectUrl: `https://os.savvy-agents.com/projects/${input.projectId}`,
+                projectUrl,
               });
             }
           } catch (emailErr) {
@@ -1407,6 +1478,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
         createdAt: Date;
         isUnread: boolean;
         markedUnread: boolean;
+        isMentioned: boolean;
       }[] = [];
 
       // Project notes
@@ -1449,6 +1521,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
               createdAt: note.createdAt,
               isUnread,
               markedUnread: myRead?.markedUnread ?? true,
+              isMentioned: mentionedNoteIds.includes(note.id),
             });
           }
         }
@@ -1482,8 +1555,14 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
           const otherComments = comments.filter(c => c.authorId !== ctx.user.id);
           if (otherComments.length > 0) {
             const commentIds = otherComments.map(c => c.id);
-            const reads = await db.select().from(pmTaskCommentReads).where(inArray(pmTaskCommentReads.commentId, commentIds));
+            const [reads, mentions] = await Promise.all([
+              db.select().from(pmTaskCommentReads).where(inArray(pmTaskCommentReads.commentId, commentIds)),
+              db.select({ commentId: pmTaskCommentMentions.commentId })
+                .from(pmTaskCommentMentions)
+                .where(and(inArray(pmTaskCommentMentions.commentId, commentIds), eq(pmTaskCommentMentions.mentionedUserId, ctx.user.id))),
+            ]);
             const myReads = new Map(reads.filter(r => r.userId === ctx.user.id).map(r => [r.commentId, r]));
+            const mentionedCommentIds = new Set(mentions.map((mention) => mention.commentId));
 
             for (const comment of otherComments) {
               const myRead = myReads.get(comment.id);
@@ -1501,6 +1580,7 @@ Write a 3-4 sentence AI summary of this project's current state, progress, and k
                 createdAt: comment.createdAt,
                 isUnread,
                 markedUnread: myRead?.markedUnread ?? true,
+                isMentioned: mentionedCommentIds.has(comment.id),
               });
             }
           }

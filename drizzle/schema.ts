@@ -3268,6 +3268,31 @@ export const pmTaskComments = mysqlTable("pm_task_comments", {
 });
 export type PmTaskComment = typeof pmTaskComments.$inferSelect;
 
+// ─── PM Task Comment Mentions ───────────────────────────────────────────────
+// Mention rows preserve the intended recipient independently of the human-readable
+// @name text in the comment, so notification delivery and deep links are reliable.
+export const pmTaskCommentMentions = mysqlTable(
+  "pm_task_comment_mentions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    commentId: int("commentId")
+      .notNull()
+      .references(() => pmTaskComments.id, { onDelete: "cascade" }),
+    mentionedUserId: int("mentionedUserId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pm_task_comment_mentions_comment_user_unique").on(
+      table.commentId,
+      table.mentionedUserId
+    ),
+    index("pm_task_comment_mentions_user_idx").on(table.mentionedUserId),
+  ]
+);
+export type PmTaskCommentMention = typeof pmTaskCommentMentions.$inferSelect;
+
 export const pmWeeklyUpdates = mysqlTable("pm_weekly_updates", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId")

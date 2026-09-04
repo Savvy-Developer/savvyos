@@ -14,6 +14,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, isPast, isToday } from "date-fns";
 import {
@@ -76,6 +77,8 @@ function TaskItem({
   onDelete,
   onUpdate,
   onAddSubtask,
+  mentionableUsers,
+  highlightedCommentId,
   children,
 }: {
   task: any;
@@ -84,6 +87,8 @@ function TaskItem({
   onDelete: (id: number) => void;
   onUpdate: (id: number, data: any) => void;
   onAddSubtask?: (task: any) => void;
+  mentionableUsers: any[];
+  highlightedCommentId?: number | null;
   children?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -92,6 +97,8 @@ function TaskItem({
   const hasSubtodos = subTodoCount > 0;
   const [editing, setEditing] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [commentMentionQuery, setCommentMentionQuery] = useState<string | null>(null);
+  const [selectedCommentMentions, setSelectedCommentMentions] = useState<{ id: number; name: string }[]>([]);
   const [editForm, setEditForm] = useState({
     title: task.title,
     ownerId: String(task.ownerId ?? ""),
@@ -106,13 +113,26 @@ function TaskItem({
   );
 
   const addComment = trpc.pm.tasks.addComment.useMutation({
-    onSuccess: () => { setCommentText(""); refetchComments(); },
+    onSuccess: () => { setCommentText(""); setCommentMentionQuery(null); setSelectedCommentMentions([]); refetchComments(); },
     onError: (e) => toast.error(e.message),
   });
 
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
   const isOverdue = dueDate && !task.completed && isPast(dueDate) && !isToday(dueDate);
   const isDueToday = dueDate && !task.completed && isToday(dueDate);
+  const commentMentionCandidates = useMemo(() => mentionableUsers
+    .filter((person: any) => !selectedCommentMentions.some((mention) => mention.id === person.userId))
+    .filter((person: any) => !commentMentionQuery || (person.name ?? person.email ?? "").toLowerCase().includes(commentMentionQuery.toLowerCase())), [mentionableUsers, selectedCommentMentions, commentMentionQuery]);
+
+  useEffect(() => {
+    if (highlightedCommentId) setExpanded(true);
+  }, [highlightedCommentId]);
+
+  useEffect(() => {
+    if (!highlightedCommentId || !(comments as any[]).some((comment: any) => comment.id === highlightedCommentId)) return;
+    const timeout = window.setTimeout(() => document.getElementById(`todo-${task.id}-comment-${highlightedCommentId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    return () => window.clearTimeout(timeout);
+  }, [comments, highlightedCommentId, task.id]);
 
   function handleSaveEdit() {
     onUpdate(task.id, {
@@ -125,8 +145,19 @@ function TaskItem({
     setEditing(false);
   }
 
+  function insertCommentMention(person: { id: number; name: string }) {
+    setSelectedCommentMentions((current) => current.some((mention) => mention.id === person.id) ? current : [...current, person]);
+    setCommentText((current) => current.replace(/(^|\s)@[^\s@]*$/, `$1@${person.name} `));
+    setCommentMentionQuery(null);
+  }
+
+  function submitComment() {
+    if (!commentText.trim()) return;
+    addComment.mutate({ taskId: task.id, content: commentText.trim(), mentionedUserIds: selectedCommentMentions.map((mention) => mention.id) });
+  }
+
   return (
-    <div id={`todo-${task.id}`} className={cn("border border-border rounded-lg overflow-hidden transition-all", task.completed && "opacity-60")}>
+    <div id={`todo-${task.id}`} className={cn("border border-border rounded-lg overflow-hidden transition-all", task.completed && !highlightedCommentId && "opacity-60")}>
       <div className="flex items-center gap-3 px-4 py-3">
         <button
           onClick={() => onToggle(task.id, !task.completed)}
@@ -181,12 +212,19 @@ function TaskItem({
           {hasSubtodos && (
             <Button
               variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs"
-              onClick={() => setSubtasksExpanded((value) => !value)}
-              aria-label={subtasksExpanded ? "Collapse sub-To-Dos" : "Expand sub-To-Dos"}
-              title={subtasksExpanded ? "Collapse sub-To-Dos" : "Expand sub-To-Dos"}
+              onClick={() => {
+                if (!expanded) {
+                  setExpanded(true);
+                  setSubtasksExpanded(true);
+                  return;
+                }
+                setSubtasksExpanded((value) => !value);
+              }}
+              aria-label={expanded && subtasksExpanded ? "Hide sub-To-Dos" : "Show sub-To-Dos"}
+              title={expanded && subtasksExpanded ? "Hide sub-To-Dos" : "Show sub-To-Dos"}
             >
               <ListChecks className="h-3.5 w-3.5 text-primary" />{subTodoCount}
-              {subtasksExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {expanded && subtasksExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </Button>
           )}
           {onAddSubtask && (
@@ -197,6 +235,16 @@ function TaskItem({
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setExpanded(e => !e)}
+            aria-label={expanded ? "Collapse todo details" : "Expand todo details"}
+            title={expanded ? "Collapse todo details" : "Expand todo details"}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={() => setExpanded(true)}
+            aria-label="Open todo comments"
+            title="Open todo comments"
           >
             <MessageSquare className="h-3.5 w-3.5" />
             {(comments as any[]).length > 0 && (
@@ -213,8 +261,8 @@ function TaskItem({
               <DropdownMenuItem onClick={() => setEditing(e => !e)}>
                 <Edit2 className="h-3.5 w-3.5 mr-2" /> Edit
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setExpanded(e => !e)}>
-                <MessageSquare className="h-3.5 w-3.5 mr-2" /> Comments
+              <DropdownMenuItem onClick={() => setExpanded(true)}>
+                <MessageSquare className="h-3.5 w-3.5 mr-2" /> Open details & comments
               </DropdownMenuItem>
               <DropdownMenuItem className="text-destructive" onClick={() => onDelete(task.id)}>
                 <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
@@ -266,7 +314,7 @@ function TaskItem({
         </div>
       )}
 
-      {hasSubtodos && subtasksExpanded && (
+      {expanded && hasSubtodos && subtasksExpanded && (
         <div className="border-t border-border bg-muted/10 px-3 py-2 sm:pl-8">
           <div className="space-y-2 border-l-2 border-primary/15 pl-3">{children}</div>
         </div>
@@ -275,41 +323,60 @@ function TaskItem({
       {/* Comments */}
       {expanded && (
         <div className="border-t border-border bg-muted/10 px-4 py-3 space-y-3">
-          {(comments as any[]).map((c: any) => (
-            <div key={c.id} className="flex gap-2">
-              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
-                {c.authorName?.[0] ?? "?"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-xs font-medium">{c.authorName ?? "Unknown"}</span>
-                  <span className="text-xs text-muted-foreground">{format(new Date(c.createdAt), "MMM d, h:mm a")}</span>
+          <section className="rounded-md border border-border bg-background/70 p-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Details</h3>
+            {task.notes ? <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1.5 text-sm text-muted-foreground">No details added.</p>}
+          </section>
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comments</h3>
+            {(comments as any[]).map((c: any) => (
+              <div id={`todo-${task.id}-comment-${c.id}`} key={c.id} className={cn("mt-3 flex gap-2 rounded-md p-2 transition-colors", highlightedCommentId === c.id && "bg-amber-100 ring-2 ring-amber-400/70 shadow-sm")}>
+                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
+                  {c.authorName?.[0] ?? "?"}
                 </div>
-                <p className="text-sm text-foreground">{c.content}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-medium">{c.authorName ?? "Unknown"}</span>
+                    <span className="text-xs text-muted-foreground">{format(new Date(c.createdAt), "MMM d, h:mm a")}</span>
+                  </div>
+                  <p className="text-sm text-foreground">{c.content}</p>
+                  {c.mentions?.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {c.mentions.map((mention: any) => <span key={mention.userId} className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">@{mention.name ?? "Teammate"}</span>)}
+                    </div>
+                  )}
+                </div>
               </div>
+            ))}
+            <div className="relative mt-3">
+              <Textarea
+                placeholder="Add a comment… Type @ to mention a collaborator."
+                value={commentText}
+                onChange={e => {
+                  const value = e.target.value;
+                  setCommentText(value);
+                  const match = value.match(/(?:^|\s)@([^\s@]*)$/);
+                  setCommentMentionQuery(match ? match[1] : null);
+                }}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
+                    e.preventDefault();
+                    submitComment();
+                  }
+                }}
+                className="min-h-20 resize-none text-sm"
+              />
+              {commentMentionQuery !== null && (
+                <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                  {commentMentionCandidates.length === 0 ? <p className="px-3 py-2 text-xs text-muted-foreground">No matching collaborators. Add them to the project first.</p> : <div className="max-h-44 overflow-y-auto py-1">{commentMentionCandidates.map((person: any) => <button key={person.userId} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => insertCommentMention({ id: person.userId, name: person.name ?? person.email })}><span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-medium text-primary">{(person.name ?? person.email ?? "?")[0]}</span><span>{person.name ?? person.email}</span></button>)}</div>}
+                </div>
+              )}
             </div>
-          ))}
-          <div className="flex gap-2">
-            <Input
-              placeholder="Add a comment..."
-              value={commentText}
-              onChange={e => setCommentText(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
-                  e.preventDefault();
-                  addComment.mutate({ taskId: task.id, content: commentText.trim() });
-                }
-              }}
-              className="text-sm h-8"
-            />
-            <Button
-              size="sm"
-              disabled={!commentText.trim() || addComment.isPending}
-              onClick={() => commentText.trim() && addComment.mutate({ taskId: task.id, content: commentText.trim() })}
-            >
-              Post
-            </Button>
-          </div>
+            {selectedCommentMentions.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{selectedCommentMentions.map((mention) => <span key={mention.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">@{mention.name}<button type="button" onClick={() => setSelectedCommentMentions((current) => current.filter((item) => item.id !== mention.id))}><X className="h-3 w-3" /></button></span>)}</div>}
+            <div className="mt-2 flex justify-end">
+              <Button size="sm" disabled={!commentText.trim() || addComment.isPending} onClick={submitComment}>Post</Button>
+            </div>
+          </section>
         </div>
       )}
     </div>
@@ -387,7 +454,7 @@ function WeeklyUpdateForm({ projectId, onSubmitted }: { projectId: number; onSub
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const goBack = useAppBack("/projects");
   const projectId = Number(id);
 
@@ -402,6 +469,13 @@ export default function ProjectDetailPage() {
   const [editForm, setEditForm] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const initialTab = new URLSearchParams(window.location.search).get("tab");
+  const [activeTab, setActiveTab] = useState(["tasks", "notes", "updates", "activity"].includes(initialTab ?? "") ? initialTab! : "tasks");
+  const [showCompletedTodos, setShowCompletedTodos] = useState(false);
+  const highlightedNoteId = Number(window.location.hash.match(/^#note-(\d+)$/)?.[1] ?? 0) || null;
+  const highlightedComment = window.location.hash.match(/^#todo-(\d+)-comment-(\d+)$/);
+  const highlightedTodoId = Number(highlightedComment?.[1] ?? window.location.hash.match(/^#todo-(\d+)$/)?.[1] ?? 0) || null;
+  const highlightedCommentId = Number(highlightedComment?.[2] ?? 0) || null;
 
   // Notes state
   const [noteContent, setNoteContent] = useState("");
@@ -552,11 +626,25 @@ export default function ProjectDetailPage() {
   }
 
   useEffect(() => {
-    const todoId = window.location.hash.match(/^#todo-(\d+)$/)?.[1];
-    if (!todoId || !project) return;
-    const timeout = window.setTimeout(() => document.getElementById(`todo-${todoId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    if (!highlightedTodoId || !project) return;
+    if (project.tasks?.some((task: any) => task.id === highlightedTodoId && task.completed)) setShowCompletedTodos(true);
+    const timeout = window.setTimeout(() => document.getElementById(`todo-${highlightedTodoId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
     return () => window.clearTimeout(timeout);
-  }, [projectId, project?.tasks?.length]);
+  }, [projectId, project?.tasks?.length, highlightedTodoId]);
+
+  useEffect(() => {
+    if (!highlightedNoteId || !project || activeTab !== "notes") return;
+    const timeout = window.setTimeout(() => document.getElementById(`note-${highlightedNoteId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    return () => window.clearTimeout(timeout);
+  }, [activeTab, highlightedNoteId, projectId, notes.length]);
+
+  function changeTab(tab: string) {
+    setActiveTab(tab);
+    const next = new URL(window.location.href);
+    next.searchParams.set("tab", tab);
+    if (tab !== "notes") next.hash = "";
+    window.history.replaceState({}, "", `${next.pathname}${next.search}${next.hash}`);
+  }
 
   if (!project) {
     return (
@@ -845,7 +933,7 @@ export default function ProjectDetailPage() {
       </Dialog>
 
       {/* Tabs */}
-      <Tabs defaultValue="tasks">
+      <Tabs value={activeTab} onValueChange={changeTab}>
         <TabsList className="mb-4 flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
@@ -874,9 +962,15 @@ export default function ProjectDetailPage() {
         <TabsContent value="tasks" className="space-y-3">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Todos</h2>
-            <Button size="sm" variant="outline" onClick={() => { setParentTodo(null); setShowAddTask(s => !s); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Add Todo
-            </Button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Switch id="show-completed-todos" checked={showCompletedTodos} onCheckedChange={setShowCompletedTodos} />
+                <Label htmlFor="show-completed-todos" className="cursor-pointer text-xs text-muted-foreground">Show completed</Label>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => { setParentTodo(null); setShowAddTask(s => !s); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Todo
+              </Button>
+            </div>
           </div>
 
           {/* Add todo form */}
@@ -950,20 +1044,19 @@ export default function ProjectDetailPage() {
                   onToggle={(id, completed) => toggleTask.mutate({ id, completed })}
                   onDelete={(id) => deleteTask.mutate({ id })}
                   onUpdate={(id, data) => updateTask.mutate({ id, ...data })}
+                  mentionableUsers={collaborators as any[]}
+                  highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null}
                   onAddSubtask={(parent) => { setParentTodo(parent); setTaskForm({ title: "", ownerId: String(parent.ownerId ?? ""), dueDate: parent.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "", priority: parent.priority as Priority, notes: "" }); setShowAddTask(true); }}
                 >
                   {(subTodosByParent.get(task.id) ?? []).map((subTodo) => (
-                    <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
+                    <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
                   ))}
                 </TaskItem>
               ))}
               {/* Completed parent todos */}
-              {topLevelTodos.filter((task: any) => task.completed).length > 0 && (
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground mb-2 select-none">
-                    {topLevelTodos.filter((task: any) => task.completed).length} completed todo(s)
-                  </summary>
-                  <div className="space-y-2 mt-2">
+              {showCompletedTodos && topLevelTodos.filter((task: any) => task.completed).length > 0 && (
+                  <div className="mt-4 space-y-2 border-t border-border pt-3">
+                    <p className="text-xs font-medium text-muted-foreground">Completed ({topLevelTodos.filter((task: any) => task.completed).length})</p>
                     {topLevelTodos.filter((task: any) => task.completed).map((task: any) => (
                       <TaskItem
                         key={task.id}
@@ -972,15 +1065,16 @@ export default function ProjectDetailPage() {
                         onToggle={(id, completed) => toggleTask.mutate({ id, completed })}
                         onDelete={(id) => deleteTask.mutate({ id })}
                         onUpdate={(id, data) => updateTask.mutate({ id, ...data })}
+                        mentionableUsers={collaborators as any[]}
+                        highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null}
                         onAddSubtask={(parent) => { setParentTodo(parent); setTaskForm({ title: "", ownerId: String(parent.ownerId ?? ""), dueDate: parent.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "", priority: parent.priority as Priority, notes: "" }); setShowAddTask(true); }}
                       >
                         {(subTodosByParent.get(task.id) ?? []).map((subTodo) => (
-                          <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
+                          <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
                         ))}
                       </TaskItem>
                     ))}
                   </div>
-                </details>
               )}
             </div>
           )}
@@ -1053,10 +1147,11 @@ export default function ProjectDetailPage() {
             <div className="space-y-3">
               {(notes as any[]).map((note: any) => (
                 <div
+                  id={`note-${note.id}`}
                   key={note.id}
                   className={cn(
                     "bg-card border rounded-lg p-4 transition-all",
-                    note.isUnread ? "border-primary/40 bg-primary/5" : "border-border"
+                    highlightedNoteId === note.id ? "border-amber-400 bg-amber-50 ring-2 ring-amber-400/70 shadow-sm" : note.isUnread ? "border-primary/40 bg-primary/5" : "border-border"
                   )}
                   onMouseEnter={() => {
                     if (note.isUnread && note.authorId !== (user as any)?.id) {

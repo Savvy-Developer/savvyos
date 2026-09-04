@@ -49,6 +49,25 @@ describe("lead assigned email", () => {
   });
 });
 
+describe("project mention email", () => {
+  it("identifies a todo comment and links directly to its exact location", () => {
+    const preview = getEmailPreview("pm_mention", {
+      recipientEmail: "teammate@example.com",
+      recipientName: "Casey Teammate",
+      mentionedByName: "Avery Admin",
+      mentionType: "comment",
+      projectTitle: "Website refresh",
+      noteContent: "@Casey Please review the copy.",
+      projectUrl: "https://os.savvy-agents.com/projects/42?tab=tasks#todo-9-comment-17",
+    });
+
+    expect(preview.subject).toBe("Avery Admin mentioned you in a project comment — Website refresh");
+    expect(preview.html).toContain("You were mentioned in a project comment");
+    expect(preview.html).toContain(">View Comment</a>");
+    expect(preview.html).toContain('href="https://os.savvy-agents.com/projects/42?tab=tasks#todo-9-comment-17"');
+  });
+});
+
 describe("listing created email", () => {
   beforeEach(() => {
     vi.clearAllMocks();
