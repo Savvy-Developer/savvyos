@@ -803,6 +803,7 @@ export const pulseWorkItemsRouter = router({
       if (!milestone) throw new TRPCError({ code: "NOT_FOUND", message: "This milestone no longer exists." });
       const { item } = await getAccessibleWorkItem(db, ctx.user.id, milestone.workItemId);
       if (item.type !== "rock") throw new TRPCError({ code: "BAD_REQUEST", message: "This milestone is not attached to a rock." });
+      let finalMilestoneCompleted = false;
       await db.transaction(async (tx: any) => {
         await tx.update(pulseRockMilestones).set({
           isComplete: input.isComplete,
@@ -810,9 +811,11 @@ export const pulseWorkItemsRouter = router({
           completedById: input.isComplete ? ctx.user.id : null,
         }).where(eq(pulseRockMilestones.id, milestone.id));
         const progress = await syncMilestoneProgress(tx, item.id);
-        await writeActivity(tx, ctx.user.id, "work_item", item.id, "milestone_updated", "milestone", { milestoneId: milestone.id, isComplete: milestone.isComplete }, { milestoneId: milestone.id, isComplete: input.isComplete, progress });
+        const [remaining] = await tx.select({ count: sql<number>`count(*)` }).from(pulseRockMilestones).where(and(eq(pulseRockMilestones.workItemId, item.id), eq(pulseRockMilestones.isComplete, false), isNull(pulseRockMilestones.deletedAt)));
+        finalMilestoneCompleted = input.isComplete && Number(remaining?.count ?? 0) === 0;
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "milestone_updated", "milestone", { milestoneId: milestone.id, isComplete: milestone.isComplete }, { milestoneId: milestone.id, isComplete: input.isComplete, progress, finalMilestoneCompleted });
       });
-      return { success: true };
+      return { success: true, finalMilestoneCompleted };
     }),
 
   reorderIssues: pulseMemberProcedure
