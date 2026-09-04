@@ -430,22 +430,52 @@ Rules:
 - Never propose automatic CRM field changes, send client messages, or invent deadlines.
 - Return strict JSON matching the schema.`;
   const user = `${contactContext}\n\n=== Native Aircall summary ===\n${summary || "No native summary was available."}\n\n=== Native Aircall transcript ===\n${clippedTranscript}`;
-  const response = await invokeLLM({
+  const messages = [
+    { role: "system" as const, content: system },
+    { role: "user" as const, content: user },
+  ];
+  const validate = (raw: string): ExtractionResult => {
+    const parsed = parseStructuredResponse(raw);
+    if (!parsed || typeof parsed !== "object") throw new Error("Contact Intelligence model response was empty");
+    const result = parsed as Record<string, unknown>;
+    const profile = normalProfile(result.profile);
+    if (!profile) throw new Error("Contact Intelligence model profile did not pass validation");
+    return { profile, signals: normalSignals(result.signals) };
+  };
+
+  const schemaResponse = await invokeLLM({
     model: "gpt-5-mini",
     maxTokens: 2_800,
     responseFormat: { type: "json_schema", json_schema: extractionSchema },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
+    messages,
   });
-  const raw = responseText(response);
-  const parsed = parseStructuredResponse(raw);
-  if (!parsed || typeof parsed !== "object") throw new Error("Contact Intelligence model response was empty");
-  const result = parsed as Record<string, unknown>;
-  const profile = normalProfile(result.profile);
-  if (!profile) throw new Error("Contact Intelligence model profile did not pass validation");
-  return { profile, signals: normalSignals(result.signals) };
+  try {
+    return validate(responseText(schemaResponse));
+  } catch (schemaError) {
+    // Some OpenAI-compatible deployments acknowledge json_schema yet intermittently
+    // emit an empty or non-JSON content field. Retry once in broadly supported JSON
+    // object mode; the same strict system instructions and application validation
+    // still govern what can be persisted.
+    const fallbackResponse = await invokeLLM({
+      model: "gpt-5-mini",
+      maxTokens: 2_800,
+      responseFormat: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `${system}\n\nFallback format instruction: emit one JSON object only. Do not use Markdown fences, commentary, or a preface.`,
+        },
+        { role: "user", content: user },
+      ],
+    });
+    try {
+      return validate(responseText(fallbackResponse));
+    } catch (fallbackError) {
+      const initialMessage = schemaError instanceof Error ? schemaError.message : String(schemaError);
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      throw new Error(`Contact Intelligence extraction failed after schema and JSON fallback: ${initialMessage}; fallback: ${fallbackMessage}`);
+    }
+  }
 }
 
 async function saveExtraction(jobId: number, extraction: ExtractionResult): Promise<void> {
