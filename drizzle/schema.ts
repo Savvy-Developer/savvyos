@@ -6889,6 +6889,8 @@ export const pulseWorkItems = mysqlTable(
     meetingId: varchar("meetingId", { length: 36 }).references(
       () => pulseMeetings.id
     ),
+    // A two-level parent/child relationship used only for Pulse To-Dos created under a Pulse To-Do or Issue.
+    parentWorkItemId: varchar("parentWorkItemId", { length: 36 }),
     sourceSessionId: varchar("sourceSessionId", { length: 36 }).references(
       () => pulseMeetingSessions.id,
       { onDelete: "set null" }
@@ -6956,6 +6958,11 @@ export const pulseWorkItems = mysqlTable(
       "pulse_work_items_exactly_one_owner",
       sql`(${table.meetingId} is null) <> (${table.ownerPersonId} is null)`
     ),
+    foreignKey({
+      columns: [table.parentWorkItemId],
+      foreignColumns: [table.id],
+      name: "pulse_work_items_parent_work_item_fk",
+    }).onDelete("set null"),
     check(
       "pulse_work_items_percent_complete_range",
       sql`${table.percentComplete} >= 0 and ${table.percentComplete} <= 100`
@@ -6970,6 +6977,11 @@ export const pulseWorkItems = mysqlTable(
     ),
     index("pulse_work_items_meeting_idx").on(
       table.meetingId,
+      table.deletedAt,
+      table.sortOrder
+    ),
+    index("pulse_work_items_parent_idx").on(
+      table.parentWorkItemId,
       table.deletedAt,
       table.sortOrder
     ),

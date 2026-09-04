@@ -20,7 +20,7 @@ import {
   ArrowLeft, Plus, CheckCircle2, Circle, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity,
-  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus,
+  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -88,7 +88,8 @@ function TaskItem({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [subtasksExpanded, setSubtasksExpanded] = useState(true);
-  const hasSubtodos = Children.count(children) > 0;
+  const subTodoCount = Children.count(children);
+  const hasSubtodos = subTodoCount > 0;
   const [editing, setEditing] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [editForm, setEditForm] = useState({
@@ -179,12 +180,18 @@ function TaskItem({
         <div className="flex items-center gap-1 shrink-0">
           {hasSubtodos && (
             <Button
-              variant="ghost" size="icon" className="h-7 w-7"
+              variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs"
               onClick={() => setSubtasksExpanded((value) => !value)}
-              aria-label={subtasksExpanded ? "Collapse sub-todos" : "Expand sub-todos"}
-              title={subtasksExpanded ? "Collapse sub-todos" : "Expand sub-todos"}
+              aria-label={subtasksExpanded ? "Collapse sub-To-Dos" : "Expand sub-To-Dos"}
+              title={subtasksExpanded ? "Collapse sub-To-Dos" : "Expand sub-To-Dos"}
             >
+              <ListChecks className="h-3.5 w-3.5 text-primary" />{subTodoCount}
               {subtasksExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+          {onAddSubtask && (
+            <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => onAddSubtask(task)} title="Add sub-To-Do">
+              <Plus className="h-3.5 w-3.5" />Add sub-To-Do
             </Button>
           )}
           <Button
@@ -206,11 +213,6 @@ function TaskItem({
               <DropdownMenuItem onClick={() => setEditing(e => !e)}>
                 <Edit2 className="h-3.5 w-3.5 mr-2" /> Edit
               </DropdownMenuItem>
-              {onAddSubtask && (
-                <DropdownMenuItem onClick={() => onAddSubtask(task)}>
-                  <Plus className="h-3.5 w-3.5 mr-2" /> Add sub-todo
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem onClick={() => setExpanded(e => !e)}>
                 <MessageSquare className="h-3.5 w-3.5 mr-2" /> Comments
               </DropdownMenuItem>

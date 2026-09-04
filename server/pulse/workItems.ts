@@ -214,6 +214,7 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
     title: pulseWorkItems.title,
     description: pulseWorkItems.description,
     meetingId: pulseWorkItems.meetingId,
+    parentWorkItemId: pulseWorkItems.parentWorkItemId,
     ownerPersonId: pulseWorkItems.ownerPersonId,
     assigneeId: pulseWorkItems.assigneeId,
     assigneeName: users.name,
@@ -235,7 +236,7 @@ export async function listAccessibleItems(db: any, personId: number, filters: {
     updatedAt: pulseWorkItems.updatedAt,
     commentCount: sql<number>`(select count(*) from ${pulseWorkItemComments} where ${pulseWorkItemComments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemComments.deletedAt} is null)`.as("commentCount"),
     attachmentCount: sql<number>`(select count(*) from ${pulseWorkItemAttachments} where ${pulseWorkItemAttachments.workItemId} = ${pulseWorkItems.id} and ${pulseWorkItemAttachments.deletedAt} is null)`.as("attachmentCount"),
-    linkedSubTodoCount: sql<number>`(select count(*) from ${pulseIssueResultingTodos} where ${pulseIssueResultingTodos.issueWorkItemId} = ${pulseWorkItems.id})`.as("linkedSubTodoCount"),
+    linkedSubTodoCount: sql<number>`(select count(*) from \`pulse_work_items\` child where child.\`parentWorkItemId\` = ${pulseWorkItems.id} and child.\`deletedAt\` is null)`.as("linkedSubTodoCount"),
   }).from(pulseWorkItems)
     .leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
     .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
@@ -290,12 +291,14 @@ export const pulseWorkItemsRouter = router({
       statusNote: z.string().trim().max(2000).nullable().optional(),
       destinationId: z.union([z.literal("personal"), z.string().uuid()]),
       sourceSessionId: z.string().uuid().nullable().optional(),
+      parentWorkItemId: z.string().uuid().nullable().optional(),
       attachments: z.array(z.object({ fileName: z.string().trim().min(1).max(500), fileKey: z.string().trim().min(1).max(1024), url: z.string().url().max(2048), mimeType: z.string().trim().max(128).nullable().optional(), fileSize: z.number().int().min(0).max(16 * 1024 * 1024).nullable().optional() })).max(10).default([]),
     }).superRefine((input, refinement) => {
       if (!statusIsValidForType(input.type, input.status)) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "Choose a status that applies to this item type." });
       if (input.type === "issue" && !input.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["issueTimeframe"], message: "Choose whether this issue is short-term or long-term." });
       if (input.type === "todo" && input.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["issueTimeframe"], message: "Only issues use a timeframe." });
       if (input.type === "issue" && input.status === "solved" && !input.statusNote?.trim()) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["statusNote"], message: "Add a short resolution note before marking an Issue solved." });
+      if (input.parentWorkItemId && input.type !== "todo") refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["parentWorkItemId"], message: "Only a To-Do can be created as a sub-To-Do." });
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -310,18 +313,24 @@ export const pulseWorkItemsRouter = router({
       if (input.sourceSessionId && targetMeeting && !sourceSessionId) throw new TRPCError({ code: "BAD_REQUEST", message: "The active session does not belong to the selected destination meeting." });
       const details = sanitizeDetails(input.description);
       const destinationValues = targetMeeting ? { meetingId: targetMeeting.id, ownerPersonId: null } : { meetingId: null, ownerPersonId: ctx.user.id };
+      let parentWorkItemId: string | null = input.parentWorkItemId ?? null;
+      if (parentWorkItemId) {
+        const { item: parent } = await getAccessibleWorkItem(db, ctx.user.id, parentWorkItemId);
+        if (parent.type === "rock" || parent.parentWorkItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "A sub-To-Do must be directly under a To-Do or Issue, not another sub-To-Do." });
+        if (parent.meetingId !== destinationValues.meetingId || parent.ownerPersonId !== destinationValues.ownerPersonId) throw new TRPCError({ code: "BAD_REQUEST", message: "A sub-To-Do must remain in the same meeting or Personal work destination as its parent." });
+      }
       const complete = input.type === "todo" ? input.status === "done" : input.status === "solved";
       if (!input.workItemId) {
         const id = uuid();
         await db.transaction(async (tx: any) => {
           await tx.insert(pulseWorkItems).values({
-            id, type: input.type, title: input.title, description: details, ...destinationValues, sourceSessionId, assigneeId: input.assigneeId, createdById: ctx.user.id,
+            id, type: input.type, title: input.title, description: details, ...destinationValues, parentWorkItemId, sourceSessionId, assigneeId: input.assigneeId, createdById: ctx.user.id,
             status: input.status, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null,
             solvedNote: input.type === "issue" && input.status === "solved" ? input.statusNote!.trim() : null, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null,
             percentComplete: 0, percentSource: "manual",
           });
           if (input.attachments.length) await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
-          await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, destinationId: input.destinationId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, issueTimeframe: input.issueTimeframe ?? null });
+          await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, destinationId: input.destinationId, parentWorkItemId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, issueTimeframe: input.issueTimeframe ?? null });
           if (complete) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: id, fromStatus: null, toStatus: input.status, note: input.statusNote ?? null, personId: ctx.user.id });
         });
         return { id, created: true };
@@ -329,6 +338,8 @@ export const pulseWorkItemsRouter = router({
       const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== input.type) throw new TRPCError({ code: "BAD_REQUEST", message: "An existing work item cannot change between To-Do and Issue." });
       const destinationChanged = item.meetingId !== destinationValues.meetingId || item.ownerPersonId !== destinationValues.ownerPersonId;
+      if (item.parentWorkItemId && destinationChanged) throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent To-Do first; its sub-To-Dos must stay in the same destination." });
+      if (parentWorkItemId && parentWorkItemId !== item.parentWorkItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "A saved item’s parent cannot be changed. Create a new sub-To-Do under the intended parent instead." });
       await db.transaction(async (tx: any) => {
         const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: input.type === "issue" && input.status === "solved" ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
         await tx.update(pulseWorkItems).set(values).where(eq(pulseWorkItems.id, item.id));
@@ -422,9 +433,9 @@ export const pulseWorkItemsRouter = router({
         db.select({ id: pulseWorkItemAttachments.id, fileName: pulseWorkItemAttachments.fileName, fileKey: pulseWorkItemAttachments.fileKey, url: pulseWorkItemAttachments.url, mimeType: pulseWorkItemAttachments.mimeType, fileSize: pulseWorkItemAttachments.fileSize, uploadedById: pulseWorkItemAttachments.uploadedById, uploadedByName: users.name, createdAt: pulseWorkItemAttachments.createdAt })
           .from(pulseWorkItemAttachments).leftJoin(users, eq(users.id, pulseWorkItemAttachments.uploadedById))
           .where(and(eq(pulseWorkItemAttachments.workItemId, item.id), isNull(pulseWorkItemAttachments.deletedAt))).orderBy(desc(pulseWorkItemAttachments.createdAt)),
-        item.type === "issue" ? db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeName: users.name, meetingId: pulseWorkItems.meetingId })
-          .from(pulseIssueResultingTodos).innerJoin(pulseWorkItems, eq(pulseWorkItems.id, pulseIssueResultingTodos.todoWorkItemId)).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
-          .where(and(eq(pulseIssueResultingTodos.issueWorkItemId, item.id), isNull(pulseWorkItems.deletedAt))).orderBy(desc(pulseIssueResultingTodos.createdAt)) : Promise.resolve([]),
+        db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeName: users.name, meetingId: pulseWorkItems.meetingId, parentWorkItemId: pulseWorkItems.parentWorkItemId })
+          .from(pulseWorkItems).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
+          .where(and(eq(pulseWorkItems.parentWorkItemId, item.id), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.sortOrder), desc(pulseWorkItems.createdAt)),
       ]);
 
       const commentIds = comments.map((comment) => comment.id);
