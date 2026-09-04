@@ -409,7 +409,6 @@ Rules:
   const response = await invokeLLM({
     model: "gpt-5-mini",
     maxTokens: 2_800,
-    reasoning: { effort: "minimal" },
     responseFormat: { type: "json_schema", json_schema: extractionSchema },
     messages: [
       { role: "system", content: system },
