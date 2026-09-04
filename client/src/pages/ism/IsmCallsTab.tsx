@@ -26,6 +26,8 @@ const PAGE_SIZE = 50;
 
 type MatchStatus = "all" | "matched" | "unmatched";
 type Direction = "all" | "inbound" | "outbound";
+type CallLength = "all" | "under_1_minute" | "one_to_five_minutes" | "five_to_fifteen_minutes" | "fifteen_plus_minutes";
+type TranscriptStatus = "all" | "available" | "unavailable";
 
 function titleCase(value: string | null | undefined) {
   return (value ?? "Unknown")
@@ -193,6 +195,8 @@ export default function IsmCallsTab() {
   const [search, setSearch] = useState("");
   const [matchStatus, setMatchStatus] = useState<MatchStatus>("all");
   const [direction, setDirection] = useState<Direction>("all");
+  const [callLength, setCallLength] = useState<CallLength>("all");
+  const [transcriptStatus, setTranscriptStatus] = useState<TranscriptStatus>("all");
   const [page, setPage] = useState(1);
   const [selectedCallId, setSelectedCallId] = useState<number | null>(null);
 
@@ -205,7 +209,7 @@ export default function IsmCallsTab() {
   }, [searchInput]);
 
   const callQuery = trpc.aircall.listAll.useQuery(
-    { page, limit: PAGE_SIZE, search, matchStatus, direction },
+    { page, limit: PAGE_SIZE, search, matchStatus, direction, callLength, transcriptStatus },
     { refetchInterval: 60_000, refetchOnWindowFocus: false },
   );
   const data = callQuery.data as any;
@@ -217,6 +221,14 @@ export default function IsmCallsTab() {
   };
   const updateDirection = (value: Direction) => {
     setDirection(value);
+    setPage(1);
+  };
+  const updateCallLength = (value: CallLength) => {
+    setCallLength(value);
+    setPage(1);
+  };
+  const updateTranscriptStatus = (value: TranscriptStatus) => {
+    setTranscriptStatus(value);
     setPage(1);
   };
 
@@ -233,14 +245,17 @@ export default function IsmCallsTab() {
               <h2 className="mt-2 text-xl font-semibold tracking-tight">Every call, including unmatched numbers</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Review newest calls first, open the connected contact where one exists, and inspect recordings, summaries, and transcripts without leaving the manager dashboard.</p>
             </div>
-            <Badge variant="secondary" className="w-fit">{data ? `${Number(data.total).toLocaleString()} calls` : "Loading calls…"}</Badge>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary" className="w-fit">{data ? `${Number(data.total).toLocaleString()} matching calls` : "Loading calls…"}</Badge>
+              {data && <Badge variant="outline" className="w-fit border-primary/30 bg-background/70 text-primary">{Number(data.totalWithTranscripts).toLocaleString()} calls with transcripts</Badge>}
+            </div>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="p-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_160px_160px_180px_170px]">
             <div className="space-y-1.5">
               <Label htmlFor="ism-call-search" className="text-xs">Search calls</Label>
               <div className="relative">
@@ -267,6 +282,30 @@ export default function IsmCallsTab() {
                   <SelectItem value="all">Inbound & outbound</SelectItem>
                   <SelectItem value="inbound">Inbound only</SelectItem>
                   <SelectItem value="outbound">Outbound only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Call length</Label>
+              <Select value={callLength} onValueChange={value => updateCallLength(value as CallLength)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any length</SelectItem>
+                  <SelectItem value="under_1_minute">Under 1 minute</SelectItem>
+                  <SelectItem value="one_to_five_minutes">1–5 minutes</SelectItem>
+                  <SelectItem value="five_to_fifteen_minutes">5–15 minutes</SelectItem>
+                  <SelectItem value="fifteen_plus_minutes">15+ minutes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Transcript</Label>
+              <Select value={transcriptStatus} onValueChange={value => updateTranscriptStatus(value as TranscriptStatus)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any availability</SelectItem>
+                  <SelectItem value="available">Transcript available</SelectItem>
+                  <SelectItem value="unavailable">No transcript</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -331,7 +370,7 @@ export default function IsmCallsTab() {
               </table>
             </div>
           ) : (
-            <div className="flex h-80 flex-col items-center justify-center gap-3 text-center text-muted-foreground"><Search className="h-8 w-8 opacity-40" /><p className="font-medium text-foreground">No calls match this search</p><p className="max-w-md text-sm">Try a different number, contact name, status, direction, or match-status filter.</p></div>
+            <div className="flex h-80 flex-col items-center justify-center gap-3 text-center text-muted-foreground"><Search className="h-8 w-8 opacity-40" /><p className="font-medium text-foreground">No calls match this search</p><p className="max-w-md text-sm">Try a different number, contact name, status, direction, call-length, match-status, or transcript filter.</p></div>
           )}
           {data && (
             <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">

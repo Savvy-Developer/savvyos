@@ -76,6 +76,8 @@ const aircallLogInput = z.object({
   search: z.string().trim().max(160).default(""),
   matchStatus: z.enum(["all", "matched", "unmatched"]).default("all"),
   direction: z.enum(["all", "inbound", "outbound"]).default("all"),
+  callLength: z.enum(["all", "under_1_minute", "one_to_five_minutes", "five_to_fifteen_minutes", "fifteen_plus_minutes"]).default("all"),
+  transcriptStatus: z.enum(["all", "available", "unavailable"]).default("all"),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
@@ -140,6 +142,12 @@ function buildCallLogWhere(input: z.infer<typeof aircallLogInput>, extra?: SQL):
   const clauses: SQL[] = [];
   if (input.matchStatus !== "all") clauses.push(sql`all_calls.matchStatus = ${input.matchStatus}`);
   if (input.direction !== "all") clauses.push(sql`all_calls.direction = ${input.direction}`);
+  if (input.callLength === "under_1_minute") clauses.push(sql`COALESCE(all_calls.duration, 0) < 60`);
+  if (input.callLength === "one_to_five_minutes") clauses.push(sql`COALESCE(all_calls.duration, 0) >= 60 AND all_calls.duration < 300`);
+  if (input.callLength === "five_to_fifteen_minutes") clauses.push(sql`COALESCE(all_calls.duration, 0) >= 300 AND all_calls.duration < 900`);
+  if (input.callLength === "fifteen_plus_minutes") clauses.push(sql`COALESCE(all_calls.duration, 0) >= 900`);
+  if (input.transcriptStatus === "available") clauses.push(sql`COALESCE(NULLIF(TRIM(all_calls.transcription), ''), '') <> ''`);
+  if (input.transcriptStatus === "unavailable") clauses.push(sql`COALESCE(NULLIF(TRIM(all_calls.transcription), ''), '') = ''`);
   if (input.dateFrom) clauses.push(sql`all_calls.startedAt >= ${input.dateFrom}`);
   if (input.dateTo) clauses.push(sql`all_calls.startedAt < DATE_ADD(${input.dateTo}, INTERVAL 1 DAY)`);
   if (input.search) {
@@ -200,7 +208,7 @@ export const aircallRouter = router({
       const source = buildCallLogSource();
       const where = buildCallLogWhere(input);
       const offset = (input.page - 1) * input.limit;
-      const [rows, totalRows] = await Promise.all([
+      const [rows, totalRows, corpusStatsRows] = await Promise.all([
         runRows(db, sql`
           SELECT all_calls.*
           ${source}
@@ -213,12 +221,21 @@ export const aircallRouter = router({
           ${source}
           ${where}
         `),
+        runRows<{ totalCalls: unknown; totalWithTranscripts: unknown }>(db, sql`
+          SELECT
+            COUNT(*) AS totalCalls,
+            SUM(CASE WHEN COALESCE(NULLIF(TRIM(all_calls.transcription), ''), '') <> '' THEN 1 ELSE 0 END) AS totalWithTranscripts
+          ${source}
+        `),
       ]);
       const total = Number(totalRows[0]?.total ?? 0);
+      const corpusStats = corpusStatsRows[0];
 
       return {
         rows: rows.map(row => serializeCallRow(row)),
         total,
+        totalCalls: Number(corpusStats?.totalCalls ?? 0),
+        totalWithTranscripts: Number(corpusStats?.totalWithTranscripts ?? 0),
         page: input.page,
         totalPages: Math.max(1, Math.ceil(total / input.limit)),
       };
@@ -238,6 +255,8 @@ export const aircallRouter = router({
         search: "",
         matchStatus: "all",
         direction: "all",
+        callLength: "all",
+        transcriptStatus: "all",
       }, sql`all_calls.aircallCallId = ${input.aircallCallId}`);
       const rows = await runRows(db, sql`
         SELECT all_calls.*
