@@ -77,6 +77,7 @@ import {
   getLeadCohortConversionReport,
   refreshLeadCohortConversionInsights,
 } from "../analytics/leadCohortConversion";
+import { getConversationIntelligenceReport } from "../analytics/conversationIntelligence";
 import {
   getCachedBusinessInsights,
   refreshBusinessInsights,
@@ -126,6 +127,17 @@ const leadCohortConversionInput = z.object({
   agentId: z.number().int().positive().optional(),
   leadSourceId: z.number().int().positive().optional(),
   lifecycleStage: z.enum(["new_lead", "attempted_contact", "nurture", "active_client", "under_contract", "closed", "dead"]).optional(),
+});
+
+const conversationIntelligenceInput = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  agentId: z.number().int().positive().optional(),
+  leadSourceId: z.number().int().positive().optional(),
+  direction: z.enum(["inbound", "outbound"]).optional(),
+  hasTranscript: z.boolean().optional(),
+  intentTier: z.enum(["priority", "active", "nurture", "unknown"]).optional(),
+  targetMarket: z.string().trim().min(2).max(120).optional(),
 });
 
 const isaTeamBenchmarkInput = z.object({
@@ -1059,6 +1071,20 @@ Return only valid JSON array.`;
         force: input?.force ?? false,
         reason: input?.force ? "manual" : "automatic",
       });
+    }),
+
+  /**
+   * Conversation & Revenue Intelligence: an evidence-linked operational report.
+   * Native Aircall transcripts supply the source evidence; downstream CRM and
+   * payout records show observed, non-causal outcomes for the same contact.
+   */
+  conversationIntelligence: protectedProcedure
+    .input(conversationIntelligenceInput.optional())
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Conversation Intelligence is currently available to administrators only.");
+      }
+      return getConversationIntelligenceReport(input ?? {});
     }),
 
   // ─── Reporting Suite v2 ───────────────────────────────────────────────────

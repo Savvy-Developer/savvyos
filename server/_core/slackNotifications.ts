@@ -13,6 +13,13 @@ export type SavvyOSFeatureUpdateNotification = {
   actionUrl?: string | null;
 };
 
+/** A PII-free operational notice for every SavvyOS prompt run or prompt update. */
+export type SavvyOSPromptRunNotification = {
+  title: string;
+  summary: string;
+  actionUrl?: string | null;
+};
+
 export type SavvyOSReleaseNotification = {
   commitMessage: string;
   changedFiles: string[];
@@ -414,6 +421,24 @@ export async function notifySavvyOSFeatureUpdate(
   }
 
   return postToSavvyOSPromptQueue(lines.join("\n"), "Feature Update");
+}
+
+/**
+ * Posts a deliberately PII-free notice whenever SavvyOS runs or changes a
+ * production prompt. Source call content and contact identifiers stay in the
+ * CRM; Slack receives only the operating purpose and in-app destination.
+ */
+export async function notifySavvyOSPromptRun(
+  notification: SavvyOSPromptRunNotification
+): Promise<boolean> {
+  const actionUrl = toSavvyOSUrl(notification.actionUrl);
+  const lines = [
+    ":sparkles: *SavvyOS prompt activity*",
+    `*${sanitizeForSlack(notification.title)}*`,
+    sanitizeForSlack(notification.summary),
+  ];
+  if (actionUrl) lines.push(`<${actionUrl}|Open in SavvyOS>`);
+  return postToSavvyOSPromptQueue(lines.join("\n"), "Prompt activity");
 }
 
 /**

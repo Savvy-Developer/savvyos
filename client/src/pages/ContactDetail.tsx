@@ -15,7 +15,7 @@ import PageHeader from "@/components/PageHeader";
 import { CreateReferralDialog } from "@/components/CreateReferralDialog";
 import { PipelineStatusBadge, TransactionStatusBadge, PriorityBadge, IsaStatusBadge, PIPELINE_STAGE_OPTIONS } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake, ShieldCheck } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Phone, PhoneCall, Mail, Edit2, Link2, Users, Home, Trash2, AlertTriangle, CheckCircle2, DollarSign, Info, Circle, Zap, Archive, MoreVertical, Sparkles, RefreshCw, Clock, History, TrendingUp, Building2, Calendar, ArrowRight, Globe, Inbox, Pin, Handshake, ShieldCheck, BrainCircuit, XCircle } from "lucide-react";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import { openCommunicationsHub } from "@/components/CommunicationsHub";
 import { ContactWebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
@@ -302,6 +302,62 @@ function AgentConnectionCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Contact Intelligence ─────────────────────────────────────────────────────
+// A reviewable profile derived from completed native Aircall evidence. It does
+// not replace CRM ownership, tasks, buy box, consent, stage, or financial data.
+function ContactIntelligencePanel({ contactId }: { contactId: number }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [correctingSignalId, setCorrectingSignalId] = useState<number | null>(null);
+  const [correction, setCorrection] = useState("");
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.contacts.getIntelligence.useQuery(
+    { contactId },
+    { staleTime: 60_000, retry: 1 }
+  );
+  const review = trpc.contacts.reviewIntelligenceSignal.useMutation({
+    onSuccess: () => {
+      toast.success("Contact Intelligence review saved.");
+      setCorrectingSignalId(null);
+      setCorrection("");
+      utils.contacts.getIntelligence.invalidate({ contactId });
+      utils.contacts.getAiSummary.invalidate({ id: contactId });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const profileRow: any = data?.profile;
+  const profile: any = profileRow?.profile ?? null;
+  const signals: any[] = (data?.signals ?? []).filter((row: any) => row.signal.status !== "superseded");
+  const formatList = (value: unknown, fallback: string) => Array.isArray(value) && value.length ? value.join(", ") : fallback;
+  const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
+  const signalTone = (tier: string) => tier === "priority" ? "border-amber-300 bg-amber-50 text-amber-800" : tier === "active" ? "border-sky-300 bg-sky-50 text-sky-800" : "border-muted bg-muted/40 text-muted-foreground";
+
+  if (!isLoading && !profileRow) return null;
+  return (
+    <Card className="mb-3 border-sky-200/70 bg-sky-50/25 dark:bg-sky-950/10">
+      <CardContent className="overflow-hidden p-0">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-sky-50/50 dark:hover:bg-sky-950/20">
+          <button type="button" className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold" onClick={() => setCollapsed(value => !value)} aria-expanded={!collapsed}>
+            <BrainCircuit className="h-4 w-4 shrink-0 text-sky-600" />
+            <span>Contact Intelligence</span>
+            {profileRow && <Badge variant="outline" className={`ml-1 text-[10px] ${signalTone(profileRow.intentTier)}`}>{titleCase(profileRow.intentTier)} · {profileRow.intentScore}/100</Badge>}
+            <span className="ml-auto text-xs text-muted-foreground">{collapsed ? "▼" : "▲"}</span>
+          </button>
+          {profileRow?.lastAnalyzedAt && <span className="hidden text-[10px] text-muted-foreground sm:inline">Evidence refreshed {new Date(profileRow.lastAnalyzedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+        </div>
+        {!collapsed && <div className="border-t border-sky-100/70 px-4 pb-4 pt-3">
+          {isLoading ? <div className="space-y-2"><div className="h-3 w-full animate-pulse rounded bg-sky-100" /><div className="h-3 w-5/6 animate-pulse rounded bg-sky-100" /><div className="h-3 w-3/4 animate-pulse rounded bg-sky-100" /></div> : profile ? <div className="space-y-4">
+            <div className="flex flex-wrap gap-2 text-xs"><Badge variant="outline">{profileRow.sourceCallCount} analyzed call{profileRow.sourceCallCount === 1 ? "" : "s"}</Badge><Badge variant="outline">{titleCase(profileRow.confidence)} evidence confidence</Badge>{profileRow.latestSourceAt && <Badge variant="outline">Latest source {new Date(profileRow.latestSourceAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</Badge>}</div>
+            <div className="rounded-lg border border-sky-100 bg-background/75 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Executive briefing</p><p className="mt-1 text-sm leading-6 text-foreground/85">{profile.executiveBriefing || "No concise briefing is available yet."}</p></div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"><div className="rounded-lg border bg-background/75 p-3"><p className="text-xs font-semibold text-muted-foreground">Investor profile</p><p className="mt-1 text-sm leading-5">{profile.investorProfile || "Not established"}</p><p className="mt-2 text-xs font-semibold text-muted-foreground">Strategy</p><p className="mt-1 text-sm leading-5">{profile.strategy || "Not established"}</p></div><div className="rounded-lg border bg-background/75 p-3"><p className="text-xs font-semibold text-muted-foreground">Buy box & readiness</p><p className="mt-1 text-sm leading-5">{formatList(profile.targetMarkets, "Market not discussed")}</p><p className="mt-1 text-sm leading-5">{formatList(profile.propertyPreferences, "Property preference not discussed")}</p><p className="mt-1 text-sm leading-5">{profile.priceRange || "Price range not discussed"}</p><p className="mt-1 text-sm leading-5">{profile.financingReadiness || "Financing readiness not discussed"}</p></div><div className="rounded-lg border bg-background/75 p-3"><p className="text-xs font-semibold text-muted-foreground">Timing & next action</p><p className="mt-1 text-sm leading-5">{profile.timeline || "Timeline not discussed"}</p><p className="mt-2 text-sm font-medium leading-5">{profile.nextBestAction || "Review latest evidence and agree a next action."}</p>{profile.promisedNextStep && <p className="mt-1 text-xs leading-5 text-muted-foreground">Explicit commitment: {profile.promisedNextStep}</p>}</div></div>
+            <div className="grid gap-3 lg:grid-cols-2"><div className="rounded-lg border bg-background/75 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open objections</p>{profile.objections?.length ? <div className="mt-2 space-y-2">{profile.objections.slice(0, 5).map((item: any, index: number) => <div key={`${item.category}-${index}`} className="rounded border-l-2 border-amber-400 bg-amber-50/60 p-2 text-sm"><p className="font-medium">{item.category} <span className="font-normal text-muted-foreground">· {item.status}</span></p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{item.detail}</p></div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No active objection was clearly stated in the analyzed calls.</p>}</div><div className="rounded-lg border bg-background/75 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Missing discovery</p>{profile.missingDiscovery?.length ? <ul className="mt-2 space-y-1 text-sm text-muted-foreground">{profile.missingDiscovery.slice(0, 6).map((item: string) => <li key={item}>• {item}</li>)}</ul> : <p className="mt-2 text-sm text-muted-foreground">No high-value discovery gaps were identified.</p>}<p className="mt-3 text-xs leading-5 text-muted-foreground"><span className="font-semibold text-foreground">Intent explanation:</span> {formatList(profile.scoreReasons, "The profile does not have enough evidence for a scored explanation.")}</p></div></div>
+            <div className="rounded-lg border bg-background/75 p-3"><div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Evidence & review</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">Review an extracted statement against its supporting native Aircall call. Accepting or correcting a signal updates the derived profile only; it never silently changes a human-managed CRM field.</p></div><Badge variant="outline" className="w-fit">{signals.length} signal{signals.length === 1 ? "" : "s"}</Badge></div>{signals.length ? <div className="mt-3 space-y-2">{signals.slice(0, 12).map((row: any) => { const signal = row.signal; const reviewRow = row.review; const isCorrecting = correctingSignalId === signal.id; return <div key={signal.id} className="rounded border p-2.5"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">{titleCase(signal.signalKey)}</span><Badge variant="outline" className="text-[10px]">{signal.confidence} confidence</Badge>{reviewRow && <Badge variant={reviewRow.disposition === "rejected" ? "destructive" : "secondary"} className="text-[10px]">{titleCase(reviewRow.disposition)}</Badge>}</div><p className="mt-1 text-sm leading-5">{reviewRow?.disposition === "corrected" && reviewRow.overrideValue ? reviewRow.overrideValue : signal.value}</p><p className="mt-1 text-xs italic leading-5 text-muted-foreground">“{signal.evidenceExcerpt}” {signal.evidenceTimestamp ? `· ${signal.evidenceTimestamp}` : ""} · Source call #{signal.aircallCallId}</p></div><div className="flex shrink-0 gap-1">{!reviewRow && <><Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={review.isPending} onClick={() => review.mutate({ signalId: signal.id, disposition: "accepted" })}><CheckCircle2 className="mr-1 h-3 w-3" />Accept</Button><Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={review.isPending} onClick={() => review.mutate({ signalId: signal.id, disposition: "rejected" })}><XCircle className="mr-1 h-3 w-3" />Reject</Button><Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => { setCorrectingSignalId(signal.id); setCorrection(signal.value); }}>Correct</Button></>}</div></div>{isCorrecting && <div className="mt-2 flex flex-col gap-2 sm:flex-row"><Input value={correction} onChange={(event) => setCorrection(event.target.value)} maxLength={500} placeholder="Corrected value" /><Button size="sm" disabled={review.isPending || !correction.trim()} onClick={() => review.mutate({ signalId: signal.id, disposition: "corrected", overrideValue: correction.trim() })}>Save correction</Button><Button size="sm" variant="ghost" onClick={() => { setCorrectingSignalId(null); setCorrection(""); }}>Cancel</Button></div>}</div>; })}</div> : <p className="mt-2 text-sm text-muted-foreground">No individual evidence signals are available yet.</p>}</div>
+          </div> : <div className="py-5 text-center"><BrainCircuit className="mx-auto mb-2 h-7 w-7 text-sky-300" /><p className="text-sm text-muted-foreground">No Contact Intelligence profile is available yet. A completed native Aircall transcript will be enriched automatically after it is matched to this contact.</p></div>}
+        </div>}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1266,6 +1322,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               ))}
               {/* AI Summary — always pinned below any agent's explicitly pinned note. */}
               <ActivityTabAiSummary contactId={contactId} />
+              {/* Evidence-linked native Aircall profile; it never overwrites CRM fields. */}
+              <ContactIntelligencePanel contactId={contactId} />
               <div className="mb-3 flex items-center justify-end gap-2">
                 <Label htmlFor="contact-activity-type" className="text-xs text-muted-foreground">Activity type</Label>
                 <Select value={activityTypeFilter} onValueChange={setActivityTypeFilter}>

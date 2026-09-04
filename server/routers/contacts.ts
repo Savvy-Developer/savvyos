@@ -13,10 +13,15 @@ import {
   archiveContact,
   deleteContact,
 } from "../db";
-import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable } from "../../drizzle/schema";
+import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable, contactIntelligenceProfiles } from "../../drizzle/schema";
 import { eq, or, and, desc, like, isNull, aliasedTable, notInArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
+import {
+  getContactIntelligence,
+  queueContactIntelligenceBackfill,
+  reviewContactIntelligenceSignal,
+} from "../contactIntelligence";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
 import { isValidOptionalUsPhone, normalizeOptionalUsPhone } from "@shared/phone";
@@ -603,6 +608,24 @@ export const contactsRouter = router({
         return { summary: row!.aiSummary!, updatedAt: row!.aiSummaryUpdatedAt!, cached: true };
       }
 
+      // Contact Intelligence is the preferred briefing once native Aircall
+      // evidence has been resolved. Manual summary refresh must not replace it
+      // with a generic prompt that lacks its reviewed signal provenance.
+      const [intelligenceProfile] = await db.select({
+        aiSummary: contactIntelligenceProfiles.aiSummary,
+        updatedAt: contactIntelligenceProfiles.updatedAt,
+      }).from(contactIntelligenceProfiles)
+        .where(eq(contactIntelligenceProfiles.contactId, input.id))
+        .limit(1);
+      if (intelligenceProfile?.aiSummary) {
+        return {
+          summary: intelligenceProfile.aiSummary,
+          updatedAt: intelligenceProfile.updatedAt,
+          cached: true,
+          source: "contact_intelligence" as const,
+        };
+      }
+
       // Gather all data for the contact
       const contactRow = await getContactById(input.id);
       if (!contactRow) throw new TRPCError({ code: "NOT_FOUND" });
@@ -879,6 +902,48 @@ Please write the comprehensive AI summary now.`;
       return { summary, updatedAt: now, cached: false, source };
     }),
 
+  /** Evidence-linked profile derived only from native Aircall transcripts. */
+  getIntelligence: protectedProcedure
+    .input(z.object({ contactId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role === "agent") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Contact Intelligence is available to CRM staff only." });
+      }
+      return getContactIntelligence(input.contactId);
+    }),
+
+  /** Human review controls the profile; no extracted signal ever updates CRM fields directly. */
+  reviewIntelligenceSignal: protectedProcedure
+    .input(z.object({
+      signalId: z.number().int().positive(),
+      disposition: z.enum(["accepted", "rejected", "corrected"]),
+      overrideValue: z.string().trim().min(1).max(500).nullable().optional(),
+      note: z.string().trim().max(1000).nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role === "agent") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Contact Intelligence review is available to CRM staff only." });
+      }
+      await reviewContactIntelligenceSignal({
+        signalId: input.signalId,
+        reviewerId: ctx.user.id,
+        disposition: input.disposition,
+        overrideValue: input.overrideValue,
+        note: input.note,
+      });
+      return { success: true };
+    }),
+
+  /** Admin-controlled historical pilot queue. Processing stays bounded by the server worker. */
+  queueIntelligenceBackfill: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can queue Contact Intelligence backfill." });
+      }
+      return queueContactIntelligenceBackfill(input?.limit ?? 25);
+    }),
+
   getHistory: protectedProcedure
     .input(z.object({ contactId: z.number() }))
     .query(async ({ input }) => {
@@ -1075,6 +1140,9 @@ Please write the comprehensive AI summary now.`;
         task_created: "Task created",
         task_completed: "Task completed",
         task_updated: "Task updated",
+        // Evidence-linked native Aircall intelligence
+        contact_intelligence_updated: "Contact Intelligence refreshed",
+        contact_intelligence_signal_reviewed: "Contact Intelligence signal reviewed",
       };
       for (const r of actRows) {
         const details = (r.log.details ?? {}) as Record<string, unknown>;

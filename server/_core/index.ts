@@ -36,6 +36,7 @@ import { scheduleRrMetricRefresh } from "../rrMetricScheduler";
 import { registerAircallWebhook } from "../aircallWebhook";
 import { registerZoomWebhook } from "../zoomWebhook";
 import { scheduleAircallReliability } from "../aircallReliability";
+import { scheduleContactIntelligence } from "../contactIntelligence";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { scheduleMarketIntelligenceRefresh } from "../agentMarketsIntelligence";
@@ -374,6 +375,11 @@ async function startServer() {
   // Aircall: durable webhook ledger, media-ready event handling, self-healing
   // webhook configuration, and periodic inventory reconciliation.
   scheduleAircallReliability();
+
+  // Contact Intelligence: low-concurrency, source-hashed enrichment of native
+  // Aircall transcripts. It is a separate durable queue so webhook processing
+  // never waits on model latency and human CRM fields are never auto-overwritten.
+  scheduleContactIntelligence();
 
   // Pulse: deterministic weekly overdue digest and quarter rollover prompts.
   schedulePulseWorkItemAutomation();

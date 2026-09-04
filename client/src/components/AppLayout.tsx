@@ -70,6 +70,7 @@ import {
   Activity,
   ArrowLeft,
   Briefcase,
+  BrainCircuit,
   GraduationCap,
   Flame,
   Lock,
@@ -407,6 +408,7 @@ function buildAdminNav(
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
+        { icon: BrainCircuit, label: "Conversation Intelligence", path: "/analytics/conversation-intelligence" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
     },

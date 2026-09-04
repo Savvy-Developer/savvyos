@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { communications } from "../drizzle/schema";
+import { enqueueContactIntelligenceForCommunication } from "./contactIntelligence";
 import { getDb } from "./db";
 
 export type AircallTranscriptUtterance = {
@@ -153,6 +154,10 @@ export async function syncAircallTranscript(
   await db.update(communications)
     .set({ transcription: transcript })
     .where(eq(communications.id, communicationId));
+  // Aircall remains the transcript source. Once its completed transcript is
+  // durable in SavvyOS, enqueue an idempotent evidence-extraction job rather
+  // than doing model work inside the webhook path.
+  await enqueueContactIntelligenceForCommunication(communicationId);
 
   return { transcript };
 }
@@ -185,6 +190,9 @@ export async function syncAircallSummary(
   await db.update(communications)
     .set({ body: withAircallSummary(communication.body, summary) })
     .where(eq(communications.id, communicationId));
+  // The summary may arrive after transcription.created. The source-hashed job
+  // queue reopens only when this native evidence materially changes.
+  await enqueueContactIntelligenceForCommunication(communicationId);
 
   return { summary };
 }

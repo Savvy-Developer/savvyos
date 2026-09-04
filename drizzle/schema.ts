@@ -5345,6 +5345,195 @@ export type AircallIntegrationState =
 export type InsertAircallIntegrationState =
   typeof aircallIntegrationState.$inferInsert;
 
+// ─── Contact Intelligence ───────────────────────────────────────────────────
+// Aircall remains the source of the completed transcript and standard call
+// summary. These records retain SavvyOS's evidence-linked interpretation of
+// that native source without silently changing human-managed CRM fields.
+export const contactIntelligenceJobs = mysqlTable(
+  "contact_intelligence_jobs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    contactId: int("contactId")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    communicationId: int("communicationId")
+      .notNull()
+      .references(() => communications.id, { onDelete: "cascade" }),
+    // Hashes the native transcript and standard summary. A changed Aircall source
+    // becomes a distinct, idempotent enrichment job without overwriting evidence.
+    sourceHash: varchar("sourceHash", { length: 64 }).notNull(),
+    extractionVersion: varchar("extractionVersion", { length: 64 })
+      .notNull()
+      .default("contact-intelligence-v1"),
+    status: mysqlEnum("status", [
+      "pending",
+      "processing",
+      "retrying",
+      "completed",
+      "failed",
+    ])
+      .notNull()
+      .default("pending"),
+    attempts: int("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("nextAttemptAt"),
+    leaseExpiresAt: timestamp("leaseExpiresAt"),
+    lastAttemptAt: timestamp("lastAttemptAt"),
+    processedAt: timestamp("processedAt"),
+    lastError: varchar("lastError", { length: 512 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("contact_intelligence_jobs_source_unique").on(
+      table.aircallCallId,
+      table.sourceHash
+    ),
+    index("contact_intelligence_jobs_status_next_idx").on(
+      table.status,
+      table.nextAttemptAt
+    ),
+    index("contact_intelligence_jobs_contact_created_idx").on(
+      table.contactId,
+      table.createdAt
+    ),
+  ]
+);
+export type ContactIntelligenceJob = typeof contactIntelligenceJobs.$inferSelect;
+export type InsertContactIntelligenceJob =
+  typeof contactIntelligenceJobs.$inferInsert;
+
+export const contactIntelligenceProfiles = mysqlTable(
+  "contact_intelligence_profiles",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    contactId: int("contactId")
+      .notNull()
+      .unique()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // A resolved, review-aware snapshot used for fast CRM rendering and analytics.
+    profile: json("profile").$type<Record<string, unknown>>().notNull(),
+    aiSummary: text("aiSummary"),
+    intentTier: mysqlEnum("intentTier", ["priority", "active", "nurture", "unknown"])
+      .notNull()
+      .default("unknown"),
+    intentScore: int("intentScore").notNull().default(0),
+    confidence: mysqlEnum("confidence", ["low", "medium", "high"])
+      .notNull()
+      .default("low"),
+    sourceCallCount: int("sourceCallCount").notNull().default(0),
+    latestSourceAt: timestamp("latestSourceAt"),
+    lastAnalyzedAt: timestamp("lastAnalyzedAt"),
+    extractionVersion: varchar("extractionVersion", { length: 64 })
+      .notNull()
+      .default("contact-intelligence-v1"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("contact_intelligence_profiles_tier_updated_idx").on(
+      table.intentTier,
+      table.updatedAt
+    ),
+    index("contact_intelligence_profiles_latest_source_idx").on(
+      table.latestSourceAt
+    ),
+  ]
+);
+export type ContactIntelligenceProfile =
+  typeof contactIntelligenceProfiles.$inferSelect;
+export type InsertContactIntelligenceProfile =
+  typeof contactIntelligenceProfiles.$inferInsert;
+
+export const contactIntelligenceSignals = mysqlTable(
+  "contact_intelligence_signals",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    contactId: int("contactId")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    profileId: int("profileId").references(() => contactIntelligenceProfiles.id, {
+      onDelete: "set null",
+    }),
+    aircallCallId: bigint("aircallCallId", { mode: "number" }).notNull(),
+    communicationId: int("communicationId")
+      .notNull()
+      .references(() => communications.id, { onDelete: "cascade" }),
+    sourceHash: varchar("sourceHash", { length: 64 }).notNull(),
+    signalKey: varchar("signalKey", { length: 96 }).notNull(),
+    value: text("value").notNull(),
+    confidence: mysqlEnum("confidence", ["low", "medium", "high"])
+      .notNull()
+      .default("low"),
+    evidenceExcerpt: text("evidenceExcerpt"),
+    evidenceTimestamp: varchar("evidenceTimestamp", { length: 32 }),
+    sourceOccurredAt: timestamp("sourceOccurredAt"),
+    extractionVersion: varchar("extractionVersion", { length: 64 })
+      .notNull()
+      .default("contact-intelligence-v1"),
+    status: mysqlEnum("status", ["active", "dismissed", "superseded"])
+      .notNull()
+      .default("active"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("contact_intelligence_signals_source_key_unique").on(
+      table.aircallCallId,
+      table.sourceHash,
+      table.signalKey
+    ),
+    index("contact_intelligence_signals_contact_key_created_idx").on(
+      table.contactId,
+      table.signalKey,
+      table.createdAt
+    ),
+    index("contact_intelligence_signals_call_idx").on(
+      table.aircallCallId,
+      table.communicationId
+    ),
+  ]
+);
+export type ContactIntelligenceSignal =
+  typeof contactIntelligenceSignals.$inferSelect;
+export type InsertContactIntelligenceSignal =
+  typeof contactIntelligenceSignals.$inferInsert;
+
+export const contactIntelligenceSignalReviews = mysqlTable(
+  "contact_intelligence_signal_reviews",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    signalId: int("signalId")
+      .notNull()
+      .references(() => contactIntelligenceSignals.id, { onDelete: "cascade" }),
+    reviewerId: int("reviewerId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    disposition: mysqlEnum("disposition", [
+      "accepted",
+      "rejected",
+      "corrected",
+    ]).notNull(),
+    overrideValue: text("overrideValue"),
+    note: text("note"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("contact_intelligence_signal_reviews_signal_unique").on(
+      table.signalId
+    ),
+    index("contact_intelligence_signal_reviews_reviewer_created_idx").on(
+      table.reviewerId,
+      table.createdAt
+    ),
+  ]
+);
+export type ContactIntelligenceSignalReview =
+  typeof contactIntelligenceSignalReviews.$inferSelect;
+export type InsertContactIntelligenceSignalReview =
+  typeof contactIntelligenceSignalReviews.$inferInsert;
+
 // ─── Job Board ─────────────────────────────────────────────────────────────────
 // Admin-managed job postings visible on the public /careers page.
 export const jobPostings = mysqlTable("job_postings", {

@@ -145,6 +145,7 @@ import PtoPage from "./pages/PtoPage";
 import PtoManagerQueuePage from "./pages/PtoManagerQueuePage";
 import PtoAdministrationPage from "./pages/PtoAdministrationPage";
 import AgentRenewalsPage from "./pages/AgentRenewalsPage";
+import ConversationIntelligencePage from "./pages/ConversationIntelligencePage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -401,6 +402,7 @@ function Router() {
           <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
           <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>
           <Route path="/analytics/legacy">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
+          <Route path="/analytics/conversation-intelligence">{() => <AdminRoute><ConversationIntelligencePage /></AdminRoute>}</Route>
           <Route path="/analytics/lead-cohorts">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/analytics">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/custom-reports">{() => <CustomReportsRoute><CustomReportsPage /></CustomReportsRoute>}</Route>
