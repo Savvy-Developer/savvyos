@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { PulseCompletionCelebration, usePulseCompletionCelebration } from "@/components/pulse/PulseCompletionCelebration";
 import { PulsePriorityBadge, statusBadgeClass } from "@/components/pulse/PulseWorkItemBadges";
+import { formatEasternDateTime } from "@/lib/format";
 
 type Props = { workItemId: string; title: string; completionRequest?: number; onEdit: () => void; onAddSubTodo?: () => void; canReopen?: boolean; onChanged: () => void; sourceSessionId?: string | null; renderSubTodo?: (todo: any) => ReactNode };
 
@@ -20,7 +21,7 @@ const statuses = [
 ] as const;
 
 const label = (status?: string | null) => statuses.find(([value]) => value === status)?.[1] ?? (status ? status.replaceAll("_", " ") : "Not Started");
-const when = (value?: string | null) => value ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Unknown time";
+const when = (value?: string | null) => formatEasternDateTime(value);
 const day = (value?: string | null) => value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No due date";
 
 function linksIn(html?: string | null) {

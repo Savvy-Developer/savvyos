@@ -11,12 +11,13 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { formatEasternDateTime } from "@/lib/format";
 import { PulseL10WorkCreator } from "@/components/pulse/PulseL10WorkCreator";
 import { PulseWeeklyPreparation } from "@/components/pulse/PulseWeeklyPreparation";
 import { PulseInlineItemRow } from "@/components/pulse/PulseItemEditor";
 import { PulseCompletedHistory } from "@/components/pulse/PulseCompletedHistory";
 
-const formatDate = (value?: string | null, includeTime = false) => value ? new Date(value).toLocaleDateString(undefined, includeTime ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric" }) : "No deadline";
+const formatDate = (value?: string | null, includeTime = false) => includeTime ? formatEasternDateTime(value, { includeYear: false }) : value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "No deadline";
 const statusLabel: Record<string, string> = { open: "Open", done: "Done", discussing: "Discussing", solved: "Solved", on_track: "On track", at_risk: "At risk", off_track: "Off track", dropped: "Dropped" };
 const typeLabel: Record<string, string> = { todo: "To-do", issue: "Issue", rock: "Rock" };
 

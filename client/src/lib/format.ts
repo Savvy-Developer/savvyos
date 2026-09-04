@@ -113,3 +113,44 @@ export function formatPercent(
   if (isNaN(num)) return "";
   return `${num.toFixed(decimals)}%`;
 }
+
+/**
+ * Format an instant in 12-hour Eastern Time. The time-zone abbreviation resolves
+ * to EDT or EST automatically for the represented date.
+ */
+export function formatEasternDateTime(
+  value: Date | string | number | null | undefined,
+  options: { includeYear?: boolean } = {}
+): string {
+  if (value === null || value === undefined || value === "") return "Unknown time";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    ...(options.includeYear === false ? {} : { year: "numeric" }),
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).format(date);
+}
+
+/**
+ * Format a recurring HH:mm schedule value as a 12-hour Eastern clock time.
+ * Recurring schedules have no date, so the stable zone label is ET rather
+ * than an incorrect fixed EDT or EST abbreviation.
+ */
+export function formatEasternClockTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = /^(\d{1,2}):(\d{2})/.exec(value.trim());
+  if (!match) return value;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return value;
+  const meridiem = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${meridiem} ET`;
+}

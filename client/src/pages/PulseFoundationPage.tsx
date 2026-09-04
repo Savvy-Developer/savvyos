@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
+import { formatEasternClockTime } from "@/lib/format";
 import PulseMeetingDashboardPage from "@/pages/PulseMeetingDashboardPage";
 import PulseMyInputsPage from "@/pages/PulseMyInputsPage";
 import PulseMyWorkPage from "@/pages/PulseMyWorkPage";
@@ -43,7 +44,7 @@ function friendlyDay(day: string | null) {
 
 function formatMeetingTime(meeting: Meeting) {
   const day = friendlyDay(meeting.dayOfWeek);
-  if (day && meeting.startTime) return `${day}s ${meeting.startTime}`;
+  if (day && meeting.startTime) return `${day}s ${formatEasternClockTime(meeting.startTime)}`;
   if (day) return day;
   return friendlyCadence(meeting.cadence);
 }
