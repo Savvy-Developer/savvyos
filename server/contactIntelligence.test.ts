@@ -22,4 +22,15 @@ describe("Contact Intelligence structured response parsing", () => {
       signals: [],
     });
   });
+
+  it("uses no inferred signals when structured extraction is unavailable", () => {
+    const result = __testables__.nativeSummaryFallback({
+      communication: { body: "Conversation\n\nAircall Summary:\nCaller requested a follow-up." },
+    } as any);
+    expect(result.signals).toEqual([]);
+    expect(result.profile.intentTier).toBe("unknown");
+    expect(result.profile.intentScore).toBe(0);
+    expect(result.profile.confidence).toBe("low");
+    expect(result.profile.executiveBriefing).toContain("Caller requested a follow-up.");
+  });
 });

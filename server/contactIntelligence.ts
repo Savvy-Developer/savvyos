@@ -346,6 +346,39 @@ function extractSummary(body: string | null): string {
   return cleanText(match?.[1] ?? "", 3_000);
 }
 
+/**
+ * A strict, non-inferential fallback for a provider response that is empty or
+ * invalid in both structured modes. It preserves the native Aircall summary but
+ * deliberately creates no extracted signals, intent tier, or action claim. This
+ * keeps the durable queue moving without letting a provider outage manufacture
+ * contact facts.
+ */
+function nativeSummaryFallback(input: Awaited<ReturnType<typeof getJobInput>>): ExtractionResult {
+  const summary = extractSummary(input.communication.body);
+  return {
+    profile: {
+      executiveBriefing: summary || "A completed native Aircall transcript is available, but structured Contact Intelligence extraction was unavailable for this call.",
+      investorProfile: "Unknown",
+      targetMarkets: [],
+      propertyPreferences: [],
+      priceRange: "Unknown",
+      financingReadiness: "Unknown",
+      timeline: "Unknown",
+      strategy: "Unknown",
+      motivations: [],
+      objections: [],
+      nextBestAction: "Review the linked native Aircall transcript and summary before deciding a follow-up action.",
+      promisedNextStep: "",
+      missingDiscovery: ["Structured conversation extraction was unavailable; review the source before relying on this profile."],
+      scoreReasons: ["No intent score was assigned because a structured model response was unavailable."],
+      confidence: "low",
+      intentTier: "unknown",
+      intentScore: 0,
+    },
+    signals: [],
+  };
+}
+
 function retryDelay(attempts: number): number {
   return Math.min(6 * 60 * 60_000, Math.max(60_000, 60_000 * 2 ** Math.min(attempts - 1, 7)));
 }
@@ -473,7 +506,8 @@ Rules:
     } catch (fallbackError) {
       const initialMessage = schemaError instanceof Error ? schemaError.message : String(schemaError);
       const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      throw new Error(`Contact Intelligence extraction failed after schema and JSON fallback: ${initialMessage}; fallback: ${fallbackMessage}`);
+      console.warn(`[ContactIntelligence] Structured extraction unavailable; persisting native-summary-only fallback. Schema: ${initialMessage}; fallback: ${fallbackMessage}`);
+      return nativeSummaryFallback(input);
     }
   }
 }
@@ -795,5 +829,6 @@ export const __testables__ = {
   mergeProfiles,
   normalProfile,
   normalSignals,
+  nativeSummaryFallback,
   parseStructuredResponse,
 };
