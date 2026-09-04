@@ -6975,6 +6975,8 @@ export const pulseWorkItems = mysqlTable(
     ),
     // Proposed AI-derived issues stay unassigned until a person chooses otherwise.
     assigneeId: int("assigneeId").references(() => users.id),
+    // When current work is blocked, this optional person is the named teammate who can unblock it.
+    blockerPersonId: int("blockerPersonId").references(() => users.id, { onDelete: "set null" }),
     createdById: int("createdById")
       .notNull()
       .references(() => users.id),
@@ -7071,6 +7073,11 @@ export const pulseWorkItems = mysqlTable(
     ),
     index("pulse_work_items_assignee_idx").on(
       table.assigneeId,
+      table.status,
+      table.deletedAt
+    ),
+    index("pulse_work_items_blocker_idx").on(
+      table.blockerPersonId,
       table.status,
       table.deletedAt
     ),
@@ -7737,6 +7744,8 @@ export const pulseNotifications = mysqlTable(
       "proposed_issue",
       "reminder",
       "overdue",
+      "completion",
+      "blocker",
     ]).notNull(),
     requiresAction: boolean("requiresAction").notNull().default(false),
     sourceType: varchar("sourceType", { length: 64 }).notNull(),

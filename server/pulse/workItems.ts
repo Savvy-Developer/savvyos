@@ -469,18 +469,46 @@ export const pulseWorkItemsRouter = router({
     }),
 
   setWorkflowStatus: pulseMemberProcedure
-    .input(z.object({ workItemId: z.string().uuid(), status: workflowStatusSchema, statusNote: z.string().trim().min(1).max(2000) }))
+    .input(z.object({
+      workItemId: z.string().uuid(),
+      status: workflowStatusSchema,
+      statusNote: z.string().trim().min(1).max(2000),
+      blockerPersonId: z.number().int().positive().nullable().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw unavailable();
-      const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Only To-Dos and Issues use this workflow status." });
-      if (item.status === input.status) return { success: true, unchanged: true };
+      if (item.status === input.status && (input.status !== "blocked" || input.blockerPersonId === item.blockerPersonId)) return { success: true, unchanged: true };
+      if (input.status === "blocked" && meeting && !input.blockerPersonId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose the person who can unblock this item." });
+      }
+      if (input.status === "blocked" && meeting && input.blockerPersonId) await requireMeetingMember(db, input.blockerPersonId, meeting);
       const completed = input.status === "completed";
+      const blockerPersonId = input.status === "blocked" ? (input.blockerPersonId ?? null) : null;
+      const recipientIds = completed
+        ? Array.from(new Set([item.assigneeId, item.ownerPersonId, item.createdById].filter((id): id is number => !!id && id !== ctx.user.id)))
+        : [];
+      const blockerRecipientIds = input.status === "blocked" && blockerPersonId && blockerPersonId !== ctx.user.id ? [blockerPersonId] : [];
       await db.transaction(async (tx: any) => {
-        await tx.update(pulseWorkItems).set({ status: input.status, solvedNote: completed ? input.statusNote : item.solvedNote, completedAt: completed ? new Date() : null, completedById: completed ? ctx.user.id : null }).where(eq(pulseWorkItems.id, item.id));
+        await tx.update(pulseWorkItems).set({
+          status: input.status,
+          blockerPersonId,
+          solvedNote: completed ? input.statusNote : item.solvedNote,
+          completedAt: completed ? new Date() : null,
+          completedById: completed ? ctx.user.id : null,
+        }).where(eq(pulseWorkItems.id, item.id));
         await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote, personId: ctx.user.id });
-        await writeActivity(tx, ctx.user.id, "work_item", item.id, item.status === "completed" && input.status !== "completed" ? "reopened" : "status_changed", "status", item.status, { status: input.status, statusNote: input.statusNote });
+        if (recipientIds.length) await tx.insert(pulseNotifications).values(recipientIds.map((personId) => ({
+          id: uuid(), personId, notificationType: "completion" as const, requiresAction: false, sourceType: "work_item", sourceId: item.id, meetingId: item.meetingId,
+          body: `${item.type === "issue" ? "Issue resolved" : "To-Do completed"}: ${item.title}`,
+        })));
+        if (blockerRecipientIds.length) await tx.insert(pulseNotifications).values(blockerRecipientIds.map((personId) => ({
+          id: uuid(), personId, notificationType: "blocker" as const, requiresAction: true, sourceType: "work_item", sourceId: item.id, meetingId: item.meetingId,
+          body: `You were identified as the blocker for: ${item.title}`,
+        })));
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, item.status === "completed" && input.status !== "completed" ? "reopened" : "status_changed", "status", item.status, { status: input.status, statusNote: input.statusNote, blockerPersonId });
       });
       return { success: true, unchanged: false };
     }),
@@ -511,6 +539,9 @@ export const pulseWorkItemsRouter = router({
         ? await db.select({ name: users.name }).from(users).where(eq(users.id, item.ownerPersonId)).limit(1)
         : [];
       const [creator] = await db.select({ name: users.name }).from(users).where(eq(users.id, item.createdById)).limit(1);
+      const [blocker] = item.blockerPersonId
+        ? await db.select({ name: users.name }).from(users).where(eq(users.id, item.blockerPersonId)).limit(1)
+        : [];
       const [milestones, notes, moves, comments, activity, members, rolloverPrompts, raci, attachments, linkedSubTodos] = await Promise.all([
         item.type === "rock" ? milestonesFor(db, item.id) : Promise.resolve([]),
         db.select({
@@ -598,7 +629,7 @@ export const pulseWorkItemsRouter = router({
         ? { completed: milestones.filter((milestone: any) => milestone.isComplete).length, total: milestones.length, percent: Math.round((milestones.filter((milestone: any) => milestone.isComplete).length / milestones.length) * 100) }
         : null;
       return {
-        item: itemResponse({ ...item, assigneeName: assignee?.name ?? null, ownerName: owner?.name ?? null, createdByName: creator?.name ?? null }, meeting?.name ?? null),
+        item: itemResponse({ ...item, assigneeName: assignee?.name ?? null, ownerName: owner?.name ?? null, createdByName: creator?.name ?? null, blockerName: blocker?.name ?? null }, meeting?.name ?? null),
         milestones,
         milestoneProgress,
         statusNotes: notes,
@@ -987,20 +1018,20 @@ export const pulseWorkItemsRouter = router({
           await tx.insert(pulseWorkItemCommentMentions).values(mentionedPersonIds.map((mentionedPersonId) => ({ id: uuid(), commentId, mentionedPersonId })));
           if (inAppMentionedPersonIds.length) await tx.insert(pulseWorkItemNotifications).values(inAppMentionedPersonIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId, notificationType: "mention" as const })));
         }
-        // A direct comment to the assignee needs a response even when it does not use an @mention.
-        // Do not create a second card when that same person was explicitly mentioned.
-        if (item.assigneeId !== ctx.user.id && !mentionedPersonIds.includes(item.assigneeId)) {
-          await tx.insert(pulseNotifications).values({
-            id: uuid(),
-            personId: item.assigneeId,
-            notificationType: "comment",
-            requiresAction: true,
-            sourceType: "work_item",
-            sourceId: item.id,
-            meetingId: item.meetingId,
-            body: input.body,
-          });
-        }
+        // Comments notify the accountable people for the canonical item even when no @mention is used.
+        // Mentioned people already receive their dedicated mention event, so they are not duplicated here.
+        const commentRecipientIds = Array.from(new Set([item.assigneeId, item.ownerPersonId, item.createdById]
+          .filter((personId): personId is number => !!personId && personId !== ctx.user.id && !mentionedPersonIds.includes(personId))));
+        if (commentRecipientIds.length) await tx.insert(pulseNotifications).values(commentRecipientIds.map((personId) => ({
+          id: uuid(),
+          personId,
+          notificationType: "comment" as const,
+          requiresAction: true,
+          sourceType: "work_item",
+          sourceId: item.id,
+          meetingId: item.meetingId,
+          body: `Comment on ${item.type === "issue" ? "Issue" : "To-Do"} ${item.title}: ${input.body}`,
+        })));
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "comment_added", undefined, undefined, { commentId, mentionedPersonIds });
       });
       if (meeting && mentionedPersonIds.length) {

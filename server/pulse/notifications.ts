@@ -88,6 +88,9 @@ export async function getPulseNotificationPreference(
  */
 async function pendingResponseItems(db: any, personId: number) {
   const visibleMeetingIds = await visible_meeting_ids(db, personId);
+  const visibleGenericMeetingCondition = visibleMeetingIds.length
+    ? or(isNull(pulseNotifications.meetingId), inArray(pulseNotifications.meetingId, visibleMeetingIds))
+    : isNull(pulseNotifications.meetingId);
   const generic = await db.select({
     id: pulseNotifications.id,
     notificationType: pulseNotifications.notificationType,
@@ -101,8 +104,8 @@ async function pendingResponseItems(db: any, personId: number) {
     .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseNotifications.meetingId))
     .where(and(
       eq(pulseNotifications.personId, personId),
-      eq(pulseNotifications.requiresAction, true),
       isNull(pulseNotifications.clearedAt),
+      visibleGenericMeetingCondition,
       ne(pulseNotifications.notificationType, "cascade"),
     ));
 
@@ -144,23 +147,34 @@ async function pendingResponseItems(db: any, personId: number) {
     : [];
   const workItemById = new Map(genericWorkItems.map((item: any) => [item.id, item]));
 
-  const genericItems = generic.map((notification: any) => {
-    const workItem = (notification.sourceType === "work_item" ? workItemById.get(notification.sourceId) : null) as { id: string; title: string; dueDate: Date | null } | null;
-    const isAssignment = notification.notificationType === "assignment";
-    return {
-      id: notification.id,
-      kind: "notification" as const,
-      notificationType: notification.notificationType,
-      headline: isAssignment ? "A to-do was assigned to you" : "A Pulse response needs you",
-      body: notification.body || workItem?.title || "Open this Pulse item to respond.",
-      meetingId: notification.meetingId,
-      meetingName: notification.meetingName ?? "Pulse",
-      workItemId: workItem?.id ?? null,
-      dueDate: workItem?.dueDate ?? null,
-      canComplete: isAssignment && !!workItem,
-      createdAt: notification.createdAt,
-    };
-  });
+    const genericItems = generic.map((notification: any) => {
+      const workItem = (notification.sourceType === "work_item" ? workItemById.get(notification.sourceId) : null) as { id: string; title: string; dueDate: Date | null } | null;
+      const inboxCopy: Record<string, { headline: string; canComplete: boolean }> = {
+        assignment: { headline: "A To-Do was assigned to you", canComplete: true },
+        comment: { headline: "Someone commented on your work", canComplete: false },
+        completion: { headline: "Your work was completed", canComplete: false },
+        blocker: { headline: "You are needed to unblock work", canComplete: false },
+        mention: { headline: "You were mentioned", canComplete: false },
+        proposed_issue: { headline: "A proposed Issue needs review", canComplete: false },
+        reminder: { headline: "Pulse reminder", canComplete: false },
+        overdue: { headline: "A Pulse To-Do is overdue", canComplete: false },
+      };
+      const copy = inboxCopy[notification.notificationType] ?? { headline: "Pulse notification", canComplete: false };
+      return {
+        id: notification.id,
+        kind: "notification" as const,
+        notificationType: notification.notificationType,
+        headline: copy.headline,
+        body: notification.body || workItem?.title || "Open this Pulse item to review.",
+        meetingId: notification.meetingId,
+        meetingName: notification.meetingName ?? "Personal work",
+        workItemId: workItem?.id ?? null,
+        dueDate: workItem?.dueDate ?? null,
+        canComplete: copy.canComplete && !!workItem,
+        requiresAction: notification.requiresAction,
+        createdAt: notification.createdAt,
+      };
+    });
 
   const legacyItems = legacyMentions.map((notification: any) => ({
     id: notification.id,
@@ -177,7 +191,7 @@ async function pendingResponseItems(db: any, personId: number) {
   }));
 
   return [...genericItems, ...legacyItems].sort((left: any, right: any) => (
-    new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   ));
 }
 

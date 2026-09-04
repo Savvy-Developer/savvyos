@@ -466,8 +466,10 @@ export const pulseL10Router = router({
     await require_visible_meeting(db, ctx.user.id, input.meetingId);
     const [item] = await db.select().from(pulseWorkItems).where(and(eq(pulseWorkItems.id, input.workItemId), eq(pulseWorkItems.meetingId, input.meetingId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))).limit(1);
     if (!item) throw notFound("This To-Do is not available.");
+    const completedRecipientIds = input.status === "completed" ? Array.from(new Set([item.assigneeId, item.ownerPersonId, item.createdById].filter((personId): personId is number => !!personId && personId !== ctx.user.id))) : [];
     await db.transaction(async (tx: any) => {
       await tx.update(pulseWorkItems).set({ status: input.status, completedAt: input.status === "completed" ? new Date() : null, completedById: input.status === "completed" ? ctx.user.id : null, solvedNote: input.status === "completed" ? input.statusNote : item.solvedNote }).where(eq(pulseWorkItems.id, item.id));
+      if (completedRecipientIds.length) await tx.insert(pulseNotifications).values(completedRecipientIds.map((personId) => ({ id: id(), personId, notificationType: "completion" as const, requiresAction: false, sourceType: "work_item", sourceId: item.id, meetingId: input.meetingId, body: `To-Do completed: ${item.title}` })));
       await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote, personId: ctx.user.id });
       await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", item.status, { status: input.status, statusNote: input.statusNote, meetingId: input.meetingId });
     });
@@ -493,8 +495,10 @@ export const pulseL10Router = router({
     if (!issue) throw notFound("This Issue is not available.");
     if (input.commitment) await assertMember(db, input.meetingId, input.commitment.assigneeId);
     const commitmentId = input.commitment ? id() : null;
+    const resolvedRecipientIds = Array.from(new Set([issue.assigneeId, issue.ownerPersonId, issue.createdById].filter((personId): personId is number => !!personId && personId !== ctx.user.id)));
     await db.transaction(async (tx: any) => {
       await tx.update(pulseWorkItems).set({ status: "completed", solvedNote: input.solvedNote, completedAt: new Date(), completedById: ctx.user.id, resolvedInSessionId: input.sessionId ?? null }).where(eq(pulseWorkItems.id, issue.id));
+      if (resolvedRecipientIds.length) await tx.insert(pulseNotifications).values(resolvedRecipientIds.map((personId) => ({ id: id(), personId, notificationType: "completion" as const, requiresAction: false, sourceType: "work_item", sourceId: issue.id, meetingId: input.meetingId, body: `Issue resolved: ${issue.title}` })));
       await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: issue.id, fromStatus: issue.status, toStatus: "completed", note: input.solvedNote, personId: ctx.user.id });
       if (input.commitment && commitmentId) await tx.insert(pulseWorkItems).values({ id: commitmentId, type: "todo", title: input.commitment.title, meetingId: input.meetingId, sourceSessionId: input.sessionId ?? null, ownerPersonId: null, assigneeId: input.commitment.assigneeId, createdById: ctx.user.id, status: "not_started", dueDate: input.commitment.dueDate ?? defaultDueDate(), percentComplete: 0, percentSource: "manual" });
       await writeActivity(tx, ctx.user.id, "work_item", issue.id, "issue_solved", issue.status, { sessionId: input.sessionId ?? null, commitmentId });
