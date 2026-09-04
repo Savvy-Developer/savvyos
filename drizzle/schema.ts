@@ -2809,6 +2809,21 @@ export const marketIntelligenceProfiles = mysqlTable(
 export type MarketIntelligenceProfile =
   typeof marketIntelligenceProfiles.$inferSelect;
 
+// ─── Market Match Feature Settings ──────────────────────────────────────────
+// One organization-wide row controls the call experience. Market data remains
+// owned by Agent Markets; these values only gate and cap recommendations.
+export const marketMatchSettings = mysqlTable("market_match_settings", {
+  id: int("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(true),
+  maxRecommendedMarkets: int("maxRecommendedMarkets").notNull().default(5),
+  updatedById: int("updatedById").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MarketMatchSettings = typeof marketMatchSettings.$inferSelect;
+
 export const marketAgentAssignments = mysqlTable("market_agent_assignments", {
   id: int("id").autoincrement().primaryKey(),
   marketProfileId: int("marketProfileId")

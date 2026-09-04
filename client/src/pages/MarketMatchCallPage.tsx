@@ -57,6 +57,11 @@ export default function MarketMatchCallPage() {
     return new URLSearchParams(window.location.search).get("session") ?? "";
   }, []);
   const hasAccess = user?.role === "admin" || user?.role === "isa";
+  const availability = trpc.marketMatch.status.useQuery(undefined, {
+    enabled: hasAccess,
+    retry: false,
+    staleTime: 0,
+  });
   const snapshot = trpc.marketMatch.snapshot.useQuery(
     { sessionToken },
     {
@@ -64,7 +69,8 @@ export default function MarketMatchCallPage() {
         sessionToken &&
           Number.isInteger(contactId) &&
           contactId > 0 &&
-          hasAccess
+          hasAccess &&
+          availability.data?.enabled === true
       ),
       refetchInterval: 4_000,
       staleTime: 0,
@@ -83,6 +89,37 @@ export default function MarketMatchCallPage() {
             <p className="mt-2 text-sm text-muted-foreground">
               Only ISA and admin users can open a Market Match call.
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (availability.isLoading) {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <Card>
+          <CardContent className="flex min-h-48 items-center justify-center gap-3 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" /> Checking Market Match availability…
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (availability.error || availability.data?.enabled === false) {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <Card className="border-amber-200">
+          <CardContent className="py-12 text-center">
+            <AlertCircle className="mx-auto mb-3 h-8 w-8 text-amber-600" />
+            <h1 className="font-semibold">Market Match is currently unavailable</h1>
+            <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
+              {availability.error?.message ?? "An administrator has disabled Market Match. Live call transcripts and recommendations are not available until it is re-enabled."}
+            </p>
+            <Button className="mt-5" variant="outline" onClick={() => navigate(Number.isInteger(contactId) ? `/contacts/${contactId}` : "/contacts")}>
+              Return to Contact
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -243,8 +280,7 @@ export default function MarketMatchCallPage() {
                   <h2 className="text-lg font-semibold">Top Matches</h2>
                   <p className="text-sm text-muted-foreground">
                     Ranked from {data.activeMarketCount} active Agent Market
-                    {data.activeMarketCount === 1 ? "" : "s"}; only the top 3–5
-                    are shown.
+                    {data.activeMarketCount === 1 ? "" : "s"}; showing up to {data.settings.maxRecommendedMarkets}.
                   </p>
                 </div>
                 <Badge

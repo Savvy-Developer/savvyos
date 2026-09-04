@@ -63,6 +63,7 @@ import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import AgentMarketsPage from "./pages/AgentMarketsPage";
 import MarketMatchCallPage from "./pages/MarketMatchCallPage";
+import MarketMatchSettingsPage from "./pages/MarketMatchSettingsPage";
 import MarketingRequestsPage from "./pages/MarketingRequestsPage";
 import MarketingAdminPage from "./pages/MarketingAdminPage";
 import TechRequestsPage from "./pages/TechRequestsPage";
@@ -419,6 +420,7 @@ function Router() {
           <Route path="/listings/:id" component={ListingDetail} />
           <Route path="/email-test">{() => <AdminRoute><EmailTestPage /></AdminRoute>}</Route>
           <Route path="/agent-markets">{() => <AgentMarketsRoute><AgentMarketsPage /></AgentMarketsRoute>}</Route>
+          <Route path="/admin/market-match-settings">{() => <AdminRoute><MarketMatchSettingsPage /></AdminRoute>}</Route>
           <Route path="/market-performance">{() => <AdminRoute><MarketPerformancePage /></AdminRoute>}</Route>
           <Route path="/transaction-reporting">{() => <AdminRoute><TransactionReportingPage /></AdminRoute>}</Route>
           <Route path="/feedback">{() => <AdminRoute><FeedbackPage /></AdminRoute>}</Route>

@@ -550,6 +550,11 @@ function buildAdminNav(
         { icon: Activity, label: "Activity Log", path: "/admin/activity" },
         { icon: Settings, label: "PTO Administration", path: "/pto/admin" },
         {
+          icon: Settings,
+          label: "Market Match Settings",
+          path: "/admin/market-match-settings",
+        },
+        {
           icon: ClipboardList,
           label: "PTO Approvals",
           path: "/pto/approvals",

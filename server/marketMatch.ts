@@ -564,7 +564,8 @@ export function speakerLabel(participantType: string | undefined): string {
 export function rankMarketMatches(
   candidates: MarketMatchCandidate[],
   signals: MarketMatchSignals,
-  transcript: string
+  transcript: string,
+  maxRecommendedMarkets = 5
 ): MarketMatchResult[] {
   const normalizedTranscript = normalized(transcript);
   const ranked = candidates.map(candidate => {
@@ -621,7 +622,15 @@ export function rankMarketMatches(
   });
 
   const hasConflict = conflictingRegions(signals.regions);
-  const limit = Math.min(5, Math.max(3, candidates.length));
+  // Callers normally receive this value from the validated settings table. This
+  // local guard also keeps direct library use stable when settings are absent.
+  const configuredMaximum =
+    Number.isInteger(maxRecommendedMarkets) &&
+    maxRecommendedMarkets >= 3 &&
+    maxRecommendedMarkets <= 5
+      ? maxRecommendedMarkets
+      : 5;
+  const limit = Math.min(configuredMaximum, candidates.length);
   return ranked
     .sort(
       (left, right) =>

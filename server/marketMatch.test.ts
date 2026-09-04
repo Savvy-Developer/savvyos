@@ -212,4 +212,13 @@ describe("Market Match V1 ranking", () => {
       "https://calendly.com/casey"
     );
   });
+
+  it("honors a valid configured maximum and falls back to five for an invalid maximum", () => {
+    const transcript =
+      "Our budget is around $550k. We are looking in North Carolina for a short-term rental with good cash flow.";
+    const signals = extractMarketMatchSignals(transcript);
+
+    expect(rankMarketMatches(candidates, signals, transcript, 3)).toHaveLength(3);
+    expect(rankMarketMatches(candidates, signals, transcript, 2)).toHaveLength(3);
+  });
 });

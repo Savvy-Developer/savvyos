@@ -499,6 +499,14 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
     undefined,
     { enabled: user?.role === "isa", retry: false },
   );
+  const { data: marketMatchStatus } = trpc.marketMatch.status.useQuery(
+    undefined,
+    {
+      enabled: user?.role === "admin" || user?.role === "isa",
+      retry: false,
+      staleTime: 30_000,
+    },
+  );
 
   // Format system activity-log entries (e.g. property views logged via webhook)
   // so they can be shown in the Activity tab alongside communications.
@@ -911,7 +919,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
                 </Button>
               </>
             )}
-            {(isAdmin || isIsa) && (
+            {(isAdmin || isIsa) && marketMatchStatus?.enabled && (
               <Button
                 size="sm"
                 variant="outline"

@@ -21,7 +21,13 @@ import {
   speakerLabel,
   type MarketMatchCandidate,
 } from "../marketMatch";
-import { protectedProcedure, router } from "../_core/trpc";
+import {
+  getMarketMatchSettings,
+  MAX_RECOMMENDED_MARKETS,
+  MIN_RECOMMENDED_MARKETS,
+  saveMarketMatchSettings,
+} from "../marketMatchSettings";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 
 const SESSION_TTL_MS = 30 * 60_000;
 const ACTIVE_CALL_LOOKBACK_SECONDS = 2 * 60 * 60;
@@ -310,11 +316,29 @@ async function marketCandidates(): Promise<MarketMatchCandidate[]> {
 }
 
 export const marketMatchRouter = router({
+  /** Safe, role-limited availability used to hide the start action when disabled. */
+  status: protectedProcedure.query(async ({ ctx }) => {
+    requireMarketMatchAccess(ctx.user.role);
+    const settings = await getMarketMatchSettings();
+    return {
+      enabled: settings.enabled,
+      maxRecommendedMarkets: settings.maxRecommendedMarkets,
+    };
+  }),
+
   /** Confirms an active ISA call, then issues a viewer-bound short-lived call session. */
   start: protectedProcedure
     .input(activeCallInput)
     .mutation(async ({ ctx, input }) => {
       requireMarketMatchAccess(ctx.user.role);
+      const settings = await getMarketMatchSettings();
+      if (!settings.enabled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Market Match is currently disabled by an administrator. It cannot be started until the feature is re-enabled.",
+        });
+      }
       const contact = await contactForSession(input.contactId);
       // contactForSession establishes that this required primary number exists.
       const contactPhone = contact.phone!;
@@ -355,6 +379,14 @@ export const marketMatchRouter = router({
     .input(sessionInput)
     .query(async ({ ctx, input }) => {
       requireMarketMatchAccess(ctx.user.role);
+      const settings = await getMarketMatchSettings();
+      if (!settings.enabled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Market Match is currently disabled by an administrator. Live call data is not being processed.",
+        });
+      }
       const session = decodeSession(input.sessionToken, ctx.user.id);
       const db = await getDb();
       if (!db)
@@ -382,7 +414,12 @@ export const marketMatchRouter = router({
       const utterances = mergeLiveTranscriptEvents(eventRows);
       const transcript = utterances.map(utterance => utterance.text).join("\n");
       const signals = extractMarketMatchSignals(transcript);
-      const matches = rankMarketMatches(candidates, signals, transcript);
+      const matches = rankMarketMatches(
+        candidates,
+        signals,
+        transcript,
+        settings.maxRecommendedMarkets
+      );
       const lastEvent = eventRows[0]?.receivedAt ?? null;
       return {
         call: {
@@ -406,6 +443,27 @@ export const marketMatchRouter = router({
         signals,
         matches,
         activeMarketCount: candidates.length,
+        settings: {
+          maxRecommendedMarkets: settings.maxRecommendedMarkets,
+        },
       };
+    }),
+
+  /** Admin-only controls for the organization-wide Market Match call experience. */
+  settings: adminProcedure.query(async () => getMarketMatchSettings()),
+
+  saveSettings: adminProcedure
+    .input(
+      z.object({
+        enabled: z.boolean(),
+        maxRecommendedMarkets: z
+          .number()
+          .int()
+          .min(MIN_RECOMMENDED_MARKETS)
+          .max(MAX_RECOMMENDED_MARKETS),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return saveMarketMatchSettings({ ...input, updatedById: ctx.user.id });
     }),
 });
