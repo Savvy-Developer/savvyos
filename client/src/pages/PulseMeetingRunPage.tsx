@@ -62,7 +62,7 @@ function TodosStep({ data, sessionId, onCreate, onChanged }: { data: any; sessio
 }
 
 function IdsStep({ data, sessionId, onCreate, onChanged }: { data: any; sessionId: string; onCreate: (type: "todo" | "issue") => void; onChanged: () => void }) {
-  const issues = data.sections.issues.filter((issue: any) => issue.status !== "solved");
+  const issues = data.sections.issues.filter((issue: any) => issue.status !== "completed");
   return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Open an Issue in place to identify, discuss, solve, add the decision, and create follow-up context.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => onCreate("todo")}>Add To-Do</Button><Button type="button" onClick={() => onCreate("issue")}>Add Issue</Button></div></div><div className="space-y-3">{issues.length ? issues.map((issue: any) => <PulseInlineItemRow key={issue.id} item={issue} defaultDestinationId={data.meeting.id} sourceSessionId={sessionId} onChanged={onChanged} />) : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No open Issues. Add a concern so IDS can start with the right work.</p>}</div></div>;
 }
 

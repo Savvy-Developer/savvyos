@@ -394,7 +394,7 @@ export const pulsePersonalRouter = router({
     const today = todayEastern();
     const dueSoonDate = dateOnly(addDays(new Date(), 7));
     const todos = items.filter((item: any) => item.type === "todo").sort((left: any, right: any) => Number(right.isOverdue) - Number(left.isOverdue) || String(left.dueDate ?? "9999-12-31").localeCompare(String(right.dueDate ?? "9999-12-31")) || left.source.localeCompare(right.source));
-    const issues = items.filter((item: any) => item.type === "issue" && !["solved", "dropped"].includes(item.status)).sort((left: any, right: any) => String(left.updatedAt).localeCompare(String(right.updatedAt)));
+    const issues = items.filter((item: any) => item.type === "issue" && item.status !== "completed").sort((left: any, right: any) => String(left.updatedAt).localeCompare(String(right.updatedAt)));
     const rocks = items.filter((item: any) => item.type === "rock" && !["done", "dropped"].includes(item.status)).sort((left: any, right: any) => (["off_track", "at_risk"].includes(left.status) ? -1 : 0) - (["off_track", "at_risk"].includes(right.status) ? -1 : 0) || String(left.updatedAt).localeCompare(String(right.updatedAt)));
     const workspaceCascades = pendingCascades.filter((cascade: any) => workspaceId === "all" || cascade.fromMeetingId === workspaceId || cascade.recipientMeetingIds?.includes(workspaceId));
 
@@ -436,7 +436,7 @@ export const pulsePersonalRouter = router({
       .sort((left: any, right: any) => String(left.nextOccursAt).localeCompare(String(right.nextOccursAt))).slice(0, 4);
 
     const overdueTodos = todos.filter((item: any) => item.isOverdue);
-    const dueSoonTodos = todos.filter((item: any) => item.status === "open" && !item.isOverdue && item.dueDate && item.dueDate >= today && item.dueDate <= dueSoonDate);
+    const dueSoonTodos = todos.filter((item: any) => item.status !== "completed" && !item.isOverdue && item.dueDate && item.dueDate >= today && item.dueDate <= dueSoonDate);
     const rocksNeedingAttention = rocks.filter((item: any) => ["at_risk", "off_track"].includes(item.status) || new Date(item.updatedAt).getTime() < Date.now() - 7 * 24 * 60 * 60 * 1000)
       .map((item: any) => ({ ...item, needsUpdate: !["at_risk", "off_track"].includes(item.status) }));
 

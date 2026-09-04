@@ -28,15 +28,16 @@ import { require_visible_meeting, visible_meeting_ids } from "./access";
 import { getPulseNotificationPreference } from "./notifications";
 
 const workItemTypeSchema = z.enum(["todo", "issue", "rock"]);
-const todoStatusSchema = z.enum(["open", "done", "dropped"]);
-const issueStatusSchema = z.enum(["open", "discussing", "solved", "dropped"]);
+const workflowStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed"]);
+const todoStatusSchema = workflowStatusSchema;
+const issueStatusSchema = workflowStatusSchema;
 const rockStatusSchema = z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]);
 const quarterSchema = z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.");
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date in YYYY-MM-DD format.");
 const raciRoleSchema = z.enum(["responsible", "accountable", "consulted", "informed"]);
 const priorityLevelSchema = z.enum(["low", "medium", "high", "urgent"]);
 const issueTimeframeSchema = z.enum(["short_term", "long_term"]);
-const editorStatusSchema = z.enum(["open", "done", "dropped", "discussing", "solved", "on_track", "at_risk", "off_track"]);
+const editorStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed", "on_track", "at_risk", "off_track", "done", "dropped"]);
 
 function sanitizeDetails(value?: string | null) {
   if (!value?.trim()) return null;
@@ -76,7 +77,7 @@ function dateValue(value: unknown): string | null {
 
 function isOverdue(item: { type: string; status: string; dueDate: unknown }) {
   const dueDate = dateValue(item.dueDate);
-  return item.type === "todo" && item.status === "open" && !!dueDate && dueDate < easternDateToday();
+  return item.type === "todo" && item.status !== "completed" && !!dueDate && dueDate < easternDateToday();
 }
 
 function defaultDueDate() {
@@ -86,14 +87,13 @@ function defaultDueDate() {
 }
 
 function defaultStatus(type: z.infer<typeof workItemTypeSchema>) {
-  if (type === "todo") return "open";
-  if (type === "issue") return "open";
+  if (type === "todo") return "not_started";
+  if (type === "issue") return "not_started";
   return "on_track";
 }
 
 function statusIsValidForType(type: string, status: string) {
-  if (type === "todo") return ["open", "done", "dropped"].includes(status);
-  if (type === "issue") return ["open", "discussing", "solved", "dropped"].includes(status);
+  if (type === "todo" || type === "issue") return ["not_started", "in_progress", "blocked", "completed"].includes(status);
   return ["on_track", "at_risk", "off_track", "done", "dropped"].includes(status);
 }
 
@@ -297,7 +297,7 @@ export const pulseWorkItemsRouter = router({
       if (!statusIsValidForType(input.type, input.status)) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "Choose a status that applies to this item type." });
       if (input.type === "issue" && !input.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["issueTimeframe"], message: "Choose whether this issue is short-term or long-term." });
       if (input.type === "todo" && input.issueTimeframe) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["issueTimeframe"], message: "Only issues use a timeframe." });
-      if (input.type === "issue" && input.status === "solved" && !input.statusNote?.trim()) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["statusNote"], message: "Add a short resolution note before marking an Issue solved." });
+      if (input.status === "completed" && !input.statusNote?.trim()) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["statusNote"], message: "Describe what completed looks like before marking this item completed." });
       if (input.parentWorkItemId && input.type !== "todo") refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["parentWorkItemId"], message: "Only a To-Do can be created as a sub-To-Do." });
     }))
     .mutation(async ({ ctx, input }) => {
@@ -319,17 +319,21 @@ export const pulseWorkItemsRouter = router({
         if (parent.type === "rock" || parent.parentWorkItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "A sub-To-Do must be directly under a To-Do or Issue, not another sub-To-Do." });
         if (parent.meetingId !== destinationValues.meetingId || parent.ownerPersonId !== destinationValues.ownerPersonId) throw new TRPCError({ code: "BAD_REQUEST", message: "A sub-To-Do must remain in the same meeting or Personal work destination as its parent." });
       }
-      const complete = input.type === "todo" ? input.status === "done" : input.status === "solved";
+      const complete = input.status === "completed";
       if (!input.workItemId) {
+        if (input.status !== "not_started" && !input.statusNote?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: "Describe this initial status before saving the item." });
         const id = uuid();
         await db.transaction(async (tx: any) => {
           await tx.insert(pulseWorkItems).values({
             id, type: input.type, title: input.title, description: details, ...destinationValues, parentWorkItemId, sourceSessionId, assigneeId: input.assigneeId, createdById: ctx.user.id,
             status: input.status, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null,
-            solvedNote: input.type === "issue" && input.status === "solved" ? input.statusNote!.trim() : null, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null,
+            solvedNote: complete ? input.statusNote!.trim() : null, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null,
             percentComplete: 0, percentSource: "manual",
           });
-          if (input.attachments.length) await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
+          if (input.attachments.length) {
+            await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
+            for (const attachment of input.attachments) await writeActivity(tx, ctx.user.id, "work_item", id, "attachment_added", "attachment", null, { fileName: attachment.fileName });
+          }
           await writeActivity(tx, ctx.user.id, "work_item", id, "created", undefined, undefined, { type: input.type, destinationId: input.destinationId, parentWorkItemId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, issueTimeframe: input.issueTimeframe ?? null });
           if (complete) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: id, fromStatus: null, toStatus: input.status, note: input.statusNote ?? null, personId: ctx.user.id });
         });
@@ -338,17 +342,39 @@ export const pulseWorkItemsRouter = router({
       const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== input.type) throw new TRPCError({ code: "BAD_REQUEST", message: "An existing work item cannot change between To-Do and Issue." });
       const destinationChanged = item.meetingId !== destinationValues.meetingId || item.ownerPersonId !== destinationValues.ownerPersonId;
+      const statusChanged = item.status !== input.status;
+      if (statusChanged && !input.statusNote?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: input.status === "completed" ? "Describe what completed looks like before marking this item completed." : "Describe this status update before saving it." });
       if (item.parentWorkItemId && destinationChanged) throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent To-Do first; its sub-To-Dos must stay in the same destination." });
       if (parentWorkItemId && parentWorkItemId !== item.parentWorkItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "A saved item’s parent cannot be changed. Create a new sub-To-Do under the intended parent instead." });
       await db.transaction(async (tx: any) => {
-        const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: input.type === "issue" && input.status === "solved" ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
+        const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: statusChanged && complete ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
         await tx.update(pulseWorkItems).set(values).where(eq(pulseWorkItems.id, item.id));
         if (destinationChanged) await tx.insert(pulseWorkItemMoves).values({ id: uuid(), workItemId: item.id, fromMeetingId: item.meetingId, toMeetingId: destinationValues.meetingId, movedById: ctx.user.id, reason: "Destination changed in the shared Pulse editor." });
-        if (item.status !== input.status) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote ?? null, personId: ctx.user.id });
-        if (input.attachments.length) await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: item.id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
-        await writeActivity(tx, ctx.user.id, "work_item", item.id, destinationChanged ? "moved_and_updated" : "updated", undefined, undefined, { destinationId: input.destinationId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, status: input.status, issueTimeframe: input.issueTimeframe ?? null });
+        if (statusChanged) await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote!.trim(), personId: ctx.user.id });
+        if (input.attachments.length) {
+          await tx.insert(pulseWorkItemAttachments).values(input.attachments.map((attachment) => ({ id: uuid(), workItemId: item.id, fileName: attachment.fileName, fileKey: attachment.fileKey, url: attachment.url, mimeType: attachment.mimeType ?? null, fileSize: attachment.fileSize ?? null, uploadedById: ctx.user.id })));
+          for (const attachment of input.attachments) await writeActivity(tx, ctx.user.id, "work_item", item.id, "attachment_added", "attachment", null, { fileName: attachment.fileName });
+        }
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, destinationChanged ? "moved_and_updated" : statusChanged ? "status_changed" : "updated", statusChanged ? "status" : undefined, statusChanged ? item.status : undefined, { destinationId: input.destinationId, assigneeId: input.assigneeId, priorityLevel: input.priorityLevel, status: input.status, statusNote: statusChanged ? input.statusNote!.trim() : null, issueTimeframe: input.issueTimeframe ?? null });
       });
       return { id: item.id, created: false };
+    }),
+
+  setWorkflowStatus: pulseMemberProcedure
+    .input(z.object({ workItemId: z.string().uuid(), status: workflowStatusSchema, statusNote: z.string().trim().min(1).max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Only To-Dos and Issues use this workflow status." });
+      if (item.status === input.status) return { success: true, unchanged: true };
+      const completed = input.status === "completed";
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItems).set({ status: input.status, solvedNote: completed ? input.statusNote : item.solvedNote, completedAt: completed ? new Date() : null, completedById: completed ? ctx.user.id : null }).where(eq(pulseWorkItems.id, item.id));
+        await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote, personId: ctx.user.id });
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, { status: input.status, statusNote: input.statusNote });
+      });
+      return { success: true, unchanged: false };
     }),
 
   removeAttachment: pulseMemberProcedure
@@ -390,7 +416,9 @@ export const pulseWorkItemsRouter = router({
         }).from(pulseWorkItemStatusNotes).leftJoin(users, eq(users.id, pulseWorkItemStatusNotes.personId))
           .where(and(eq(pulseWorkItemStatusNotes.workItemId, item.id), isNull(pulseWorkItemStatusNotes.deletedAt)))
           .orderBy(desc(pulseWorkItemStatusNotes.createdAt)),
-        db.select().from(pulseWorkItemMoves).where(and(eq(pulseWorkItemMoves.workItemId, item.id), isNull(pulseWorkItemMoves.deletedAt))).orderBy(desc(pulseWorkItemMoves.movedAt)),
+        db.select({ id: pulseWorkItemMoves.id, workItemId: pulseWorkItemMoves.workItemId, fromMeetingId: pulseWorkItemMoves.fromMeetingId, toMeetingId: pulseWorkItemMoves.toMeetingId, movedById: pulseWorkItemMoves.movedById, movedByName: users.name, movedAt: pulseWorkItemMoves.movedAt, reason: pulseWorkItemMoves.reason })
+          .from(pulseWorkItemMoves).leftJoin(users, eq(users.id, pulseWorkItemMoves.movedById))
+          .where(and(eq(pulseWorkItemMoves.workItemId, item.id), isNull(pulseWorkItemMoves.deletedAt))).orderBy(desc(pulseWorkItemMoves.movedAt)),
         db.select({
           id: pulseWorkItemComments.id,
           body: pulseWorkItemComments.body,
@@ -599,8 +627,8 @@ export const pulseWorkItemsRouter = router({
       await db.transaction(async (tx: any) => {
         await tx.update(pulseWorkItems).set({
           status: input.status,
-          completedAt: input.status === "done" ? new Date() : null,
-          completedById: input.status === "done" ? ctx.user.id : null,
+          completedAt: input.status === "completed" ? new Date() : null,
+          completedById: input.status === "completed" ? ctx.user.id : null,
         }).where(eq(pulseWorkItems.id, item.id));
         await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: null, personId: ctx.user.id });
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, input.status);
@@ -620,8 +648,8 @@ export const pulseWorkItemsRouter = router({
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "This item is not an issue." });
-      if (input.status === "solved" && !input.solvedNote?.trim()) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "What did we decide? Add one sentence before solving this issue." });
+      if (input.status === "completed" && !input.solvedNote?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "What does completed look like? Add one sentence before completing this issue." });
       }
       if (input.createTodo && !meeting) throw new TRPCError({ code: "BAD_REQUEST", message: "A personal issue cannot create a meeting to-do." });
       if (input.createTodo && meeting) await requireMeetingMember(db, input.createTodo.assigneeId ?? item.assigneeId, meeting);
@@ -629,11 +657,11 @@ export const pulseWorkItemsRouter = router({
       await db.transaction(async (tx: any) => {
         await tx.update(pulseWorkItems).set({
           status: input.status,
-          solvedNote: input.status === "solved" ? input.solvedNote!.trim() : item.solvedNote,
-          completedAt: input.status === "solved" ? new Date() : null,
-          completedById: input.status === "solved" ? ctx.user.id : null,
+          solvedNote: input.status === "completed" ? input.solvedNote!.trim() : item.solvedNote,
+          completedAt: input.status === "completed" ? new Date() : null,
+          completedById: input.status === "completed" ? ctx.user.id : null,
         }).where(eq(pulseWorkItems.id, item.id));
-        await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.status === "solved" ? input.solvedNote!.trim() : null, personId: ctx.user.id });
+        await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.status === "completed" ? input.solvedNote!.trim() : null, personId: ctx.user.id });
         if (input.createTodo && meeting) {
           todoId = uuid();
           await tx.insert(pulseWorkItems).values({
@@ -644,7 +672,7 @@ export const pulseWorkItemsRouter = router({
             ownerPersonId: null,
             assigneeId: input.createTodo.assigneeId ?? item.assigneeId,
             createdById: ctx.user.id,
-            status: "open",
+            status: "not_started",
             dueDate: input.createTodo.dueDate ?? defaultDueDate(),
             percentComplete: 0,
             percentSource: "manual",
@@ -690,7 +718,7 @@ export const pulseWorkItemsRouter = router({
         if (inAppRockDoneRecipientIds.length) await tx.insert(pulseWorkItemNotifications).values(inAppRockDoneRecipientIds.map((recipientId) => ({ id: uuid(), recipientId, workItemId: item.id, commentId: null, notificationType: "rock_done" as const })));
         if (issueMeeting && input.issue) {
           issueId = uuid();
-          await tx.insert(pulseWorkItems).values({ id: issueId, type: "issue", title: input.issue.title ?? `Off-track Rock: ${item.title}`, description: note ?? item.definitionOfDone ?? null, meetingId: issueMeeting.id, ownerPersonId: null, assigneeId: ctx.user.id, createdById: ctx.user.id, status: "open", dueDate: null, percentComplete: 0, percentSource: "manual" });
+          await tx.insert(pulseWorkItems).values({ id: issueId, type: "issue", title: input.issue.title ?? `Off-track Rock: ${item.title}`, description: note ?? item.definitionOfDone ?? null, meetingId: issueMeeting.id, ownerPersonId: null, assigneeId: ctx.user.id, createdById: ctx.user.id, status: "not_started", dueDate: null, percentComplete: 0, percentSource: "manual" });
           await writeActivity(tx, ctx.user.id, "work_item", issueId, "created_from_off_track_rock", undefined, undefined, { rockId: item.id, meetingId: issueMeeting.id });
         }
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, input.status);

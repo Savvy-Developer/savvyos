@@ -40,7 +40,7 @@ const dashboardSections = ["overview", "segue", "headlines", "scorecard", "rocks
 const runnerSteps = ["segue", "scorecard", "rocks", "headlines", "todos", "issues", "conclude"] as const;
 const workType = z.enum(["todo", "issue", "rock"]);
 const rockStatus = z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]);
-const todoStatus = z.enum(["open", "done", "dropped"]);
+const todoStatus = z.enum(["not_started", "in_progress", "blocked", "completed"]);
 
 const L10_DEFAULT_SECTIONS: Record<(typeof dashboardSections)[number], boolean> = {
   overview: true,
@@ -297,7 +297,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
   const attention = [
     ...scorecard.filter((metric: any) => metric.onTarget === false).map((metric: any) => ({ kind: "metric", id: String(metric.metricId), title: metric.name, detail: "Off target" })),
     ...rocks.filter((rock) => ["at_risk", "off_track"].includes(rock.status)).map((rock) => ({ kind: "rock", id: rock.id, title: rock.title, detail: rock.status.replace("_", " ") })),
-    ...todos.filter((todo: any) => todo.status === "open" && todo.dueDate && new Date(todo.dueDate) < new Date()).map((todo: any) => ({ kind: "todo", id: todo.id, title: todo.title, detail: "Past due" })),
+    ...todos.filter((todo: any) => todo.status !== "completed" && todo.dueDate && new Date(todo.dueDate) < new Date()).map((todo: any) => ({ kind: "todo", id: todo.id, title: todo.title, detail: "Past due" })),
   ].slice(0, 8);
   const facilitator = members.find((member: any) => member.id === meeting.facilitatorId) ?? null;
   return {
@@ -439,7 +439,7 @@ export const pulseL10Router = router({
         ownerPersonId: null,
         assigneeId,
         createdById: ctx.user.id,
-        status: input.type === "todo" ? "open" : input.type === "issue" ? "open" : "on_track",
+        status: input.type === "todo" ? "not_started" : input.type === "issue" ? "not_started" : "on_track",
         dueDate: input.type === "todo" ? input.dueDate ?? defaultDueDate() : null,
         quarter: input.type === "rock" ? input.quarter ?? currentQuarter() : null,
         definitionOfDone: input.type === "rock" ? input.definitionOfDone ?? null : null,
@@ -451,15 +451,15 @@ export const pulseL10Router = router({
     return { id: workItemId };
   }),
 
-  setTodoStatus: pulseMemberProcedure.input(z.object({ meetingId, workItemId: z.string().uuid(), status: todoStatus })).mutation(async ({ ctx, input }) => {
+  setTodoStatus: pulseMemberProcedure.input(z.object({ meetingId, workItemId: z.string().uuid(), status: todoStatus, statusNote: z.string().trim().min(1).max(2000) })).mutation(async ({ ctx, input }) => {
     const db = await database();
     await require_visible_meeting(db, ctx.user.id, input.meetingId);
     const [item] = await db.select().from(pulseWorkItems).where(and(eq(pulseWorkItems.id, input.workItemId), eq(pulseWorkItems.meetingId, input.meetingId), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))).limit(1);
     if (!item) throw notFound("This To-Do is not available.");
     await db.transaction(async (tx: any) => {
-      await tx.update(pulseWorkItems).set({ status: input.status, completedAt: input.status === "done" ? new Date() : null, completedById: input.status === "done" ? ctx.user.id : null }).where(eq(pulseWorkItems.id, item.id));
-      await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: null, personId: ctx.user.id });
-      await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", item.status, input.status);
+      await tx.update(pulseWorkItems).set({ status: input.status, completedAt: input.status === "completed" ? new Date() : null, completedById: input.status === "completed" ? ctx.user.id : null, solvedNote: input.status === "completed" ? input.statusNote : item.solvedNote }).where(eq(pulseWorkItems.id, item.id));
+      await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: item.id, fromStatus: item.status, toStatus: input.status, note: input.statusNote, personId: ctx.user.id });
+      await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", item.status, { status: input.status, statusNote: input.statusNote, meetingId: input.meetingId });
     });
     return { success: true };
   }),
@@ -484,9 +484,9 @@ export const pulseL10Router = router({
     if (input.commitment) await assertMember(db, input.meetingId, input.commitment.assigneeId);
     const commitmentId = input.commitment ? id() : null;
     await db.transaction(async (tx: any) => {
-      await tx.update(pulseWorkItems).set({ status: "solved", solvedNote: input.solvedNote, completedAt: new Date(), completedById: ctx.user.id, resolvedInSessionId: input.sessionId ?? null }).where(eq(pulseWorkItems.id, issue.id));
-      await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: issue.id, fromStatus: issue.status, toStatus: "solved", note: input.solvedNote, personId: ctx.user.id });
-      if (input.commitment && commitmentId) await tx.insert(pulseWorkItems).values({ id: commitmentId, type: "todo", title: input.commitment.title, meetingId: input.meetingId, sourceSessionId: input.sessionId ?? null, ownerPersonId: null, assigneeId: input.commitment.assigneeId, createdById: ctx.user.id, status: "open", dueDate: input.commitment.dueDate ?? defaultDueDate(), percentComplete: 0, percentSource: "manual" });
+      await tx.update(pulseWorkItems).set({ status: "completed", solvedNote: input.solvedNote, completedAt: new Date(), completedById: ctx.user.id, resolvedInSessionId: input.sessionId ?? null }).where(eq(pulseWorkItems.id, issue.id));
+      await tx.insert(pulseWorkItemStatusNotes).values({ id: id(), workItemId: issue.id, fromStatus: issue.status, toStatus: "completed", note: input.solvedNote, personId: ctx.user.id });
+      if (input.commitment && commitmentId) await tx.insert(pulseWorkItems).values({ id: commitmentId, type: "todo", title: input.commitment.title, meetingId: input.meetingId, sourceSessionId: input.sessionId ?? null, ownerPersonId: null, assigneeId: input.commitment.assigneeId, createdById: ctx.user.id, status: "not_started", dueDate: input.commitment.dueDate ?? defaultDueDate(), percentComplete: 0, percentSource: "manual" });
       await writeActivity(tx, ctx.user.id, "work_item", issue.id, "issue_solved", issue.status, { sessionId: input.sessionId ?? null, commitmentId });
     });
     return { success: true, commitmentId };

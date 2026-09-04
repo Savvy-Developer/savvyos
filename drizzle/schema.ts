@@ -6980,8 +6980,8 @@ export const pulseWorkItems = mysqlTable(
     check(
       "pulse_work_items_status_matches_type",
       sql`(
-    (${table.type} = 'todo' and ${table.status} in ('open', 'done', 'dropped')) or
-    (${table.type} = 'issue' and ${table.status} in ('open', 'discussing', 'solved', 'dropped')) or
+    (${table.type} = 'todo' and ${table.status} in ('not_started', 'in_progress', 'blocked', 'completed')) or
+    (${table.type} = 'issue' and ${table.status} in ('not_started', 'in_progress', 'blocked', 'completed')) or
     (${table.type} = 'rock' and ${table.status} in ('on_track', 'at_risk', 'off_track', 'done', 'dropped'))
   )`
     ),

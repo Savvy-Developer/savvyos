@@ -87,15 +87,10 @@ export default function PulseMissionControlPage() {
             <CardContent className="divide-y divide-border p-0">
               {responses.map((response: any) => {
                 const detailHref = response.meetingId ? `/pulse/meetings/${response.meetingId}` : "/pulse/work";
-                const pending = clear.isPending || clearLegacy.isPending || completeTodo.isPending;
+                const pending = clear.isPending || clearLegacy.isPending;
                 const clearItem = () => response.kind === "work_item_notification"
                   ? clearLegacy.mutate({ notificationId: response.id })
                   : clear.mutate({ notificationId: response.id });
-                const complete = async () => {
-                  if (!response.workItemId) return;
-                  await completeTodo.mutateAsync({ workItemId: response.workItemId, status: "done" });
-                  clearItem();
-                };
                 return (
                   <article key={`${response.kind}-${response.id}`} className="p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -106,7 +101,7 @@ export default function PulseMissionControlPage() {
                     {response.dueDate && <p className="mt-2 text-sm text-muted-foreground">Due {dateLabel(response.dueDate)}</p>}
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Button asChild variant="outline" className="min-h-11"><Link href={detailHref}><MessageSquare className="mr-2 h-4 w-4" aria-hidden="true" />Reply</Link></Button>
-                      {response.canComplete ? <Button type="button" className="min-h-11" disabled={pending} onClick={complete}><SquareCheckBig className="mr-2 h-4 w-4" aria-hidden="true" />Done</Button> : <Button type="button" variant="outline" className="min-h-11" disabled={pending} onClick={clearItem}><Check className="mr-2 h-4 w-4" aria-hidden="true" />Clear</Button>}
+                      {response.canComplete ? <Button asChild type="button" className="min-h-11"><Link href={detailHref}><SquareCheckBig className="mr-2 h-4 w-4" aria-hidden="true" />Update status</Link></Button> : <Button type="button" variant="outline" className="min-h-11" disabled={pending} onClick={clearItem}><Check className="mr-2 h-4 w-4" aria-hidden="true" />Clear</Button>}
                     </div>
                   </article>
                 );

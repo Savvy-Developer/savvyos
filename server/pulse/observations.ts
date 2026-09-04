@@ -124,7 +124,7 @@ export const pulseObservationsRouter = router({
     const itemId = id(); const description = `Generated observation (${row.observation.generatedAt.toISOString().slice(0, 10)}):\n${row.observation.observation}`;
     const recipients = await proposalRecipients(db, input.meetingId);
     await db.transaction(async (tx: any) => {
-      await tx.insert(pulseWorkItems).values({ id: itemId, type: "issue", title: `Review: ${row.metric.name}`, description, meetingId: input.meetingId, ownerPersonId: null, assigneeId: null, createdById: ctx.user.id, status: "open", percentComplete: 0, percentSource: "manual", origin: "ai_proposed", isProposed: true, savvyosMetricId: row.metric.id });
+      await tx.insert(pulseWorkItems).values({ id: itemId, type: "issue", title: `Review: ${row.metric.name}`, description, meetingId: input.meetingId, ownerPersonId: null, assigneeId: null, createdById: ctx.user.id, status: "not_started", percentComplete: 0, percentSource: "manual", origin: "ai_proposed", isProposed: true, savvyosMetricId: row.metric.id });
       await tx.update(aiObservations).set({ raisedAsIssueId: itemId }).where(eq(aiObservations.id, row.observation.id));
       if (recipients.length) await tx.insert(pulseNotifications).values(recipients.map((personId: number) => ({ id: id(), personId, notificationType: "proposed_issue" as const, requiresAction: true, sourceType: "work_item", sourceId: itemId, meetingId: input.meetingId, body: `Proposed issue: Review ${row.metric.name}.` })));
     });
@@ -138,6 +138,6 @@ export const pulseObservationsRouter = router({
   dismissProposal: pulseMemberProcedure.input(z.object({ workItemId: z.string().uuid(), reason: z.string().trim().max(500).optional() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); const [item] = await db.select().from(pulseWorkItems).where(and(eq(pulseWorkItems.id, input.workItemId), isNull(pulseWorkItems.deletedAt))).limit(1);
     if (!item?.meetingId || item.type !== "issue" || !item.isProposed) throw new TRPCError({ code: "NOT_FOUND", message: "That proposed issue is no longer available." }); await require_visible_meeting(db, ctx.user.id, item.meetingId);
-    await db.transaction(async (tx: any) => { await tx.update(pulseWorkItems).set({ status: "dropped", deletedAt: new Date() }).where(eq(pulseWorkItems.id, item.id)); await tx.update(aiObservations).set({ dismissedById: ctx.user.id, dismissedAt: new Date(), dismissReason: input.reason?.trim() || null }).where(eq(aiObservations.raisedAsIssueId, item.id)); await tx.update(pulseNotifications).set({ clearedAt: new Date() }).where(and(eq(pulseNotifications.sourceType, "work_item"), eq(pulseNotifications.sourceId, item.id))); }); return { success: true };
+    await db.transaction(async (tx: any) => { await tx.update(pulseWorkItems).set({ status: "blocked", deletedAt: new Date() }).where(eq(pulseWorkItems.id, item.id)); await tx.update(aiObservations).set({ dismissedById: ctx.user.id, dismissedAt: new Date(), dismissReason: input.reason?.trim() || null }).where(eq(aiObservations.raisedAsIssueId, item.id)); await tx.update(pulseNotifications).set({ clearedAt: new Date() }).where(and(eq(pulseNotifications.sourceType, "work_item"), eq(pulseNotifications.sourceId, item.id))); }); return { success: true };
   }),
 });

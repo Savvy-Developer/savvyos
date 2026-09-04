@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   pulseMeetingMembers,
   pulseMeetings,
@@ -61,7 +62,7 @@ export async function recordPulseMeetingCarryOver(meetingId: string, concludedBy
     .where(and(
       eq(pulseWorkItems.meetingId, meetingId),
       eq(pulseWorkItems.type, "todo"),
-      eq(pulseWorkItems.status, "open"),
+      sql`${pulseWorkItems.status} <> 'completed'`,
       isNull(pulseWorkItems.deletedAt),
     ));
   for (const todo of openTodos) {
@@ -102,7 +103,7 @@ export async function sendPulseOverdueDigest(reportDate = easternDate()) {
       .leftJoin(pulseMeetings, eq(pulseMeetings.id, pulseWorkItems.meetingId))
       .where(and(
         eq(pulseWorkItems.type, "todo"),
-        eq(pulseWorkItems.status, "open"),
+        sql`${pulseWorkItems.status} <> 'completed'`,
         isNull(pulseWorkItems.deletedAt),
         lt(pulseWorkItems.dueDate, new Date(`${reportDate}T00:00:00.000Z`)),
       ));
