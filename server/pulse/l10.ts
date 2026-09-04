@@ -124,6 +124,13 @@ async function requireL10Capability(db: any, user: { id: number }, targetMeeting
   return meeting;
 }
 
+async function requireL10Runner(db: any, user: { id: number }, targetMeetingId: string) {
+  const meeting = await activeMembership(db, user.id, targetMeetingId);
+  const hasMatrixRunAuthority = await hasPulseCapability(db, user, "run_l10s");
+  if (!hasMatrixRunAuthority && meeting.administratorId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Only this L10’s Administrator or a Pulse user with meeting-run authority can run it." });
+  return meeting;
+}
+
 async function listMembers(db: any, targetMeetingId: string) {
   return db.select({ id: users.id, name: users.name, email: users.email })
     .from(pulseMeetingMembers)
@@ -289,17 +296,19 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     getActiveSession(db, targetMeetingId),
   ]);
   const sectionsEnabled = normaliseSections(meeting.sectionsEnabled);
-  const [canConfigure, canRun, canViewAllHealth] = await Promise.all([
+  const [canConfigure, hasMatrixRunAuthority, canViewAllHealth] = await Promise.all([
     hasPulseCapability(db, user, "manage_l10s"),
     hasPulseCapability(db, user, "run_l10s"),
     hasPulseCapability(db, user, "view_all_l10_health"),
   ]);
+  const canRun = hasMatrixRunAuthority || meeting.administratorId === user.id;
   const attention = [
     ...scorecard.filter((metric: any) => metric.onTarget === false).map((metric: any) => ({ kind: "metric", id: String(metric.metricId), title: metric.name, detail: "Off target" })),
     ...rocks.filter((rock) => ["at_risk", "off_track"].includes(rock.status)).map((rock) => ({ kind: "rock", id: rock.id, title: rock.title, detail: rock.status.replace("_", " ") })),
     ...todos.filter((todo: any) => todo.status !== "completed" && todo.dueDate && new Date(todo.dueDate) < new Date()).map((todo: any) => ({ kind: "todo", id: todo.id, title: todo.title, detail: "Past due" })),
   ].slice(0, 8);
   const facilitator = members.find((member: any) => member.id === meeting.facilitatorId) ?? null;
+  const administrator = members.find((member: any) => member.id === meeting.administratorId) ?? null;
   return {
     meeting: {
       id: meeting.id,
@@ -315,6 +324,7 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
       sectionsEnabled,
       isActive: meeting.isActive,
       facilitator,
+      administrator,
     },
     members,
     activeSession,
@@ -374,14 +384,14 @@ export const pulseL10Router = router({
 
   runner: pulseMemberProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
     const db = await database();
-    await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
+    await requireL10Runner(db, ctx.user, input.meetingId);
     const dashboard = await dashboardPayload(db, ctx.user, input.meetingId);
     return { ...dashboard, runner: { steps: runnerSteps.filter((step) => step === "conclude" || dashboard.meeting.sectionsEnabled[step]), durations: normaliseDurations((await require_visible_meeting(db, ctx.user.id, input.meetingId)).sectionDurations) } };
   }),
 
   startSession: pulseMemberProcedure.input(z.object({ meetingId, scheduledFor: z.coerce.date().optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    const meeting = await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
+    const meeting = await requireL10Runner(db, ctx.user, input.meetingId);
     if (meeting.label !== "level_10") throw new TRPCError({ code: "BAD_REQUEST", message: "Only Level 10 meetings use this runner." });
     const current = await getActiveSession(db, input.meetingId);
     if (current) return { session: current, resumed: true };
@@ -393,7 +403,7 @@ export const pulseL10Router = router({
 
   updateSession: pulseMemberProcedure.input(z.object({ meetingId, sessionId, status: z.enum(["running", "paused"]).optional(), activeStep: z.enum(runnerSteps).optional(), elapsedSeconds: z.number().int().min(0).max(86_400).optional(), attendeeIds: z.array(z.number().int().positive()).max(100).optional(), notes: z.string().max(16_000).nullable().optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    const meeting = await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
+    const meeting = await requireL10Runner(db, ctx.user, input.meetingId);
     const session = await requireSession(db, input.meetingId, input.sessionId, true);
     if (input.activeStep && input.activeStep !== "conclude" && !normaliseSections(meeting.sectionsEnabled)[input.activeStep]) throw new TRPCError({ code: "BAD_REQUEST", message: "That disabled section is not part of this L10." });
     if (input.attendeeIds) for (const personId of input.attendeeIds) await assertMember(db, input.meetingId, personId);
@@ -511,7 +521,7 @@ export const pulseL10Router = router({
 
   closeSession: pulseMemberProcedure.input(z.object({ meetingId, sessionId, elapsedSeconds: z.number().int().min(0).max(86_400), attendeeIds: z.array(z.number().int().positive()).max(100), notes: z.string().max(16_000).nullable().optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    const meeting = await requireL10Capability(db, ctx.user, input.meetingId, "run_l10s");
+    const meeting = await requireL10Runner(db, ctx.user, input.meetingId);
     const session = await requireSession(db, input.meetingId, input.sessionId, true);
     for (const personId of input.attendeeIds) await assertMember(db, input.meetingId, personId);
     const [scorecard, rocks, commitments, resolvedIssues, ratings] = await Promise.all([
@@ -558,26 +568,28 @@ export const pulseL10Router = router({
     return { meeting: { ...meeting, sectionsEnabled: normaliseSections(meeting.sectionsEnabled), sectionDurations: normaliseDurations(meeting.sectionDurations) }, members, metricMappings, rocks, reports, people, metricCandidates, rockCandidates, sections: dashboardSections };
   }),
 
-  createMeeting: pulseMemberProcedure.input(z.object({ name: z.string().trim().min(1).max(255), purpose: z.string().trim().max(500).nullable().optional(), dayOfWeek: day.nullable().optional(), startTime: time.nullable().optional(), durationMinutes: z.number().int().min(15).max(240).default(90), timezone: z.string().trim().min(1).max(64).default("America/New_York"), facilitatorId: z.number().int().positive().nullable().optional(), participantIds: z.array(z.number().int().positive()).min(1).max(100), scorecardHistoryWeeks: z.number().int().min(1).max(16).default(8), scorecardDeadlineDay: day.nullable().optional(), scorecardDeadlineTime: time.nullable().optional(), sectionsEnabled: z.record(z.enum(dashboardSections), z.boolean()).optional() })).mutation(async ({ ctx, input }) => {
+  createMeeting: pulseMemberProcedure.input(z.object({ name: z.string().trim().min(1).max(255), purpose: z.string().trim().max(500).nullable().optional(), dayOfWeek: day.nullable().optional(), startTime: time.nullable().optional(), durationMinutes: z.number().int().min(15).max(240).default(90), timezone: z.string().trim().min(1).max(64).default("America/New_York"), facilitatorId: z.number().int().positive(), administratorId: z.number().int().positive(), participantIds: z.array(z.number().int().positive()).min(1).max(100), scorecardHistoryWeeks: z.number().int().min(1).max(16).default(8), scorecardDeadlineDay: day.nullable().optional(), scorecardDeadlineTime: time.nullable().optional(), sectionsEnabled: z.record(z.enum(dashboardSections), z.boolean()).optional() })).mutation(async ({ ctx, input }) => {
     const db = await database();
     await requirePulseCapability(db, ctx.user, "manage_l10s");
     const participants = Array.from(new Set([ctx.user.id, ...input.participantIds]));
-    if (input.facilitatorId && !participants.includes(input.facilitatorId)) throw new TRPCError({ code: "BAD_REQUEST", message: "The facilitator must be a participant in this L10." });
+    if (!participants.includes(input.facilitatorId)) throw new TRPCError({ code: "BAD_REQUEST", message: "The Facilitator must be a participant in this L10." });
+    if (!participants.includes(input.administratorId)) throw new TRPCError({ code: "BAD_REQUEST", message: "The Administrator must be a participant in this L10." });
     const people = await db.select({ id: users.id }).from(users).where(and(inArray(users.id, participants), eq(users.isActive, true)));
     if (people.length !== participants.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose active SavvyOS people as L10 participants." });
     const newMeetingId = id();
     await db.transaction(async (tx: any) => {
-      await tx.insert(pulseMeetings).values({ id: newMeetingId, name: input.name, purpose: input.purpose ?? null, label: "level_10", ownerId: ctx.user.id, administratorId: ctx.user.id, facilitatorId: input.facilitatorId ?? ctx.user.id, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: "weekly", scorecardHistoryWeeks: input.scorecardHistoryWeeks, scorecardDeadlineDay: input.scorecardDeadlineDay ?? null, scorecardDeadlineTime: input.scorecardDeadlineTime ?? null, sectionsEnabled: { ...L10_DEFAULT_SECTIONS, ...(input.sectionsEnabled ?? {}) }, sectionOrder: [...dashboardSections], sectionDurations: normaliseDurations({}) });
+      await tx.insert(pulseMeetings).values({ id: newMeetingId, name: input.name, purpose: input.purpose ?? null, label: "level_10", ownerId: ctx.user.id, administratorId: input.administratorId, facilitatorId: input.facilitatorId, dayOfWeek: input.dayOfWeek ?? null, startTime: input.startTime ?? null, durationMinutes: input.durationMinutes, timezone: input.timezone, cadence: "weekly", scorecardHistoryWeeks: input.scorecardHistoryWeeks, scorecardDeadlineDay: input.scorecardDeadlineDay ?? null, scorecardDeadlineTime: input.scorecardDeadlineTime ?? null, sectionsEnabled: { ...L10_DEFAULT_SECTIONS, ...(input.sectionsEnabled ?? {}) }, sectionOrder: [...dashboardSections], sectionDurations: normaliseDurations({}) });
       await tx.insert(pulseMeetingMembers).values(participants.map((personId) => ({ id: id(), meetingId: newMeetingId, personId, meetingRole: personId === ctx.user.id ? "owner" as const : "member" as const, addedById: ctx.user.id })));
-      await writeActivity(tx, ctx.user.id, "meeting", newMeetingId, "created", null, { participants, facilitatorId: input.facilitatorId ?? ctx.user.id });
+      await writeActivity(tx, ctx.user.id, "meeting", newMeetingId, "created", null, { participants, facilitatorId: input.facilitatorId, administratorId: input.administratorId });
     });
     return { id: newMeetingId };
   }),
 
-  updateMeeting: pulseMemberProcedure.input(z.object({ meetingId, name: z.string().trim().min(1).max(255).optional(), purpose: z.string().trim().max(500).nullable().optional(), dayOfWeek: day.nullable().optional(), startTime: time.nullable().optional(), durationMinutes: z.number().int().min(15).max(240).optional(), timezone: z.string().trim().min(1).max(64).optional(), facilitatorId: z.number().int().positive().nullable().optional(), scorecardHistoryWeeks: z.number().int().min(1).max(16).optional(), scorecardDeadlineDay: day.nullable().optional(), scorecardDeadlineTime: time.nullable().optional(), sectionsEnabled: z.record(z.enum(dashboardSections), z.boolean()).optional() }).refine((value) => Object.keys(value).length > 1, { message: "Choose at least one setting to update." })).mutation(async ({ ctx, input }) => {
+  updateMeeting: pulseMemberProcedure.input(z.object({ meetingId, name: z.string().trim().min(1).max(255).optional(), purpose: z.string().trim().max(500).nullable().optional(), dayOfWeek: day.nullable().optional(), startTime: time.nullable().optional(), durationMinutes: z.number().int().min(15).max(240).optional(), timezone: z.string().trim().min(1).max(64).optional(), facilitatorId: z.number().int().positive().optional(), administratorId: z.number().int().positive().optional(), scorecardHistoryWeeks: z.number().int().min(1).max(16).optional(), scorecardDeadlineDay: day.nullable().optional(), scorecardDeadlineTime: time.nullable().optional(), sectionsEnabled: z.record(z.enum(dashboardSections), z.boolean()).optional() }).refine((value) => Object.keys(value).length > 1, { message: "Choose at least one setting to update." })).mutation(async ({ ctx, input }) => {
     const db = await database();
     await requireL10Capability(db, ctx.user, input.meetingId, "manage_l10s");
     if (input.facilitatorId) await assertMember(db, input.meetingId, input.facilitatorId);
+    if (input.administratorId) await assertMember(db, input.meetingId, input.administratorId);
     const { meetingId: _meetingId, sectionsEnabled, ...changes } = input;
     const values = { ...changes, ...(sectionsEnabled ? { sectionsEnabled: normaliseSections(sectionsEnabled) } : {}) };
     await db.transaction(async (tx: any) => {
