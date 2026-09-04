@@ -569,7 +569,7 @@ export const pulseWorkItemsRouter = router({
         db.select({ id: pulseWorkItemAttachments.id, fileName: pulseWorkItemAttachments.fileName, fileKey: pulseWorkItemAttachments.fileKey, url: pulseWorkItemAttachments.url, mimeType: pulseWorkItemAttachments.mimeType, fileSize: pulseWorkItemAttachments.fileSize, uploadedById: pulseWorkItemAttachments.uploadedById, uploadedByName: users.name, createdAt: pulseWorkItemAttachments.createdAt })
           .from(pulseWorkItemAttachments).leftJoin(users, eq(users.id, pulseWorkItemAttachments.uploadedById))
           .where(and(eq(pulseWorkItemAttachments.workItemId, item.id), isNull(pulseWorkItemAttachments.deletedAt))).orderBy(desc(pulseWorkItemAttachments.createdAt)),
-        db.select({ id: pulseWorkItems.id, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeName: users.name, meetingId: pulseWorkItems.meetingId, parentWorkItemId: pulseWorkItems.parentWorkItemId })
+        db.select({ id: pulseWorkItems.id, type: pulseWorkItems.type, title: pulseWorkItems.title, status: pulseWorkItems.status, dueDate: pulseWorkItems.dueDate, priorityLevel: pulseWorkItems.priorityLevel, assigneeId: pulseWorkItems.assigneeId, assigneeName: users.name, meetingId: pulseWorkItems.meetingId, parentWorkItemId: pulseWorkItems.parentWorkItemId })
           .from(pulseWorkItems).leftJoin(users, eq(users.id, pulseWorkItems.assigneeId))
           .where(and(eq(pulseWorkItems.parentWorkItemId, item.id), eq(pulseWorkItems.type, "todo"), isNull(pulseWorkItems.deletedAt))).orderBy(asc(pulseWorkItems.sortOrder), desc(pulseWorkItems.createdAt)),
       ]);
