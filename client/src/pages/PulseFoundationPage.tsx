@@ -61,7 +61,7 @@ function Term({ term, glossary }: { term: string; glossary: GlossaryEntry[] }) {
 
 function PageHeading({ question, detail }: { question: string; detail: string }) {
   return (
-    <header className="max-w-3xl border-b border-border pb-5">
+    <header className="max-w-3xl border-b border-border pb-4">
       <p className="text-sm font-medium text-primary">Pulse</p>
       <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{question}</h1>
       <p className="mt-2 text-base leading-6 text-muted-foreground">{detail}</p>
@@ -71,8 +71,8 @@ function PageHeading({ question, detail }: { question: string; detail: string })
 
 function EmptyInstruction({ children, actionHref, actionLabel }: { children: React.ReactNode; actionHref: string; actionLabel: string }) {
   return (
-    <Card className="max-w-3xl">
-      <CardContent className="p-6 sm:p-8">
+    <Card className="pulse-card-compact max-w-3xl">
+      <CardContent className="p-5 sm:p-6">
         <p className="max-w-2xl text-base leading-6 text-muted-foreground">{children}</p>
         <Button asChild className="mt-5 min-h-11">
           <Link href={actionHref}>{actionLabel}<ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" /></Link>
@@ -91,7 +91,7 @@ function MeetingsList({ meetings, glossary, query }: { meetings: Meeting[]; glos
   }
 
   return (
-    <div className="max-w-3xl space-y-7">
+    <div className="max-w-3xl space-y-5">
       {labelOrder.map((label) => {
         const grouped = filteredMeetings.filter((meeting) => meeting.label === label);
         if (!grouped.length) return null;
@@ -135,15 +135,14 @@ export default function PulseFoundationPage() {
   }, [location]);
 
   if (isLoading) {
-    return <div className="mx-auto max-w-3xl space-y-5"><Skeleton className="h-8 w-64" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>;
+    return <div className="pulse-page pulse-page-stack max-w-3xl"><Skeleton className="h-8 w-64" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>;
   }
 
   if (meetingId) return <MeetingDetail meetingId={meetingId} />;
 
   if (location === "/pulse/meetings") {
     return (
-      <div className="space-y-6">
-        <PageHeading question="What is happening in your meetings?" detail="You only see meetings you have been added to. Choose one to see its work." />
+      <div className="pulse-page pulse-page-stack"><PageHeading question="What is happening in your meetings?" detail="You only see meetings you have been added to. Choose one to see its work." />
         <div className="relative max-w-3xl">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input aria-label="Search your meetings" className="min-h-11 pl-10 text-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your meetings" />
@@ -159,14 +158,14 @@ export default function PulseFoundationPage() {
 
   if (location === "/pulse/settings") {
     if (!shell?.canSeeSettings) return <EmptyInstruction actionHref="/pulse" actionLabel="Go to Pulse home">Only meeting owners and administrators can change settings. Go home to see what needs you now.</EmptyInstruction>;
-    return <div className="space-y-6"><PageHeading question="What do I need to set up?" detail="Set delivery preferences, review meeting information, and keep Pulse clear for your team." /><Card className="max-w-3xl"><CardContent className="space-y-3 p-4 sm:p-6"><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:w-auto"><Link href="/pulse/settings/notifications">Pulse delivery settings</Link></Button>{shell?.settingsReason === "super_admin" && <><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/outstanding">Outstanding Pulse items</Link></Button><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/attention">Needs Attention</Link></Button></>}</CardContent></Card>{meetings.length === 0 ? <EmptyInstruction actionHref={shell?.canOpenPulseSettings ? "/pulse/settings/create" : "/pulse/meetings"} actionLabel={shell?.canOpenPulseSettings ? "Create a meeting" : "View your meetings"}>{shell?.canOpenPulseSettings ? "No meetings have been created yet. Create the first meeting when the real roster is ready." : "No meeting setup needs your attention right now. Open a meeting to review the information available to you."}</EmptyInstruction> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No meeting setup needs your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
+    return <div className="pulse-page pulse-page-stack"><PageHeading question="What do I need to set up?" detail="Set delivery preferences, review meeting information, and keep Pulse clear for your team." /><Card className="pulse-card-compact max-w-3xl"><CardContent className="space-y-3 p-4 sm:p-6"><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:w-auto"><Link href="/pulse/settings/notifications">Pulse delivery settings</Link></Button>{shell?.settingsReason === "super_admin" && <><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/outstanding">Outstanding Pulse items</Link></Button><Button asChild variant="outline" className="min-h-11 w-full justify-start sm:ml-2 sm:w-auto"><Link href="/pulse/settings/attention">Needs Attention</Link></Button></>}</CardContent></Card>{meetings.length === 0 ? <EmptyInstruction actionHref={shell?.canOpenPulseSettings ? "/pulse/settings/create" : "/pulse/meetings"} actionLabel={shell?.canOpenPulseSettings ? "Create a meeting" : "View your meetings"}>{shell?.canOpenPulseSettings ? "No meetings have been created yet. Create the first meeting when the real roster is ready." : "No meeting setup needs your attention right now. Open a meeting to review the information available to you."}</EmptyInstruction> : <EmptyInstruction actionHref="/pulse/meetings" actionLabel="View your meetings">No meeting setup needs your attention right now. Open a meeting to review the information available to you.</EmptyInstruction>}</div>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="pulse-page pulse-page-stack">
       <div className="flex flex-wrap items-start justify-between gap-3"><PageHeading question="What needs me right now?" detail="Pulse keeps your meetings and meeting work in one clear place. Start with a meeting you belong to." /><Button asChild variant="outline" className="min-h-11"><Link href="/pulse/mission">Mission Control</Link></Button></div>
       {meetings.length ? (
-        <Card className="max-w-3xl">
+        <Card className="pulse-card-compact max-w-3xl">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg"><CalendarDays className="h-5 w-5 text-primary" aria-hidden="true" /> Your meetings</CardTitle>
             <CardDescription className="text-base">Open a meeting to see what is happening there.</CardDescription>
