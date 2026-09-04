@@ -435,6 +435,39 @@ export const pulseWorkItemsRouter = router({
       return { id: item.id, created: false };
     }),
 
+  updateQuickTodoFields: pulseMemberProcedure
+    .input(z.object({
+      workItemId: z.string().uuid(),
+      dueDate: dateSchema.optional(),
+      priorityLevel: priorityLevelSchema.optional(),
+      assigneeId: z.number().int().positive().optional(),
+    }).refine((input) => input.dueDate !== undefined || input.priorityLevel !== undefined || input.assigneeId !== undefined, { message: "Choose a field to update." }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "todo") throw new TRPCError({ code: "BAD_REQUEST", message: "Quick fields are available for Pulse To-Dos." });
+      if (input.assigneeId !== undefined) {
+        if (meeting) await requireMeetingMember(db, input.assigneeId, meeting);
+        else if (input.assigneeId !== item.ownerPersonId) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal work can only be assigned to its owner." });
+      }
+      const values: Record<string, unknown> = {};
+      if (input.dueDate !== undefined) values.dueDate = input.dueDate;
+      if (input.priorityLevel !== undefined) values.priorityLevel = input.priorityLevel;
+      if (input.assigneeId !== undefined) values.assigneeId = input.assigneeId;
+      const changes = [
+        input.dueDate !== undefined && dateValue(item.dueDate) !== input.dueDate ? { field: "due_date", oldValue: dateValue(item.dueDate), newValue: input.dueDate } : null,
+        input.priorityLevel !== undefined && item.priorityLevel !== input.priorityLevel ? { field: "priority", oldValue: item.priorityLevel, newValue: input.priorityLevel } : null,
+        input.assigneeId !== undefined && item.assigneeId !== input.assigneeId ? { field: "assignee", oldValue: item.assigneeId, newValue: input.assigneeId } : null,
+      ].filter(Boolean) as Array<{ field: string; oldValue: unknown; newValue: unknown }>;
+      if (!changes.length) return { success: true, unchanged: true };
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItems).set(values).where(eq(pulseWorkItems.id, item.id));
+        for (const change of changes) await writeActivity(tx, ctx.user.id, "work_item", item.id, change.field === "assignee" ? "assignee_changed" : "quick_field_updated", change.field, change.oldValue, change.newValue);
+      });
+      return { success: true, unchanged: false };
+    }),
+
   setWorkflowStatus: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid(), status: workflowStatusSchema, statusNote: z.string().trim().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
