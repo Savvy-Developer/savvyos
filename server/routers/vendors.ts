@@ -423,6 +423,32 @@ export const vendorsRouter = router({
       return { success: true };
     }),
 
+  /** Active-agent adoption and publishing health for the administrator overview. */
+  adminStats: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+
+    const [stats] = await db.select({
+      activeAgentCount: sql<number>`count(*)`,
+      activeAgentWithListCount: sql<number>`count(${vendorLists.id})`,
+      publishedListCount: sql<number>`coalesce(sum(case when ${vendorLists.isPublished} = 1 then 1 else 0 end), 0)`,
+      draftListCount: sql<number>`coalesce(sum(case when ${vendorLists.id} is not null and ${vendorLists.isPublished} = 0 then 1 else 0 end), 0)`,
+    }).from(users)
+      .leftJoin(vendorLists, eq(vendorLists.agentId, users.id))
+      .where(and(eq(users.role, "agent"), eq(users.isActive, true)));
+
+    const activeAgentCount = Number(stats?.activeAgentCount ?? 0);
+    const activeAgentWithListCount = Number(stats?.activeAgentWithListCount ?? 0);
+    return {
+      activeAgentCount,
+      activeAgentWithListCount,
+      activeAgentWithoutListCount: Math.max(0, activeAgentCount - activeAgentWithListCount),
+      publishedListCount: Number(stats?.publishedListCount ?? 0),
+      draftListCount: Number(stats?.draftListCount ?? 0),
+    };
+  }),
+
   /** Admin overview intentionally contains only agents who have made a list. */
   adminList: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Administrator access is required." });

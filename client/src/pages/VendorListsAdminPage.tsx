@@ -25,6 +25,7 @@ function SummaryCard({ label, value, detail }: { label: string; value: string; d
 export default function VendorListsAdminPage() {
   const [, navigate] = useLocation();
   const listQuery = trpc.vendors.adminList.useQuery();
+  const statsQuery = trpc.vendors.adminStats.useQuery();
   const [search, setSearch] = useState("");
   const [editingAgentId, setEditingAgentId] = useState<number | null>(null);
   const rows = useMemo(() => (listQuery.data ?? []).filter((row: any) => {
@@ -49,12 +50,23 @@ export default function VendorListsAdminPage() {
     collectedRevenueCents: 0,
     agentEarningsCents: 0,
   }), [rows]);
+  const stats = statsQuery.data ?? {
+    activeAgentCount: 0,
+    activeAgentWithListCount: 0,
+    activeAgentWithoutListCount: 0,
+    publishedListCount: 0,
+    draftListCount: 0,
+  };
+  const adoptionRate = stats.activeAgentCount > 0
+    ? Math.round((stats.activeAgentWithListCount / stats.activeAgentCount) * 100)
+    : 0;
 
   if (editingAgentId) {
     return <div className="space-y-5 pb-10"><Button variant="ghost" className="-ml-3" onClick={() => setEditingAgentId(null)}><ArrowLeft className="mr-2 h-4 w-4" /> Back to Vendors</Button><VendorListManagementPage agentId={editingAgentId} /></div>;
   }
-  if (listQuery.isLoading) return <div className="flex min-h-[55vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-cyan-600" /></div>;
-  if (listQuery.error) return <Card className="mx-auto mt-10 max-w-xl"><CardContent className="p-8 text-center"><h1 className="text-lg font-semibold">Vendor Lists unavailable</h1><p className="mt-2 text-sm text-muted-foreground">{listQuery.error.message}</p></CardContent></Card>;
+  if (listQuery.isLoading || statsQuery.isLoading) return <div className="flex min-h-[55vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-cyan-600" /></div>;
+  const loadError = listQuery.error || statsQuery.error;
+  if (loadError) return <Card className="mx-auto mt-10 max-w-xl"><CardContent className="p-8 text-center"><h1 className="text-lg font-semibold">Vendor Lists unavailable</h1><p className="mt-2 text-sm text-muted-foreground">{loadError.message}</p></CardContent></Card>;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 pb-12">
@@ -65,13 +77,27 @@ export default function VendorListsAdminPage() {
 
       <Card className="border-cyan-100 bg-cyan-50/40"><CardContent className="p-4 text-sm leading-6 text-cyan-950"><strong>Featured Vendor billing.</strong> Current monthly values reflect active Stripe subscriptions. Collected and agent-earned values reflect all successful Stripe invoices to date; agent earnings are the 75% share due to the agent.</CardContent></Card>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <SummaryCard label="Invited to pay" value={String(totals.invitedVendorCount)} detail={`${totals.pendingInviteCount} pending checkout`} />
-        <SummaryCard label="Current subscriptions" value={String(totals.activeSubscriptionCount)} detail="Active, successfully paid Stripe subscriptions" />
-        <SummaryCard label="Current MRR" value={currency(totals.activeMonthlyRevenueCents)} detail="Gross monthly recurring vendor payments" />
-        <SummaryCard label="Agent share / mo" value={currency(totals.activeAgentShareCents)} detail="75% due from active subscriptions" />
-        <SummaryCard label="Collected to date" value={currency(totals.collectedRevenueCents)} detail="Successful Featured Vendor payments" />
-        <SummaryCard label="Agent earned to date" value={currency(totals.agentEarningsCents)} detail="75% of successful payments" />
+      <section className="space-y-3">
+        <div><h2 className="text-lg font-semibold tracking-tight text-slate-900">Vendor List adoption</h2><p className="mt-1 text-sm text-muted-foreground">Current progress across active agent accounts. These totals do not change when you search the table below.</p></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <SummaryCard label="Active agents" value={String(stats.activeAgentCount)} detail="Enabled agent accounts" />
+          <SummaryCard label="Lists created" value={String(stats.activeAgentWithListCount)} detail={`${adoptionRate}% of active agents`} />
+          <SummaryCard label="No list yet" value={String(stats.activeAgentWithoutListCount)} detail="Active agents without a Vendor List" />
+          <SummaryCard label="Published lists" value={String(stats.publishedListCount)} detail="Live client resources" />
+          <SummaryCard label="Draft lists" value={String(stats.draftListCount)} detail="Need a final review and publish" />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div><h2 className="text-lg font-semibold tracking-tight text-slate-900">Featured Vendor billing</h2><p className="mt-1 text-sm text-muted-foreground">Billing totals reflect the Vendor Lists currently shown in the table below.</p></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <SummaryCard label="Invited to pay" value={String(totals.invitedVendorCount)} detail={`${totals.pendingInviteCount} pending checkout`} />
+          <SummaryCard label="Current subscriptions" value={String(totals.activeSubscriptionCount)} detail="Active, successfully paid Stripe subscriptions" />
+          <SummaryCard label="Current MRR" value={currency(totals.activeMonthlyRevenueCents)} detail="Gross monthly recurring vendor payments" />
+          <SummaryCard label="Agent share / mo" value={currency(totals.activeAgentShareCents)} detail="75% due from active subscriptions" />
+          <SummaryCard label="Collected to date" value={currency(totals.collectedRevenueCents)} detail="Successful Featured Vendor payments" />
+          <SummaryCard label="Agent earned to date" value={currency(totals.agentEarningsCents)} detail="75% of successful payments" />
+        </div>
       </section>
 
       <div className="relative max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search agent or Vendor List" className="pl-9" /></div>
