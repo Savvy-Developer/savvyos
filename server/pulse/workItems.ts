@@ -39,6 +39,10 @@ const priorityLevelSchema = z.enum(["low", "medium", "high", "urgent"]);
 const issueTimeframeSchema = z.enum(["short_term", "long_term"]);
 const editorStatusSchema = z.enum(["not_started", "in_progress", "blocked", "completed", "on_track", "at_risk", "off_track", "done", "dropped"]);
 
+function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function sanitizeDetails(value?: string | null) {
   if (!value?.trim()) return null;
   const sanitized = sanitizeHtml(value, {
@@ -48,8 +52,12 @@ function sanitizeDetails(value?: string | null) {
     transformTags: {
       a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
     },
-  }).trim();
-  return sanitized || null;
+  }).trim().replace(/<p><strong>Saved links<\/strong><\/p><ul>[\s\S]*?<\/ul>$/i, "").trim();
+  if (!sanitized) return null;
+  const links = Array.from(new Set(Array.from(sanitized.matchAll(/href=[\"']([^\"']+)|\b(https?:\/\/[^\s<>\"']+)/gi)).map((match) => match[1] ?? match[2]).filter((href): href is string => Boolean(href))));
+  if (!links.length) return sanitized;
+  const savedLinks = links.map((href) => `<li><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(href)}</a></li>`).join("");
+  return `${sanitized}<p><strong>Saved links</strong></p><ul>${savedLinks}</ul>`;
 }
 
 function uuid() {
