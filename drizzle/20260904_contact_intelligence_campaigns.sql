@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS `contact_intelligence_backfill_runs` (
   `id` int NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
   `status` enum('running','paused','completed','cancelled') NOT NULL DEFAULT 'running',
-  `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v2',
+  `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v3',
   `dateFrom` timestamp NULL,
   `dateTo` timestamp NULL,
   `minimumDurationSeconds` int NOT NULL DEFAULT 0,
@@ -31,7 +31,7 @@ ALTER TABLE `contact_intelligence_jobs`
   ADD COLUMN `backfillRunId` int NULL AFTER `communicationId`,
   ADD COLUMN `extractionMode` enum('structured','native_summary_only') NULL AFTER `extractionVersion`,
   ADD COLUMN `modelUsed` varchar(128) NULL AFTER `extractionMode`,
-  MODIFY COLUMN `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v2',
+  MODIFY COLUMN `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v3',
   DROP INDEX `contact_intelligence_jobs_source_unique`,
   ADD UNIQUE KEY `contact_intelligence_jobs_source_unique` (`aircallCallId`, `sourceHash`, `extractionVersion`),
   ADD KEY `contact_intelligence_jobs_backfill_status_idx` (`backfillRunId`, `status`),
@@ -41,10 +41,10 @@ ALTER TABLE `contact_intelligence_jobs`
 ALTER TABLE `contact_intelligence_profiles`
   ADD COLUMN `extractionMode` enum('structured','native_summary_only') NOT NULL DEFAULT 'native_summary_only' AFTER `extractionVersion`,
   ADD COLUMN `modelUsed` varchar(128) NULL AFTER `extractionMode`,
-  MODIFY COLUMN `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v2';
+  MODIFY COLUMN `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v3';
 
 ALTER TABLE `contact_intelligence_signals`
-  MODIFY COLUMN `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v2';
+  MODIFY COLUMN `extractionVersion` varchar(64) NOT NULL DEFAULT 'contact-intelligence-v3';
 
 -- Preserve the pilot's actual provenance. A legacy profile with retained
 -- evidence signals was structurally extracted; a profile without signals was

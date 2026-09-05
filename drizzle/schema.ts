@@ -5471,7 +5471,7 @@ export const contactIntelligenceBackfillRuns = mysqlTable(
       .default("running"),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v2"),
+      .default("contact-intelligence-v3"),
     dateFrom: timestamp("dateFrom"),
     dateTo: timestamp("dateTo"),
     minimumDurationSeconds: int("minimumDurationSeconds").notNull().default(0),
@@ -5522,7 +5522,7 @@ export const contactIntelligenceJobs = mysqlTable(
     sourceHash: varchar("sourceHash", { length: 64 }).notNull(),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v2"),
+      .default("contact-intelligence-v3"),
     extractionMode: mysqlEnum("extractionMode", [
       "structured",
       "native_summary_only",
@@ -5593,7 +5593,7 @@ export const contactIntelligenceProfiles = mysqlTable(
     lastAnalyzedAt: timestamp("lastAnalyzedAt"),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v2"),
+      .default("contact-intelligence-v3"),
     extractionMode: mysqlEnum("extractionMode", [
       "structured",
       "native_summary_only",
@@ -5644,7 +5644,7 @@ export const contactIntelligenceSignals = mysqlTable(
     sourceOccurredAt: timestamp("sourceOccurredAt"),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v2"),
+      .default("contact-intelligence-v3"),
     status: mysqlEnum("status", ["active", "dismissed", "superseded"])
       .notNull()
       .default("active"),

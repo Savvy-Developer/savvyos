@@ -16,9 +16,12 @@ import { invokeLLM } from "./_core/llm";
 import { notifySavvyOSPromptRun } from "./_core/slackNotifications";
 import { getDb } from "./db";
 
-export const CONTACT_INTELLIGENCE_EXTRACTION_VERSION = "contact-intelligence-v2";
-const PRIMARY_EXTRACTION_MODEL = "gemini-3-flash-preview";
-const SECONDARY_EXTRACTION_MODEL = "gpt-5-mini";
+// Railway's provisioned native OpenAI endpoint supports the GPT-4.1 family.
+// It passed the full-transcript strict-schema probe; gpt-5's hidden reasoning
+// exhausted the available completion budget and Gemini is not provisioned here.
+export const CONTACT_INTELLIGENCE_EXTRACTION_VERSION = "contact-intelligence-v3";
+const PRIMARY_EXTRACTION_MODEL = "gpt-4.1";
+const SECONDARY_EXTRACTION_MODEL = "gpt-4.1-mini";
 const JOB_LEASE_MS = 2 * 60_000;
 const JOB_INTERVAL_MS = 20_000;
 const MAX_JOB_ATTEMPTS = 8;
@@ -27,7 +30,7 @@ const MAX_JOB_ATTEMPTS = 8;
 const MAX_JOB_BATCH = 4;
 const MAX_BACKFILL_IN_FLIGHT = 40;
 const DEFAULT_BACKFILL_LIMIT = 1_946;
-// Gemini's long context lets us retain an entire native call in nearly every
+// GPT-4.1's long context lets us retain an entire native call in nearly every
 // case; clipping remains a bounded safeguard for exceptionally long records.
 const MAX_TRANSCRIPT_CHARS = 48_000;
 
@@ -699,17 +702,27 @@ export async function processDueContactIntelligenceJobs(): Promise<void> {
     ));
     const jobs = await db.select({ id: contactIntelligenceJobs.id })
       .from(contactIntelligenceJobs)
-      .where(or(
-        and(
+      .where(and(
+        or(
+          and(
           inArray(contactIntelligenceJobs.status, ["pending", "retrying"]),
           sql`${contactIntelligenceJobs.attempts} < ${MAX_JOB_ATTEMPTS}`,
           or(isNull(contactIntelligenceJobs.nextAttemptAt), lte(contactIntelligenceJobs.nextAttemptAt, now)),
-        ),
-        and(
+          ),
+          and(
           eq(contactIntelligenceJobs.status, "processing"),
           sql`${contactIntelligenceJobs.attempts} < ${MAX_JOB_ATTEMPTS}`,
           lte(contactIntelligenceJobs.leaseExpiresAt, now),
+          ),
         ),
+        sql`(
+        ${contactIntelligenceJobs.backfillRunId} IS NULL
+        OR EXISTS (
+          SELECT 1 FROM \`contact_intelligence_backfill_runs\` campaign
+          WHERE campaign.\`id\` = ${contactIntelligenceJobs.backfillRunId}
+            AND campaign.\`status\` = 'running'
+        )
+        )`
       ))
       .orderBy(contactIntelligenceJobs.createdAt)
       .limit(MAX_JOB_BATCH);
@@ -1081,6 +1094,7 @@ export const __testables__ = {
   cleanText,
   contactIntelligenceSourceHash,
   contactSummary,
+  extractionSchema,
   mergeProfiles,
   normalProfile,
   normalSignals,
