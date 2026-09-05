@@ -8,7 +8,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
 import { getMcpPool } from "./mcpDatabase";
-import { isMcpAccessManager } from "./routers/mcpAccess";
+import { isMcpAuthorizedUser } from "./routers/mcpAccess";
 
 export const MCP_ENDPOINT_PATH = "/api/mcp";
 export const MCP_PUBLIC_ORIGIN = "https://os.savvy-agents.com";
@@ -345,7 +345,7 @@ async function getCurrentMcpUser(req: Request) {
       !user ||
       !user.isActive ||
       user.personType === "teammate" ||
-      !isMcpAccessManager(user.email)
+      !isMcpAuthorizedUser(user.email)
     )
       return null;
     return user;
@@ -371,7 +371,7 @@ async function isAuthorizedMcpUserId(userId: number): Promise<boolean> {
     user &&
       user.isActive &&
       user.personType !== "teammate" &&
-      isMcpAccessManager(user.email)
+      isMcpAuthorizedUser(user.email)
   );
 }
 
@@ -578,7 +578,7 @@ export async function verifyMcpOAuthAccessToken(
     row.resource !== mcpResourceUrl() ||
     !Boolean(row.isActive) ||
     row.personType === "teammate" ||
-    !isMcpAccessManager(row.email)
+    !isMcpAuthorizedUser(row.email)
   )
     return null;
   const scopes = jsonArray(row.scopes);
@@ -835,18 +835,18 @@ export function registerMcpOAuthRoutes(app: Express): void {
       !user ||
       !user.isActive ||
       user.personType === "teammate" ||
-      !isMcpAccessManager(user.email)
+      !isMcpAuthorizedUser(user.email)
     ) {
       return res
-        .status(401)
-        .send(
-          renderPage(
-            "Sign in",
-            `<h1>Unable to sign in</h1><div class="notice error">Use the active SavvyOS account for Tyler, Elana, or Dyl. Check your email and password, then try again.</div><form method="post" action="/oauth/login"><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" required value="${escapeHtml(email)}"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in and continue</button></form>`
-          )
-        );
-    }
-    const sessionToken = await sdk.createSessionToken(user.openId, {
+       .status(401)
+       .send(
+         renderPage(
+           "Sign in",
+            `<h1>Unable to sign in</h1><div class="notice error">Use an active SavvyOS account that has MCP access. Check your email and password, then try again.</div><form method="post" action="/oauth/login"><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" required value="${escapeHtml(email)}"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in and continue</button></form>`
+         )
+       );
+   }
+   const sessionToken = await sdk.createSessionToken(user.openId, {
       name: user.name ?? user.email ?? "",
       expiresInMs: ONE_YEAR_MS,
     });

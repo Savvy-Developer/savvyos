@@ -12,10 +12,25 @@ export const MCP_ACCESS_MANAGER_EMAILS = new Set([
   "dyl@savvy.realty",
 ]);
 
+// OAuth users can connect the read-only SavvyOS MCP from ChatGPT or Claude.
+// Managers retain the separate ability to create and revoke desktop/CLI keys.
+export const MCP_AUTHORIZED_USER_EMAILS = new Set([
+  "tyler@savvy.realty",
+  "elana@savvy.realty",
+  "dyl@savvy.realty",
+  "philleone@savvy.realty",
+  "scott.asbell@savvy.realty",
+  "amyrollins@savvy.realty",
+]);
+
 const MCP_ENDPOINT = "https://os.savvy-agents.com/api/mcp";
 
 export function isMcpAccessManager(email: string | null | undefined): boolean {
   return !!email && MCP_ACCESS_MANAGER_EMAILS.has(email.trim().toLowerCase());
+}
+
+export function isMcpAuthorizedUser(email: string | null | undefined): boolean {
+  return !!email && MCP_AUTHORIZED_USER_EMAILS.has(email.trim().toLowerCase());
 }
 
 function requireMcpAccessManager(email: string | null | undefined): void {
