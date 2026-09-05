@@ -435,7 +435,7 @@ export const pulseWorkItemsRouter = router({
       return { id: item.id, created: false };
     }),
 
-  updateQuickTodoFields: pulseMemberProcedure
+  updateQuickWorkItemFields: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
       dueDate: dateSchema.optional(),
@@ -446,7 +446,7 @@ export const pulseWorkItemsRouter = router({
       const db = await getDb();
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
-      if (item.type !== "todo") throw new TRPCError({ code: "BAD_REQUEST", message: "Quick fields are available for Pulse To-Dos." });
+      if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Quick fields are available for Pulse To-Dos and Issues." });
       if (input.assigneeId !== undefined) {
         if (meeting) await requireMeetingMember(db, input.assigneeId, meeting);
         else if (input.assigneeId !== item.ownerPersonId) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal work can only be assigned to its owner." });
