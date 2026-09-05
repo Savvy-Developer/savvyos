@@ -422,10 +422,10 @@ export async function enqueueContactIntelligenceForCommunication(
   if (!db) throw new Error("Database unavailable");
   const [row] = await db.select({
     communicationId: communications.id,
-    // Newer communication records carry relatedContactId, while a small set of
-    // historic Aircall imports retained their verified match only on the call.
-    // Either record is sufficient evidence to enrich the same CRM contact.
-    contactId: sql<number>`COALESCE(${communications.relatedContactId}, ${aircallCalls.contactId})`,
+    // Aircall's call-level match is the canonical relationship. A small set of
+    // historic imports have a stale communication-level link, so only use it if
+    // the call itself has no matched CRM contact.
+    contactId: sql<number>`COALESCE(${aircallCalls.contactId}, ${communications.relatedContactId})`,
     transcription: communications.transcription,
     body: communications.body,
     aircallCallId: aircallCalls.aircallCallId,
@@ -450,6 +450,8 @@ export async function enqueueContactIntelligenceForCommunication(
   }).onDuplicateKeyUpdate({
     set: options.forceReprocess
       ? {
+        contactId: row.contactId,
+        communicationId: row.communicationId,
         backfillRunId: options.backfillRunId ?? null,
         status: "pending",
         attempts: 0,
