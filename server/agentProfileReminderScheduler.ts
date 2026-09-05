@@ -195,6 +195,39 @@ async function materializeQuarterlyAudience(campaignId: number): Promise<void> {
     .onDuplicateKeyUpdate({ set: { campaignId } });
 }
 
+/**
+ * The first company-wide reminder begins with a planned recipient snapshot,
+ * then is refreshed immediately before delivery. That includes agents added
+ * after the campaign was scheduled without re-opening completed deliveries.
+ */
+async function refreshInitialActiveAgentAudience(
+  campaignId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const activeAgents = await getActiveProfileCandidates();
+  if (!activeAgents.length) return;
+  const existingRecipients = await db
+    .select({ agentUserId: agentProfileReminderCampaignRecipients.agentUserId })
+    .from(agentProfileReminderCampaignRecipients)
+    .where(eq(agentProfileReminderCampaignRecipients.campaignId, campaignId));
+  const existingAgentIds = new Set(
+    existingRecipients.map(recipient => recipient.agentUserId)
+  );
+  const newlyAddedAgents = activeAgents.filter(
+    agent => !existingAgentIds.has(agent.id)
+  );
+  if (!newlyAddedAgents.length) return;
+  await db.insert(agentProfileReminderCampaignRecipients).values(
+    newlyAddedAgents.map(agent => ({
+      campaignId,
+      agentUserId: agent.id,
+      agentName: agent.name,
+      agentEmail: agent.email,
+    }))
+  );
+}
+
 async function queueNextQuarterlyCampaign(campaign: {
   scheduledFor: Date;
 }): Promise<void> {
@@ -273,7 +306,9 @@ async function processCampaign(campaign: {
     .set({ status: "processing", startedAt: new Date() })
     .where(eq(agentProfileReminderCampaigns.id, campaign.id));
 
-  if (campaign.audience === "incomplete_at_send") {
+  if (campaign.kind === "initial_active_agents") {
+    await refreshInitialActiveAgentAudience(campaign.id);
+  } else if (campaign.audience === "incomplete_at_send") {
     await materializeQuarterlyAudience(campaign.id);
   }
 
@@ -299,7 +334,7 @@ async function processCampaign(campaign: {
       !liveAgent ||
       (campaign.audience === "incomplete_at_send" &&
         isAgentExtendedProfileComplete(liveAgent));
-    if (shouldSkip || !recipient.agentEmail) {
+    if (shouldSkip || !liveAgent?.email) {
       await db
         .update(agentProfileReminderCampaignRecipients)
         .set({
@@ -307,7 +342,7 @@ async function processCampaign(campaign: {
           attemptedAt: new Date(),
           failureReason: !liveAgent
             ? "Agent is no longer active"
-            : !recipient.agentEmail
+            : !liveAgent?.email
               ? "No email address is available"
               : "Profile is now complete",
         })
@@ -320,8 +355,8 @@ async function processCampaign(campaign: {
       const delivery = await sendTransactionalEmail(
         "agent_profile_completion_reminder",
         {
-          recipientName: recipient.agentName ?? liveAgent.name ?? undefined,
-          recipientEmail: recipient.agentEmail,
+          recipientName: liveAgent.name ?? recipient.agentName ?? undefined,
+          recipientEmail: liveAgent.email,
           profileReminderKind:
             campaign.kind === "initial_active_agents" ? "initial" : "quarterly",
           onboardingProfileUrl: "https://os.savvy-agents.com/profile",
@@ -357,7 +392,7 @@ async function processCampaign(campaign: {
         .where(eq(agentProfileReminderCampaignRecipients.id, recipient.id));
       failedCount += 1;
       console.error(
-        `[AgentProfileReminder] Failed to email ${recipient.agentEmail}:`,
+        `[AgentProfileReminder] Failed to email ${liveAgent?.email ?? recipient.agentEmail}:`,
         error
       );
     }
