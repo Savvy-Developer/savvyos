@@ -528,6 +528,31 @@ export const pulseWorkItemsRouter = router({
       return { success: true };
     }),
 
+  deleteWorkItem: pulseMemberProcedure
+    .input(z.object({ workItemId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const { item } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Only To-Dos and Issues can be deleted here." });
+      const [children] = await db.select({ count: sql<number>`count(*)` }).from(pulseWorkItems).where(and(
+        eq(pulseWorkItems.parentWorkItemId, item.id),
+        isNull(pulseWorkItems.deletedAt),
+      ));
+      if (Number(children?.count ?? 0) > 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Delete or move this To-Do’s active sub-To-Dos before deleting the parent." });
+      const deletedAt = new Date();
+      await db.transaction(async (tx: any) => {
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "item_deleted", undefined, undefined, { type: item.type, title: item.title });
+        await tx.update(pulseWorkItems).set({ deletedAt }).where(and(eq(pulseWorkItems.id, item.id), isNull(pulseWorkItems.deletedAt)));
+        await tx.update(pulseWorkItemNotifications).set({ deletedAt }).where(and(eq(pulseWorkItemNotifications.workItemId, item.id), isNull(pulseWorkItemNotifications.deletedAt)));
+        await tx.update(pulseNotifications).set({ clearedAt: deletedAt }).where(and(
+          eq(pulseNotifications.sourceType, "work_item"),
+          eq(pulseNotifications.sourceId, item.id),
+          isNull(pulseNotifications.clearedAt),
+        ));
+      });
+      return { success: true };
+    }),
   detail: pulseMemberProcedure
     .input(z.object({ workItemId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -633,7 +658,7 @@ export const pulseWorkItemsRouter = router({
         milestones,
         milestoneProgress,
         statusNotes: notes,
-        comments: comments.map((comment) => ({ ...comment, mentions: mentionsByComment.get(comment.id) ?? [] })),
+        comments: comments.map((comment) => ({ ...comment, canDelete: comment.authorId === ctx.user.id || Boolean(meeting && meeting.administratorId === ctx.user.id), mentions: mentionsByComment.get(comment.id) ?? [] })),
         moves: moves.map((move) => ({
           ...move,
           fromMeetingName: move.fromMeetingId ? historicalName.get(move.fromMeetingId) ?? "another meeting" : "personal work",
@@ -1044,6 +1069,27 @@ export const pulseWorkItemsRouter = router({
       return { id: commentId };
     }),
 
+  deleteComment: pulseMemberProcedure
+    .input(z.object({ commentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw unavailable();
+      const [comment] = await db.select().from(pulseWorkItemComments).where(and(
+        eq(pulseWorkItemComments.id, input.commentId),
+        isNull(pulseWorkItemComments.deletedAt),
+      )).limit(1);
+      if (!comment) throw new TRPCError({ code: "NOT_FOUND", message: "This comment no longer exists." });
+      const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, comment.workItemId);
+      const canDelete = comment.authorId === ctx.user.id || Boolean(meeting && meeting.administratorId === ctx.user.id);
+      if (!canDelete) throw new TRPCError({ code: "FORBIDDEN", message: "Only the comment author or this L10’s administrator can delete this comment." });
+      const deletedAt = new Date();
+      await db.transaction(async (tx: any) => {
+        await tx.update(pulseWorkItemComments).set({ deletedAt }).where(and(eq(pulseWorkItemComments.id, comment.id), isNull(pulseWorkItemComments.deletedAt)));
+        await tx.update(pulseWorkItemNotifications).set({ deletedAt }).where(and(eq(pulseWorkItemNotifications.commentId, comment.id), isNull(pulseWorkItemNotifications.deletedAt)));
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "comment_deleted", undefined, undefined, { commentId: comment.id });
+      });
+      return { success: true };
+    }),
   resolveQuarterRollover: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
