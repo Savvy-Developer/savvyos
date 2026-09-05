@@ -92,6 +92,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "listing_expiration_reminder",
   "onboarding_overdue",
   "onboarding_profile_invitation",
+  "agent_profile_completion_reminder",
   "smart_plan_ai_analysis",
   "commission_exception_warning",
   "client_intro",
@@ -203,6 +204,7 @@ interface EmailContext {
   overdueCount?: string;
   taskList?: string;
   onboardingProfileUrl?: string;
+  profileReminderKind?: "initial" | "quarterly";
   smartPlanAnalysisHtml?: string;
   smartPlanAnalysisRequestedBy?: string;
   // Client intro-specific
@@ -1009,6 +1011,25 @@ const TEMPLATES: Record<
       ${ctaButton("Complete My Profile", ctx.onboardingProfileUrl ?? `${APP_URL}/profile`, "#0891B2")}
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This button signs you in securely and opens your profile. If you were not expecting this invitation, you can safely ignore this email.</p>`,
       "Complete your SavvyOS Extended Profile at your own pace."
+    ),
+  }),
+
+  agent_profile_completion_reminder: ctx => ({
+    subject: "A quick reminder to complete your SavvyOS profile",
+    html: emailLayout(
+      `${heading("Complete Your SavvyOS Profile", "#0891B2")}
+      ${subheading(ctx.profileReminderKind === "quarterly" ? "Quarterly Profile Check-In" : "Your Agent Profile")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(ctx.profileReminderKind === "quarterly"
+        ? "A few details are still missing from your Extended Profile. Keeping it up to date helps the Savvy team support your business and represent you accurately."
+        : "Please take a few minutes to complete your Extended Profile. Keeping these details current helps the Savvy team support your business and represent you accurately.")}
+      ${infoCard([
+        "<strong style=\"color:#0A0A0A;\">Pick up where you left off</strong>&nbsp;&nbsp; Your previous entries are already saved.",
+        "<strong style=\"color:#0A0A0A;\">Save as you go</strong>&nbsp;&nbsp; Every change saves automatically, so you can return anytime.",
+      ], "#0891B2")}
+      ${ctaButton("Complete My Profile", ctx.onboardingProfileUrl ?? `${APP_URL}/profile`, "#0891B2")}
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This secure button signs you in and opens My Profile. If you have any questions about a profile field, please contact the Savvy team.</p>`,
+      "Your SavvyOS Extended Profile is ready whenever you are."
     ),
   }),
 

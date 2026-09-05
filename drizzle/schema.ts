@@ -2536,6 +2536,78 @@ export const agentProfiles = mysqlTable("agent_profiles", {
 export type AgentProfile = typeof agentProfiles.$inferSelect;
 export type InsertAgentProfile = typeof agentProfiles.$inferInsert;
 
+// ─── Agent Profile Completion Reminder Campaigns ──────────────────────────────
+// A database-backed campaign queue guarantees that planned outreach survives
+// Railway restarts. Recipient rows preserve an auditable delivery outcome.
+export const agentProfileReminderCampaigns = mysqlTable(
+  "agent_profile_reminder_campaigns",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    kind: mysqlEnum("kind", ["initial_active_agents", "quarterly_incomplete"])
+      .notNull(),
+    audience: mysqlEnum("audience", ["active_snapshot", "incomplete_at_send"])
+      .notNull(),
+    scheduledFor: timestamp("scheduledFor").notNull(),
+    status: mysqlEnum("status", ["scheduled", "processing", "completed"])
+      .notNull()
+      .default("scheduled"),
+    startedAt: timestamp("startedAt"),
+    completedAt: timestamp("completedAt"),
+    sentCount: int("sentCount").notNull().default(0),
+    skippedCount: int("skippedCount").notNull().default(0),
+    failedCount: int("failedCount").notNull().default(0),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("agent_profile_reminder_campaign_kind_scheduled_uidx").on(
+      table.kind,
+      table.scheduledFor
+    ),
+    index("agent_profile_reminder_campaign_due_idx").on(
+      table.status,
+      table.scheduledFor
+    ),
+  ]
+);
+export type AgentProfileReminderCampaign =
+  typeof agentProfileReminderCampaigns.$inferSelect;
+
+export const agentProfileReminderCampaignRecipients = mysqlTable(
+  "agent_profile_reminder_campaign_recipients",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    campaignId: int("campaignId")
+      .notNull()
+      .references(() => agentProfileReminderCampaigns.id, { onDelete: "cascade" }),
+    agentUserId: int("agentUserId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    agentName: varchar("agentName", { length: 255 }),
+    agentEmail: varchar("agentEmail", { length: 320 }),
+    status: mysqlEnum("status", ["queued", "sent", "skipped", "failed"])
+      .notNull()
+      .default("queued"),
+    attemptedAt: timestamp("attemptedAt"),
+    sentAt: timestamp("sentAt"),
+    failureReason: text("failureReason"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("agent_profile_reminder_campaign_agent_uidx").on(
+      table.campaignId,
+      table.agentUserId
+    ),
+    index("agent_profile_reminder_recipient_campaign_status_idx").on(
+      table.campaignId,
+      table.status
+    ),
+  ]
+);
+export type AgentProfileReminderCampaignRecipient =
+  typeof agentProfileReminderCampaignRecipients.$inferSelect;
+
 // ─── Agent Renewals ───────────────────────────────────────────────────────────
 // A renewal begins as one scheduled row. Completing it preserves the meeting
 // record and immediately creates the following year's scheduled row, so agents

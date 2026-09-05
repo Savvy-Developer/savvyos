@@ -41,6 +41,7 @@ import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { scheduleMarketIntelligenceRefresh } from "../agentMarketsIntelligence";
 import { scheduleMarketProfileSurveyReminders } from "../marketProfileSurveyScheduler";
+import { scheduleAgentProfileReminderCampaigns } from "../agentProfileReminderScheduler";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { constructStripeWebhookEvent, handleStripeWebhookEvent, isStripeConfigured } from "../vendorBilling";
 import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedVendorEarningsReport";
@@ -335,6 +336,9 @@ async function startServer() {
 
   // Onboarding overdue task alerts: daily at 8am
   scheduleOnboardingOverdueCheck();
+  // Database-backed agent Extended Profile reminder campaigns: startup check,
+  // then every 15 minutes so due one-time and quarterly sends survive restarts.
+  scheduleAgentProfileReminderCampaigns();
 
   // Agent production report: Friday at 6:00 PM Eastern
   scheduleAgentProductionReport();
