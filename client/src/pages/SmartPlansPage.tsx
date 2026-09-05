@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   Zap, Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquare,
   Users, Edit2, Play, Pause, ArrowLeft, Check, Save, Eye, Clock,
-  AlertCircle, FileText, ChevronLeft, ChevronRight, Search
+  AlertCircle, FileText, ChevronLeft, ChevronRight, Search, BrainCircuit, Loader2, ShieldCheck, Lightbulb
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -1050,6 +1050,31 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
   );
 }
 
+function SmartPlansAnalysisDialog({ result, onClose }: { result: any; onClose: () => void }) {
+  const analysis = result?.analysis ?? {};
+  const evidence = result?.evidence ?? {};
+  const priorityClass: Record<string, string> = {
+    high: "border-rose-200 bg-rose-50 text-rose-900",
+    medium: "border-amber-200 bg-amber-50 text-amber-900",
+    low: "border-sky-200 bg-sky-50 text-sky-900",
+  };
+  return <Dialog open onOpenChange={onClose}>
+    <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto gap-5">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2 text-xl"><BrainCircuit className="h-5 w-5 text-primary" />Smart Plans AI Analysis</DialogTitle>
+        <p className="text-sm text-muted-foreground">A source-grounded review of message performance, timing, replies, deliverability, and compliance signals across Smart Plans and one-time sends.</p>
+      </DialogHeader>
+      <div className="grid gap-3 sm:grid-cols-3"><Card><CardContent className="p-4"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Email sends analyzed</p><p className="mt-1 text-2xl font-bold">{Number(evidence.totalEmailSends ?? 0).toLocaleString()}</p></CardContent></Card><Card><CardContent className="p-4"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Messages compared</p><p className="mt-1 text-2xl font-bold">{Array.isArray(evidence.messages) ? evidence.messages.length : 0}</p></CardContent></Card><Card><CardContent className="p-4"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Generated</p><p className="mt-1 text-sm font-semibold">{result?.generatedAt ? new Date(result.generatedAt).toLocaleString() : "Just now"}</p></CardContent></Card></div>
+      <Card className="border-primary/20 bg-primary/[0.03]"><CardHeader className="pb-2"><CardTitle className="text-base">Executive summary</CardTitle></CardHeader><CardContent><p className="text-sm leading-6 text-muted-foreground">{analysis.executiveSummary}</p></CardContent></Card>
+      <div className="grid gap-5 lg:grid-cols-2"><Card><CardHeader className="pb-2"><CardTitle className="text-base">Strongest messages</CardTitle><CardDescription>Messages are highlighted only where the available send volume supports the observation.</CardDescription></CardHeader><CardContent className="space-y-3">{analysis.strongestMessages?.length ? analysis.strongestMessages.map((item: any, index: number) => <div key={index} className="rounded-md border p-3"><p className="text-sm font-semibold">{item.message}</p><p className="mt-1 text-xs leading-5 text-muted-foreground"><strong>Evidence:</strong> {item.evidence}</p><p className="mt-2 text-sm leading-5"><strong>Use it:</strong> {item.recommendation}</p></div>) : <p className="text-sm text-muted-foreground">No message-level winner has enough evidence yet.</p>}</CardContent></Card><Card><CardHeader className="pb-2"><CardTitle className="text-base">Timing insights</CardTitle><CardDescription>Timing is evaluated in each Smart Plan step’s configured timezone; one-time sends use Eastern Time.</CardDescription></CardHeader><CardContent className="space-y-3">{analysis.timingInsights?.length ? analysis.timingInsights.map((item: any, index: number) => <div key={index} className="rounded-md border p-3"><p className="text-sm font-semibold">{item.finding}</p><p className="mt-1 text-xs leading-5 text-muted-foreground"><strong>Evidence:</strong> {item.evidence}</p><p className="mt-2 text-sm leading-5"><strong>Action:</strong> {item.action}</p></div>) : <p className="text-sm text-muted-foreground">More delivery events are needed to identify useful timing patterns.</p>}</CardContent></Card></div>
+      <Card><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4" />Deliverability and compliance</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{analysis.deliverabilityAndCompliance?.length ? analysis.deliverabilityAndCompliance.map((item: any, index: number) => <div key={index} className="rounded-md border p-3"><p className="text-sm font-semibold">{item.finding}</p><p className="mt-1 text-xs leading-5 text-muted-foreground"><strong>Impact:</strong> {item.impact}</p><p className="mt-2 text-sm leading-5"><strong>Action:</strong> {item.action}</p></div>) : <p className="text-sm text-muted-foreground">No material deliverability or compliance pattern was identified from the current data.</p>}</CardContent></Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Lightbulb className="h-4 w-4" />Prioritized recommendations</CardTitle><CardDescription>Use these as controlled tests—change one variable at a time and preserve opt-out and consent safeguards.</CardDescription></CardHeader><CardContent className="space-y-3">{analysis.recommendations?.map((item: any, index: number) => <div key={index} className={`rounded-md border p-4 ${priorityClass[item.priority] ?? priorityClass.low}`}><div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className="bg-background capitalize">{item.priority} priority</Badge><p className="text-sm font-semibold">{item.change}</p></div><p className="mt-2 text-sm leading-5"><strong>Why:</strong> {item.rationale}</p>{item.affectedMessages?.length ? <p className="mt-2 text-xs leading-5"><strong>Apply to:</strong> {item.affectedMessages.join(" · ")}</p> : null}</div>)}</CardContent></Card>
+      {analysis.caveats?.length ? <Card><CardHeader className="pb-2"><CardTitle className="text-base">Data caveats</CardTitle></CardHeader><CardContent><ul className="space-y-2 text-sm text-muted-foreground">{analysis.caveats.map((item: string, index: number) => <li key={index} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />{item}</li>)}</ul></CardContent></Card> : null}
+      <DialogFooter><Button variant="outline" onClick={onClose}>Close analysis</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function SmartPlansPage() {
   const { user } = useAuth();
@@ -1067,6 +1092,7 @@ export default function SmartPlansPage() {
   const [viewEnrollments, setViewEnrollments] = useState<PlanRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PlanRow | null>(null);
   const [oneTimeSendOpen, setOneTimeSendOpen] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   const toggleStatusMutation = trpc.smartPlans.update.useMutation({
     onSuccess: () => utils.smartPlans.list.invalidate(),
@@ -1076,6 +1102,10 @@ export default function SmartPlansPage() {
   const deleteMutation = trpc.smartPlans.delete.useMutation({
     onSuccess: () => { utils.smartPlans.list.invalidate(); setDeleteTarget(null); toast.success("Plan deleted"); },
     onError: (e) => toast.error(e.message),
+  });
+  const analysisMutation = trpc.smartPlans.aiAnalysis.useMutation({
+    onSuccess: (result) => setAnalysisResult(result),
+    onError: (error) => toast.error(error.message || "Smart Plans analysis could not be generated."),
   });
 
   const plansList = plans as PlanRow[];
@@ -1099,6 +1129,10 @@ export default function SmartPlansPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => analysisMutation.mutate()} disabled={analysisMutation.isPending}>
+            {analysisMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-1.5 h-4 w-4" />}
+            {analysisMutation.isPending ? "Analyzing…" : "Analyze with AI"}
+          </Button>
           <Button variant="outline" onClick={() => setOneTimeSendOpen(true)}>
             <Mail className="mr-1.5 h-4 w-4" /> One Time Send
           </Button>
@@ -1109,6 +1143,7 @@ export default function SmartPlansPage() {
       </div>
 
       {oneTimeSendOpen && <OneTimeSmartPlanSendDialog onClose={() => setOneTimeSendOpen(false)} />}
+      {analysisResult && <SmartPlansAnalysisDialog result={analysisResult} onClose={() => setAnalysisResult(null)} />}
 
       <OneTimeSmartPlanSendHistory />
 

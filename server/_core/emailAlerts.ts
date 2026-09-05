@@ -56,6 +56,7 @@ export async function sendEmailAlert(
         notes: context.notes as string | undefined,
         leadSourceLabel: context.leadSourceLabel as string | undefined,
         clientContextSummary: context.clientContextSummary as string | undefined,
+        replyToEmail: context.replyToEmail as string | undefined,
         listingAddress: context.listingAddress as string | undefined,
         listPrice: context.listPrice as string | undefined,
         listingDate: context.listingDate as string | undefined,

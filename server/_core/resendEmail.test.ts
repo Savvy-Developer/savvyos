@@ -111,18 +111,22 @@ describe("listing created email", () => {
 });
 
 describe("transaction created email", () => {
-  it("includes the client, property address, and formatted purchase price", () => {
+  it("asks the agent to confirm the lead source with the transaction details", () => {
     const preview = getEmailPreview("transaction_created", {
       recipientEmail: "agent@example.com",
       recipientName: "Avery Agent",
       contactName: "Jamie Client",
       propertyAddress: "123 Main St, Austin, TX",
       amount: "$500,000",
+      leadSourceLabel: "Paid Leads › AirDNA",
     });
 
+    expect(preview.subject).toContain("Please Confirm Lead Source");
     expect(preview.html).toContain("Client</strong>&nbsp;&nbsp; Jamie Client");
+    expect(preview.html).toContain("Lead Source</strong>&nbsp;&nbsp; Paid Leads › AirDNA");
     expect(preview.html).toContain("Property</strong>&nbsp;&nbsp; 123 Main St, Austin, TX");
     expect(preview.html).toContain("Purchase Price</strong>&nbsp;&nbsp; <span style=\"font-weight:700;color:#0fc0df;\">$500,000</span>");
+    expect(preview.html).toContain("elana@savvy.realty");
   });
 
   it("escapes the client and property values before rendering", () => {

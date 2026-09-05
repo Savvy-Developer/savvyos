@@ -75,7 +75,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
   "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
   "pto_request_submitted", "pto_request_decision", "vendor_featured_payment_invitation", "vendor_featured_payment_received", "vendor_featured_payment_failed",
-  "monthly_featured_vendor_earnings", "agent_featured_vendor_earnings",
+  "monthly_featured_vendor_earnings", "agent_featured_vendor_earnings", "market_profile_survey",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
@@ -124,6 +124,10 @@ interface EmailContext {
   notes?: string;
   leadSourceLabel?: string;
   clientContextSummary?: string;
+  // Market Profile Survey invitation fields
+  marketName?: string;
+  marketSurveyUrl?: string;
+  marketSurveyReminderNumber?: number;
   // PTO request and decision fields
   employeeName?: string;
   managerName?: string;
@@ -592,23 +596,50 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
   },
 
   transaction_created: (ctx) => ({
-    subject: `New Transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""} Created`,
+    subject: `Please Confirm Lead Source${ctx.transactionNumber ? ` — Transaction #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
-      `${heading("New Transaction Created")}
-      ${subheading("Transaction Notification")}
+      `${heading("Confirm the Lead Source")}
+      ${subheading("Transaction Created")}
       ${greeting(ctx.recipientName)}
-      ${bodyText("A new transaction has been created and assigned to you in SavvyOS.")}
+      ${bodyText("A new transaction has been created and assigned to you in SavvyOS. Please review the lead source below and confirm that it is accurate.")}
       ${infoCard([
         ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`] : []),
         ...(ctx.contactName ? [`<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`] : []),
+        ...(ctx.leadSourceLabel ? [`<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; ${escapeHtml(ctx.leadSourceLabel)}`] : [`<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; Not recorded`]),
         ...(ctx.transactionType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.transactionType.charAt(0).toUpperCase() + ctx.transactionType.slice(1))}`] : []),
         ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
         ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${escapeHtml(ctx.amount)}</span>`] : []),
       ])}
-      ${ctaButton("View Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
-      `New transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""} created`
+      ${bodyText("If the lead source is incorrect or needs to be updated, please email <a href=\"mailto:elana@savvy.realty\" style=\"color:${CYAN};font-weight:600;\">elana@savvy.realty</a> and let her know what needs to change.")}
+      ${ctaButton("Review Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
+      `Please confirm the lead source for transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""}.`
     ),
   }),
+
+  market_profile_survey: (ctx) => {
+    const reminder = (ctx.marketSurveyReminderNumber ?? 0) > 0;
+    return {
+      subject: reminder
+        ? `Quick reminder: help strengthen your ${ctx.marketName ?? "market"} profile`
+        : `Help improve Market Match for ${ctx.marketName ?? "your market"}`,
+      html: emailLayout(
+        `${heading(reminder ? "Your market perspective still matters" : "Help improve Market Match")}
+        ${subheading("Market Profile Survey")}
+        ${greeting(ctx.recipientName)}
+        ${bodyText("We’re improving Market Match so Savvy can create more relevant, higher-quality opportunities for your market. Your Market Profile is now a living AI model that learns from permitted SavvyOS signals such as transaction patterns, market research, webinars, podcasts, blogs, and case studies.")}
+        ${bodyText(`The best baseline comes from your local expertise. Please take a few minutes to share what works in ${escapeHtml(ctx.marketName ?? "your market")}: ideal properties and investors, revenue and value-add realities, regulations, watchouts, and anything the model should understand.`)}
+        ${infoCard([
+          "<strong style=\"color:#0A0A0A;\">Short and flexible</strong>&nbsp;&nbsp; The survey is broken into quick pages, saves as you go, and can be finished later.",
+          "<strong style=\"color:#0A0A0A;\">Market-specific</strong>&nbsp;&nbsp; Your answers feed only your assigned market profile.",
+        ], "#0891B2")}
+        ${ctx.marketSurveyUrl ? ctaButton(reminder ? "Continue My Survey" : "Improve My Market Profile", escapeHtml(ctx.marketSurveyUrl), "#0891B2") : ""}
+        <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This link is specific to your SavvyOS account. If your market assignment is not correct, select the right market in the survey before continuing.</p>`,
+        reminder
+          ? `Reminder to complete your ${ctx.marketName ?? "market"} profile survey.`
+          : `Help improve Market Match for ${ctx.marketName ?? "your market"}.`
+      ),
+    };
+  },
 
   listing_created: (ctx) => ({
     subject: `New Listing Created${ctx.contactName ? ` — ${ctx.contactName}` : ""}${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`,

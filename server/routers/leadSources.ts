@@ -9,6 +9,7 @@ import { createPartnerPortalPreviewUrl, normalizePartnerPortalEmail, sendPartner
 
 const PARTNER_PORTAL_PARENT_NAMES = ["Referral Partner (Leads in)", "Affiliate Referral"] as const;
 const PARTNER_CHEAT_SHEET_ALLOWED_TAGS = ["p", "br", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "code", "pre", "a"];
+const SOP_ALLOWED_TAGS = ["p", "br", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "h1", "h2", "h3", "h4", "blockquote", "code", "pre", "a", "hr"];
 
 function isPartnerCheatSheetParent(name: string | null | undefined): boolean {
   return PARTNER_PORTAL_PARENT_NAMES.includes(name as typeof PARTNER_PORTAL_PARENT_NAMES[number]);
@@ -17,6 +18,16 @@ function isPartnerCheatSheetParent(name: string | null | undefined): boolean {
 function sanitizePartnerCheatSheet(value: string): string | null {
   const clean = sanitizeHtml(value, {
     allowedTags: PARTNER_CHEAT_SHEET_ALLOWED_TAGS,
+    allowedAttributes: { a: ["href", "target", "rel"] },
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesAppliedToAttributes: ["href"],
+  }).trim();
+  return clean || null;
+}
+
+function sanitizeSop(value: string): string | null {
+  const clean = sanitizeHtml(value, {
+    allowedTags: SOP_ALLOWED_TAGS,
     allowedAttributes: { a: ["href", "target", "rel"] },
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesAppliedToAttributes: ["href"],
@@ -142,6 +153,46 @@ export const leadSourcesRouter = router({
       .where(eq(leadSources.isActive, true))
       .orderBy(leadSources.parentId, leadSources.name);
   }),
+
+  // Return an SOP only when it is published to agents, unless the caller is an
+  // administrator editing the source. This keeps drafts private by default.
+  getSop: protectedProcedure
+    .input(z.object({ sourceId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [source] = await db.select({
+        id: leadSources.id,
+        name: leadSources.name,
+        sopContent: leadSources.sopContent,
+        sopVisibleToAgents: leadSources.sopVisibleToAgents,
+      }).from(leadSources).where(eq(leadSources.id, input.sourceId)).limit(1);
+      if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Lead source not found." });
+      if (ctx.user.role !== "admin" && !source.sopVisibleToAgents) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This SOP is not published to agents." });
+      }
+      return source;
+    }),
+
+  updateSop: protectedProcedure
+    .input(z.object({
+      sourceId: z.number().int().positive(),
+      sopContent: z.string().max(60_000).nullable(),
+      sopVisibleToAgents: z.boolean(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db.select({ id: leadSources.id }).from(leadSources).where(eq(leadSources.id, input.sourceId)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Lead source not found." });
+      const sopContent = input.sopContent ? sanitizeSop(input.sopContent) : null;
+      await db.update(leadSources).set({
+        sopContent,
+        sopVisibleToAgents: Boolean(sopContent) && input.sopVisibleToAgents,
+      }).where(eq(leadSources.id, input.sourceId));
+      return { success: true, hasSop: Boolean(sopContent) };
+    }),
 
   createPartnerPortalPreview: protectedProcedure
     .input(z.object({ sourceId: z.number().int().positive() }))

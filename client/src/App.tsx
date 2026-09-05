@@ -146,6 +146,8 @@ import PtoManagerQueuePage from "./pages/PtoManagerQueuePage";
 import PtoAdministrationPage from "./pages/PtoAdministrationPage";
 import AgentRenewalsPage from "./pages/AgentRenewalsPage";
 import ConversationIntelligencePage from "./pages/ConversationIntelligencePage";
+import AffiliateLinksPage from "./pages/AffiliateLinksPage";
+import MarketProfileSurveyPage from "./pages/MarketProfileSurveyPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -256,6 +258,16 @@ function AgentMarketsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentMarkets) return <NotFound />;
+  return <>{children}</>;
+}
+
+function AffiliateLinksRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewAffiliateLinks) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -390,6 +402,7 @@ function Router() {
           <Route path="/proforma-defaults" component={ProformaDefaultsPage} />
           <Route path="/pipeline" component={PipelinePage} />
           <Route path="/daily-report">{() => <AgentOnlyRoute><DailyReportPage /></AgentOnlyRoute>}</Route>
+          <Route path="/market-profile-survey" component={MarketProfileSurveyPage} />
           <Route path="/stats">{() => <AgentOnlyRoute><StatsPage /></AgentOnlyRoute>}</Route>
           <Route path="/referral-partners">{() => <AgentOnlyRoute><ReferralPartnersPage /></AgentOnlyRoute>}</Route>
           <Route path="/pipeline/:id" component={AgentConnectionDetail} />
@@ -410,6 +423,7 @@ function Router() {
           <Route path="/group-leader-commissions" component={GroupLeaderCommissionsPage} />
           <Route path="/group-leader-dashboard" component={GroupLeaderDashboard} />
           <Route path="/users">{() => <AdminRoute><UsersPage /></AdminRoute>}</Route>
+          <Route path="/affiliate-links">{() => <AffiliateLinksRoute><AffiliateLinksPage /></AffiliateLinksRoute>}</Route>
           <Route path="/lead-sources">{() => <AdminRoute><LeadSourcesPage /></AdminRoute>}</Route>
           <Route path="/groups">{() => <AdminRoute><GroupsPage /></AdminRoute>}</Route>
           <Route path="/payout-report">{() => <AdminRoute><PayoutReportPage /></AdminRoute>}</Route>

@@ -311,11 +311,24 @@ export const transactionsRouter = router({
       let txContactName = "Unknown Contact";
       let txAgentName = "Unknown Agent";
       let txPropertyAddress = "Unknown Property";
+      let txLeadSourceLabel: string | undefined;
       try {
         const dbEnrich = await getDb();
         if (dbEnrich) {
-          const [cRow] = await dbEnrich.select({ firstName: contacts.firstName, lastName: contacts.lastName }).from(contacts).where(eq(contacts.id, input.primaryContactId)).limit(1);
+          const [cRow] = await dbEnrich.select({ firstName: contacts.firstName, lastName: contacts.lastName, leadSourceId: contacts.leadSourceId }).from(contacts).where(eq(contacts.id, input.primaryContactId)).limit(1);
           if (cRow) txContactName = `${cRow.firstName ?? ""} ${cRow.lastName ?? ""}`.trim() || "Unknown Contact";
+          if (cRow?.leadSourceId) {
+            const [source] = await dbEnrich.select({ id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId })
+              .from(leadSources).where(eq(leadSources.id, cRow.leadSourceId)).limit(1);
+            if (source) {
+              if (source.parentId) {
+                const [parent] = await dbEnrich.select({ name: leadSources.name }).from(leadSources).where(eq(leadSources.id, source.parentId)).limit(1);
+                txLeadSourceLabel = parent?.name ? `${parent.name} › ${source.name}` : source.name;
+              } else {
+                txLeadSourceLabel = source.name;
+              }
+            }
+          }
           const [aRow] = await dbEnrich.select({ name: users.name }).from(users).where(eq(users.id, agentId)).limit(1);
           if (aRow) txAgentName = aRow.name ?? "Unknown Agent";
           if (input.propertyId) {
@@ -337,6 +350,7 @@ export const transactionsRouter = router({
           agentName: txAgentName,
           contactName: txContactName,
           propertyAddress: txPropertyAddress,
+          leadSource: txLeadSourceLabel ?? "Not recorded",
         },
       });
       // Auto-generate commission payout items if GCI is set
@@ -412,6 +426,8 @@ export const transactionsRouter = router({
         contactName: txContactName !== "Unknown Contact" ? txContactName : undefined,
         propertyAddress: txPropertyAddress !== "Unknown Property" ? txPropertyAddress : undefined,
         amount: formatPurchasePrice(input.purchasePrice),
+        leadSourceLabel: txLeadSourceLabel,
+        replyToEmail: "elana@savvy.realty",
       }).catch(() => {});
       return { id, transactionNumber: txNumber, autoPayouts: autoPayoutResult };
     }),

@@ -34,6 +34,7 @@ import {
 } from "../smartPlanScheduler";
 import { DEFAULT_SMART_PLAN_DELIVERY_WINDOW, isValidSmartPlanSendWindow, normaliseSmartPlanSendWindow } from "../smartPlanScheduling";
 import { compareSmartPlanStepsByTiming } from "../smartPlanStepOrder";
+import { analyzeSmartPlanPerformance } from "../smartPlanAiAnalysis";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
@@ -1083,6 +1084,20 @@ export const smartPlansRouter = router({
         return { steps, totals };
       }),
   }),
+
+  aiAnalysis: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const result = await analyzeSmartPlanPerformance();
+      await logActivity({
+        userId: ctx.user.id,
+        action: "smart_plan_ai_analysis_generated",
+        entityType: "smart_plan_analysis",
+        entityId: 0,
+        details: { generatedAt: result.generatedAt, totalEmailSends: (result.evidence as any)?.totalEmailSends ?? 0 },
+      });
+      return result;
+    }),
 
   // ── Enrollments ────────────────────────────────────────────────────────────
   enrollments: router({

@@ -107,6 +107,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewAdminApprovals",         label: "Admin Approvals",            group: "Approvals" },
   // Admin
   { key: "canViewUsers",                  label: "Users",                      group: "Admin" },
+  { key: "canViewAffiliateLinks",         label: "Affiliate Links",            group: "Admin" },
   { key: "canViewLeadSources",            label: "Lead Sources",               group: "Admin" },
   { key: "canViewActivityLog",            label: "Activity Log",               group: "Admin" },
   { key: "canAdministerPto",              label: "PTO Administration",        group: "Admin" },

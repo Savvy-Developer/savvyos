@@ -31,6 +31,8 @@ type SourceRow = {
     isProtected: boolean;
     description: string | null;
     partnerCheatSheet: string | null;
+    sopContent: string | null;
+    sopVisibleToAgents: boolean;
     isActive: boolean;
     agreementUrl: string | null;
     agreementKey: string | null;
@@ -231,6 +233,9 @@ export default function LeadSourcesPage() {
   const [agreementError, setAgreementError] = useState<string | null>(null);
   const [cheatSheetSource, setCheatSheetSource] = useState<SourceRow | null>(null);
   const [cheatSheetDraft, setCheatSheetDraft] = useState("");
+  const [sopSource, setSopSource] = useState<SourceRow | null>(null);
+  const [sopDraft, setSopDraft] = useState("");
+  const [sopVisibleToAgents, setSopVisibleToAgents] = useState(false);
 
   const createMutation = trpc.leadSources.create.useMutation({
     onSuccess: () => { utils.leadSources.list.invalidate(); setShowDialog(false); toast.success("Lead source created"); },
@@ -249,6 +254,15 @@ export default function LeadSourcesPage() {
       utils.leadSources.list.invalidate();
       setCheatSheetSource(null);
       toast.success("Partner cheat sheet saved");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateSopMutation = trpc.leadSources.updateSop.useMutation({
+    onSuccess: () => {
+      utils.leadSources.list.invalidate();
+      utils.leadSources.listInactive.invalidate();
+      setSopSource(null);
+      toast.success("Lead source SOP saved");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -300,6 +314,12 @@ export default function LeadSourcesPage() {
   function openCheatSheet(row: SourceRow) {
     setCheatSheetSource(row);
     setCheatSheetDraft(row.ls.partnerCheatSheet ?? "");
+  }
+
+  function openSop(row: SourceRow) {
+    setSopSource(row);
+    setSopDraft(row.ls.sopContent ?? "");
+    setSopVisibleToAgents(Boolean(row.ls.sopVisibleToAgents));
   }
 
   async function uploadAgreementFile(file: File): Promise<{ url: string; fileKey: string } | null> {
@@ -458,6 +478,7 @@ export default function LeadSourcesPage() {
                   >
                     Reactivate
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => openSop(row)}>SOP</Button>
                 </CardContent>
               </Card>
             ))
@@ -524,6 +545,9 @@ export default function LeadSourcesPage() {
                     </span>
                     <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => openCreate(parent.ls.id)}>
                       <Plus className="h-3 w-3 mr-1" />Add Sub-Source
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openSop(parent)}>
+                      SOP
                     </Button>
                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(parent)}>
                       <Pencil className="h-3.5 w-3.5" />
@@ -616,6 +640,14 @@ export default function LeadSourcesPage() {
                               <BookOpen className="mr-1 h-3.5 w-3.5" /> Cheat Sheet
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => openSop(child)}
+                          >
+                            SOP
+                          </Button>
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(child)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -892,6 +924,44 @@ export default function LeadSourcesPage() {
               disabled={updatePartnerCheatSheetMutation.isPending}
             >
               {updatePartnerCheatSheetMutation.isPending ? "Saving..." : "Save Cheat Sheet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(sopSource)} onOpenChange={(open) => { if (!open) setSopSource(null); }}>
+        <DialogContent className="max-w-3xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>SOP — {sopSource?.ls.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Write the operating procedure for this lead source. It stays private to administrators until you publish it to agents.
+            </p>
+            <RichEmailEditor
+              value={sopDraft}
+              onChange={setSopDraft}
+              placeholder="Add intake, follow-up, ownership, and process guidance…"
+              showMergeTags={false}
+            />
+            <div className="flex items-start justify-between gap-4 rounded-md border bg-muted/20 px-3 py-3">
+              <div>
+                <Label htmlFor="sop-visible-to-agents" className="cursor-pointer">Visible to Agents</Label>
+                <p className="mt-1 text-xs text-muted-foreground">Published SOPs can be opened from a lead source on the agent Pipeline.</p>
+              </div>
+              <Switch id="sop-visible-to-agents" checked={sopVisibleToAgents} onCheckedChange={setSopVisibleToAgents} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSopSource(null)}>Cancel</Button>
+            <Button
+              onClick={() => sopSource && updateSopMutation.mutate({
+                sourceId: sopSource.ls.id,
+                sopContent: sopDraft.trim() ? sopDraft : null,
+                sopVisibleToAgents,
+              })}
+              disabled={updateSopMutation.isPending}
+            >
+              {updateSopMutation.isPending ? "Saving..." : "Save SOP"}
             </Button>
           </DialogFooter>
         </DialogContent>

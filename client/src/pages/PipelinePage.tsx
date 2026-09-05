@@ -79,6 +79,7 @@ export default function PipelinePage() {
   const [editOpen, setEditOpen] = useState(false);
   const [buyBoxOpen, setBuyBoxOpen] = useState(false);
   const [editConn, setEditConn] = useState<any>(null);
+  const [sopSource, setSopSource] = useState<{ id: number; name: string } | null>(null);
   const [selectedEmailConnectionIds, setSelectedEmailConnectionIds] = useState<Set<number>>(new Set());
   const [massEmailOpen, setMassEmailOpen] = useState(false);
   const [addContactOpen, setAddContactOpen] = useState(false);
@@ -169,6 +170,10 @@ export default function PipelinePage() {
     { enabled: (user as any)?.role !== "agent" }
   );
   const { data: leadSourcesData = [] } = trpc.leadSources.listFlat.useQuery();
+  const sopQuery = trpc.leadSources.getSop.useQuery(
+    { sourceId: sopSource?.id ?? 0 },
+    { enabled: Boolean(sopSource?.id), retry: false },
+  );
   const stageCounts = connectionsData?.stageCounts ?? {};
   const agentCounts = connectionsData?.agentCounts ?? {};
   const isaCounts = connectionsData?.isaCounts ?? {};
@@ -648,6 +653,18 @@ export default function PipelinePage() {
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-semibold whitespace-nowrap">
                               {(row as any).leadSource?.name || contact?.leadSourceType?.replace(/_/g, ' ')}
                             </span>
+                            {(row as any).leadSource?.sopVisibleToAgents && (
+                              <button
+                                type="button"
+                                className="rounded border border-primary/25 bg-background px-1.5 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/5"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSopSource({ id: (row as any).leadSource.id, name: (row as any).leadSource.name });
+                                }}
+                              >
+                                SOP
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>
@@ -1123,6 +1140,13 @@ export default function PipelinePage() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(sopSource)} onOpenChange={(open) => { if (!open) setSopSource(null); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>SOP — {sopSource?.name}</DialogTitle></DialogHeader>
+          {sopQuery.isLoading ? <div className="flex items-center justify-center py-12"><span className="text-sm text-muted-foreground">Loading SOP…</span></div> : sopQuery.error ? <p className="py-6 text-sm text-muted-foreground">This SOP is not currently available.</p> : sopQuery.data?.sopContent ? <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: sopQuery.data.sopContent }} /> : <p className="py-6 text-sm text-muted-foreground">No published SOP is available for this lead source yet.</p>}
+          <DialogFooter><Button variant="outline" onClick={() => setSopSource(null)}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

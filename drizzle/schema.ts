@@ -316,6 +316,10 @@ export const leadSources = mysqlTable("lead_sources", {
   description: text("description"),
   // Agent-facing rich-text guidance for eligible referral and affiliate partners.
   partnerCheatSheet: mediumtext("partnerCheatSheet"),
+  // Admin-authored operating procedure. It can be published to agents without
+  // making the SOP editable outside the Lead Sources administration workflow.
+  sopContent: mediumtext("sopContent"),
+  sopVisibleToAgents: boolean("sopVisibleToAgents").default(false).notNull(),
   // Agreement document for sub-sources
   agreementUrl: text("agreementUrl"),
   agreementKey: varchar("agreementKey", { length: 500 }),
@@ -2727,6 +2731,48 @@ export const marketProfiles = mysqlTable("market_profiles", {
 export type MarketProfile = typeof marketProfiles.$inferSelect;
 export type InsertMarketProfile = typeof marketProfiles.$inferInsert;
 
+// ─── Market Profile Survey ───────────────────────────────────────────────────
+// Each active agent receives one restart-safe invitation. The invitation stores
+// an opaque issuance fingerprint, while the actual survey link is a one-click
+// SavvyOS magic link and every response is verified against the signed-in agent.
+export const marketProfileSurveyInvitations = mysqlTable(
+  "market_profile_survey_invitations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    marketProfileId: int("marketProfileId").references(() => marketProfiles.id, {
+      onDelete: "set null",
+    }),
+    surveyTokenHash: varchar("surveyTokenHash", { length: 64 }).notNull().unique(),
+    status: mysqlEnum("status", ["pending", "in_progress", "completed"])
+      .default("pending")
+      .notNull(),
+    initialSentAt: timestamp("initialSentAt"),
+    lastSentAt: timestamp("lastSentAt"),
+    nextReminderAt: timestamp("nextReminderAt"),
+    reminderCount: int("reminderCount").default(0).notNull(),
+    currentPage: int("currentPage").default(1).notNull(),
+    completedAt: timestamp("completedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("market_profile_survey_invitation_due_idx").on(
+      table.status,
+      table.nextReminderAt
+    ),
+    index("market_profile_survey_invitation_market_idx").on(
+      table.marketProfileId,
+      table.status
+    ),
+  ]
+);
+export type MarketProfileSurveyInvitation =
+  typeof marketProfileSurveyInvitations.$inferSelect;
+
 // ─── Agent Markets Intelligence ──────────────────────────────────────────────
 // `market_profiles` remains the shared market identity used by reporting and
 // agent assignment. These tables replace the former hand-authored fit/scoring
@@ -2767,6 +2813,42 @@ export const marketProfileSources = mysqlTable(
   ]
 );
 export type MarketProfileSource = typeof marketProfileSources.$inferSelect;
+
+// Responses retain the latest partial state so an agent can stop after any page
+// and resume exactly where they left off. Completed answers are also serialized
+// into a linked market source for the existing living-profile refresh pipeline.
+export const marketProfileSurveyResponses = mysqlTable(
+  "market_profile_survey_responses",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    invitationId: int("invitationId")
+      .notNull()
+      .unique()
+      .references(() => marketProfileSurveyInvitations.id, { onDelete: "cascade" }),
+    marketProfileId: int("marketProfileId")
+      .notNull()
+      .references(() => marketProfiles.id, { onDelete: "cascade" }),
+    agentId: int("agentId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    answers: json("answers").$type<Record<string, unknown>>().notNull(),
+    sourceId: int("sourceId").references(() => marketProfileSources.id, {
+      onDelete: "set null",
+    }),
+    submittedAt: timestamp("submittedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("market_profile_survey_response_market_idx").on(
+      table.marketProfileId,
+      table.updatedAt
+    ),
+    index("market_profile_survey_response_agent_idx").on(table.agentId),
+  ]
+);
+export type MarketProfileSurveyResponse =
+  typeof marketProfileSurveyResponses.$inferSelect;
 
 export const marketIntelligenceProfiles = mysqlTable(
   "market_intelligence_profiles",
@@ -2843,6 +2925,35 @@ export const marketAgentAssignments = mysqlTable("market_agent_assignments", {
   uniqueIndex("market_agent_assignment_market_agent_unique").on(table.marketProfileId, table.agentId),
 ]);
 export type MarketAgentAssignment = typeof marketAgentAssignments.$inferSelect;
+
+// ─── Affiliate Links ─────────────────────────────────────────────────────────
+// Internal partner-link inventory. Values are intentionally administrator-only;
+// this is a storage and decision-support module, not a public endorsement list.
+export const affiliateLinks = mysqlTable(
+  "affiliate_links",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    companyName: varchar("companyName", { length: 255 }).notNull(),
+    contactName: varchar("contactName", { length: 255 }),
+    contactEmail: varchar("contactEmail", { length: 320 }),
+    contactPhone: varchar("contactPhone", { length: 64 }),
+    websiteUrl: varchar("websiteUrl", { length: 1024 }),
+    affiliateUrl: text("affiliateUrl").notNull(),
+    commissionTerms: text("commissionTerms"),
+    estimatedEarnings: varchar("estimatedEarnings", { length: 255 }),
+    notes: text("notes"),
+    isActive: boolean("isActive").default(true).notNull(),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("affiliate_links_active_company_idx").on(table.isActive, table.companyName),
+  ]
+);
+export type AffiliateLink = typeof affiliateLinks.$inferSelect;
 
 // ─── Marketing Requests ───────────────────────────────────────────────────────
 export const marketingRequests = mysqlTable("marketing_requests", {
@@ -4602,6 +4713,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewActivityLog: boolean("canViewActivityLog").default(true).notNull(),
   // Admin
   canViewUsers: boolean("canViewUsers").default(true).notNull(),
+  canViewAffiliateLinks: boolean("canViewAffiliateLinks").default(true).notNull(),
   canViewAdminApprovals: boolean("canViewAdminApprovals")
     .default(true)
     .notNull(),

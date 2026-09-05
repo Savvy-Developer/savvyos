@@ -564,7 +564,7 @@ export async function getAgentConnections(filters: AgentConnectionListFilters = 
       connection: agentConnections,
       contact: contacts,
       agent: users,
-      leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
+      leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId, sopVisibleToAgents: leadSources.sopVisibleToAgents },
       parentLeadSource: { id: pipelineParentLS.id, name: pipelineParentLS.name },
     })
       .from(agentConnections)
@@ -666,7 +666,7 @@ export async function getAgentConnectionById(id: number) {
       contact: contacts,
       agent: users,
       isa: isaUser,
-      leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
+      leadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId, sopVisibleToAgents: leadSources.sopVisibleToAgents },
       parentLeadSource: { id: parentLS.id, name: parentLS.name },
     })
     .from(agentConnections)

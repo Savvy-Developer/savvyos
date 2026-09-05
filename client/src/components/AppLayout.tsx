@@ -364,6 +364,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewPasswords: "/passwords",
   canViewSuperPermissions: "/admin/super-permissions",
   canViewAgentDirectory: "/agent-directory",
+  canViewAffiliateLinks: "/affiliate-links",
   canViewVendorLists: "/admin/vendors",
 };
 
@@ -543,6 +544,7 @@ function buildAdminNav(
       label: "Admin",
       items: [
         { icon: UserCheck, label: "Users", path: "/users" },
+        { icon: Link2, label: "Affiliate Links", path: "/affiliate-links" },
         {
           icon: CalendarDays,
           label: "Agent Renewals",

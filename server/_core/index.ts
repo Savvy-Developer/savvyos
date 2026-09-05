@@ -40,6 +40,7 @@ import { scheduleContactIntelligence } from "../contactIntelligence";
 import { schedulePulseWorkItemAutomation } from "../pulse/automation";
 import { schedulePulseObservationGeneration } from "../pulse/observations";
 import { scheduleMarketIntelligenceRefresh } from "../agentMarketsIntelligence";
+import { scheduleMarketProfileSurveyReminders } from "../marketProfileSurveyScheduler";
 import { ensureSavvyOSTrainingGuides } from "../trainingGuidesPublisher";
 import { constructStripeWebhookEvent, handleStripeWebhookEvent, isStripeConfigured } from "../vendorBilling";
 import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedVendorEarningsReport";
@@ -362,6 +363,7 @@ async function startServer() {
   // Agent Markets: refresh source-grounded market intelligence only when its
   // bounded evidence fingerprint changes, preserving a living market profile.
   scheduleMarketIntelligenceRefresh();
+  scheduleMarketProfileSurveyReminders();
 
   // Email Behaviors: sync Resend + GHL email activity every 4 hours
   scheduleEmailBehaviorsSync();
