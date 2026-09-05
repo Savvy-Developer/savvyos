@@ -4,6 +4,7 @@ import {
   activityLog,
   aircallCalls,
   communications,
+  contactIntelligenceBackfillRuns,
   contactIntelligenceJobs,
   contactIntelligenceProfiles,
   contactIntelligenceSignalReviews,
@@ -15,12 +16,20 @@ import { invokeLLM } from "./_core/llm";
 import { notifySavvyOSPromptRun } from "./_core/slackNotifications";
 import { getDb } from "./db";
 
-export const CONTACT_INTELLIGENCE_EXTRACTION_VERSION = "contact-intelligence-v1";
+export const CONTACT_INTELLIGENCE_EXTRACTION_VERSION = "contact-intelligence-v2";
+const PRIMARY_EXTRACTION_MODEL = "gemini-3-flash-preview";
+const SECONDARY_EXTRACTION_MODEL = "gpt-5-mini";
 const JOB_LEASE_MS = 2 * 60_000;
 const JOB_INTERVAL_MS = 20_000;
 const MAX_JOB_ATTEMPTS = 8;
-const MAX_JOB_BATCH = 2;
-const MAX_TRANSCRIPT_CHARS = 14_000;
+// Four concurrent, non-overlapping calls are enough to drain a large campaign
+// quickly while preserving back pressure on the model provider and database.
+const MAX_JOB_BATCH = 4;
+const MAX_BACKFILL_IN_FLIGHT = 40;
+const DEFAULT_BACKFILL_LIMIT = 1_946;
+// Gemini's long context lets us retain an entire native call in nearly every
+// case; clipping remains a bounded safeguard for exceptionally long records.
+const MAX_TRANSCRIPT_CHARS = 48_000;
 
 let workerRunning = false;
 let schedulerStarted = false;
@@ -70,6 +79,8 @@ type ExtractedProfile = {
 type ExtractionResult = {
   profile: ExtractedProfile;
   signals: ExtractedSignal[];
+  extractionMode: "structured" | "native_summary_only";
+  modelUsed: string | null;
 };
 
 type Row = Record<string, unknown>;
@@ -376,6 +387,8 @@ function nativeSummaryFallback(input: Awaited<ReturnType<typeof getJobInput>>): 
       intentScore: 0,
     },
     signals: [],
+    extractionMode: "native_summary_only",
+    modelUsed: null,
   };
 }
 
@@ -389,7 +402,15 @@ export function contactIntelligenceSourceHash(transcription: string, body: strin
     .digest("hex");
 }
 
-export async function enqueueContactIntelligenceForCommunication(communicationId: number): Promise<void> {
+type EnqueueContactIntelligenceOptions = {
+  backfillRunId?: number | null;
+  extractionVersion?: string;
+};
+
+export async function enqueueContactIntelligenceForCommunication(
+  communicationId: number,
+  options: EnqueueContactIntelligenceOptions = {}
+): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   const [row] = await db.select({
@@ -406,12 +427,14 @@ export async function enqueueContactIntelligenceForCommunication(communicationId
 
   const now = new Date();
   const sourceHash = contactIntelligenceSourceHash(row.transcription, row.body);
+  const extractionVersion = options.extractionVersion ?? CONTACT_INTELLIGENCE_EXTRACTION_VERSION;
   await db.insert(contactIntelligenceJobs).values({
     aircallCallId: row.aircallCallId,
     contactId: row.contactId,
     communicationId: row.communicationId,
+    backfillRunId: options.backfillRunId ?? null,
     sourceHash,
-    extractionVersion: CONTACT_INTELLIGENCE_EXTRACTION_VERSION,
+    extractionVersion,
     status: "pending",
     nextAttemptAt: now,
   }).onDuplicateKeyUpdate({
@@ -467,30 +490,38 @@ Rules:
     { role: "system" as const, content: system },
     { role: "user" as const, content: user },
   ];
-  const validate = (raw: string): ExtractionResult => {
+  const validate = (raw: string, modelUsed: string): ExtractionResult => {
     const parsed = parseStructuredResponse(raw);
     if (!parsed || typeof parsed !== "object") throw new Error("Contact Intelligence model response was empty");
     const result = parsed as Record<string, unknown>;
     const profile = normalProfile(result.profile);
     if (!profile) throw new Error("Contact Intelligence model profile did not pass validation");
-    return { profile, signals: normalSignals(result.signals) };
+    return {
+      profile,
+      signals: normalSignals(result.signals),
+      extractionMode: "structured",
+      modelUsed,
+    };
   };
 
-  const schemaResponse = await invokeLLM({
-    model: "gpt-5-mini",
-    maxTokens: 2_800,
-    responseFormat: { type: "json_schema", json_schema: extractionSchema },
-    messages,
-  });
+  let primarySchemaError: unknown;
   try {
-    return validate(responseText(schemaResponse));
-  } catch (schemaError) {
-    // Some OpenAI-compatible deployments acknowledge json_schema yet intermittently
-    // emit an empty or non-JSON content field. Retry once in broadly supported JSON
-    // object mode; the same strict system instructions and application validation
-    // still govern what can be persisted.
-    const fallbackResponse = await invokeLLM({
-      model: "gpt-5-mini",
+    const schemaResponse = await invokeLLM({
+      model: PRIMARY_EXTRACTION_MODEL,
+      maxTokens: 2_800,
+      responseFormat: { type: "json_schema", json_schema: extractionSchema },
+      messages,
+    });
+    return validate(responseText(schemaResponse), PRIMARY_EXTRACTION_MODEL);
+  } catch (error) {
+    primarySchemaError = error;
+  }
+  // First retry in broadly supported JSON object mode on the same long-context
+  // provider. The strict prompt and application validator still govern storage.
+  let primaryJsonError: unknown;
+  try {
+    const jsonFallbackResponse = await invokeLLM({
+      model: PRIMARY_EXTRACTION_MODEL,
       maxTokens: 2_800,
       responseFormat: { type: "json_object" },
       messages: [
@@ -501,14 +532,26 @@ Rules:
         { role: "user", content: user },
       ],
     });
-    try {
-      return validate(responseText(fallbackResponse));
-    } catch (fallbackError) {
-      const initialMessage = schemaError instanceof Error ? schemaError.message : String(schemaError);
-      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      console.warn(`[ContactIntelligence] Structured extraction unavailable; persisting native-summary-only fallback. Schema: ${initialMessage}; fallback: ${fallbackMessage}`);
-      return nativeSummaryFallback(input);
-    }
+    return validate(responseText(jsonFallbackResponse), PRIMARY_EXTRACTION_MODEL);
+  } catch (error) {
+    primaryJsonError = error;
+  }
+  // A provider-level fallback helps avoid turning otherwise analyzable calls
+  // into summary-only profiles because of a transient output-format quirk.
+  try {
+    const secondaryResponse = await invokeLLM({
+      model: SECONDARY_EXTRACTION_MODEL,
+      maxTokens: 2_800,
+      responseFormat: { type: "json_schema", json_schema: extractionSchema },
+      messages,
+    });
+    return validate(responseText(secondaryResponse), SECONDARY_EXTRACTION_MODEL);
+  } catch (secondaryError) {
+    const initialMessage = primarySchemaError instanceof Error ? primarySchemaError.message : String(primarySchemaError);
+    const jsonMessage = primaryJsonError instanceof Error ? primaryJsonError.message : String(primaryJsonError);
+    const secondaryMessage = secondaryError instanceof Error ? secondaryError.message : String(secondaryError);
+    console.warn(`[ContactIntelligence] Structured extraction unavailable; persisting native-summary-only fallback. Primary schema: ${initialMessage}; primary JSON: ${jsonMessage}; secondary schema: ${secondaryMessage}`);
+    return nativeSummaryFallback(input);
   }
 }
 
@@ -550,6 +593,8 @@ async function saveExtraction(jobId: number, extraction: ExtractionResult): Prom
     latestSourceAt: lastSourceAt,
     lastAnalyzedAt: now,
     extractionVersion: CONTACT_INTELLIGENCE_EXTRACTION_VERSION,
+    extractionMode: extraction.extractionMode,
+    modelUsed: extraction.modelUsed,
     updatedAt: now,
   };
   await db.insert(contactIntelligenceProfiles).values({ contactId: input.job.contactId, ...values })
@@ -584,6 +629,7 @@ async function saveExtraction(jobId: number, extraction: ExtractionResult): Prom
         evidenceTimestamp: signal.evidenceTimestamp || null,
         sourceOccurredAt: lastSourceAt,
         status: "active",
+        extractionVersion: CONTACT_INTELLIGENCE_EXTRACTION_VERSION,
         updatedAt: now,
       },
     });
@@ -617,7 +663,7 @@ async function saveExtraction(jobId: number, extraction: ExtractionResult): Prom
   });
 }
 
-async function processJob(jobId: number): Promise<void> {
+async function processJob(jobId: number): Promise<ExtractionResult> {
   const input = await getJobInput(jobId);
   const extraction = await extractConversationIntelligence(input);
   await saveExtraction(jobId, extraction);
@@ -625,9 +671,10 @@ async function processJob(jobId: number): Promise<void> {
   // run without sending customer content or record identifiers to Slack.
   void notifySavvyOSPromptRun({
     title: "Contact Intelligence profile refreshed",
-    summary: "A native Aircall transcript was analyzed with the Contact Intelligence v1 extraction schema. The evidence-linked profile and AI contact briefing were refreshed; no human-managed CRM fields were changed.",
+    summary: `A native Aircall transcript was analyzed with the Contact Intelligence ${CONTACT_INTELLIGENCE_EXTRACTION_VERSION} extraction schema. The evidence-linked profile and AI contact briefing were refreshed; no human-managed CRM fields were changed.`,
     actionUrl: "/analytics/conversation-intelligence",
   });
+  return extraction;
 }
 
 export async function processDueContactIntelligenceJobs(): Promise<void> {
@@ -667,7 +714,7 @@ export async function processDueContactIntelligenceJobs(): Promise<void> {
       .orderBy(contactIntelligenceJobs.createdAt)
       .limit(MAX_JOB_BATCH);
 
-    for (const job of jobs) {
+    await Promise.all(jobs.map(async (job) => {
       await db.update(contactIntelligenceJobs).set({
         status: "processing",
         attempts: sql`${contactIntelligenceJobs.attempts} + 1`,
@@ -675,13 +722,15 @@ export async function processDueContactIntelligenceJobs(): Promise<void> {
         leaseExpiresAt: new Date(Date.now() + JOB_LEASE_MS),
       }).where(eq(contactIntelligenceJobs.id, job.id));
       try {
-        await processJob(job.id);
+        const extraction = await processJob(job.id);
         await db.update(contactIntelligenceJobs).set({
           status: "completed",
           processedAt: new Date(),
           nextAttemptAt: null,
           leaseExpiresAt: null,
           lastError: null,
+          extractionMode: extraction.extractionMode,
+          modelUsed: extraction.modelUsed,
         }).where(eq(contactIntelligenceJobs.id, job.id));
       } catch (error) {
         const [current] = await db.select({ attempts: contactIntelligenceJobs.attempts })
@@ -699,9 +748,12 @@ export async function processDueContactIntelligenceJobs(): Promise<void> {
         }).where(eq(contactIntelligenceJobs.id, job.id));
         console.error(`[ContactIntelligence] Job ${job.id} ${attempts >= MAX_JOB_ATTEMPTS ? "failed" : "will retry"}: ${message}`);
       }
-    }
+    }));
   } finally {
     workerRunning = false;
+    // A completed batch frees campaign capacity. Refill only through the durable
+    // run state, never from an HTTP request, so campaign controls stay auditable.
+    void refillActiveBackfillRuns();
   }
 }
 
@@ -804,22 +856,225 @@ export async function getContactIntelligence(contactId: number) {
   return { profile, signals };
 }
 
-export async function queueContactIntelligenceBackfill(limit = 25): Promise<{ queued: number }> {
+type BackfillStatus = "running" | "paused" | "completed" | "cancelled";
+
+export type ContactIntelligenceBackfillOptions = {
+  name?: string;
+  limit?: number;
+  dateFrom?: Date | null;
+  dateTo?: Date | null;
+  minimumDurationSeconds?: number;
+  actionableOnly?: boolean;
+  createdById?: number | null;
+};
+
+type BackfillCandidate = { communicationId: number };
+
+function getBackfillDateStart(): Date {
+  const start = new Date();
+  start.setDate(start.getDate() - 89);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+async function readBackfillCandidates(
+  run: typeof contactIntelligenceBackfillRuns.$inferSelect,
+  limit: number
+): Promise<BackfillCandidate[]> {
+  const db = await getDb();
+  if (!db || limit < 1) return [];
+  const actionableClause = run.actionableOnly
+    ? sql`AND c.\`archived_at\` IS NULL AND c.\`doNotContact\` = 0 AND c.\`isa_status\` IN ('new_lead', 'attempted_contact', 'nurture', 'active_client')`
+    : sql``;
+  const rows = await (db as unknown as { execute: (query: SQL) => Promise<unknown> }).execute(sql`
+    WITH ranked_candidates AS (
+      SELECT
+        comm.\`id\` AS communicationId,
+        ac.\`contactId\` AS contactId,
+        ROW_NUMBER() OVER (
+          PARTITION BY ac.\`contactId\`
+          ORDER BY ac.\`startedAt\` DESC, ac.\`aircallCallId\` DESC
+        ) AS rowNumber
+      FROM \`aircall_calls\` ac
+      INNER JOIN \`communications\` comm ON comm.\`id\` = ac.\`communicationId\`
+      INNER JOIN \`contacts\` c ON c.\`id\` = ac.\`contactId\`
+      LEFT JOIN \`contact_intelligence_profiles\` profile ON profile.\`contactId\` = ac.\`contactId\`
+      WHERE ac.\`contactId\` IS NOT NULL
+        AND comm.\`transcription\` IS NOT NULL
+        AND CHAR_LENGTH(TRIM(comm.\`transcription\`)) > 0
+        AND (profile.\`id\` IS NULL OR profile.\`extractionVersion\` <> ${run.extractionVersion})
+        AND ac.\`duration\` >= ${run.minimumDurationSeconds}
+        ${run.dateFrom ? sql`AND ac.\`startedAt\` >= ${run.dateFrom}` : sql``}
+        ${run.dateTo ? sql`AND ac.\`startedAt\` < DATE_ADD(${run.dateTo}, INTERVAL 1 DAY)` : sql``}
+        ${actionableClause}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM \`contact_intelligence_jobs\` queued
+          WHERE queued.\`contactId\` = ac.\`contactId\`
+            AND queued.\`extractionVersion\` = ${run.extractionVersion}
+        )
+    )
+    SELECT communicationId
+    FROM ranked_candidates
+    WHERE rowNumber = 1
+    ORDER BY communicationId DESC
+    LIMIT ${limit}
+  `);
+  return rowsFromResult<BackfillCandidate>(rows);
+}
+
+async function refreshBackfillRun(runId: number): Promise<typeof contactIntelligenceBackfillRuns.$inferSelect | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [run] = await db.select().from(contactIntelligenceBackfillRuns)
+    .where(eq(contactIntelligenceBackfillRuns.id, runId))
+    .limit(1);
+  if (!run) return null;
+  const [counts] = await db.select({
+    queued: sql<number>`COUNT(DISTINCT ${contactIntelligenceJobs.contactId})`,
+    completed: sql<number>`COUNT(DISTINCT CASE WHEN ${contactIntelligenceJobs.status} = 'completed' THEN ${contactIntelligenceJobs.contactId} END)`,
+    structured: sql<number>`COUNT(DISTINCT CASE WHEN ${contactIntelligenceJobs.status} = 'completed' AND ${contactIntelligenceJobs.extractionMode} = 'structured' THEN ${contactIntelligenceJobs.contactId} END)`,
+    nativeSummaryOnly: sql<number>`COUNT(DISTINCT CASE WHEN ${contactIntelligenceJobs.status} = 'completed' AND ${contactIntelligenceJobs.extractionMode} = 'native_summary_only' THEN ${contactIntelligenceJobs.contactId} END)`,
+    inFlight: sql<number>`COUNT(DISTINCT CASE WHEN ${contactIntelligenceJobs.status} IN ('pending', 'processing', 'retrying') THEN ${contactIntelligenceJobs.contactId} END)`,
+  }).from(contactIntelligenceJobs)
+    .where(eq(contactIntelligenceJobs.backfillRunId, runId));
+  const now = new Date();
+  await db.update(contactIntelligenceBackfillRuns).set({
+    queuedContacts: Number(counts?.queued ?? 0),
+    completedContacts: Number(counts?.completed ?? 0),
+    structuredContacts: Number(counts?.structured ?? 0),
+    nativeSummaryOnlyContacts: Number(counts?.nativeSummaryOnly ?? 0),
+    updatedAt: now,
+  }).where(eq(contactIntelligenceBackfillRuns.id, runId));
+  const [refreshed] = await db.select().from(contactIntelligenceBackfillRuns)
+    .where(eq(contactIntelligenceBackfillRuns.id, runId))
+    .limit(1);
+  return refreshed ?? null;
+}
+
+async function fillBackfillRun(runId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const run = await refreshBackfillRun(runId);
+  if (!run || run.status !== "running") return;
+  const inFlightRows = await db.select({
+    count: sql<number>`COUNT(DISTINCT CASE WHEN ${contactIntelligenceJobs.status} IN ('pending', 'processing', 'retrying') THEN ${contactIntelligenceJobs.contactId} END)`,
+  }).from(contactIntelligenceJobs)
+    .where(eq(contactIntelligenceJobs.backfillRunId, run.id));
+  const inFlight = Number(inFlightRows[0]?.count ?? 0);
+  if (run.queuedContacts >= run.targetContacts && inFlight === 0) {
+    await db.update(contactIntelligenceBackfillRuns).set({
+      status: "completed",
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(contactIntelligenceBackfillRuns.id, run.id));
+    return;
+  }
+  const remainingTarget = Math.max(0, run.targetContacts - run.queuedContacts);
+  const capacity = Math.min(MAX_BACKFILL_IN_FLIGHT - inFlight, remainingTarget);
+  if (capacity <= 0) return;
+  const candidates = await readBackfillCandidates(run, capacity);
+  if (candidates.length === 0) {
+    if (inFlight === 0) {
+      await db.update(contactIntelligenceBackfillRuns).set({
+        status: "completed",
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(contactIntelligenceBackfillRuns.id, run.id));
+    }
+    return;
+  }
+  for (const candidate of candidates) {
+    await enqueueContactIntelligenceForCommunication(candidate.communicationId, {
+      backfillRunId: run.id,
+      extractionVersion: run.extractionVersion,
+    });
+  }
+  await db.update(contactIntelligenceBackfillRuns).set({
+    lastQueuedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(contactIntelligenceBackfillRuns.id, run.id));
+  await refreshBackfillRun(run.id);
+}
+
+async function refillActiveBackfillRuns(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const runs = await db.select({ id: contactIntelligenceBackfillRuns.id })
+    .from(contactIntelligenceBackfillRuns)
+    .where(eq(contactIntelligenceBackfillRuns.status, "running"))
+    .orderBy(contactIntelligenceBackfillRuns.createdAt)
+    .limit(3);
+  for (const run of runs) await fillBackfillRun(run.id);
+}
+
+export async function startContactIntelligenceBackfill(
+  options: ContactIntelligenceBackfillOptions = {}
+): Promise<{ runId: number; queued: number; targetContacts: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
-  const rows = await db.select({ id: communications.id })
-    .from(communications)
-    .innerJoin(aircallCalls, eq(aircallCalls.communicationId, communications.id))
-    .leftJoin(contactIntelligenceProfiles, eq(contactIntelligenceProfiles.contactId, aircallCalls.contactId))
-    .where(and(
-      sql`${aircallCalls.contactId} IS NOT NULL`,
-      sql`${communications.transcription} IS NOT NULL`,
-      isNull(contactIntelligenceProfiles.id),
-    ))
-    .orderBy(desc(communications.communicatedAt))
-    .limit(Math.min(100, Math.max(1, limit)));
-  for (const row of rows) await enqueueContactIntelligenceForCommunication(row.id);
-  return { queued: rows.length };
+  const now = new Date();
+  const targetContacts = Math.min(5_000, Math.max(1, options.limit ?? DEFAULT_BACKFILL_LIMIT));
+  const dateFrom = options.dateFrom ?? getBackfillDateStart();
+  const dateTo = options.dateTo ?? now;
+  const result = await db.insert(contactIntelligenceBackfillRuns).values({
+    name: cleanText(options.name, 255) || "Current 90-day Contact Intelligence enrichment",
+    status: "running",
+    extractionVersion: CONTACT_INTELLIGENCE_EXTRACTION_VERSION,
+    dateFrom,
+    dateTo,
+    minimumDurationSeconds: Math.max(0, Math.min(3_600, Math.round(options.minimumDurationSeconds ?? 90))),
+    actionableOnly: options.actionableOnly ?? true,
+    targetContacts,
+    createdById: options.createdById ?? null,
+  });
+  const runId = Number(result[0].insertId);
+  await fillBackfillRun(runId);
+  const run = await refreshBackfillRun(runId);
+  return {
+    runId,
+    queued: run?.queuedContacts ?? 0,
+    targetContacts,
+  };
+}
+
+export async function getContactIntelligenceBackfillRuns() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(contactIntelligenceBackfillRuns)
+    .orderBy(desc(contactIntelligenceBackfillRuns.createdAt))
+    .limit(12);
+}
+
+export async function updateContactIntelligenceBackfillRun(
+  runId: number,
+  status: Extract<BackfillStatus, "running" | "paused" | "cancelled">
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const [run] = await db.select().from(contactIntelligenceBackfillRuns)
+    .where(eq(contactIntelligenceBackfillRuns.id, runId))
+    .limit(1);
+  if (!run) throw new Error("Contact Intelligence campaign was not found");
+  if (run.status === "completed" || run.status === "cancelled") {
+    throw new Error("A completed or cancelled Contact Intelligence campaign cannot be restarted");
+  }
+  await db.update(contactIntelligenceBackfillRuns).set({
+    status,
+    updatedAt: new Date(),
+  }).where(eq(contactIntelligenceBackfillRuns.id, runId));
+  if (status === "running") await fillBackfillRun(runId);
+}
+
+/** Legacy bounded pilot helper retained for the admin page while campaigns roll out. */
+export async function queueContactIntelligenceBackfill(limit = 25): Promise<{ queued: number }> {
+  const result = await startContactIntelligenceBackfill({
+    name: "Manual Contact Intelligence pilot",
+    limit: Math.min(100, Math.max(1, limit)),
+    minimumDurationSeconds: 0,
+    actionableOnly: false,
+  });
+  return { queued: result.queued };
 }
 
 export const __testables__ = {

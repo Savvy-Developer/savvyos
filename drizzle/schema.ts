@@ -5461,6 +5461,47 @@ export type InsertAircallIntegrationState =
 // Aircall remains the source of the completed transcript and standard call
 // summary. These records retain SavvyOS's evidence-linked interpretation of
 // that native source without silently changing human-managed CRM fields.
+export const contactIntelligenceBackfillRuns = mysqlTable(
+  "contact_intelligence_backfill_runs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 255 }).notNull(),
+    status: mysqlEnum("status", ["running", "paused", "completed", "cancelled"])
+      .notNull()
+      .default("running"),
+    extractionVersion: varchar("extractionVersion", { length: 64 })
+      .notNull()
+      .default("contact-intelligence-v2"),
+    dateFrom: timestamp("dateFrom"),
+    dateTo: timestamp("dateTo"),
+    minimumDurationSeconds: int("minimumDurationSeconds").notNull().default(0),
+    actionableOnly: boolean("actionableOnly").notNull().default(false),
+    targetContacts: int("targetContacts").notNull().default(0),
+    queuedContacts: int("queuedContacts").notNull().default(0),
+    completedContacts: int("completedContacts").notNull().default(0),
+    structuredContacts: int("structuredContacts").notNull().default(0),
+    nativeSummaryOnlyContacts: int("nativeSummaryOnlyContacts").notNull().default(0),
+    lastQueuedAt: timestamp("lastQueuedAt"),
+    completedAt: timestamp("completedAt"),
+    lastError: varchar("lastError", { length: 512 }),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("contact_intelligence_backfill_runs_status_idx").on(
+      table.status,
+      table.updatedAt
+    ),
+  ]
+);
+export type ContactIntelligenceBackfillRun =
+  typeof contactIntelligenceBackfillRuns.$inferSelect;
+export type InsertContactIntelligenceBackfillRun =
+  typeof contactIntelligenceBackfillRuns.$inferInsert;
+
 export const contactIntelligenceJobs = mysqlTable(
   "contact_intelligence_jobs",
   {
@@ -5472,12 +5513,21 @@ export const contactIntelligenceJobs = mysqlTable(
     communicationId: int("communicationId")
       .notNull()
       .references(() => communications.id, { onDelete: "cascade" }),
+    backfillRunId: int("backfillRunId").references(
+      () => contactIntelligenceBackfillRuns.id,
+      { onDelete: "set null" }
+    ),
     // Hashes the native transcript and standard summary. A changed Aircall source
     // becomes a distinct, idempotent enrichment job without overwriting evidence.
     sourceHash: varchar("sourceHash", { length: 64 }).notNull(),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v1"),
+      .default("contact-intelligence-v2"),
+    extractionMode: mysqlEnum("extractionMode", [
+      "structured",
+      "native_summary_only",
+    ]),
+    modelUsed: varchar("modelUsed", { length: 128 }),
     status: mysqlEnum("status", [
       "pending",
       "processing",
@@ -5499,7 +5549,8 @@ export const contactIntelligenceJobs = mysqlTable(
   table => [
     uniqueIndex("contact_intelligence_jobs_source_unique").on(
       table.aircallCallId,
-      table.sourceHash
+      table.sourceHash,
+      table.extractionVersion
     ),
     index("contact_intelligence_jobs_status_next_idx").on(
       table.status,
@@ -5508,6 +5559,10 @@ export const contactIntelligenceJobs = mysqlTable(
     index("contact_intelligence_jobs_contact_created_idx").on(
       table.contactId,
       table.createdAt
+    ),
+    index("contact_intelligence_jobs_backfill_status_idx").on(
+      table.backfillRunId,
+      table.status
     ),
   ]
 );
@@ -5538,7 +5593,14 @@ export const contactIntelligenceProfiles = mysqlTable(
     lastAnalyzedAt: timestamp("lastAnalyzedAt"),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v1"),
+      .default("contact-intelligence-v2"),
+    extractionMode: mysqlEnum("extractionMode", [
+      "structured",
+      "native_summary_only",
+    ])
+      .notNull()
+      .default("native_summary_only"),
+    modelUsed: varchar("modelUsed", { length: 128 }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -5582,7 +5644,7 @@ export const contactIntelligenceSignals = mysqlTable(
     sourceOccurredAt: timestamp("sourceOccurredAt"),
     extractionVersion: varchar("extractionVersion", { length: 64 })
       .notNull()
-      .default("contact-intelligence-v1"),
+      .default("contact-intelligence-v2"),
     status: mysqlEnum("status", ["active", "dismissed", "superseded"])
       .notNull()
       .default("active"),

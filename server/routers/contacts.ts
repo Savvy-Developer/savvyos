@@ -19,8 +19,11 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import {
   getContactIntelligence,
+  getContactIntelligenceBackfillRuns,
   queueContactIntelligenceBackfill,
   reviewContactIntelligenceSignal,
+  startContactIntelligenceBackfill,
+  updateContactIntelligenceBackfillRun,
 } from "../contactIntelligence";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { shouldResetLeadAging } from "../leadAging";
@@ -942,6 +945,47 @@ Please write the comprehensive AI summary now.`;
         throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can queue Contact Intelligence backfill." });
       }
       return queueContactIntelligenceBackfill(input?.limit ?? 25);
+    }),
+
+  /** Resumable, contact-based historical campaign. It enriches profiles only. */
+  startIntelligenceBackfillCampaign: protectedProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(5_000).default(594),
+      minimumDurationSeconds: z.number().int().min(0).max(3_600).default(90),
+      actionableOnly: z.boolean().default(true),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can start Contact Intelligence campaigns." });
+      }
+      return startContactIntelligenceBackfill({
+        name: "Actionable 90-day Contact Intelligence enrichment",
+        limit: input?.limit ?? 594,
+        minimumDurationSeconds: input?.minimumDurationSeconds ?? 90,
+        actionableOnly: input?.actionableOnly ?? true,
+        createdById: ctx.user.id,
+      });
+    }),
+
+  getIntelligenceBackfillCampaigns: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can view Contact Intelligence campaigns." });
+      }
+      return getContactIntelligenceBackfillRuns();
+    }),
+
+  updateIntelligenceBackfillCampaign: protectedProcedure
+    .input(z.object({
+      runId: z.number().int().positive(),
+      status: z.enum(["running", "paused", "cancelled"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can control Contact Intelligence campaigns." });
+      }
+      await updateContactIntelligenceBackfillRun(input.runId, input.status);
+      return { success: true };
     }),
 
   getHistory: protectedProcedure
