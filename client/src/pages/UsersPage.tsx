@@ -32,7 +32,25 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
-import { Plus, Pencil, Trash2, Users, Eye, Search, Filter, UserCheck, Link2, Link2Off, KeyRound, Upload, X, Loader2, CheckCircle2, AlertCircle, Activity } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Users,
+  Eye,
+  Search,
+  Filter,
+  UserCheck,
+  Link2,
+  Link2Off,
+  KeyRound,
+  Upload,
+  X,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Activity,
+} from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
@@ -82,7 +100,7 @@ type FormState = {
   phone: string;
   title: string;
   reportsToId: string; // string for select
-  marketProfileId: string;    // string for select
+  marketProfileId: string; // string for select
   commissionSplit: string; // free numeric input (0-100)
   callBookingLink: string;
   enableOnboarding: boolean;
@@ -90,24 +108,32 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  name: "", email: "", role: "agent" as "admin" | "agent" | "isa" | "agent_support", employmentType: "",
-  phone: "", title: "", reportsToId: "", marketProfileId: "",
+  name: "",
+  email: "",
+  role: "agent" as "admin" | "agent" | "isa" | "agent_support",
+  employmentType: "",
+  phone: "",
+  title: "",
+  reportsToId: "",
+  marketProfileId: "",
   commissionSplit: "",
   callBookingLink: "",
   enableOnboarding: false,
   onboardingTemplateId: "",
 };
 
-
 export default function UsersPage() {
   const { user: me } = useAuth();
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
-  const { data: users = [], isLoading } = trpc.users.listWithDocCounts.useQuery();
+  const { data: users = [], isLoading } =
+    trpc.users.listWithDocCounts.useQuery();
   const { data: markets = [] } = trpc.markets.list.useQuery();
-  const { data: onboardingTemplates } = trpc.onboarding.listTemplates.useQuery();
+  const { data: onboardingTemplates } =
+    trpc.onboarding.listTemplates.useQuery();
   // Only Tyler/Elana/Dyl can create or promote admin users
-  const { data: canManagePerms } = trpc.permissions.canManagePermissions.useQuery();
+  const { data: canManagePerms } =
+    trpc.permissions.canManagePermissions.useQuery();
   const isAdmin = (me as any)?.role === "admin";
 
   // Aircall caller assignments are administered here so the workflow is visible
@@ -116,34 +142,45 @@ export default function UsersPage() {
   const [selectedAircallUserId, setSelectedAircallUserId] = useState("");
   const [selectedAircallNumberId, setSelectedAircallNumberId] = useState("");
   const selectedAircallIsaIdNumber = Number(selectedAircallIsaId || 0);
-  const { data: selectedAircallAssignment, refetch: refetchSelectedAircallAssignment } = trpc.aircallCalling.getAssignment.useQuery(
+  const {
+    data: selectedAircallAssignment,
+    refetch: refetchSelectedAircallAssignment,
+  } = trpc.aircallCalling.getAssignment.useQuery(
     { userId: selectedAircallIsaIdNumber },
-    { enabled: isAdmin && selectedAircallIsaIdNumber > 0 },
+    { enabled: isAdmin && selectedAircallIsaIdNumber > 0 }
   );
-  const { data: aircallUsers = [], error: aircallUsersError, isLoading: aircallUsersLoading } = trpc.aircallCalling.listAircallUsers.useQuery(
-    undefined,
-    { enabled: isAdmin },
-  );
-  const { data: aircallNumbers = [], error: aircallNumbersError, isLoading: aircallNumbersLoading } = trpc.aircallCalling.listAircallUserNumbers.useQuery(
+  const {
+    data: aircallUsers = [],
+    error: aircallUsersError,
+    isLoading: aircallUsersLoading,
+  } = trpc.aircallCalling.listAircallUsers.useQuery(undefined, {
+    enabled: isAdmin,
+  });
+  const {
+    data: aircallNumbers = [],
+    error: aircallNumbersError,
+    isLoading: aircallNumbersLoading,
+  } = trpc.aircallCalling.listAircallUserNumbers.useQuery(
     { aircallUserId: Number(selectedAircallUserId || 0) },
-    { enabled: isAdmin && Number(selectedAircallUserId) > 0 },
+    { enabled: isAdmin && Number(selectedAircallUserId) > 0 }
   );
   const saveAircallAssignment = trpc.aircallCalling.setAssignment.useMutation({
     onSuccess: () => {
       toast.success("Aircall caller assignment saved");
       void refetchSelectedAircallAssignment();
     },
-    onError: (error) => toast.error(error.message),
+    onError: error => toast.error(error.message),
   });
-  const removeAircallAssignment = trpc.aircallCalling.removeAssignment.useMutation({
-    onSuccess: () => {
-      toast.success("Aircall caller assignment removed");
-      setSelectedAircallUserId("");
-      setSelectedAircallNumberId("");
-      void refetchSelectedAircallAssignment();
-    },
-    onError: (error) => toast.error(error.message),
-  });
+  const removeAircallAssignment =
+    trpc.aircallCalling.removeAssignment.useMutation({
+      onSuccess: () => {
+        toast.success("Aircall caller assignment removed");
+        setSelectedAircallUserId("");
+        setSelectedAircallNumberId("");
+        void refetchSelectedAircallAssignment();
+      },
+      onError: error => toast.error(error.message),
+    });
 
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<UserRow | null>(null);
@@ -158,13 +195,23 @@ export default function UsersPage() {
   const [headshotPreview, setHeadshotPreview] = useState<string | null>(null);
   const [headshotFile, setHeadshotFile] = useState<File | null>(null);
   const [headshotDragOver, setHeadshotDragOver] = useState(false);
-  const [headshotUploadState, setHeadshotUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [headshotUploadState, setHeadshotUploadState] = useState<
+    "idle" | "uploading" | "success" | "error"
+  >("idle");
   const [headshotError, setHeadshotError] = useState<string | null>(null);
   const headshotInputRef = useRef<HTMLInputElement>(null);
-  const [backgroundlessPreview, setBackgroundlessPreview] = useState<string | null>(null);
-  const [backgroundlessFile, setBackgroundlessFile] = useState<File | null>(null);
-  const [backgroundlessUploadState, setBackgroundlessUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
-  const [backgroundlessError, setBackgroundlessError] = useState<string | null>(null);
+  const [backgroundlessPreview, setBackgroundlessPreview] = useState<
+    string | null
+  >(null);
+  const [backgroundlessFile, setBackgroundlessFile] = useState<File | null>(
+    null
+  );
+  const [backgroundlessUploadState, setBackgroundlessUploadState] = useState<
+    "idle" | "uploading" | "success" | "error"
+  >("idle");
+  const [backgroundlessError, setBackgroundlessError] = useState<string | null>(
+    null
+  );
   const backgroundlessInputRef = useRef<HTMLInputElement>(null);
   const adminUpdateAvatarMutation = trpc.users.adminUpdateAvatar.useMutation({
     onSuccess: (_data, variables) => {
@@ -175,11 +222,19 @@ export default function UsersPage() {
   });
 
   const startOnboardingMut = trpc.onboarding.createInstance.useMutation({
-    onSuccess: () => toast.success("Onboarding started for new agent"),
+    onSuccess: result => {
+      if (result.profileInvitationSent) {
+        toast.success("Onboarding started and profile invitation sent");
+      } else {
+        toast.warning(
+          "Onboarding started, but the profile invitation email was not sent"
+        );
+      }
+    },
     onError: (e: any) => toast.error(`Onboarding error: ${e.message}`),
   });
   const createMutation = trpc.users.create.useMutation({
-    onSuccess: (result) => {
+    onSuccess: result => {
       toast.success("Team member added");
       utils.users.listWithDocCounts.invalidate();
       if (form.enableOnboarding && form.onboardingTemplateId) {
@@ -190,7 +245,7 @@ export default function UsersPage() {
       }
       setAddOpen(false);
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const updateMutation = trpc.users.update.useMutation({
@@ -200,7 +255,7 @@ export default function UsersPage() {
       void utils.auth.me.invalidate();
       setEditTarget(null);
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const deleteMutation = trpc.users.delete.useMutation({
@@ -209,27 +264,32 @@ export default function UsersPage() {
       utils.users.listWithDocCounts.invalidate();
       setDeleteTarget(null);
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
-  const updateSignatureMutation = trpc.users.updateEmailSignatureForUser.useMutation({
-    onSuccess: (_result, variables) => {
-      utils.users.getCoreProfile.invalidate({ userId: variables.userId });
-      toast.success("Email Signature saved for team member");
-      setSignatureTarget(null);
-      setSignatureHtml("");
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const updateSignatureMutation =
+    trpc.users.updateEmailSignatureForUser.useMutation({
+      onSuccess: (_result, variables) => {
+        utils.users.getCoreProfile.invalidate({ userId: variables.userId });
+        toast.success("Email Signature saved for team member");
+        setSignatureTarget(null);
+        setSignatureHtml("");
+      },
+      onError: e => toast.error(e.message),
+    });
 
   async function openSignatureEditor(user: UserRow) {
     setSignatureTarget(user);
     setSignatureHtml("");
     try {
-      const profile = await utils.users.getCoreProfile.fetch({ userId: user.id });
+      const profile = await utils.users.getCoreProfile.fetch({
+        userId: user.id,
+      });
       setSignatureHtml((profile as any)?.emailSignatureHtml ?? "");
     } catch (error: any) {
-      toast.error(error?.message ?? "Could not load this user’s Email Signature");
+      toast.error(
+        error?.message ?? "Could not load this user’s Email Signature"
+      );
     }
   }
 
@@ -242,13 +302,17 @@ export default function UsersPage() {
     setForm({
       name: u.name ?? "",
       email: u.email ?? "",
-      role: (["admin", "agent", "isa", "agent_support"].includes(u.role) ? u.role : "agent") as "admin" | "agent" | "isa" | "agent_support",
+      role: (["admin", "agent", "isa", "agent_support"].includes(u.role)
+        ? u.role
+        : "agent") as "admin" | "agent" | "isa" | "agent_support",
       employmentType: u.employmentType ?? "",
       phone: u.phone ?? "",
       title: u.title ?? "",
       reportsToId: u.reportsToId ? String(u.reportsToId) : "",
       marketProfileId: u.marketProfileId ? String(u.marketProfileId) : "",
-      commissionSplit: (u as any).commissionSplit ? String((u as any).commissionSplit) : "",
+      commissionSplit: (u as any).commissionSplit
+        ? String((u as any).commissionSplit)
+        : "",
       callBookingLink: (u as any).callBookingLink ?? "",
       enableOnboarding: false,
       onboardingTemplateId: "",
@@ -281,7 +345,8 @@ export default function UsersPage() {
     setBackgroundlessUploadState("idle");
     setBackgroundlessFile(file);
     const reader = new FileReader();
-    reader.onload = (event) => setBackgroundlessPreview(event.target?.result as string);
+    reader.onload = event =>
+      setBackgroundlessPreview(event.target?.result as string);
     reader.readAsDataURL(file);
   }
 
@@ -296,8 +361,12 @@ export default function UsersPage() {
       phone: form.phone || null,
       title: form.title || null,
       reportsToId: form.reportsToId ? Number(form.reportsToId) : null,
-      marketProfileId: form.marketProfileId ? Number(form.marketProfileId) : null,
-      commissionSplit: form.commissionSplit ? Number(form.commissionSplit) : null,
+      marketProfileId: form.marketProfileId
+        ? Number(form.marketProfileId)
+        : null,
+      commissionSplit: form.commissionSplit
+        ? Number(form.commissionSplit)
+        : null,
       callBookingLink: form.callBookingLink || null,
     };
   }
@@ -310,37 +379,57 @@ export default function UsersPage() {
 
   const adminSetPasswordMut = trpc.auth.adminSetPassword.useMutation({
     onSuccess: () => {
-      toast.success(`Password updated for ${pwTarget?.name ?? pwTarget?.email}`);
+      toast.success(
+        `Password updated for ${pwTarget?.name ?? pwTarget?.email}`
+      );
       setPwTarget(null);
       setNewPassword("");
       setConfirmPassword("");
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
-  const { data: allAssignments = [] } = trpc.agentSupport.listAssignments.useQuery(
-    undefined,
-    { enabled: (me as any)?.role === "admin" }
-  );
+  const { data: allAssignments = [] } =
+    trpc.agentSupport.listAssignments.useQuery(undefined, {
+      enabled: (me as any)?.role === "admin",
+    });
   const addAssignmentMut = trpc.agentSupport.addAssignment.useMutation({
-    onSuccess: () => { utils.agentSupport.listAssignments.invalidate(); toast.success("Agent assigned"); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      utils.agentSupport.listAssignments.invalidate();
+      toast.success("Agent assigned");
+    },
+    onError: e => toast.error(e.message),
   });
   const removeAssignmentMut = trpc.agentSupport.removeAssignment.useMutation({
-    onSuccess: () => { utils.agentSupport.listAssignments.invalidate(); toast.success("Assignment removed"); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      utils.agentSupport.listAssignments.invalidate();
+      toast.success("Assignment removed");
+    },
+    onError: e => toast.error(e.message),
   });
 
-  const [filterRole, setFilterRole] = useState<"all" | "admin" | "agent" | "isa" | "agent_support">("all");
-  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
+  const [filterRole, setFilterRole] = useState<
+    "all" | "admin" | "agent" | "isa" | "agent_support"
+  >("all");
+  const [filterActive, setFilterActive] = useState<
+    "all" | "active" | "inactive"
+  >("all");
   const [filterSearch, setFilterSearch] = useState("");
 
-  const userList = (users as (UserRow & { isActive?: boolean })[]).filter((u) => {
+  const userList = (users as (UserRow & { isActive?: boolean })[]).filter(u => {
     if (filterRole !== "all" && u.role !== filterRole) return false;
-    if (filterActive === "active" && (u as any).isActive === false) return false;
-    if (filterActive === "inactive" && (u as any).isActive !== false) return false;
+    if (filterActive === "active" && (u as any).isActive === false)
+      return false;
+    if (filterActive === "inactive" && (u as any).isActive !== false)
+      return false;
     if (filterSearch) {
       const q = filterSearch.toLowerCase();
-      if (!((u.name ?? "").toLowerCase().includes(q) || (u.email ?? "").toLowerCase().includes(q))) return false;
+      if (
+        !(
+          (u.name ?? "").toLowerCase().includes(q) ||
+          (u.email ?? "").toLowerCase().includes(q)
+        )
+      )
+        return false;
     }
     return true;
   });
@@ -348,18 +437,18 @@ export default function UsersPage() {
 
   function getMarketName(id: number | null) {
     if (!id) return null;
-    return marketList.find((m) => m.id === id)?.name ?? null;
+    return marketList.find(m => m.id === id)?.name ?? null;
   }
 
   function getReportsToName(id: number | null) {
     if (!id) return null;
-    return userList.find((u) => u.id === id)?.name ?? null;
+    return userList.find(u => u.id === id)?.name ?? null;
   }
 
   // ── Shared form fields ──
   function renderFormFields(isEdit = false) {
     const otherUsers = isEdit
-      ? userList.filter((u) => u.id !== editTarget?.id)
+      ? userList.filter(u => u.id !== editTarget?.id)
       : userList;
 
     return (
@@ -370,7 +459,7 @@ export default function UsersPage() {
             <Input
               placeholder="Jane Smith"
               value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             />
           </div>
           {form.role === "admin" && (
@@ -379,7 +468,7 @@ export default function UsersPage() {
               <Input
                 placeholder="Director of Operations"
                 value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               />
             </div>
           )}
@@ -391,7 +480,7 @@ export default function UsersPage() {
               type="email"
               placeholder="jane@savvyrealty.com"
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
             />
           </div>
           <div className="space-y-1.5">
@@ -399,7 +488,9 @@ export default function UsersPage() {
             <Input
               placeholder="(555) 000-0000"
               value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: formatPhone(e.target.value) }))}
+              onChange={e =>
+                setForm(f => ({ ...f, phone: formatPhone(e.target.value) }))
+              }
             />
           </div>
         </div>
@@ -409,20 +500,33 @@ export default function UsersPage() {
             className="w-full"
             options={[
               { value: "__none__", label: "— None (top of hierarchy) —" },
-              ...otherUsers.map((u) => ({ value: String(u.id), label: `${u.name ?? u.email} — ${ROLE_LABELS[u.role] ?? u.role}` }))
+              ...otherUsers.map(u => ({
+                value: String(u.id),
+                label: `${u.name ?? u.email} — ${ROLE_LABELS[u.role] ?? u.role}`,
+              })),
             ]}
             value={form.reportsToId || "__none__"}
-            onValueChange={(v) => setForm((f) => ({ ...f, reportsToId: v === "__none__" ? "" : v }))}
+            onValueChange={v =>
+              setForm(f => ({ ...f, reportsToId: v === "__none__" ? "" : v }))
+            }
             placeholder="Select manager"
             searchPlaceholder="Search users…"
           />
-          <p className="text-xs text-muted-foreground">Required to keep the Org Chart accurate. Select “None” only for the top-level owner.</p>
+          <p className="text-xs text-muted-foreground">
+            Required to keep the Org Chart accurate. Select “None” only for the
+            top-level owner.
+          </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Role *</Label>
-            <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v as any }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select
+              value={form.role}
+              onValueChange={v => setForm(f => ({ ...f, role: v as any }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="agent">Agent</SelectItem>
                 <SelectItem value="isa">ISA (Inside Sales Agent)</SelectItem>
@@ -433,29 +537,50 @@ export default function UsersPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Employment Type {!isEdit && "*"}</Label>
-            <Select value={form.employmentType || "__untagged__"} onValueChange={(value) => setForm((f) => ({ ...f, employmentType: value === "__untagged__" ? "" : value as "w2" | "1099" }))}>
-              <SelectTrigger><SelectValue placeholder="Select employment type" /></SelectTrigger>
+            <Select
+              value={form.employmentType || "__untagged__"}
+              onValueChange={value =>
+                setForm(f => ({
+                  ...f,
+                  employmentType:
+                    value === "__untagged__" ? "" : (value as "w2" | "1099"),
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select employment type" />
+              </SelectTrigger>
               <SelectContent>
-                {isEdit && <SelectItem value="__untagged__">Untagged (legacy)</SelectItem>}
+                {isEdit && (
+                  <SelectItem value="__untagged__">
+                    Untagged (legacy)
+                  </SelectItem>
+                )}
                 <SelectItem value="w2">W-2 Employee</SelectItem>
                 <SelectItem value="1099">1099 Contractor</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Only W-2 users are eligible for PTO.</p>
+            <p className="text-xs text-muted-foreground">
+              Only W-2 users are eligible for PTO.
+            </p>
           </div>
         </div>
-        {(form.role === "agent") && (
+        {form.role === "agent" && (
           <div className="space-y-1.5">
             <Label>Call Booking Calendar Link</Label>
             <Input
               placeholder="https://calendly.com/agent-name"
               value={form.callBookingLink}
-              onChange={(e) => setForm((f) => ({ ...f, callBookingLink: e.target.value }))}
+              onChange={e =>
+                setForm(f => ({ ...f, callBookingLink: e.target.value }))
+              }
             />
-            <p className="text-xs text-muted-foreground">Calendly or other booking page URL</p>
+            <p className="text-xs text-muted-foreground">
+              Calendly or other booking page URL
+            </p>
           </div>
         )}
-        {(form.role === "agent") && (
+        {form.role === "agent" && (
           <div className="space-y-1.5">
             <Label>Commission Split (Agent %)</Label>
             <div className="flex items-center gap-2">
@@ -466,38 +591,72 @@ export default function UsersPage() {
                 step={1}
                 placeholder="e.g. 80"
                 value={form.commissionSplit}
-                onChange={(e) => {
+                onChange={e => {
                   const v = e.target.value;
                   if (v === "" || (Number(v) >= 0 && Number(v) <= 100)) {
-                    setForm((f) => ({ ...f, commissionSplit: v }));
+                    setForm(f => ({ ...f, commissionSplit: v }));
                   }
                 }}
-                className={form.commissionSplit && (Number(form.commissionSplit) < 0 || Number(form.commissionSplit) > 100) ? "border-red-500" : ""}
+                className={
+                  form.commissionSplit &&
+                  (Number(form.commissionSplit) < 0 ||
+                    Number(form.commissionSplit) > 100)
+                    ? "border-red-500"
+                    : ""
+                }
               />
-              {form.commissionSplit && Number(form.commissionSplit) >= 0 && Number(form.commissionSplit) <= 100 && (
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  Agent {form.commissionSplit}% / Savvy {100 - Number(form.commissionSplit)}%
-                </span>
-              )}
+              {form.commissionSplit &&
+                Number(form.commissionSplit) >= 0 &&
+                Number(form.commissionSplit) <= 100 && (
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    Agent {form.commissionSplit}% / Savvy{" "}
+                    {100 - Number(form.commissionSplit)}%
+                  </span>
+                )}
             </div>
-            {form.commissionSplit && (Number(form.commissionSplit) < 0 || Number(form.commissionSplit) > 100) && (
-              <p className="text-xs text-red-500">Must be between 0 and 100</p>
-            )}
-            <p className="text-xs text-muted-foreground">Enter the agent's percentage (0–100). Savvy's share is calculated automatically.</p>
+            {form.commissionSplit &&
+              (Number(form.commissionSplit) < 0 ||
+                Number(form.commissionSplit) > 100) && (
+                <p className="text-xs text-red-500">
+                  Must be between 0 and 100
+                </p>
+              )}
+            <p className="text-xs text-muted-foreground">
+              Enter the agent's percentage (0–100). Savvy's share is calculated
+              automatically.
+            </p>
           </div>
         )}
         {form.role === "agent" && (
-        <div className="space-y-1.5">
-          <Label>Market</Label>
-          <SearchableSelect
-            options={[{ value: "none", label: "— None —" }, ...marketList.map((m) => ({ value: String(m.id), label: m.name }))]}
-            value={form.marketProfileId || "none"}
-            onValueChange={(v) => setForm((f) => ({ ...f, marketProfileId: v === "none" ? "" : v }))}
-            placeholder="Select market"
-            searchPlaceholder="Search markets…"
-          />
-          <p className="text-xs text-muted-foreground">Create and manage market coverage in <button type="button" className="font-medium text-primary hover:underline" onClick={() => navigate("/agent-markets")}>Agent Markets</button>.</p>
-        </div>
+          <div className="space-y-1.5">
+            <Label>Market</Label>
+            <SearchableSelect
+              options={[
+                { value: "none", label: "— None —" },
+                ...marketList.map(m => ({
+                  value: String(m.id),
+                  label: m.name,
+                })),
+              ]}
+              value={form.marketProfileId || "none"}
+              onValueChange={v =>
+                setForm(f => ({ ...f, marketProfileId: v === "none" ? "" : v }))
+              }
+              placeholder="Select market"
+              searchPlaceholder="Search markets…"
+            />
+            <p className="text-xs text-muted-foreground">
+              Create and manage market coverage in{" "}
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => navigate("/agent-markets")}
+              >
+                Agent Markets
+              </button>
+              .
+            </p>
+          </div>
         )}
         {isEdit && (
           <div className="border-t pt-3 space-y-3">
@@ -513,28 +672,42 @@ export default function UsersPage() {
                   />
                 )}
                 <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-                  {editTarget?.name ? editTarget.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "?"}
+                  {editTarget?.name
+                    ? editTarget.name
+                        .split(" ")
+                        .map(n => n[0])
+                        .join("")
+                        .toUpperCase()
+                        .slice(0, 2)
+                    : "?"}
                 </AvatarFallback>
               </Avatar>
               <div className="text-xs text-muted-foreground">
                 {editTarget?.profilePhotoUrl && !headshotPreview
                   ? "Current photo on file"
                   : headshotPreview
-                  ? "New photo selected — click Save Photo to apply"
-                  : "No photo uploaded yet"}
+                    ? "New photo selected — click Save Photo to apply"
+                    : "No photo uploaded yet"}
               </div>
             </div>
             {/* Drag-and-drop zone */}
             <div
-              onDragOver={(e) => { e.preventDefault(); setHeadshotDragOver(true); }}
+              onDragOver={e => {
+                e.preventDefault();
+                setHeadshotDragOver(true);
+              }}
               onDragLeave={() => setHeadshotDragOver(false)}
-              onDrop={(e) => {
+              onDrop={e => {
                 e.preventDefault();
                 setHeadshotDragOver(false);
                 const file = e.dataTransfer.files[0];
                 if (!file) return;
-                if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-                  setHeadshotError("Only JPG, PNG, and WEBP images are allowed.");
+                if (
+                  !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+                ) {
+                  setHeadshotError(
+                    "Only JPG, PNG, and WEBP images are allowed."
+                  );
                   setHeadshotUploadState("error");
                   return;
                 }
@@ -547,12 +720,15 @@ export default function UsersPage() {
                 setHeadshotUploadState("idle");
                 setHeadshotFile(file);
                 const reader = new FileReader();
-                reader.onload = (ev) => setHeadshotPreview(ev.target?.result as string);
+                reader.onload = ev =>
+                  setHeadshotPreview(ev.target?.result as string);
                 reader.readAsDataURL(file);
               }}
               onClick={() => headshotInputRef.current?.click()}
               className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${
-                headshotDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
+                headshotDragOver
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-muted/30"
               }`}
             >
               <input
@@ -560,11 +736,17 @@ export default function UsersPage() {
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 className="hidden"
-                onChange={(e) => {
+                onChange={e => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-                    setHeadshotError("Only JPG, PNG, and WEBP images are allowed.");
+                  if (
+                    !["image/jpeg", "image/png", "image/webp"].includes(
+                      file.type
+                    )
+                  ) {
+                    setHeadshotError(
+                      "Only JPG, PNG, and WEBP images are allowed."
+                    );
                     setHeadshotUploadState("error");
                     return;
                   }
@@ -577,13 +759,20 @@ export default function UsersPage() {
                   setHeadshotUploadState("idle");
                   setHeadshotFile(file);
                   const reader = new FileReader();
-                  reader.onload = (ev) => setHeadshotPreview(ev.target?.result as string);
+                  reader.onload = ev =>
+                    setHeadshotPreview(ev.target?.result as string);
                   reader.readAsDataURL(file);
                 }}
               />
               <Upload className="h-5 w-5 mx-auto mb-1.5 text-muted-foreground" />
-              <p className="text-xs font-medium text-foreground">{headshotDragOver ? "Drop here" : "Drag & drop or click to upload"}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">JPG, PNG, WEBP — max 2MB</p>
+              <p className="text-xs font-medium text-foreground">
+                {headshotDragOver
+                  ? "Drop here"
+                  : "Drag & drop or click to upload"}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                JPG, PNG, WEBP — max 2MB
+              </p>
             </div>
             {/* Save photo button */}
             {headshotFile && (
@@ -600,14 +789,28 @@ export default function UsersPage() {
                       const fd = new FormData();
                       fd.append("file", headshotFile);
                       fd.append("targetUserId", String(editTarget.id));
-                      const res = await fetch("/api/upload/headshot", { method: "POST", body: fd, credentials: "include" });
-                      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error ?? "Upload failed"); }
+                      const res = await fetch("/api/upload/headshot", {
+                        method: "POST",
+                        body: fd,
+                        credentials: "include",
+                      });
+                      if (!res.ok) {
+                        const b = await res.json().catch(() => ({}));
+                        throw new Error(b.error ?? "Upload failed");
+                      }
                       const { url } = await res.json();
-                      await adminUpdateAvatarMutation.mutateAsync({ userId: editTarget.id, avatarUrl: url });
+                      await adminUpdateAvatarMutation.mutateAsync({
+                        userId: editTarget.id,
+                        avatarUrl: url,
+                      });
                       setHeadshotUploadState("success");
                       setHeadshotFile(null);
-                      setEditTarget((prev) => prev ? { ...prev, profilePhotoUrl: url } : prev);
-                      toast.success(`Photo updated for ${editTarget.name ?? "user"}`);
+                      setEditTarget(prev =>
+                        prev ? { ...prev, profilePhotoUrl: url } : prev
+                      );
+                      toast.success(
+                        `Photo updated for ${editTarget.name ?? "user"}`
+                      );
                     } catch (err: any) {
                       setHeadshotError(err.message ?? "Upload failed");
                       setHeadshotUploadState("error");
@@ -615,47 +818,76 @@ export default function UsersPage() {
                   }}
                 >
                   {headshotUploadState === "uploading" ? (
-                    <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</>
-                  ) : "Save Photo"}
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Uploading…
+                    </>
+                  ) : (
+                    "Save Photo"
+                  )}
                 </Button>
-                <Button size="sm" variant="ghost" type="button" onClick={() => { setHeadshotFile(null); setHeadshotPreview(null); setHeadshotUploadState("idle"); }}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => {
+                    setHeadshotFile(null);
+                    setHeadshotPreview(null);
+                    setHeadshotUploadState("idle");
+                  }}
+                >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
             )}
             {headshotUploadState === "success" && (
               <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Photo saved successfully.
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                Photo saved successfully.
               </div>
             )}
             {headshotUploadState === "error" && headshotError && (
               <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />{headshotError}
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {headshotError}
               </div>
             )}
 
             <div className="border-t pt-4 space-y-3">
               <div>
-                <Label className="text-sm font-medium">Backgroundless Headshot</Label>
-                <p className="mt-1 text-xs text-muted-foreground">Used in Automatic marketing graphics. Upload a JPG, PNG, or WEBP portrait with the background already removed.</p>
+                <Label className="text-sm font-medium">
+                  Backgroundless Headshot
+                </Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Used in Automatic marketing graphics. Upload a JPG, PNG, or
+                  WEBP portrait with the background already removed.
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <Avatar className="h-12 w-12 ring-2 ring-border bg-muted">
-                  {(backgroundlessPreview ?? editTarget?.backgroundlessHeadshotUrl) && (
+                  {(backgroundlessPreview ??
+                    editTarget?.backgroundlessHeadshotUrl) && (
                     <AvatarImage
-                      src={backgroundlessPreview ?? editTarget?.backgroundlessHeadshotUrl ?? ""}
+                      src={
+                        backgroundlessPreview ??
+                        editTarget?.backgroundlessHeadshotUrl ??
+                        ""
+                      }
                       alt={`${editTarget?.name ?? "User"} backgroundless headshot`}
                       className="object-contain"
                     />
                   )}
-                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">BG</AvatarFallback>
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                    BG
+                  </AvatarFallback>
                 </Avatar>
                 <div className="text-xs text-muted-foreground">
-                  {editTarget?.backgroundlessHeadshotUrl && !backgroundlessPreview
+                  {editTarget?.backgroundlessHeadshotUrl &&
+                  !backgroundlessPreview
                     ? "Backgroundless headshot on file"
                     : backgroundlessPreview
-                    ? "New image selected — click Save Backgroundless Headshot"
-                    : "No backgroundless headshot uploaded yet"}
+                      ? "New image selected — click Save Backgroundless Headshot"
+                      : "No backgroundless headshot uploaded yet"}
                 </div>
               </div>
               <div
@@ -667,11 +899,17 @@ export default function UsersPage() {
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
                   className="hidden"
-                  onChange={(event) => selectBackgroundlessHeadshot(event.target.files?.[0])}
+                  onChange={event =>
+                    selectBackgroundlessHeadshot(event.target.files?.[0])
+                  }
                 />
                 <Upload className="h-5 w-5 mx-auto mb-1.5 text-muted-foreground" />
-                <p className="text-xs font-medium text-foreground">Click to upload a backgroundless headshot</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">JPG, PNG, WEBP — max 2MB</p>
+                <p className="text-xs font-medium text-foreground">
+                  Click to upload a backgroundless headshot
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  JPG, PNG, WEBP — max 2MB
+                </p>
               </div>
               {backgroundlessFile && (
                 <div className="flex items-center gap-2">
@@ -687,36 +925,74 @@ export default function UsersPage() {
                         const formData = new FormData();
                         formData.append("file", backgroundlessFile);
                         formData.append("targetUserId", String(editTarget.id));
-                        const response = await fetch("/api/upload/backgroundless-headshot", { method: "POST", body: formData, credentials: "include" });
-                        if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error ?? "Upload failed"); }
+                        const response = await fetch(
+                          "/api/upload/backgroundless-headshot",
+                          {
+                            method: "POST",
+                            body: formData,
+                            credentials: "include",
+                          }
+                        );
+                        if (!response.ok) {
+                          const body = await response.json().catch(() => ({}));
+                          throw new Error(body.error ?? "Upload failed");
+                        }
                         const { url } = await response.json();
                         setBackgroundlessUploadState("success");
                         setBackgroundlessFile(null);
-                        setEditTarget((previous) => previous ? { ...previous, backgroundlessHeadshotUrl: url } : previous);
+                        setEditTarget(previous =>
+                          previous
+                            ? { ...previous, backgroundlessHeadshotUrl: url }
+                            : previous
+                        );
                         utils.users.listWithDocCounts.invalidate();
-                        utils.users.getCoreProfile.invalidate({ userId: editTarget.id });
-                        toast.success(`Backgroundless headshot updated for ${editTarget.name ?? "user"}`);
+                        utils.users.getCoreProfile.invalidate({
+                          userId: editTarget.id,
+                        });
+                        toast.success(
+                          `Backgroundless headshot updated for ${editTarget.name ?? "user"}`
+                        );
                       } catch (error: any) {
-                        setBackgroundlessError(error.message ?? "Upload failed");
+                        setBackgroundlessError(
+                          error.message ?? "Upload failed"
+                        );
                         setBackgroundlessUploadState("error");
                       }
                     }}
                   >
-                    {backgroundlessUploadState === "uploading" ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</> : "Save Backgroundless Headshot"}
+                    {backgroundlessUploadState === "uploading" ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        Uploading…
+                      </>
+                    ) : (
+                      "Save Backgroundless Headshot"
+                    )}
                   </Button>
-                  <Button size="sm" variant="ghost" type="button" onClick={() => { setBackgroundlessFile(null); setBackgroundlessPreview(null); setBackgroundlessUploadState("idle"); }}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    onClick={() => {
+                      setBackgroundlessFile(null);
+                      setBackgroundlessPreview(null);
+                      setBackgroundlessUploadState("idle");
+                    }}
+                  >
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
               )}
               {backgroundlessUploadState === "success" && (
                 <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Backgroundless headshot saved successfully.
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  Backgroundless headshot saved successfully.
                 </div>
               )}
               {backgroundlessUploadState === "error" && backgroundlessError && (
                 <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />{backgroundlessError}
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  {backgroundlessError}
                 </div>
               )}
             </div>
@@ -729,23 +1005,35 @@ export default function UsersPage() {
               <Checkbox
                 id="enableOnboarding"
                 checked={form.enableOnboarding}
-                onCheckedChange={(checked) => setForm((f) => ({ ...f, enableOnboarding: !!checked }))}
+                onCheckedChange={checked =>
+                  setForm(f => ({ ...f, enableOnboarding: !!checked }))
+                }
               />
-              <Label htmlFor="enableOnboarding" className="cursor-pointer">Start onboarding for this agent</Label>
+              <Label htmlFor="enableOnboarding" className="cursor-pointer">
+                Start onboarding for this agent
+              </Label>
             </div>
             {form.enableOnboarding && (
               <div className="space-y-1.5 pl-6">
                 <Label>Onboarding Template *</Label>
                 <SearchableSelect
                   className="w-full"
-                  options={(onboardingTemplates ?? []).map((t) => ({ value: String(t.id), label: `${t.name} (${Number(t.taskCount)} tasks)` }))}
+                  options={(onboardingTemplates ?? []).map(t => ({
+                    value: String(t.id),
+                    label: `${t.name} (${Number(t.taskCount)} tasks)`,
+                  }))}
                   value={form.onboardingTemplateId}
-                  onValueChange={(v) => setForm((f) => ({ ...f, onboardingTemplateId: v }))}
+                  onValueChange={v =>
+                    setForm(f => ({ ...f, onboardingTemplateId: v }))
+                  }
                   placeholder="Select template"
                   searchPlaceholder="Search templates…"
                 />
                 {(!onboardingTemplates || onboardingTemplates.length === 0) && (
-                  <p className="text-xs text-muted-foreground">No templates available. Create one in Onboarding Templates first.</p>
+                  <p className="text-xs text-muted-foreground">
+                    No templates available. Create one in Onboarding Templates
+                    first.
+                  </p>
                 )}
               </div>
             )}
@@ -768,18 +1056,39 @@ export default function UsersPage() {
         </div>
       </div>
       <Tabs value={usersTab} onValueChange={setUsersTab} className="space-y-6">
-        <TabsList className="flex overflow-x-auto h-auto gap-0 w-full" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          <TabsTrigger value="members" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Team Members</TabsTrigger>
-          {isAdmin && <TabsTrigger value="aircall" className="shrink-0 whitespace-nowrap">Aircall Assignments</TabsTrigger>}
-          <TabsTrigger value="groups" className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap">Groups</TabsTrigger>
-          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
+        <TabsList
+          className="flex overflow-x-auto h-auto gap-0 w-full"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          <TabsTrigger
+            value="members"
+            className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap"
+          >
+            Team Members
+          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="aircall" className="shrink-0 whitespace-nowrap">
+              Aircall Assignments
+            </TabsTrigger>
+          )}
+          <TabsTrigger
+            value="groups"
+            className="shrink-0 whitespace-nowrap shrink-0 whitespace-nowrap"
+          >
+            Groups
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">
+            Activity
+          </TabsTrigger>
         </TabsList>
         {isAdmin && (
           <TabsContent value="aircall" className="space-y-5">
             <div>
               <h2 className="text-lg font-semibold">Aircall Assignments</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Assign each ISA one Aircall user and one caller number that Aircall already associates with that user. SavvyOS prevents a user or number from being assigned twice.
+                Assign each ISA one Aircall user and one caller number that
+                Aircall already associates with that user. SavvyOS prevents a
+                user or number from being assigned twice.
               </p>
             </div>
             {aircallUsersError ? (
@@ -793,17 +1102,23 @@ export default function UsersPage() {
                     <Label>ISA</Label>
                     <Select
                       value={selectedAircallIsaId || undefined}
-                      onValueChange={(value) => {
+                      onValueChange={value => {
                         setSelectedAircallIsaId(value);
                         setSelectedAircallUserId("");
                         setSelectedAircallNumberId("");
                       }}
                     >
-                      <SelectTrigger><SelectValue placeholder="Select ISA" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select ISA" />
+                      </SelectTrigger>
                       <SelectContent>
-                        {(users as UserRow[]).filter((member) => member.role === "isa").map((isa) => (
-                          <SelectItem key={isa.id} value={String(isa.id)}>{isa.name ?? isa.email ?? `ISA #${isa.id}`}</SelectItem>
-                        ))}
+                        {(users as UserRow[])
+                          .filter(member => member.role === "isa")
+                          .map(isa => (
+                            <SelectItem key={isa.id} value={String(isa.id)}>
+                              {isa.name ?? isa.email ?? `ISA #${isa.id}`}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -811,17 +1126,31 @@ export default function UsersPage() {
                     <Label>Aircall User</Label>
                     <Select
                       value={selectedAircallUserId || undefined}
-                      onValueChange={(value) => {
+                      onValueChange={value => {
                         setSelectedAircallUserId(value);
                         setSelectedAircallNumberId("");
                       }}
-                      disabled={aircallUsersLoading || saveAircallAssignment.isPending}
+                      disabled={
+                        aircallUsersLoading || saveAircallAssignment.isPending
+                      }
                     >
-                      <SelectTrigger><SelectValue placeholder={aircallUsersLoading ? "Loading Aircall users…" : "Select Aircall user"} /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            aircallUsersLoading
+                              ? "Loading Aircall users…"
+                              : "Select Aircall user"
+                          }
+                        />
+                      </SelectTrigger>
                       <SelectContent>
-                        {aircallUsers.map((aircallUser) => (
-                          <SelectItem key={aircallUser.id} value={String(aircallUser.id)}>
-                            {aircallUser.name}{aircallUser.email ? ` — ${aircallUser.email}` : ""}
+                        {aircallUsers.map(aircallUser => (
+                          <SelectItem
+                            key={aircallUser.id}
+                            value={String(aircallUser.id)}
+                          >
+                            {aircallUser.name}
+                            {aircallUser.email ? ` — ${aircallUser.email}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -833,29 +1162,59 @@ export default function UsersPage() {
                   <Select
                     value={selectedAircallNumberId || undefined}
                     onValueChange={setSelectedAircallNumberId}
-                    disabled={!selectedAircallUserId || aircallNumbersLoading || saveAircallAssignment.isPending}
+                    disabled={
+                      !selectedAircallUserId ||
+                      aircallNumbersLoading ||
+                      saveAircallAssignment.isPending
+                    }
                   >
-                    <SelectTrigger><SelectValue placeholder={aircallNumbersLoading ? "Loading assigned numbers…" : "Select caller number"} /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          aircallNumbersLoading
+                            ? "Loading assigned numbers…"
+                            : "Select caller number"
+                        }
+                      />
+                    </SelectTrigger>
                     <SelectContent>
-                      {aircallNumbers.map((number) => (
+                      {aircallNumbers.map(number => (
                         <SelectItem key={number.id} value={String(number.id)}>
-                          {number.name}{number.digits ? ` — ${number.digits}` : ""}
+                          {number.name}
+                          {number.digits ? ` — ${number.digits}` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {aircallNumbersError && <p className="text-xs text-destructive">{aircallNumbersError.message}</p>}
+                  {aircallNumbersError && (
+                    <p className="text-xs text-destructive">
+                      {aircallNumbersError.message}
+                    </p>
+                  )}
                 </div>
                 {selectedAircallAssignment && (
                   <div className="rounded-md bg-muted px-3 py-2 text-sm">
-                    Current assignment: <span className="font-medium">{selectedAircallAssignment.aircallNumberName ?? "Aircall number"}{selectedAircallAssignment.aircallNumberDigits ? ` (${selectedAircallAssignment.aircallNumberDigits})` : ""}</span>
+                    Current assignment:{" "}
+                    <span className="font-medium">
+                      {selectedAircallAssignment.aircallNumberName ??
+                        "Aircall number"}
+                      {selectedAircallAssignment.aircallNumberDigits
+                        ? ` (${selectedAircallAssignment.aircallNumberDigits})`
+                        : ""}
+                    </span>
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={() => {
-                      if (!selectedAircallIsaId || !selectedAircallUserId || !selectedAircallNumberId) {
-                        toast.error("Select an ISA, Aircall user, and caller number first.");
+                      if (
+                        !selectedAircallIsaId ||
+                        !selectedAircallUserId ||
+                        !selectedAircallNumberId
+                      ) {
+                        toast.error(
+                          "Select an ISA, Aircall user, and caller number first."
+                        );
                         return;
                       }
                       saveAircallAssignment.mutate({
@@ -864,9 +1223,16 @@ export default function UsersPage() {
                         aircallNumberId: Number(selectedAircallNumberId),
                       });
                     }}
-                    disabled={!selectedAircallIsaId || !selectedAircallUserId || !selectedAircallNumberId || saveAircallAssignment.isPending}
+                    disabled={
+                      !selectedAircallIsaId ||
+                      !selectedAircallUserId ||
+                      !selectedAircallNumberId ||
+                      saveAircallAssignment.isPending
+                    }
                   >
-                    {saveAircallAssignment.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    {saveAircallAssignment.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
                     Save Assignment
                   </Button>
                   {selectedAircallAssignment && (
@@ -874,7 +1240,11 @@ export default function UsersPage() {
                       variant="outline"
                       className="text-destructive hover:text-destructive"
                       disabled={removeAircallAssignment.isPending}
-                      onClick={() => removeAircallAssignment.mutate({ savvyUserId: Number(selectedAircallIsaId) })}
+                      onClick={() =>
+                        removeAircallAssignment.mutate({
+                          savvyUserId: Number(selectedAircallIsaId),
+                        })
+                      }
                     >
                       Remove Assignment
                     </Button>
@@ -884,450 +1254,719 @@ export default function UsersPage() {
             )}
           </TabsContent>
         )}
-        <TabsContent value="groups"><GroupsPage /></TabsContent>
+        <TabsContent value="groups">
+          <GroupsPage />
+        </TabsContent>
         <TabsContent value="activity" className="space-y-5">
           <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2"><Activity className="h-5 w-5 text-primary" /> User Activity</h2>
-            <p className="text-sm text-muted-foreground mt-1">Review the full SavvyOS audit trail for any team member, filtered by date and activity type.</p>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Activity className="h-5 w-5 text-primary" /> User Activity
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Review the full SavvyOS audit trail for any team member, filtered
+              by date and activity type.
+            </p>
           </div>
           <div className="max-w-xl space-y-1.5">
             <Label>Select team member</Label>
             <SearchableSelect
               className="w-full"
-              options={(users as UserRow[]).map((u) => ({ value: String(u.id), label: `${u.name ?? u.email ?? `User #${u.id}`} — ${ROLE_LABELS[u.role] ?? u.role}` }))}
+              options={(users as UserRow[]).map(u => ({
+                value: String(u.id),
+                label: `${u.name ?? u.email ?? `User #${u.id}`} — ${ROLE_LABELS[u.role] ?? u.role}`,
+              }))}
               value={activityUserId}
               onValueChange={setActivityUserId}
               placeholder="Search for a team member…"
               searchPlaceholder="Search team members…"
             />
           </div>
-          {activityUserId ? (() => {
-            const selectedUser = (users as UserRow[]).find((u) => u.id === Number(activityUserId));
-            return selectedUser ? <UserActivityTab user={selectedUser} /> : null;
-          })() : (
-            <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">Select a team member to review their activity.</div>
+          {activityUserId ? (
+            (() => {
+              const selectedUser = (users as UserRow[]).find(
+                u => u.id === Number(activityUserId)
+              );
+              return selectedUser ? (
+                <UserActivityTab user={selectedUser} />
+              ) : null;
+            })()
+          ) : (
+            <div className="rounded-xl border border-dashed py-16 text-center text-sm text-muted-foreground">
+              Select a team member to review their activity.
+            </div>
           )}
         </TabsContent>
         <TabsContent value="members">
-      <div className="flex justify-end">
-        <Button onClick={openAdd}>
-          <Plus className="h-4 w-4 mr-2" /> Add Member
-        </Button>
-      </div>
+          <div className="flex justify-end">
+            <Button onClick={openAdd}>
+              <Plus className="h-4 w-4 mr-2" /> Add Member
+            </Button>
+          </div>
 
-      {/* ── Filters ── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={filterSearch}
-            onChange={(e) => setFilterSearch(e.target.value)}
-            className="w-full pl-9 pr-3 h-9 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
-        <Select value={filterRole} onValueChange={(v) => setFilterRole(v as any)}>
-          <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Roles" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Roles</SelectItem>
-            <SelectItem value="agent">Agent</SelectItem>
-            <SelectItem value="isa">ISA</SelectItem>
-            <SelectItem value="admin">Admin</SelectItem>
-            <SelectItem value="agent_support">Agent Support</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={filterActive} onValueChange={(v) => setFilterActive(v as any)}>
-          <SelectTrigger className="w-40 h-9"><SelectValue placeholder="All Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Deactivated</SelectItem>
-          </SelectContent>
-        </Select>
-        {(filterRole !== "all" || filterActive !== "all" || filterSearch) && (
-          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => { setFilterRole("all"); setFilterActive("all"); setFilterSearch(""); }}>
-            Clear filters
-          </Button>
-        )}
-        <span className="text-sm text-muted-foreground ml-auto">{userList.length} member{userList.length !== 1 ? "s" : ""}</span>
-      </div>
+          {/* ── Filters ── */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search by name or email..."
+                value={filterSearch}
+                onChange={e => setFilterSearch(e.target.value)}
+                className="w-full pl-9 pr-3 h-9 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <Select
+              value={filterRole}
+              onValueChange={v => setFilterRole(v as any)}
+            >
+              <SelectTrigger className="w-36 h-9">
+                <SelectValue placeholder="All Roles" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                <SelectItem value="agent">Agent</SelectItem>
+                <SelectItem value="isa">ISA</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="agent_support">Agent Support</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filterActive}
+              onValueChange={v => setFilterActive(v as any)}
+            >
+              <SelectTrigger className="w-40 h-9">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Deactivated</SelectItem>
+              </SelectContent>
+            </Select>
+            {(filterRole !== "all" ||
+              filterActive !== "all" ||
+              filterSearch) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 text-xs"
+                onClick={() => {
+                  setFilterRole("all");
+                  setFilterActive("all");
+                  setFilterSearch("");
+                }}
+              >
+                Clear filters
+              </Button>
+            )}
+            <span className="text-sm text-muted-foreground ml-auto">
+              {userList.length} member{userList.length !== 1 ? "s" : ""}
+            </span>
+          </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden overflow-x-auto">
-        <Table className="min-w-[900px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Employment</TableHead>
-              <TableHead>Split</TableHead>
-              <TableHead>Market</TableHead>
-              <TableHead>Reports To</TableHead>
-              <TableHead>Last Sign In</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
-                  Loading team members...
-                </TableCell>
-              </TableRow>
-            ) : userList.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
-                  No team members yet. Add your first member above.
-                </TableCell>
-              </TableRow>
-            ) : (
-              userList.map((u) => {
-                const initials = u.name
-                  ? u.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
-                  : "?";
-                const isMe = u.id === (me as any)?.id;
-                return (
-                  <TableRow key={u.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar className="h-8 w-8">
-                          {(u as any).profilePhotoUrl && (
-                            <AvatarImage src={(u as any).profilePhotoUrl} alt={u.name ?? ""} className="object-cover" />
-                          )}
-                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                            {initials}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              className="font-medium hover:underline hover:text-primary text-left transition-colors"
-                              onClick={() => navigate(`/agents/${u.id}`)}
-                              title="View profile"
-                            >
-                              {u.name ?? "—"}{isMe && <span className="text-xs text-muted-foreground ml-1">(you)</span>}
-                            </button>
-                            {(u as any).documentCount > 0 && (
-                              <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-primary/15 text-primary text-[10px] font-semibold" title={`${(u as any).documentCount} document${(u as any).documentCount !== 1 ? 's' : ''}`}>
-                                {(u as any).documentCount}
-                              </span>
-                            )}
-                          </div>
-                          {(u as any).isActive === false ? (
-                            <span className="inline-flex items-center text-[10px] font-medium text-red-700 bg-red-100 rounded-full px-1.5 py-0.5 w-fit leading-tight">
-                              Deactivated
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center text-[10px] font-medium text-green-700 bg-green-100 rounded-full px-1.5 py-0.5 w-fit leading-tight">
-                              Active
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{u.title ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">{u.email ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{u.phone ?? "—"}</TableCell>
-                    <TableCell>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role] ?? ROLE_COLORS.user}`}>
-                        {ROLE_LABELS[u.role] ?? u.role}
-                      </span>
-                    </TableCell>
-                    <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.employmentType === "w2" ? "bg-emerald-100 text-emerald-800" : u.employmentType === "1099" ? "bg-slate-100 text-slate-700" : "bg-amber-100 text-amber-800"}`}>{u.employmentType === "w2" ? "W-2" : u.employmentType === "1099" ? "1099" : "Untagged"}</span></TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {(u as any).commissionSplit ? `${(u as any).commissionSplit}/${100 - (u as any).commissionSplit}` : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm max-w-[140px]"><div className="truncate" title={getMarketName(u.marketProfileId) ?? ""}>{getMarketName(u.marketProfileId) ?? "—"}</div></TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{getReportsToName(u.reportsToId) ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {u.lastSignedIn ? safeFormat(u.lastSignedIn, "MMM d, yyyy") : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" title="View Profile" onClick={() => navigate(`/agents/${u.id}`)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {u.role === "agent_support" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Manage Agent Assignments"
-                            onClick={() => setAssignTarget(u)}
-                          >
-                            <UserCheck className="h-4 w-4 text-teal-600" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="View User Activity"
-                          onClick={() => { setActivityUserId(String(u.id)); setUsersTab("activity"); }}
-                        >
-                          <Activity className="h-4 w-4 text-primary" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Add or Edit Email Signature"
-                          onClick={() => { void openSignatureEditor(u); }}
-                        >
-                          <Pencil className="h-4 w-4 text-indigo-600" />
-                        </Button>
-                        <Button variant="ghost" size="icon" title="Set Password" onClick={() => { setPwTarget(u); setNewPassword(""); setConfirmPassword(""); }}>
-                          <KeyRound className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(u)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        {!isMe && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDeleteTarget(u)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+          <div className="rounded-lg border bg-card overflow-hidden overflow-x-auto">
+            <Table className="min-w-[900px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Employment</TableHead>
+                  <TableHead>Split</TableHead>
+                  <TableHead>Market</TableHead>
+                  <TableHead>Reports To</TableHead>
+                  <TableHead>Last Sign In</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={11}
+                      className="text-center py-12 text-muted-foreground"
+                    >
+                      Loading team members...
                     </TableCell>
                   </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      <Dialog
-        open={!!signatureTarget}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSignatureTarget(null);
-            setSignatureHtml("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Email Signature — {signatureTarget?.name ?? "Team Member"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              This signature is appended to every Pipeline email sent by this user. A saved signature is required before they can send Pipeline email.
-            </p>
-            <RichEmailEditor
-              value={signatureHtml}
-              onChange={setSignatureHtml}
-              placeholder="Add the user’s name, title, contact details, and any approved branding."
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setSignatureTarget(null); setSignatureHtml(""); }}>
-              Cancel
-            </Button>
-            <Button
-              disabled={
-                updateSignatureMutation.isPending ||
-                !signatureHtml.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim()
-              }
-              onClick={() => {
-                if (!signatureTarget) return;
-                updateSignatureMutation.mutate({ userId: signatureTarget.id, html: signatureHtml });
-              }}
-            >
-              {updateSignatureMutation.isPending ? "Saving..." : "Save Email Signature"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Add Dialog ── */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add Team Member</DialogTitle>
-          </DialogHeader>
-          {renderFormFields(false)}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button
-              onClick={() => {
-                if (form.email && !isValidEmail(form.email)) { toast.error("Please enter a valid email address"); return; }
-                if (form.phone && !isValidPhone(form.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
-                if (!form.employmentType) { toast.error("Choose W-2 or 1099 before adding a team member."); return; }
-                createMutation.mutate({ ...buildMutationPayload(), employmentType: form.employmentType as "w2" | "1099" });
-              }}
-              disabled={!form.name || !form.email || !form.employmentType || createMutation.isPending}
-            >
-              {createMutation.isPending ? "Adding..." : "Add Member"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Edit Dialog ── */}
-      <Dialog open={!!editTarget} onOpenChange={(o) => !o && setEditTarget(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Team Member</DialogTitle>
-          </DialogHeader>
-          {renderFormFields(true)}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
-            <Button
-              onClick={() => {
-                if (form.email && !isValidEmail(form.email)) { toast.error("Please enter a valid email address"); return; }
-                if (form.phone && !isValidPhone(form.phone)) { toast.error("Please enter a valid phone number (9+ digits)"); return; }
-                editTarget && updateMutation.mutate({ id: editTarget.id, ...buildMutationPayload() });
-              }}
-              disabled={!form.name || !form.email || updateMutation.isPending}
-            >
-              {updateMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Agent Support Assignments Dialog ── */}
-      <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
-        <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <UserCheck className="h-5 w-5 text-teal-600" />
-              Manage Assignments — {assignTarget?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
-            {/* Current assignments */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Currently Assigned Agents</p>
-              {(allAssignments as any[]).filter((a: any) => a.agentSupportUserId === assignTarget?.id).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No agents assigned yet.</p>
-              ) : (
-                <div className="space-y-1">
-                  {(allAssignments as any[]).filter((a: any) => a.agentSupportUserId === assignTarget?.id).map((a: any) => {
-                    const agentUser = (users as any[]).find((u: any) => u.id === a.agentId);
-                    return (
-                      <div key={a.id} className="flex items-center justify-between p-2 rounded-md border">
-                        <span className="text-sm">{agentUser?.name ?? `Agent #${a.agentId}`}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => removeAssignmentMut.mutate({ id: a.id })}
-                          disabled={removeAssignmentMut.isPending}
-                        >
-                          <Link2Off className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            {/* Add new assignment */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Assign to Agent</p>
-              <div className="space-y-1">
-                {(users as any[]).filter((u: any) => u.role === "agent" && !(allAssignments as any[]).some((a: any) => a.agentSupportUserId === assignTarget?.id && a.agentId === u.id)).map((u: any) => (
-                  <div key={u.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/40">
-                    <span className="text-sm">{u.name ?? u.email}</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1.5 text-xs"
-                      onClick={() => assignTarget && addAssignmentMut.mutate({ agentSupportUserId: assignTarget.id, agentId: u.id })}
-                      disabled={addAssignmentMut.isPending}
+                ) : userList.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={11}
+                      className="text-center py-12 text-muted-foreground"
                     >
-                      <Link2 className="h-3 w-3" /> Assign
-                    </Button>
-                  </div>
-                ))}
-                {(users as any[]).filter((u: any) => u.role === "agent").length === 0 && (
-                  <p className="text-sm text-muted-foreground">No agents available.</p>
+                      No team members yet. Add your first member above.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  userList.map(u => {
+                    const initials = u.name
+                      ? u.name
+                          .split(" ")
+                          .map(n => n[0])
+                          .join("")
+                          .toUpperCase()
+                          .slice(0, 2)
+                      : "?";
+                    const isMe = u.id === (me as any)?.id;
+                    return (
+                      <TableRow key={u.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2.5">
+                            <Avatar className="h-8 w-8">
+                              {(u as any).profilePhotoUrl && (
+                                <AvatarImage
+                                  src={(u as any).profilePhotoUrl}
+                                  alt={u.name ?? ""}
+                                  className="object-cover"
+                                />
+                              )}
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  className="font-medium hover:underline hover:text-primary text-left transition-colors"
+                                  onClick={() => navigate(`/agents/${u.id}`)}
+                                  title="View profile"
+                                >
+                                  {u.name ?? "—"}
+                                  {isMe && (
+                                    <span className="text-xs text-muted-foreground ml-1">
+                                      (you)
+                                    </span>
+                                  )}
+                                </button>
+                                {(u as any).documentCount > 0 && (
+                                  <span
+                                    className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-primary/15 text-primary text-[10px] font-semibold"
+                                    title={`${(u as any).documentCount} document${(u as any).documentCount !== 1 ? "s" : ""}`}
+                                  >
+                                    {(u as any).documentCount}
+                                  </span>
+                                )}
+                              </div>
+                              {(u as any).isActive === false ? (
+                                <span className="inline-flex items-center text-[10px] font-medium text-red-700 bg-red-100 rounded-full px-1.5 py-0.5 w-fit leading-tight">
+                                  Deactivated
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center text-[10px] font-medium text-green-700 bg-green-100 rounded-full px-1.5 py-0.5 w-fit leading-tight">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {u.title ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {u.email ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {u.phone ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role] ?? ROLE_COLORS.user}`}
+                          >
+                            {ROLE_LABELS[u.role] ?? u.role}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.employmentType === "w2" ? "bg-emerald-100 text-emerald-800" : u.employmentType === "1099" ? "bg-slate-100 text-slate-700" : "bg-amber-100 text-amber-800"}`}
+                          >
+                            {u.employmentType === "w2"
+                              ? "W-2"
+                              : u.employmentType === "1099"
+                                ? "1099"
+                                : "Untagged"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {(u as any).commissionSplit
+                            ? `${(u as any).commissionSplit}/${100 - (u as any).commissionSplit}`
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm max-w-[140px]">
+                          <div
+                            className="truncate"
+                            title={getMarketName(u.marketProfileId) ?? ""}
+                          >
+                            {getMarketName(u.marketProfileId) ?? "—"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {getReportsToName(u.reportsToId) ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {u.lastSignedIn
+                            ? safeFormat(u.lastSignedIn, "MMM d, yyyy")
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="View Profile"
+                              onClick={() => navigate(`/agents/${u.id}`)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {u.role === "agent_support" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Manage Agent Assignments"
+                                onClick={() => setAssignTarget(u)}
+                              >
+                                <UserCheck className="h-4 w-4 text-teal-600" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="View User Activity"
+                              onClick={() => {
+                                setActivityUserId(String(u.id));
+                                setUsersTab("activity");
+                              }}
+                            >
+                              <Activity className="h-4 w-4 text-primary" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Add or Edit Email Signature"
+                              onClick={() => {
+                                void openSignatureEditor(u);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 text-indigo-600" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Set Password"
+                              onClick={() => {
+                                setPwTarget(u);
+                                setNewPassword("");
+                                setConfirmPassword("");
+                              }}
+                            >
+                              <KeyRound className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEdit(u)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            {!isMe && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setDeleteTarget(u)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <Dialog
+            open={!!signatureTarget}
+            onOpenChange={open => {
+              if (!open) {
+                setSignatureTarget(null);
+                setSignatureHtml("");
+              }
+            }}
+          >
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>
+                  Email Signature — {signatureTarget?.name ?? "Team Member"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  This signature is appended to every Pipeline email sent by
+                  this user. A saved signature is required before they can send
+                  Pipeline email.
+                </p>
+                <RichEmailEditor
+                  value={signatureHtml}
+                  onChange={setSignatureHtml}
+                  placeholder="Add the user’s name, title, contact details, and any approved branding."
+                />
               </div>
-            </div>
-          </div>
-          <DialogFooter className="flex-shrink-0">
-            <Button variant="outline" onClick={() => setAssignTarget(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSignatureTarget(null);
+                    setSignatureHtml("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={
+                    updateSignatureMutation.isPending ||
+                    !signatureHtml
+                      .replace(/<[^>]*>/g, " ")
+                      .replace(/&nbsp;/gi, " ")
+                      .trim()
+                  }
+                  onClick={() => {
+                    if (!signatureTarget) return;
+                    updateSignatureMutation.mutate({
+                      userId: signatureTarget.id,
+                      html: signatureHtml,
+                    });
+                  }}
+                >
+                  {updateSignatureMutation.isPending
+                    ? "Saving..."
+                    : "Save Email Signature"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-      {/* ── Set Password Dialog ── */}
-      <Dialog open={!!pwTarget} onOpenChange={(o) => { if (!o) { setPwTarget(null); setNewPassword(""); setConfirmPassword(""); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5" />
-              Set Password — {pwTarget?.name ?? pwTarget?.email}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>New Password <span className="text-muted-foreground text-xs">(min. 8 characters)</span></Label>
-              <Input
-                type="password"
-                placeholder="Enter new password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Confirm Password</Label>
-              <Input
-                type="password"
-                placeholder="Repeat password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              {confirmPassword && newPassword !== confirmPassword && (
-                <p className="text-xs text-destructive">Passwords do not match</p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setPwTarget(null); setNewPassword(""); setConfirmPassword(""); }}>Cancel</Button>
-            <Button
-              onClick={() => pwTarget && adminSetPasswordMut.mutate({ userId: pwTarget.id, password: newPassword })}
-              disabled={!newPassword || newPassword.length < 8 || newPassword !== confirmPassword || adminSetPasswordMut.isPending}
-            >
-              {adminSetPasswordMut.isPending ? "Saving..." : "Set Password"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* ── Add Dialog ── */}
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Add Team Member</DialogTitle>
+              </DialogHeader>
+              {renderFormFields(false)}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (form.email && !isValidEmail(form.email)) {
+                      toast.error("Please enter a valid email address");
+                      return;
+                    }
+                    if (form.phone && !isValidPhone(form.phone)) {
+                      toast.error(
+                        "Please enter a valid phone number (9+ digits)"
+                      );
+                      return;
+                    }
+                    if (!form.employmentType) {
+                      toast.error(
+                        "Choose W-2 or 1099 before adding a team member."
+                      );
+                      return;
+                    }
+                    createMutation.mutate({
+                      ...buildMutationPayload(),
+                      employmentType: form.employmentType as "w2" | "1099",
+                    });
+                  }}
+                  disabled={
+                    !form.name ||
+                    !form.email ||
+                    !form.employmentType ||
+                    createMutation.isPending
+                  }
+                >
+                  {createMutation.isPending ? "Adding..." : "Add Member"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-      {/* ── Delete Confirm ── */}
-      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Team Member</DialogTitle>
-          </DialogHeader>
-          <p className="text-muted-foreground text-sm">
-            Are you sure you want to remove <strong>{deleteTarget?.name}</strong>? This cannot be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id })}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Removing..." : "Remove"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* ── Edit Dialog ── */}
+          <Dialog
+            open={!!editTarget}
+            onOpenChange={o => !o && setEditTarget(null)}
+          >
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Edit Team Member</DialogTitle>
+              </DialogHeader>
+              {renderFormFields(true)}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditTarget(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (form.email && !isValidEmail(form.email)) {
+                      toast.error("Please enter a valid email address");
+                      return;
+                    }
+                    if (form.phone && !isValidPhone(form.phone)) {
+                      toast.error(
+                        "Please enter a valid phone number (9+ digits)"
+                      );
+                      return;
+                    }
+                    editTarget &&
+                      updateMutation.mutate({
+                        id: editTarget.id,
+                        ...buildMutationPayload(),
+                      });
+                  }}
+                  disabled={
+                    !form.name || !form.email || updateMutation.isPending
+                  }
+                >
+                  {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Agent Support Assignments Dialog ── */}
+          <Dialog
+            open={!!assignTarget}
+            onOpenChange={o => !o && setAssignTarget(null)}
+          >
+            <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+              <DialogHeader className="flex-shrink-0">
+                <DialogTitle className="flex items-center gap-2">
+                  <UserCheck className="h-5 w-5 text-teal-600" />
+                  Manage Assignments — {assignTarget?.name}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
+                {/* Current assignments */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Currently Assigned Agents
+                  </p>
+                  {(allAssignments as any[]).filter(
+                    (a: any) => a.agentSupportUserId === assignTarget?.id
+                  ).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No agents assigned yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {(allAssignments as any[])
+                        .filter(
+                          (a: any) => a.agentSupportUserId === assignTarget?.id
+                        )
+                        .map((a: any) => {
+                          const agentUser = (users as any[]).find(
+                            (u: any) => u.id === a.agentId
+                          );
+                          return (
+                            <div
+                              key={a.id}
+                              className="flex items-center justify-between p-2 rounded-md border"
+                            >
+                              <span className="text-sm">
+                                {agentUser?.name ?? `Agent #${a.agentId}`}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() =>
+                                  removeAssignmentMut.mutate({ id: a.id })
+                                }
+                                disabled={removeAssignmentMut.isPending}
+                              >
+                                <Link2Off className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+                {/* Add new assignment */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Assign to Agent
+                  </p>
+                  <div className="space-y-1">
+                    {(users as any[])
+                      .filter(
+                        (u: any) =>
+                          u.role === "agent" &&
+                          !(allAssignments as any[]).some(
+                            (a: any) =>
+                              a.agentSupportUserId === assignTarget?.id &&
+                              a.agentId === u.id
+                          )
+                      )
+                      .map((u: any) => (
+                        <div
+                          key={u.id}
+                          className="flex items-center justify-between p-2 rounded-md hover:bg-muted/40"
+                        >
+                          <span className="text-sm">{u.name ?? u.email}</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            onClick={() =>
+                              assignTarget &&
+                              addAssignmentMut.mutate({
+                                agentSupportUserId: assignTarget.id,
+                                agentId: u.id,
+                              })
+                            }
+                            disabled={addAssignmentMut.isPending}
+                          >
+                            <Link2 className="h-3 w-3" /> Assign
+                          </Button>
+                        </div>
+                      ))}
+                    {(users as any[]).filter((u: any) => u.role === "agent")
+                      .length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No agents available.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="flex-shrink-0">
+                <Button variant="outline" onClick={() => setAssignTarget(null)}>
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Set Password Dialog ── */}
+          <Dialog
+            open={!!pwTarget}
+            onOpenChange={o => {
+              if (!o) {
+                setPwTarget(null);
+                setNewPassword("");
+                setConfirmPassword("");
+              }
+            }}
+          >
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-5 w-5" />
+                  Set Password — {pwTarget?.name ?? pwTarget?.email}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <Label>
+                    New Password{" "}
+                    <span className="text-muted-foreground text-xs">
+                      (min. 8 characters)
+                    </span>
+                  </Label>
+                  <Input
+                    type="password"
+                    placeholder="Enter new password"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Confirm Password</Label>
+                  <Input
+                    type="password"
+                    placeholder="Repeat password"
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                  {confirmPassword && newPassword !== confirmPassword && (
+                    <p className="text-xs text-destructive">
+                      Passwords do not match
+                    </p>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setPwTarget(null);
+                    setNewPassword("");
+                    setConfirmPassword("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() =>
+                    pwTarget &&
+                    adminSetPasswordMut.mutate({
+                      userId: pwTarget.id,
+                      password: newPassword,
+                    })
+                  }
+                  disabled={
+                    !newPassword ||
+                    newPassword.length < 8 ||
+                    newPassword !== confirmPassword ||
+                    adminSetPasswordMut.isPending
+                  }
+                >
+                  {adminSetPasswordMut.isPending ? "Saving..." : "Set Password"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Delete Confirm ── */}
+          <Dialog
+            open={!!deleteTarget}
+            onOpenChange={o => !o && setDeleteTarget(null)}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Remove Team Member</DialogTitle>
+              </DialogHeader>
+              <p className="text-muted-foreground text-sm">
+                Are you sure you want to remove{" "}
+                <strong>{deleteTarget?.name}</strong>? This cannot be undone.
+              </p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() =>
+                    deleteTarget &&
+                    deleteMutation.mutate({ id: deleteTarget.id })
+                  }
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Removing..." : "Remove"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
       </Tabs>
     </div>

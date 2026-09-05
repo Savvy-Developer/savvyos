@@ -48,13 +48,20 @@ import {
 import { emailNotificationSettings } from "../../drizzle/schema";
 import { eq, asc, and, desc, sql, isNotNull, lt, inArray } from "drizzle-orm";
 import { checkOverdueOnboardingTasks } from "../onboardingOverdueScheduler";
+import { sendTransactionalEmail } from "../_core/resendEmail";
 
 async function requireOnboardingAgent(
   db: Awaited<ReturnType<typeof getDatabase>>,
   agentUserId: number
-): Promise<number> {
+): Promise<{ id: number; name: string | null; email: string | null }> {
   const [agent] = await db
-    .select({ id: users.id, role: users.role, isActive: users.isActive })
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      isActive: users.isActive,
+    })
     .from(users)
     .where(eq(users.id, agentUserId));
   if (!agent || agent.role !== "agent" || !agent.isActive) {
@@ -63,7 +70,7 @@ async function requireOnboardingAgent(
       message: "Select an active agent for this onboarding assignment.",
     });
   }
-  return agent.id;
+  return { id: agent.id, name: agent.name, email: agent.email };
 }
 
 async function requireTemplateStage(
@@ -398,7 +405,10 @@ export const onboardingRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDatabase();
-      await requireOnboardingAgent(db, input.agentUserId);
+      const onboardingAgent = await requireOnboardingAgent(
+        db,
+        input.agentUserId
+      );
       // Create the instance
       const startedAt = new Date();
       const [instResult] = await db.insert(onboardingInstances).values({
@@ -476,7 +486,42 @@ export const onboardingRouter = router({
           }
         }
       }
-      return { id: instanceId };
+
+      // A new agent can start their Extended Profile immediately from a secure
+      // magic link. The email is sent after the instance and its tasks exist so
+      // any return visit finds a complete, resumable onboarding record.
+      let profileInvitationSent = false;
+      try {
+        if (onboardingAgent.email) {
+          const delivery = await sendTransactionalEmail(
+            "onboarding_profile_invitation",
+            {
+              recipientName: onboardingAgent.name ?? undefined,
+              recipientEmail: onboardingAgent.email,
+              onboardingProfileUrl: "https://os.savvy-agents.com/profile",
+            },
+            {
+              idempotencyKey: `onboarding-profile-invitation:${instanceId}:${onboardingAgent.email.toLowerCase()}`,
+              allowTemplateOverride: false,
+            }
+          );
+          profileInvitationSent = delivery.sent;
+          if (!delivery.sent) {
+            console.warn(
+              `[Onboarding] Profile invitation was not delivered for onboarding instance ${instanceId}: ${delivery.reason ?? "unknown reason"}`
+            );
+          }
+        }
+      } catch (error) {
+        // Onboarding itself remains durable if transactional email is
+        // temporarily unavailable. The agent can still reach My Profile after
+        // signing in normally.
+        console.error(
+          `[Onboarding] Failed to send profile invitation for onboarding instance ${instanceId}:`,
+          error
+        );
+      }
+      return { id: instanceId, profileInvitationSent };
     }),
 
   updateInstanceAssignment: protectedProcedure
@@ -781,7 +826,7 @@ export const onboardingRouter = router({
       // configured. Treat that incomplete state as off in the purpose-built UI.
       isEnabled: Boolean(
         notificationSetting?.isEnabled &&
-          (recipients.length > 0 || includeAffectedAgent)
+        (recipients.length > 0 || includeAffectedAgent)
       ),
       recipientUserIds: recipients.map(recipient => recipient.id),
       includeAffectedAgent,

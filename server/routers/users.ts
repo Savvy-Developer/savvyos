@@ -66,7 +66,10 @@ const coreProfileSchema = z.object({
   giftNotes: z.string().optional().nullable(),
   shirtSize: z.string().optional().nullable(),
   personalNotes: z.string().optional().nullable(),
-  employmentStatus: z.enum(["active", "inactive", "on_leave", "offboarded"]).optional().nullable(),
+  employmentStatus: z
+    .enum(["active", "inactive", "on_leave", "offboarded"])
+    .optional()
+    .nullable(),
   onboardedDate: z.string().optional().nullable(),
   offboardedDate: z.string().optional().nullable(),
   referredBy: z.string().optional().nullable(),
@@ -76,10 +79,19 @@ const coreProfileSchema = z.object({
 
 function sanitizeEmailSignatureHtml(value: string): string {
   return value
-    .replace(/<\s*(script|iframe|object|embed|form|base|meta|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-    .replace(/<\s*(script|iframe|object|embed|form|base|meta)[^>]*\/?\s*>/gi, "")
+    .replace(
+      /<\s*(script|iframe|object|embed|form|base|meta|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+      ""
+    )
+    .replace(
+      /<\s*(script|iframe|object|embed|form|base|meta)[^>]*\/?\s*>/gi,
+      ""
+    )
     .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]+)/gi, " $1=\"#\"")
+    .replace(
+      /\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]+)/gi,
+      ' $1="#"'
+    )
     .trim();
 }
 
@@ -103,13 +115,14 @@ function describeIsaPage(path: string): string {
 }
 
 function hasMeaningfulEmailSignature(value: string): boolean {
-  return value
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
-    .trim()
-    .length > 0;
+  return (
+    value
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/\s+/g, " ")
+      .trim().length > 0
+  );
 }
 
 const agentProfileSchema = z.object({
@@ -121,7 +134,14 @@ const agentProfileSchema = z.object({
   brokerageAffiliation: z.string().optional().nullable(),
   brokerFullName: z.string().optional().nullable(),
   brokerEmail: z.string().optional().nullable(),
-  brokerOfficeNumber: z.string().max(32).optional().nullable().refine(isValidOptionalUsPhone, { message: "Phone number must contain exactly 10 digits." }),
+  brokerOfficeNumber: z
+    .string()
+    .max(32)
+    .optional()
+    .nullable()
+    .refine(isValidOptionalUsPhone, {
+      message: "Phone number must contain exactly 10 digits.",
+    }),
   bio: z.string().optional().nullable(),
   instagramUrl: z.string().optional().nullable(),
   facebookUrl: z.string().optional().nullable(),
@@ -130,10 +150,16 @@ const agentProfileSchema = z.object({
   tiktokUrl: z.string().optional().nullable(),
   personalWebsiteUrl: z.string().optional().nullable(),
   googleBusinessUrl: z.string().optional().nullable(),
-  agentStatus: z.enum(["active", "paused", "recruiting", "offboarded"]).optional().nullable(),
+  agentStatus: z
+    .enum(["active", "paused", "recruiting", "offboarded"])
+    .optional()
+    .nullable(),
   directorySpecialties: z.string().max(2_000).optional().nullable(),
   directoryLanguages: z.string().max(2_000).optional().nullable(),
-  directoryProductionLevel: z.enum(["emerging", "growing", "established", "elite"]).optional().nullable(),
+  directoryProductionLevel: z
+    .enum(["emerging", "growing", "established", "elite"])
+    .optional()
+    .nullable(),
   startDateWithSavvy: z.string().optional().nullable(),
   endDateWithSavvy: z.string().optional().nullable(),
   boardAssociation: z.string().optional().nullable(),
@@ -148,9 +174,38 @@ const agentProfileSchema = z.object({
   anniversaryRecognitionOptIn: z.boolean().optional().nullable(),
 });
 
+// Agent-owned fields intentionally exclude employment, internal operations,
+// and other administrator-maintained fields. This keeps the self-service page
+// useful without allowing an agent to change staff-only records.
+const agentSelfCoreProfileSchema = coreProfileSchema.omit({
+  userId: true,
+  profilePhotoUrl: true,
+  backgroundlessHeadshotUrl: true,
+  employmentStatus: true,
+  onboardedDate: true,
+  offboardedDate: true,
+  referredBy: true,
+  workAnniversaryDate: true,
+  internalNotes: true,
+});
+
+const agentSelfProfileSchema = agentProfileSchema.omit({
+  userId: true,
+  agentStatus: true,
+  startDateWithSavvy: true,
+  endDateWithSavvy: true,
+  showingServiceLoginNotes: true,
+  transactionCoordinatorAssigned: true,
+  assistantAssigned: true,
+  specialInternalNotes: true,
+});
+
 const isaProfileSchema = z.object({
   userId: z.number(),
-  isaStatus: z.enum(["active", "inactive", "on_leave", "offboarded"]).optional().nullable(),
+  isaStatus: z
+    .enum(["active", "inactive", "on_leave", "offboarded"])
+    .optional()
+    .nullable(),
   startDateWithSavvy: z.string().optional().nullable(),
   endDateWithSavvy: z.string().optional().nullable(),
   managerId: z.number().optional().nullable(),
@@ -167,12 +222,25 @@ const isaProfileSchema = z.object({
 
 const adminProfileSchema = z.object({
   userId: z.number(),
-  adminStatus: z.enum(["active", "inactive", "on_leave", "offboarded"]).optional().nullable(),
+  adminStatus: z
+    .enum(["active", "inactive", "on_leave", "offboarded"])
+    .optional()
+    .nullable(),
   startDateWithSavvy: z.string().optional().nullable(),
   endDateWithSavvy: z.string().optional().nullable(),
   managerId: z.number().optional().nullable(),
   slackHandle: z.string().optional().nullable(),
-  adminType: z.enum(["executive", "operations", "marketing", "expansion", "finance", "other"]).optional().nullable(),
+  adminType: z
+    .enum([
+      "executive",
+      "operations",
+      "marketing",
+      "expansion",
+      "finance",
+      "other",
+    ])
+    .optional()
+    .nullable(),
   primaryResponsibilityNotes: z.string().optional().nullable(),
   backupResponsibilityNotes: z.string().optional().nullable(),
   sopOwnerNotes: z.string().optional().nullable(),
@@ -191,15 +259,19 @@ function readLlmText(result: Awaited<ReturnType<typeof invokeLLM>>): string {
   if (typeof content === "string") return content.trim();
   if (Array.isArray(content)) {
     return content
-      .filter((part): part is { type: "text"; text: string } => part.type === "text")
-      .map((part) => part.text)
+      .filter(
+        (part): part is { type: "text"; text: string } => part.type === "text"
+      )
+      .map(part => part.text)
       .join("\n")
       .trim();
   }
   return "";
 }
 
-async function createDocumentCoachSummary(document: typeof userDocuments.$inferSelect): Promise<string> {
+async function createDocumentCoachSummary(
+  document: typeof userDocuments.$inferSelect
+): Promise<string> {
   const mimeType = (document.mimeType ?? "").toLowerCase();
   const systemPrompt = [
     "You are a careful real-estate sales-performance coach assisting an administrator.",
@@ -212,16 +284,27 @@ async function createDocumentCoachSummary(document: typeof userDocuments.$inferS
   let content: any;
   if (mimeType === "application/pdf") {
     content = [
-      { type: "text", text: `Analyze the uploaded document titled \"${document.label}\". Provide an evidence-based coach summary.` },
-      { type: "file_url", file_url: { url: document.fileUrl, mime_type: "application/pdf" } },
+      {
+        type: "text",
+        text: `Analyze the uploaded document titled \"${document.label}\". Provide an evidence-based coach summary.`,
+      },
+      {
+        type: "file_url",
+        file_url: { url: document.fileUrl, mime_type: "application/pdf" },
+      },
     ];
   } else if (mimeType.startsWith("text/")) {
     const response = await fetch(document.fileUrl);
-    if (!response.ok) throw new Error("The uploaded text document could not be retrieved for summary generation.");
+    if (!response.ok)
+      throw new Error(
+        "The uploaded text document could not be retrieved for summary generation."
+      );
     const sourceText = (await response.text()).slice(0, 90_000);
     content = `Analyze the uploaded text document titled \"${document.label}\". Provide an evidence-based coach summary.\n\nUNTRUSTED DOCUMENT CONTENT START\n${sourceText}\nUNTRUSTED DOCUMENT CONTENT END`;
   } else {
-    throw new Error("Automatic summaries currently support PDF and text documents. You can still retain this file in the profile.");
+    throw new Error(
+      "Automatic summaries currently support PDF and text documents. You can still retain this file in the profile."
+    );
   }
 
   const result = await invokeLLM({
@@ -232,25 +315,35 @@ async function createDocumentCoachSummary(document: typeof userDocuments.$inferS
     maxTokens: 900,
   });
   const summary = readLlmText(result);
-  if (!summary) throw new Error("The AI service returned an empty document summary.");
+  if (!summary)
+    throw new Error("The AI service returned an empty document summary.");
   return summary.slice(0, 20_000);
 }
 
 export const usersRouter = router({
   list: protectedProcedure
-    .input(z.object({ role: z.enum(["admin", "agent", "isa"]).optional() }).optional())
+    .input(
+      z
+        .object({ role: z.enum(["admin", "agent", "isa"]).optional() })
+        .optional()
+    )
     .query(async ({ input, ctx }) => {
       const isAdmin = ctx.user.role === "admin";
       const isIsa = ctx.user.role === "isa";
       const isOwner = (ctx.user as any).email === "tyler@savvy.realty";
 
-      if (!isAdmin && !isIsa && !isOwner) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!isAdmin && !isIsa && !isOwner)
+        throw new TRPCError({ code: "FORBIDDEN" });
 
       if (isIsa && !isOwner) {
         const requestedRole = input?.role;
-        if (requestedRole === "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (requestedRole === "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         if (requestedRole) return getUsersByRole(requestedRole);
-        const [agents, isas] = await Promise.all([getUsersByRole("agent"), getUsersByRole("isa")]);
+        const [agents, isas] = await Promise.all([
+          getUsersByRole("agent"),
+          getUsersByRole("isa"),
+        ]);
         return [...agents, ...isas];
       }
 
@@ -259,37 +352,41 @@ export const usersRouter = router({
     }),
 
   // List users with document counts (admin only)
-  listWithDocCounts: protectedProcedure
-    .query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db = await getDb();
-      if (!db) return [];
-      const users = await getAllUsers();
-      // Get document counts per user
-      const counts = await db
-        .select({
-          userId: userDocuments.userId,
-          count: sql<number>`count(*)`.as("count"),
-        })
-        .from(userDocuments)
-        .groupBy(userDocuments.userId);
-      const countMap = new Map(counts.map((c: any) => [c.userId, Number(c.count)]));
-      // Get profile photos used in the administrator user editor.
-      const profiles = await db
-        .select({
-          userId: userProfiles.userId,
-          profilePhotoUrl: userProfiles.profilePhotoUrl,
-          backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
-        })
-        .from(userProfiles);
-      const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
-      return (users as any[]).map((u: any) => ({
-        ...u,
-        documentCount: countMap.get(u.id) ?? 0,
-        profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
-        backgroundlessHeadshotUrl: profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
-      }));
-    }),
+  listWithDocCounts: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    const db = await getDb();
+    if (!db) return [];
+    const users = await getAllUsers();
+    // Get document counts per user
+    const counts = await db
+      .select({
+        userId: userDocuments.userId,
+        count: sql<number>`count(*)`.as("count"),
+      })
+      .from(userDocuments)
+      .groupBy(userDocuments.userId);
+    const countMap = new Map(
+      counts.map((c: any) => [c.userId, Number(c.count)])
+    );
+    // Get profile photos used in the administrator user editor.
+    const profiles = await db
+      .select({
+        userId: userProfiles.userId,
+        profilePhotoUrl: userProfiles.profilePhotoUrl,
+        backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
+      })
+      .from(userProfiles);
+    const profileMap = new Map(
+      profiles.map(profile => [profile.userId, profile])
+    );
+    return (users as any[]).map((u: any) => ({
+      ...u,
+      documentCount: countMap.get(u.id) ?? 0,
+      profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
+      backgroundlessHeadshotUrl:
+        profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
+    }));
+  }),
 
   /**
    * Records a page-open event for the signed-in ISA. Entity classification is
@@ -325,24 +422,42 @@ export const usersRouter = router({
    * explicit entity events, login records, and browser-side file downloads.
    */
   activityForUser: protectedProcedure
-    .input(z.object({
-      userId: z.number().int().positive(),
-      page: z.number().int().min(1).default(1),
-      limit: z.number().int().min(1).max(100).default(50),
-      entityTypes: z.array(z.string().min(1).max(64)).optional(),
-      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    }))
+    .input(
+      z.object({
+        userId: z.number().int().positive(),
+        page: z.number().int().min(1).default(1),
+        limit: z.number().int().min(1).max(100).default(50),
+        entityTypes: z.array(z.string().min(1).max(64)).optional(),
+        dateFrom: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+        dateTo: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      })
+    )
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
 
-      const targetExists = (await getAllUsers()).some((user: any) => user.id === input.userId);
-      if (!targetExists) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const targetExists = (await getAllUsers()).some(
+        (user: any) => user.id === input.userId
+      );
+      if (!targetExists)
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
-      const dateFrom = input.dateFrom ? new Date(`${input.dateFrom}T00:00:00.000Z`) : undefined;
-      const dateTo = input.dateTo ? new Date(`${input.dateTo}T23:59:59.999Z`) : undefined;
+      const dateFrom = input.dateFrom
+        ? new Date(`${input.dateFrom}T00:00:00.000Z`)
+        : undefined;
+      const dateTo = input.dateTo
+        ? new Date(`${input.dateTo}T23:59:59.999Z`)
+        : undefined;
       if (dateFrom && dateTo && dateFrom > dateTo) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "The start date must be on or before the end date." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The start date must be on or before the end date.",
+        });
       }
 
       return getGlobalActivityLog({
@@ -368,32 +483,49 @@ export const usersRouter = router({
         .where(eq(userProfiles.userId, input.userId))
         .limit(1);
       if (existing.length > 0) {
-        await db.update(userProfiles).set({ profilePhotoUrl: input.avatarUrl }).where(eq(userProfiles.userId, input.userId));
+        await db
+          .update(userProfiles)
+          .set({ profilePhotoUrl: input.avatarUrl })
+          .where(eq(userProfiles.userId, input.userId));
       } else {
-        await db.insert(userProfiles).values({ userId: input.userId, profilePhotoUrl: input.avatarUrl });
+        await db
+          .insert(userProfiles)
+          .values({ userId: input.userId, profilePhotoUrl: input.avatarUrl });
       }
       return { success: true };
     }),
 
   create: protectedProcedure
-    .input(z.object({
-      name: z.string().min(1),
-      email: z.string().email(),
-      role: z.enum(["admin", "agent", "isa", "agent_support"]),
-      employmentType: z.enum(["w2", "1099"]),
-      phone: z.string().optional().nullable(),
-      title: z.string().optional().nullable(),
-      reportsToId: z.number().optional().nullable(),
-      marketProfileId: z.number().optional().nullable(),
-      commissionSplit: z.number().optional().nullable(),
-      callBookingLink: z.string().optional().nullable(),
-    }))
+    .input(
+      z.object({
+        name: z.string().min(1),
+        email: z.string().email(),
+        role: z.enum(["admin", "agent", "isa", "agent_support"]),
+        employmentType: z.enum(["w2", "1099"]),
+        phone: z.string().optional().nullable(),
+        title: z.string().optional().nullable(),
+        reportsToId: z.number().optional().nullable(),
+        marketProfileId: z.number().optional().nullable(),
+        commissionSplit: z.number().optional().nullable(),
+        callBookingLink: z.string().optional().nullable(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       // Only Tyler/Elana/Dyl can create admin users
-      const PERMISSION_MANAGERS = ["tyler@savvy.realty", "elana@savvy.realty", "dyl@savvy.realty"];
-      if (input.role === "admin" && !PERMISSION_MANAGERS.includes((ctx.user as any).email)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can create admin users" });
+      const PERMISSION_MANAGERS = [
+        "tyler@savvy.realty",
+        "elana@savvy.realty",
+        "dyl@savvy.realty",
+      ];
+      if (
+        input.role === "admin" &&
+        !PERMISSION_MANAGERS.includes((ctx.user as any).email)
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Tyler, Elana, and Dyl can create admin users",
+        });
       }
       const id = await createUser(input);
       // Auto-create permission and lifecycle rows for new admin users.
@@ -401,51 +533,76 @@ export const usersRouter = router({
         try {
           const db = await getDb();
           if (db) {
-            await db.insert(adminPermissions).values({ userId: id }).onDuplicateKeyUpdate({ set: { userId: id } });
-            await db.insert(adminProfiles).values({ userId: id, adminStatus: "active" }).onDuplicateKeyUpdate({ set: { userId: id } });
+            await db
+              .insert(adminPermissions)
+              .values({ userId: id })
+              .onDuplicateKeyUpdate({ set: { userId: id } });
+            await db
+              .insert(adminProfiles)
+              .values({ userId: id, adminStatus: "active" })
+              .onDuplicateKeyUpdate({ set: { userId: id } });
           }
-        } catch (_e) { /* non-fatal */ }
+        } catch (_e) {
+          /* non-fatal */
+        }
       }
       // Auto-create coaching profile for new agents
       if (input.role === "agent") {
         try {
           const db = await getDb();
           if (db) {
-            await db.insert(coachingProfiles).values({
-              agentId: id,
-              performanceStatus: "Launch",
-              retentionRiskStatus: "Low",
-              marketProtectionStatus: "Protected",
-              coachingSetupRequired: true,
-              launchStartDate: new Date(),
-              launchHealthStatus: "On Track",
-            }).onDuplicateKeyUpdate({ set: { agentId: id } });
+            await db
+              .insert(coachingProfiles)
+              .values({
+                agentId: id,
+                performanceStatus: "Launch",
+                retentionRiskStatus: "Low",
+                marketProtectionStatus: "Protected",
+                coachingSetupRequired: true,
+                launchStartDate: new Date(),
+                launchHealthStatus: "On Track",
+              })
+              .onDuplicateKeyUpdate({ set: { agentId: id } });
           }
-        } catch (_e) { /* non-fatal */ }
+        } catch (_e) {
+          /* non-fatal */
+        }
       }
       return { id };
     }),
 
   update: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      name: z.string().min(1).optional(),
-      email: z.string().email().optional(),
-      role: z.enum(["admin", "agent", "isa", "agent_support"]).optional(),
-      employmentType: z.enum(["w2", "1099"]).optional().nullable(),
-      phone: z.string().optional().nullable(),
-      title: z.string().optional().nullable(),
-      reportsToId: z.number().optional().nullable(),
-      marketProfileId: z.number().optional().nullable(),
-      commissionSplit: z.number().optional().nullable(),
-      callBookingLink: z.string().optional().nullable(),
-    }))
+    .input(
+      z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        email: z.string().email().optional(),
+        role: z.enum(["admin", "agent", "isa", "agent_support"]).optional(),
+        employmentType: z.enum(["w2", "1099"]).optional().nullable(),
+        phone: z.string().optional().nullable(),
+        title: z.string().optional().nullable(),
+        reportsToId: z.number().optional().nullable(),
+        marketProfileId: z.number().optional().nullable(),
+        commissionSplit: z.number().optional().nullable(),
+        callBookingLink: z.string().optional().nullable(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       // Only Tyler/Elana/Dyl can promote users to admin
-      const PERMISSION_MANAGERS_UPDATE = ["tyler@savvy.realty", "elana@savvy.realty", "dyl@savvy.realty"];
-      if (input.role === "admin" && !PERMISSION_MANAGERS_UPDATE.includes((ctx.user as any).email)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only Tyler, Elana, and Dyl can promote users to admin" });
+      const PERMISSION_MANAGERS_UPDATE = [
+        "tyler@savvy.realty",
+        "elana@savvy.realty",
+        "dyl@savvy.realty",
+      ];
+      if (
+        input.role === "admin" &&
+        !PERMISSION_MANAGERS_UPDATE.includes((ctx.user as any).email)
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Tyler, Elana, and Dyl can promote users to admin",
+        });
       }
       const { id, ...data } = input;
       await updateUser(id, data);
@@ -454,9 +611,14 @@ export const usersRouter = router({
         try {
           const db = await getDb();
           if (db) {
-            await db.insert(adminPermissions).values({ userId: id }).onDuplicateKeyUpdate({ set: { userId: id } });
+            await db
+              .insert(adminPermissions)
+              .values({ userId: id })
+              .onDuplicateKeyUpdate({ set: { userId: id } });
           }
-        } catch (_e) { /* non-fatal */ }
+        } catch (_e) {
+          /* non-fatal */
+        }
       }
       return { success: true };
     }),
@@ -466,13 +628,21 @@ export const usersRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       if (input.id === ctx.user.id)
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot delete yourself" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot delete yourself",
+        });
       await deleteUser(input.id);
       return { success: true };
     }),
 
   updateRole: protectedProcedure
-    .input(z.object({ userId: z.number(), role: z.enum(["admin", "agent", "isa", "agent_support"]) }))
+    .input(
+      z.object({
+        userId: z.number(),
+        role: z.enum(["admin", "agent", "isa", "agent_support"]),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       await updateUserRole(input.userId, input.role);
@@ -484,13 +654,20 @@ export const usersRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       if (input.userId === ctx.user.id && !input.isActive) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot deactivate your own account" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot deactivate your own account",
+        });
       }
       const { getUserById } = await import("../db");
       const targetUser = await getUserById(input.userId);
-      if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      if (!targetUser)
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
       if (targetUser.email === "tyler@savvy.realty" && !input.isActive) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This account cannot be deactivated" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This account cannot be deactivated",
+        });
       }
       await updateUser(input.userId, { isActive: input.isActive });
       return { success: true, isActive: input.isActive };
@@ -517,7 +694,11 @@ export const usersRouter = router({
       if (!isAdmin && !isSelf) throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) return null;
-      const rows = await db.select().from(userProfiles).where(eq(userProfiles.userId, input.userId)).limit(1);
+      const rows = await db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, input.userId))
+        .limit(1);
       return rows[0] ?? null;
     }),
 
@@ -528,24 +709,47 @@ export const usersRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { userId, ...rest } = input;
-      const data: any = normalizePhoneFields(rest, ["primaryPhone", "secondaryPhone", "emergencyContactPhone"]);
+      const data: any = normalizePhoneFields(rest, [
+        "primaryPhone",
+        "secondaryPhone",
+        "emergencyContactPhone",
+      ]);
       // Convert date strings to Date objects
-      for (const key of ["dateOfBirth", "onboardedDate", "offboardedDate", "workAnniversaryDate"] as const) {
+      for (const key of [
+        "dateOfBirth",
+        "onboardedDate",
+        "offboardedDate",
+        "workAnniversaryDate",
+      ] as const) {
         if (key in data) data[key] = toDate(data[key]);
       }
-      const existing = await db.select({ id: userProfiles.id }).from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1);
+      const existing = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .limit(1);
       if (existing.length > 0) {
-        await db.update(userProfiles).set(data).where(eq(userProfiles.userId, userId));
+        await db
+          .update(userProfiles)
+          .set(data)
+          .where(eq(userProfiles.userId, userId));
       } else {
         await db.insert(userProfiles).values({ userId, ...data });
       }
       // The signed/onboarded date is the renewal source of truth for active agents.
       // Keep the one scheduled renewal aligned whenever that profile date is maintained.
       if (data.onboardedDate instanceof Date) {
-        const [targetUser] = await db.select({ role: users.role, isActive: users.isActive })
-          .from(users).where(eq(users.id, userId)).limit(1);
+        const [targetUser] = await db
+          .select({ role: users.role, isActive: users.isActive })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
         if (targetUser?.role === "agent" && targetUser.isActive) {
-          await syncScheduledRenewalWithOnboardedDate(db, userId, data.onboardedDate);
+          await syncScheduledRenewalWithOnboardedDate(
+            db,
+            userId,
+            data.onboardedDate
+          );
         }
       }
       return { success: true };
@@ -559,7 +763,11 @@ export const usersRouter = router({
       if (!isAdmin && !isSelf) throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) return null;
-      const rows = await db.select().from(agentProfiles).where(eq(agentProfiles.userId, input.userId)).limit(1);
+      const rows = await db
+        .select()
+        .from(agentProfiles)
+        .where(eq(agentProfiles.userId, input.userId))
+        .limit(1);
       return rows[0] ?? null;
     }),
 
@@ -571,15 +779,107 @@ export const usersRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { userId, ...rest } = input;
       const data: any = normalizePhoneFields(rest, ["brokerOfficeNumber"]);
-      for (const key of ["licenseExpirationDate", "startDateWithSavvy", "endDateWithSavvy"] as const) {
+      for (const key of [
+        "licenseExpirationDate",
+        "startDateWithSavvy",
+        "endDateWithSavvy",
+      ] as const) {
         if (key in data) data[key] = toDate(data[key]);
       }
-      const existing = await db.select({ id: agentProfiles.id }).from(agentProfiles).where(eq(agentProfiles.userId, userId)).limit(1);
+      const existing = await db
+        .select({ id: agentProfiles.id })
+        .from(agentProfiles)
+        .where(eq(agentProfiles.userId, userId))
+        .limit(1);
       if (existing.length > 0) {
-        await db.update(agentProfiles).set(data).where(eq(agentProfiles.userId, userId));
+        await db
+          .update(agentProfiles)
+          .set(data)
+          .where(eq(agentProfiles.userId, userId));
       } else {
         await db.insert(agentProfiles).values({ userId, ...data });
       }
+      return { success: true };
+    }),
+
+  /**
+   * Agent self-service extended profile. The page sends the complete safe
+   * profile snapshot after each field change, so a partially completed form
+   * is durable and can be resumed later without a separate draft table.
+   */
+  updateMyExtendedProfile: protectedProcedure
+    .input(
+      z.object({
+        core: agentSelfCoreProfileSchema,
+        agent: agentSelfProfileSchema,
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "agent") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only agents can update this profile.",
+        });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const coreData: any = normalizePhoneFields(input.core, [
+        "primaryPhone",
+        "secondaryPhone",
+        "emergencyContactPhone",
+      ]);
+      if ("dateOfBirth" in coreData)
+        coreData.dateOfBirth = toDate(coreData.dateOfBirth);
+
+      const agentData: any = normalizePhoneFields(input.agent, [
+        "brokerOfficeNumber",
+      ]);
+      if ("licenseExpirationDate" in agentData) {
+        agentData.licenseExpirationDate = toDate(
+          agentData.licenseExpirationDate
+        );
+      }
+
+      const [coreProfile] = await db
+        .select({ id: userProfiles.id })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, ctx.user.id))
+        .limit(1);
+      if (coreProfile) {
+        await db
+          .update(userProfiles)
+          .set(coreData)
+          .where(eq(userProfiles.userId, ctx.user.id));
+      } else {
+        await db
+          .insert(userProfiles)
+          .values({ userId: ctx.user.id, ...coreData });
+      }
+
+      const [agentProfile] = await db
+        .select({ id: agentProfiles.id })
+        .from(agentProfiles)
+        .where(eq(agentProfiles.userId, ctx.user.id))
+        .limit(1);
+      if (agentProfile) {
+        await db
+          .update(agentProfiles)
+          .set(agentData)
+          .where(eq(agentProfiles.userId, ctx.user.id));
+      } else {
+        await db
+          .insert(agentProfiles)
+          .values({ userId: ctx.user.id, ...agentData });
+      }
+
+      await logActivity({
+        userId: ctx.user.id,
+        action: "agent_extended_profile_updated",
+        entityType: "user_profile",
+        entityId: ctx.user.id,
+        details: { source: "agent_self_service" },
+      });
       return { success: true };
     }),
 
@@ -591,7 +891,11 @@ export const usersRouter = router({
       if (!isAdmin && !isSelf) throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) return null;
-      const rows = await db.select().from(isaProfiles).where(eq(isaProfiles.userId, input.userId)).limit(1);
+      const rows = await db
+        .select()
+        .from(isaProfiles)
+        .where(eq(isaProfiles.userId, input.userId))
+        .limit(1);
       return rows[0] ?? null;
     }),
 
@@ -603,12 +907,24 @@ export const usersRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { userId, ...rest } = input;
       const data: any = { ...rest };
-      for (const key of ["startDateWithSavvy", "endDateWithSavvy", "trainingStartDate", "trainingCompletionDate"] as const) {
+      for (const key of [
+        "startDateWithSavvy",
+        "endDateWithSavvy",
+        "trainingStartDate",
+        "trainingCompletionDate",
+      ] as const) {
         if (key in data) data[key] = toDate(data[key]);
       }
-      const existing = await db.select({ id: isaProfiles.id }).from(isaProfiles).where(eq(isaProfiles.userId, userId)).limit(1);
+      const existing = await db
+        .select({ id: isaProfiles.id })
+        .from(isaProfiles)
+        .where(eq(isaProfiles.userId, userId))
+        .limit(1);
       if (existing.length > 0) {
-        await db.update(isaProfiles).set(data).where(eq(isaProfiles.userId, userId));
+        await db
+          .update(isaProfiles)
+          .set(data)
+          .where(eq(isaProfiles.userId, userId));
       } else {
         await db.insert(isaProfiles).values({ userId, ...data });
       }
@@ -623,7 +939,11 @@ export const usersRouter = router({
       if (!isAdmin && !isSelf) throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) return null;
-      const rows = await db.select().from(adminProfiles).where(eq(adminProfiles.userId, input.userId)).limit(1);
+      const rows = await db
+        .select()
+        .from(adminProfiles)
+        .where(eq(adminProfiles.userId, input.userId))
+        .limit(1);
       return rows[0] ?? null;
     }),
 
@@ -638,9 +958,16 @@ export const usersRouter = router({
       for (const key of ["startDateWithSavvy", "endDateWithSavvy"] as const) {
         if (key in data) data[key] = toDate(data[key]);
       }
-      const existing = await db.select({ id: adminProfiles.id }).from(adminProfiles).where(eq(adminProfiles.userId, userId)).limit(1);
+      const existing = await db
+        .select({ id: adminProfiles.id })
+        .from(adminProfiles)
+        .where(eq(adminProfiles.userId, userId))
+        .limit(1);
       if (existing.length > 0) {
-        await db.update(adminProfiles).set(data).where(eq(adminProfiles.userId, userId));
+        await db
+          .update(adminProfiles)
+          .set(data)
+          .where(eq(adminProfiles.userId, userId));
       } else {
         await db.insert(adminProfiles).values({ userId, ...data });
       }
@@ -664,15 +991,17 @@ export const usersRouter = router({
     }),
 
   uploadDocument: protectedProcedure
-    .input(z.object({
-      userId: z.number(),
-      label: z.string().min(1).max(255),
-      category: z.string().optional().default("Other"),
-      fileName: z.string(),
-      mimeType: z.string(),
-      fileSize: z.number().optional(),
-      fileBase64: z.string(),
-    }))
+    .input(
+      z.object({
+        userId: z.number(),
+        label: z.string().min(1).max(255),
+        category: z.string().optional().default("Other"),
+        fileName: z.string(),
+        mimeType: z.string(),
+        fileSize: z.number().optional(),
+        fileBase64: z.string(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
@@ -701,27 +1030,38 @@ export const usersRouter = router({
         .where(eq(userDocuments.fileKey, fileKey))
         .limit(1);
       const document = insertedRows[0];
-      let aiSummaryStatus: "complete" | "not_supported" | "failed" = "not_supported";
+      let aiSummaryStatus: "complete" | "not_supported" | "failed" =
+        "not_supported";
       let aiSummaryError: string | null = null;
 
       if (document) {
-        const supportedForSummary = input.mimeType === "application/pdf" || input.mimeType.toLowerCase().startsWith("text/");
+        const supportedForSummary =
+          input.mimeType === "application/pdf" ||
+          input.mimeType.toLowerCase().startsWith("text/");
         if (supportedForSummary) {
           try {
             const aiSummary = await createDocumentCoachSummary(document);
-            await db.update(userDocuments)
-              .set({ aiSummary, aiSummaryGeneratedAt: new Date(), aiSummaryStatus: "complete", aiSummaryError: null })
+            await db
+              .update(userDocuments)
+              .set({
+                aiSummary,
+                aiSummaryGeneratedAt: new Date(),
+                aiSummaryStatus: "complete",
+                aiSummaryError: null,
+              })
               .where(eq(userDocuments.id, document.id));
             aiSummaryStatus = "complete";
           } catch (error: any) {
             aiSummaryError = error?.message ?? "AI summary generation failed.";
-            await db.update(userDocuments)
+            await db
+              .update(userDocuments)
               .set({ aiSummaryStatus: "failed", aiSummaryError })
               .where(eq(userDocuments.id, document.id));
             aiSummaryStatus = "failed";
           }
         } else {
-          await db.update(userDocuments)
+          await db
+            .update(userDocuments)
             .set({ aiSummaryStatus: "not_supported" })
             .where(eq(userDocuments.id, document.id));
         }
@@ -732,10 +1072,20 @@ export const usersRouter = router({
         action: "uploaded_user_document",
         entityType: "user",
         entityId: input.userId,
-        details: { documentId: document?.id ?? null, category: input.category ?? "Other", aiSummaryStatus },
+        details: {
+          documentId: document?.id ?? null,
+          category: input.category ?? "Other",
+          aiSummaryStatus,
+        },
       });
 
-      return { success: true, url, documentId: document?.id ?? null, aiSummaryStatus, aiSummaryError };
+      return {
+        success: true,
+        url,
+        documentId: document?.id ?? null,
+        aiSummaryStatus,
+        aiSummaryError,
+      };
     }),
 
   deleteDocument: protectedProcedure
@@ -744,167 +1094,224 @@ export const usersRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.delete(userDocuments).where(eq(userDocuments.id, input.documentId));
+      await db
+        .delete(userDocuments)
+        .where(eq(userDocuments.id, input.documentId));
       return { success: true };
     }),
 
   // Agent Directory — collaboration-focused data available to all authenticated users.
   // It intentionally excludes HR, licensing, internal notes, and other private
   // profile fields while making agent-to-agent contact easy.
-  agentDirectory: protectedProcedure
-    .query(async () => {
-      const db = await getDb();
-      if (!db) return [];
+  agentDirectory: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
 
-      const allUsers = (await getAllUsers() as any[])
-        .filter((user) => user.role === "agent" && user.isActive !== false);
-      if (allUsers.length === 0) return [];
-      const agentIds = allUsers.map((user) => user.id as number);
+    const allUsers = ((await getAllUsers()) as any[]).filter(
+      user => user.role === "agent" && user.isActive !== false
+    );
+    if (allUsers.length === 0) return [];
+    const agentIds = allUsers.map(user => user.id as number);
 
-      const [coreRows, profileRows, assignmentRows, membershipRows, leaderRows] = await Promise.all([
-        db.select({
-          userId: userProfiles.userId,
-          profilePhotoUrl: userProfiles.profilePhotoUrl,
-          primaryPhone: userProfiles.primaryPhone,
-        }).from(userProfiles).where(inArray(userProfiles.userId, agentIds)),
-        db.select({
-          userId: agentProfiles.userId,
-          agentStatus: agentProfiles.agentStatus,
-          bio: agentProfiles.bio,
-          directorySpecialties: agentProfiles.directorySpecialties,
-          directoryLanguages: agentProfiles.directoryLanguages,
-          directoryProductionLevel: agentProfiles.directoryProductionLevel,
-        }).from(agentProfiles).where(inArray(agentProfiles.userId, agentIds)),
-        db.select({
-          agentId: marketAgentAssignments.agentId,
-          marketId: marketProfiles.id,
-          marketName: marketProfiles.name,
-          marketState: marketProfiles.state,
-          isPrimary: marketAgentAssignments.isPrimary,
-          isAvailable: marketAgentAssignments.isAvailable,
-        }).from(marketAgentAssignments)
-          .innerJoin(marketProfiles, eq(marketAgentAssignments.marketProfileId, marketProfiles.id))
+    const [coreRows, profileRows, assignmentRows, membershipRows, leaderRows] =
+      await Promise.all([
+        db
+          .select({
+            userId: userProfiles.userId,
+            profilePhotoUrl: userProfiles.profilePhotoUrl,
+            primaryPhone: userProfiles.primaryPhone,
+          })
+          .from(userProfiles)
+          .where(inArray(userProfiles.userId, agentIds)),
+        db
+          .select({
+            userId: agentProfiles.userId,
+            agentStatus: agentProfiles.agentStatus,
+            bio: agentProfiles.bio,
+            directorySpecialties: agentProfiles.directorySpecialties,
+            directoryLanguages: agentProfiles.directoryLanguages,
+            directoryProductionLevel: agentProfiles.directoryProductionLevel,
+          })
+          .from(agentProfiles)
+          .where(inArray(agentProfiles.userId, agentIds)),
+        db
+          .select({
+            agentId: marketAgentAssignments.agentId,
+            marketId: marketProfiles.id,
+            marketName: marketProfiles.name,
+            marketState: marketProfiles.state,
+            isPrimary: marketAgentAssignments.isPrimary,
+            isAvailable: marketAgentAssignments.isAvailable,
+          })
+          .from(marketAgentAssignments)
+          .innerJoin(
+            marketProfiles,
+            eq(marketAgentAssignments.marketProfileId, marketProfiles.id)
+          )
           .where(inArray(marketAgentAssignments.agentId, agentIds)),
-        db.select({ userId: groupMembers.userId, groupName: groups.name })
+        db
+          .select({ userId: groupMembers.userId, groupName: groups.name })
           .from(groupMembers)
           .innerJoin(groups, eq(groupMembers.groupId, groups.id))
           .where(inArray(groupMembers.userId, agentIds)),
-        db.select({ leaderId: groups.leaderId, groupName: groups.name })
+        db
+          .select({ leaderId: groups.leaderId, groupName: groups.name })
           .from(groups)
           .where(inArray(groups.leaderId, agentIds)),
       ]);
 
-      const splitValues = (value: string | null) => Array.from(new Set(
-        (value ?? "").split(",").map((item) => item.trim()).filter(Boolean),
-      ));
-      const coreByUser = new Map(coreRows.map((row) => [row.userId, row]));
-      const profileByUser = new Map(profileRows.map((row) => [row.userId, row]));
-      const marketsByAgent = new Map<number, any[]>();
-      for (const row of assignmentRows) {
-        const entries = marketsByAgent.get(row.agentId) ?? [];
-        entries.push({
-          id: row.marketId,
-          name: row.marketName,
-          state: row.marketState,
-          isPrimary: Boolean(row.isPrimary),
-          isAvailable: Boolean(row.isAvailable),
-        });
-        marketsByAgent.set(row.agentId, entries);
-      }
-      // Retain the legacy primary-market relationship as a fallback where an
-      // agent has not yet been added to the market assignment table.
-      const marketRows = await db.select({ id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state }).from(marketProfiles);
-      const marketById = new Map(marketRows.map((row) => [row.id, row]));
-      const teamsByAgent = new Map<number, string[]>();
-      for (const row of [...membershipRows, ...leaderRows.filter((row) => row.leaderId != null).map((row) => ({ userId: row.leaderId!, groupName: row.groupName }))]) {
-        const teams = teamsByAgent.get(row.userId) ?? [];
-        if (!teams.includes(row.groupName)) teams.push(row.groupName);
-        teamsByAgent.set(row.userId, teams);
-      }
+    const splitValues = (value: string | null) =>
+      Array.from(
+        new Set(
+          (value ?? "")
+            .split(",")
+            .map(item => item.trim())
+            .filter(Boolean)
+        )
+      );
+    const coreByUser = new Map(coreRows.map(row => [row.userId, row]));
+    const profileByUser = new Map(profileRows.map(row => [row.userId, row]));
+    const marketsByAgent = new Map<number, any[]>();
+    for (const row of assignmentRows) {
+      const entries = marketsByAgent.get(row.agentId) ?? [];
+      entries.push({
+        id: row.marketId,
+        name: row.marketName,
+        state: row.marketState,
+        isPrimary: Boolean(row.isPrimary),
+        isAvailable: Boolean(row.isAvailable),
+      });
+      marketsByAgent.set(row.agentId, entries);
+    }
+    // Retain the legacy primary-market relationship as a fallback where an
+    // agent has not yet been added to the market assignment table.
+    const marketRows = await db
+      .select({
+        id: marketProfiles.id,
+        name: marketProfiles.name,
+        state: marketProfiles.state,
+      })
+      .from(marketProfiles);
+    const marketById = new Map(marketRows.map(row => [row.id, row]));
+    const teamsByAgent = new Map<number, string[]>();
+    for (const row of [
+      ...membershipRows,
+      ...leaderRows
+        .filter(row => row.leaderId != null)
+        .map(row => ({ userId: row.leaderId!, groupName: row.groupName })),
+    ]) {
+      const teams = teamsByAgent.get(row.userId) ?? [];
+      if (!teams.includes(row.groupName)) teams.push(row.groupName);
+      teamsByAgent.set(row.userId, teams);
+    }
 
-      return allUsers.map((user) => {
-        const core = coreByUser.get(user.id);
-        const profile = profileByUser.get(user.id);
-        const assignedMarkets = marketsByAgent.get(user.id) ?? [];
-        const fallbackMarket = assignedMarkets.length === 0 && user.marketProfileId
+    return allUsers.map(user => {
+      const core = coreByUser.get(user.id);
+      const profile = profileByUser.get(user.id);
+      const assignedMarkets = marketsByAgent.get(user.id) ?? [];
+      const fallbackMarket =
+        assignedMarkets.length === 0 && user.marketProfileId
           ? marketById.get(user.marketProfileId)
           : null;
-        const markets = fallbackMarket
-          ? [{ id: fallbackMarket.id, name: fallbackMarket.name, state: fallbackMarket.state, isPrimary: true, isAvailable: true }]
-          : assignedMarkets;
-        return {
-          id: user.id,
-          name: user.name ?? null,
-          email: user.email ?? null,
-          phone: user.phone ?? core?.primaryPhone ?? null,
-          title: user.title ?? null,
-          profilePhotoUrl: core?.profilePhotoUrl ?? null,
-          agentStatus: profile?.agentStatus ?? "active",
-          specialties: splitValues(profile?.directorySpecialties ?? null),
-          languages: splitValues(profile?.directoryLanguages ?? null),
-          productionLevel: profile?.directoryProductionLevel ?? null,
-          bio: profile?.bio ?? null,
-          teams: teamsByAgent.get(user.id) ?? [],
-          markets,
-        };
-      });
-    }),
+      const markets = fallbackMarket
+        ? [
+            {
+              id: fallbackMarket.id,
+              name: fallbackMarket.name,
+              state: fallbackMarket.state,
+              isPrimary: true,
+              isAvailable: true,
+            },
+          ]
+        : assignedMarkets;
+      return {
+        id: user.id,
+        name: user.name ?? null,
+        email: user.email ?? null,
+        phone: user.phone ?? core?.primaryPhone ?? null,
+        title: user.title ?? null,
+        profilePhotoUrl: core?.profilePhotoUrl ?? null,
+        agentStatus: profile?.agentStatus ?? "active",
+        specialties: splitValues(profile?.directorySpecialties ?? null),
+        languages: splitValues(profile?.directoryLanguages ?? null),
+        productionLevel: profile?.directoryProductionLevel ?? null,
+        bio: profile?.bio ?? null,
+        teams: teamsByAgent.get(user.id) ?? [],
+        markets,
+      };
+    });
+  }),
 
   // Org chart — accessible by all authenticated users (agents, ISAs, admins)
-  orgChart: protectedProcedure
-    .query(async () => {
-      const db = await getDb();
-      if (!db) return [];
-      // The Org Chart is an operating-team view. Retired users, including
-      // decommissioned test fixtures, must not appear in its hierarchy.
-      const all = (await getAllUsers()).filter((user: any) => user.isActive !== false);
-      // Market name lookup
-      const mktRows = await db.select({ id: marketProfiles.id, name: marketProfiles.name }).from(marketProfiles);
-      const mktMap = new Map(mktRows.map((m) => [m.id, m.name]));
-      // Group membership lookup: userId -> group name
-      const gmRows = await db
-        .select({ userId: groupMembers.userId, groupName: groups.name })
-        .from(groupMembers)
-        .innerJoin(groups, eq(groupMembers.groupId, groups.id));
-      const groupMap = new Map(gmRows.map((r) => [r.userId, r.groupName]));
-      // Group leader lookup: leaderId -> group name
-      const leaderRows = await db.select({ id: groups.id, name: groups.name, leaderId: groups.leaderId }).from(groups);
-      const leaderGroupMap = new Map(
-        leaderRows.filter((g) => g.leaderId != null).map((g) => [g.leaderId!, g.name])
-      );
-      // Profile image lookup
-      const profileRows = await db
-        .select({
-          userId: userProfiles.userId,
-          profilePhotoUrl: userProfiles.profilePhotoUrl,
-          backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
-        })
-        .from(userProfiles);
-      const profileMap = new Map(profileRows.map((profile) => [profile.userId, profile]));
-      const responsibilityCounts = await db
-        .select({ ownerId: rolesResponsibilities.ownerId, count: sql<number>`count(*)` })
-        .from(rolesResponsibilities)
-        .where(eq(rolesResponsibilities.status, "active"))
-        .groupBy(rolesResponsibilities.ownerId);
-      const responsibilityCountMap = new Map(responsibilityCounts.map((row) => [row.ownerId, Number(row.count)]));
+  orgChart: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    // The Org Chart is an operating-team view. Retired users, including
+    // decommissioned test fixtures, must not appear in its hierarchy.
+    const all = (await getAllUsers()).filter(
+      (user: any) => user.isActive !== false
+    );
+    // Market name lookup
+    const mktRows = await db
+      .select({ id: marketProfiles.id, name: marketProfiles.name })
+      .from(marketProfiles);
+    const mktMap = new Map(mktRows.map(m => [m.id, m.name]));
+    // Group membership lookup: userId -> group name
+    const gmRows = await db
+      .select({ userId: groupMembers.userId, groupName: groups.name })
+      .from(groupMembers)
+      .innerJoin(groups, eq(groupMembers.groupId, groups.id));
+    const groupMap = new Map(gmRows.map(r => [r.userId, r.groupName]));
+    // Group leader lookup: leaderId -> group name
+    const leaderRows = await db
+      .select({ id: groups.id, name: groups.name, leaderId: groups.leaderId })
+      .from(groups);
+    const leaderGroupMap = new Map(
+      leaderRows.filter(g => g.leaderId != null).map(g => [g.leaderId!, g.name])
+    );
+    // Profile image lookup
+    const profileRows = await db
+      .select({
+        userId: userProfiles.userId,
+        profilePhotoUrl: userProfiles.profilePhotoUrl,
+        backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
+      })
+      .from(userProfiles);
+    const profileMap = new Map(
+      profileRows.map(profile => [profile.userId, profile])
+    );
+    const responsibilityCounts = await db
+      .select({
+        ownerId: rolesResponsibilities.ownerId,
+        count: sql<number>`count(*)`,
+      })
+      .from(rolesResponsibilities)
+      .where(eq(rolesResponsibilities.status, "active"))
+      .groupBy(rolesResponsibilities.ownerId);
+    const responsibilityCountMap = new Map(
+      responsibilityCounts.map(row => [row.ownerId, Number(row.count)])
+    );
 
-      return (all as any[]).map((u: any) => ({
-        id: u.id as number,
-        name: u.name as string | null,
-        email: u.email as string | null,
-        phone: u.phone as string | null,
-        title: u.title as string | null,
-        role: u.role as string,
-        reportsToId: u.reportsToId as number | null,
-        marketProfileId: u.marketProfileId as number | null,
-        marketName: u.marketProfileId ? (mktMap.get(u.marketProfileId) ?? null) : null,
-        groupName: groupMap.get(u.id) ?? leaderGroupMap.get(u.id) ?? null,
-        openId: u.openId as string,
-        profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
-        backgroundlessHeadshotUrl: profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
-        activeResponsibilityCount: responsibilityCountMap.get(u.id) ?? 0,
-      }));
-    }),
+    return (all as any[]).map((u: any) => ({
+      id: u.id as number,
+      name: u.name as string | null,
+      email: u.email as string | null,
+      phone: u.phone as string | null,
+      title: u.title as string | null,
+      role: u.role as string,
+      reportsToId: u.reportsToId as number | null,
+      marketProfileId: u.marketProfileId as number | null,
+      marketName: u.marketProfileId
+        ? (mktMap.get(u.marketProfileId) ?? null)
+        : null,
+      groupName: groupMap.get(u.id) ?? leaderGroupMap.get(u.id) ?? null,
+      openId: u.openId as string,
+      profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
+      backgroundlessHeadshotUrl:
+        profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
+      activeResponsibilityCount: responsibilityCountMap.get(u.id) ?? 0,
+    }));
+  }),
 
   // Update the logged-in user's own profile photo
   updateAvatar: protectedProcedure
@@ -918,21 +1325,29 @@ export const usersRouter = router({
         .where(eq(userProfiles.userId, ctx.user.id))
         .limit(1);
       if (existing.length > 0) {
-        await db.update(userProfiles).set({ profilePhotoUrl: input.avatarUrl }).where(eq(userProfiles.userId, ctx.user.id));
+        await db
+          .update(userProfiles)
+          .set({ profilePhotoUrl: input.avatarUrl })
+          .where(eq(userProfiles.userId, ctx.user.id));
       } else {
-        await db.insert(userProfiles).values({ userId: ctx.user.id, profilePhotoUrl: input.avatarUrl });
+        await db
+          .insert(userProfiles)
+          .values({ userId: ctx.user.id, profilePhotoUrl: input.avatarUrl });
       }
       return { success: true };
     }),
 
   // Get the logged-in user's own core profile (for the Profile page)
-    getMyCoreProfile: protectedProcedure
-    .query(async ({ ctx }) => {
-      const db = await getDb();
-      if (!db) return null;
-      const rows = await db.select().from(userProfiles).where(eq(userProfiles.userId, ctx.user.id)).limit(1);
-      return rows[0] ?? null;
-    }),
+  getMyCoreProfile: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return null;
+    const rows = await db
+      .select()
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, ctx.user.id))
+      .limit(1);
+    return rows[0] ?? null;
+  }),
 
   /**
    * Consolidated, administrator-only coaching view for a specific user.
@@ -947,11 +1362,16 @@ export const usersRouter = router({
       }
 
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (!db)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Database unavailable",
+        });
 
       const allUsers = await getAllUsers();
-      const target = (allUsers as any[]).find((user) => user.id === input.userId);
-      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const target = (allUsers as any[]).find(user => user.id === input.userId);
+      if (!target)
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
       const now = new Date();
       const thirtyDaysAgo = new Date(now);
@@ -959,44 +1379,127 @@ export const usersRouter = router({
       const yearStart = new Date(now.getFullYear(), 0, 1);
       const nextYearStart = new Date(now.getFullYear() + 1, 0, 1);
 
-      const [profileRows, taskRows, pipelineRows, transactionRows, activityRows, documentRows, goalRows, ledGroups] = await Promise.all([
-        db.select().from(userProfiles).where(eq(userProfiles.userId, input.userId)).limit(1),
-        db.select().from(tasks).where(eq(tasks.assignedToId, input.userId)).orderBy(desc(tasks.createdAt)),
-        db.select().from(agentConnections).where(eq(agentConnections.agentId, input.userId)).orderBy(desc(agentConnections.updatedAt)),
-        db.select().from(transactions).where(eq(transactions.agentId, input.userId)).orderBy(desc(transactions.updatedAt)),
-        db.select().from(activityLog).where(eq(activityLog.userId, input.userId)).orderBy(desc(activityLog.createdAt)).limit(100),
-        db.select().from(userDocuments).where(eq(userDocuments.userId, input.userId)).orderBy(desc(userDocuments.createdAt)),
-        db.select().from(agentGoals).where(and(eq(agentGoals.agentId, input.userId), eq(agentGoals.year, now.getFullYear()))).limit(1),
+      const [
+        profileRows,
+        taskRows,
+        pipelineRows,
+        transactionRows,
+        activityRows,
+        documentRows,
+        goalRows,
+        ledGroups,
+      ] = await Promise.all([
+        db
+          .select()
+          .from(userProfiles)
+          .where(eq(userProfiles.userId, input.userId))
+          .limit(1),
+        db
+          .select()
+          .from(tasks)
+          .where(eq(tasks.assignedToId, input.userId))
+          .orderBy(desc(tasks.createdAt)),
+        db
+          .select()
+          .from(agentConnections)
+          .where(eq(agentConnections.agentId, input.userId))
+          .orderBy(desc(agentConnections.updatedAt)),
+        db
+          .select()
+          .from(transactions)
+          .where(eq(transactions.agentId, input.userId))
+          .orderBy(desc(transactions.updatedAt)),
+        db
+          .select()
+          .from(activityLog)
+          .where(eq(activityLog.userId, input.userId))
+          .orderBy(desc(activityLog.createdAt))
+          .limit(100),
+        db
+          .select()
+          .from(userDocuments)
+          .where(eq(userDocuments.userId, input.userId))
+          .orderBy(desc(userDocuments.createdAt)),
+        db
+          .select()
+          .from(agentGoals)
+          .where(
+            and(
+              eq(agentGoals.agentId, input.userId),
+              eq(agentGoals.year, now.getFullYear())
+            )
+          )
+          .limit(1),
         db.select().from(groups).where(eq(groups.leaderId, input.userId)),
       ]);
 
-      const contactIds = Array.from(new Set(pipelineRows.map((row) => row.contactId)));
-      const pipelineContacts = contactIds.length > 0
-        ? await db.select().from(contacts).where(inArray(contacts.id, contactIds))
-        : [];
-      const contactById = new Map(pipelineContacts.map((contact) => [contact.id, contact]));
+      const contactIds = Array.from(
+        new Set(pipelineRows.map(row => row.contactId))
+      );
+      const pipelineContacts =
+        contactIds.length > 0
+          ? await db
+              .select()
+              .from(contacts)
+              .where(inArray(contacts.id, contactIds))
+          : [];
+      const contactById = new Map(
+        pipelineContacts.map(contact => [contact.id, contact])
+      );
 
-      const incompleteTasks = taskRows.filter((task) => task.status !== "completed" && task.status !== "cancelled");
-      const overdueTasks = incompleteTasks.filter((task) => !!task.dueDate && new Date(task.dueDate) < now);
+      const incompleteTasks = taskRows.filter(
+        task => task.status !== "completed" && task.status !== "cancelled"
+      );
+      const overdueTasks = incompleteTasks.filter(
+        task => !!task.dueDate && new Date(task.dueDate) < now
+      );
       const dueSoonTasks = incompleteTasks
-        .filter((task) => !!task.dueDate && new Date(task.dueDate) >= now)
-        .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime())
+        .filter(task => !!task.dueDate && new Date(task.dueDate) >= now)
+        .sort(
+          (a, b) =>
+            new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()
+        )
         .slice(0, 12);
-      const completedLast30Days = taskRows.filter((task) => !!task.completedAt && new Date(task.completedAt) >= thirtyDaysAgo).length;
+      const completedLast30Days = taskRows.filter(
+        task =>
+          !!task.completedAt && new Date(task.completedAt) >= thirtyDaysAgo
+      ).length;
 
-      const pipelineByStatus = pipelineRows.reduce<Record<string, number>>((summary, row) => {
-        summary[row.pipelineStatus] = (summary[row.pipelineStatus] ?? 0) + 1;
-        return summary;
-      }, {});
-      const pipelineOpen = pipelineRows.filter((row) => row.pipelineStatus !== "closed" && row.pipelineStatus !== "dead");
-      const pipelineFollowUpsOverdue = pipelineOpen.filter((row) => !!row.followUpDate && new Date(row.followUpDate) < now).length;
-      const pipelineStale = pipelineOpen.filter((row) => (now.getTime() - new Date(row.updatedAt).getTime()) > 14 * 24 * 60 * 60 * 1000).length;
+      const pipelineByStatus = pipelineRows.reduce<Record<string, number>>(
+        (summary, row) => {
+          summary[row.pipelineStatus] = (summary[row.pipelineStatus] ?? 0) + 1;
+          return summary;
+        },
+        {}
+      );
+      const pipelineOpen = pipelineRows.filter(
+        row => row.pipelineStatus !== "closed" && row.pipelineStatus !== "dead"
+      );
+      const pipelineFollowUpsOverdue = pipelineOpen.filter(
+        row => !!row.followUpDate && new Date(row.followUpDate) < now
+      ).length;
+      const pipelineStale = pipelineOpen.filter(
+        row =>
+          now.getTime() - new Date(row.updatedAt).getTime() >
+          14 * 24 * 60 * 60 * 1000
+      ).length;
 
-      const closedTransactions = transactionRows.filter((transaction) => transaction.status === "closed");
-      const activeTransactions = transactionRows.filter((transaction) => transaction.status === "under_contract");
-      const ytdClosedTransactions = closedTransactions.filter((transaction) => !!transaction.closingDate && new Date(transaction.closingDate) >= yearStart && new Date(transaction.closingDate) < nextYearStart);
-      const sumMoney = (rows: typeof transactionRows, field: "grossCommissionIncome" | "purchasePrice") =>
-        rows.reduce((sum, row) => sum + Number(row[field] ?? 0), 0);
+      const closedTransactions = transactionRows.filter(
+        transaction => transaction.status === "closed"
+      );
+      const activeTransactions = transactionRows.filter(
+        transaction => transaction.status === "under_contract"
+      );
+      const ytdClosedTransactions = closedTransactions.filter(
+        transaction =>
+          !!transaction.closingDate &&
+          new Date(transaction.closingDate) >= yearStart &&
+          new Date(transaction.closingDate) < nextYearStart
+      );
+      const sumMoney = (
+        rows: typeof transactionRows,
+        field: "grossCommissionIncome" | "purchasePrice"
+      ) => rows.reduce((sum, row) => sum + Number(row[field] ?? 0), 0);
       const goal = goalRows[0];
       const ytdGci = sumMoney(ytdClosedTransactions, "grossCommissionIncome");
       const ytdVolume = sumMoney(ytdClosedTransactions, "purchasePrice");
@@ -1004,20 +1507,47 @@ export const usersRouter = router({
 
       const groupSummaries = [] as Array<Record<string, unknown>>;
       for (const group of ledGroups) {
-        const memberRows = await db.select().from(groupMembers).where(eq(groupMembers.groupId, group.id));
-        const memberIds = Array.from(new Set([input.userId, ...memberRows.map((member) => member.userId)]));
+        const memberRows = await db
+          .select()
+          .from(groupMembers)
+          .where(eq(groupMembers.groupId, group.id));
+        const memberIds = Array.from(
+          new Set([input.userId, ...memberRows.map(member => member.userId)])
+        );
         const memberSet = new Set(memberIds);
-        const groupTransactions = memberIds.length > 0
-          ? await db.select().from(transactions).where(inArray(transactions.agentId, memberIds))
-          : [];
-        const groupPipeline = memberIds.length > 0
-          ? await db.select().from(agentConnections).where(inArray(agentConnections.agentId, memberIds))
-          : [];
+        const groupTransactions =
+          memberIds.length > 0
+            ? await db
+                .select()
+                .from(transactions)
+                .where(inArray(transactions.agentId, memberIds))
+            : [];
+        const groupPipeline =
+          memberIds.length > 0
+            ? await db
+                .select()
+                .from(agentConnections)
+                .where(inArray(agentConnections.agentId, memberIds))
+            : [];
         const members = (allUsers as any[])
-          .filter((user) => memberSet.has(user.id))
-          .map((user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, lastSignedIn: user.lastSignedIn }));
-        const groupClosed = groupTransactions.filter((transaction) => transaction.status === "closed" && !!transaction.closingDate && new Date(transaction.closingDate) >= yearStart && new Date(transaction.closingDate) < nextYearStart);
-        const groupActive = groupTransactions.filter((transaction) => transaction.status === "under_contract");
+          .filter(user => memberSet.has(user.id))
+          .map(user => ({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            lastSignedIn: user.lastSignedIn,
+          }));
+        const groupClosed = groupTransactions.filter(
+          transaction =>
+            transaction.status === "closed" &&
+            !!transaction.closingDate &&
+            new Date(transaction.closingDate) >= yearStart &&
+            new Date(transaction.closingDate) < nextYearStart
+        );
+        const groupActive = groupTransactions.filter(
+          transaction => transaction.status === "under_contract"
+        );
         groupSummaries.push({
           id: group.id,
           name: group.name,
@@ -1028,14 +1558,24 @@ export const usersRouter = router({
             ytdGci: sumMoney(groupClosed, "grossCommissionIncome"),
             ytdClosedDeals: groupClosed.length,
             activeDeals: groupActive.length,
-            openPipeline: groupPipeline.filter((row) => row.pipelineStatus !== "closed" && row.pipelineStatus !== "dead").length,
+            openPipeline: groupPipeline.filter(
+              row =>
+                row.pipelineStatus !== "closed" && row.pipelineStatus !== "dead"
+            ).length,
           },
         });
       }
 
-      const lastSignedIn = target.lastSignedIn ? new Date(target.lastSignedIn) : null;
+      const lastSignedIn = target.lastSignedIn
+        ? new Date(target.lastSignedIn)
+        : null;
       const daysSinceLastSignIn = lastSignedIn
-        ? Math.max(0, Math.floor((now.getTime() - lastSignedIn.getTime()) / (24 * 60 * 60 * 1000)))
+        ? Math.max(
+            0,
+            Math.floor(
+              (now.getTime() - lastSignedIn.getTime()) / (24 * 60 * 60 * 1000)
+            )
+          )
         : null;
 
       return {
@@ -1050,7 +1590,10 @@ export const usersRouter = router({
           createdAt: target.createdAt,
           lastSignedIn: target.lastSignedIn,
           daysSinceLastSignIn,
-          emailSignatureConfigured: !!profileRows[0]?.emailSignatureHtml?.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim(),
+          emailSignatureConfigured: !!profileRows[0]?.emailSignatureHtml
+            ?.replace(/<[^>]*>/g, " ")
+            .replace(/&nbsp;/gi, " ")
+            .trim(),
         },
         performance: {
           year: now.getFullYear(),
@@ -1061,7 +1604,10 @@ export const usersRouter = router({
           activeDeals: activeTransactions.length,
           activeGci: sumMoney(activeTransactions, "grossCommissionIncome"),
           gciGoal,
-          gciGoalProgress: gciGoal > 0 ? Math.min(Math.round((ytdGci / gciGoal) * 100), 100) : null,
+          gciGoalProgress:
+            gciGoal > 0
+              ? Math.min(Math.round((ytdGci / gciGoal) * 100), 100)
+              : null,
         },
         tasks: {
           total: taskRows.length,
@@ -1077,12 +1623,14 @@ export const usersRouter = router({
           followUpsOverdue: pipelineFollowUpsOverdue,
           stale: pipelineStale,
           byStatus: pipelineByStatus,
-          recent: pipelineRows.slice(0, 30).map((row) => {
+          recent: pipelineRows.slice(0, 30).map(row => {
             const contact = contactById.get(row.contactId);
             return {
               id: row.id,
               contactId: row.contactId,
-              contactName: contact ? `${contact.firstName} ${contact.lastName}`.trim() : "Unknown contact",
+              contactName: contact
+                ? `${contact.firstName} ${contact.lastName}`.trim()
+                : "Unknown contact",
               contactEmail: contact?.email ?? null,
               pipelineStatus: row.pipelineStatus,
               followUpDate: row.followUpDate,
@@ -1092,7 +1640,9 @@ export const usersRouter = router({
           }),
         },
         activity: {
-          countLast30Days: activityRows.filter((entry) => new Date(entry.createdAt) >= thirtyDaysAgo).length,
+          countLast30Days: activityRows.filter(
+            entry => new Date(entry.createdAt) >= thirtyDaysAgo
+          ).length,
           timeline: activityRows,
         },
         documents: {
@@ -1113,34 +1663,94 @@ export const usersRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (!db)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Database unavailable",
+        });
 
-      const target = (await getAllUsers() as any[]).find((user) => user.id === input.userId);
-      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const target = ((await getAllUsers()) as any[]).find(
+        user => user.id === input.userId
+      );
+      if (!target)
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
       const now = new Date();
       const thirtyDaysAgo = new Date(now);
       thirtyDaysAgo.setDate(now.getDate() - 30);
       const yearStart = new Date(now.getFullYear(), 0, 1);
-      const [taskRows, pipelineRows, transactionRows, activityRows, profileRows] = await Promise.all([
+      const [
+        taskRows,
+        pipelineRows,
+        transactionRows,
+        activityRows,
+        profileRows,
+      ] = await Promise.all([
         db.select().from(tasks).where(eq(tasks.assignedToId, input.userId)),
-        db.select().from(agentConnections).where(eq(agentConnections.agentId, input.userId)),
-        db.select().from(transactions).where(eq(transactions.agentId, input.userId)),
-        db.select().from(activityLog).where(eq(activityLog.userId, input.userId)).orderBy(desc(activityLog.createdAt)).limit(30),
-        db.select().from(userProfiles).where(eq(userProfiles.userId, input.userId)).limit(1),
+        db
+          .select()
+          .from(agentConnections)
+          .where(eq(agentConnections.agentId, input.userId)),
+        db
+          .select()
+          .from(transactions)
+          .where(eq(transactions.agentId, input.userId)),
+        db
+          .select()
+          .from(activityLog)
+          .where(eq(activityLog.userId, input.userId))
+          .orderBy(desc(activityLog.createdAt))
+          .limit(30),
+        db
+          .select()
+          .from(userProfiles)
+          .where(eq(userProfiles.userId, input.userId))
+          .limit(1),
       ]);
 
-      const incompleteTasks = taskRows.filter((task) => task.status !== "completed" && task.status !== "cancelled");
-      const overdueTasks = incompleteTasks.filter((task) => !!task.dueDate && new Date(task.dueDate) < now);
-      const openPipeline = pipelineRows.filter((row) => row.pipelineStatus !== "closed" && row.pipelineStatus !== "dead");
-      const overdueFollowUps = openPipeline.filter((row) => !!row.followUpDate && new Date(row.followUpDate) < now);
-      const stalePipeline = openPipeline.filter((row) => now.getTime() - new Date(row.updatedAt).getTime() > 14 * 24 * 60 * 60 * 1000);
-      const ytdClosed = transactionRows.filter((transaction) => transaction.status === "closed" && !!transaction.closingDate && new Date(transaction.closingDate) >= yearStart);
-      const ytdGci = ytdClosed.reduce((sum, transaction) => sum + Number(transaction.grossCommissionIncome ?? 0), 0);
-      const activeDeals = transactionRows.filter((transaction) => transaction.status === "under_contract");
-      const activityLast30 = activityRows.filter((entry) => new Date(entry.createdAt) >= thirtyDaysAgo).length;
-      const lastSignedIn = target.lastSignedIn ? new Date(target.lastSignedIn) : null;
-      const daysSinceSignIn = lastSignedIn ? Math.max(0, Math.floor((now.getTime() - lastSignedIn.getTime()) / 86_400_000)) : null;
+      const incompleteTasks = taskRows.filter(
+        task => task.status !== "completed" && task.status !== "cancelled"
+      );
+      const overdueTasks = incompleteTasks.filter(
+        task => !!task.dueDate && new Date(task.dueDate) < now
+      );
+      const openPipeline = pipelineRows.filter(
+        row => row.pipelineStatus !== "closed" && row.pipelineStatus !== "dead"
+      );
+      const overdueFollowUps = openPipeline.filter(
+        row => !!row.followUpDate && new Date(row.followUpDate) < now
+      );
+      const stalePipeline = openPipeline.filter(
+        row =>
+          now.getTime() - new Date(row.updatedAt).getTime() >
+          14 * 24 * 60 * 60 * 1000
+      );
+      const ytdClosed = transactionRows.filter(
+        transaction =>
+          transaction.status === "closed" &&
+          !!transaction.closingDate &&
+          new Date(transaction.closingDate) >= yearStart
+      );
+      const ytdGci = ytdClosed.reduce(
+        (sum, transaction) =>
+          sum + Number(transaction.grossCommissionIncome ?? 0),
+        0
+      );
+      const activeDeals = transactionRows.filter(
+        transaction => transaction.status === "under_contract"
+      );
+      const activityLast30 = activityRows.filter(
+        entry => new Date(entry.createdAt) >= thirtyDaysAgo
+      ).length;
+      const lastSignedIn = target.lastSignedIn
+        ? new Date(target.lastSignedIn)
+        : null;
+      const daysSinceSignIn = lastSignedIn
+        ? Math.max(
+            0,
+            Math.floor((now.getTime() - lastSignedIn.getTime()) / 86_400_000)
+          )
+        : null;
 
       const source = {
         userRole: target.role,
@@ -1155,14 +1765,17 @@ export const usersRouter = router({
         overdueTasks: overdueTasks.length,
         activitiesLast30Days: activityLast30,
         daysSinceLastSignIn: daysSinceSignIn,
-        recentActivityActions: activityRows.slice(0, 12).map((entry) => entry.action),
+        recentActivityActions: activityRows
+          .slice(0, 12)
+          .map(entry => entry.action),
       };
 
       const result = await invokeLLM({
         messages: [
           {
             role: "system",
-            content: "You are a careful real-estate sales-performance coach. Analyze only the supplied factual SavvyOS aggregates. Do not infer personality, intent, health, protected traits, or missing facts. Do not make legal, medical, financial, or employment decisions. Write a succinct, supportive coaching brief with the headings: Executive Snapshot, Strengths / Momentum, Coaching Attention, and Suggested Next Conversation. Use neutral language; distinguish facts from suggestions.",
+            content:
+              "You are a careful real-estate sales-performance coach. Analyze only the supplied factual SavvyOS aggregates. Do not infer personality, intent, health, protected traits, or missing facts. Do not make legal, medical, financial, or employment decisions. Write a succinct, supportive coaching brief with the headings: Executive Snapshot, Strengths / Momentum, Coaching Attention, and Suggested Next Conversation. Use neutral language; distinguish facts from suggestions.",
           },
           {
             role: "user",
@@ -1172,14 +1785,28 @@ export const usersRouter = router({
         maxTokens: 850,
       });
       const coachingSummary = readLlmText(result);
-      if (!coachingSummary) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The AI service returned an empty coaching summary." });
+      if (!coachingSummary)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "The AI service returned an empty coaching summary.",
+        });
 
       if (profileRows[0]) {
-        await db.update(userProfiles)
-          .set({ coachingSummary: coachingSummary.slice(0, 20_000), coachingSummaryGeneratedAt: now })
+        await db
+          .update(userProfiles)
+          .set({
+            coachingSummary: coachingSummary.slice(0, 20_000),
+            coachingSummaryGeneratedAt: now,
+          })
           .where(eq(userProfiles.userId, input.userId));
       } else {
-        await db.insert(userProfiles).values({ userId: input.userId, coachingSummary: coachingSummary.slice(0, 20_000), coachingSummaryGeneratedAt: now });
+        await db
+          .insert(userProfiles)
+          .values({
+            userId: input.userId,
+            coachingSummary: coachingSummary.slice(0, 20_000),
+            coachingSummaryGeneratedAt: now,
+          });
       }
       await db.insert(activityLog).values({
         userId: ctx.user.id,
@@ -1205,14 +1832,24 @@ export const usersRouter = router({
 
       const emailSignatureHtml = sanitizeEmailSignatureHtml(input.html);
       if (!hasMeaningfulEmailSignature(emailSignatureHtml)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Email Signature cannot be empty." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Email Signature cannot be empty.",
+        });
       }
 
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (!db)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Database unavailable",
+        });
 
-      const targetExists = (await getAllUsers()).some((user: any) => user.id === input.userId);
-      if (!targetExists) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const targetExists = (await getAllUsers()).some(
+        (user: any) => user.id === input.userId
+      );
+      if (!targetExists)
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
       const existing = await db
         .select({ id: userProfiles.id })
@@ -1221,11 +1858,14 @@ export const usersRouter = router({
         .limit(1);
 
       if (existing.length > 0) {
-        await db.update(userProfiles)
+        await db
+          .update(userProfiles)
           .set({ emailSignatureHtml })
           .where(eq(userProfiles.userId, input.userId));
       } else {
-        await db.insert(userProfiles).values({ userId: input.userId, emailSignatureHtml });
+        await db
+          .insert(userProfiles)
+          .values({ userId: input.userId, emailSignatureHtml });
       }
 
       await db.insert(activityLog).values({
@@ -1245,11 +1885,18 @@ export const usersRouter = router({
     .mutation(async ({ input, ctx }) => {
       const emailSignatureHtml = sanitizeEmailSignatureHtml(input.html);
       if (!hasMeaningfulEmailSignature(emailSignatureHtml)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Your Email Signature cannot be empty." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Your Email Signature cannot be empty.",
+        });
       }
 
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (!db)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Database unavailable",
+        });
       const existing = await db
         .select({ id: userProfiles.id })
         .from(userProfiles)
@@ -1257,38 +1904,45 @@ export const usersRouter = router({
         .limit(1);
 
       if (existing.length > 0) {
-        await db.update(userProfiles)
+        await db
+          .update(userProfiles)
           .set({ emailSignatureHtml })
           .where(eq(userProfiles.userId, ctx.user.id));
       } else {
-        await db.insert(userProfiles).values({ userId: ctx.user.id, emailSignatureHtml });
+        await db
+          .insert(userProfiles)
+          .values({ userId: ctx.user.id, emailSignatureHtml });
       }
 
       return { success: true, emailSignatureHtml };
     }),
   /** Admin: list all active users with their profile photos (for activity timeline filter) */
-  listWithPhotos: protectedProcedure
-    .query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db = await getDb();
-      if (!db) return [];
-      const allUsers = await getAllUsers();
-      const profiles = await db
-        .select({
-          userId: userProfiles.userId,
-          profilePhotoUrl: userProfiles.profilePhotoUrl,
-          backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
-        })
-        .from(userProfiles);
-      const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
-      return (allUsers as any[]).map((u: any) => ({
+  listWithPhotos: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    const db = await getDb();
+    if (!db) return [];
+    const allUsers = await getAllUsers();
+    const profiles = await db
+      .select({
+        userId: userProfiles.userId,
+        profilePhotoUrl: userProfiles.profilePhotoUrl,
+        backgroundlessHeadshotUrl: userProfiles.backgroundlessHeadshotUrl,
+      })
+      .from(userProfiles);
+    const profileMap = new Map(
+      profiles.map(profile => [profile.userId, profile])
+    );
+    return (allUsers as any[])
+      .map((u: any) => ({
         id: u.id,
         name: u.name,
         email: u.email,
         role: u.role,
         isActive: u.isActive,
         profilePhotoUrl: profileMap.get(u.id)?.profilePhotoUrl ?? null,
-        backgroundlessHeadshotUrl: profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
-      })).filter((u: any) => u.isActive);
-    }),
+        backgroundlessHeadshotUrl:
+          profileMap.get(u.id)?.backgroundlessHeadshotUrl ?? null,
+      }))
+      .filter((u: any) => u.isActive);
+  }),
 });

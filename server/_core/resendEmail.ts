@@ -2,12 +2,18 @@ import { Resend } from "resend";
 import crypto from "crypto";
 import { ENV } from "./env";
 import { getDb } from "../db";
-import { emailTemplates, emailNotificationSettings, magicLinkTokens, users } from "../../drizzle/schema";
+import {
+  emailTemplates,
+  emailNotificationSettings,
+  magicLinkTokens,
+  users,
+} from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 const FROM_ADDRESS = "Savvy STR Agents <notifications@savvy-agents.com>";
 const APP_URL = "https://os.savvy-agents.com";
-const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
+const LOGO_URL =
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
 
 // Brand colors — exact logo values
 const CYAN = "#0fc0df";
@@ -41,7 +47,9 @@ async function sendViaResendHttpFallback(params: {
       headers: {
         Authorization: `Bearer ${ENV.resendApiKey}`,
         "Content-Type": "application/json",
-        ...(params.idempotencyKey ? { "Idempotency-Key": params.idempotencyKey } : {}),
+        ...(params.idempotencyKey
+          ? { "Idempotency-Key": params.idempotencyKey }
+          : {}),
       },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
@@ -54,28 +62,78 @@ async function sendViaResendHttpFallback(params: {
       }),
     });
     if (!response.ok) {
-      return { sent: false, reason: `HTTP ${response.status}: ${await response.text()}` };
+      return {
+        sent: false,
+        reason: `HTTP ${response.status}: ${await response.text()}`,
+      };
     }
     return { sent: true };
   } catch (error) {
-    return { sent: false, reason: error instanceof Error ? error.message : String(error) };
+    return {
+      sent: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
 /** Every built-in transactional email whose delivery can be toggled in SavvyOS. */
 export const EMAIL_NOTIFICATION_TYPES = [
-  "lead_assigned", "transaction_created", "transaction_status_changed", "transaction_closed",
-  "transaction_review_request", "transaction_review_received", "commission_calculated", "task_assigned",
-  "task_due", "payout_integrity_fail", "listing_created", "listing_expiration_reminder", "onboarding_overdue",
-  "commission_exception_warning", "client_intro", "connection_request_approved", "pm_mention",
-  "partner_lead_confirmation", "partner_portal_access", "agent_production_report", "weekly_lead_report",
-  "weekly_webinar_report", "weekly_referral_report", "daily_agent_report", "daily_isa_activities", "monthly_agent_renewals", "coaching_weekly_accountability", "coaching_tips_for_today",
-  "coaching_feedback_invitation", "coaching_feedback_weekly_summary", "pulse_overdue_digest", "pulse_rock_completed",
-  "meeting_reminder", "pulse_submission_confirmation", "pulse_meeting_recap", "todo_assigned", "cascade_sent",
-  "overdue_digest", "mention", "rock_completed", "welcome", "password_reset", "webinar_marketing_request",
-  "website_deeper_analysis_request", "website_financing_request", "website_showing_request",
-  "pto_request_submitted", "pto_request_decision", "vendor_featured_payment_invitation", "vendor_featured_payment_received", "vendor_featured_payment_failed",
-  "monthly_featured_vendor_earnings", "agent_featured_vendor_earnings", "market_profile_survey",
+  "lead_assigned",
+  "transaction_created",
+  "transaction_status_changed",
+  "transaction_closed",
+  "transaction_review_request",
+  "transaction_review_received",
+  "commission_calculated",
+  "task_assigned",
+  "task_due",
+  "payout_integrity_fail",
+  "listing_created",
+  "listing_expiration_reminder",
+  "onboarding_overdue",
+  "onboarding_profile_invitation",
+  "smart_plan_ai_analysis",
+  "commission_exception_warning",
+  "client_intro",
+  "connection_request_approved",
+  "pm_mention",
+  "partner_lead_confirmation",
+  "partner_portal_access",
+  "agent_production_report",
+  "weekly_lead_report",
+  "weekly_webinar_report",
+  "weekly_referral_report",
+  "daily_agent_report",
+  "daily_isa_activities",
+  "monthly_agent_renewals",
+  "coaching_weekly_accountability",
+  "coaching_tips_for_today",
+  "coaching_feedback_invitation",
+  "coaching_feedback_weekly_summary",
+  "pulse_overdue_digest",
+  "pulse_rock_completed",
+  "meeting_reminder",
+  "pulse_submission_confirmation",
+  "pulse_meeting_recap",
+  "todo_assigned",
+  "cascade_sent",
+  "overdue_digest",
+  "mention",
+  "rock_completed",
+  "welcome",
+  "password_reset",
+  "webinar_marketing_request",
+  "website_deeper_analysis_request",
+  "website_financing_request",
+  "website_showing_request",
+  "pto_request_submitted",
+  "pto_request_decision",
+  "vendor_featured_payment_invitation",
+  "vendor_featured_payment_received",
+  "vendor_featured_payment_failed",
+  "monthly_featured_vendor_earnings",
+  "agent_featured_vendor_earnings",
+  "market_profile_survey",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
@@ -144,6 +202,9 @@ interface EmailContext {
   // Onboarding-specific
   overdueCount?: string;
   taskList?: string;
+  onboardingProfileUrl?: string;
+  smartPlanAnalysisHtml?: string;
+  smartPlanAnalysisRequestedBy?: string;
   // Client intro-specific
   agentBookingLink?: string;
   isaName?: string;
@@ -221,7 +282,10 @@ interface EmailContext {
 const WEBINAR_TEMPLATE_BODY_START = "<!--WEBINAR_TEMPLATE_BODY_START-->";
 const WEBINAR_TEMPLATE_BODY_END = "<!--WEBINAR_TEMPLATE_BODY_END-->";
 
-function replaceWebinarTemplateTokens(value: string, ctx: EmailContext): string {
+function replaceWebinarTemplateTokens(
+  value: string,
+  ctx: EmailContext
+): string {
   const variables: Record<string, string> = {
     webinar_title: ctx.webinarTitle ?? "",
     webinar_description: ctx.webinarDescription ?? "",
@@ -231,15 +295,25 @@ function replaceWebinarTemplateTokens(value: string, ctx: EmailContext): string 
     webinar_creator_name: ctx.webinarCreatorName ?? "",
     webinar_creator_email: ctx.webinarCreatorEmail ?? "",
   };
-  return value.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (_match, name) => variables[name.toLowerCase()] ?? "");
+  return value.replace(
+    /\{\{\s*([a-z_]+)\s*\}\}/gi,
+    (_match, name) => variables[name.toLowerCase()] ?? ""
+  );
 }
 
 function webinarTemplateBody(text: string, ctx: EmailContext): string {
-  const formatted = escapeHtml(replaceWebinarTemplateTokens(text, ctx)).replace(/\n/g, "<br />");
+  const formatted = escapeHtml(replaceWebinarTemplateTokens(text, ctx)).replace(
+    /\n/g,
+    "<br />"
+  );
   return `${WEBINAR_TEMPLATE_BODY_START}<p style="margin:0 0 20px;font-size:15px;color:#374151;line-height:1.6;">${formatted}</p>${WEBINAR_TEMPLATE_BODY_END}`;
 }
 
-function replaceWebinarTemplateBody(html: string, text: string, ctx: EmailContext): string {
+function replaceWebinarTemplateBody(
+  html: string,
+  text: string,
+  ctx: EmailContext
+): string {
   const start = html.indexOf(WEBINAR_TEMPLATE_BODY_START);
   const end = html.indexOf(WEBINAR_TEMPLATE_BODY_END);
   if (start === -1 || end === -1) return html;
@@ -247,7 +321,11 @@ function replaceWebinarTemplateBody(html: string, text: string, ctx: EmailContex
 }
 
 // ─── Shared Layout Wrapper ────────────────────────────────────────────────────
-function emailLayout(content: string, previewText = "", maxWidth = 560): string {
+function emailLayout(
+  content: string,
+  previewText = "",
+  maxWidth = 560
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -319,13 +397,21 @@ function bodyText(text: string): string {
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#039;");
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function infoCard(rows: string[], accentColor = CYAN): string {
-  const rowsHtml = rows.map(r =>
-    `<tr><td style="padding:7px 0;font-size:14px;color:#374151;line-height:1.5;border-bottom:1px solid #F3F4F6;">${r}</td></tr>`
-  ).join("");
+  const rowsHtml = rows
+    .map(
+      r =>
+        `<tr><td style="padding:7px 0;font-size:14px;color:#374151;line-height:1.5;border-bottom:1px solid #F3F4F6;">${r}</td></tr>`
+    )
+    .join("");
   return `
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
       style="background-color:#F9FAFB;border-radius:8px;border-left:3px solid ${accentColor};margin:20px 0 4px;">
@@ -354,11 +440,13 @@ type WebsiteLeadRequestKind = "deeper_analysis" | "financing" | "showing";
 /** Shared handoff layout for deliberate property requests from savvy-agents.com. */
 function websiteLeadHandoffTemplate(
   ctx: EmailContext,
-  kind: WebsiteLeadRequestKind,
+  kind: WebsiteLeadRequestKind
 ): { subject: string; html: string } {
   const agentName = escapeHtml(ctx.agentName ?? "Agent");
   const clientName = escapeHtml(ctx.contactName ?? "A client");
-  const propertyAddress = escapeHtml(ctx.propertyAddress ?? "the requested property");
+  const propertyAddress = escapeHtml(
+    ctx.propertyAddress ?? "the requested property"
+  );
   const propertyUrl = ctx.propertyUrl ? escapeHtml(ctx.propertyUrl) : null;
   const propertyLink = propertyUrl
     ? `<a href="${propertyUrl}" style="color:#0891B2;text-decoration:underline;">${propertyAddress}</a>`
@@ -393,26 +481,33 @@ function websiteLeadHandoffTemplate(
       `${heading(copy.heading, "#0891B2")}
       ${subheading("Savvy STR Agents · Website Client Handoff")}
       ${bodyText(copy.message)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${clientName}`,
-        `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${propertyLink}`,
-      ], "#0891B2")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${clientName}`,
+          `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${propertyLink}`,
+        ],
+        "#0891B2"
+      )}
       ${ctx.agentBookingLink ? ctaButton(copy.cta, ctx.agentBookingLink, "#0891B2") : ""}`,
-      copy.preview,
+      copy.preview
     ),
   };
 }
 
 // ─── Email Templates ──────────────────────────────────────────────────────────
-const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; html: string }> = {
+const TEMPLATES: Record<
+  EmailType,
+  (ctx: EmailContext) => { subject: string; html: string }
+> = {
+  website_deeper_analysis_request: ctx =>
+    websiteLeadHandoffTemplate(ctx, "deeper_analysis"),
 
-  website_deeper_analysis_request: (ctx) => websiteLeadHandoffTemplate(ctx, "deeper_analysis"),
+  website_financing_request: ctx =>
+    websiteLeadHandoffTemplate(ctx, "financing"),
 
-  website_financing_request: (ctx) => websiteLeadHandoffTemplate(ctx, "financing"),
+  website_showing_request: ctx => websiteLeadHandoffTemplate(ctx, "showing"),
 
-  website_showing_request: (ctx) => websiteLeadHandoffTemplate(ctx, "showing"),
-
-  lead_assigned: (ctx) => ({
+  lead_assigned: ctx => ({
     subject: `New Lead Assigned: ${ctx.contactName ?? "New Contact"}`,
     html: emailLayout(
       `${heading("New Lead Assigned")}
@@ -421,8 +516,16 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${bodyText("A new lead has been assigned to you in SavvyOS. Reach out within 24 hours for the best conversion rate.")}
       ${infoCard([
         `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName ?? "—")}`,
-        ...(ctx.leadSourceLabel ? [`<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; ${escapeHtml(ctx.leadSourceLabel)}`] : []),
-        ...(ctx.notes ? [`<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${escapeHtml(ctx.notes)}`] : []),
+        ...(ctx.leadSourceLabel
+          ? [
+              `<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; ${escapeHtml(ctx.leadSourceLabel)}`,
+            ]
+          : []),
+        ...(ctx.notes
+          ? [
+              `<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${escapeHtml(ctx.notes)}`,
+            ]
+          : []),
       ])}
       ${ctx.clientContextSummary ? `<p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Client Context</p><div style="background:#F9FAFB;border-radius:8px;border-left:3px solid #0FC0DF;padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(ctx.clientContextSummary)}</div>` : ""}
       ${ctaButton("View Contact", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
@@ -430,7 +533,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  transaction_status_changed: (ctx) => ({
+  transaction_status_changed: ctx => ({
     subject: `Transaction Status Updated${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
       `${heading("Transaction Status Updated")}
@@ -438,43 +541,81 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${greeting(ctx.recipientName)}
       ${bodyText("A transaction you are involved in has been updated.")}
       ${infoCard([
-        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
-        ...(ctx.status ? [`<strong style="color:${BLACK};">New Status</strong>&nbsp;&nbsp; <span style="color:${CYAN};font-weight:600;">${ctx.status}</span>`] : []),
+        ...(ctx.transactionNumber
+          ? [
+              `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`,
+            ]
+          : []),
+        ...(ctx.contactName
+          ? [
+              `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`,
+            ]
+          : []),
+        ...(ctx.status
+          ? [
+              `<strong style="color:${BLACK};">New Status</strong>&nbsp;&nbsp; <span style="color:${CYAN};font-weight:600;">${ctx.status}</span>`,
+            ]
+          : []),
       ])}
       ${ctaButton("View Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `Transaction status updated${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
 
-  transaction_closed: (ctx) => ({
+  transaction_closed: ctx => ({
     subject: `Transaction Closed${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
       `${heading("Transaction Closed", "#059669")}
       ${subheading("Congratulations")}
       ${greeting(ctx.recipientName)}
       ${bodyText("A transaction has been marked as closed. The payout workflow has been triggered — review your commission breakdown in SavvyOS.")}
-      ${infoCard([
-        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
-        ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:600;">${ctx.amount}</span>`] : []),
-      ], "#059669")}
+      ${infoCard(
+        [
+          ...(ctx.transactionNumber
+            ? [
+                `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`,
+              ]
+            : []),
+          ...(ctx.contactName
+            ? [
+                `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`,
+              ]
+            : []),
+          ...(ctx.amount
+            ? [
+                `<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:600;">${ctx.amount}</span>`,
+              ]
+            : []),
+        ],
+        "#059669"
+      )}
       ${ctaButton("View Payout Details", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"), "#059669")}`,
       `Transaction closed${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
 
-  transaction_review_request: (ctx) => ({
+  transaction_review_request: ctx => ({
     subject: `How was your experience with ${ctx.agentName ?? "Savvy STR Agents"}?`,
     html: emailLayout(
       `${heading("We'd Love Your Feedback", "#0891B2")}
       ${subheading("A note from Savvy STR Agents")}
       ${greeting(ctx.recipientName)}
       ${bodyText(`Thank you for trusting ${escapeHtml(ctx.agentName ?? "your Savvy STR Agents representative")} with your recent real estate transaction. Your feedback helps us recognize great service and continue improving the client experience.`)}
-      ${infoCard([
-        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
-        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${escapeHtml(ctx.transactionNumber)}`] : []),
-      ], "#0891B2")}
+      ${infoCard(
+        [
+          ...(ctx.propertyAddress
+            ? [
+                `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`,
+              ]
+            : []),
+          ...(ctx.transactionNumber
+            ? [
+                `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${escapeHtml(ctx.transactionNumber)}`,
+              ]
+            : []),
+        ],
+        "#0891B2"
+      )}
       ${bodyText("Please take a moment to share your experience. It only takes about a minute.")}
       ${ctaButton("Leave a Review", ctx.reviewUrl ?? APP_URL, "#0891B2")}
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This personalized link is for one review and expires in 30 days. If you have a question about your transaction, simply reply to this email.</p>`,
@@ -482,27 +623,50 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  transaction_review_received: (ctx) => ({
+  transaction_review_received: ctx => ({
     subject: `New ${ctx.reviewRating ?? ""}-Star Client Review${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
       `${heading("New Client Review", "#0891B2")}
       ${subheading("Client Feedback")}
       ${greeting(ctx.recipientName)}
       ${bodyText("A client has submitted feedback about their transaction experience.")}
-      ${infoCard([
-        ...(ctx.reviewerName ? [`<strong style="color:${BLACK};">Reviewer</strong>&nbsp;&nbsp; ${escapeHtml(ctx.reviewerName)}`] : []),
-        ...(ctx.reviewRating ? [`<strong style="color:${BLACK};">Rating</strong>&nbsp;&nbsp; <span style="font-weight:700;color:#D97706;">${escapeHtml(ctx.reviewRating)} / 5 stars</span>`] : []),
-        ...(ctx.agentName ? [`<strong style="color:${BLACK};">Agent</strong>&nbsp;&nbsp; ${escapeHtml(ctx.agentName)}`] : []),
-        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
-        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${escapeHtml(ctx.transactionNumber)}`] : []),
-      ], "#0891B2")}
+      ${infoCard(
+        [
+          ...(ctx.reviewerName
+            ? [
+                `<strong style="color:${BLACK};">Reviewer</strong>&nbsp;&nbsp; ${escapeHtml(ctx.reviewerName)}`,
+              ]
+            : []),
+          ...(ctx.reviewRating
+            ? [
+                `<strong style="color:${BLACK};">Rating</strong>&nbsp;&nbsp; <span style="font-weight:700;color:#D97706;">${escapeHtml(ctx.reviewRating)} / 5 stars</span>`,
+              ]
+            : []),
+          ...(ctx.agentName
+            ? [
+                `<strong style="color:${BLACK};">Agent</strong>&nbsp;&nbsp; ${escapeHtml(ctx.agentName)}`,
+              ]
+            : []),
+          ...(ctx.propertyAddress
+            ? [
+                `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`,
+              ]
+            : []),
+          ...(ctx.transactionNumber
+            ? [
+                `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${escapeHtml(ctx.transactionNumber)}`,
+              ]
+            : []),
+        ],
+        "#0891B2"
+      )}
       ${ctx.reviewComment ? `<p style="margin:20px 0 7px;font-size:14px;font-weight:700;color:${BLACK};">Client comments</p><div style="background:#F9FAFB;border-radius:8px;border-left:3px solid #0FC0DF;padding:14px 16px;font-size:14px;line-height:1.6;color:#374151;white-space:pre-wrap;">${escapeHtml(ctx.reviewComment)}</div>` : `${bodyText("The client submitted a rating without written comments.")}`}
       ${ctaButton("View Reviews", APP_URL + "/reviews", "#0891B2")}`,
       `New client review${ctx.reviewRating ? `: ${ctx.reviewRating}/5 stars` : ""}`
     ),
   }),
 
-  commission_calculated: (ctx) => ({
+  commission_calculated: ctx => ({
     subject: `Commission Calculated${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
       `${heading("Commission Calculated")}
@@ -510,16 +674,28 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${greeting(ctx.recipientName)}
       ${bodyText("Commission has been calculated for a transaction you are part of.")}
       ${infoCard([
-        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`] : []),
-        ...(ctx.percentage ? [`<strong style="color:${BLACK};">Your Share</strong>&nbsp;&nbsp; ${ctx.percentage}%`] : []),
-        ...(ctx.amount ? [`<strong style="color:${BLACK};">Estimated Amount</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${ctx.amount}</span>`] : []),
+        ...(ctx.transactionNumber
+          ? [
+              `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`,
+            ]
+          : []),
+        ...(ctx.percentage
+          ? [
+              `<strong style="color:${BLACK};">Your Share</strong>&nbsp;&nbsp; ${ctx.percentage}%`,
+            ]
+          : []),
+        ...(ctx.amount
+          ? [
+              `<strong style="color:${BLACK};">Estimated Amount</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${ctx.amount}</span>`,
+            ]
+          : []),
       ])}
       ${ctaButton("View Payout Breakdown", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `Commission calculated${ctx.transactionNumber ? ` — #${ctx.transactionNumber}` : ""}`
     ),
   }),
 
-  task_assigned: (ctx) => ({
+  task_assigned: ctx => ({
     subject: `New Task: ${ctx.taskTitle ?? "Task"}`,
     html: emailLayout(
       `${heading("New Task Assigned")}
@@ -528,50 +704,84 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${bodyText("A new task has been assigned to you in SavvyOS.")}
       ${infoCard([
         `<strong style="color:${BLACK};">Task</strong>&nbsp;&nbsp; ${ctx.taskTitle ?? "—"}`,
-        ...(ctx.dueDate ? [`<strong style="color:${BLACK};">Due Date</strong>&nbsp;&nbsp; ${ctx.dueDate}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Related Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
+        ...(ctx.dueDate
+          ? [
+              `<strong style="color:${BLACK};">Due Date</strong>&nbsp;&nbsp; ${ctx.dueDate}`,
+            ]
+          : []),
+        ...(ctx.contactName
+          ? [
+              `<strong style="color:${BLACK};">Related Contact</strong>&nbsp;&nbsp; ${ctx.contactName}`,
+            ]
+          : []),
       ])}
       ${ctaButton("View Task", APP_URL + (ctx.taskId ? `/tasks/${ctx.taskId}` : "/tasks"))}`,
       `New task: ${ctx.taskTitle ?? "Task"}`
     ),
   }),
 
-  task_due: (ctx) => ({
+  task_due: ctx => ({
     subject: `Task Due Soon: ${ctx.taskTitle ?? "Task"}`,
     html: emailLayout(
       `${heading("Task Due Soon", "#D97706")}
       ${subheading("Reminder")}
       ${greeting(ctx.recipientName)}
       ${bodyText("You have a task that is due soon. Don't let it slip through the cracks.")}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Task</strong>&nbsp;&nbsp; ${ctx.taskTitle ?? "—"}`,
-        ...(ctx.dueDate ? [`<strong style="color:${BLACK};">Due</strong>&nbsp;&nbsp; <span style="color:#D97706;font-weight:600;">${ctx.dueDate}</span>`] : []),
-      ], "#D97706")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Task</strong>&nbsp;&nbsp; ${ctx.taskTitle ?? "—"}`,
+          ...(ctx.dueDate
+            ? [
+                `<strong style="color:${BLACK};">Due</strong>&nbsp;&nbsp; <span style="color:#D97706;font-weight:600;">${ctx.dueDate}</span>`,
+              ]
+            : []),
+        ],
+        "#D97706"
+      )}
       ${ctaButton("Complete Task", APP_URL + (ctx.taskId ? `/tasks/${ctx.taskId}` : "/tasks"), "#D97706")}`,
       `Task due soon: ${ctx.taskTitle ?? "Task"}`
     ),
   }),
 
-  pto_request_submitted: (ctx) => ({
+  pto_request_submitted: ctx => ({
     subject: `PTO Approval Needed: ${ctx.employeeName ?? "Direct report"}`,
     html: emailLayout(
       `${heading("New PTO Request", "#0891B2")}
       ${subheading("PTO Approval Needed")}
       ${greeting(ctx.recipientName)}
       ${bodyText("A direct report has submitted a PTO request for your review.")}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Employee</strong>&nbsp;&nbsp; ${escapeHtml(ctx.employeeName ?? "—")}`,
-        ...(ctx.ptoType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoType)}`] : []),
-        ...(ctx.ptoDateRange ? [`<strong style="color:${BLACK};">Dates</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoDateRange)}`] : []),
-        ...(ctx.ptoRequestedDays ? [`<strong style="color:${BLACK};">Requested</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoRequestedDays)}`] : []),
-        ...(ctx.coverageNotes ? [`<strong style="color:${BLACK};">Coverage notes</strong>&nbsp;&nbsp; ${escapeHtml(ctx.coverageNotes)}`] : []),
-      ], "#0891B2")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Employee</strong>&nbsp;&nbsp; ${escapeHtml(ctx.employeeName ?? "—")}`,
+          ...(ctx.ptoType
+            ? [
+                `<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoType)}`,
+              ]
+            : []),
+          ...(ctx.ptoDateRange
+            ? [
+                `<strong style="color:${BLACK};">Dates</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoDateRange)}`,
+              ]
+            : []),
+          ...(ctx.ptoRequestedDays
+            ? [
+                `<strong style="color:${BLACK};">Requested</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoRequestedDays)}`,
+              ]
+            : []),
+          ...(ctx.coverageNotes
+            ? [
+                `<strong style="color:${BLACK};">Coverage notes</strong>&nbsp;&nbsp; ${escapeHtml(ctx.coverageNotes)}`,
+              ]
+            : []),
+        ],
+        "#0891B2"
+      )}
       ${ctaButton("Review PTO Request", APP_URL + "/pto/approvals", "#0891B2")}`,
       `New PTO request from ${ctx.employeeName ?? "a direct report"}.`
     ),
   }),
 
-  pto_request_decision: (ctx) => {
+  pto_request_decision: ctx => {
     const approved = (ctx.decisionStatus ?? "").toLowerCase() === "approved";
     const accent = approved ? "#059669" : "#D97706";
     const decision = approved ? "approved" : "declined";
@@ -582,20 +792,43 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ${subheading("PTO Decision")}
         ${greeting(ctx.recipientName)}
         ${bodyText(`Your manager has ${decision} your ${escapeHtml(ctx.ptoType ?? "PTO")} request.`)}
-        ${infoCard([
-          ...(ctx.managerName ? [`<strong style="color:${BLACK};">Manager</strong>&nbsp;&nbsp; ${escapeHtml(ctx.managerName)}`] : []),
-          ...(ctx.ptoType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoType)}`] : []),
-          ...(ctx.ptoDateRange ? [`<strong style="color:${BLACK};">Dates</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoDateRange)}`] : []),
-          ...(ctx.ptoRequestedDays ? [`<strong style="color:${BLACK};">Time requested</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoRequestedDays)}`] : []),
-          ...(ctx.decisionReason ? [`<strong style="color:${BLACK};">Manager note</strong>&nbsp;&nbsp; ${escapeHtml(ctx.decisionReason)}`] : []),
-        ], accent)}
+        ${infoCard(
+          [
+            ...(ctx.managerName
+              ? [
+                  `<strong style="color:${BLACK};">Manager</strong>&nbsp;&nbsp; ${escapeHtml(ctx.managerName)}`,
+                ]
+              : []),
+            ...(ctx.ptoType
+              ? [
+                  `<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoType)}`,
+                ]
+              : []),
+            ...(ctx.ptoDateRange
+              ? [
+                  `<strong style="color:${BLACK};">Dates</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoDateRange)}`,
+                ]
+              : []),
+            ...(ctx.ptoRequestedDays
+              ? [
+                  `<strong style="color:${BLACK};">Time requested</strong>&nbsp;&nbsp; ${escapeHtml(ctx.ptoRequestedDays)}`,
+                ]
+              : []),
+            ...(ctx.decisionReason
+              ? [
+                  `<strong style="color:${BLACK};">Manager note</strong>&nbsp;&nbsp; ${escapeHtml(ctx.decisionReason)}`,
+                ]
+              : []),
+          ],
+          accent
+        )}
         ${ctaButton("View My PTO", APP_URL + "/pto", accent)}`,
         `Your PTO request was ${decision}.`
       ),
     };
   },
 
-  transaction_created: (ctx) => ({
+  transaction_created: ctx => ({
     subject: `Please Confirm Lead Source${ctx.transactionNumber ? ` — Transaction #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
       `${heading("Confirm the Lead Source")}
@@ -603,20 +836,46 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${greeting(ctx.recipientName)}
       ${bodyText("A new transaction has been created and assigned to you in SavvyOS. Please review the lead source below and confirm that it is accurate.")}
       ${infoCard([
-        ...(ctx.transactionNumber ? [`<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`] : []),
-        ...(ctx.leadSourceLabel ? [`<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; ${escapeHtml(ctx.leadSourceLabel)}`] : [`<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; Not recorded`]),
-        ...(ctx.transactionType ? [`<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.transactionType.charAt(0).toUpperCase() + ctx.transactionType.slice(1))}`] : []),
-        ...(ctx.propertyAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`] : []),
-        ...(ctx.amount ? [`<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${escapeHtml(ctx.amount)}</span>`] : []),
+        ...(ctx.transactionNumber
+          ? [
+              `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`,
+            ]
+          : []),
+        ...(ctx.contactName
+          ? [
+              `<strong style="color:${BLACK};">Client</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`,
+            ]
+          : []),
+        ...(ctx.leadSourceLabel
+          ? [
+              `<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; ${escapeHtml(ctx.leadSourceLabel)}`,
+            ]
+          : [
+              `<strong style="color:${BLACK};">Lead Source</strong>&nbsp;&nbsp; Not recorded`,
+            ]),
+        ...(ctx.transactionType
+          ? [
+              `<strong style="color:${BLACK};">Type</strong>&nbsp;&nbsp; ${escapeHtml(ctx.transactionType.charAt(0).toUpperCase() + ctx.transactionType.slice(1))}`,
+            ]
+          : []),
+        ...(ctx.propertyAddress
+          ? [
+              `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.propertyAddress)}`,
+            ]
+          : []),
+        ...(ctx.amount
+          ? [
+              `<strong style="color:${BLACK};">Purchase Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${escapeHtml(ctx.amount)}</span>`,
+            ]
+          : []),
       ])}
-      ${bodyText("If the lead source is incorrect or needs to be updated, please email <a href=\"mailto:elana@savvy.realty\" style=\"color:${CYAN};font-weight:600;\">elana@savvy.realty</a> and let her know what needs to change.")}
+      ${bodyText('If the lead source is incorrect or needs to be updated, please email <a href="mailto:elana@savvy.realty" style="color:${CYAN};font-weight:600;">elana@savvy.realty</a> and let her know what needs to change.')}
       ${ctaButton("Review Transaction", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"))}`,
       `Please confirm the lead source for transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""}.`
     ),
   }),
 
-  market_profile_survey: (ctx) => {
+  market_profile_survey: ctx => {
     const reminder = (ctx.marketSurveyReminderNumber ?? 0) > 0;
     return {
       subject: reminder
@@ -628,10 +887,13 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
         ${greeting(ctx.recipientName)}
         ${bodyText("We’re improving Market Match so Savvy can create more relevant, higher-quality opportunities for your market. Your Market Profile is now a living AI model that learns from permitted SavvyOS signals such as transaction patterns, market research, webinars, podcasts, blogs, and case studies.")}
         ${bodyText(`The best baseline comes from your local expertise. Please take a few minutes to share what works in ${escapeHtml(ctx.marketName ?? "your market")}: ideal properties and investors, revenue and value-add realities, regulations, watchouts, and anything the model should understand.`)}
-        ${infoCard([
-          "<strong style=\"color:#0A0A0A;\">Short and flexible</strong>&nbsp;&nbsp; The survey is broken into quick pages, saves as you go, and can be finished later.",
-          "<strong style=\"color:#0A0A0A;\">Market-specific</strong>&nbsp;&nbsp; Your answers feed only your assigned market profile.",
-        ], "#0891B2")}
+        ${infoCard(
+          [
+            '<strong style="color:#0A0A0A;">Short and flexible</strong>&nbsp;&nbsp; The survey is broken into quick pages, saves as you go, and can be finished later.',
+            '<strong style="color:#0A0A0A;">Market-specific</strong>&nbsp;&nbsp; Your answers feed only your assigned market profile.',
+          ],
+          "#0891B2"
+        )}
         ${ctx.marketSurveyUrl ? ctaButton(reminder ? "Continue My Survey" : "Improve My Market Profile", escapeHtml(ctx.marketSurveyUrl), "#0891B2") : ""}
         <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This link is specific to your SavvyOS account. If your market assignment is not correct, select the right market in the survey before continuing.</p>`,
         reminder
@@ -641,7 +903,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     };
   },
 
-  listing_created: (ctx) => ({
+  listing_created: ctx => ({
     subject: `New Listing Created${ctx.contactName ? ` — ${ctx.contactName}` : ""}${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`,
     html: emailLayout(
       `${heading("New Listing Created")}
@@ -649,36 +911,75 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${greeting(ctx.recipientName)}
       ${bodyText("A new listing has been created and assigned to you in SavvyOS.")}
       ${infoCard([
-        ...(ctx.listingAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.listingAddress)}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Seller</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`] : []),
-        ...(ctx.listPrice ? [`<strong style="color:${BLACK};">List Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${ctx.listPrice}</span>`] : []),
-        ...(ctx.listingDate ? [`<strong style="color:${BLACK};">Listed</strong>&nbsp;&nbsp; ${ctx.listingDate}`] : []),
-        ...(ctx.expirationDate ? [`<strong style="color:${BLACK};">Expires</strong>&nbsp;&nbsp; ${ctx.expirationDate}`] : []),
+        ...(ctx.listingAddress
+          ? [
+              `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${escapeHtml(ctx.listingAddress)}`,
+            ]
+          : []),
+        ...(ctx.contactName
+          ? [
+              `<strong style="color:${BLACK};">Seller</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName)}`,
+            ]
+          : []),
+        ...(ctx.listPrice
+          ? [
+              `<strong style="color:${BLACK};">List Price</strong>&nbsp;&nbsp; <span style="font-weight:700;color:${CYAN};">${ctx.listPrice}</span>`,
+            ]
+          : []),
+        ...(ctx.listingDate
+          ? [
+              `<strong style="color:${BLACK};">Listed</strong>&nbsp;&nbsp; ${ctx.listingDate}`,
+            ]
+          : []),
+        ...(ctx.expirationDate
+          ? [
+              `<strong style="color:${BLACK};">Expires</strong>&nbsp;&nbsp; ${ctx.expirationDate}`,
+            ]
+          : []),
       ])}
       ${ctaButton("View Listing", APP_URL + (ctx.listingId ? `/listings/${ctx.listingId}` : "/listings"))}`,
       `New listing created${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`
     ),
   }),
 
-  listing_expiration_reminder: (ctx) => ({
+  listing_expiration_reminder: ctx => ({
     subject: `Listing Expiration Notice${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`,
     html: emailLayout(
       `${heading("Listing Expiration Notice", "#D97706")}
       ${subheading("Action Required")}
       ${greeting(ctx.recipientName)}
       ${bodyText("One of your active listings has passed its expiration date. Please review and update the expiration date, or change the listing status to keep your pipeline accurate.")}
-      ${infoCard([
-        ...(ctx.listingAddress ? [`<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${ctx.listingAddress}`] : []),
-        ...(ctx.contactName ? [`<strong style="color:${BLACK};">Seller</strong>&nbsp;&nbsp; ${ctx.contactName}`] : []),
-        ...(ctx.listPrice ? [`<strong style="color:${BLACK};">List Price</strong>&nbsp;&nbsp; ${ctx.listPrice}`] : []),
-        ...(ctx.expirationDate ? [`<strong style="color:${BLACK};">Expired</strong>&nbsp;&nbsp; <span style="color:#DC2626;font-weight:600;">${ctx.expirationDate}</span>`] : []),
-      ], "#D97706")}
+      ${infoCard(
+        [
+          ...(ctx.listingAddress
+            ? [
+                `<strong style="color:${BLACK};">Property</strong>&nbsp;&nbsp; ${ctx.listingAddress}`,
+              ]
+            : []),
+          ...(ctx.contactName
+            ? [
+                `<strong style="color:${BLACK};">Seller</strong>&nbsp;&nbsp; ${ctx.contactName}`,
+              ]
+            : []),
+          ...(ctx.listPrice
+            ? [
+                `<strong style="color:${BLACK};">List Price</strong>&nbsp;&nbsp; ${ctx.listPrice}`,
+              ]
+            : []),
+          ...(ctx.expirationDate
+            ? [
+                `<strong style="color:${BLACK};">Expired</strong>&nbsp;&nbsp; <span style="color:#DC2626;font-weight:600;">${ctx.expirationDate}</span>`,
+              ]
+            : []),
+        ],
+        "#D97706"
+      )}
       ${ctaButton("Update Listing", APP_URL + (ctx.listingId ? `/listings/${ctx.listingId}` : "/listings"), "#D97706")}`,
       `Listing expired${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`
     ),
   }),
 
-  onboarding_overdue: (ctx) => ({
+  onboarding_overdue: ctx => ({
     subject: `Onboarding Tasks Overdue${ctx.agentName ? ` — ${ctx.agentName}` : ""}`,
     html: emailLayout(
       `${heading("Onboarding Tasks Overdue", "#DC2626")}
@@ -691,7 +992,41 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  commission_exception_warning: (ctx) => ({
+  onboarding_profile_invitation: ctx => ({
+    subject: "Welcome to SavvyOS — complete your profile",
+    html: emailLayout(
+      `${heading("Welcome to SavvyOS", "#0891B2")}
+      ${subheading("Your Agent Profile")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Your SavvyOS onboarding is underway. Take a few minutes to complete your Extended Profile so the Savvy team has the information needed to support your work and represent you accurately.")}
+      ${infoCard(
+        [
+          '<strong style="color:#0A0A0A;">Save as you go</strong>&nbsp;&nbsp; Every change is saved automatically, so you can complete as much as you want now and return later.',
+          '<strong style="color:#0A0A0A;">Always editable</strong>&nbsp;&nbsp; You can review and update your profile anytime from My Profile in SavvyOS.',
+        ],
+        "#0891B2"
+      )}
+      ${ctaButton("Complete My Profile", ctx.onboardingProfileUrl ?? `${APP_URL}/profile`, "#0891B2")}
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">This button signs you in securely and opens your profile. If you were not expecting this invitation, you can safely ignore this email.</p>`,
+      "Complete your SavvyOS Extended Profile at your own pace."
+    ),
+  }),
+
+  smart_plan_ai_analysis: ctx => ({
+    subject: `Smart Plans Analysis${ctx.smartPlanAnalysisRequestedBy ? ` — requested by ${ctx.smartPlanAnalysisRequestedBy}` : ""}`,
+    html: emailLayout(
+      `${heading("Smart Plans Analysis", "#0891B2")}
+      ${subheading("Campaign Performance Review")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("The latest Smart Plans performance analysis is ready. The same results are available in SavvyOS.")}
+      ${ctx.smartPlanAnalysisHtml ?? bodyText("Open Smart Plans to review the current campaign analysis.")}
+      ${ctaButton("Open Smart Plans", `${APP_URL}/smart-plans`, "#0891B2")}`,
+      "Your latest Smart Plans campaign performance review is ready.",
+      760
+    ),
+  }),
+
+  commission_exception_warning: ctx => ({
     subject: `⚠️ Commission Exception Warning — Transaction${ctx.transactionNumber ? ` #${ctx.transactionNumber}` : ""}`,
     html: emailLayout(
       `${heading("Commission Exception Warning", "#D97706")}
@@ -704,40 +1039,50 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  payout_integrity_fail: (ctx) => ({
+  payout_integrity_fail: ctx => ({
     subject: `Commission Integrity Issue — Action Required`,
     html: emailLayout(
       `${heading("Commission Integrity Issue", "#DC2626")}
       ${subheading("Action Required")}
       ${greeting(ctx.recipientName)}
       ${bodyText("A transaction has commission payouts that exceed 100%. Please review and correct the payout items immediately to avoid processing errors.")}
-      ${infoCard([
-        ctx.transactionNumber
-          ? `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`
-          : `<strong style="color:#DC2626;">Action required</strong>&nbsp;&nbsp; Review all open transactions`,
-      ], "#DC2626")}
+      ${infoCard(
+        [
+          ctx.transactionNumber
+            ? `<strong style="color:${BLACK};">Transaction</strong>&nbsp;&nbsp; #${ctx.transactionNumber}`
+            : `<strong style="color:#DC2626;">Action required</strong>&nbsp;&nbsp; Review all open transactions`,
+        ],
+        "#DC2626"
+      )}
       ${ctaButton("Review Now", APP_URL + (ctx.transactionId ? `/transactions/${ctx.transactionId}` : "/transactions"), "#DC2626")}`,
       "Commission integrity issue — action required"
     ),
   }),
 
-  connection_request_approved: (ctx) => ({
+  connection_request_approved: ctx => ({
     subject: `Connection Request Approved — ${ctx.contactName ?? "Contact"}`,
     html: emailLayout(
       `${heading("Connection Request Approved", "#059669")}
       ${subheading("Pipeline Update")}
       ${greeting(ctx.recipientName)}
       ${bodyText(`Your request to connect with <strong>${ctx.contactName ?? "a contact"}</strong> has been approved. They have been added to your pipeline.`)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName ?? "—"}`,
-        ...(ctx.pipelineStatus ? [`<strong style="color:${BLACK};">Pipeline Stage</strong>&nbsp;&nbsp; ${ctx.pipelineStatus.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}`] : []),
-      ], "#059669")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${ctx.contactName ?? "—"}`,
+          ...(ctx.pipelineStatus
+            ? [
+                `<strong style="color:${BLACK};">Pipeline Stage</strong>&nbsp;&nbsp; ${ctx.pipelineStatus.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}`,
+              ]
+            : []),
+        ],
+        "#059669"
+      )}
       ${ctaButton("View in Pipeline", APP_URL + (ctx.connectionId ? `/pipeline/${ctx.connectionId}` : "/pipeline"))}`,
       `Connection request approved — ${ctx.contactName ?? "contact"} added to your pipeline`
     ),
   }),
 
-  meeting_reminder: (ctx) => ({
+  meeting_reminder: ctx => ({
     subject: `Pulse meeting reminder — ${ctx.pulseMeetingName ?? "Your meeting"}`,
     html: emailLayout(
       `${heading("Your Pulse meeting is coming up")}
@@ -750,7 +1095,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  pulse_submission_confirmation: (ctx) => ({
+  pulse_submission_confirmation: ctx => ({
     subject: `Pulse weekly prep confirmed — ${ctx.pulseMeetingName ?? "Your L10"}`,
     html: emailLayout(
       `${heading("Your Pulse weekly prep is confirmed")}
@@ -763,7 +1108,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  pulse_meeting_recap: (ctx) => ({
+  pulse_meeting_recap: ctx => ({
     subject: `L10 recap — ${ctx.pulseMeetingName ?? "Pulse meeting"}`,
     html: emailLayout(
       `${heading("Level 10 meeting recap")}
@@ -775,7 +1120,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  todo_assigned: (ctx) => ({
+  todo_assigned: ctx => ({
     subject: `New Pulse to-do — ${ctx.pulseMeetingName ?? "Your meeting"}`,
     html: emailLayout(
       `${heading("You have a new Pulse to-do")}
@@ -791,7 +1136,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  cascade_sent: (ctx) => ({
+  cascade_sent: ctx => ({
     subject: `Pulse message needs you — ${ctx.pulseMeetingName ?? "A meeting"}`,
     html: emailLayout(
       `${heading("A Pulse message needs your acknowledgment")}
@@ -809,7 +1154,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  overdue_digest: (ctx) => ({
+  overdue_digest: ctx => ({
     subject: `Your overdue Pulse work — ${ctx.pulseMeetingName ?? "Pulse"}`,
     html: emailLayout(
       `${heading("Your overdue Pulse work", "#D97706")}
@@ -822,7 +1167,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  mention: (ctx) => ({
+  mention: ctx => ({
     subject: `You were mentioned in Pulse — ${ctx.pulseMeetingName ?? "Your meeting"}`,
     html: emailLayout(
       `${heading("You were mentioned in Pulse")}
@@ -834,7 +1179,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  rock_completed: (ctx) => ({
+  rock_completed: ctx => ({
     subject: `Rock completed — ${ctx.pulseMeetingName ?? "Pulse"}`,
     html: emailLayout(
       `${heading("A Pulse rock was completed", "#059669")}
@@ -846,7 +1191,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  welcome: (ctx) => ({
+  welcome: ctx => ({
     subject: `Welcome to Pulse — ${ctx.pulseMeetingName ?? "Your meeting"}`,
     html: emailLayout(
       `${heading("Welcome to Pulse")}
@@ -859,7 +1204,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  pulse_overdue_digest: (ctx) => ({
+  pulse_overdue_digest: ctx => ({
     subject: `Your overdue Pulse work — ${ctx.pulseOverdueCount ?? "0"} item${ctx.pulseOverdueCount === "1" ? "" : "s"}`,
     html: emailLayout(
       `${heading("Your overdue Pulse work", "#D97706")}
@@ -872,7 +1217,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  pulse_rock_completed: (ctx) => ({
+  pulse_rock_completed: ctx => ({
     subject: `Rock completed — ${ctx.pulseWorkItemTitle ?? "Pulse"}`,
     html: emailLayout(
       `${heading("A rock was completed", "#059669")}
@@ -884,7 +1229,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  pm_mention: (ctx) => ({
+  pm_mention: ctx => ({
     subject: `${ctx.mentionedByName ?? "Someone"} mentioned you in a project ${ctx.mentionType ?? "note"} — ${ctx.projectTitle ?? "SavvyOS"}`,
     html: emailLayout(
       `${heading(`You were mentioned in a project ${ctx.mentionType ?? "note"}`, CYAN)}
@@ -897,7 +1242,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  client_intro: (ctx) => ({
+  client_intro: ctx => ({
     subject: `Meet ${ctx.agentName ?? "Your Agent"} — Savvy STR Agents`,
     html: emailLayout(
       `${heading("Meet Your Agent", CYAN)}
@@ -906,7 +1251,11 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${bodyText(`We're excited to introduce you to <strong>${ctx.agentName ?? "your dedicated agent"}</strong>, who will be working with you on your short-term rental journey. ${ctx.agentName ?? "Your agent"} specializes in STR properties and is ready to help you find the perfect investment.`)}
       ${infoCard([
         `<strong style="color:${BLACK};">Your Agent</strong>&nbsp;&nbsp; ${ctx.agentName ?? "—"}`,
-        ...(ctx.isaName ? [`<strong style="color:${BLACK};">Introduced by</strong>&nbsp;&nbsp; ${ctx.isaName}`] : []),
+        ...(ctx.isaName
+          ? [
+              `<strong style="color:${BLACK};">Introduced by</strong>&nbsp;&nbsp; ${ctx.isaName}`,
+            ]
+          : []),
       ])}
       ${ctx.agentBookingLink ? ctaButton("Schedule a Call with Your Agent", ctx.agentBookingLink) : ctaButton("Get Started", APP_URL)}
       ${bodyText("If you have any questions in the meantime, feel free to reply to this email.")}`,
@@ -914,7 +1263,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  password_reset: (ctx) => ({
+  password_reset: ctx => ({
     subject: "Reset your SavvyOS password",
     html: emailLayout(
       `${heading("Reset Your Password")}
@@ -927,7 +1276,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  agent_production_report: (ctx) => ({
+  agent_production_report: ctx => ({
     subject: `Agent Production Report (${ctx.reportDate ?? "Weekly"})`,
     html: emailLayout(
       `${heading("Agent Production Report")}
@@ -938,176 +1287,228 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       <p style="margin:18px 0 0;font-size:11px;line-height:1.5;color:${MUTED};">Current Under Contract reflects transactions currently in the Under Contract stage. New Under Contract uses contract dates from the prior seven days. Closed metrics use closing dates for each stated period.</p>
       ${ctaButton("Open SavvyOS", APP_URL + "/analytics")}`,
       `Agent production report for ${ctx.reportDate ?? "this week"}`,
-      1200,
+      1200
     ),
   }),
 
-  weekly_lead_report: (ctx) => ({
-    subject: ctx.weeklyLeadReportSubject ?? `Weekly Lead Report | ${ctx.weeklyLeadReportDate ?? "Current Week"}`,
+  weekly_lead_report: ctx => ({
+    subject:
+      ctx.weeklyLeadReportSubject ??
+      `Weekly Lead Report | ${ctx.weeklyLeadReportDate ?? "Current Week"}`,
     html: emailLayout(
       `${ctx.weeklyLeadReportHtml ?? bodyText("The Weekly Lead Report could not be generated. Please open SavvyOS to review lead-source performance.")}`,
       `Weekly Lead Report — ${ctx.weeklyLeadReportDate ?? "Current Week"}`,
-      980,
+      980
     ),
   }),
 
-  weekly_webinar_report: (ctx) => ({
+  weekly_webinar_report: ctx => ({
     subject: ctx.weeklyWebinarReportSubject ?? "Upcoming Webinars | SavvyOS",
     html: emailLayout(
       `${ctx.weeklyWebinarReportHtml ?? bodyText("The upcoming webinar report could not be generated. Please open SavvyOS to review scheduled webinars.")}`,
       "Your upcoming SavvyOS webinars",
-      900,
+      900
     ),
   }),
 
-  weekly_referral_report: (ctx) => ({
-    subject: ctx.weeklyReferralReportSubject ?? "Weekly Referral Report | SavvyOS",
+  weekly_referral_report: ctx => ({
+    subject:
+      ctx.weeklyReferralReportSubject ?? "Weekly Referral Report | SavvyOS",
     html: emailLayout(
       `${ctx.weeklyReferralReportHtml ?? bodyText("The weekly referral report could not be generated. Please open SavvyOS to review referrals and payment tracking.")}`,
       "Weekly outbound referral pipeline and payment tracking",
-      900,
+      900
     ),
   }),
 
-  daily_agent_report: (ctx) => ({
+  daily_agent_report: ctx => ({
     subject: `Your Daily SavvyOS Report — ${ctx.dailyReportDate ?? "Today"}`,
     html: emailLayout(
       `${greeting(ctx.recipientName)}
       ${ctx.dailyReportHtml ?? bodyText("Your daily SavvyOS report could not be generated. Please open SavvyOS to review your current tasks and pipeline.")}`,
       `Your end-of-day SavvyOS priorities — ${ctx.dailyReportAsOf ?? "today"}`,
-      640,
+      640
     ),
   }),
 
-  daily_isa_activities: (ctx) => ({
-    subject: ctx.dailyIsaReportSubject ?? `Daily ISA Activities | ${ctx.dailyIsaReportDate ?? "Prior Day"}`,
+  daily_isa_activities: ctx => ({
+    subject:
+      ctx.dailyIsaReportSubject ??
+      `Daily ISA Activities | ${ctx.dailyIsaReportDate ?? "Prior Day"}`,
     html: emailLayout(
       `${ctx.dailyIsaReportHtml ?? bodyText("The Daily ISA Activities report could not be generated. Please open SavvyOS to review the ISA Dashboard.")}`,
       `Daily ISA activity report for ${ctx.dailyIsaReportDate ?? "the prior day"}`,
-      720,
+      720
     ),
   }),
 
-  monthly_agent_renewals: (ctx) => ({
-    subject: ctx.monthlyRenewalsSubject ?? `Monthly Agent Renewals | ${ctx.monthlyRenewalsDate ?? "Current Month"}`,
+  monthly_agent_renewals: ctx => ({
+    subject:
+      ctx.monthlyRenewalsSubject ??
+      `Monthly Agent Renewals | ${ctx.monthlyRenewalsDate ?? "Current Month"}`,
     html: emailLayout(
       `${ctx.monthlyRenewalsHtml ?? bodyText("The monthly Agent Renewals report could not be generated. Please open SavvyOS to review the live renewal queue.")}`,
       `Monthly Agent Renewals — ${ctx.monthlyRenewalsDate ?? "current month"}`,
-      800,
+      800
     ),
   }),
 
-  vendor_featured_payment_invitation: (ctx) => ({
+  vendor_featured_payment_invitation: ctx => ({
     subject: `Your Featured Vendor invitation from ${ctx.agentName ?? "Savvy STR Agents"}`,
     html: emailLayout(
       `${heading("Featured Vendor Invitation", "#0891B2")}
       ${subheading("Savvy STR Agents Vendor List")}
       ${greeting(ctx.recipientName ?? ctx.vendorContactName ?? ctx.vendorBusinessName)}
       ${bodyText(`${escapeHtml(ctx.agentName ?? "Your Savvy STR Agent")} has invited <strong>${escapeHtml(ctx.vendorBusinessName ?? "your business")}</strong> to a Featured placement on their client-facing Vendor List.`)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Monthly placement</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount ?? "—")} per month`,
-        "<strong style=\"color:#0A0A0A;\">Payment</strong>&nbsp;&nbsp; Secure recurring billing through Stripe",
-      ], "#0891B2")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Monthly placement</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount ?? "—")} per month`,
+          '<strong style="color:#0A0A0A;">Payment</strong>&nbsp;&nbsp; Secure recurring billing through Stripe',
+        ],
+        "#0891B2"
+      )}
       ${bodyText("Use the secure Stripe checkout link below to start the monthly subscription. Stripe will confirm the payment details before you complete checkout.")}
       ${ctx.vendorPaymentUrl ? ctaButton("Review & Pay with Stripe", ctx.vendorPaymentUrl, "#0891B2") : ""}
       ${ctx.vendorPublicListUrl ? `${bodyText("Want to see the client-facing placement first? You can view the published Vendor List below.")}${ctaButton("View the Public Vendor List", ctx.vendorPublicListUrl, "#0891B2")}` : ""}
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">Questions about your placement? Reply to this email to reach the Savvy STR Agents team.</p>`,
-      `Complete your Featured Vendor placement checkout for ${ctx.vendorMonthlyAmount ?? "your monthly subscription"}.`,
+      `Complete your Featured Vendor placement checkout for ${ctx.vendorMonthlyAmount ?? "your monthly subscription"}.`
     ),
   }),
 
-  vendor_featured_payment_received: (ctx) => ({
+  vendor_featured_payment_received: ctx => ({
     subject: `Featured Vendor payment received — ${ctx.vendorBusinessName ?? "Vendor"}`,
     html: emailLayout(
       `${heading("Featured Vendor Payment Received", "#047857")}
       ${subheading("Your Vendor List")}
       ${greeting(ctx.recipientName)}
       ${bodyText(`<strong>${escapeHtml(ctx.vendorBusinessName ?? "A vendor")}</strong> has completed their Featured Vendor payment through Stripe. Their Vendor List recommendation is now marked Featured.`)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Vendor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBusinessName ?? "—")}`,
-        ...(ctx.vendorPaymentReceivedAmount ? [`<strong style="color:${BLACK};">Payment received</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorPaymentReceivedAmount)}`] : []),
-        ...(ctx.vendorPaymentReceivedDate ? [`<strong style="color:${BLACK};">Received</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorPaymentReceivedDate)}`] : []),
-        ...(ctx.vendorMonthlyAmount ? [`<strong style="color:${BLACK};">Monthly placement</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount)}`] : []),
-      ], "#047857")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Vendor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBusinessName ?? "—")}`,
+          ...(ctx.vendorPaymentReceivedAmount
+            ? [
+                `<strong style="color:${BLACK};">Payment received</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorPaymentReceivedAmount)}`,
+              ]
+            : []),
+          ...(ctx.vendorPaymentReceivedDate
+            ? [
+                `<strong style="color:${BLACK};">Received</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorPaymentReceivedDate)}`,
+              ]
+            : []),
+          ...(ctx.vendorMonthlyAmount
+            ? [
+                `<strong style="color:${BLACK};">Monthly placement</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount)}`,
+              ]
+            : []),
+        ],
+        "#047857"
+      )}
       ${bodyText("This successful payment will be included in your Featured Vendor earnings reporting at the 75% agent share.")}
       ${ctaButton("Open My Vendor List", APP_URL + "/vendors", "#047857")}`,
-      `Featured Vendor payment received for ${ctx.vendorBusinessName ?? "a vendor"}.`,
+      `Featured Vendor payment received for ${ctx.vendorBusinessName ?? "a vendor"}.`
     ),
   }),
 
-  vendor_featured_payment_failed: (ctx) => ({
+  vendor_featured_payment_failed: ctx => ({
     subject: `Featured Vendor payment needs attention — ${ctx.vendorBusinessName ?? "Vendor"}`,
     html: emailLayout(
       `${heading("Featured Vendor Payment Needs Attention", "#B91C1C")}
       ${subheading("Action Required")}
       ${greeting(ctx.recipientName)}
       ${bodyText(`The recurring Featured vendor payment for <strong>${escapeHtml(ctx.vendorBusinessName ?? "this vendor")}</strong> needs follow-up. Please reach out to the vendor to update their payment method or resolve the subscription status.`)}
-      ${infoCard([
-        `<strong style="color:${BLACK};">Vendor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBusinessName ?? "—")}`,
-        ...(ctx.vendorContactName ? [`<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorContactName)}`] : []),
-        ...(ctx.vendorMonthlyAmount ? [`<strong style="color:${BLACK};">Monthly amount</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount)}`] : []),
-        ...(ctx.vendorBillingReason ? [`<strong style="color:${BLACK};">Status</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBillingReason)}`] : []),
-      ], "#B91C1C")}
+      ${infoCard(
+        [
+          `<strong style="color:${BLACK};">Vendor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBusinessName ?? "—")}`,
+          ...(ctx.vendorContactName
+            ? [
+                `<strong style="color:${BLACK};">Contact</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorContactName)}`,
+              ]
+            : []),
+          ...(ctx.vendorMonthlyAmount
+            ? [
+                `<strong style="color:${BLACK};">Monthly amount</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorMonthlyAmount)}`,
+              ]
+            : []),
+          ...(ctx.vendorBillingReason
+            ? [
+                `<strong style="color:${BLACK};">Status</strong>&nbsp;&nbsp; ${escapeHtml(ctx.vendorBillingReason)}`,
+              ]
+            : []),
+        ],
+        "#B91C1C"
+      )}
       ${ctaButton("Open Vendor List", APP_URL + "/vendors", "#B91C1C")}`,
-      `Featured vendor payment needs attention: ${ctx.vendorBusinessName ?? "Vendor"}.`,
+      `Featured vendor payment needs attention: ${ctx.vendorBusinessName ?? "Vendor"}.`
     ),
   }),
 
-  monthly_featured_vendor_earnings: (ctx) => ({
-    subject: ctx.featuredVendorEarningsSubject ?? `Featured Vendor Earnings | ${ctx.featuredVendorEarningsDate ?? "Current Month"}`,
+  monthly_featured_vendor_earnings: ctx => ({
+    subject:
+      ctx.featuredVendorEarningsSubject ??
+      `Featured Vendor Earnings | ${ctx.featuredVendorEarningsDate ?? "Current Month"}`,
     html: emailLayout(
       `${ctx.featuredVendorEarningsHtml ?? bodyText("The Featured Vendor earnings report could not be generated. Please open SavvyOS to review Vendor Lists.")}`,
       `Featured Vendor earnings — ${ctx.featuredVendorEarningsDate ?? "current month"}`,
-      800,
+      800
     ),
   }),
 
-  agent_featured_vendor_earnings: (ctx) => ({
-    subject: ctx.featuredVendorEarningsSubject ?? `Your Featured Vendor Earnings | ${ctx.featuredVendorEarningsDate ?? "Current Month"}`,
+  agent_featured_vendor_earnings: ctx => ({
+    subject:
+      ctx.featuredVendorEarningsSubject ??
+      `Your Featured Vendor Earnings | ${ctx.featuredVendorEarningsDate ?? "Current Month"}`,
     html: emailLayout(
       `${ctx.featuredVendorEarningsHtml ?? bodyText("Your Featured Vendor earnings report could not be generated. Please open SavvyOS to review your Vendor List.")}`,
       `Your Featured Vendor earnings — ${ctx.featuredVendorEarningsDate ?? "current month"}`,
-      720,
+      720
     ),
   }),
 
-  coaching_weekly_accountability: (ctx) => ({
-    subject: ctx.coachingReportSubject ?? `Coaching Hub Weekly Accountability | ${ctx.coachingReportDate ?? "Current Week"}`,
+  coaching_weekly_accountability: ctx => ({
+    subject:
+      ctx.coachingReportSubject ??
+      `Coaching Hub Weekly Accountability | ${ctx.coachingReportDate ?? "Current Week"}`,
     html: emailLayout(
       `${ctx.coachingReportHtml ?? bodyText("The Coaching Hub accountability report could not be generated. Please open SavvyOS to review the live Coaching Hub.")}`,
       `Coaching Hub weekly accountability — ${ctx.coachingReportDate ?? "current week"}`,
-      680,
+      680
     ),
   }),
 
-  coaching_tips_for_today: (ctx) => ({
-    subject: ctx.coachingTipsSubject ?? `Coaching Tips For Today | ${ctx.coachingTipsDate ?? "Today"}`,
+  coaching_tips_for_today: ctx => ({
+    subject:
+      ctx.coachingTipsSubject ??
+      `Coaching Tips For Today | ${ctx.coachingTipsDate ?? "Today"}`,
     html: emailLayout(
       `${ctx.coachingTipsHtml ?? bodyText("The daily coaching briefing could not be generated. Please open SavvyOS Coaching Hub to review current opportunities.")}`,
       `Coaching Tips For Today — ${ctx.coachingTipsDate ?? "today"}`,
-      760,
+      760
     ),
   }),
 
-  coaching_feedback_invitation: (ctx) => ({
-    subject: ctx.coachFeedbackSubject ?? "Share anonymous feedback about your coaching session",
+  coaching_feedback_invitation: ctx => ({
+    subject:
+      ctx.coachFeedbackSubject ??
+      "Share anonymous feedback about your coaching session",
     html: emailLayout(
       `${ctx.coachFeedbackHtml ?? bodyText("Your anonymous coaching feedback link is ready.")}`,
       "A private, anonymous coaching feedback request",
-      640,
+      640
     ),
   }),
 
-  coaching_feedback_weekly_summary: (ctx) => ({
-    subject: ctx.coachFeedbackSubject ?? "Your anonymous coaching feedback — weekly aggregate",
+  coaching_feedback_weekly_summary: ctx => ({
+    subject:
+      ctx.coachFeedbackSubject ??
+      "Your anonymous coaching feedback — weekly aggregate",
     html: emailLayout(
       `${ctx.coachFeedbackHtml ?? bodyText("Your anonymous coaching feedback aggregate could not be generated.")}`,
       "Anonymous coaching feedback — weekly aggregate",
-      760,
+      760
     ),
   }),
 
-  webinar_marketing_request: (ctx) => ({
+  webinar_marketing_request: ctx => ({
     subject: `New Webinar Marketing Request: ${ctx.webinarTitle ?? "Webinar"}`,
     html: emailLayout(
       `${heading("New Webinar Marketing Request", CYAN)}
@@ -1116,9 +1517,21 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${webinarTemplateBody("A new webinar has been created in SavvyOS. Please coordinate the promotional plan with {{webinar_creator_name}} and use the registration link below in approved marketing.", ctx)}
       ${infoCard([
         `<strong style="color:${BLACK};">Webinar</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarTitle ?? "—")}`,
-        ...(ctx.webinarStartTime ? [`<strong style="color:${BLACK};">Start</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarStartTime)}`] : []),
-        ...(ctx.webinarDuration ? [`<strong style="color:${BLACK};">Duration</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarDuration)}`] : []),
-        ...(ctx.webinarCreatorName ? [`<strong style="color:${BLACK};">Created by</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarCreatorName)}${ctx.webinarCreatorEmail ? ` (${escapeHtml(ctx.webinarCreatorEmail)})` : ""}`] : []),
+        ...(ctx.webinarStartTime
+          ? [
+              `<strong style="color:${BLACK};">Start</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarStartTime)}`,
+            ]
+          : []),
+        ...(ctx.webinarDuration
+          ? [
+              `<strong style="color:${BLACK};">Duration</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarDuration)}`,
+            ]
+          : []),
+        ...(ctx.webinarCreatorName
+          ? [
+              `<strong style="color:${BLACK};">Created by</strong>&nbsp;&nbsp; ${escapeHtml(ctx.webinarCreatorName)}${ctx.webinarCreatorEmail ? ` (${escapeHtml(ctx.webinarCreatorEmail)})` : ""}`,
+            ]
+          : []),
       ])}
       ${ctx.webinarDescription ? `<p style="margin:20px 0 4px;font-size:14px;font-weight:600;color:${BLACK};">Webinar description</p><p style="margin:0;font-size:14px;color:#374151;line-height:1.6;background:#F9FAFB;border-radius:6px;padding:12px 16px;">${escapeHtml(ctx.webinarDescription)}</p>` : ""}
       ${ctx.webinarRegistrationUrl ? ctaButton("Open Registration Link", ctx.webinarRegistrationUrl) : ""}
@@ -1127,7 +1540,7 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  partner_lead_confirmation: (ctx) => ({
+  partner_lead_confirmation: ctx => ({
     subject: `Lead Received: ${ctx.contactName ?? "Your Client"} — Savvy STR Agents`,
     html: emailLayout(
       `${heading("Lead Confirmation")}
@@ -1136,7 +1549,11 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
       ${bodyText(`Thank you for submitting a lead to Savvy STR Agents! We've received the following client information and our team will be in touch shortly.`)}
       ${infoCard([
         `<strong style="color:${BLACK};">Client Name</strong>&nbsp;&nbsp; ${ctx.contactName ?? "—"}`,
-        ...(ctx.notes ? [`<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${ctx.notes}`] : []),
+        ...(ctx.notes
+          ? [
+              `<strong style="color:${BLACK};">Notes</strong>&nbsp;&nbsp; ${ctx.notes}`,
+            ]
+          : []),
       ])}
       ${bodyText("If you have any questions or need to update this submission, please reply to this email.")}
       ${ctaButton("Visit Savvy STR Agents", APP_URL)}`,
@@ -1144,16 +1561,19 @@ const TEMPLATES: Record<EmailType, (ctx: EmailContext) => { subject: string; htm
     ),
   }),
 
-  partner_portal_access: (ctx) => ({
+  partner_portal_access: ctx => ({
     subject: "Your Savvy Partner Portal is ready",
     html: emailLayout(
       `${heading("Your Partner Portal Is Ready", "#0891B2")}
       ${subheading("Savvy STR Agents Partner Portal")}
       ${greeting(ctx.recipientName ?? ctx.partnerName)}
       ${bodyText("You now have secure access to the Savvy Partner Portal, where you can follow the progress of the leads you have introduced to Savvy STR Agents.")}
-      ${infoCard([
-        "<strong style=\"color:#0A0A0A;\">What you can view</strong>&nbsp;&nbsp; Lead status, agent connection status, assigned agents, and transaction milestones",
-      ], "#0891B2")}
+      ${infoCard(
+        [
+          '<strong style="color:#0A0A0A;">What you can view</strong>&nbsp;&nbsp; Lead status, agent connection status, assigned agents, and transaction milestones',
+        ],
+        "#0891B2"
+      )}
       ${bodyText("Use the secure link below to sign in. The link expires in 15 minutes and can only be used once. You can always request a new sign-in link from the Partner Portal page.")}
       ${ctx.partnerPortalUrl ? ctaButton("Open Partner Portal", escapeHtml(ctx.partnerPortalUrl), "#0891B2") : ""}
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">If you were not expecting this invitation, you can safely ignore this email.</p>`,
@@ -1203,12 +1623,19 @@ async function isNotificationDisabled(type: EmailType): Promise<boolean> {
  * Generate a magic link URL that auto-logs in the recipient and redirects to the given path.
  * The token is stored in the DB and expires after 7 days.
  */
-export async function generateMagicLinkUrl(recipientEmail: string, redirectPath: string = "/"): Promise<string> {
+export async function generateMagicLinkUrl(
+  recipientEmail: string,
+  redirectPath: string = "/"
+): Promise<string> {
   const db = await getDb();
   if (!db) return `${APP_URL}${redirectPath}`;
 
   // Look up the user by email
-  const [user] = await db.select().from(users).where(eq(users.email, recipientEmail)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, recipientEmail))
+    .limit(1);
   if (!user) return `${APP_URL}${redirectPath}`;
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -1228,16 +1655,26 @@ export async function generateMagicLinkUrl(recipientEmail: string, redirectPath:
  * Replace all APP_URL-based href links in the email HTML with magic link versions.
  * This ensures the recipient is auto-logged in when clicking any link.
  */
-async function injectMagicLinks(html: string, recipientEmail: string): Promise<string> {
+async function injectMagicLinks(
+  html: string,
+  recipientEmail: string
+): Promise<string> {
   const db = await getDb();
   if (!db) return html;
 
   // Look up the user by email
-  const [user] = await db.select().from(users).where(eq(users.email, recipientEmail)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, recipientEmail))
+    .limit(1);
   if (!user) return html;
 
   // Find all href attributes pointing to APP_URL with a path
-  const urlPattern = new RegExp(`href="${APP_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/[^"]*)"`, 'g');
+  const urlPattern = new RegExp(
+    `href="${APP_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(/[^"]*)"`,
+    "g"
+  );
   const matches = Array.from(html.matchAll(urlPattern));
 
   if (matches.length === 0) return html;
@@ -1279,7 +1716,9 @@ async function injectMagicLinks(html: string, recipientEmail: string): Promise<s
       redirectPath: "/",
       expiresAt,
     });
-    result = result.split(`href="${APP_URL}"`).join(`href="${APP_URL}/api/auth/magic-link?token=${token}"`);
+    result = result
+      .split(`href="${APP_URL}"`)
+      .join(`href="${APP_URL}/api/auth/magic-link?token=${token}"`);
   }
 
   return result;
@@ -1292,26 +1731,40 @@ async function injectMagicLinks(html: string, recipientEmail: string): Promise<s
 export async function sendTransactionalEmail(
   type: EmailType,
   ctx: EmailContext,
-  options: EmailDeliveryOptions = {},
+  options: EmailDeliveryOptions = {}
 ): Promise<EmailDeliveryResult> {
   const resend = getResend();
   if (!resend) {
     console.warn("[Resend] API key not configured — skipping email");
-    return { sent: false, skipped: true, reason: "Resend API key is not configured" };
+    return {
+      sent: false,
+      skipped: true,
+      reason: "Resend API key is not configured",
+    };
   }
 
   // An explicit settings-page test is the only permitted bypass. Production
   // delivery honors the type's enable toggle while preserving the recipient(s)
   // selected by the event-specific sender.
-  if (!options.bypassNotificationSetting) try {
-    if (await isNotificationDisabled(type)) {
-      console.info(`[Resend] Email type "${type}" is disabled via admin settings — skipping`);
-      return { sent: false, skipped: true, reason: "Email notification is disabled" };
+  if (!options.bypassNotificationSetting)
+    try {
+      if (await isNotificationDisabled(type)) {
+        console.info(
+          `[Resend] Email type "${type}" is disabled via admin settings — skipping`
+        );
+        return {
+          sent: false,
+          skipped: true,
+          reason: "Email notification is disabled",
+        };
+      }
+    } catch (settingErr) {
+      // Fail open: a transient settings read must not block a system notification.
+      console.warn(
+        "[Resend] Could not resolve notification settings:",
+        settingErr
+      );
     }
-  } catch (settingErr) {
-    // Fail open: a transient settings read must not block a system notification.
-    console.warn("[Resend] Could not resolve notification settings:", settingErr);
-  }
 
   try {
     const hardcoded = TEMPLATES[type](ctx);
@@ -1323,17 +1776,28 @@ export async function sendTransactionalEmail(
       try {
         const db = await getDb();
         if (db) {
-          const [override] = await db.select().from(emailTemplates).where(eq(emailTemplates.emailType, type)).limit(1);
+          const [override] = await db
+            .select()
+            .from(emailTemplates)
+            .where(eq(emailTemplates.emailType, type))
+            .limit(1);
           if (override) {
             if (type === "webinar_marketing_request") {
               subject = replaceWebinarTemplateTokens(override.subject, ctx);
-              html = replaceWebinarTemplateBody(hardcoded.html, override.bodyText, ctx);
+              html = replaceWebinarTemplateBody(
+                hardcoded.html,
+                override.bodyText,
+                ctx
+              );
             } else {
               subject = override.subject;
-              const escapedBody = override.bodyText.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+              const escapedBody = override.bodyText.replace(
+                /\*\*(.+?)\*\*/g,
+                "<strong>$1</strong>"
+              );
               html = hardcoded.html.replace(
                 /<p style="[^"]*color:[^"]*#6B7280[^"]*">[^<]*<\/p>/,
-                `<p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 20px;">${escapedBody}</p>`,
+                `<p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 20px;">${escapedBody}</p>`
               );
             }
           }
@@ -1348,7 +1812,10 @@ export async function sendTransactionalEmail(
       try {
         html = await injectMagicLinks(html, ctx.recipientEmail);
       } catch (mlErr) {
-        console.warn("[Resend] Magic link injection failed (sending without):", mlErr);
+        console.warn(
+          "[Resend] Magic link injection failed (sending without):",
+          mlErr
+        );
       }
     }
 
@@ -1357,19 +1824,32 @@ export async function sendTransactionalEmail(
       to: ctx.recipientEmail,
       subject,
       html,
-      ...(ctx.ccEmails?.length ? { cc: ctx.ccEmails } : ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
+      ...(ctx.ccEmails?.length
+        ? { cc: ctx.ccEmails }
+        : ctx.ccEmail
+          ? { cc: [ctx.ccEmail] }
+          : {}),
       ...(ctx.replyToEmail ? { replyTo: ctx.replyToEmail } : {}),
     };
     const result = await resend.emails.send(
       sendOptions,
-      options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
+      options.idempotencyKey
+        ? { idempotencyKey: options.idempotencyKey }
+        : undefined
     );
     if (result.error) {
       const sdkReason = result.error.message ?? "Resend rejected the email";
-      console.error("[Resend] SDK send error; attempting direct provider fallback:", result.error);
+      console.error(
+        "[Resend] SDK send error; attempting direct provider fallback:",
+        result.error
+      );
       const fallback = await sendViaResendHttpFallback({
         to: ctx.recipientEmail,
-        ...(ctx.ccEmails?.length ? { cc: ctx.ccEmails } : ctx.ccEmail ? { cc: [ctx.ccEmail] } : {}),
+        ...(ctx.ccEmails?.length
+          ? { cc: ctx.ccEmails }
+          : ctx.ccEmail
+            ? { cc: [ctx.ccEmail] }
+            : {}),
         ...(ctx.replyToEmail ? { replyTo: ctx.replyToEmail } : {}),
         subject,
         html,
@@ -1379,7 +1859,11 @@ export async function sendTransactionalEmail(
         console.info("[Resend] Direct provider fallback succeeded.");
         return { sent: true, skipped: false };
       }
-      return { sent: false, skipped: false, reason: `${sdkReason}; fallback failed: ${fallback.reason ?? "unknown error"}` };
+      return {
+        sent: false,
+        skipped: false,
+        reason: `${sdkReason}; fallback failed: ${fallback.reason ?? "unknown error"}`,
+      };
     }
 
     return { sent: true, skipped: false };
@@ -1394,6 +1878,9 @@ export async function sendTransactionalEmail(
  * Return the rendered HTML and subject for a given email type without sending.
  * Used for preview in the Email Test admin page.
  */
-export function getEmailPreview(type: EmailType, ctx: EmailContext): { subject: string; html: string } {
+export function getEmailPreview(
+  type: EmailType,
+  ctx: EmailContext
+): { subject: string; html: string } {
   return TEMPLATES[type](ctx);
 }

@@ -75,6 +75,10 @@ export type InvokeParams = {
   response_format?: ResponseFormat;
   /** OpenAI GPT-5-series reasoning control, forwarded unchanged to the proxy. */
   reasoning?: { effort: "minimal" | "low" | "medium" | "high" };
+  /** Optional per-call timeout for interactive experiences that need a fast fallback. */
+  timeoutMs?: number;
+  /** Optional per-call attempt limit. Defaults to the shared resilient behavior. */
+  maxAttempts?: number;
 };
 
 export type ToolCall = {
@@ -323,9 +327,9 @@ const REQUEST_TIMEOUT_MS = 45_000;
 const isBillingOrQuotaError = (message: string | null) =>
   Boolean(
     message &&
-      /\b(no credits remaining|add credits|billing|quota|insufficient[_ ](?:quota|funds)|exceeded your current quota)\b/i.test(
-        message
-      )
+    /\b(no credits remaining|add credits|billing|quota|insufficient[_ ](?:quota|funds)|exceeded your current quota)\b/i.test(
+      message
+    )
   );
 
 export function resolveLlmModel(model?: string): string {
@@ -390,6 +394,14 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   const maxTokens = params.maxTokens ?? params.max_tokens ?? 4096;
+  const requestTimeoutMs = Math.max(
+    5_000,
+    Math.min(params.timeoutMs ?? REQUEST_TIMEOUT_MS, 120_000)
+  );
+  const maxAttempts = Math.max(
+    1,
+    Math.min(params.maxAttempts ?? MAX_ATTEMPTS, MAX_ATTEMPTS)
+  );
   payload[
     resolvedModel.startsWith("gpt-") || resolvedModel.startsWith("o")
       ? "max_completion_tokens"
@@ -403,7 +415,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   const isNativeOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(
     getOpenAiCompatibleProvider().baseUrl
   );
-  if (reasoning?.effort && resolvedModel.startsWith("gpt-5") && isNativeOpenAi) {
+  if (
+    reasoning?.effort &&
+    resolvedModel.startsWith("gpt-5") &&
+    isNativeOpenAi
+  ) {
     payload.reasoning_effort = reasoning.effort;
   } else if (reasoning?.effort && resolvedModel.startsWith("gpt-5")) {
     payload.reasoning = reasoning;
@@ -428,7 +444,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await fetch(resolveApiUrl(), {
         method: "POST",
@@ -437,7 +453,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
           authorization: `Bearer ${getApiKey()}`,
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
       const responseText = await response.text();
       let body: unknown = null;
@@ -455,7 +471,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         // A 429 can mean transient rate limiting or a terminal billing/quota
         // failure. Retrying the latter only delays fallbacks and user actions.
         if (
-          attempt < MAX_ATTEMPTS &&
+          attempt < maxAttempts &&
           RETRYABLE_STATUSES.has(response.status) &&
           !isBillingOrQuotaError(providerError)
         ) {
@@ -479,7 +495,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         lastError.message.startsWith(
           "LLM provider returned an invalid completion"
         );
-      if (attempt < MAX_ATTEMPTS && !isKnownProviderError) {
+      if (attempt < maxAttempts && !isKnownProviderError) {
         await sleep(250 * 2 ** (attempt - 1));
         continue;
       }

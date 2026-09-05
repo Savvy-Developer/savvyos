@@ -6,7 +6,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import RichEmailEditor from "@/components/RichEmailEditor";
-import { Upload, Camera, X, CheckCircle2, AlertCircle, Loader2, FileSignature, Save } from "lucide-react";
+import AgentExtendedProfileEditor from "@/components/AgentExtendedProfileEditor";
+import {
+  Upload,
+  Camera,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  FileSignature,
+  Save,
+} from "lucide-react";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
@@ -15,7 +25,7 @@ function getInitials(name: string | null | undefined): string {
   if (!name) return "?";
   return name
     .split(" ")
-    .map((p) => p[0])
+    .map(p => p[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
@@ -48,25 +58,41 @@ export default function ProfilePage() {
   const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [emailSignatureHtml, setEmailSignatureHtml] = useState("");
-  const [signatureState, setSignatureState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [signatureState, setSignatureState] = useState<
+    "idle" | "saving" | "success" | "error"
+  >("idle");
   const [signatureError, setSignatureError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [uploadState, setUploadState] = useState<
+    "idle" | "uploading" | "success" | "error"
+  >("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [backgroundlessPreview, setBackgroundlessPreview] = useState<string | null>(null);
-  const [backgroundlessFile, setBackgroundlessFile] = useState<File | null>(null);
-  const [backgroundlessUploadState, setBackgroundlessUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
-  const [backgroundlessError, setBackgroundlessError] = useState<string | null>(null);
+  const [backgroundlessPreview, setBackgroundlessPreview] = useState<
+    string | null
+  >(null);
+  const [backgroundlessFile, setBackgroundlessFile] = useState<File | null>(
+    null
+  );
+  const [backgroundlessUploadState, setBackgroundlessUploadState] = useState<
+    "idle" | "uploading" | "success" | "error"
+  >("idle");
+  const [backgroundlessError, setBackgroundlessError] = useState<string | null>(
+    null
+  );
   const backgroundlessInputRef = useRef<HTMLInputElement>(null);
 
   const currentPhoto = preview ?? profileQuery.data?.profilePhotoUrl ?? null;
-  const currentBackgroundlessHeadshot = backgroundlessPreview ?? profileQuery.data?.backgroundlessHeadshotUrl ?? null;
-  const hasEmailSignature = emailSignatureHtml
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim().length > 0;
+  const currentBackgroundlessHeadshot =
+    backgroundlessPreview ??
+    profileQuery.data?.backgroundlessHeadshotUrl ??
+    null;
+  const hasEmailSignature =
+    emailSignatureHtml
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim().length > 0;
 
   useEffect(() => {
     if (!profileQuery.isLoading) {
@@ -74,17 +100,20 @@ export default function ProfilePage() {
     }
   }, [profileQuery.data?.emailSignatureHtml, profileQuery.isLoading]);
 
-  const updateEmailSignatureMutation = trpc.users.updateMyEmailSignature.useMutation({
-    onSuccess: () => {
-      setSignatureState("success");
-      setSignatureError(null);
-      utils.users.getMyCoreProfile.invalidate();
-    },
-    onError: (error) => {
-      setSignatureState("error");
-      setSignatureError(error.message ?? "Unable to save your Email Signature.");
-    },
-  });
+  const updateEmailSignatureMutation =
+    trpc.users.updateMyEmailSignature.useMutation({
+      onSuccess: () => {
+        setSignatureState("success");
+        setSignatureError(null);
+        utils.users.getMyCoreProfile.invalidate();
+      },
+      onError: error => {
+        setSignatureState("error");
+        setSignatureError(
+          error.message ?? "Unable to save your Email Signature."
+        );
+      },
+    });
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -107,7 +136,7 @@ export default function ProfilePage() {
     setUploadState("idle");
     setSelectedFile(file);
     const reader = new FileReader();
-    reader.onload = (e) => setPreview(e.target?.result as string);
+    reader.onload = e => setPreview(e.target?.result as string);
     reader.readAsDataURL(file);
   }, []);
 
@@ -171,7 +200,8 @@ export default function ProfilePage() {
     setBackgroundlessUploadState("idle");
     setBackgroundlessFile(file);
     const reader = new FileReader();
-    reader.onload = (event) => setBackgroundlessPreview(event.target?.result as string);
+    reader.onload = event =>
+      setBackgroundlessPreview(event.target?.result as string);
     reader.readAsDataURL(file);
   };
 
@@ -194,7 +224,9 @@ export default function ProfilePage() {
       setBackgroundlessFile(null);
       utils.users.getMyCoreProfile.invalidate();
     } catch (error: any) {
-      setBackgroundlessError(error.message ?? "Upload failed. Please try again.");
+      setBackgroundlessError(
+        error.message ?? "Upload failed. Please try again."
+      );
       setBackgroundlessUploadState("error");
     }
   };
@@ -204,19 +236,24 @@ export default function ProfilePage() {
     setBackgroundlessFile(null);
     setBackgroundlessUploadState("idle");
     setBackgroundlessError(null);
-    if (backgroundlessInputRef.current) backgroundlessInputRef.current.value = "";
+    if (backgroundlessInputRef.current)
+      backgroundlessInputRef.current.value = "";
   };
 
   const handleSaveEmailSignature = async () => {
     if (!hasEmailSignature) {
       setSignatureState("error");
-      setSignatureError("Add your name and contact details before saving your Email Signature.");
+      setSignatureError(
+        "Add your name and contact details before saving your Email Signature."
+      );
       return;
     }
     setSignatureState("saving");
     setSignatureError(null);
     try {
-      await updateEmailSignatureMutation.mutateAsync({ html: emailSignatureHtml });
+      await updateEmailSignatureMutation.mutateAsync({
+        html: emailSignatureHtml,
+      });
     } catch {
       // The mutation's onError handler renders the user-facing error state.
     }
@@ -228,13 +265,26 @@ export default function ProfilePage() {
   const roleLabel = ROLE_LABELS[user.role] ?? user.role;
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your profile photo and account information.
+          {user.role === "agent"
+            ? "Manage your photo, account details, and extended agent profile."
+            : "Manage your profile photo and account information."}
         </p>
       </div>
+
+      {user.role === "agent" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Extended Profile</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AgentExtendedProfileEditor />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Profile Photo Card */}
       <Card>
@@ -249,30 +299,42 @@ export default function ProfilePage() {
           <div className="flex items-center gap-4">
             <Avatar className="h-20 w-20 ring-2 ring-border">
               {currentPhoto ? (
-                <AvatarImage src={currentPhoto} alt={user.name ?? "Profile photo"} className="object-cover" />
+                <AvatarImage
+                  src={currentPhoto}
+                  alt={user.name ?? "Profile photo"}
+                  className="object-cover"
+                />
               ) : null}
               <AvatarFallback className="bg-[oklch(0.74_0.14_200)] text-[oklch(0.08_0_0)] text-2xl font-bold">
                 {initials}
               </AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-semibold text-foreground">{user.name ?? "—"}</p>
+              <p className="font-semibold text-foreground">
+                {user.name ?? "—"}
+              </p>
               <p className="text-sm text-muted-foreground">{user.email}</p>
-              <Badge variant="outline" className="mt-1 text-xs">{roleLabel}</Badge>
+              <Badge variant="outline" className="mt-1 text-xs">
+                {roleLabel}
+              </Badge>
             </div>
           </div>
 
           {/* Drag-and-drop zone */}
           <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragOver={e => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
             className={`
               relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
-              ${dragOver
-                ? "border-primary bg-primary/5 scale-[1.01]"
-                : "border-border hover:border-primary/50 hover:bg-muted/30"
+              ${
+                dragOver
+                  ? "border-primary bg-primary/5 scale-[1.01]"
+                  : "border-border hover:border-primary/50 hover:bg-muted/30"
               }
             `}
           >
@@ -285,7 +347,9 @@ export default function ProfilePage() {
             />
             <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
             <p className="text-sm font-medium text-foreground">
-              {dragOver ? "Drop your photo here" : "Drag & drop or click to upload"}
+              {dragOver
+                ? "Drop your photo here"
+                : "Drag & drop or click to upload"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               JPG, PNG, or WEBP — max 2MB
@@ -301,7 +365,9 @@ export default function ProfilePage() {
                 className="h-16 w-16 rounded-full object-cover ring-2 ring-border shrink-0"
               />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{selectedFile.name}</p>
+                <p className="text-sm font-medium text-foreground truncate">
+                  {selectedFile.name}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {(selectedFile.size / 1024).toFixed(0)} KB
                 </p>
@@ -313,12 +379,20 @@ export default function ProfilePage() {
                   disabled={uploadState === "uploading"}
                 >
                   {uploadState === "uploading" ? (
-                    <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</>
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Uploading…
+                    </>
                   ) : (
                     "Save Photo"
                   )}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={handleCancel} disabled={uploadState === "uploading"}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCancel}
+                  disabled={uploadState === "uploading"}
+                >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -351,18 +425,31 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm text-muted-foreground">
-            This photo is used only in Automatic marketing graphics. Upload a portrait with the background already removed.
+            This photo is used only in Automatic marketing graphics. Upload a
+            portrait with the background already removed.
           </div>
           <div className="flex items-center gap-4">
             <Avatar className="h-20 w-20 ring-2 ring-border bg-muted">
               {currentBackgroundlessHeadshot ? (
-                <AvatarImage src={currentBackgroundlessHeadshot} alt={user.name ?? "Backgroundless headshot"} className="object-contain" />
+                <AvatarImage
+                  src={currentBackgroundlessHeadshot}
+                  alt={user.name ?? "Backgroundless headshot"}
+                  className="object-contain"
+                />
               ) : null}
-              <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">BG</AvatarFallback>
+              <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                BG
+              </AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-semibold text-foreground">{currentBackgroundlessHeadshot ? "Backgroundless headshot on file" : "No backgroundless headshot yet"}</p>
-              <p className="text-sm text-muted-foreground">Required before you can create Automatic marketing graphics.</p>
+              <p className="font-semibold text-foreground">
+                {currentBackgroundlessHeadshot
+                  ? "Backgroundless headshot on file"
+                  : "No backgroundless headshot yet"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Required before you can create Automatic marketing graphics.
+              </p>
             </div>
           </div>
           <div
@@ -374,24 +461,55 @@ export default function ProfilePage() {
               type="file"
               accept="image/jpeg,image/png,image/webp"
               className="hidden"
-              onChange={(event) => { const file = event.target.files?.[0]; if (file) handleBackgroundlessFile(file); }}
+              onChange={event => {
+                const file = event.target.files?.[0];
+                if (file) handleBackgroundlessFile(file);
+              }}
             />
             <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-sm font-medium text-foreground">Click to upload a backgroundless headshot</p>
-            <p className="text-xs text-muted-foreground mt-1">JPG, PNG, or WEBP — max 2MB</p>
+            <p className="text-sm font-medium text-foreground">
+              Click to upload a backgroundless headshot
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              JPG, PNG, or WEBP — max 2MB
+            </p>
           </div>
           {backgroundlessFile && backgroundlessPreview && (
             <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/40 border border-border">
-              <img src={backgroundlessPreview} alt="Backgroundless headshot preview" className="h-16 w-16 rounded-full object-contain ring-2 ring-border shrink-0" />
+              <img
+                src={backgroundlessPreview}
+                alt="Backgroundless headshot preview"
+                className="h-16 w-16 rounded-full object-contain ring-2 ring-border shrink-0"
+              />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{backgroundlessFile.name}</p>
-                <p className="text-xs text-muted-foreground">{(backgroundlessFile.size / 1024).toFixed(0)} KB</p>
+                <p className="text-sm font-medium text-foreground truncate">
+                  {backgroundlessFile.name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {(backgroundlessFile.size / 1024).toFixed(0)} KB
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Button size="sm" onClick={handleBackgroundlessUpload} disabled={backgroundlessUploadState === "uploading"}>
-                  {backgroundlessUploadState === "uploading" ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Uploading…</> : "Save Headshot"}
+                <Button
+                  size="sm"
+                  onClick={handleBackgroundlessUpload}
+                  disabled={backgroundlessUploadState === "uploading"}
+                >
+                  {backgroundlessUploadState === "uploading" ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Uploading…
+                    </>
+                  ) : (
+                    "Save Headshot"
+                  )}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={cancelBackgroundlessUpload} disabled={backgroundlessUploadState === "uploading"}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={cancelBackgroundlessUpload}
+                  disabled={backgroundlessUploadState === "uploading"}
+                >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -399,12 +517,14 @@ export default function ProfilePage() {
           )}
           {backgroundlessUploadState === "success" && (
             <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />Backgroundless headshot updated successfully.
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Backgroundless headshot updated successfully.
             </div>
           )}
           {backgroundlessUploadState === "error" && backgroundlessError && (
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />{backgroundlessError}
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {backgroundlessError}
             </div>
           )}
         </CardContent>
@@ -420,11 +540,13 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
-            <strong>Required for Pipeline email.</strong> This signature is automatically appended to every Pipeline email you send. You cannot send a Pipeline email until it is saved.
+            <strong>Required for Pipeline email.</strong> This signature is
+            automatically appended to every Pipeline email you send. You cannot
+            send a Pipeline email until it is saved.
           </div>
           <RichEmailEditor
             value={emailSignatureHtml}
-            onChange={(html) => {
+            onChange={html => {
               setEmailSignatureHtml(html);
               if (signatureState !== "idle") setSignatureState("idle");
               setSignatureError(null);
@@ -433,24 +555,38 @@ export default function ProfilePage() {
           />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              {hasEmailSignature ? "Your saved signature will be appended after the email message." : "A non-empty Email Signature is required before you can send Pipeline email."}
+              {hasEmailSignature
+                ? "Your saved signature will be appended after the email message."
+                : "A non-empty Email Signature is required before you can send Pipeline email."}
             </p>
             <Button
               type="button"
               onClick={handleSaveEmailSignature}
-              disabled={!hasEmailSignature || signatureState === "saving" || updateEmailSignatureMutation.isPending}
+              disabled={
+                !hasEmailSignature ||
+                signatureState === "saving" ||
+                updateEmailSignatureMutation.isPending
+              }
             >
-              {signatureState === "saving" || updateEmailSignatureMutation.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Saving…</>
+              {signatureState === "saving" ||
+              updateEmailSignatureMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  Saving…
+                </>
               ) : (
-                <><Save className="h-4 w-4 mr-1.5" />Save Email Signature</>
+                <>
+                  <Save className="h-4 w-4 mr-1.5" />
+                  Save Email Signature
+                </>
               )}
             </Button>
           </div>
           {signatureState === "success" && (
             <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
-              Email Signature saved. It will now be appended to your Pipeline emails.
+              Email Signature saved. It will now be appended to your Pipeline
+              emails.
             </div>
           )}
           {signatureState === "error" && signatureError && (
@@ -480,7 +616,9 @@ export default function ProfilePage() {
             <div>
               <dt className="text-muted-foreground font-medium">Role</dt>
               <dd className="mt-0.5">
-                <Badge variant="outline" className="text-xs">{roleLabel}</Badge>
+                <Badge variant="outline" className="text-xs">
+                  {roleLabel}
+                </Badge>
               </dd>
             </div>
             <div>
@@ -503,8 +641,15 @@ export default function ProfilePage() {
           <CardTitle className="text-base">Pro-forma Defaults</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">Set your personal default values for new pro-forma analyses.</p>
-          <a href="/proforma-defaults" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">Manage Defaults &rarr;</a>
+          <p className="text-sm text-muted-foreground mb-3">
+            Set your personal default values for new pro-forma analyses.
+          </p>
+          <a
+            href="/proforma-defaults"
+            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+          >
+            Manage Defaults &rarr;
+          </a>
         </CardContent>
       </Card>
     </div>

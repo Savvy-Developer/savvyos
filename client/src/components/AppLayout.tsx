@@ -147,6 +147,7 @@ function buildAgentNav(
       label: "Overview",
       items: [
         { icon: Home, label: "My Dashboard", path: "/" },
+        { icon: Settings, label: "My Profile", path: "/profile" },
         { icon: Activity, label: "Daily Report", path: "/daily-report" },
         { icon: BarChart3, label: "My Stats", path: "/stats" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
@@ -432,7 +433,11 @@ function buildAdminNav(
       label: "ISA",
       items: [
         { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
-        { icon: BrainCircuit, label: "Conversation Intelligence", path: "/analytics/conversation-intelligence" },
+        {
+          icon: BrainCircuit,
+          label: "Conversation Intelligence",
+          path: "/analytics/conversation-intelligence",
+        },
         { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
         {
           icon: Inbox,
@@ -697,9 +702,9 @@ function SidebarNav({
                       !item.external &&
                       (item.path === "/"
                         ? currentPath === "/"
-                        // A report workspace is a distinct route, not a
-                        // child of the Reporting navigation category.
-                        : item.path === "/analytics"
+                        : // A report workspace is a distinct route, not a
+                          // child of the Reporting navigation category.
+                          item.path === "/analytics"
                           ? currentPath === "/analytics"
                           : currentPath.startsWith(item.path));
                     return (
@@ -1015,7 +1020,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const canUseResendInbox =
     role === "isa" ||
     (role === "admin" &&
-      !!(adminPerms as Record<string, boolean> | undefined)?.canViewResendInbox);
+      !!(adminPerms as Record<string, boolean> | undefined)
+        ?.canViewResendInbox);
   const { data: resendInboxUnreadData } = trpc.resendInbox.unreadCount.useQuery(
     undefined,
     { enabled: canUseResendInbox, refetchInterval: 30000 }
@@ -1079,9 +1085,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           resendInboxUnreadCount,
           marketingTextInboxUnreadCount,
           pendingPtoApprovalsCount,
-          ["tyler@savvy.realty", "elana@savvy.realty", "dyl@savvy.realty"].includes(
-            String((user as any).email ?? "").toLowerCase()
-          )
+          [
+            "tyler@savvy.realty",
+            "elana@savvy.realty",
+            "dyl@savvy.realty",
+          ].includes(String((user as any).email ?? "").toLowerCase())
         )
       : role === "isa"
         ? buildIsaNav(
