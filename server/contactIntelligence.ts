@@ -418,7 +418,10 @@ export async function enqueueContactIntelligenceForCommunication(
   if (!db) throw new Error("Database unavailable");
   const [row] = await db.select({
     communicationId: communications.id,
-    contactId: communications.relatedContactId,
+    // Newer communication records carry relatedContactId, while a small set of
+    // historic Aircall imports retained their verified match only on the call.
+    // Either record is sufficient evidence to enrich the same CRM contact.
+    contactId: sql<number>`COALESCE(${communications.relatedContactId}, ${aircallCalls.contactId})`,
     transcription: communications.transcription,
     body: communications.body,
     aircallCallId: aircallCalls.aircallCallId,
