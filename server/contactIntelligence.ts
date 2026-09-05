@@ -925,6 +925,7 @@ async function readBackfillCandidates(
           FROM \`contact_intelligence_jobs\` queued
           WHERE queued.\`contactId\` = ac.\`contactId\`
             AND queued.\`extractionVersion\` = ${run.extractionVersion}
+            AND queued.\`status\` IN ('pending', 'processing', 'retrying')
         )
     )
     SELECT communicationId
