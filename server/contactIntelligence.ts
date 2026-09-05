@@ -408,6 +408,10 @@ export function contactIntelligenceSourceHash(transcription: string, body: strin
 type EnqueueContactIntelligenceOptions = {
   backfillRunId?: number | null;
   extractionVersion?: string;
+  // Historical reconciliation may reprocess a completed, identical source only
+  // when the resolved current-version profile is missing. Normal webhook
+  // delivery remains source-hash idempotent.
+  forceReprocess?: boolean;
 };
 
 export async function enqueueContactIntelligenceForCommunication(
@@ -444,7 +448,21 @@ export async function enqueueContactIntelligenceForCommunication(
     status: "pending",
     nextAttemptAt: now,
   }).onDuplicateKeyUpdate({
-    set: { updatedAt: now },
+    set: options.forceReprocess
+      ? {
+        backfillRunId: options.backfillRunId ?? null,
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: now,
+        leaseExpiresAt: null,
+        lastAttemptAt: null,
+        processedAt: null,
+        lastError: null,
+        extractionMode: null,
+        modelUsed: null,
+        updatedAt: now,
+      }
+      : { updatedAt: now },
   });
 }
 
@@ -1005,6 +1023,7 @@ async function fillBackfillRun(runId: number): Promise<void> {
     await enqueueContactIntelligenceForCommunication(candidate.communicationId, {
       backfillRunId: run.id,
       extractionVersion: run.extractionVersion,
+      forceReprocess: true,
     });
   }
   await db.update(contactIntelligenceBackfillRuns).set({
