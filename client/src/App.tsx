@@ -148,6 +148,7 @@ import AgentRenewalsPage from "./pages/AgentRenewalsPage";
 import ConversationIntelligencePage from "./pages/ConversationIntelligencePage";
 import AffiliateLinksPage from "./pages/AffiliateLinksPage";
 import MarketProfileSurveyPage from "./pages/MarketProfileSurveyPage";
+import McpAccessPage from "./pages/McpAccessPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -167,6 +168,17 @@ function AdminOrIsaRoute({ children }: { children: React.ReactNode }) {
   const [, navigate] = useLocation();
   const role = (user as any)?.role;
   if (role && role !== "admin" && role !== "isa") {
+    navigate("/");
+    return null;
+  }
+  return <>{children}</>;
+}
+
+function McpAccessRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const email = (user as any)?.email?.toLowerCase?.() ?? "";
+  if (user && !["tyler@savvy.realty", "elana@savvy.realty", "dyl@savvy.realty"].includes(email)) {
     navigate("/");
     return null;
   }
@@ -491,6 +503,7 @@ function Router() {
           <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
           <Route path="/daily-report-updates">{() => <AdminRoute><DailyReportFeatureUpdatesPage /></AdminRoute>}</Route>
+          <Route path="/mcp-access">{() => <McpAccessRoute><McpAccessPage /></McpAccessRoute>}</Route>
           <Route path="/admin/vendors">{() => <AdminRoute><VendorListsAdminPage /></AdminRoute>}</Route>
           <Route path="/resend-inbox">{() => <AdminOrIsaRoute><ResendInboxPage /></AdminOrIsaRoute>}</Route>
           <Route path="/marketing-text-inbox">{() => <AdminOrIsaRoute><MarketingTextInboxPage /></AdminOrIsaRoute>}</Route>

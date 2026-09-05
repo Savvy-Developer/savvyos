@@ -396,9 +396,16 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       : "max_tokens"
   ] = maxTokens;
 
-  // GPT-5 models use the OpenAI-compatible `reasoning` object. Preserve the
-  // legacy `reasoning_effort` shape for o-series callers until they migrate.
-  if (reasoning?.effort && resolvedModel.startsWith("gpt-5")) {
+  // The Manus Forge proxy accepts GPT-5's nested `reasoning` object, while
+  // native api.openai.com rejects that field and requires `reasoning_effort`.
+  // Keep the transport-specific adaptation here so callers can use one stable
+  // internal shape regardless of the configured provider.
+  const isNativeOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(
+    getOpenAiCompatibleProvider().baseUrl
+  );
+  if (reasoning?.effort && resolvedModel.startsWith("gpt-5") && isNativeOpenAi) {
+    payload.reasoning_effort = reasoning.effort;
+  } else if (reasoning?.effort && resolvedModel.startsWith("gpt-5")) {
     payload.reasoning = reasoning;
   } else if (
     reasoning?.effort &&

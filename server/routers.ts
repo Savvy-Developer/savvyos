@@ -75,6 +75,7 @@ import { ptoRouter } from "./routers/pto";
 import { agentRenewalsRouter } from "./routers/agentRenewals";
 import { affiliateLinksRouter } from "./routers/affiliateLinks";
 import { marketProfileSurveyRouter } from "./routers/marketProfileSurvey";
+import { mcpAccessRouter } from "./routers/mcpAccess";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -300,6 +301,7 @@ export const appRouter = router({
   agentRenewals: agentRenewalsRouter,
   affiliateLinks: affiliateLinksRouter,
   marketProfileSurvey: marketProfileSurveyRouter,
+  mcpAccess: mcpAccessRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

@@ -35,6 +35,7 @@ import {
 import { DEFAULT_SMART_PLAN_DELIVERY_WINDOW, isValidSmartPlanSendWindow, normaliseSmartPlanSendWindow } from "../smartPlanScheduling";
 import { compareSmartPlanStepsByTiming } from "../smartPlanStepOrder";
 import { analyzeSmartPlanPerformance } from "../smartPlanAiAnalysis";
+import { notifySavvyOSPromptRun } from "../_core/slackNotifications";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
@@ -1096,10 +1097,58 @@ export const smartPlansRouter = router({
         entityId: 0,
         details: { generatedAt: result.generatedAt, totalEmailSends: (result.evidence as any)?.totalEmailSends ?? 0 },
       });
+      await notifySavvyOSPromptRun({
+        title: "Smart Plans AI analysis generated",
+        summary: "Smart Plan delivery, engagement, reply, timing, and deliverability signals were reviewed from aggregate campaign data.",
+        actionUrl: "/smart-plans",
+      });
       return result;
     }),
 
-  // ── Enrollments ────────────────────────────────────────────────────────────
+  // ── Consolidated delivery history ─────────────────────────────────────────
+  // This is intentionally execution-first (rather than enrollment-first): it
+  // gives admins a compact, chronological view of exactly what was attempted,
+  // which workflow step produced it, the associated contact, and reply state.
+  history: router({
+    list: protectedProcedure
+      .input(z.object({
+        planId: z.number().int().positive().optional(),
+        limit: z.number().int().min(1).max(200).default(100),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const conditions = input.planId
+          ? [eq(smartPlanEnrollments.planId, input.planId)]
+          : [];
+        const rows = await db
+          .select({
+            execution: smartPlanExecutions,
+            enrollment: smartPlanEnrollments,
+            step: smartPlanSteps,
+            plan: { id: smartPlans.id, name: smartPlans.name },
+            contact: {
+              id: contacts.id,
+              firstName: contacts.firstName,
+              lastName: contacts.lastName,
+              email: contacts.email,
+              phone: contacts.phone,
+            },
+          })
+          .from(smartPlanExecutions)
+          .innerJoin(smartPlanEnrollments, eq(smartPlanExecutions.enrollmentId, smartPlanEnrollments.id))
+          .innerJoin(smartPlanSteps, eq(smartPlanExecutions.stepId, smartPlanSteps.id))
+          .innerJoin(smartPlans, eq(smartPlanEnrollments.planId, smartPlans.id))
+          .innerJoin(contacts, eq(smartPlanEnrollments.contactId, contacts.id))
+          .where(conditions.length ? and(...conditions) : undefined)
+          .orderBy(desc(smartPlanExecutions.sentAt), desc(smartPlanExecutions.id))
+          .limit(input.limit);
+        return rows;
+      }),
+  }),
+
+  // ── Enrollments ───────────────────────────────────────────────────────────
   enrollments: router({
     list: protectedProcedure
       .input(z.object({

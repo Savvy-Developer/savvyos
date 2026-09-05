@@ -11,11 +11,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import {
   Zap, Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquare,
   Users, Edit2, Play, Pause, ArrowLeft, Check, Save, Eye, Clock,
-  AlertCircle, FileText, ChevronLeft, ChevronRight, Search, BrainCircuit, Loader2, ShieldCheck, Lightbulb
+  AlertCircle, FileText, ChevronLeft, ChevronRight, Search, BrainCircuit, Loader2, ShieldCheck, Lightbulb, History
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -1050,6 +1051,34 @@ function EnrollmentsDialog({ plan, onClose }: { plan: PlanRow; onClose: () => vo
   );
 }
 
+function SmartPlanHistoryDialog({ plan, onClose }: { plan: PlanRow | null; onClose: () => void }) {
+  const planId = plan?.plan.id;
+  const { data: rows = [], isLoading, error } = trpc.smartPlans.history.list.useQuery(
+    { planId, limit: 100 },
+    { enabled: plan !== undefined }
+  );
+  const historyRows = rows as any[];
+  const title = plan ? `History — ${plan.plan.name}` : "Full Smart Plans History";
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-7xl w-[calc(100vw-1rem)] max-h-[92vh] flex flex-col gap-3 overflow-hidden p-4 sm:p-6">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-xl"><History className="h-5 w-5 text-primary" /> {title}</DialogTitle>
+          <p className="text-sm text-muted-foreground">The 100 most recent automated Smart Plan attempts, including the message step, contact, delivery outcome, and recorded reply status.</p>
+        </DialogHeader>
+        {isLoading ? <div className="flex min-h-52 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading Smart Plan history...</div> : error ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error.message}</div> : historyRows.length === 0 ? <div className="rounded-lg border border-dashed py-14 text-center text-sm text-muted-foreground">No Smart Plan message attempts are recorded yet.</div> : <div className="min-h-0 flex-1 overflow-auto rounded-lg border"><table className="w-full min-w-[1060px] text-left text-sm"><thead className="sticky top-0 bg-muted text-xs text-muted-foreground"><tr><th className="p-3 font-medium">Sent / attempted</th>{!plan && <th className="p-3 font-medium">Smart Plan</th>}<th className="p-3 font-medium">Step</th><th className="p-3 font-medium">Contact</th><th className="p-3 font-medium">Channel</th><th className="p-3 font-medium">Outcome</th><th className="p-3 font-medium">Reply</th><th className="p-3 font-medium">Details</th></tr></thead><tbody className="divide-y">{historyRows.map(row => {
+          const contactName = [row.contact.firstName, row.contact.lastName].filter(Boolean).join(" ") || "Unnamed contact";
+          const messageName = row.step.subject || row.step.body?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "Untitled message";
+          const replied = Boolean(row.execution.repliedAt);
+          return <tr key={row.execution.id} className="align-top"><td className="whitespace-nowrap p-3 text-muted-foreground">{safeFormat(row.execution.sentAt, "MMM d, yyyy h:mm a")}</td>{!plan && <td className="max-w-48 p-3 font-medium">{row.plan.name}</td>}<td className="max-w-64 p-3"><div className="flex items-center gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{row.step.stepOrder + 1}</span><div className="min-w-0"><p className="truncate font-medium" title={messageName}>{messageName}</p><p className="mt-0.5 text-xs text-muted-foreground">{delayLabel(row.step.delayDays, row.step.delayHours)}</p></div></div></td><td className="p-3"><p className="font-medium">{contactName}</p><p className="mt-0.5 max-w-48 truncate text-xs text-muted-foreground">{formatEmail(row.contact.email) || row.contact.phone || "No contact address"}</p></td><td className="p-3 capitalize">{row.execution.channel}</td><td className="p-3"><Badge variant="outline" className={row.execution.status === "sent" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : row.execution.status === "failed" ? "border-red-200 bg-red-50 text-red-700" : row.execution.status === "skipped" ? "border-amber-200 bg-amber-50 text-amber-700" : ""}>{row.execution.status}</Badge></td><td className="p-3">{replied ? <div className="text-fuchsia-700"><p className="font-medium">Replied</p><p className="mt-0.5 whitespace-nowrap text-xs">{safeFormat(row.execution.repliedAt, "MMM d, h:mm a")}</p></div> : <span className="text-muted-foreground">No reply recorded</span>}</td><td className="max-w-60 p-3 text-xs text-muted-foreground break-words">{row.execution.errorMessage || row.execution.provider || "—"}</td></tr>;
+        })}</tbody></table></div>}
+        <DialogFooter><Button variant="outline" onClick={onClose}>Close history</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SmartPlansAnalysisDialog({ result, onClose }: { result: any; onClose: () => void }) {
   const analysis = result?.analysis ?? {};
   const evidence = result?.evidence ?? {};
@@ -1093,6 +1122,7 @@ export default function SmartPlansPage() {
   const [deleteTarget, setDeleteTarget] = useState<PlanRow | null>(null);
   const [oneTimeSendOpen, setOneTimeSendOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
+  const [historyPlan, setHistoryPlan] = useState<PlanRow | null | undefined>(undefined);
 
   const toggleStatusMutation = trpc.smartPlans.update.useMutation({
     onSuccess: () => utils.smartPlans.list.invalidate(),
@@ -1129,6 +1159,9 @@ export default function SmartPlansPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setHistoryPlan(null)}>
+            <History className="mr-1.5 h-4 w-4" /> Full History
+          </Button>
           <Button variant="outline" onClick={() => analysisMutation.mutate()} disabled={analysisMutation.isPending}>
             {analysisMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-1.5 h-4 w-4" />}
             {analysisMutation.isPending ? "Analyzing…" : "Analyze with AI"}
@@ -1144,8 +1177,26 @@ export default function SmartPlansPage() {
 
       {oneTimeSendOpen && <OneTimeSmartPlanSendDialog onClose={() => setOneTimeSendOpen(false)} />}
       {analysisResult && <SmartPlansAnalysisDialog result={analysisResult} onClose={() => setAnalysisResult(null)} />}
+      {historyPlan !== undefined && <SmartPlanHistoryDialog plan={historyPlan} onClose={() => setHistoryPlan(undefined)} />}
 
-      <OneTimeSmartPlanSendHistory />
+      <Collapsible>
+        <Card>
+          <CardHeader className="py-0">
+            <CollapsibleTrigger asChild>
+              <button type="button" className="flex w-full items-center justify-between gap-4 py-4 text-left">
+                <div>
+                  <CardTitle className="text-base">One-Time Send History</CardTitle>
+                  <CardDescription className="mt-1">View one-time campaign details separately when needed.</CardDescription>
+                </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="pt-0"><OneTimeSmartPlanSendHistory /></CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* Enrollments Dialog */}
       {viewEnrollments && (
@@ -1191,6 +1242,7 @@ export default function SmartPlansPage() {
                 onEdit={() => openWorkspace(row.plan.id)}
                 onToggle={() => toggleStatusMutation.mutate({ id: row.plan.id, data: { status: row.plan.status === "active" ? "paused" : "active" } })}
                 onViewEnrollments={() => setViewEnrollments(row)}
+                onViewHistory={() => setHistoryPlan(row)}
                 onDelete={() => setDeleteTarget(row)}
               />
             ))}
@@ -1212,6 +1264,7 @@ export default function SmartPlansPage() {
                 onEdit={() => openWorkspace(row.plan.id)}
                 onToggle={() => toggleStatusMutation.mutate({ id: row.plan.id, data: { status: row.plan.status === "active" ? "paused" : "active" } })}
                 onViewEnrollments={() => setViewEnrollments(row)}
+                onViewHistory={() => setHistoryPlan(row)}
                 onDelete={() => setDeleteTarget(row)}
               />
             ))}
@@ -1243,12 +1296,14 @@ function PlanCard({
   onEdit,
   onToggle,
   onViewEnrollments,
+  onViewHistory,
   onDelete,
 }: {
   row: PlanRow;
   onEdit: () => void;
   onToggle: () => void;
   onViewEnrollments: () => void;
+  onViewHistory: () => void;
   onDelete: () => void;
 }) {
   const { plan, stepCount, activeEnrollments } = row;
@@ -1293,6 +1348,9 @@ function PlanCard({
           )}
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onViewEnrollments}>
             <Users className="h-3 w-3 mr-1" /> Contacts
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onViewHistory}>
+            <History className="h-3 w-3 mr-1" /> History
           </Button>
           <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={onDelete}>
             <Trash2 className="h-3 w-3" />

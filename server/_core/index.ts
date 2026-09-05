@@ -51,6 +51,7 @@ import { getLandingPageMetadata } from "../landingPageHtml";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
 import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
+import { registerReadOnlyMcpRoute } from "../readOnlyMcp";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -200,6 +201,9 @@ async function startServer() {
   registerExternalApiRoutes(app);
   // Trusted GitHub release summaries post only plain-language Slack messages.
   registerReleaseNotificationRoute(app);
+  // Exposes all current SavvyOS data tables through a bearer-key protected,
+  // strictly read-only Streamable HTTP MCP endpoint.
+  registerReadOnlyMcpRoute(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC
   registerWebhookRoute(app);
 
