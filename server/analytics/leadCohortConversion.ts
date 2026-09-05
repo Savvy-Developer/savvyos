@@ -403,7 +403,7 @@ function deterministicInsights(summary: ReturnType<typeof summarize>, sources: R
   return insights.slice(0, 4);
 }
 
-export async function getLeadCohortConversionReport(filters: LeadCohortConversionFilters = {}) {
+export async function getLeadCohortConversionReport(filters: LeadCohortConversionFilters = {}, options: { includeAllEvidence?: boolean } = {}) {
   // Build the cohort first. The previous query materialized every connection and
   // transaction before applying the lead-created date range, which can stall an
   // otherwise modest YTD report on production-sized tables.
@@ -489,7 +489,7 @@ export async function getLeadCohortConversionReport(filters: LeadCohortConversio
   const summary = summarize(cohortRows);
   const sourceBreakdown = groupedBreakdown(cohortRows, (row) => ({ id: row.leadSourceId, name: row.sourceName }));
   const agentBreakdown = groupedBreakdown(cohortRows, (row) => ({ id: row.ownerId, name: row.ownerName }));
-  const evidence = cohortRows.slice(0, 150).map((row) => ({
+  const evidence = cohortRows.slice(0, options.includeAllEvidence ? undefined : 150).map((row) => ({
     contactId: row.contactId,
     contactName: row.contactName,
     createdAt: row.createdAt,
@@ -548,6 +548,67 @@ export async function getLeadCohortConversionReport(filters: LeadCohortConversio
       insights,
     },
   };
+}
+
+export type LeadCohortDrilldownMetric = "cohortLeads" | "contractedContacts" | "closedContacts" | "closedUnits" | "activeOpenContacts" | "deadContacts";
+export type LeadCohortDrilldownInput = LeadCohortConversionFilters & {
+  metric: LeadCohortDrilldownMetric;
+  page?: number;
+  limit?: number;
+};
+
+const cohortDrilldownMetadata: Record<LeadCohortDrilldownMetric, { title: string; description: string }> = {
+  cohortLeads: { title: "Cohort leads", description: "Contacts created in the selected acquisition cohort and filters." },
+  contractedContacts: { title: "Contacts with observed contracts", description: "Cohort contacts with a valid contract or downstream close on or after lead creation." },
+  closedContacts: { title: "Contacts with observed closes", description: "Cohort contacts with a recorded close on or after lead creation." },
+  closedUnits: { title: "Closed units in this cohort", description: "Cohort contacts with one or more closed transaction units; a contact may have multiple units." },
+  activeOpenContacts: { title: "Active open cohort contacts", description: "Current-state operational worklist: cohort contacts in new lead, attempted contact, nurture, or active client." },
+  deadContacts: { title: "Dead cohort contacts", description: "Cohort contacts whose current recorded lifecycle state is dead." },
+};
+
+/** Paginated, exact source contacts behind a Lead Cohort Conversion count. */
+export async function getLeadCohortDrilldown(input: LeadCohortDrilldownInput) {
+  const page = Math.max(1, Math.floor(input.page ?? 1));
+  const limit = Math.min(100, Math.max(10, Math.floor(input.limit ?? 50)));
+  const report = await getLeadCohortConversionReport({
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+    agentId: input.agentId,
+    leadSourceId: input.leadSourceId,
+    lifecycleStage: input.lifecycleStage,
+  }, { includeAllEvidence: true });
+  const allRows = report.evidence as Array<any>;
+  const filtered = allRows.filter(row => {
+    if (input.metric === "contractedContacts") return row.convertedToContract;
+    if (input.metric === "closedContacts") return row.convertedToClose;
+    if (input.metric === "closedUnits") return Number(row.closedUnits ?? 0) > 0;
+    if (input.metric === "activeOpenContacts") return ["new_lead", "attempted_contact", "nurture", "active_client"].includes(row.lifecycleStage);
+    if (input.metric === "deadContacts") return row.lifecycleStage === "dead";
+    return true;
+  });
+  const metadata = cohortDrilldownMetadata[input.metric];
+  const records = filtered.slice((page - 1) * limit, page * limit).map(row => ({
+    recordId: row.contactId,
+    recordType: "contact" as const,
+    contactId: row.contactId,
+    contactName: row.contactName,
+    leadSourceName: row.sourceName,
+    agentName: row.ownerName,
+    lastCallAt: row.createdAt,
+    calls: 0,
+    transcriptCalls: 0,
+    intentTier: row.lifecycleStage,
+    intentScore: 0,
+    appointmentSet: false,
+    firstContractAt: row.firstContractDate,
+    firstCloseAt: row.firstClosingDate,
+    closedGci: row.closedGci,
+    recordedSavvyNet: row.recordedSavvyNet,
+    nextBestAction: row.followUpDate ? `Review follow-up due ${row.followUpDate}.` : "Open the contact and set the next operational follow-up.",
+    hasOpenTask: false,
+    firstCallSpeedHours: null,
+  }));
+  return { ...metadata, recordNoun: "contacts", total: filtered.length, page, limit, records };
 }
 
 export type LeadCohortConversionViewer = { id: number; role: "admin" | "agent" | "isa" | "agent_support" };

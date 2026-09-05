@@ -74,10 +74,14 @@ import {
 } from "../analytics/transactionIntelligence";
 import {
   getCachedLeadCohortConversionInsights,
+  getLeadCohortDrilldown,
   getLeadCohortConversionReport,
   refreshLeadCohortConversionInsights,
 } from "../analytics/leadCohortConversion";
-import { getConversationIntelligenceReport } from "../analytics/conversationIntelligence";
+import {
+  getConversationIntelligenceDrilldown,
+  getConversationIntelligenceReport,
+} from "../analytics/conversationIntelligence";
 import {
   getCachedBusinessInsights,
   refreshBusinessInsights,
@@ -138,6 +142,29 @@ const conversationIntelligenceInput = z.object({
   hasTranscript: z.boolean().optional(),
   intentTier: z.enum(["priority", "active", "nurture", "unknown"]).optional(),
   targetMarket: z.string().trim().min(2).max(120).optional(),
+});
+
+const conversationIntelligenceDrilldownInput = conversationIntelligenceInput.extend({
+  metric: z.enum([
+    "eligibleCalls",
+    "transcriptCalls",
+    "transcriptContacts",
+    "enrichedContacts",
+    "priorityContacts",
+    "appointments",
+    "contractedContacts",
+    "closedContacts",
+    "firstCallSpeed",
+    "reviewNeeded",
+  ]),
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(10).max(100).default(50),
+});
+
+const leadCohortDrilldownInput = leadCohortConversionInput.extend({
+  metric: z.enum(["cohortLeads", "contractedContacts", "closedContacts", "closedUnits", "activeOpenContacts", "deadContacts"]),
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(10).max(100).default(50),
 });
 
 const isaTeamBenchmarkInput = z.object({
@@ -1042,6 +1069,16 @@ Return only valid JSON array.`;
       return getLeadCohortConversionReport(input ?? {});
     }),
 
+  /** Paginated source contacts behind a Lead Cohort Conversion count. */
+  leadCohortDrilldown: protectedProcedure
+    .input(leadCohortDrilldownInput)
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new Error("Lead Cohort Conversion is currently available to administrators only.");
+      }
+      return getLeadCohortDrilldown(input);
+    }),
+
   /** Return the latest scoped cohort-conversion intelligence without a model call. */
   leadCohortConversionInsights: protectedProcedure
     .input(leadCohortConversionInput.optional())
@@ -1081,10 +1118,20 @@ Return only valid JSON array.`;
   conversationIntelligence: protectedProcedure
     .input(conversationIntelligenceInput.optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin") {
+      if (!(await canAdminUsePermission(ctx.user, "canViewConversationIntelligence"))) {
         throw new Error("Conversation Intelligence is currently available to administrators only.");
       }
       return getConversationIntelligenceReport(input ?? {});
+    }),
+
+  /** Paginated underlying records for a visible Conversation Intelligence metric. */
+  conversationIntelligenceDrilldown: protectedProcedure
+    .input(conversationIntelligenceDrilldownInput)
+    .query(async ({ ctx, input }) => {
+      if (!(await canAdminUsePermission(ctx.user, "canViewConversationIntelligence"))) {
+        throw new Error("Conversation Intelligence is currently available to administrators only.");
+      }
+      return getConversationIntelligenceDrilldown(input);
     }),
 
   // ─── Reporting Suite v2 ───────────────────────────────────────────────────

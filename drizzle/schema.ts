@@ -4670,6 +4670,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   // Overview
   canViewDashboard: boolean("canViewDashboard").default(true).notNull(),
   canViewIsmDashboard: boolean("canViewIsmDashboard").default(false).notNull(),
+  canViewConversationIntelligence: boolean("canViewConversationIntelligence").default(true).notNull(),
   canViewReporting: boolean("canViewReporting").default(true).notNull(),
   canViewCustomReports: boolean("canViewCustomReports").default(true).notNull(),
   canViewLeaderboard: boolean("canViewLeaderboard").default(true).notNull(),
@@ -5735,6 +5736,51 @@ export type ContactIntelligenceSignalReview =
   typeof contactIntelligenceSignalReviews.$inferSelect;
 export type InsertContactIntelligenceSignalReview =
   typeof contactIntelligenceSignalReviews.$inferInsert;
+
+// A human can resolve a priority follow-up review without changing the
+// underlying intelligence evidence. The review expires when a fresher profile
+// arrives, putting the contact back in the operating queue when warranted.
+export const contactIntelligenceActionReviews = mysqlTable(
+  "contact_intelligence_action_reviews",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    contactId: int("contactId")
+      .notNull()
+      .unique()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    profileId: int("profileId")
+      .notNull()
+      .references(() => contactIntelligenceProfiles.id, { onDelete: "cascade" }),
+    reviewedProfileUpdatedAt: timestamp("reviewedProfileUpdatedAt").notNull(),
+    disposition: mysqlEnum("disposition", [
+      "reviewed_no_task",
+      "deferred",
+    ])
+      .notNull()
+      .default("reviewed_no_task"),
+    note: text("note"),
+    reviewedById: int("reviewedById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    reviewedAt: timestamp("reviewedAt").defaultNow().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("contact_intelligence_action_reviews_profile_idx").on(
+      table.profileId,
+      table.reviewedAt
+    ),
+    index("contact_intelligence_action_reviews_reviewer_idx").on(
+      table.reviewedById,
+      table.reviewedAt
+    ),
+  ]
+);
+export type ContactIntelligenceActionReview =
+  typeof contactIntelligenceActionReviews.$inferSelect;
+export type InsertContactIntelligenceActionReview =
+  typeof contactIntelligenceActionReviews.$inferInsert;
 
 // ─── Job Board ─────────────────────────────────────────────────────────────────
 // Admin-managed job postings visible on the public /careers page.

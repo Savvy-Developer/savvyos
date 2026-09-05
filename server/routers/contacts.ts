@@ -13,7 +13,7 @@ import {
   archiveContact,
   deleteContact,
 } from "../db";
-import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable, contactIntelligenceProfiles } from "../../drizzle/schema";
+import { contacts as contactsTable, leadSources, tasks as tasksTable, communications as commsTable, agentConnections as agentConnectionsTable, transactions as txTable, taskNotes as taskNotesTable, transactionNotes as txNotesTable, listings, listingNotes as listingNotesTable, properties, contactProperties, activityLog, users, connectionRequests as connectionRequestsTable, smartPlans as smartPlansTable, smartPlanEnrollments as smartPlanEnrollmentsTable, contactIntelligenceActionReviews, contactIntelligenceProfiles } from "../../drizzle/schema";
 import { eq, or, and, desc, like, isNull, aliasedTable, notInArray, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
@@ -933,6 +933,58 @@ Please write the comprehensive AI summary now.`;
         disposition: input.disposition,
         overrideValue: input.overrideValue,
         note: input.note,
+      });
+      return { success: true };
+    }),
+
+  /** Resolves a priority action-queue item without modifying any source evidence. */
+  resolveIntelligenceAction: protectedProcedure
+    .input(z.object({
+      contactId: z.number().int().positive(),
+      disposition: z.enum(["reviewed_no_task", "deferred"]),
+      note: z.string().trim().max(1_000).nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role === "agent") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Contact Intelligence review is available to CRM staff only." });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+      const [profile] = await db.select({
+        id: contactIntelligenceProfiles.id,
+        updatedAt: contactIntelligenceProfiles.updatedAt,
+      }).from(contactIntelligenceProfiles)
+        .where(eq(contactIntelligenceProfiles.contactId, input.contactId))
+        .limit(1);
+      if (!profile) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This contact does not have a Contact Intelligence profile to review." });
+      }
+      const now = new Date();
+      await db.insert(contactIntelligenceActionReviews).values({
+        contactId: input.contactId,
+        profileId: profile.id,
+        reviewedProfileUpdatedAt: profile.updatedAt,
+        disposition: input.disposition,
+        note: input.note?.trim() || null,
+        reviewedById: ctx.user.id,
+        reviewedAt: now,
+      }).onDuplicateKeyUpdate({
+        set: {
+          profileId: profile.id,
+          reviewedProfileUpdatedAt: profile.updatedAt,
+          disposition: input.disposition,
+          note: input.note?.trim() || null,
+          reviewedById: ctx.user.id,
+          reviewedAt: now,
+        },
+      });
+      await logActivity({
+        userId: ctx.user.id,
+        action: "contact_intelligence_action_reviewed",
+        entityType: "contact",
+        entityId: input.contactId,
+        relatedContactId: input.contactId,
+        details: { disposition: input.disposition, note: input.note?.trim() || null },
       });
       return { success: true };
     }),

@@ -314,6 +314,7 @@ function buildIsaNav(
 const PERM_PATH_MAP: Record<string, string> = {
   canViewDashboard: "/",
   canViewIsmDashboard: "/ism-dashboard",
+  canViewConversationIntelligence: "/analytics/conversation-intelligence",
   canViewReporting: "/analytics",
   canViewCustomReports: "/custom-reports",
   canViewLeaderboard: "/leaderboard",
@@ -411,7 +412,6 @@ function buildAdminNav(
       items: [
         { icon: Home, label: "Admin Dashboard", path: "/" },
         { icon: BarChart3, label: "Reporting", path: "/analytics" },
-        { icon: BrainCircuit, label: "Conversation Intelligence", path: "/analytics/conversation-intelligence" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],
     },
@@ -432,6 +432,7 @@ function buildAdminNav(
       label: "ISA",
       items: [
         { icon: PhoneCall, label: "ISM Dashboard", path: "/ism-dashboard" },
+        { icon: BrainCircuit, label: "Conversation Intelligence", path: "/analytics/conversation-intelligence" },
         { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
         {
           icon: Inbox,
@@ -696,7 +697,11 @@ function SidebarNav({
                       !item.external &&
                       (item.path === "/"
                         ? currentPath === "/"
-                        : currentPath.startsWith(item.path));
+                        // A report workspace is a distinct route, not a
+                        // child of the Reporting navigation category.
+                        : item.path === "/analytics"
+                          ? currentPath === "/analytics"
+                          : currentPath.startsWith(item.path));
                     return (
                       <li key={item.path} className="group/item relative">
                         <div

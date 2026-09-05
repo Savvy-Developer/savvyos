@@ -100,6 +100,7 @@ function scopedCallsCte(filters: ConversationIntelligenceFilters): SQL {
         ci.\`intentScore\` AS intentScore,
         ci.\`confidence\` AS profileConfidence,
         ci.\`profile\` AS profile,
+        ci.\`updatedAt\` AS profileUpdatedAt,
         ci.\`lastAnalyzedAt\` AS lastAnalyzedAt,
         CASE WHEN comm.\`transcription\` IS NOT NULL AND CHAR_LENGTH(TRIM(comm.\`transcription\`)) > 0 THEN 1 ELSE 0 END AS hasTranscript
       FROM \`aircall_calls\` ac
@@ -135,6 +136,7 @@ function scopedCallsCte(filters: ConversationIntelligenceFilters): SQL {
         MAX(intentTier) AS intentTier,
         MAX(intentScore) AS intentScore,
         MAX(profileConfidence) AS profileConfidence,
+        MAX(profileUpdatedAt) AS profileUpdatedAt,
         MAX(lastAnalyzedAt) AS lastAnalyzedAt,
         MIN(startedAt) AS firstCallAt,
         MAX(startedAt) AS lastCallAt,
@@ -168,6 +170,7 @@ type SummaryRow = {
   transcriptContacts: unknown;
   enrichedContacts: unknown;
   priorityContacts: unknown;
+  reviewNeeded: unknown;
   appointments: unknown;
   contractedContacts: unknown;
   closedContacts: unknown;
@@ -199,8 +202,280 @@ function definitions() {
     transcriptCoverage: "Completed native Aircall transcripts divided by matched calls in scope. Coverage is displayed with every finding because missing transcripts may make the evidence incomplete.",
     enrichedContacts: "Unique transcript-bearing contacts with a successfully resolved Contact Intelligence profile. Profiles are derived from native Aircall evidence and do not overwrite human-managed CRM fields.",
     revenuePath: "Observed downstream appointment, contract, closing, GCI, and recorded Savvy Net linked to the same contact after the first scoped call. This is an observed CRM path, not a causal or multi-touch attribution model.",
-    priorityQueue: "Contacts with a priority Contact Intelligence tier but no current open CRM task. It is a review queue, not an automated client outreach or pipeline-stage change.",
+    priorityQueue: "Contacts with a priority Contact Intelligence tier but no current open CRM task and no completed human review for the current profile. It is a review queue, not an automated client outreach or pipeline-stage change.",
     objectionIntelligence: "Evidence-linked active objection signals from analyzed transcripts. Counts show stated conversation friction, not a rating of agents or customers.",
+  };
+}
+
+export type ConversationIntelligenceDrilldownMetric =
+  | "eligibleCalls"
+  | "transcriptCalls"
+  | "transcriptContacts"
+  | "enrichedContacts"
+  | "priorityContacts"
+  | "appointments"
+  | "contractedContacts"
+  | "closedContacts"
+  | "firstCallSpeed"
+  | "reviewNeeded";
+
+export type ConversationIntelligenceDrilldownInput =
+  ConversationIntelligenceFilters & {
+    metric: ConversationIntelligenceDrilldownMetric;
+    page?: number;
+    limit?: number;
+  };
+
+type DrilldownRow = {
+  recordId: unknown;
+  recordType: unknown;
+  contactId: unknown;
+  contactName: unknown;
+  leadSourceName: unknown;
+  agentName: unknown;
+  startedAt: unknown;
+  lastCallAt: unknown;
+  direction: unknown;
+  duration: unknown;
+  hasTranscript: unknown;
+  calls: unknown;
+  transcriptCalls: unknown;
+  intentTier: unknown;
+  intentScore: unknown;
+  appointmentSet: unknown;
+  firstContractAt: unknown;
+  firstCloseAt: unknown;
+  closedGci: unknown;
+  recordedSavvyNet: unknown;
+  nextBestAction: unknown;
+  hasOpenTask: unknown;
+  firstCallSpeedHours: unknown;
+};
+
+const drilldownMetadata: Record<ConversationIntelligenceDrilldownMetric, { title: string; description: string; recordNoun: string }> = {
+  eligibleCalls: {
+    title: "Matched calls",
+    description: "Every matched Aircall call in the current filters, including calls with no transcript.",
+    recordNoun: "calls",
+  },
+  transcriptCalls: {
+    title: "Calls with native transcripts",
+    description: "Matched calls with a completed native Aircall transcript in the current filters.",
+    recordNoun: "calls",
+  },
+  transcriptContacts: {
+    title: "Transcript-backed contacts",
+    description: "Unique matched contacts with at least one completed native transcript in the current filters.",
+    recordNoun: "contacts",
+  },
+  enrichedContacts: {
+    title: "Enriched Contact Intelligence profiles",
+    description: "Transcript-backed contacts with a resolved Contact Intelligence profile.",
+    recordNoun: "contacts",
+  },
+  priorityContacts: {
+    title: "Priority contacts",
+    description: "Contacts currently classified as priority by evidence-linked Contact Intelligence.",
+    recordNoun: "contacts",
+  },
+  appointments: {
+    title: "Contacts with recorded appointments",
+    description: "Matched contacts whose current agent connection records an appointment.",
+    recordNoun: "contacts",
+  },
+  contractedContacts: {
+    title: "Contacts with observed contracts",
+    description: "Matched contacts with a chronologically valid recorded contract or close after their first scoped call.",
+    recordNoun: "contacts",
+  },
+  closedContacts: {
+    title: "Contacts with observed closes",
+    description: "Matched contacts with a chronologically valid recorded close after their first scoped call.",
+    recordNoun: "contacts",
+  },
+  firstCallSpeed: {
+    title: "First-call speed records",
+    description: "Contacts used in the average: lead creation occurred before the first matched call.",
+    recordNoun: "contacts",
+  },
+  reviewNeeded: {
+    title: "Priority contacts needing a task",
+    description: "Priority contacts with transcript evidence and no current open CRM task. Create a follow-up task or open the contact to resolve the item.",
+    recordNoun: "contacts",
+  },
+};
+
+function contactDrilldownWhere(metric: ConversationIntelligenceDrilldownMetric): SQL {
+  switch (metric) {
+    case "transcriptContacts":
+      return sql`sc.\`transcriptCalls\` > 0`;
+    case "enrichedContacts":
+      return sql`sc.\`transcriptCalls\` > 0 AND sc.\`profileId\` IS NOT NULL`;
+    case "priorityContacts":
+      return sql`sc.\`transcriptCalls\` > 0 AND sc.\`intentTier\` = 'priority'`;
+    case "appointments":
+      return sql`sc.\`appointmentSet\` = 1`;
+    case "contractedContacts":
+      return sql`(o.\`firstContractAt\` IS NOT NULL AND o.\`firstContractAt\` >= sc.\`firstCallAt\`) OR (o.\`firstCloseAt\` IS NOT NULL AND o.\`firstCloseAt\` >= sc.\`firstCallAt\`)`;
+    case "closedContacts":
+      return sql`o.\`firstCloseAt\` IS NOT NULL AND o.\`firstCloseAt\` >= sc.\`firstCallAt\``;
+    case "firstCallSpeed":
+      return sql`sc.\`contactCreatedAt\` IS NOT NULL AND sc.\`firstCallAt\` >= sc.\`contactCreatedAt\``;
+    case "reviewNeeded":
+      return sql`sc.\`transcriptCalls\` > 0 AND sc.\`intentTier\` = 'priority' AND NOT EXISTS (
+        SELECT 1 FROM \`tasks\` task
+        WHERE task.\`relatedContactId\` = sc.\`contactId\`
+          AND task.\`status\` IN ('pending', 'in_progress')
+      ) AND NOT EXISTS (
+        SELECT 1 FROM \`contact_intelligence_action_reviews\` review
+        WHERE review.\`contactId\` = sc.\`contactId\`
+          AND review.\`profileId\` = sc.\`profileId\`
+          AND review.\`reviewedProfileUpdatedAt\` >= sc.\`profileUpdatedAt\`
+      )`;
+    default:
+      return sql`1 = 1`;
+  }
+}
+
+/**
+ * Paginated underlying records for Conversation Intelligence counts. This is
+ * deliberately server-scoped so a metric never relies on a client-side sample
+ * or exposes records outside the active report filter and staff access layer.
+ */
+export async function getConversationIntelligenceDrilldown(input: ConversationIntelligenceDrilldownInput) {
+  const metric = input.metric;
+  const page = Math.max(1, Math.floor(input.page ?? 1));
+  const limit = Math.min(100, Math.max(10, Math.floor(input.limit ?? 50)));
+  const offset = (page - 1) * limit;
+  const cte = scopedCallsCte(input);
+  const metadata = drilldownMetadata[metric];
+
+  if (metric === "eligibleCalls" || metric === "transcriptCalls") {
+    const callWhere = metric === "transcriptCalls" ? sql`WHERE sc.\`hasTranscript\` = 1` : sql``;
+    const [countRows, rows] = await Promise.all([
+      runRows<Row>(sql`${cte} SELECT COUNT(*) AS total FROM scoped_calls sc ${callWhere}`),
+      runRows<DrilldownRow>(sql`
+        ${cte}
+        SELECT
+          sc.\`aircallCallId\` AS recordId,
+          'call' AS recordType,
+          sc.\`contactId\` AS contactId,
+          CONCAT_WS(' ', sc.\`firstName\`, sc.\`lastName\`) AS contactName,
+          COALESCE(sc.\`leadSourceName\`, 'Unattributed') AS leadSourceName,
+          COALESCE(sc.\`agentName\`, 'Unassigned') AS agentName,
+          sc.\`startedAt\` AS startedAt,
+          sc.\`direction\` AS direction,
+          sc.\`duration\` AS duration,
+          sc.\`hasTranscript\` AS hasTranscript,
+          COALESCE(sc.\`intentTier\`, 'unknown') AS intentTier,
+          COALESCE(sc.\`intentScore\`, 0) AS intentScore,
+          JSON_UNQUOTE(JSON_EXTRACT(profile.\`profile\`, '$.nextBestAction')) AS nextBestAction
+        FROM scoped_calls sc
+        LEFT JOIN \`contact_intelligence_profiles\` profile ON profile.\`id\` = sc.\`profileId\`
+        ${callWhere}
+        ORDER BY sc.\`startedAt\` DESC, sc.\`aircallCallId\` DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `),
+    ]);
+    return {
+      ...metadata,
+      total: asNumber(countRows[0]?.total),
+      page,
+      limit,
+      records: rows.map(row => ({
+        recordId: asNumber(row.recordId),
+        recordType: "call" as const,
+        contactId: asNumber(row.contactId),
+        contactName: asText(row.contactName) || "Unnamed contact",
+        leadSourceName: asText(row.leadSourceName) || "Unattributed",
+        agentName: asText(row.agentName) || "Unassigned",
+        occurredAt: day(row.startedAt),
+        direction: asText(row.direction),
+        duration: asNumber(row.duration),
+        hasTranscript: asNumber(row.hasTranscript) > 0,
+        intentTier: asText(row.intentTier) || "unknown",
+        intentScore: asNumber(row.intentScore),
+        nextBestAction: asText(row.nextBestAction),
+      })),
+    };
+  }
+
+  const contactWhere = contactDrilldownWhere(metric);
+  const contactFields = sql`
+    sc.\`contactId\` AS recordId,
+    'contact' AS recordType,
+    sc.\`contactId\` AS contactId,
+    CONCAT_WS(' ', sc.\`firstName\`, sc.\`lastName\`) AS contactName,
+    COALESCE(sc.\`leadSourceName\`, 'Unattributed') AS leadSourceName,
+    COALESCE(sc.\`agentName\`, 'Unassigned') AS agentName,
+    sc.\`lastCallAt\` AS lastCallAt,
+    sc.\`calls\` AS calls,
+    sc.\`transcriptCalls\` AS transcriptCalls,
+    COALESCE(sc.\`intentTier\`, 'unknown') AS intentTier,
+    COALESCE(sc.\`intentScore\`, 0) AS intentScore,
+    sc.\`appointmentSet\` AS appointmentSet,
+    o.\`firstContractAt\` AS firstContractAt,
+    o.\`firstCloseAt\` AS firstCloseAt,
+    COALESCE(o.\`closedGci\`, 0) AS closedGci,
+    COALESCE(o.\`recordedSavvyNet\`, 0) AS recordedSavvyNet,
+    JSON_UNQUOTE(JSON_EXTRACT(profile.\`profile\`, '$.nextBestAction')) AS nextBestAction,
+    CASE WHEN EXISTS (
+      SELECT 1 FROM \`tasks\` task
+      WHERE task.\`relatedContactId\` = sc.\`contactId\`
+        AND task.\`status\` IN ('pending', 'in_progress')
+    ) THEN 1 ELSE 0 END AS hasOpenTask,
+    CASE WHEN sc.\`contactCreatedAt\` IS NOT NULL AND sc.\`firstCallAt\` >= sc.\`contactCreatedAt\`
+      THEN TIMESTAMPDIFF(MINUTE, sc.\`contactCreatedAt\`, sc.\`firstCallAt\`) / 60
+      ELSE NULL END AS firstCallSpeedHours
+  `;
+  const [countRows, rows] = await Promise.all([
+    runRows<Row>(sql`
+      ${cte}
+      SELECT COUNT(*) AS total
+      FROM scoped_contacts sc
+      LEFT JOIN outcomes o ON o.\`contactId\` = sc.\`contactId\`
+      WHERE ${contactWhere}
+    `),
+    runRows<DrilldownRow>(sql`
+      ${cte}
+      SELECT ${contactFields}
+      FROM scoped_contacts sc
+      LEFT JOIN outcomes o ON o.\`contactId\` = sc.\`contactId\`
+      LEFT JOIN \`contact_intelligence_profiles\` profile ON profile.\`id\` = sc.\`profileId\`
+      WHERE ${contactWhere}
+      ORDER BY
+        CASE WHEN ${metric} IN ('priorityContacts', 'reviewNeeded') THEN sc.\`intentScore\` ELSE 0 END DESC,
+        sc.\`lastCallAt\` DESC,
+        sc.\`contactId\` DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `),
+  ]);
+  return {
+    ...metadata,
+    total: asNumber(countRows[0]?.total),
+    page,
+    limit,
+    records: rows.map(row => ({
+      recordId: asNumber(row.recordId),
+      recordType: "contact" as const,
+      contactId: asNumber(row.contactId),
+      contactName: asText(row.contactName) || "Unnamed contact",
+      leadSourceName: asText(row.leadSourceName) || "Unattributed",
+      agentName: asText(row.agentName) || "Unassigned",
+      lastCallAt: day(row.lastCallAt),
+      calls: asNumber(row.calls),
+      transcriptCalls: asNumber(row.transcriptCalls),
+      intentTier: asText(row.intentTier) || "unknown",
+      intentScore: asNumber(row.intentScore),
+      appointmentSet: asNumber(row.appointmentSet) > 0,
+      firstContractAt: day(row.firstContractAt),
+      firstCloseAt: day(row.firstCloseAt),
+      closedGci: asNumber(row.closedGci),
+      recordedSavvyNet: asNumber(row.recordedSavvyNet),
+      nextBestAction: asText(row.nextBestAction),
+      hasOpenTask: asNumber(row.hasOpenTask) > 0,
+      firstCallSpeedHours: asNullableNumber(row.firstCallSpeedHours),
+    })),
   };
 }
 
@@ -215,6 +490,20 @@ export async function getConversationIntelligenceReport(filters: ConversationInt
       (SELECT COUNT(*) FROM scoped_contacts WHERE transcriptCalls > 0) AS transcriptContacts,
       (SELECT COUNT(*) FROM scoped_contacts WHERE transcriptCalls > 0 AND profileId IS NOT NULL) AS enrichedContacts,
       (SELECT COUNT(*) FROM scoped_contacts WHERE transcriptCalls > 0 AND intentTier = 'priority') AS priorityContacts,
+      (SELECT COUNT(*) FROM scoped_contacts sc
+        WHERE sc.transcriptCalls > 0 AND sc.intentTier = 'priority'
+          AND NOT EXISTS (
+            SELECT 1 FROM \`tasks\` task
+            WHERE task.\`relatedContactId\` = sc.\`contactId\`
+              AND task.\`status\` IN ('pending', 'in_progress')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM \`contact_intelligence_action_reviews\` review
+            WHERE review.\`contactId\` = sc.\`contactId\`
+              AND review.\`profileId\` = sc.\`profileId\`
+              AND review.\`reviewedProfileUpdatedAt\` >= sc.\`profileUpdatedAt\`
+          )
+      ) AS reviewNeeded,
       (SELECT COUNT(*) FROM scoped_contacts WHERE appointmentSet = 1) AS appointments,
       (SELECT COUNT(*) FROM scoped_contacts sc LEFT JOIN outcomes o ON o.contactId = sc.contactId WHERE (o.firstContractAt IS NOT NULL AND o.firstContractAt >= sc.firstCallAt) OR (o.firstCloseAt IS NOT NULL AND o.firstCloseAt >= sc.firstCallAt)) AS contractedContacts,
       (SELECT COUNT(*) FROM scoped_contacts sc LEFT JOIN outcomes o ON o.contactId = sc.contactId WHERE o.firstCloseAt IS NOT NULL AND o.firstCloseAt >= sc.firstCallAt) AS closedContacts,
@@ -232,6 +521,7 @@ export async function getConversationIntelligenceReport(filters: ConversationInt
     transcriptContacts: asNumber(summaryRow.transcriptContacts),
     enrichedContacts: asNumber(summaryRow.enrichedContacts),
     priorityContacts: asNumber(summaryRow.priorityContacts),
+    reviewNeeded: asNumber(summaryRow.reviewNeeded),
     appointments: asNumber(summaryRow.appointments),
     contractedContacts: asNumber(summaryRow.contractedContacts),
     closedContacts: asNumber(summaryRow.closedContacts),
@@ -265,6 +555,12 @@ export async function getConversationIntelligenceReport(filters: ConversationInt
     LEFT JOIN \`contact_intelligence_profiles\` profile ON profile.\`id\` = sc.\`profileId\`
     WHERE sc.\`transcriptCalls\` > 0
       AND sc.\`intentTier\` = 'priority'
+      AND NOT EXISTS (
+        SELECT 1 FROM \`contact_intelligence_action_reviews\` review
+        WHERE review.\`contactId\` = sc.\`contactId\`
+          AND review.\`profileId\` = sc.\`profileId\`
+          AND review.\`reviewedProfileUpdatedAt\` >= sc.\`profileUpdatedAt\`
+      )
     ORDER BY hasOpenTask ASC, sc.\`intentScore\` DESC, sc.\`lastCallAt\` ASC
     LIMIT 100
   `);

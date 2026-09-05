@@ -253,6 +253,16 @@ function IsmDashboardRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ConversationIntelligenceRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewConversationIntelligence) return <NotFound />;
+  return <>{children}</>;
+}
+
 function CustomReportsRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const isAdmin = (user as any)?.role === "admin";
@@ -427,7 +437,7 @@ function Router() {
           <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
           <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>
           <Route path="/analytics/legacy">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
-          <Route path="/analytics/conversation-intelligence">{() => <AdminRoute><ConversationIntelligencePage /></AdminRoute>}</Route>
+          <Route path="/analytics/conversation-intelligence">{() => <ConversationIntelligenceRoute><ConversationIntelligencePage /></ConversationIntelligenceRoute>}</Route>
           <Route path="/analytics/lead-cohorts">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/analytics">{() => <AdminRoute><ReportingSuitePage /></AdminRoute>}</Route>
           <Route path="/custom-reports">{() => <CustomReportsRoute><CustomReportsPage /></CustomReportsRoute>}</Route>

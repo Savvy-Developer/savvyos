@@ -56,6 +56,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewTasks",                  label: "CRM Tasks",                  group: "CRM" },
   // ISA
   { key: "canViewIsmDashboard",           label: "ISM Dashboard",              group: "ISA" },
+  { key: "canViewConversationIntelligence", label: "Conversation Intelligence", group: "ISA" },
   { key: "canViewHotLeads",               label: "Hot Leads",                  group: "ISA" },
   { key: "canViewResendInbox",            label: "Resend Inbox",               group: "ISA" },
   { key: "canViewMarketingTextInbox",     label: "Marketing Text Inbox",       group: "ISA" },

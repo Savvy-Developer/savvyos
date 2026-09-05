@@ -14,6 +14,8 @@ import {
   Volume2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { DrilldownValue } from "@/components/DrilldownValue";
+import { RecordDrilldownDialog } from "@/components/RecordDrilldownDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -199,6 +201,8 @@ export default function IsmCallsTab() {
   const [transcriptStatus, setTranscriptStatus] = useState<TranscriptStatus>("all");
   const [page, setPage] = useState(1);
   const [selectedCallId, setSelectedCallId] = useState<number | null>(null);
+  const [callDrilldown, setCallDrilldown] = useState<TranscriptStatus | null>(null);
+  const [callDrilldownPage, setCallDrilldownPage] = useState(1);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -211,6 +215,10 @@ export default function IsmCallsTab() {
   const callQuery = trpc.aircall.listAll.useQuery(
     { page, limit: PAGE_SIZE, search, matchStatus, direction, callLength, transcriptStatus },
     { refetchInterval: 60_000, refetchOnWindowFocus: false },
+  );
+  const callDrilldownQuery = trpc.aircall.listAll.useQuery(
+    { page: callDrilldownPage, limit: PAGE_SIZE, search, matchStatus, direction, callLength, transcriptStatus: callDrilldown ?? "all" },
+    { enabled: Boolean(callDrilldown), refetchOnWindowFocus: false },
   );
   const data = callQuery.data as any;
   const rows = data?.rows ?? [];
@@ -231,6 +239,26 @@ export default function IsmCallsTab() {
     setTranscriptStatus(value);
     setPage(1);
   };
+  const openCallDrilldown = (transcriptFilter: TranscriptStatus) => {
+    setCallDrilldown(transcriptFilter);
+    setCallDrilldownPage(1);
+  };
+  const callDrilldownData = callDrilldownQuery.data as any;
+  const callDrilldownRecords = (callDrilldownData?.rows ?? []).map((call: any) => ({
+    recordId: Number(call.aircallCallId),
+    recordType: "call" as const,
+    contactId: Number(call.contactId ?? 0),
+    contactName: call.contactName ?? call.contactPhone ?? call.callerNumber ?? call.calleeNumber ?? "Unknown number",
+    leadSourceName: call.contactEmail ?? "No CRM contact detail",
+    agentName: call.aircallNumberName ?? "Aircall line",
+    occurredAt: dateTime(call.startedAt),
+    direction: call.direction,
+    duration: Number(call.duration ?? 0),
+    hasTranscript: Boolean(call.hasTranscript),
+    intentTier: call.status,
+    intentScore: 0,
+    nextBestAction: call.summary ?? "Open call details to review the recording, native summary, and transcript.",
+  }));
 
   return (
     <div className="space-y-5">
@@ -246,8 +274,8 @@ export default function IsmCallsTab() {
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Review newest calls first, open the connected contact where one exists, and inspect recordings, summaries, and transcripts without leaving the manager dashboard.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary" className="w-fit">{data ? `${Number(data.total).toLocaleString()} matching calls` : "Loading calls…"}</Badge>
-              {data && <Badge variant="outline" className="w-fit border-primary/30 bg-background/70 text-primary">{Number(data.totalWithTranscripts).toLocaleString()} calls with transcripts</Badge>}
+              <Badge variant="secondary" className="w-fit"><DrilldownValue onClick={() => openCallDrilldown(transcriptStatus)} label="matching call records" className="decoration-current/35 hover:text-primary">{data ? `${Number(data.total).toLocaleString()} matching calls` : "Loading calls…"}</DrilldownValue></Badge>
+              {data && <Badge variant="outline" className="w-fit border-primary/30 bg-background/70 text-primary"><DrilldownValue onClick={() => openCallDrilldown("available")} label="calls with transcripts" className="decoration-current/35">{Number(data.totalWithTranscripts).toLocaleString()} calls with transcripts</DrilldownValue></Badge>}
             </div>
           </div>
         </CardContent>
@@ -382,6 +410,17 @@ export default function IsmCallsTab() {
       </Card>
 
       <CallDetailDialog callId={selectedCallId} onOpenChange={open => { if (!open) setSelectedCallId(null); }} />
+      <RecordDrilldownDialog
+        open={Boolean(callDrilldown)}
+        onOpenChange={open => { if (!open) setCallDrilldown(null); }}
+        data={callDrilldownData ? { title: callDrilldown === "available" ? "Calls with transcripts" : "Matching calls", description: callDrilldown === "available" ? "Every call with a stored transcript under the current Calls-page filters." : "Every call under the current Calls-page filters.", recordNoun: "calls", total: Number(callDrilldownData.total ?? 0), page: Number(callDrilldownData.page ?? 1), limit: PAGE_SIZE, records: callDrilldownRecords } : undefined}
+        isLoading={callDrilldownQuery.isLoading}
+        error={callDrilldownQuery.error?.message}
+        onPreviousPage={() => setCallDrilldownPage(current => Math.max(1, current - 1))}
+        onNextPage={() => setCallDrilldownPage(current => current + 1)}
+        onOpenContact={contactId => navigate(`/contacts/${contactId}`)}
+        onOpenRecord={record => { setCallDrilldown(null); setSelectedCallId(record.recordId); }}
+      />
     </div>
   );
 }
