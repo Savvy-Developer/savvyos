@@ -3908,6 +3908,136 @@ export const mcpAccessKeys = mysqlTable(
 export type McpAccessKey = typeof mcpAccessKeys.$inferSelect;
 export type InsertMcpAccessKey = typeof mcpAccessKeys.$inferInsert;
 
+// ─── MCP OAuth 2.1 Authorization ─────────────────────────────────────────────
+// ChatGPT and Claude web connectors cannot accept a pasted bearer key. These
+// tables back standards-based OAuth 2.1 with PKCE, dynamic public-client
+// registration, short-lived access tokens, and rotating refresh tokens.
+export const mcpOAuthClients = mysqlTable(
+  "mcp_oauth_clients",
+  {
+    clientId: varchar("clientId", { length: 255 }).primaryKey(),
+    metadata: json("metadata").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("mcp_oauth_clients_created_idx").on(table.createdAt)]
+);
+export type McpOAuthClient = typeof mcpOAuthClients.$inferSelect;
+export type InsertMcpOAuthClient = typeof mcpOAuthClients.$inferInsert;
+
+// A short-lived request bridges authorization, SavvyOS sign-in, and explicit
+// consent before a one-time authorization code is minted.
+export const mcpOAuthAuthorizationRequests = mysqlTable(
+  "mcp_oauth_authorization_requests",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    requestHash: varchar("requestHash", { length: 128 }).notNull().unique(),
+    clientId: varchar("clientId", { length: 255 })
+      .notNull()
+      .references(() => mcpOAuthClients.clientId, { onDelete: "cascade" }),
+    redirectUri: text("redirectUri").notNull(),
+    state: text("state"),
+    codeChallenge: varchar("codeChallenge", { length: 255 }).notNull(),
+    scopes: json("scopes").$type<string[]>().notNull(),
+    resource: varchar("resource", { length: 512 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("mcp_oauth_authorization_requests_expiry_idx").on(table.expiresAt),
+    index("mcp_oauth_authorization_requests_client_idx").on(table.clientId),
+  ]
+);
+export type McpOAuthAuthorizationRequest =
+  typeof mcpOAuthAuthorizationRequests.$inferSelect;
+export type InsertMcpOAuthAuthorizationRequest =
+  typeof mcpOAuthAuthorizationRequests.$inferInsert;
+
+export const mcpOAuthAuthorizationCodes = mysqlTable(
+  "mcp_oauth_authorization_codes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    codeHash: varchar("codeHash", { length: 128 }).notNull().unique(),
+    clientId: varchar("clientId", { length: 255 })
+      .notNull()
+      .references(() => mcpOAuthClients.clientId, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    redirectUri: text("redirectUri").notNull(),
+    codeChallenge: varchar("codeChallenge", { length: 255 }).notNull(),
+    scopes: json("scopes").$type<string[]>().notNull(),
+    resource: varchar("resource", { length: 512 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    consumedAt: timestamp("consumedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("mcp_oauth_authorization_codes_expiry_idx").on(table.expiresAt),
+    index("mcp_oauth_authorization_codes_client_idx").on(table.clientId),
+  ]
+);
+export type McpOAuthAuthorizationCode =
+  typeof mcpOAuthAuthorizationCodes.$inferSelect;
+export type InsertMcpOAuthAuthorizationCode =
+  typeof mcpOAuthAuthorizationCodes.$inferInsert;
+
+export const mcpOAuthAccessTokens = mysqlTable(
+  "mcp_oauth_access_tokens",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+    clientId: varchar("clientId", { length: 255 })
+      .notNull()
+      .references(() => mcpOAuthClients.clientId, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scopes: json("scopes").$type<string[]>().notNull(),
+    resource: varchar("resource", { length: 512 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    revokedAt: timestamp("revokedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("mcp_oauth_access_tokens_expiry_idx").on(table.expiresAt),
+    index("mcp_oauth_access_tokens_user_idx").on(table.userId, table.expiresAt),
+  ]
+);
+export type McpOAuthAccessToken = typeof mcpOAuthAccessTokens.$inferSelect;
+export type InsertMcpOAuthAccessToken =
+  typeof mcpOAuthAccessTokens.$inferInsert;
+
+export const mcpOAuthRefreshTokens = mysqlTable(
+  "mcp_oauth_refresh_tokens",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+    familyId: varchar("familyId", { length: 128 }).notNull(),
+    clientId: varchar("clientId", { length: 255 })
+      .notNull()
+      .references(() => mcpOAuthClients.clientId, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scopes: json("scopes").$type<string[]>().notNull(),
+    resource: varchar("resource", { length: 512 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    revokedAt: timestamp("revokedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("mcp_oauth_refresh_tokens_family_idx").on(table.familyId),
+    index("mcp_oauth_refresh_tokens_expiry_idx").on(table.expiresAt),
+    index("mcp_oauth_refresh_tokens_user_idx").on(
+      table.userId,
+      table.expiresAt
+    ),
+  ]
+);
+export type McpOAuthRefreshToken = typeof mcpOAuthRefreshTokens.$inferSelect;
+export type InsertMcpOAuthRefreshToken =
+  typeof mcpOAuthRefreshTokens.$inferInsert;
+
 // ─── SavvyOS Feature Updates ─────────────────────────────────────────────────
 // Admin-managed, agent-facing release notes. The daily report only includes
 // published updates, keeping operational emails free from draft work.

@@ -22,9 +22,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Bot,
+  CheckCircle2,
   Copy,
   Database,
   KeyRound,
+  Laptop,
   Loader2,
   LockKeyhole,
   Plus,
@@ -102,6 +105,25 @@ function CopyField({
   );
 }
 
+function SetupStep({
+  children,
+  number,
+}: {
+  children: React.ReactNode;
+  number: number;
+}) {
+  return (
+    <li className="flex gap-3">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-100 text-xs font-bold text-cyan-800">
+        {number}
+      </span>
+      <span className="pt-0.5 text-sm leading-6 text-slate-700">
+        {children}
+      </span>
+    </li>
+  );
+}
+
 export default function McpAccessPage() {
   const { user } = useAuth();
   const email = (user as any)?.email?.toLowerCase?.() ?? "";
@@ -140,7 +162,7 @@ export default function McpAccessPage() {
 
   const endpoint =
     infoQuery.data?.endpoint ?? "https://os.savvy-agents.com/api/mcp";
-  const exampleConfig = useMemo(
+  const desktopConfig = useMemo(
     () =>
       JSON.stringify(
         {
@@ -175,22 +197,17 @@ export default function McpAccessPage() {
   const keys = (keysQuery.data ?? []) as any[];
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-10">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-700">
-            <Database className="h-4 w-4" /> External AI connection
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            SavvyOS MCP Access
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Create separate, revocable keys for AI clients to read and analyze
-            SavvyOS data. The connection is strictly read-only.
-          </p>
+      <div>
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-700">
+          <Database className="h-4 w-4" /> External AI connection
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" /> Create MCP key
-        </Button>
+        <h1 className="text-3xl font-bold tracking-tight">
+          SavvyOS MCP Access
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+          Connect ChatGPT, Claude, and other MCP clients to analyze SavvyOS data
+          with secure OAuth sign-in. The connection is permanently read-only.
+        </p>
       </div>
 
       <Card className="border-emerald-200 bg-emerald-50/50">
@@ -200,74 +217,164 @@ export default function McpAccessPage() {
             <strong>Read-only by design.</strong> Connected AI tools can
             discover SavvyOS tables, inspect non-sensitive schemas, and run
             limited SELECT queries. They cannot create, edit, send, delete, or
-            otherwise change any SavvyOS record. Passwords, secrets, tokens,
-            session values, and credential-like fields are redacted from every
-            response.
+            otherwise change a SavvyOS record. Passwords, secrets, tokens,
+            session values, and credential-like fields are unavailable.
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <KeyRound className="h-4 w-4" /> Use this server URL
+          </CardTitle>
+          <CardDescription>
+            ChatGPT and Claude use OAuth 2.1 automatically. Do not create or
+            paste an API key for either web connector.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <CopyField label="Remote MCP server URL" value={endpoint} />
+          <div className="rounded-lg border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+            When the AI client opens the connection, sign in with the SavvyOS
+            account for Tyler, Elana, or Dyl and approve the read-only request.
+            SavvyOS creates short-lived access tokens and rotates refresh
+            tokens; your SavvyOS password is never shared with the AI client.
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <KeyRound className="h-4 w-4" /> Connection details
+              <Bot className="h-4 w-4" /> Add to ChatGPT
             </CardTitle>
             <CardDescription>
-              Use the endpoint and bearer key in an MCP-compatible AI client.
+              ChatGPT web requires Developer mode and a plan that supports
+              custom MCP apps.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <CopyField label="MCP endpoint" value={endpoint} />
-            <div className="rounded-lg border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-              <strong className="text-foreground">Recommended workflow:</strong>{" "}
-              Ask the connected AI to inspect the relevant schema first, then
-              use the read tools to investigate your question. Each data query
-              is capped and must include a LIMIT.
-            </div>
+          <CardContent>
+            <ol className="space-y-3">
+              <SetupStep number={1}>
+                In ChatGPT web, enable <strong>Developer mode</strong> in
+                Settings → Apps → Advanced Settings, if it is not already
+                enabled.
+              </SetupStep>
+              <SetupStep number={2}>
+                Open <strong>Apps</strong>, choose <strong>Create</strong>, and
+                paste the Remote MCP server URL above.
+              </SetupStep>
+              <SetupStep number={3}>
+                Select <strong>OAuth</strong> for authentication. Leave any
+                optional Client ID and Client Secret fields empty so ChatGPT
+                registers its secure public client automatically.
+              </SetupStep>
+              <SetupStep number={4}>
+                Click <strong>Scan tools</strong>. The SavvyOS sign-in window
+                opens: sign in and select{" "}
+                <strong>Allow read-only access</strong>.
+              </SetupStep>
+              <SetupStep number={5}>
+                Create the app, then enable it from the tools menu in a new chat
+                and ask it to analyze SavvyOS data.
+              </SetupStep>
+            </ol>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <LockKeyhole className="h-4 w-4" /> MCP client example
+              <Bot className="h-4 w-4" /> Add to Claude
             </CardTitle>
             <CardDescription>
-              Paste this into a compatible client, replacing the placeholder
-              with a newly created key.
+              Claude web, Claude Desktop, and Cowork use the same remote OAuth
+              connection.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <pre className="max-h-56 overflow-auto rounded-lg border bg-slate-950 p-3 text-xs leading-5 text-slate-100">
-              {exampleConfig}
-            </pre>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void copy(exampleConfig, "Example configuration")}
-            >
-              <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy configuration
-            </Button>
+          <CardContent>
+            <ol className="space-y-3">
+              <SetupStep number={1}>
+                In Claude, open <strong>Customize → Connectors</strong>. On Team
+                or Enterprise, an Owner first adds it in Organization settings →
+                Connectors.
+              </SetupStep>
+              <SetupStep number={2}>
+                Choose <strong>Add custom connector</strong>, paste the Remote
+                MCP server URL, and leave Advanced OAuth Client ID and Secret
+                blank.
+              </SetupStep>
+              <SetupStep number={3}>
+                Add the connector, then click <strong>Connect</strong> beside
+                SavvyOS.
+              </SetupStep>
+              <SetupStep number={4}>
+                In the SavvyOS window, sign in and select{" "}
+                <strong>Allow read-only access</strong>.
+              </SetupStep>
+              <SetupStep number={5}>
+                Enable SavvyOS from the connector toggle in a conversation and
+                ask Claude to inspect or analyze the relevant data.
+              </SetupStep>
+            </ol>
           </CardContent>
         </Card>
       </div>
 
+      <Card className="border-cyan-200 bg-cyan-50/40">
+        <CardContent className="flex gap-3 p-4 text-sm text-cyan-950">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" />
+          <div>
+            <strong>Recommended first prompt:</strong> “Use SavvyOS. First
+            inspect the relevant tables and schema, then analyze the data needed
+            to answer my question. Do not assume anything that the data does not
+            show.”
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">MCP keys</CardTitle>
-          <CardDescription>
-            Create one key per AI client or teammate. The actual secret is shown
-            only once when a key is created.
-          </CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Laptop className="h-4 w-4" /> Desktop and CLI API keys
+            </CardTitle>
+            <CardDescription className="mt-1.5">
+              Optional only for compatible desktop or command-line clients that
+              let you add a custom Authorization header. Do not use these keys
+              for the ChatGPT or Claude web setup above.
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="mr-1.5 h-4 w-4" /> Create desktop key
+          </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+            <pre className="max-h-52 overflow-auto whitespace-pre-wrap">
+              {desktopConfig}
+            </pre>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void copy(desktopConfig, "Desktop configuration")}
+          >
+            <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy desktop configuration
+          </Button>
           {keysQuery.isLoading ? (
-            <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground">
+            <div className="flex min-h-20 items-center justify-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading keys...
             </div>
           ) : keys.length === 0 ? (
-            <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
-              No MCP keys have been created.
+            <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+              No desktop or CLI keys have been created.
             </div>
           ) : (
             <div className="overflow-x-auto rounded-lg border">
@@ -313,7 +420,7 @@ export default function McpAccessPage() {
                             onClick={() => {
                               if (
                                 window.confirm(
-                                  `Revoke the MCP key “${key.name}”? Connected AI clients using it will immediately lose access.`
+                                  `Revoke the MCP key “${key.name}”? Compatible desktop or CLI clients using it will immediately lose access.`
                                 )
                               )
                                 revokeMutation.mutate({ id: key.id });
@@ -335,10 +442,11 @@ export default function McpAccessPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create MCP key</DialogTitle>
+            <DialogTitle>Create desktop or CLI key</DialogTitle>
             <DialogDescription>
-              Name the AI client or purpose so the key can be identified and
-              revoked later.
+              Use only when an MCP client supports a custom Bearer Authorization
+              header. ChatGPT and Claude web connectors should use OAuth
+              instead.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -349,7 +457,7 @@ export default function McpAccessPage() {
               value={name}
               onChange={event => setName(event.target.value)}
               maxLength={255}
-              placeholder="Example: Tyler's Claude Desktop"
+              placeholder="Example: Tyler's local Claude Code"
             />
           </div>
           <DialogFooter>
@@ -366,7 +474,7 @@ export default function McpAccessPage() {
             >
               {createMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}{" "}
+              )}
               Create key
             </Button>
           </DialogFooter>
@@ -381,7 +489,7 @@ export default function McpAccessPage() {
       >
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>MCP key created</DialogTitle>
+            <DialogTitle>Desktop key created</DialogTitle>
             <DialogDescription>
               Copy this key now. For security, it cannot be viewed again after
               this dialog is closed.
@@ -391,7 +499,7 @@ export default function McpAccessPage() {
             <div className="space-y-4 py-2">
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                 <strong>Keep this private.</strong> Anyone with this key can
-                read SavvyOS data through the MCP endpoint. Revoke it
+                read SavvyOS data through a compatible MCP client. Revoke it
                 immediately if it is shared accidentally.
               </div>
               <CopyField label={created.name} value={created.secret} secret />

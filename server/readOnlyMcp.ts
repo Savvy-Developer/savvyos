@@ -1,11 +1,16 @@
 import crypto from "crypto";
 import type { Express, Request, Response } from "express";
-import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
+import { type RowDataPacket } from "mysql2/promise";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { getMcpPool } from "./mcpDatabase";
+import {
+  MCP_ENDPOINT_PATH,
+  mcpProtectedResourceMetadataUrl,
+  verifyMcpOAuthAccessToken,
+} from "./mcpOAuth";
 
-const MCP_ENDPOINT_PATH = "/api/mcp";
 const MAX_ROWS_PER_QUERY = 500;
 const MAX_RESPONSE_BYTES = 700_000;
 const SENSITIVE_FIELD_PATTERN =
@@ -30,23 +35,6 @@ type ColumnMetadataRow = RowDataPacket & {
   isNullable: "YES" | "NO";
   columnKey: string;
 };
-
-let mcpPool: Pool | null = null;
-
-function getMcpPool(): Pool {
-  if (mcpPool) return mcpPool;
-  const uri = process.env.MCP_DATABASE_URL || process.env.DATABASE_URL;
-  if (!uri) throw new Error("Database unavailable");
-  mcpPool = mysql.createPool({
-    uri,
-    connectionLimit: 4,
-    maxIdle: 4,
-    idleTimeout: 60_000,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 10_000,
-  });
-  return mcpPool;
-}
 
 function keyDigest(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -107,6 +95,16 @@ async function isActiveMcpKey(token: string): Promise<boolean> {
     [keyDigest(token)]
   );
   return rows.length === 1;
+}
+
+/**
+ * OAuth is the connection method for web clients such as ChatGPT and Claude.
+ * Existing manager-created bearer keys remain supported for desktop and CLI MCP
+ * clients that can securely send custom authorization headers.
+ */
+async function isValidMcpAccessToken(token: string): Promise<boolean> {
+  if (await verifyMcpOAuthAccessToken(token)) return true;
+  return isActiveMcpKey(token);
 }
 
 async function availableTables(): Promise<string[]> {
@@ -364,7 +362,7 @@ function sendMethodNotAllowed(res: Response) {
   });
 }
 
-/** Registers a stateless, bearer-key protected, read-only Streamable HTTP MCP endpoint. */
+/** Registers a stateless OAuth 2.1 and bearer-key protected read-only MCP endpoint. */
 export function registerReadOnlyMcpRoute(app: Express): void {
   app.options(MCP_ENDPOINT_PATH, (_req, res) => {
     res.set({
@@ -380,12 +378,16 @@ export function registerReadOnlyMcpRoute(app: Express): void {
     res.set("Vary", "Authorization");
     const token = parseBearerToken(req.header("authorization"));
     try {
-      if (!token || !(await isActiveMcpKey(token))) {
+      if (!token || !(await isValidMcpAccessToken(token))) {
+        res.set(
+          "WWW-Authenticate",
+          `Bearer resource_metadata="${mcpProtectedResourceMetadataUrl()}"`
+        );
         return res.status(401).json({
           jsonrpc: "2.0",
           error: {
             code: -32001,
-            message: "A valid SavvyOS MCP bearer key is required.",
+            message: "SavvyOS MCP authorization is required.",
           },
           id: null,
         });
@@ -421,4 +423,5 @@ export function registerReadOnlyMcpRoute(app: Express): void {
 export const __testables__ = {
   isSensitiveFieldName,
   validateReadOnlySql,
+  parseBearerToken,
 };

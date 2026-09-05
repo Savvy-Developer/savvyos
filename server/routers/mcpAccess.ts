@@ -47,8 +47,10 @@ export const mcpAccessRouter = router({
     requireMcpAccessManager(ctx.user.email);
     return {
       endpoint: MCP_ENDPOINT,
-      authentication: "Bearer token",
-      note: "This connection exposes SavvyOS data through read-only MCP tools. It cannot create, edit, delete, send, or otherwise modify SavvyOS data.",
+      authentication: "OAuth 2.1 with PKCE",
+      desktopAuthentication:
+        "Optional bearer key for compatible desktop or CLI clients",
+      note: "ChatGPT and Claude web connectors sign in through SavvyOS OAuth. The connection exposes read-only data tools and cannot create, edit, delete, send, or otherwise modify SavvyOS data.",
     };
   }),
 
