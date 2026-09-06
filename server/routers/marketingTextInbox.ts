@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  or,
   sql,
   aliasedTable,
 } from "drizzle-orm";
@@ -28,13 +29,18 @@ import {
   aircallIsaAssignments,
   aircallMessages,
   communications,
+  contactIntelligenceProfiles,
+  contactProperties,
   contacts,
+  listings,
   marketingTextInboxThreads,
   oneTimeSendRecipients,
   oneTimeSends,
+  properties,
   smartPlanExecutions,
   smartPlanSteps,
   smartPlans,
+  transactions,
   users,
 } from "../../drizzle/schema";
 import {
@@ -45,6 +51,7 @@ import { normalizePhone } from "../aircall";
 import { canAdminUsePermission } from "./permissions";
 import { invokeLLM } from "../_core/llm";
 import { ENV } from "../_core/env";
+import { notifySavvyOSPromptRun } from "../_core/slackNotifications";
 
 const positiveId = z.number().int().positive();
 const SPEED_TO_LEAD_WINDOWS = [
@@ -63,6 +70,19 @@ type SpeedToLeadWindow = {
   respondedCount: number;
   incomingCount: number;
 };
+
+const suggestedReplySchema = {
+  name: "marketing_text_suggested_reply",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reply: { type: "string" },
+    },
+    required: ["reply"],
+  },
+} as const;
 
 interface AircallNumber {
   id: number;
@@ -141,6 +161,48 @@ function emailHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   return `<div style="font-family:Arial,sans-serif;color:#1f2937;font-size:16px;line-height:1.6"><p>${escaped.replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>")}</p></div>`;
+}
+
+function compactReplyContext(
+  value: string | null | undefined,
+  maxLength = 700
+): string {
+  const normalized = plainText(value).replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+    : normalized;
+}
+
+function aiResponseText(value: Awaited<ReturnType<typeof invokeLLM>>): string {
+  const content = value.choices[0]?.message.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((part): part is { type: "text"; text: string } =>
+        part.type === "text"
+      )
+      .map(part => part.text)
+      .join("\n");
+  }
+  return "";
+}
+
+function normalSuggestedReply(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const reply = (value as Record<string, unknown>).reply;
+  if (typeof reply !== "string") return null;
+  const normalized = reply
+    .replace(/^\s*(?:suggested\s+)?reply\s*:\s*/i, "")
+    .replace(/^\s*["“]|["”]\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized && normalized.length <= 1600 ? normalized : null;
+}
+
+function fallbackSuggestedReply(firstName: string | null | undefined): string {
+  const name = firstName?.trim() || "there";
+  return `Hi ${name}, thanks for getting back to us. Are you exploring a short-term rental purchase, preparing to sell, or would a Market Match call with our team be most helpful?`;
 }
 
 function firstName(name: string | null | undefined, fallback: string) {
@@ -258,6 +320,10 @@ async function getMarketingTextSpeedToLead(
   // still awaiting attention. This preserves the time it spent unarchived
   // rather than retroactively dropping the entire conversation from the metric.
   const stoppedAt = sql<Date>`COALESCE(${inbound.speedToLeadStoppedAt}, NOW())`;
+  // SMS opt-out keywords are compliance actions, not lead replies. Keep this
+  // explicit query-side safeguard so existing STOP messages are immediately
+  // excluded even if they predate the auto-archive behavior.
+  const isNotMarketingOptOut = sql<boolean>`LOWER(TRIM(COALESCE(${inbound.body}, ''))) NOT REGEXP '^(stop|unsubscribe|cancel|end|quit|revoke|opt[[:space:]]*out)$'`;
   const elapsedUntil = sql<Date>`CASE
     WHEN ${responseAt} IS NOT NULL AND ${responseAt} < ${stoppedAt} THEN ${responseAt}
     ELSE ${stoppedAt}
@@ -280,6 +346,7 @@ async function getMarketingTextSpeedToLead(
             eq(inbound.aircallNumberId, marketingNumberId),
             eq(inbound.direction, "inbound"),
             isNotNull(inbound.contactId),
+            isNotMarketingOptOut,
             ...(start ? [gte(inboundAt, start)] : [])
           )
         );
@@ -884,6 +951,317 @@ export const marketingTextInboxRouter = router({
           oneTimeSendName: oneTimeSend?.name ?? null,
         };
       });
+    }),
+
+  /**
+   * Creates one admin-reviewed response suggestion from the newest available
+   * CRM evidence. Every later text, note, call, transcript, connection, listing,
+   * transaction, and linked property is included on the next generation rather
+   * than relying on a stale generic template.
+   */
+  suggestReply: protectedProcedure
+    .input(z.object({ contactId: positiveId }))
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [line, contact] = await Promise.all([
+        marketingLine(db),
+        db
+          .select({
+            id: contacts.id,
+            firstName: contacts.firstName,
+            lastName: contacts.lastName,
+            campaignSource: contacts.campaignSource,
+            partnershipName: contacts.partnershipName,
+            isaStatus: contacts.isaStatus,
+            notes: contacts.notes,
+            tags: contacts.tags,
+            doNotContact: contacts.doNotContact,
+            smsMarketingOptedOutAt: contacts.smsMarketingOptedOutAt,
+            aiSummary: contacts.aiSummary,
+          })
+          .from(contacts)
+          .where(eq(contacts.id, input.contactId))
+          .limit(1)
+          .then(rows => rows[0] ?? null),
+      ]);
+      if (!line?.marketingNumberId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Select a dedicated Aircall marketing number before drafting replies.",
+        });
+      }
+      if (!contact)
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found." });
+      if (contact.doNotContact || contact.smsMarketingOptedOutAt) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "This contact is opted out of marketing outreach and cannot receive a text suggestion.",
+        });
+      }
+
+      const [messages, communicationsHistory, intelligence, connections, contactTransactions, contactListings, linkedProperties] =
+        await Promise.all([
+          db
+            .select({
+              direction: aircallMessages.direction,
+              body: aircallMessages.body,
+              sentAt: aircallMessages.sentAt,
+              receivedAt: aircallMessages.receivedAt,
+              createdAt: aircallMessages.createdAt,
+            })
+            .from(aircallMessages)
+            .where(eq(aircallMessages.contactId, contact.id))
+            .orderBy(
+              desc(
+                sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`
+              )
+            )
+            .limit(100),
+          db
+            .select({
+              type: communications.type,
+              subject: communications.subject,
+              body: communications.body,
+              direction: communications.direction,
+              transcription: communications.transcription,
+              communicatedAt: communications.communicatedAt,
+            })
+            .from(communications)
+            .where(eq(communications.relatedContactId, contact.id))
+            .orderBy(desc(communications.communicatedAt))
+            .limit(50),
+          db
+            .select({
+              aiSummary: contactIntelligenceProfiles.aiSummary,
+              profile: contactIntelligenceProfiles.profile,
+              intentTier: contactIntelligenceProfiles.intentTier,
+              intentScore: contactIntelligenceProfiles.intentScore,
+              confidence: contactIntelligenceProfiles.confidence,
+            })
+            .from(contactIntelligenceProfiles)
+            .where(eq(contactIntelligenceProfiles.contactId, contact.id))
+            .limit(1),
+          db
+            .select({
+              agentName: users.name,
+              pipelineStatus: agentConnections.pipelineStatus,
+              followUpDate: agentConnections.followUpDate,
+              agentNotes: agentConnections.agentNotes,
+              propertyType: agentConnections.propertyType,
+              minPrice: agentConnections.minPrice,
+              maxPrice: agentConnections.maxPrice,
+              targetCities: agentConnections.targetCities,
+              targetZips: agentConnections.targetZips,
+              strRequirements: agentConnections.strRequirements,
+              investmentNotes: agentConnections.investmentNotes,
+              appointmentSet: agentConnections.appointmentSet,
+              appointmentSetAt: agentConnections.appointmentSetAt,
+            })
+            .from(agentConnections)
+            .leftJoin(users, eq(users.id, agentConnections.agentId))
+            .where(eq(agentConnections.contactId, contact.id))
+            .orderBy(desc(agentConnections.updatedAt))
+            .limit(12),
+          db
+            .select({
+              transactionType: transactions.transactionType,
+              status: transactions.status,
+              purchasePrice: transactions.purchasePrice,
+              closingDate: transactions.closingDate,
+              notes: transactions.notes,
+            })
+            .from(transactions)
+            .where(
+              or(
+                eq(transactions.primaryContactId, contact.id),
+                eq(transactions.sellerContactId, contact.id),
+                eq(transactions.buyerContactId, contact.id)
+              )
+            )
+            .orderBy(desc(transactions.updatedAt))
+            .limit(10),
+          db
+            .select({
+              listingStatus: listings.listingStatus,
+              listPrice: listings.listPrice,
+              notes: listings.notes,
+              propertyAddress: properties.address,
+              propertyCity: properties.city,
+              propertyState: properties.state,
+              propertyStrNotes: properties.strNotes,
+            })
+            .from(listings)
+            .leftJoin(properties, eq(properties.id, listings.propertyId))
+            .where(eq(listings.contactId, contact.id))
+            .orderBy(desc(listings.updatedAt))
+            .limit(10),
+          db
+            .select({
+              label: contactProperties.label,
+              address: properties.address,
+              city: properties.city,
+              state: properties.state,
+              propertyType: properties.propertyType,
+              listPrice: properties.listPrice,
+              strZoning: properties.strZoning,
+              strNotes: properties.strNotes,
+              notes: properties.notes,
+            })
+            .from(contactProperties)
+            .innerJoin(properties, eq(properties.id, contactProperties.propertyId))
+            .where(eq(contactProperties.contactId, contact.id))
+            .limit(12),
+        ]);
+
+      const messageTimeline = [...messages]
+        .reverse()
+        .map(message => {
+          const at = message.sentAt ?? message.receivedAt ?? message.createdAt;
+          return `${new Date(at).toISOString()} ${message.direction === "inbound" ? "Contact" : "Savvy"}: ${compactReplyContext(message.body, 900)}`;
+        })
+        .filter(line => !/:\s*$/.test(line))
+        .join("\n");
+      const nonTextHistory = communicationsHistory
+        .filter(item => item.type !== "sms")
+        .slice(0, 30)
+        .map(item => {
+          const source = [
+            item.subject,
+            compactReplyContext(item.body, item.type === "call" ? 900 : 500),
+            item.transcription
+              ? `Transcript: ${compactReplyContext(item.transcription, 1_100)}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" — ");
+          return `${new Date(item.communicatedAt).toISOString()} [${item.type}/${item.direction ?? "internal"}] ${source}`;
+        })
+        .filter(line => !/\]\s*$/.test(line))
+        .join("\n");
+      const connectionHistory = connections
+        .map(connection => {
+          const priceRange =
+            connection.minPrice || connection.maxPrice
+              ? ` price range ${connection.minPrice ?? "?"}-${connection.maxPrice ?? "?"}`
+              : "";
+          const cities = connection.targetCities?.length
+            ? ` target cities ${connection.targetCities.join(", ")}`
+            : "";
+          return [
+            `${connection.agentName ?? "Unassigned agent"}: ${connection.pipelineStatus}${connection.appointmentSet ? "; appointment already set" : ""}${priceRange}${cities}`,
+            connection.strRequirements,
+            connection.investmentNotes,
+            connection.agentNotes,
+          ]
+            .filter(Boolean)
+            .map(value => compactReplyContext(String(value), 700))
+            .join(" — ");
+        })
+        .join("\n");
+      const transactionHistory = contactTransactions
+        .map(transaction =>
+          compactReplyContext(
+            `${transaction.transactionType} transaction: ${transaction.status}${transaction.purchasePrice ? `; price ${transaction.purchasePrice}` : ""}${transaction.closingDate ? `; closing ${transaction.closingDate.toISOString().slice(0, 10)}` : ""}${transaction.notes ? `; notes ${transaction.notes}` : ""}`,
+            800
+          )
+        )
+        .join("\n");
+      const listingHistory = contactListings
+        .map(listing =>
+          compactReplyContext(
+            `${listing.listingStatus} listing${listing.propertyAddress ? `: ${listing.propertyAddress}${listing.propertyCity ? `, ${listing.propertyCity}` : ""}${listing.propertyState ? `, ${listing.propertyState}` : ""}` : ""}${listing.listPrice ? `; list price ${listing.listPrice}` : ""}${listing.notes ? `; notes ${listing.notes}` : ""}${listing.propertyStrNotes ? `; STR notes ${listing.propertyStrNotes}` : ""}`,
+            800
+          )
+        )
+        .join("\n");
+      const propertyHistory = linkedProperties
+        .map(property =>
+          compactReplyContext(
+            `${property.label ?? "Linked"} property: ${property.address}, ${property.city ?? ""} ${property.state ?? ""}; ${property.propertyType ?? "type not recorded"}${property.listPrice ? `; price ${property.listPrice}` : ""}${property.strZoning ? `; STR zoning ${property.strZoning}` : ""}${property.strNotes ? `; STR notes ${property.strNotes}` : ""}${property.notes ? `; notes ${property.notes}` : ""}`,
+            800
+          )
+        )
+        .join("\n");
+      const intelligenceProfile = intelligence[0];
+      const currentProfile = [
+        contact.notes ? `Staff notes: ${compactReplyContext(contact.notes, 1_300)}` : "",
+        contact.tags?.length ? `Tags: ${contact.tags.join(", ")}` : "",
+        contact.campaignSource ? `Campaign source: ${contact.campaignSource}` : "",
+        contact.partnershipName ? `Partnership: ${contact.partnershipName}` : "",
+        contact.isaStatus ? `Lifecycle: ${contact.isaStatus}` : "",
+        intelligenceProfile?.aiSummary
+          ? `Contact Intelligence briefing: ${compactReplyContext(intelligenceProfile.aiSummary, 2_200)}`
+          : contact.aiSummary
+            ? `CRM AI briefing: ${compactReplyContext(contact.aiSummary, 2_200)}`
+            : "",
+        intelligenceProfile
+          ? `Intent assessment: ${intelligenceProfile.intentTier} (${intelligenceProfile.intentScore}/100; ${intelligenceProfile.confidence} confidence).`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const contactName = `${contact.firstName} ${contact.lastName}`.trim();
+      const system = `You draft concise, warm, human SMS responses for Savvy STR Agents, a short-term-rental investment real-estate brokerage. The inbox has exactly two business goals: move a qualified buyer or seller toward a relevant Savvy agent introduction, or move the contact toward a Market Match call with the Savvy team.
+
+Use only the supplied CRM evidence. Infer whether the latest reply indicates a buyer, seller, existing client, timing issue, objection, or insufficiently known intent, but never claim that inference as a fact. Reply directly to the latest unresolved contact message and preserve any factual details already discussed. If an agent introduction or appointment already exists, do not propose a duplicate introduction; continue the relevant conversation or clarify the next step instead. If intent is unclear, ask one simple discovery question that helps choose between an agent introduction and a Market Match call.
+
+Do not invent property availability, market performance, pricing, financing, appointments, call times, agents, promises, or prior conversations. Do not mention CRM records, AI, profiles, transcripts, or internal processes. Do not use pressure, legal, tax, investment, or fair-housing advice. Keep the message under 480 characters, use plain SMS language, and return only the reply field in the required JSON schema. This is a suggested draft for an administrator to review and edit; it never sends automatically.`;
+      const prompt = `Contact: ${contactName || "Unknown"}
+
+=== CONTACT PROFILE ===
+${currentProfile || "No additional profile context is recorded."}
+
+=== ALL AVAILABLE INBOUND AND OUTBOUND TEXT HISTORY (chronological) ===
+${messageTimeline || "No text history is recorded."}
+
+=== NOTES, CALLS, EMAILS, AND TRANSCRIPTS ===
+${nonTextHistory || "No non-text history is recorded."}
+
+=== AGENT CONNECTIONS AND BUY BOXES ===
+${connectionHistory || "No agent connection is recorded."}
+
+=== TRANSACTIONS ===
+${transactionHistory || "No related transactions are recorded."}
+
+=== POTENTIAL OR ACTIVE LISTINGS ===
+${listingHistory || "No related listings are recorded."}
+
+=== ASSOCIATED PROPERTIES ===
+${propertyHistory || "No linked properties are recorded."}`;
+
+      let reply = fallbackSuggestedReply(contact.firstName);
+      let source: "ai" | "fallback" = "fallback";
+      try {
+        const result = await invokeLLM({
+          model: "gpt-5",
+          maxTokens: 700,
+          reasoning: { effort: "low" },
+          outputSchema: suggestedReplySchema,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: prompt },
+          ],
+        });
+        const parsed = JSON.parse(aiResponseText(result));
+        const suggestion = normalSuggestedReply(parsed);
+        if (!suggestion) throw new Error("Suggested reply was empty or invalid.");
+        reply = suggestion;
+        source = "ai";
+      } catch (error) {
+        console.warn("[MarketingTextInbox] AI reply fallback:", error);
+      }
+
+      void notifySavvyOSPromptRun({
+        title: "Marketing Text Inbox reply suggestion generated",
+        summary:
+          "A CRM-grounded suggested SMS reply was generated from the contact’s available text, communication, connection, property, listing, and transaction history. The draft remains in the inbox for staff review and is never sent automatically.",
+        actionUrl: "/marketing-text-inbox",
+      });
+      return { reply, source };
     }),
 
   /** Returns active agents who can be selected for a personal client introduction. */
@@ -1826,13 +2204,49 @@ export const marketingTextInboxRouter = router({
       await requireMarketingTextInboxAccess(ctx.user);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const now = new Date();
+      const line = await marketingLine(db);
       await db
         .update(contacts)
         .set({
-          smsMarketingOptedOutAt: new Date(),
+          smsMarketingOptedOutAt: now,
           smsMarketingOptOutReason: input.reason,
         })
         .where(eq(contacts.id, input.contactId));
+      if (line?.marketingNumberId) {
+        await Promise.all([
+          db
+            .update(aircallMessages)
+            .set({ speedToLeadStoppedAt: now })
+            .where(
+              and(
+                eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+                eq(aircallMessages.contactId, input.contactId),
+                eq(aircallMessages.direction, "inbound"),
+                isNull(aircallMessages.speedToLeadStoppedAt)
+              )
+            ),
+          db
+            .insert(marketingTextInboxThreads)
+            .values({
+              contactId: input.contactId,
+              archivedAt: now,
+              archivedById: ctx.user.id,
+              resolvedAt: now,
+              resolvedById: ctx.user.id,
+              speedToLeadExcludedAt: now,
+            })
+            .onDuplicateKeyUpdate({
+              set: {
+                archivedAt: now,
+                archivedById: ctx.user.id,
+                resolvedAt: now,
+                resolvedById: ctx.user.id,
+                speedToLeadExcludedAt: now,
+              },
+            }),
+        ]);
+      }
       await logActivity({
         userId: ctx.user.id,
         action: "contact_marked_sms_marketing_opt_out",

@@ -282,6 +282,23 @@ export default function MarketingTextInboxPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const suggestReply = trpc.marketingTextInbox.suggestReply.useMutation({
+    onSuccess: (result, values) => {
+      setReplyDrafts(current => ({
+        ...current,
+        [values.contactId]: result.reply,
+      }));
+      toast.success("Suggested reply added to the composer.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const submitReply = () => {
+    if (!selectedContactId || !reply.trim() || sendReply.isPending) return;
+    sendReply.mutate({
+      contactId: selectedContactId,
+      body: reply.trim(),
+    });
+  };
   const markThreadRead = trpc.marketingTextInbox.markThreadRead.useMutation({
     onSuccess: () => {
       void utils.marketingTextInbox.unreadCount.invalidate();
@@ -331,8 +348,11 @@ export default function MarketingTextInboxPage() {
   const optOut = trpc.marketingTextInbox.optOutContact.useMutation({
     onSuccess: () => {
       toast.success("Marketing SMS opt-out recorded.");
+      setSelectedContactId(null);
       void threadQuery.refetch();
       void threadsQuery.refetch();
+      void speedToLead.refetch();
+      void utils.marketingTextInbox.unreadCount.invalidate();
     },
     onError: error => toast.error(error.message),
   });
@@ -1037,6 +1057,39 @@ export default function MarketingTextInboxPage() {
                     </div>
                   ) : (
                     <>
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            selectedContactId &&
+                            suggestReply.mutate({
+                              contactId: selectedContactId,
+                            })
+                          }
+                          disabled={
+                            !selectedContactId ||
+                            suggestReply.isPending ||
+                            sendReply.isPending
+                          }
+                        >
+                          {suggestReply.isPending ? (
+                            <>
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              Creating suggestion…
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                              Suggested AI Reply
+                            </>
+                          )}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          Uses the latest conversation and CRM history.
+                        </span>
+                      </div>
                       <div className="flex items-end gap-3">
                         <Textarea
                           value={reply}
@@ -1055,17 +1108,22 @@ export default function MarketingTextInboxPage() {
                               };
                             });
                           }}
+                          onKeyDown={event => {
+                            if (
+                              event.key === "Enter" &&
+                              !event.shiftKey &&
+                              !event.nativeEvent.isComposing
+                            ) {
+                              event.preventDefault();
+                              submitReply();
+                            }
+                          }}
                           maxLength={1600}
                           rows={3}
                           placeholder="Write a reply…"
                         />
                         <Button
-                          onClick={() =>
-                            sendReply.mutate({
-                              contactId: selectedContactId,
-                              body: reply.trim(),
-                            })
-                          }
+                          onClick={submitReply}
                           disabled={!reply.trim() || sendReply.isPending}
                         >
                           {sendReply.isPending ? (
@@ -1080,7 +1138,8 @@ export default function MarketingTextInboxPage() {
                       <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                         <span>
                           Replies send to the number that replied from the
-                          dedicated marketing line.
+                          dedicated marketing line. Press Enter to send;
+                          Shift+Enter adds a new line.
                         </span>
                         <span>{reply.length}/1600</span>
                       </div>

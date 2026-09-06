@@ -108,10 +108,10 @@ function messageTitle(direction: "inbound" | "outbound"): string {
     : "Outbound text via Aircall";
 }
 
-const SMS_MARKETING_OPT_OUT_PATTERN =
+export const SMS_MARKETING_OPT_OUT_PATTERN =
   /^(?:stop|unsubscribe|cancel|end|quit|revoke|opt\s*out)$/i;
 
-function isMarketingOptOut(body: string | null | undefined): boolean {
+export function isMarketingOptOut(body: string | null | undefined): boolean {
   return !!body?.trim() && SMS_MARKETING_OPT_OUT_PATTERN.test(body.trim());
 }
 
@@ -254,6 +254,13 @@ export async function persistAircallMessage(
     groupParticipants: participants,
     sentAt,
     receivedAt,
+    // An inbound STOP-style message is never a reply obligation. Persisting the
+    // stop time makes the individual message self-describing, while the metric
+    // query also excludes it explicitly for pre-existing historical records.
+    speedToLeadStoppedAt:
+      direction === "inbound" && isMarketingOptOut(body)
+        ? (receivedAt ?? sentAt ?? new Date())
+        : (existing?.speedToLeadStoppedAt ?? null),
     rawPayload: options.rawPayload ?? (payload as Record<string, unknown>),
   };
 
@@ -266,25 +273,49 @@ export async function persistAircallMessage(
       .where(eq(aircallIntegrationState.id, 1))
       .limit(1);
     if (integration?.marketingNumberId === payload.number.id) {
-      if (isMarketingOptOut(payload.body)) {
+      const optOutAt = receivedAt ?? sentAt ?? new Date();
+      if (isMarketingOptOut(body)) {
         await db
           .update(contacts)
           .set({
-            smsMarketingOptedOutAt: new Date(),
-            smsMarketingOptOutReason: `Inbound SMS keyword: ${(payload.body ?? "OPT-OUT").trim().toUpperCase()}`,
+            smsMarketingOptedOutAt: optOutAt,
+            smsMarketingOptOutReason: `Inbound SMS keyword: ${(body ?? "OPT-OUT").trim().toUpperCase()}`,
           })
           .where(eq(contacts.id, contactId));
+        // STOP-style replies close the thread immediately. This keeps the
+        // conversation out of the shared work queue and makes the compliance
+        // action independent of an admin later clicking Finish and Archive.
+        await db
+          .insert(marketingTextInboxThreads)
+          .values({
+            contactId,
+            archivedAt: optOutAt,
+            archivedById: null,
+            resolvedAt: optOutAt,
+            resolvedById: null,
+            speedToLeadExcludedAt: optOutAt,
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              archivedAt: optOutAt,
+              archivedById: null,
+              resolvedAt: optOutAt,
+              resolvedById: null,
+              speedToLeadExcludedAt: optOutAt,
+            },
+          });
+      } else {
+        await db
+          .update(marketingTextInboxThreads)
+          .set({
+            archivedAt: null,
+            archivedById: null,
+            resolvedAt: null,
+            resolvedById: null,
+            speedToLeadExcludedAt: null,
+          })
+          .where(eq(marketingTextInboxThreads.contactId, contactId));
       }
-      await db
-        .update(marketingTextInboxThreads)
-        .set({
-          archivedAt: null,
-          archivedById: null,
-          resolvedAt: null,
-          resolvedById: null,
-          speedToLeadExcludedAt: null,
-        })
-        .where(eq(marketingTextInboxThreads.contactId, contactId));
     }
   }
 
