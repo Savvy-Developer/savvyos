@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -1212,22 +1213,7 @@ export default function TransactionDetail() {
                       <span className="text-xs text-amber-600 font-normal">(manually set)</span>
                     )}
                   </Label>
-                  <div className="relative mt-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                    <Input
-                      className="pl-6"
-                      placeholder="e.g. 9,000"
-                      value={buyerEditForm.buyerGci}
-                      onChange={(e) => {
-                        const raw = parseCurrencyInput(e.target.value);
-                        setBuyerEditForm({
-                          ...buyerEditForm,
-                          buyerGci: raw ? Number(raw).toLocaleString("en-US") : "",
-                          buyerGciManuallyEdited: true,
-                        });
-                      }}
-                    />
-                  </div>
+                  <CurrencyInput className="mt-1" placeholder="9,000.00" value={buyerEditForm.buyerGci} onChange={(buyerGci) => setBuyerEditForm({ ...buyerEditForm, buyerGci, buyerGciManuallyEdited: true })} />
                   {buyerEditForm.buyerGciManuallyEdited && buyerEditForm.buyerCommissionType === "percentage" && buyerEditForm.buyerCommissionRate && tx.purchasePrice && (() => {
                     const price = Number(tx.purchasePrice);
                     const r = parseFloat(buyerEditForm.buyerCommissionRate);
@@ -2047,29 +2033,19 @@ export default function TransactionDetail() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Purchase Price</Label>
-                <div className="relative mt-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input
-                    className="pl-6"
-                    placeholder="500,000"
-                    value={editForm.purchasePrice ?? ""}
-                    onChange={(e) => {
-                      const raw = parsePriceInput(e.target.value);
-                      const formatted = raw ? Number(raw).toLocaleString("en-US") : "";
-                      // Auto-calculate GCI if not manually overridden and commission type is percentage
-                      if (!gciManuallyEdited && editForm.commissionType === "percentage" && editForm.commissionRate) {
-                        const price = parseFloat(raw || "0");
-                        const rate = parseFloat(editForm.commissionRate);
-                        if (!isNaN(price) && !isNaN(rate) && price > 0 && rate > 0) {
-                          const autoGci = (price * rate / 100);
-                          setEditForm(f => ({ ...f, purchasePrice: formatted, grossCommissionIncome: autoGci.toLocaleString("en-US", { maximumFractionDigits: 2 }) }));
-                          return;
-                        }
-                      }
-                      setEditForm(f => ({ ...f, purchasePrice: formatted }));
-                    }}
-                  />
-                </div>
+                <CurrencyInput className="mt-1" placeholder="500,000.00" value={editForm.purchasePrice ?? ""} onChange={(purchasePrice) => {
+                  // Auto-calculate GCI if not manually overridden and commission type is percentage.
+                  if (!gciManuallyEdited && editForm.commissionType === "percentage" && editForm.commissionRate) {
+                    const price = parseFloat(purchasePrice || "0");
+                    const rate = parseFloat(editForm.commissionRate);
+                    if (!isNaN(price) && !isNaN(rate) && price > 0 && rate > 0) {
+                      const autoGci = price * rate / 100;
+                      setEditForm(f => ({ ...f, purchasePrice, grossCommissionIncome: autoGci.toFixed(2) }));
+                      return;
+                    }
+                  }
+                  setEditForm(f => ({ ...f, purchasePrice }));
+                }} />
               </div>
               <div>
                 <Label className="flex items-center gap-2">
@@ -2078,19 +2054,10 @@ export default function TransactionDetail() {
                     <span className="text-xs text-amber-600 font-normal">(manually set)</span>
                   )}
                 </Label>
-                <div className="relative mt-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input
-                    className="pl-6"
-                    placeholder="15,000"
-                    value={editForm.grossCommissionIncome ?? ""}
-                    onChange={(e) => {
-                      const raw = parsePriceInput(e.target.value);
-                      setGciManuallyEdited(true);
-                      setEditForm(f => ({ ...f, grossCommissionIncome: raw ? Number(raw).toLocaleString("en-US") : "" }));
-                    }}
-                  />
-                </div>
+                <CurrencyInput className="mt-1" placeholder="15,000.00" value={editForm.grossCommissionIncome ?? ""} onChange={(grossCommissionIncome) => {
+                  setGciManuallyEdited(true);
+                  setEditForm(f => ({ ...f, grossCommissionIncome }));
+                }} />
                 {/* Recalculate button shown when GCI was manually edited and we can auto-compute */}
                 {gciManuallyEdited && editForm.commissionType === "percentage" && editForm.commissionRate && editForm.purchasePrice && (() => {
                   const price = parseFloat(parsePriceInput(editForm.purchasePrice) || "0");

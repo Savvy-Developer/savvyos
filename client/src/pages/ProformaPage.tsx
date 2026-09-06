@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import { formatCurrencyInput } from "@/lib/inputFormatters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/PageHeader";
 import ProformaEmailComposer from "@/components/ProformaEmailComposer";
 import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail } from "lucide-react";
@@ -17,8 +18,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 
 // ─── Formatting Helpers ──────────────────────────────────────────────────────
 const fmtDollar = (val: number): string => {
-  if (!isFinite(val) || isNaN(val)) return "$0";
-  return `$${Math.round(val).toLocaleString("en-US")}`;
+  if (!isFinite(val) || isNaN(val)) return "$0.00";
+  return val.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const fmtPct = (val: number): string => {
   if (!isFinite(val) || isNaN(val)) return "0%";
@@ -67,6 +68,30 @@ const REPORT_OPTIONS: ReportOption[] = [
 // ─── Form State Type ─────────────────────────────────────────────────────────
 interface CustomExpense { label: string; amount: string; }
 
+const REPORT_SECTION_KEYS = ["scenarioComparison", "fiveYearProjection", "irr", "taxBenefits", "operatingBudget", "comps", "valueAdd"] as const;
+type ReportSectionKey = (typeof REPORT_SECTION_KEYS)[number];
+type ReportSections = Record<ReportSectionKey, boolean>;
+
+const DEFAULT_REPORT_SECTIONS: ReportSections = {
+  scenarioComparison: true,
+  fiveYearProjection: true,
+  irr: true,
+  taxBenefits: true,
+  operatingBudget: true,
+  comps: true,
+  valueAdd: true,
+};
+
+const REPORT_SECTION_LABELS: Record<ReportSectionKey, { label: string; description: string }> = {
+  scenarioComparison: { label: "Scenario Comparison", description: "Revenue, expenses, and returns across all three scenarios." },
+  fiveYearProjection: { label: "5-Year Projection", description: "Projected value, equity, revenue, and cash flow." },
+  irr: { label: "Internal Rate of Return", description: "Pre- and after-tax IRR by hold period." },
+  taxBenefits: { label: "Tax Benefits", description: "Cost-segregation assumptions and estimated tax benefits." },
+  operatingBudget: { label: "Operating Budget", description: "Fixed and variable expenses, channel mix, and assumptions." },
+  comps: { label: "Comparable Properties", description: "Revenue comparable properties used in the analysis." },
+  valueAdd: { label: "Value-Add & Refinance", description: "ARV and cash-out refinance analysis when applicable." },
+};
+
 interface ProformaForm {
   purchasePrice: string;
   closingCostsPct: string;
@@ -112,6 +137,7 @@ interface ProformaForm {
   feeDirect: string;
   revenueAppreciationPct: string;
   propertyAppreciationPct: string;
+  expenseInflationPct: string;
   // Fixed Expenses (monthly)
   expUtilities: string;
   expInsuranceAnnual: string;
@@ -156,6 +182,7 @@ interface ProformaForm {
   // Notes
   notes: string;
   revenueMethodology: string;
+  reportSections: ReportSections;
 }
 
 const defaultForm: ProformaForm = {
@@ -201,6 +228,7 @@ const defaultForm: ProformaForm = {
   feeDirect: "3",
   revenueAppreciationPct: "3",
   propertyAppreciationPct: "4",
+  expenseInflationPct: "3",
   expUtilities: "400",
   expInsuranceAnnual: "3600",
   expPropertyTaxAnnual: "3000",
@@ -238,7 +266,19 @@ const defaultForm: ProformaForm = {
   comps: [],
   notes: "",
   revenueMethodology: "We run our projections with best and highest use of the STR in mind. We assume top-tier amenities and aesthetics and pull revenue from comparable top-performing STRs. This initial projection requires further due diligence.",
+  reportSections: DEFAULT_REPORT_SECTIONS,
 };
+
+function hydrateProformaForm(formData: Partial<ProformaForm> | null | undefined): ProformaForm {
+  return {
+    ...defaultForm,
+    ...formData,
+    reportSections: {
+      ...DEFAULT_REPORT_SECTIONS,
+      ...(formData?.reportSections ?? {}),
+    },
+  };
+}
 
 export default function ProformaPage() {
   const { id: propId } = useParams<{ id: string }>();
@@ -258,6 +298,7 @@ export default function ProformaPage() {
   const [showAirbnbImport, setShowAirbnbImport] = useState(false);
   const [showExistingComps, setShowExistingComps] = useState(false);
   const [showEmailProforma, setShowEmailProforma] = useState(false);
+  const [showReportSettings, setShowReportSettings] = useState(false);
   const [autoLoadDone, setAutoLoadDone] = useState(false);
 
   const utils = trpc.useUtils();
@@ -362,7 +403,7 @@ export default function ProformaPage() {
   useEffect(() => {
     if (autoLoadDone || !loadIdFromUrl || !autoLoadProforma) return;
     const fd = (autoLoadProforma.formData || {}) as ProformaForm;
-    const loadedForm = { ...defaultForm, ...fd };
+    const loadedForm = hydrateProformaForm(fd);
     setForm(loadedForm);
     setTitle(autoLoadProforma.title || "STR Investment Analysis");
     setEditingId(autoLoadProforma.id);
@@ -376,7 +417,7 @@ export default function ProformaPage() {
   const startNewProforma = () => {
     // userDefaults is the parsed JSON object directly from getProformaDefaults (or null if none saved)
     const userDefaultData = userDefaults && typeof userDefaults === "object" ? userDefaults : {};
-    const newForm = { ...defaultForm, ...userDefaultData };
+    const newForm = hydrateProformaForm(userDefaultData as Partial<ProformaForm>);
     setForm(newForm);
     setEditingId(null);
     setTitle("STR Investment Analysis");
@@ -495,9 +536,21 @@ export default function ProformaPage() {
       const noiMargin = netRevenue > 0 ? noi / netRevenue : 0;
 
       const breakEvenOcc = adr > 0 ? (() => {
-        const target = fixedAnnual + annualDebtService;
-        const perNight = adr * (1 - blendedFeeRate) * (1 - mgmtPct) - (parseNum(form.cleaningCostPerTurn)) / avgLOS - adr * (parsePct(form.capExReservePct) + customVariablePct);
-        return perNight > 0 ? target / (perNight * availNights) : 1;
+        // Solve NOI = fixed costs + debt service with the scenario's actual
+        // cleaning income/expense and ancillary revenue rather than a stale default.
+        const revenueBasedCostPct = parsePct(form.capExReservePct) + customVariablePct;
+        const perNightGrossRevenue = adr + cleaningFeeIncome / avgLOS;
+        const perNightContribution =
+          perNightGrossRevenue * (1 - blendedFeeRate) * (1 - mgmtPct) -
+          perNightGrossRevenue * revenueBasedCostPct -
+          cleaningFeeExpensePerTurn / avgLOS;
+        const ancillaryContribution =
+          ancillaryRevenue * (1 - blendedFeeRate) * (1 - mgmtPct) -
+          ancillaryRevenue * revenueBasedCostPct;
+        const requiredContribution = fixedAnnual + annualDebtService - ancillaryContribution;
+        return perNightContribution > 0
+          ? Math.max(0, requiredContribution / (perNightContribution * availNights))
+          : 1;
       })() : 0;
 
       const paybackYears = cashFlow > 0 ? totalCashNeeded / cashFlow : Infinity;
@@ -519,13 +572,19 @@ export default function ProformaPage() {
 
     const revAppreciation = parsePct(form.revenueAppreciationPct);
     const propAppreciation = parsePct(form.propertyAppreciationPct);
+    const expenseInflation = parsePct(form.expenseInflationPct);
     const fiveYear = Array.from({ length: 5 }, (_, i) => {
       const year = i + 1;
       const revGrowth = Math.pow(1 + revAppreciation, i);
-      const expGrowth = 1; // expenses held constant (no inflation assumption)
+      const expGrowth = Math.pow(1 + expenseInflation, i);
       const propValue = pp * Math.pow(1 + propAppreciation, year);
       const yearRev = s2.netRevenue * revGrowth;
-      const yearExp = (s2.fixedAnnual + s2.totalVariableAnnual) * expGrowth;
+      // Platform fees are already removed from net revenue. The remaining
+      // revenue-based costs grow with revenue; fixed and per-turn cleaning costs
+      // grow with the selected operating-expense inflation assumption.
+      const yearExp =
+        (s2.fixedAnnual + s2.cleaningExpense) * expGrowth +
+        (s2.mgmtExpense + s2.capExReserve + s2.customVarAnnual) * revGrowth;
       const yearNoi = yearRev - yearExp;
       const yearCF = yearNoi - annualDebtService;
       const loanSchedule = loanYearSchedule(year);
@@ -584,15 +643,19 @@ export default function ProformaPage() {
     const calcScenarioIRR = (scenario: typeof s1, holdYears: number, includeTax: boolean) => {
       const cashFlows: number[] = [];
       // Year 0: initial investment (negative)
-      const initialOutflow = -totalCashNeeded - (costSegEnabled ? costSegCost : 0);
+      // netTaxBenefit already deducts the cost-segregation study cost in Year 1.
+      // Including the study cost here as well would double-count that cash outflow.
+      const initialOutflow = -totalCashNeeded;
       cashFlows.push(initialOutflow);
 
       // Years 1 through holdYears
       for (let y = 1; y <= holdYears; y++) {
         const revGrowth = Math.pow(1 + revAppreciation, y - 1);
-        const expGrowth = 1; // expenses held constant
+        const expGrowth = Math.pow(1 + expenseInflation, y - 1);
         const yearNetRev = scenario.netRevenue * revGrowth;
-        const yearExp = (scenario.fixedAnnual + scenario.totalVariableAnnual) * expGrowth;
+        const yearExp =
+          (scenario.fixedAnnual + scenario.cleaningExpense) * expGrowth +
+          (scenario.mgmtExpense + scenario.capExReserve + scenario.customVarAnnual) * revGrowth;
         const yearNoi = yearNetRev - yearExp;
         let yearCF = yearNoi - annualDebtService;
 
@@ -680,7 +743,7 @@ export default function ProformaPage() {
     // Post-refi returns with tax benefits
     const postRefiCalcScenarioWithTax = (scenario: typeof s1) => {
       const base = postRefiCalcScenario(scenario);
-      const postRefiYear1CashFlowWithTax = base.postRefiCashFlow + (netTaxBenefit + ongoingAnnualTaxBenefit);
+      const postRefiYear1CashFlowWithTax = base.postRefiCashFlow + netTaxBenefit;
       const postRefiOngoingCashFlowWithTax = base.postRefiCashFlow + ongoingAnnualTaxBenefit;
       const postRefiYear1CoCWithTax = cashLeftInDeal > 0 ? postRefiYear1CashFlowWithTax / cashLeftInDeal : (postRefiYear1CashFlowWithTax > 0 ? Infinity : 0);
       const postRefiOngoingCoCWithTax = cashLeftInDeal > 0 ? postRefiOngoingCashFlowWithTax / cashLeftInDeal : (postRefiOngoingCashFlowWithTax > 0 ? Infinity : 0);
@@ -719,6 +782,34 @@ export default function ProformaPage() {
     setForm(prev => ({ ...prev, [field]: value }));
   }, []);
 
+  const scenarioPrefixes = ["scenario1", "scenario2", "scenario3"] as const;
+  const hasScenarioAmount = (value: unknown) => parseNum(String(value ?? "")) > 0;
+  const canApplyCleaningFee = (prefix: typeof scenarioPrefixes[number]) => {
+    const sourceValue = (form as any)[`${prefix}CleaningFeeRevenue`];
+    if (!hasScenarioAmount(sourceValue)) return false;
+    return scenarioPrefixes
+      .filter(candidate => candidate !== prefix)
+      .every(candidate => !hasScenarioAmount((form as any)[`${candidate}CleaningFeeRevenue`]) && !hasScenarioAmount((form as any)[`${candidate}CleaningFeeExpense`]));
+  };
+  const canApplyAncillaryRevenue = (prefix: typeof scenarioPrefixes[number]) => {
+    const sourceValue = (form as any)[`${prefix}AncillaryRevenue`];
+    if (!hasScenarioAmount(sourceValue)) return false;
+    return scenarioPrefixes
+      .filter(candidate => candidate !== prefix)
+      .every(candidate => !hasScenarioAmount((form as any)[`${candidate}AncillaryRevenue`]));
+  };
+  const applyScenarioValue = (prefix: typeof scenarioPrefixes[number], suffix: "CleaningFeeRevenue" | "AncillaryRevenue") => {
+    const sourceValue = (form as any)[`${prefix}${suffix}`];
+    hasDirtyChanges.current = true;
+    setForm(previous => {
+      const next = { ...previous } as any;
+      scenarioPrefixes.forEach(candidate => {
+        if (candidate !== prefix) next[`${candidate}${suffix}`] = sourceValue;
+      });
+      return next;
+    });
+  };
+
   // ─── Save / Load ───────────────────────────────────────────────────────────
   const handleSave = async () => {
     // Force immediate save (cancel pending auto-save)
@@ -731,7 +822,7 @@ export default function ProformaPage() {
     try {
       const fullData = await utils.properties.getProforma.fetch({ id: proforma.id });
       const fd = (fullData.formData || {}) as ProformaForm;
-      const loadedForm = { ...defaultForm, ...fd };
+      const loadedForm = hydrateProformaForm(fd);
       setForm(loadedForm);
       setTitle(fullData.title || "STR Investment Analysis");
       setEditingId(fullData.id);
@@ -883,6 +974,8 @@ export default function ProformaPage() {
     setShowEmailProforma(true);
   };
 
+  const channelMixTotal = parseNum(form.channelAirbnbPct) + parseNum(form.channelVrboPct) + parseNum(form.channelDirectPct);
+
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (!editing) {
     // If URL has ?load= or ?new=, wait for the useEffect to set editing=true
@@ -902,6 +995,9 @@ export default function ProformaPage() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to Property
         </Button>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowReportSettings(true)}>
+            <Settings className="h-4 w-4 mr-1" /> Settings
+          </Button>
           <Button variant="outline" size="sm" onClick={() => navigate("/proforma-defaults")}>
             <Settings className="h-4 w-4 mr-1" /> Defaults
           </Button>
@@ -1389,7 +1485,12 @@ export default function ProformaPage() {
                         <Input className="h-8 text-sm" value={(form as any)[`${prefix}AvailableNights`]} onChange={e => setField(`${prefix}AvailableNights` as any, e.target.value)} placeholder="365" />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs font-medium text-slate-600">Cleaning Fee Income (per booking, charged to guest)</Label>
+                        <div className="flex items-center justify-between gap-2">
+                          <Label className="text-xs font-medium text-slate-600">Cleaning Fee Income (per booking, charged to guest)</Label>
+                          {canApplyCleaningFee(prefix) && (
+                            <button type="button" className="shrink-0 text-xs font-medium text-cyan-700 hover:text-cyan-900 hover:underline" onClick={() => applyScenarioValue(prefix, "CleaningFeeRevenue")}>Apply to all</button>
+                          )}
+                        </div>
                         <CurrencyInput value={(form as any)[`${prefix}CleaningFeeRevenue`]} onChange={v => setField(`${prefix}CleaningFeeRevenue` as any, v)} placeholder="150" />
                       </div>
                       <div className="space-y-1">
@@ -1405,7 +1506,12 @@ export default function ProformaPage() {
                         </div>
                       )}
                       <div className="space-y-1">
-                        <Label className="text-xs font-medium text-slate-600">Ancillary Revenue (annual)</Label>
+                        <div className="flex items-center justify-between gap-2">
+                          <Label className="text-xs font-medium text-slate-600">Ancillary Revenue (annual)</Label>
+                          {canApplyAncillaryRevenue(prefix) && (
+                            <button type="button" className="shrink-0 text-xs font-medium text-cyan-700 hover:text-cyan-900 hover:underline" onClick={() => applyScenarioValue(prefix, "AncillaryRevenue")}>Apply to all</button>
+                          )}
+                        </div>
                         <CurrencyInput value={(form as any)[`${prefix}AncillaryRevenue`]} onChange={v => setField(`${prefix}AncillaryRevenue` as any, v)} placeholder="0" />
                       </div>
                       <div className="border-t pt-2 space-y-1">
@@ -1434,6 +1540,11 @@ export default function ProformaPage() {
                       </div>
                     ))}
                   </div>
+                  {channelMixTotal > 100 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+                      <strong>Channel mix is {channelMixTotal.toFixed(2)}%.</strong> Airbnb, Vrbo, and Direct Booking cannot total more than 100%.
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {(["feeAirbnb", "feeVrbo", "feeDirect"] as const).map((f, i) => (
                       <div key={f} className="space-y-1">
@@ -1460,6 +1571,13 @@ export default function ProformaPage() {
                       </div>
                     </div>
                   ))}
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium text-slate-600">Expense Inflation (annual)</Label>
+                    <div className="relative">
+                      <Input className="pr-6 h-8 text-sm" value={form.expenseInflationPct} onChange={e => setField("expenseInflationPct", e.target.value)} placeholder="3" />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <Label className="text-xs font-medium text-slate-600">Avg Length of Stay</Label>
                     <div className="relative">
@@ -1513,21 +1631,13 @@ export default function ProformaPage() {
                         {field === "expPropertyTaxAnnual" && form.propertyPhotoUrl && <span className="text-xs text-blue-400 italic">(from Zillow)</span>}
                       </div>
                       <div className="flex items-center gap-1">
-                        <div className="relative w-20">
-                          <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                          <Input className="pl-4 h-7 text-xs w-full" value={formatCurrencyInput(isAnnual ? String(Math.round(monthly)) : form[field] as string)} onChange={e => {
-                            const v = e.target.value.replace(/[^0-9]/g, "");
-                            setField(field, isAnnual ? String(parseNum(v) * 12) : v);
-                          }} />
-                        </div>
+                        <CurrencyInput className="w-24 h-7 text-xs" value={isAnnual ? String(monthly) : form[field] as string} onChange={value => {
+                          setField(field, isAnnual ? String(parseNum(value) * 12) : value);
+                        }} />
                         <span className="text-xs text-slate-400 w-5">/mo</span>
-                        <div className="relative w-20">
-                          <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                          <Input className="pl-4 h-7 text-xs w-full" value={formatCurrencyInput(isAnnual ? form[field] as string : String(Math.round(yearly)))} onChange={e => {
-                            const v = e.target.value.replace(/[^0-9]/g, "");
-                            setField(field, isAnnual ? v : String(Math.round(parseNum(v) / 12)));
-                          }} />
-                        </div>
+                        <CurrencyInput className="w-24 h-7 text-xs" value={isAnnual ? form[field] as string : String(yearly)} onChange={value => {
+                          setField(field, isAnnual ? value : String(parseNum(value) / 12));
+                        }} />
                         <span className="text-xs text-slate-400 w-5">/yr</span>
                       </div>
                     </div>
@@ -1540,12 +1650,9 @@ export default function ProformaPage() {
                       const c = [...(form.customFixedExpenses || [])]; c[i] = { ...c[i], label: e.target.value }; setField("customFixedExpenses", c);
                     }} />
                     <div className="flex items-center gap-2">
-                      <div className="relative w-24">
-                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                        <Input className="pl-5 h-7 text-xs w-full" value={formatCurrencyInput(exp.amount)} onChange={e => {
-                          const c = [...(form.customFixedExpenses || [])]; c[i] = { ...c[i], amount: e.target.value.replace(/[^0-9]/g, "") }; setField("customFixedExpenses", c);
-                        }} />
-                      </div>
+                      <CurrencyInput className="w-28 h-7 text-xs" value={exp.amount} onChange={value => {
+                        const c = [...(form.customFixedExpenses || [])]; c[i] = { ...c[i], amount: value }; setField("customFixedExpenses", c);
+                      }} />
                       <span className="text-xs text-slate-400 w-6">/mo</span>
                       <span className="text-xs text-slate-500 w-20 text-right">{fmtDollar(parseNum(exp.amount) * 12)}/yr</span>
                       <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => {
@@ -1665,6 +1772,7 @@ export default function ProformaPage() {
                         { label: "ADR", v: [fmtDollar(calc.s1.adr), fmtDollar(calc.s2.adr), fmtDollar(calc.s3.adr)] },
                         { label: "Occupancy", v: [fmtPctWhole(calc.s1.occ), fmtPctWhole(calc.s2.occ), fmtPctWhole(calc.s3.occ)] },
                         { label: "Sold Nights", v: [String(calc.s1.soldNights), String(calc.s2.soldNights), String(calc.s3.soldNights)] },
+                        { label: "Ancillary Revenue", v: [fmtDollar(calc.s1.ancillaryRevenue), fmtDollar(calc.s2.ancillaryRevenue), fmtDollar(calc.s3.ancillaryRevenue)] },
                         { label: "Gross Before Cleaning", v: [fmtDollar(calc.s1.grossBeforeCleaning), fmtDollar(calc.s2.grossBeforeCleaning), fmtDollar(calc.s3.grossBeforeCleaning)] },
                         { label: "Gross Revenue", v: [fmtDollar(calc.s1.grossRevenue), fmtDollar(calc.s2.grossRevenue), fmtDollar(calc.s3.grossRevenue)], bold: true },
                         { label: "Platform Fees", v: [fmtDollar(calc.s1.platformFees), fmtDollar(calc.s2.platformFees), fmtDollar(calc.s3.platformFees)] },
@@ -1727,7 +1835,13 @@ export default function ProformaPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-xs text-slate-400 mt-2">Total 5-Year Return: Cumulative Cash Flow ({fmtDollar(calc.fiveYear.reduce((s, y) => s + y.cashFlow, 0))}) + Tax Benefits ({fmtDollar(calc.netTaxBenefit + calc.ongoingAnnualTaxBenefit * 5)}) + Equity ({fmtDollar(calc.fiveYear[4]?.equity || 0)}) = <span className="font-bold text-emerald-700">{fmtDollar(calc.fiveYear.reduce((s, y) => s + y.cashFlow, 0) + calc.netTaxBenefit + calc.ongoingAnnualTaxBenefit * 5 + (calc.fiveYear[4]?.equity || 0))}</span></p>
+                {(() => {
+                  const cumulativeCashFlow = calc.fiveYear.reduce((sum, year) => sum + year.cashFlow, 0);
+                  const taxBenefits = calc.netTaxBenefit + calc.ongoingAnnualTaxBenefit * 4;
+                  const netEquityIncrease = (calc.fiveYear[4]?.equity || 0) - calc.totalCashNeeded;
+                  const totalReturn = cumulativeCashFlow + taxBenefits + netEquityIncrease;
+                  return <p className="text-xs text-slate-400 mt-2">Total 5-Year Return: Cumulative Cash Flow ({fmtDollar(cumulativeCashFlow)}) + Tax Benefits ({fmtDollar(taxBenefits)}) + Net Equity Increase ({fmtDollar(netEquityIncrease)}) = <span className="font-bold text-emerald-700">{fmtDollar(totalReturn)}</span></p>;
+                })()}
               </CardContent>
             </Card>
 
@@ -1938,7 +2052,7 @@ export default function ProformaPage() {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-sm">{comp.name || `Comp ${i + 1}`}</span>
-                                  {comp.rating && <span className="text-xs text-amber-600">\u2b50 {comp.rating}{comp.reviewCount ? ` (${comp.reviewCount})` : ""}</span>}
+                                  {comp.rating && <span className="text-xs text-amber-600">★ {comp.rating}{comp.reviewCount ? ` (${comp.reviewCount})` : ""}</span>}
                                 </div>
                                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-600">
                                   {compCalcRevenue > 0 && <span className="font-semibold text-emerald-700">Rev: ${compCalcRevenue.toLocaleString()}/yr</span>}
@@ -1998,9 +2112,9 @@ export default function ProformaPage() {
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Name/Title</Label><Input className="h-7 text-xs" value={comp.name} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], name: e.target.value }; setField("comps", c); }} /></div>
-                        <div className="space-y-1"><Label className="text-xs">ADR</Label><div className="relative"><span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span><Input className="pl-4 h-7 text-xs" value={formatCurrencyInput(comp.adr?.replace(/[$]/g, "") || "")} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); const n = parseInt(v); const c = [...form.comps]; c[i] = { ...c[i], adr: n > 9999 ? "9999" : v }; setField("comps", c); }} placeholder="250" /></div></div>
+                        <div className="space-y-1"><Label className="text-xs">ADR</Label><CurrencyInput className="h-7 text-xs" value={comp.adr?.replace(/[$,]/g, "") || ""} onChange={value => { const n = parseNum(value); const c = [...form.comps]; c[i] = { ...c[i], adr: n > 9999 ? "9999" : value }; setField("comps", c); }} placeholder="250.00" /></div>
                         <div className="space-y-1"><Label className="text-xs">Occupancy %</Label><Input className="h-7 text-xs" value={comp.occupancy} onChange={e => { const v = e.target.value; const n = parseFloat(v); const c = [...form.comps]; c[i] = { ...c[i], occupancy: n > 100 ? "100" : v }; setField("comps", c); }} placeholder="72" /></div>
-                        <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><Input className="h-7 text-xs bg-slate-50" value={compCalcRevenue > 0 ? `$${compCalcRevenue.toLocaleString()}` : (comp.annualRevenue || "")} readOnly={compCalcRevenue > 0} onChange={e => { if (compCalcRevenue === 0) { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: e.target.value }; setField("comps", c); } }} placeholder="Auto from ADR \u00d7 Occ" /></div>
+                        <div className="space-y-1"><Label className="text-xs">Annual Revenue</Label><CurrencyInput className="h-7 text-xs bg-slate-50" value={compCalcRevenue > 0 ? String(compCalcRevenue) : (comp.annualRevenue || "")} disabled={compCalcRevenue > 0} onChange={value => { const c = [...form.comps]; c[i] = { ...c[i], annualRevenue: value }; setField("comps", c); }} placeholder="Auto from ADR × Occ" /></div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="space-y-1"><Label className="text-xs">Beds</Label><Input className="h-7 text-xs" value={comp.beds} onChange={e => { const c = [...form.comps]; c[i] = { ...c[i], beds: e.target.value }; setField("comps", c); }} /></div>
@@ -2052,6 +2166,38 @@ export default function ProformaPage() {
           </div>
         </TabsContent>
       </Tabs>
+      <Dialog open={showReportSettings} onOpenChange={setShowReportSettings}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Proforma Settings</DialogTitle>
+            <DialogDescription>
+              Choose which sections are included in this proforma’s PDF and email. New proformas include every section by default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="divide-y rounded-lg border">
+            {REPORT_SECTION_KEYS.map(section => {
+              const details = REPORT_SECTION_LABELS[section];
+              return (
+                <div key={section} className="flex items-center justify-between gap-4 px-3 py-3">
+                  <div>
+                    <p className="text-sm font-medium">{details.label}</p>
+                    <p className="text-xs text-muted-foreground">{details.description}</p>
+                  </div>
+                  <Switch
+                    checked={form.reportSections?.[section] ?? true}
+                    onCheckedChange={checked => setField("reportSections", {
+                      ...DEFAULT_REPORT_SECTIONS,
+                      ...(form.reportSections ?? {}),
+                      [section]: checked,
+                    })}
+                    aria-label={`Include ${details.label}`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
       <ProformaEmailComposer
         open={showEmailProforma}
         onOpenChange={setShowEmailProforma}
@@ -2191,6 +2337,7 @@ export default function ProformaPage() {
               amount: calc.s2.grossRevenue * parsePct(expense.amount),
             })),
           ],
+          reportSections: form.reportSections,
         }}
       />
     </div>
@@ -2211,9 +2358,15 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
   const [filterMinRevenue, setFilterMinRevenue] = useState("");
   const [filterMaxRevenue, setFilterMaxRevenue] = useState("");
   const [filterMinADR, setFilterMinADR] = useState("");
+  const [filterMaxADR, setFilterMaxADR] = useState("");
+  const [filterMarket, setFilterMarket] = useState("");
+  const [filterAgent, setFilterAgent] = useState("");
+  const [search, setSearch] = useState("");
 
   // Fetch all comps from other proformas
   const { data: allComps = [] } = trpc.properties.listAllComps.useQuery({ isAdmin });
+  const markets = Array.from(new Set((allComps as any[]).map(comp => comp.market).filter(Boolean))).sort();
+  const agents = Array.from(new Set((allComps as any[]).map(comp => comp.addedBy).filter(Boolean))).sort();
 
   // Filter comps
   const filteredComps = (allComps as any[]).filter((comp: any) => {
@@ -2230,6 +2383,17 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
     if (filterMinADR) {
       const adr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
       if (adr < parseFloat(filterMinADR)) return false;
+    }
+    if (filterMaxADR) {
+      const adr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
+      if (adr > parseFloat(filterMaxADR)) return false;
+    }
+    if (isAdmin && filterMarket && comp.market !== filterMarket) return false;
+    if (isAdmin && filterAgent && comp.addedBy !== filterAgent) return false;
+    if (search.trim()) {
+      const query = search.trim().toLowerCase();
+      const searchable = [comp.name, comp.city, comp.beds, comp.adr, comp.annualRevenue, comp.addedBy, comp.market, comp.notes].filter(Boolean).join(" ").toLowerCase();
+      if (!searchable.includes(query)) return false;
     }
     return true;
   });
@@ -2272,7 +2436,25 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
 
         {/* Filters */}
         <div className="p-3 border-b bg-slate-50">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
+            {isAdmin && <div className="space-y-1">
+              <Label className="text-xs">Market</Label>
+              <select className="h-7 w-full rounded border bg-white px-2 text-xs" value={filterMarket} onChange={e => setFilterMarket(e.target.value)}>
+                <option value="">All markets</option>
+                {markets.map(market => <option key={market} value={market}>{market}</option>)}
+              </select>
+            </div>}
+            {isAdmin && <div className="space-y-1">
+              <Label className="text-xs">Agent</Label>
+              <select className="h-7 w-full rounded border bg-white px-2 text-xs" value={filterAgent} onChange={e => setFilterAgent(e.target.value)}>
+                <option value="">All agents</option>
+                {agents.map(agent => <option key={agent} value={agent}>{agent}</option>)}
+              </select>
+            </div>}
+            <div className="space-y-1">
+              <Label className="text-xs">Search</Label>
+              <Input className="h-7 text-xs" value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, city..." />
+            </div>
             <div className="space-y-1">
               <Label className="text-xs">Beds</Label>
               <Input className="h-7 text-xs" value={filterBeds} onChange={e => setFilterBeds(e.target.value)} placeholder="e.g. 3" />
@@ -2292,6 +2474,10 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
             <div className="space-y-1">
               <Label className="text-xs">Min ADR</Label>
               <Input className="h-7 text-xs" value={filterMinADR} onChange={e => setFilterMinADR(e.target.value)} placeholder="200" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Max ADR</Label>
+              <Input className="h-7 text-xs" value={filterMaxADR} onChange={e => setFilterMaxADR(e.target.value)} placeholder="500" />
             </div>
           </div>
           <p className="text-xs text-slate-400 mt-1">{filteredComps.length} comps found{!isAdmin ? " (your comps only)" : " (all users)"}</p>
@@ -2315,7 +2501,7 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{comp.name || "Unnamed Comp"}</p>
                       <p className="text-xs text-slate-500">
-                        {comp.beds ? `${comp.beds} beds` : ""}{comp.city ? ` • ${comp.city}` : ""}{comp.annualRevenue ? ` • Rev: ${comp.annualRevenue}` : ""}{comp.adr ? ` • ADR: ${comp.adr}` : ""}{comp.occupancy ? ` • Occ: ${comp.occupancy}` : ""}
+                        {comp.beds ? `${comp.beds} beds` : ""}{comp.city ? ` • ${comp.city}` : ""}{comp.annualRevenue ? ` • Rev: ${comp.annualRevenue}` : ""}{comp.adr ? ` • ADR: ${comp.adr}` : ""}{comp.occupancy ? ` • Occ: ${comp.occupancy}` : ""}{isAdmin && comp.market ? ` • ${comp.market}` : ""}
                       </p>
                     </div>
                     {comp.rating && <span className="text-xs text-amber-600">⭐ {comp.rating}</span>}

@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -23,7 +24,7 @@ import LeadSourcePicker from "@/components/LeadSourcePicker";
 const formatCurrency = (val: string | null | undefined) => {
   if (!val) return "—";
   const num = parseFloat(val);
-  return isNaN(num) ? val : `$${num.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  return isNaN(num) ? val : num.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const parseCurrencyInput = _parseCurrencyInput;
 const formatPhoneDisplay = _formatPhone;
@@ -379,20 +380,7 @@ function CommissionFields({
         </div>
         <div>
           <Label className="text-xs">{commissionType === "percentage" ? "Rate (%)" : "Amount ($)"}</Label>
-          <div className="relative mt-1">
-            {commissionType === "percentage" && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-            )}
-            {commissionType === "flat" && (
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-            )}
-            <Input
-              className={`h-8 text-sm ${commissionType === "percentage" ? "pr-7" : "pl-7"}`}
-              value={commissionRate}
-              onChange={(e) => onRateChange(e.target.value)}
-              placeholder={commissionType === "percentage" ? "3.00" : "15000"}
-            />
-          </div>
+          {commissionType === "flat" ? <CurrencyInput className="mt-1 h-8 text-sm" value={commissionRate} onChange={onRateChange} placeholder="15,000.00" /> : <div className="relative mt-1"><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span><Input className="h-8 text-sm pr-7" value={commissionRate} onChange={(e) => onRateChange(e.target.value)} placeholder="3.00" /></div>}
         </div>
       </div>
       {/* GCI field with manual override */}
@@ -403,19 +391,7 @@ function CommissionFields({
             <span className="text-amber-600 font-normal">(manually set)</span>
           )}
         </Label>
-        <div className="relative mt-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-          <Input
-            className="h-8 text-sm pl-7"
-            placeholder={autoGci ? autoGci.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "auto-calculated"}
-            value={gci}
-            onChange={(e) => {
-              const raw = _parseCurrencyInput(e.target.value);
-              onGciChange?.(raw ? Number(raw).toLocaleString("en-US") : "");
-              onGciManualChange?.(true);
-            }}
-          />
-        </div>
+        <CurrencyInput className="mt-1 h-8 text-sm" placeholder={autoGci ? autoGci.toFixed(2) : "auto-calculated"} value={gci} onChange={(value) => { onGciChange?.(value); onGciManualChange?.(true); }} />
         {gciManuallyEdited && autoGci !== null && (
           <button
             type="button"

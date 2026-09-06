@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,6 +14,9 @@ import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUpload
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import AddressAutocompleteInput from "@/components/AddressAutocompleteInput";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/inputFormatters";
 
 const PROPERTY_TYPES = ["single_family","multi_family","condo","townhouse","cabin","vacation_rental","commercial","land","other"];
 
@@ -25,6 +28,7 @@ export default function PropertiesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ address: "", city: "", state: "", zip: "", propertyType: "single_family", beds: "", baths: "", sqft: "", listPrice: "", notes: "" });
   const [duplicateInfo, setDuplicateInfo] = useState<{ id: number; address: string } | null>(null);
+  const [addressVerified, setAddressVerified] = useState(false);
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const bulkUploadMutation = trpc.properties.bulkUpload.useMutation();
@@ -57,6 +61,7 @@ export default function PropertiesPage() {
       setOpen(false);
       setForm({ address: "", city: "", state: "", zip: "", propertyType: "single_family", beds: "", baths: "", sqft: "", listPrice: "", notes: "" });
       setDuplicateInfo(null);
+      setAddressVerified(false);
       refetch();
       navigate(`/properties/${data.id}`);
     },
@@ -72,6 +77,11 @@ export default function PropertiesPage() {
       toast.error(e.message);
     },
   });
+
+  const handleAddressSelect = useCallback((selected: { address: string; city: string; state: string; zip: string }) => {
+    setForm(current => ({ ...current, ...selected }));
+    setDuplicateInfo(null);
+  }, []);
 
   const handleCreate = () => {
     if (!form.address || !form.city || !form.state || !form.zip) {
@@ -188,7 +198,7 @@ export default function PropertiesPage() {
                     </td>
                     <td className="py-3 px-4 text-muted-foreground capitalize">{property.propertyType?.replace("_"," ") ?? "—"}</td>
                     <td className="py-3 px-4 text-muted-foreground">{property.beds && property.baths ? `${property.beds}bd / ${property.baths}ba` : "—"}</td>
-                    <td className="py-3 px-4 text-right">{property.listPrice ? `$${Number(property.listPrice).toLocaleString()}` : "—"}</td>
+                    <td className="py-3 px-4 text-right">{property.listPrice ? formatCurrency(property.listPrice) : "—"}</td>
                     <td className="py-3 px-4">
                       <TooltipProvider delayDuration={200}>
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -261,11 +271,19 @@ export default function PropertiesPage() {
         <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add Property</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Address *</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+            <div>
+              <Label>Address *</Label>
+              <AddressAutocompleteInput
+                value={form.address}
+                onChange={(address) => setForm(current => ({ ...current, address }))}
+                onSelectAddress={handleAddressSelect}
+                onVerificationChange={setAddressVerified}
+              />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div><Label>City *</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="e.g. Glendale" /></div>
-              <div><Label>State *</Label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="e.g. UT" maxLength={2} /></div>
-              <div><Label>ZIP *</Label><Input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder="e.g. 84729" /></div>
+              <div><Label>State *</Label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2) })} placeholder="e.g. UT" maxLength={2} /></div>
+              <div><Label>ZIP *</Label><Input inputMode="numeric" value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value.replace(/[^0-9-]/g, "").slice(0, 10) })} placeholder="e.g. 84729" /></div>
             </div>
             <div>
               <Label>Property Type</Label>
@@ -275,11 +293,13 @@ export default function PropertiesPage() {
               </Select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div><Label>Beds</Label><Input value={form.beds} onChange={(e) => setForm({ ...form, beds: e.target.value })} /></div>
-              <div><Label>Baths</Label><Input value={form.baths} onChange={(e) => setForm({ ...form, baths: e.target.value })} /></div>
-              <div><Label>Sqft</Label><Input type="number" value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value })} /></div>
+              <div><Label>Beds</Label><Input inputMode="numeric" maxLength={2} value={form.beds} onChange={(e) => setForm({ ...form, beds: e.target.value.replace(/\D/g, "").slice(0, 2) })} /></div>
+              <div><Label>Baths</Label><Input inputMode="numeric" maxLength={2} value={form.baths} onChange={(e) => setForm({ ...form, baths: e.target.value.replace(/\D/g, "").slice(0, 2) })} /></div>
+              <div><Label>Sqft</Label><Input inputMode="numeric" maxLength={5} value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value.replace(/\D/g, "").slice(0, 5) })} /></div>
             </div>
-            <div><Label>List Price</Label><Input placeholder="e.g. 450000" value={form.listPrice} onChange={(e) => setForm({ ...form, listPrice: e.target.value })} /></div>
+            <div><Label>List Price</Label><CurrencyInput placeholder="450,000.00" value={form.listPrice} onChange={(listPrice) => setForm(current => ({ ...current, listPrice }))} /></div>
+
+            {!addressVerified && form.address && <p className="text-xs text-muted-foreground">A manually entered address will be verified and standardized when the property is saved.</p>}
 
             {/* Duplicate Warning */}
             {duplicateInfo && (
@@ -307,7 +327,7 @@ export default function PropertiesPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setOpen(false); setDuplicateInfo(null); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setOpen(false); setDuplicateInfo(null); setAddressVerified(false); }}>Cancel</Button>
             <Button onClick={handleCreate} disabled={!form.address || !form.city || !form.state || !form.zip || create.isPending}>
               {create.isPending ? "Creating..." : "Create Property"}
             </Button>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import PageHeader from "@/components/PageHeader";
 import { ArrowLeft, Save, RotateCcw, Users } from "lucide-react";
 import { useLocation } from "wouter";
@@ -175,10 +176,7 @@ export default function ProformaDefaultsPage() {
   const DollarRow = ({ label, field }: { label: string; field: keyof DefaultsData }) => (
     <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
       <Label className="text-xs text-slate-600 flex-1">{label}</Label>
-      <div className="relative w-24">
-        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-        <Input className="pl-5 h-7 text-xs" value={defaults[field]} onChange={e => setField(field, e.target.value)} />
-      </div>
+      <CurrencyInput className="w-28 h-7 text-xs" value={defaults[field]} onChange={value => setField(field, value)} />
     </div>
   );
 

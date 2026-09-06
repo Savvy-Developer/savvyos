@@ -90,6 +90,7 @@ type ProformaEmailComposerProps = {
       adr: number;
       occupancy: number;
       soldNights: number;
+      ancillaryRevenue: number;
       grossRevenue: number;
       platformFees: number;
       netRevenue: number;
@@ -131,6 +132,7 @@ type ProformaEmailComposerProps = {
     };
     fixedExpenseItems: Array<{ label: string; amount: number }>;
     variableExpenseItems: Array<{ label: string; amount: number }>;
+    reportSections?: Partial<Record<"scenarioComparison" | "fiveYearProjection" | "irr" | "taxBenefits" | "operatingBudget" | "comps" | "valueAdd", boolean>>;
   };
   onSent?: () => void;
 };
@@ -138,11 +140,12 @@ type ProformaEmailComposerProps = {
 type RecipientMode = "contact" | "manual";
 
 function formatCurrency(value: number): string {
-  if (!Number.isFinite(value)) return "$0";
+  if (!Number.isFinite(value)) return "$0.00";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
@@ -256,6 +259,7 @@ function fullScenarioComparison(summary: Summary): string {
     ["ADR", scenario => formatCurrency(scenario.adr), false],
     ["Occupancy", scenario => formatPercent(scenario.occupancy), false],
     ["Sold Nights", scenario => formatNumber(scenario.soldNights), false],
+    ["Ancillary Revenue", scenario => formatCurrency(scenario.ancillaryRevenue), false],
     ["Gross Revenue", scenario => formatCurrency(scenario.grossRevenue), false],
     ["Platform Fees", scenario => formatCurrency(scenario.platformFees), false],
     ["Net Revenue", scenario => formatCurrency(scenario.netRevenue), false],
@@ -420,6 +424,16 @@ export function buildEmailTemplate(
 ): string {
   const safePropertyLabel = escapeHtml(propertyLabel || "this property");
   const safeTitle = escapeHtml(proformaTitle || "STR Investment Analysis");
+  const reportSections = {
+    scenarioComparison: true,
+    fiveYearProjection: true,
+    irr: true,
+    taxBenefits: true,
+    operatingBudget: true,
+    comps: true,
+    valueAdd: true,
+    ...(summary.reportSections || {}),
+  };
   const propertyPhoto = safeHttpUrl(summary.propertyPhotoUrl);
   const propertyLink = safeHttpUrl(summary.propertyLink);
   const propertyMeta = escapeHtml(
@@ -490,17 +504,18 @@ export function buildEmailTemplate(
       metricRow("Platform fees", formatCurrency(summary.platformFees)),
     ].join("")
   );
-  const expandedScenarioComparison = fullScenarioComparison(summary);
-  const irr = irrMatrix(summary);
-  const taxDetail = taxBenefitDetail(summary);
+  const expandedScenarioComparison = reportSections.scenarioComparison ? fullScenarioComparison(summary) : "";
+  const irr = reportSections.irr ? irrMatrix(summary) : "";
+  const taxDetail = reportSections.taxBenefits ? taxBenefitDetail(summary) : "";
   const detailedExpenses = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${detailedExpenseCard("Detailed Fixed Expenses", summary.fixedExpenseItems, "Total fixed expenses", summary.fixedExpenses)}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${detailedExpenseCard("Detailed Variable Expenses", summary.variableExpenseItems, "Total variable expenses", summary.variableExpenses)}</td></tr></table>`;
   /* Previous compact scenario table retained below for the fallback layout. */
   const compactScenarioComparison = summary.scenarios.length
     ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid ${EMAIL_BORDER};border-radius:10px;overflow:hidden;background:#ffffff;"><tr><td style="padding:13px 14px 8px;color:${EMAIL_TEAL};font-size:15px;line-height:19px;font-weight:800;">Scenario Comparison</td></tr><tr><td style="padding:0 7px 10px;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr style="background:${EMAIL_TEAL};"><th align="left" style="padding:8px 7px;color:#ffffff;font-size:10px;">Scenario</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Revenue</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Cash Flow</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">CoC</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">DSCR</th></tr>${summary.scenarios.map(scenario => scenarioRow(scenario, scenario === baseScenario)).join("")}</table></td></tr></table>`
     : "";
-  const scenarioComparison =
-    expandedScenarioComparison || compactScenarioComparison;
-  const fiveYear = summary.fiveYear.length
+  const scenarioComparison = reportSections.scenarioComparison
+    ? expandedScenarioComparison || compactScenarioComparison
+    : "";
+  const fiveYear = reportSections.fiveYearProjection && summary.fiveYear.length
     ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid ${EMAIL_BORDER};border-radius:10px;overflow:hidden;background:#ffffff;"><tr><td style="padding:13px 14px 8px;color:${EMAIL_TEAL};font-size:15px;line-height:19px;font-weight:800;">5-Year Growth Outlook</td></tr><tr><td style="padding:0 7px 10px;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr style="background:${EMAIL_TEAL};"><th align="left" style="padding:8px 7px;color:#ffffff;font-size:10px;">Year</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Revenue</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Cash Flow</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Property Value</th><th align="right" style="padding:8px 5px;color:#ffffff;font-size:10px;">Equity</th></tr>${summary.fiveYear
         .slice(0, 5)
         .map(
@@ -509,7 +524,7 @@ export function buildEmailTemplate(
         )
         .join("")}</table></td></tr></table>`
     : "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#ffffff;"><tr><td align="center" style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" width="680" style="width:100%;max-width:680px;border-collapse:collapse;background:#ffffff;"><tr><td style="padding:24px 20px 8px;">${logoHeader}</td></tr><tr><td style="padding:8px 20px 0;"><div style="color:${EMAIL_TEAL};font-size:25px;line-height:30px;font-weight:800;">${safeTitle}</div><div style="margin-top:4px;color:${EMAIL_INK};font-size:14px;line-height:19px;font-weight:600;">${safePropertyLabel}</div><div style="margin-top:2px;color:${EMAIL_MUTED};font-size:12px;line-height:17px;">${propertyMeta}</div></td></tr>${hero}<tr><td style="padding:18px 20px 0;">${notableNumbers}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid #b6e5e2;border-radius:10px;background:#f5fcfc;"><tr><td style="padding:14px 15px;"><div style="color:${EMAIL_TEAL};font-size:14px;line-height:18px;font-weight:800;">Investment Analysis</div><div style="margin-top:5px;color:${EMAIL_INK};font-size:12px;line-height:18px;">${investmentNarrative}</div></td></tr></table></td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${acquisition}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${financing}</td></tr></table></td></tr><tr><td style="padding:16px 20px 0;">${scenarioComparison}</td></tr><tr><td style="padding:16px 20px 0;">${fiveYear}</td></tr>${irr ? `<tr><td style="padding:16px 20px 0;">${irr}</td></tr>` : ""}<tr><td style="padding:16px 20px 0;">${taxDetail}</td></tr><tr><td style="padding:16px 20px 0;">${expenseMix}</td></tr><tr><td style="padding:16px 20px 0;">${detailedExpenses}</td></tr>${propertyLink ? `<tr><td style="padding:15px 20px 0;"><a href="${escapeHtml(propertyLink)}" style="color:${EMAIL_TEAL};font-size:12px;font-weight:700;text-decoration:underline;">View property listing →</a></td></tr>` : ""}<tr><td style="padding:19px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">These projections are illustrative and based on the stated assumptions, comparable data, and modeled inputs. They are not financial, tax, or investment advice and should be reviewed as part of your due diligence.</td></tr><tr><td style="padding:18px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">I would be happy to walk through the assumptions and answer any questions.<br/><br/>Best,</td></tr></table></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#ffffff;"><tr><td align="center" style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" width="680" style="width:100%;max-width:680px;border-collapse:collapse;background:#ffffff;"><tr><td style="padding:24px 20px 8px;">${logoHeader}</td></tr><tr><td style="padding:8px 20px 0;"><div style="color:${EMAIL_TEAL};font-size:25px;line-height:30px;font-weight:800;">${safeTitle}</div><div style="margin-top:4px;color:${EMAIL_INK};font-size:14px;line-height:19px;font-weight:600;">${safePropertyLabel}</div><div style="margin-top:2px;color:${EMAIL_MUTED};font-size:12px;line-height:17px;">${propertyMeta}</div></td></tr>${hero}<tr><td style="padding:18px 20px 0;">${notableNumbers}</td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0;border:1px solid #b6e5e2;border-radius:10px;background:#f5fcfc;"><tr><td style="padding:14px 15px;"><div style="color:${EMAIL_TEAL};font-size:14px;line-height:18px;font-weight:800;">Investment Analysis</div><div style="margin-top:5px;color:${EMAIL_INK};font-size:12px;line-height:18px;">${investmentNarrative}</div></td></tr></table></td></tr><tr><td style="padding:16px 20px 0;"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;"><tr><td width="50%" valign="top" style="padding:0 6px 0 0;">${acquisition}</td><td width="50%" valign="top" style="padding:0 0 0 6px;">${financing}</td></tr></table></td></tr>${scenarioComparison ? `<tr><td style="padding:16px 20px 0;">${scenarioComparison}</td></tr>` : ""}${fiveYear ? `<tr><td style="padding:16px 20px 0;">${fiveYear}</td></tr>` : ""}${irr ? `<tr><td style="padding:16px 20px 0;">${irr}</td></tr>` : ""}${taxDetail ? `<tr><td style="padding:16px 20px 0;">${taxDetail}</td></tr>` : ""}${reportSections.operatingBudget ? `<tr><td style="padding:16px 20px 0;">${expenseMix}</td></tr><tr><td style="padding:16px 20px 0;">${detailedExpenses}</td></tr>` : ""}${propertyLink ? `<tr><td style="padding:15px 20px 0;"><a href="${escapeHtml(propertyLink)}" style="color:${EMAIL_TEAL};font-size:12px;font-weight:700;text-decoration:underline;">View property listing →</a></td></tr>` : ""}<tr><td style="padding:19px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">These projections are illustrative and based on the stated assumptions, comparable data, and modeled inputs. They are not financial, tax, or investment advice and should be reviewed as part of your due diligence.</td></tr><tr><td style="padding:18px 20px 0;color:${EMAIL_INK};font-size:13px;line-height:20px;">I would be happy to walk through the assumptions and answer any questions.<br/><br/>Best,</td></tr></table></td></tr></table>`;
 }
 
 export default function ProformaEmailComposer({

@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -68,7 +69,7 @@ const EMPTY_CONVERT_FORM = {
 function formatPrice(p: string | null | undefined) {
   if (!p) return "—";
   const num = parseFloat(p);
-  return isNaN(num) ? p : `$${num.toLocaleString("en-US")}`;
+  return isNaN(num) ? p : num.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const formatPhone = _formatPhone;
@@ -921,18 +922,7 @@ export default function ListingsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>List Price</Label>
-                <div className="relative mt-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input
-                    className="pl-6"
-                    placeholder="500,000"
-                    value={form.listPrice ? Number(parseCurrencyInput(form.listPrice)).toLocaleString("en-US") : ""}
-                    onChange={(e) => {
-                      const raw = parsePriceInput(e.target.value);
-                      setForm({ ...form, listPrice: raw ? Number(raw).toLocaleString("en-US") : "" });
-                    }}
-                  />
-                </div>
+                <CurrencyInput className="mt-1" placeholder="500,000.00" value={form.listPrice} onChange={(listPrice) => setForm({ ...form, listPrice })} />
               </div>
               <div>
                 <Label>List Date</Label>
@@ -1063,17 +1053,7 @@ export default function ListingsPage() {
 
             <div>
               <Label>Purchase Price</Label>
-              <div className="relative mt-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                <Input
-                  className="pl-6"
-                  value={convertForm.purchasePrice}
-                  onChange={(e) => {
-                    const raw = parsePriceInput(e.target.value);
-                    setConvertForm({ ...convertForm, purchasePrice: raw ? Number(raw).toLocaleString("en-US") : "" });
-                  }}
-                />
-              </div>
+              <CurrencyInput className="mt-1" value={convertForm.purchasePrice} onChange={(purchasePrice) => setConvertForm({ ...convertForm, purchasePrice })} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

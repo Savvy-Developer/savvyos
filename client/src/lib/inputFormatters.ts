@@ -51,7 +51,7 @@ export function isValidEmail(value: string): boolean {
 // ─── Currency ─────────────────────────────────────────────────────────────────
 
 /**
- * Format a raw numeric string or number to "$1,234,567".
+ * Format a raw numeric string or number to "$1,234,567.00".
  * Used for display only — the underlying value stored/sent is the raw number string.
  */
 export function formatCurrency(value: string | number | null | undefined): string {
@@ -61,9 +61,9 @@ export function formatCurrency(value: string | number | null | undefined): strin
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.round(num));
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
 }
 
 /** Strip currency formatting to a plain numeric string suitable for storage. */
@@ -71,12 +71,15 @@ export function parseCurrencyInput(value: string): string {
   return value.replace(/[^0-9.]/g, "");
 }
 
-/** Format a currency input with thousands separators and no cents. */
+/** Format a raw currency input with thousands separators and up to two cents. */
 export function formatCurrencyInput(value: string): string {
-  const stripped = value.replace(/[^0-9]/g, "");
-  if (!stripped) return "";
-  const intPart = stripped.replace(/^0+(?=\d)/, "");
-  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sanitized = value.replace(/[^0-9.]/g, "");
+  if (!sanitized) return "";
+  const [whole = "", ...decimalParts] = sanitized.split(".");
+  const intPart = whole.replace(/^0+(?=\d)/, "") || "0";
+  const decimal = decimalParts.join("").slice(0, 2);
+  const formattedWhole = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return decimalParts.length ? `${formattedWhole}.${decimal}` : formattedWhole;
 }
 
 // ─── Percentage ───────────────────────────────────────────────────────────────

@@ -3,9 +3,8 @@ import { Input } from "./input";
 import { cn } from "@/lib/utils";
 
 /**
- * CurrencyInput — a dollar input field that auto-formats with commas as the user types.
- * Stores the raw numeric string (no commas, no $) in the parent state via onChange.
- * Displays with commas in the input box and a $ prefix label.
+ * CurrencyInput — a dollar input field that consistently displays $#,###.##.
+ * Stores a raw numeric string (no commas or currency symbol) in parent state.
  */
 interface CurrencyInputProps {
   value: string;
@@ -16,18 +15,25 @@ interface CurrencyInputProps {
 }
 
 export function CurrencyInput({ value, onChange, placeholder, className, disabled }: CurrencyInputProps) {
-  // Format the display value with commas
+  const [focused, setFocused] = React.useState(false);
+  const rawValue = value.replace(/[^0-9.]/g, "");
   const displayValue = React.useMemo(() => {
-    const raw = value.replace(/[^0-9]/g, "");
-    if (!raw) return "";
-    const cleaned = raw.replace(/^0+(?=\d)/, "");
-    return cleaned.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  }, [value]);
+    if (!rawValue) return "";
+    if (focused) return rawValue;
+    const amount = Number(rawValue);
+    if (!Number.isFinite(amount)) return "";
+    return amount.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }, [focused, rawValue]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Strip to raw digits only for storage
-    const raw = e.target.value.replace(/[^0-9]/g, "");
-    onChange(raw);
+    const sanitized = e.target.value.replace(/[^0-9.]/g, "");
+    const [whole = "", ...decimalParts] = sanitized.split(".");
+    const decimal = decimalParts.join("").slice(0, 2);
+    const normalizedWhole = whole.replace(/^0+(?=\d)/, "") || (sanitized.startsWith(".") ? "0" : whole);
+    onChange(decimalParts.length ? `${normalizedWhole}.${decimal}` : normalizedWhole);
   };
 
   return (
@@ -37,8 +43,11 @@ export function CurrencyInput({ value, onChange, placeholder, className, disable
         className={cn("pl-6 h-8 text-sm", className)}
         value={displayValue}
         onChange={handleChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         disabled={disabled}
+        inputMode="decimal"
       />
     </div>
   );

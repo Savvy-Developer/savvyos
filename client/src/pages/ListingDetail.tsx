@@ -7,6 +7,7 @@ import { Link, useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -1240,15 +1241,7 @@ export default function ListingDetail() {
             {/* List Price */}
             <div className="space-y-1.5">
               <Label>List Price</Label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  className="pl-8"
-                  value={editForm.listPrice ? Number(editForm.listPrice.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""}
-                  onChange={(e) => setEditForm(f => ({ ...f, listPrice: e.target.value.replace(/[^0-9]/g, "") }))}
-                  placeholder="875,000"
-                />
-              </div>
+              <CurrencyInput value={editForm.listPrice} onChange={(listPrice) => setEditForm(f => ({ ...f, listPrice }))} placeholder="875,000.00" />
             </div>
 
             {/* Dates */}
@@ -1567,12 +1560,7 @@ export default function ListingDetail() {
                 <Label>Purchase Price</Label>
                 <div className="relative">
                   <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    className="pl-8"
-                    value={convertForm.purchasePrice ? Number(convertForm.purchasePrice.replace(/[^0-9]/g, "")).toLocaleString("en-US") : ""}
-                    onChange={(e) => setConvertForm(f => ({ ...f, purchasePrice: e.target.value.replace(/[^0-9]/g, "") }))}
-                    placeholder={listing.listPrice ? Number(listing.listPrice).toLocaleString("en-US") : "e.g. 875,000"}
-                  />
+                  <CurrencyInput value={convertForm.purchasePrice} onChange={(purchasePrice) => setConvertForm(f => ({ ...f, purchasePrice }))} placeholder={listing.listPrice ? Number(listing.listPrice).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "875,000.00"} />
                 </div>
               </div>
 
@@ -1826,13 +1814,7 @@ export default function ListingDetail() {
             </p>
             <div className="space-y-1">
               <Label>New List Price <span className="text-red-500">*</span></Label>
-              <Input
-                type="number"
-                min="1"
-                placeholder="e.g. 450000"
-                value={backToActiveForm.listPrice}
-                onChange={e => setBackToActiveForm(f => ({ ...f, listPrice: e.target.value }))}
-              />
+              <CurrencyInput placeholder="450,000.00" value={backToActiveForm.listPrice} onChange={listPrice => setBackToActiveForm(f => ({ ...f, listPrice }))} />
             </div>
             <div className="space-y-1">
               <Label>Commission Rate (%) <span className="text-red-500">*</span></Label>

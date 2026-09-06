@@ -15,6 +15,11 @@ import { propertyOwnership, transactions, listings, contacts, contactProperties,
 import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
 import { buildNormalizedKey, geocodeAddress, capitalizeAddress, capitalizeCity, normalizeState } from "../addressNormalization";
 
+const wholePropertyCount = z.union([
+  z.string().regex(/^\d{1,2}$/, "Must be a whole number with no more than two digits"),
+  z.literal(""),
+]);
+
 export const propertiesRouter = router({
   list: protectedProcedure
     .input(
@@ -51,9 +56,9 @@ export const propertiesRouter = router({
       city: z.string().min(1, "City is required"),
       state: z.string().min(1, "State is required"),
       zip: z.string().min(3, "ZIP code is required"),
-      beds: z.string().optional().nullable(),
-      baths: z.string().optional().nullable(),
-      sqft: z.number().optional().nullable(),
+      beds: wholePropertyCount.optional().nullable(),
+      baths: wholePropertyCount.optional().nullable(),
+      sqft: z.number().int().min(0).max(99999, "Sqft cannot exceed five digits").optional().nullable(),
       propertyType: z.enum(["single_family","multi_family","condo","townhouse","cabin","vacation_rental","commercial","land","other"]).optional().nullable(),
       yearBuilt: z.number().optional().nullable(),
       listPrice: z.string().optional().nullable(),
@@ -178,9 +183,9 @@ export const propertiesRouter = router({
         city: z.string().optional().nullable(),
         state: z.string().optional().nullable(),
         zip: z.string().optional().nullable(),
-        beds: z.string().optional().nullable(),
-        baths: z.string().optional().nullable(),
-        sqft: z.number().optional().nullable(),
+        beds: wholePropertyCount.optional().nullable(),
+        baths: wholePropertyCount.optional().nullable(),
+        sqft: z.number().int().min(0).max(99999, "Sqft cannot exceed five digits").optional().nullable(),
         propertyType: z.enum(["single_family","multi_family","condo","townhouse","cabin","vacation_rental","commercial","land","other"]).optional().nullable(),
         yearBuilt: z.number().optional().nullable(),
         listPrice: z.string().optional().nullable(),
@@ -890,10 +895,10 @@ export const propertiesRouter = router({
       // Get all proformas (admin sees all, agent sees only theirs)
       let rows: any;
       if (input?.isAdmin && ctx.user.role === "admin") {
-        const result = await db.execute(sql`SELECT p.formData, p.createdByUserId, u.name as userName FROM proformas p LEFT JOIN users u ON p.createdByUserId = u.id`);
+        const result = await db.execute(sql`SELECT p.formData, p.createdByUserId, u.name as userName, mp.name as marketName, mp.state as marketState FROM proformas p LEFT JOIN users u ON p.createdByUserId = u.id LEFT JOIN market_profiles mp ON u.marketProfileId = mp.id`);
         rows = result[0];
       } else {
-        const result = await db.execute(sql`SELECT p.formData, p.createdByUserId, u.name as userName FROM proformas p LEFT JOIN users u ON p.createdByUserId = u.id WHERE p.createdByUserId = ${ctx.user.id}`);
+        const result = await db.execute(sql`SELECT p.formData, p.createdByUserId, u.name as userName, mp.name as marketName, mp.state as marketState FROM proformas p LEFT JOIN users u ON p.createdByUserId = u.id LEFT JOIN market_profiles mp ON u.marketProfileId = mp.id WHERE p.createdByUserId = ${ctx.user.id}`);
         rows = result[0];
       }
       // Extract comps from each proforma's formData
@@ -904,7 +909,11 @@ export const propertiesRouter = router({
           const comps = formData?.comps || [];
           for (const comp of comps) {
             if (comp.link && comp.link.includes("airbnb")) {
-              allComps.push({ ...comp, addedBy: row.userName || "Unknown" });
+              allComps.push({
+                ...comp,
+                addedBy: row.userName || "Unknown",
+                market: [row.marketName, row.marketState].filter(Boolean).join(", ") || "Unassigned",
+              });
             }
           }
         } catch {}
