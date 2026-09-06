@@ -167,7 +167,7 @@ export default function MarketingTextInboxPage() {
     null
   );
   const [selectedNumberId, setSelectedNumberId] = useState("");
-  const [reply, setReply] = useState("");
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
   const [showArchived, setShowArchived] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [archiveOnFinish, setArchiveOnFinish] = useState(false);
@@ -244,6 +244,7 @@ export default function MarketingTextInboxPage() {
   const selectedAgent = (agentsQuery.data ?? []).find(
     agent => String(agent.id) === selectedAgentId
   );
+  const reply = selectedContactId ? replyDrafts[selectedContactId] ?? "" : "";
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 60_000);
@@ -268,8 +269,12 @@ export default function MarketingTextInboxPage() {
       onError: error => toast.error(error.message),
     });
   const sendReply = trpc.marketingTextInbox.sendReply.useMutation({
-    onSuccess: () => {
-      setReply("");
+    onSuccess: (_, values) => {
+      setReplyDrafts(current => {
+        const next = { ...current };
+        delete next[values.contactId];
+        return next;
+      });
       toast.success("Marketing text sent.");
       void threadQuery.refetch();
       void threadsQuery.refetch();
@@ -1035,7 +1040,21 @@ export default function MarketingTextInboxPage() {
                       <div className="flex items-end gap-3">
                         <Textarea
                           value={reply}
-                          onChange={event => setReply(event.target.value)}
+                          onChange={event => {
+                            const draft = event.target.value;
+                            setReplyDrafts(current => {
+                              if (!selectedContactId) return current;
+                              if (!draft) {
+                                const next = { ...current };
+                                delete next[selectedContactId];
+                                return next;
+                              }
+                              return {
+                                ...current,
+                                [selectedContactId]: draft,
+                              };
+                            });
+                          }}
                           maxLength={1600}
                           rows={3}
                           placeholder="Write a reply…"
