@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { and, eq } from "drizzle-orm";
 import {
   marketAgentAssignments,
+  marketIntelligenceProfiles,
   marketProfileFeedbackRequests,
   marketProfiles,
   users,
@@ -157,4 +158,60 @@ export async function notifyAssignedAgentsOfMarketProfileUpdate(params: {
     }
   }
   return { notified, skipped };
+}
+
+/** Sends an authenticated administrator a real, clickable workflow test. */
+export async function sendMarketProfileUpdateTestEmail(params: {
+  marketProfileId: number;
+  recipient: { id: number; name?: string | null; email: string };
+}): Promise<{ requestId: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable.");
+  const [market] = await db
+    .select({
+      name: marketProfiles.name,
+      state: marketProfiles.state,
+    })
+    .from(marketProfiles)
+    .where(eq(marketProfiles.id, params.marketProfileId))
+    .limit(1);
+  if (!market) throw new Error("Market not found.");
+  const [intelligence] = await db
+    .select({ profileJson: marketIntelligenceProfiles.profileJson })
+    .from(marketIntelligenceProfiles)
+    .where(eq(marketIntelligenceProfiles.marketProfileId, params.marketProfileId))
+    .limit(1);
+  const profile = intelligence?.profileJson as MarketProfile | null;
+  if (!profile) throw new Error("Generate this market's AI profile before sending a live test email.");
+
+  const changes = summarizeMarketProfileChanges(null, profile);
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(`${canonical(profile)}:test:${Date.now()}`)
+    .digest("hex");
+  const [insert] = await db.insert(marketProfileFeedbackRequests).values({
+    marketProfileId: params.marketProfileId,
+    agentId: params.recipient.id,
+    profileFingerprint: fingerprint,
+    previousProfileJson: null,
+    profileJson: profile,
+    changeSummary: changes,
+  });
+  const requestId = Number((insert as any).insertId);
+  try {
+    const feedbackUrl = await generateMagicLinkUrl(params.recipient.email, `/agent-market-feedback/${requestId}`);
+    const delivery = await sendTransactionalEmail("market_profile_updated", {
+      recipientName: params.recipient.name ?? undefined,
+      recipientEmail: params.recipient.email,
+      marketName: `${market.name}, ${market.state}`,
+      marketProfileChangeSummary: changes.join(" "),
+      marketProfileSnapshotHtml: renderMarketProfileSnapshot(profile),
+      marketProfileUpdateUrl: feedbackUrl,
+    }, { injectMagicLinks: false, idempotencyKey: `market-profile-update-test:${requestId}` });
+    if (!delivery.sent) throw new Error(delivery.reason ?? "Provider did not accept the test email.");
+    return { requestId };
+  } catch (error) {
+    await db.delete(marketProfileFeedbackRequests).where(eq(marketProfileFeedbackRequests.id, requestId));
+    throw error;
+  }
 }

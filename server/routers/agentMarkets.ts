@@ -14,6 +14,7 @@ import {
   collectMarketProfileDraft,
   refreshMarketIntelligence,
 } from "../agentMarketsIntelligence";
+import { sendMarketProfileUpdateTestEmail } from "../agentMarketProfileFeedback";
 import { getDb, logActivity } from "../db";
 import pdfParse from "../lib/pdf-parse-safe";
 import { storageDelete, storagePut } from "../storage";
@@ -309,6 +310,16 @@ export const agentMarketsRouter = router({
       void refreshMarketIntelligence(input.marketId, "manual");
       void logActivity({ userId: ctx.user.id, action: "agent_market_refresh_requested", entityType: "market", entityId: input.marketId, details: {} });
       return { success: true };
+    }),
+
+  sendProfileUpdateTest: adminProcedure.input(z.object({ marketId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const recipientEmail = ctx.user.email?.trim().toLowerCase();
+      if (!recipientEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "Your SavvyOS account needs an email address before a test can be sent." });
+      return sendMarketProfileUpdateTestEmail({
+        marketProfileId: input.marketId,
+        recipient: { id: ctx.user.id, name: ctx.user.name, email: recipientEmail },
+      });
     }),
 
   upsertAssignment: adminProcedure.input(z.object({
