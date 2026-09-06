@@ -11,8 +11,8 @@ import { EMAIL_NOTIFICATION_TYPES, sendTransactionalEmail, getEmailPreview } fro
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
-import { customEmailNotifications, emailNotificationDeliveries, emailTemplates, emailNotificationSettings } from "../drizzle/schema";
-import { desc, eq } from "drizzle-orm";
+import { customEmailNotifications, emailNotificationDeliveries, emailTemplates, emailNotificationSettings, marketProfiles } from "../drizzle/schema";
+import { asc, desc, eq } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
 import { propertiesRouter } from "./routers/properties";
@@ -77,6 +77,7 @@ import { agentRenewalsRouter } from "./routers/agentRenewals";
 import { affiliateLinksRouter } from "./routers/affiliateLinks";
 import { marketProfileSurveyRouter } from "./routers/marketProfileSurvey";
 import { marketProfileFeedbackRouter } from "./routers/marketProfileFeedback";
+import { sendMarketProfileUpdateTestEmail } from "./agentMarketProfileFeedback";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -490,6 +491,23 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        // Unlike ordinary template previews, this test creates a private
+        // feedback request so the email CTA is a real working workflow.
+        if (input.emailType === "market_profile_updated") {
+          const recipient = await db.getUserByEmail(input.recipientEmail);
+          if (!recipient?.isActive || !recipient.email) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "The test recipient must be an active SavvyOS user with an email address." });
+          }
+          const db2 = await db.getDb();
+          if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+          const [market] = await db2.select({ id: marketProfiles.id }).from(marketProfiles).orderBy(asc(marketProfiles.id)).limit(1);
+          if (!market) throw new TRPCError({ code: "BAD_REQUEST", message: "Create an Agent Market before sending this test." });
+          await sendMarketProfileUpdateTestEmail({
+            marketProfileId: market.id,
+            recipient: { id: recipient.id, name: input.recipientName ?? recipient.name, email: recipient.email },
+          });
+          return { sent: true };
+        }
         const ctx2 = { recipientEmail: input.recipientEmail, recipientName: input.recipientName ?? "Tyler" };
         const allPayloads = buildTestEmailPayloads(ctx2);
         const match = allPayloads.find(([type]) => type === input.emailType);
