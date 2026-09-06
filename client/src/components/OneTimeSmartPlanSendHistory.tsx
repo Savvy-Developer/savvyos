@@ -38,7 +38,16 @@ import {
 } from "lucide-react";
 
 type RecipientStatus = "queued" | "sent" | "skipped" | "failed";
-type FilterStatus = "all" | RecipientStatus | "delivered" | "opened" | "clicked" | "replied" | "bounced" | "complained" | "suppressed";
+type FilterStatus =
+  | "all"
+  | RecipientStatus
+  | "delivered"
+  | "opened"
+  | "clicked"
+  | "replied"
+  | "bounced"
+  | "complained"
+  | "suppressed";
 
 const statusStyles: Record<string, string> = {
   queued: "bg-slate-100 text-slate-700 border-slate-200",
@@ -90,7 +99,8 @@ function formatCalendarDate(value: string): string {
 }
 
 function formatDateAddedRange(from: string | null, to: string | null): string {
-  if (from && to) return `${formatCalendarDate(from)} through ${formatCalendarDate(to)}`;
+  if (from && to)
+    return `${formatCalendarDate(from)} through ${formatCalendarDate(to)}`;
   if (from) return `${formatCalendarDate(from)} or later`;
   if (to) return `${formatCalendarDate(to)} or earlier`;
   return "All dates";
@@ -247,8 +257,23 @@ function RecipientHistoryDialog({
       status: ["queued", "sent", "skipped", "failed"].includes(filter)
         ? (filter as RecipientStatus)
         : undefined,
-      activity: ["delivered", "opened", "clicked", "replied", "bounced", "complained", "suppressed"].includes(filter)
-        ? (filter as "delivered" | "opened" | "clicked" | "replied" | "bounced" | "complained" | "suppressed")
+      activity: [
+        "delivered",
+        "opened",
+        "clicked",
+        "replied",
+        "bounced",
+        "complained",
+        "suppressed",
+      ].includes(filter)
+        ? (filter as
+            | "delivered"
+            | "opened"
+            | "clicked"
+            | "replied"
+            | "bounced"
+            | "complained"
+            | "suppressed")
         : undefined,
     },
     {
@@ -295,8 +320,8 @@ function RecipientHistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-7xl w-[calc(100vw-1rem)] max-h-[96vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
-        <DialogHeader>
+      <DialogContent className="flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-4 overflow-hidden p-4 sm:p-6 lg:p-7">
+        <DialogHeader className="shrink-0 pr-8">
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <Activity className="h-5 w-5" /> One-Time Send Activity{" "}
             {send?.name ? `— ${send.name}` : ""}
@@ -307,7 +332,7 @@ function RecipientHistoryDialog({
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="space-y-5 py-1">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto py-1 pr-1">
             <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm flex flex-wrap items-center justify-between gap-2">
               <span>
                 <strong>
@@ -328,7 +353,9 @@ function RecipientHistoryDialog({
                   {send.resendBroadcastStatus
                     ? `Provider status: ${titleCase(send.resendBroadcastStatus)}.`
                     : "Preparing the campaign-specific Resend audience."}
-                  {send.resendBroadcastError ? ` ${send.resendBroadcastError}` : ""}
+                  {send.resendBroadcastError
+                    ? ` ${send.resendBroadcastError}`
+                    : ""}
                 </p>
                 {send.resendBroadcastId && (
                   <p className="mt-1 font-mono text-[10px] text-sky-900/75 break-all">
@@ -339,7 +366,8 @@ function RecipientHistoryDialog({
             )}
             {(send.dateAddedFrom || send.dateAddedTo) && (
               <p className="text-xs text-muted-foreground">
-                Date added to SavvyOS: {formatDateAddedRange(send.dateAddedFrom, send.dateAddedTo)}
+                Date added to SavvyOS:{" "}
+                {formatDateAddedRange(send.dateAddedFrom, send.dateAddedTo)}
               </p>
             )}
 
@@ -422,11 +450,13 @@ function RecipientHistoryDialog({
                 </p>
                 <p className="mt-1">
                   Scheduled {formatTime(send.scheduledAt)} · Started{" "}
-                  {formatTime(send.startedAt)} · Completed {formatTime(send.completedAt)}
+                  {formatTime(send.startedAt)} · Completed{" "}
+                  {formatTime(send.completedAt)}
                 </p>
                 {send.staggerEnabled && send.staggerPerHour ? (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Staggered at up to {send.staggerPerHour.toLocaleString()} recipient
+                    Staggered at up to {send.staggerPerHour.toLocaleString()}{" "}
+                    recipient
                     {send.staggerPerHour === 1 ? "" : "s"} per hour.
                   </p>
                 ) : null}
@@ -447,15 +477,17 @@ function RecipientHistoryDialog({
                       : "This is the recorded text message content used for this send. Merge tags were personalized for each recipient."}
                   </p>
                 </div>
-                <Badge variant="outline">{send.channel === "email" ? "Email preview" : "SMS content"}</Badge>
+                <Badge variant="outline">
+                  {send.channel === "email" ? "Email preview" : "SMS content"}
+                </Badge>
               </div>
               {send.channel === "email" && data?.emailPreviewHtml ? (
-                <div className="mt-3 overflow-hidden rounded-lg border bg-white">
+                <div className="mt-3 h-[clamp(16rem,38vh,32rem)] overflow-hidden rounded-lg border bg-white">
                   <iframe
                     title="Sent email preview"
                     srcDoc={data.emailPreviewHtml}
                     sandbox=""
-                    className="block h-[540px] w-full border-0 bg-white"
+                    className="block h-full w-full border-0 bg-white"
                   />
                 </div>
               ) : (
@@ -466,29 +498,29 @@ function RecipientHistoryDialog({
             </div>
 
             {send.emailDeliveryMethod !== "resend_broadcast" && (
-            <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="font-medium text-sm">Resend provider status</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Refreshes the latest state for up to 100 accepted recipients.
-                  Future delivery and engagement events arrive automatically
-                  through the provider event stream.
-                </p>
+              <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="font-medium text-sm">Resend provider status</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Refreshes the latest state for up to 100 accepted
+                    recipients. Future delivery and engagement events arrive
+                    automatically through the provider event stream.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => syncMutation.mutate({ sendId })}
+                  disabled={syncMutation.isPending || providerEligible === 0}
+                >
+                  {syncMutation.isPending ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1.5 h-4 w-4" />
+                  )}
+                  Refresh Resend Status
+                </Button>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => syncMutation.mutate({ sendId })}
-                disabled={syncMutation.isPending || providerEligible === 0}
-              >
-                {syncMutation.isPending ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-1.5 h-4 w-4" />
-                )}
-                Refresh Resend Status
-              </Button>
-            </div>
             )}
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -643,7 +675,7 @@ function RecipientHistoryDialog({
             </p>
           </div>
         )}
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
