@@ -503,13 +503,19 @@ export async function refreshDueMarketIntelligence(): Promise<{ refreshed: numbe
       continue;
     }
     const draft = await collectMarketProfileDraft(market.id);
-    const [existing] = await db.select({ sourceSnapshot: marketIntelligenceProfiles.sourceSnapshot })
+    const [existing] = await db.select({
+      sourceSnapshot: marketIntelligenceProfiles.sourceSnapshot,
+      profileJson: marketIntelligenceProfiles.profileJson,
+    })
       .from(marketIntelligenceProfiles)
       .where(eq(marketIntelligenceProfiles.marketProfileId, market.id))
       .limit(1);
     const priorFingerprint = (existing?.sourceSnapshot as any)?.fingerprint;
     const nextFingerprint = draft?.sourceSnapshot.fingerprint;
-    if (priorFingerprint && priorFingerprint === nextFingerprint) {
+    // Profiles that have only a fingerprint (for example, after an initial
+    // adoption pass) still need their first AI generation. Existing complete
+    // profiles may safely be skipped when the evidence is unchanged.
+    if (existing?.profileJson && priorFingerprint && priorFingerprint === nextFingerprint) {
       unchanged += 1;
       continue;
     }
