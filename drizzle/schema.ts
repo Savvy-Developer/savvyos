@@ -3952,34 +3952,6 @@ export type DailyCoachingBriefing = typeof dailyCoachingBriefings.$inferSelect;
 export type InsertDailyCoachingBriefing =
   typeof dailyCoachingBriefings.$inferInsert;
 
-// ─── Read-Only MCP Access Keys ─────────────────────────────────────────────
-// External AI clients use these independently revocable bearer keys to access
-// the SavvyOS MCP endpoint. Only a SHA-256 digest is persisted; the plaintext
-// key is returned once at creation and can never be recovered afterwards.
-export const mcpAccessKeys = mysqlTable(
-  "mcp_access_keys",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    name: varchar("name", { length: 255 }).notNull(),
-    keyPrefix: varchar("keyPrefix", { length: 32 }).notNull(),
-    secretHash: varchar("secretHash", { length: 128 }).notNull().unique(),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    revokedAt: timestamp("revokedAt"),
-    revokedById: int("revokedById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-  },
-  table => [
-    index("mcp_access_keys_active_idx").on(table.revokedAt, table.createdAt),
-    index("mcp_access_keys_created_by_idx").on(table.createdById),
-  ]
-);
-export type McpAccessKey = typeof mcpAccessKeys.$inferSelect;
-export type InsertMcpAccessKey = typeof mcpAccessKeys.$inferInsert;
-
 // ─── MCP OAuth 2.1 Authorization ─────────────────────────────────────────────
 // ChatGPT and Claude web connectors cannot accept a pasted bearer key. These
 // tables back standards-based OAuth 2.1 with PKCE, dynamic public-client

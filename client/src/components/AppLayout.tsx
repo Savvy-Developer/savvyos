@@ -79,7 +79,6 @@ import {
   Sparkles,
   Wrench,
   Video,
-  KeyRound,
   Star,
   Search,
 } from "lucide-react";
@@ -404,8 +403,7 @@ function buildAdminNav(
   pendingMarketing: number = 0,
   resendInboxUnread: number = 0,
   marketingTextInboxUnread: number = 0,
-  pendingPtoApprovals: number = 0,
-  canManageMcp: boolean = false
+  pendingPtoApprovals: number = 0
 ): NavGroup[] {
   return [
     {
@@ -598,9 +596,6 @@ function buildAdminNav(
           label: "Feature Updates",
           path: "/daily-report-updates",
         },
-        ...(canManageMcp
-          ? [{ icon: KeyRound, label: "MCP Access", path: "/mcp-access" }]
-          : []),
         { icon: Webhook, label: "Webhooks", path: "/webhooks" },
       ],
     },
@@ -1084,12 +1079,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           pendingMarketingCount,
           resendInboxUnreadCount,
           marketingTextInboxUnreadCount,
-          pendingPtoApprovalsCount,
-          [
-            "tyler@savvy.realty",
-            "elana@savvy.realty",
-            "dyl@savvy.realty",
-          ].includes(String((user as any).email ?? "").toLowerCase())
+          pendingPtoApprovalsCount
         )
       : role === "isa"
         ? buildIsaNav(

@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import { type RowDataPacket } from "mysql2/promise";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -20,10 +19,6 @@ const SYSTEM_SCHEMA_PATTERN =
 const WRITE_OR_ADMIN_SQL_PATTERN =
   /\b(?:insert|update|delete|replace|alter|drop|create|grant|revoke|truncate|call|set|use|lock|unlock|handler|load|outfile|dumpfile|do|prepare|execute|deallocate|kill|shutdown|begin|commit|rollback|start\s+transaction|sleep|benchmark)\b/i;
 
-type McpAccessKeyRow = RowDataPacket & {
-  id: number;
-};
-
 type TableMetadataRow = RowDataPacket & {
   tableName: string;
 };
@@ -35,10 +30,6 @@ type ColumnMetadataRow = RowDataPacket & {
   isNullable: "YES" | "NO";
   columnKey: string;
 };
-
-function keyDigest(value: string): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
 
 export function isSensitiveFieldName(value: string): boolean {
   return SENSITIVE_FIELD_PATTERN.test(value);
@@ -88,23 +79,8 @@ function parseBearerToken(value: string | undefined): string | null {
   return match?.[1]?.trim() || null;
 }
 
-async function isActiveMcpKey(token: string): Promise<boolean> {
-  if (token.length < 32 || token.length > 512) return false;
-  const [rows] = await getMcpPool().query<McpAccessKeyRow[]>(
-    "SELECT id FROM mcp_access_keys WHERE secretHash = ? AND revokedAt IS NULL LIMIT 1",
-    [keyDigest(token)]
-  );
-  return rows.length === 1;
-}
-
-/**
- * OAuth is the connection method for web clients such as ChatGPT and Claude.
- * Existing manager-created bearer keys remain supported for desktop and CLI MCP
- * clients that can securely send custom authorization headers.
- */
 async function isValidMcpAccessToken(token: string): Promise<boolean> {
-  if (await verifyMcpOAuthAccessToken(token)) return true;
-  return isActiveMcpKey(token);
+  return Boolean(await verifyMcpOAuthAccessToken(token));
 }
 
 async function availableTables(): Promise<string[]> {
