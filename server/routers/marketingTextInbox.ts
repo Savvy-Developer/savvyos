@@ -179,8 +179,8 @@ function aiResponseText(value: Awaited<ReturnType<typeof invokeLLM>>): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
-      .filter((part): part is { type: "text"; text: string } =>
-        part.type === "text"
+      .filter(
+        (part): part is { type: "text"; text: string } => part.type === "text"
       )
       .map(part => part.text)
       .join("\n");
@@ -574,6 +574,45 @@ export const marketingTextInboxRouter = router({
         )
       );
     return { count: Number(result?.count ?? 0) };
+  }),
+
+  /**
+   * Inbound Aircall SMS events on the marketing line that could not be matched
+   * to a CRM contact. They remain visible for operations review, but do not
+   * represent actionable inbox conversations or contribute to the badge.
+   */
+  listUnmatchedInbound: protectedProcedure.query(async ({ ctx }) => {
+    await requireMarketingTextInboxAccess(ctx.user);
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const line = await marketingLine(db);
+    if (!line?.marketingNumberId) return [];
+    return db
+      .select({
+        id: aircallMessages.id,
+        aircallMessageId: aircallMessages.aircallMessageId,
+        status: aircallMessages.status,
+        body: aircallMessages.body,
+        fromNumber: aircallMessages.fromNumber,
+        toNumber: aircallMessages.toNumber,
+        sentAt: aircallMessages.sentAt,
+        receivedAt: aircallMessages.receivedAt,
+        createdAt: aircallMessages.createdAt,
+      })
+      .from(aircallMessages)
+      .where(
+        and(
+          eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+          eq(aircallMessages.direction, "inbound"),
+          isNull(aircallMessages.contactId)
+        )
+      )
+      .orderBy(
+        desc(
+          sql`COALESCE(${aircallMessages.receivedAt}, ${aircallMessages.sentAt}, ${aircallMessages.createdAt})`
+        )
+      )
+      .limit(100);
   }),
 
   /** Mean elapsed time from each inbound marketing SMS to the first SavvyOS reply. */
@@ -999,7 +1038,10 @@ export const marketingTextInboxRouter = router({
         });
       }
       if (!contact)
-        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found." });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found.",
+        });
       if (contact.doNotContact || contact.smsMarketingOptedOutAt) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -1008,119 +1050,129 @@ export const marketingTextInboxRouter = router({
         });
       }
 
-      const [messages, communicationsHistory, intelligence, connections, contactTransactions, contactListings, linkedProperties] =
-        await Promise.all([
-          db
-            .select({
-              direction: aircallMessages.direction,
-              body: aircallMessages.body,
-              sentAt: aircallMessages.sentAt,
-              receivedAt: aircallMessages.receivedAt,
-              createdAt: aircallMessages.createdAt,
-            })
-            .from(aircallMessages)
-            .where(eq(aircallMessages.contactId, contact.id))
-            .orderBy(
-              desc(
-                sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`
-              )
+      const [
+        messages,
+        communicationsHistory,
+        intelligence,
+        connections,
+        contactTransactions,
+        contactListings,
+        linkedProperties,
+      ] = await Promise.all([
+        db
+          .select({
+            direction: aircallMessages.direction,
+            body: aircallMessages.body,
+            sentAt: aircallMessages.sentAt,
+            receivedAt: aircallMessages.receivedAt,
+            createdAt: aircallMessages.createdAt,
+          })
+          .from(aircallMessages)
+          .where(eq(aircallMessages.contactId, contact.id))
+          .orderBy(
+            desc(
+              sql`COALESCE(${aircallMessages.sentAt}, ${aircallMessages.receivedAt}, ${aircallMessages.createdAt})`
             )
-            .limit(100),
-          db
-            .select({
-              type: communications.type,
-              subject: communications.subject,
-              body: communications.body,
-              direction: communications.direction,
-              transcription: communications.transcription,
-              communicatedAt: communications.communicatedAt,
-            })
-            .from(communications)
-            .where(eq(communications.relatedContactId, contact.id))
-            .orderBy(desc(communications.communicatedAt))
-            .limit(50),
-          db
-            .select({
-              aiSummary: contactIntelligenceProfiles.aiSummary,
-              profile: contactIntelligenceProfiles.profile,
-              intentTier: contactIntelligenceProfiles.intentTier,
-              intentScore: contactIntelligenceProfiles.intentScore,
-              confidence: contactIntelligenceProfiles.confidence,
-            })
-            .from(contactIntelligenceProfiles)
-            .where(eq(contactIntelligenceProfiles.contactId, contact.id))
-            .limit(1),
-          db
-            .select({
-              agentName: users.name,
-              pipelineStatus: agentConnections.pipelineStatus,
-              followUpDate: agentConnections.followUpDate,
-              agentNotes: agentConnections.agentNotes,
-              propertyType: agentConnections.propertyType,
-              minPrice: agentConnections.minPrice,
-              maxPrice: agentConnections.maxPrice,
-              targetCities: agentConnections.targetCities,
-              targetZips: agentConnections.targetZips,
-              strRequirements: agentConnections.strRequirements,
-              investmentNotes: agentConnections.investmentNotes,
-              appointmentSet: agentConnections.appointmentSet,
-              appointmentSetAt: agentConnections.appointmentSetAt,
-            })
-            .from(agentConnections)
-            .leftJoin(users, eq(users.id, agentConnections.agentId))
-            .where(eq(agentConnections.contactId, contact.id))
-            .orderBy(desc(agentConnections.updatedAt))
-            .limit(12),
-          db
-            .select({
-              transactionType: transactions.transactionType,
-              status: transactions.status,
-              purchasePrice: transactions.purchasePrice,
-              closingDate: transactions.closingDate,
-              notes: transactions.notes,
-            })
-            .from(transactions)
-            .where(
-              or(
-                eq(transactions.primaryContactId, contact.id),
-                eq(transactions.sellerContactId, contact.id),
-                eq(transactions.buyerContactId, contact.id)
-              )
+          )
+          .limit(100),
+        db
+          .select({
+            type: communications.type,
+            subject: communications.subject,
+            body: communications.body,
+            direction: communications.direction,
+            transcription: communications.transcription,
+            communicatedAt: communications.communicatedAt,
+          })
+          .from(communications)
+          .where(eq(communications.relatedContactId, contact.id))
+          .orderBy(desc(communications.communicatedAt))
+          .limit(50),
+        db
+          .select({
+            aiSummary: contactIntelligenceProfiles.aiSummary,
+            profile: contactIntelligenceProfiles.profile,
+            intentTier: contactIntelligenceProfiles.intentTier,
+            intentScore: contactIntelligenceProfiles.intentScore,
+            confidence: contactIntelligenceProfiles.confidence,
+          })
+          .from(contactIntelligenceProfiles)
+          .where(eq(contactIntelligenceProfiles.contactId, contact.id))
+          .limit(1),
+        db
+          .select({
+            agentName: users.name,
+            pipelineStatus: agentConnections.pipelineStatus,
+            followUpDate: agentConnections.followUpDate,
+            agentNotes: agentConnections.agentNotes,
+            propertyType: agentConnections.propertyType,
+            minPrice: agentConnections.minPrice,
+            maxPrice: agentConnections.maxPrice,
+            targetCities: agentConnections.targetCities,
+            targetZips: agentConnections.targetZips,
+            strRequirements: agentConnections.strRequirements,
+            investmentNotes: agentConnections.investmentNotes,
+            appointmentSet: agentConnections.appointmentSet,
+            appointmentSetAt: agentConnections.appointmentSetAt,
+          })
+          .from(agentConnections)
+          .leftJoin(users, eq(users.id, agentConnections.agentId))
+          .where(eq(agentConnections.contactId, contact.id))
+          .orderBy(desc(agentConnections.updatedAt))
+          .limit(12),
+        db
+          .select({
+            transactionType: transactions.transactionType,
+            status: transactions.status,
+            purchasePrice: transactions.purchasePrice,
+            closingDate: transactions.closingDate,
+            notes: transactions.notes,
+          })
+          .from(transactions)
+          .where(
+            or(
+              eq(transactions.primaryContactId, contact.id),
+              eq(transactions.sellerContactId, contact.id),
+              eq(transactions.buyerContactId, contact.id)
             )
-            .orderBy(desc(transactions.updatedAt))
-            .limit(10),
-          db
-            .select({
-              listingStatus: listings.listingStatus,
-              listPrice: listings.listPrice,
-              notes: listings.notes,
-              propertyAddress: properties.address,
-              propertyCity: properties.city,
-              propertyState: properties.state,
-              propertyStrNotes: properties.strNotes,
-            })
-            .from(listings)
-            .leftJoin(properties, eq(properties.id, listings.propertyId))
-            .where(eq(listings.contactId, contact.id))
-            .orderBy(desc(listings.updatedAt))
-            .limit(10),
-          db
-            .select({
-              label: contactProperties.label,
-              address: properties.address,
-              city: properties.city,
-              state: properties.state,
-              propertyType: properties.propertyType,
-              listPrice: properties.listPrice,
-              strZoning: properties.strZoning,
-              strNotes: properties.strNotes,
-              notes: properties.notes,
-            })
-            .from(contactProperties)
-            .innerJoin(properties, eq(properties.id, contactProperties.propertyId))
-            .where(eq(contactProperties.contactId, contact.id))
-            .limit(12),
-        ]);
+          )
+          .orderBy(desc(transactions.updatedAt))
+          .limit(10),
+        db
+          .select({
+            listingStatus: listings.listingStatus,
+            listPrice: listings.listPrice,
+            notes: listings.notes,
+            propertyAddress: properties.address,
+            propertyCity: properties.city,
+            propertyState: properties.state,
+            propertyStrNotes: properties.strNotes,
+          })
+          .from(listings)
+          .leftJoin(properties, eq(properties.id, listings.propertyId))
+          .where(eq(listings.contactId, contact.id))
+          .orderBy(desc(listings.updatedAt))
+          .limit(10),
+        db
+          .select({
+            label: contactProperties.label,
+            address: properties.address,
+            city: properties.city,
+            state: properties.state,
+            propertyType: properties.propertyType,
+            listPrice: properties.listPrice,
+            strZoning: properties.strZoning,
+            strNotes: properties.strNotes,
+            notes: properties.notes,
+          })
+          .from(contactProperties)
+          .innerJoin(
+            properties,
+            eq(properties.id, contactProperties.propertyId)
+          )
+          .where(eq(contactProperties.contactId, contact.id))
+          .limit(12),
+      ]);
 
       const messageTimeline = [...messages]
         .reverse()
@@ -1193,10 +1245,16 @@ export const marketingTextInboxRouter = router({
         .join("\n");
       const intelligenceProfile = intelligence[0];
       const currentProfile = [
-        contact.notes ? `Staff notes: ${compactReplyContext(contact.notes, 1_300)}` : "",
+        contact.notes
+          ? `Staff notes: ${compactReplyContext(contact.notes, 1_300)}`
+          : "",
         contact.tags?.length ? `Tags: ${contact.tags.join(", ")}` : "",
-        contact.campaignSource ? `Campaign source: ${contact.campaignSource}` : "",
-        contact.partnershipName ? `Partnership: ${contact.partnershipName}` : "",
+        contact.campaignSource
+          ? `Campaign source: ${contact.campaignSource}`
+          : "",
+        contact.partnershipName
+          ? `Partnership: ${contact.partnershipName}`
+          : "",
         contact.isaStatus ? `Lifecycle: ${contact.isaStatus}` : "",
         intelligenceProfile?.aiSummary
           ? `Contact Intelligence briefing: ${compactReplyContext(intelligenceProfile.aiSummary, 2_200)}`
@@ -1253,7 +1311,8 @@ ${propertyHistory || "No linked properties are recorded."}`;
         });
         const parsed = JSON.parse(aiResponseText(result));
         const suggestion = normalSuggestedReply(parsed);
-        if (!suggestion) throw new Error("Suggested reply was empty or invalid.");
+        if (!suggestion)
+          throw new Error("Suggested reply was empty or invalid.");
         reply = suggestion;
         source = "ai";
       } catch (error) {

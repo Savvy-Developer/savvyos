@@ -91,6 +91,18 @@ type MarketingMessage = {
   autoFollowUpDueAt?: Date | string | null;
 };
 
+type UnmatchedInboundText = {
+  id: number;
+  aircallMessageId: string;
+  status: string;
+  body: string | null;
+  fromNumber: string | null;
+  toNumber: string | null;
+  sentAt: Date | string | null;
+  receivedAt: Date | string | null;
+  createdAt: Date | string;
+};
+
 type IntroductionFollowUp = {
   id: number;
   body: string;
@@ -222,6 +234,10 @@ export default function MarketingTextInboxPage() {
     { search: search.trim() || undefined, archived: showArchived },
     { enabled: canUseInbox && !!configuration.data?.marketingNumber }
   );
+  const unmatchedInboundQuery =
+    trpc.marketingTextInbox.listUnmatchedInbound.useQuery(undefined, {
+      enabled: canUseInbox && !!configuration.data?.marketingNumber,
+    });
   const threadQuery = trpc.marketingTextInbox.getThread.useQuery(
     { contactId: selectedContactId ?? 1 },
     { enabled: canUseInbox && !!selectedContactId }
@@ -244,7 +260,7 @@ export default function MarketingTextInboxPage() {
   const selectedAgent = (agentsQuery.data ?? []).find(
     agent => String(agent.id) === selectedAgentId
   );
-  const reply = selectedContactId ? replyDrafts[selectedContactId] ?? "" : "";
+  const reply = selectedContactId ? (replyDrafts[selectedContactId] ?? "") : "";
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 60_000);
@@ -254,6 +270,7 @@ export default function MarketingTextInboxPage() {
   const refreshInbox = () => {
     void configuration.refetch();
     void threadsQuery.refetch();
+    void unmatchedInboundQuery.refetch();
     void speedToLead.refetch();
   };
 
@@ -524,10 +541,14 @@ export default function MarketingTextInboxPage() {
           <Button
             variant="outline"
             onClick={refreshInbox}
-            disabled={configuration.isFetching || threadsQuery.isFetching}
+            disabled={
+              configuration.isFetching ||
+              threadsQuery.isFetching ||
+              unmatchedInboundQuery.isFetching
+            }
           >
             <RefreshCw
-              className={`mr-1.5 h-4 w-4 ${configuration.isFetching || threadsQuery.isFetching ? "animate-spin" : ""}`}
+              className={`mr-1.5 h-4 w-4 ${configuration.isFetching || threadsQuery.isFetching || unmatchedInboundQuery.isFetching ? "animate-spin" : ""}`}
             />{" "}
             Refresh
           </Button>
@@ -540,6 +561,60 @@ export default function MarketingTextInboxPage() {
         isLoading={speedToLead.isLoading}
         errorMessage={speedToLead.error?.message}
       />
+
+      {config?.sendReady &&
+        ((unmatchedInboundQuery.data ?? []) as UnmatchedInboundText[]).length >
+          0 && (
+          <Card className="border-amber-200 bg-amber-50/40">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+                    <AlertTriangle className="h-5 w-5" /> Unmatched inbound
+                    texts
+                  </CardTitle>
+                  <CardDescription className="mt-1 text-amber-900/80">
+                    These messages reached the marketing line but could not be
+                    matched to a CRM contact, so they are not shown as inbox
+                    conversations or included in the inbox badge.
+                  </CardDescription>
+                </div>
+                <Badge className="border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-100">
+                  {(unmatchedInboundQuery.data ?? []).length} unmatched
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-[300px] overflow-y-auto rounded-md border border-amber-200 bg-background">
+                {(
+                  (unmatchedInboundQuery.data ?? []) as UnmatchedInboundText[]
+                ).map(message => (
+                  <div
+                    key={message.id}
+                    className="border-b border-amber-100 px-4 py-3 last:border-b-0"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                      <p className="font-mono text-xs text-foreground">
+                        From {message.fromNumber || "Unknown number"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Received{" "}
+                        {formatTime(
+                          message.receivedAt ??
+                            message.sentAt ??
+                            message.createdAt
+                        )}
+                      </p>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                      {message.body?.trim() || "No message body was provided."}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
       {!config?.sendReady && (
         <Card className="border-amber-200 bg-amber-50/50">
@@ -872,7 +947,8 @@ export default function MarketingTextInboxPage() {
                               variant="secondary"
                               className="mb-1.5 border-0 bg-black/10 text-[10px] font-medium text-current"
                             >
-                              <Sparkles className="mr-1 h-3 w-3" /> One Time Text Smart Plan · {message.oneTimeSendName}
+                              <Sparkles className="mr-1 h-3 w-3" /> One Time
+                              Text Smart Plan · {message.oneTimeSendName}
                             </Badge>
                           )}
                           {message.isGroupMessage && (
