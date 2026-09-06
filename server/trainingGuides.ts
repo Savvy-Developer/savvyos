@@ -284,7 +284,7 @@ Administrators have the broadest SavvyOS access and are responsible for keeping 
 | 2 | **Tasks**, **Admin Approvals**, and commission-related badges. | Clears time-sensitive work and protects operating controls. |
 | 3 | **Connection Requests**, **Marketing Requests**, and **Tech Requests**. | Maintains timely handoffs and service levels. |
 | 4 | **Pulse**, **Leadership Dashboard**, and **Coaching Hub**. | Keeps leadership work aligned to current operating data. |
-| 5 | **Feature Updates** and **Knowledge Base**. | Keeps agents informed and documentation current after material changes. |
+| 5 | **Knowledge Base** and **Email Notifications**. | Keeps operating guidance current and communication settings intentional. |
 
 ## Overview and reporting
 
@@ -372,7 +372,6 @@ Administrators have the broadest SavvyOS access and are responsible for keeping 
 |---|---|---|
 | **Projects** | Tracking cross-functional initiatives and project work. | Define ownership, milestones, and next actions; use the project record as the shared status source. |
 | **Smart Plans** | Designing email-drip plan definitions. | Review audience, content, timing, and activation state carefully. Email workflows are live; do not assume SMS or untriggered automation logic is sending messages without confirming its enabled execution path. |
-| **Feature Updates** | Publishing agent-facing changes for the Daily SavvyOS Report and agent email. | Write a concise, accurate published update with an action path whenever a material agent-facing capability changes. |
 | **Email Notifications** | Reviewing and managing notification configuration. | Confirm the business intent, recipient group, and enabled state before changing a notification. |
 
 ## Administrator governance routines
@@ -391,7 +390,7 @@ Open the relevant source record—contact, pipeline, transaction, listing, prope
 
 ### When a new agent-facing capability ships
 
-Update the **Knowledge Base** if users need operating guidance. Create and publish a concise **Feature Update** with a real in-app action path so the change appears in the Daily SavvyOS Report and agent email. Do not publish feature updates for purely internal infrastructure or maintenance work unless there is an agent-facing effect.
+Update the **Knowledge Base** if users need operating guidance, and communicate through the appropriate business channel when a change requires direct outreach.
 
 ## Quality standard
 

@@ -71,7 +71,7 @@ try {
       cascadeAndMentionAppearWithOneTapActions: { pass: cascades.status === 200 && responses.status === 200 && !!cascade && !!mention && acknowledge.value?.success === true && clearMention.value?.success === true },
       emptyStatePointsForward: { pass: afterActionsCascades.value?.length === 0 && afterActionsResponses.value?.length === 0 && missionSource.includes("Nothing needs you right now.") && missionSource.includes('href="/pulse/work"') },
       persistenceAfterFourteenDays: { pass: afterGapCascades.value?.some((item: any) => item.id === cascade.id) && afterGapResponses.value?.some((item: any) => item.id === assignment.id) && afterGapResponses.value?.some((item: any) => item.id === mention.id) },
-      noDisallowedHomeContent: { pass: !missionSource.includes("Feature Update") && !missionSource.includes("announcement") && !missionSource.includes("SOP") && !missionSource.includes("document") },
+      noDisallowedHomeContent: { pass: !missionSource.includes("announcement") && !missionSource.includes("SOP") && !missionSource.includes("document") },
       everyActionNamesMeeting: { pass: [cascade, assignment, mention].every((item: any) => !!item.meetingName || !!item.routing?.source) },
       adminOutstandingCountsAndAges: { pass: adminBefore.status === 200 && adminBefore.value?.some((row: any) => row.personId === p5.id && row.unacknowledgedCascades >= 1 && row.unclearedNotifications >= 2 && row.oldestAt) },
       phoneReachableActions: { pass: missionSource.includes("min-h-11") && missionSource.includes("mt-4 flex flex-wrap gap-2") && missionSource.includes("PulseCascadeCard") },

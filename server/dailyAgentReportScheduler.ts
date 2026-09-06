@@ -1,11 +1,10 @@
-import { and, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import {
   activityLog,
   agentConnections,
   contacts,
   dailyAgentReports,
   emailBehaviors,
-  savvyosFeatureUpdates,
   scheduledReportRuns,
   tasks,
   transactions,
@@ -79,15 +78,6 @@ export interface DailyReportSuggestion {
   actionPath: string;
 }
 
-export interface DailyReportFeatureUpdate {
-  id: number;
-  title: string;
-  summary: string;
-  details: string | null;
-  actionUrl: string | null;
-  publishedAt: string | null;
-}
-
 export interface DailyAgentReportSnapshot {
   reportDate: string;
   asOfLabel: string;
@@ -109,7 +99,6 @@ export interface DailyAgentReportSnapshot {
   overdueTasks: DailyReportTask[];
   upcomingTasks: DailyReportTask[];
   suggestions: DailyReportSuggestion[];
-  featureUpdates: DailyReportFeatureUpdate[];
   aiGenerated: boolean;
 }
 
@@ -284,58 +273,6 @@ function toTaskRecord(row: {
     contactName: row.contactName,
     actionPath: `/tasks/${row.id}`,
   };
-}
-
-async function getFeatureUpdates(asOf: Date): Promise<DailyReportFeatureUpdate[]> {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available for feature updates.");
-
-  const rows = await db
-    .select({
-      id: savvyosFeatureUpdates.id,
-      title: savvyosFeatureUpdates.title,
-      summary: savvyosFeatureUpdates.summary,
-      details: savvyosFeatureUpdates.details,
-      actionUrl: savvyosFeatureUpdates.actionUrl,
-      publishedAt: savvyosFeatureUpdates.publishedAt,
-    })
-    .from(savvyosFeatureUpdates)
-    .where(and(
-      eq(savvyosFeatureUpdates.isPublished, true),
-      eq(savvyosFeatureUpdates.isAgentFacing, true),
-      isNotNull(savvyosFeatureUpdates.publishedAt),
-      lte(savvyosFeatureUpdates.publishedAt, asOf),
-      gte(savvyosFeatureUpdates.publishedAt, new Date(asOf.getTime() - 30 * 24 * 60 * 60 * 1000)),
-    ))
-    .orderBy(desc(savvyosFeatureUpdates.publishedAt))
-    .limit(3);
-
-  return rows.map((row) => ({
-    ...row,
-    publishedAt: isoOrNull(row.publishedAt),
-  }));
-}
-
-async function ensureInitialFeatureUpdate(): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
-
-  const [existing] = await db
-    .select({ id: savvyosFeatureUpdates.id })
-    .from(savvyosFeatureUpdates)
-    .where(eq(savvyosFeatureUpdates.title, "Daily SavvyOS Report"))
-    .limit(1);
-  if (existing) return;
-
-  await db.insert(savvyosFeatureUpdates).values({
-    title: "Daily SavvyOS Report",
-    summary: "A personalized 6 PM Eastern digest now brings your tasks, hot leads, pipeline health, and priorities into one place.",
-    details: "Open the Daily Report page at any time for a current operational view, then use the email links to move directly into the related task or lead.",
-    actionUrl: "/daily-report",
-    isAgentFacing: true,
-    isPublished: true,
-    publishedAt: new Date(),
-  });
 }
 
 async function generateAiSuggestions(
@@ -519,14 +456,13 @@ export async function buildDailyAgentReport(
 ): Promise<DailyAgentReportSnapshot> {
   const db = await getDb();
   if (!db) throw new Error("Database is not available for daily agent reports.");
-  await ensureInitialFeatureUpdate();
 
   const sevenDaysAgo = new Date(asOf.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAhead = new Date(asOf.getTime() + 30 * 24 * 60 * 60 * 1000);
   const eastern = getEasternTimeParts(asOf);
   const reportDate = easternDateKey(eastern);
 
-  const [connectionRows, taskRows, currentTransactions, upcomingClosings, featureUpdates] = await Promise.all([
+  const [connectionRows, taskRows, currentTransactions, upcomingClosings] = await Promise.all([
     db
       .select({
         connectionId: agentConnections.id,
@@ -570,7 +506,6 @@ export async function buildDailyAgentReport(
         gte(transactions.closingDate, asOf),
         lte(transactions.closingDate, thirtyDaysAhead),
       )),
-    getFeatureUpdates(asOf),
   ]);
 
   const connections: PipelineConnectionRecord[] = connectionRows.map((row) => ({
@@ -709,7 +644,6 @@ export async function buildDailyAgentReport(
     hotLeads,
     overdueTasks,
     upcomingTasks,
-    featureUpdates,
   };
 
   const aiSuggestions = includeAi ? await generateAiSuggestions(baseReport) : null;
@@ -786,19 +720,6 @@ export function renderDailyAgentReportHtml(report: DailyAgentReportSnapshot): st
     .map((stage) => `<span style="display:inline-block;margin:0 7px 7px 0;padding:6px 8px;border-radius:999px;background:#F3F4F6;color:#374151;font-size:11px;"><strong>${stage.count}</strong> ${escapeHtml(stage.label)}</span>`)
     .join("") || `<span style="font-size:12px;color:#6B7280;">No pipeline records are currently assigned.</span>`;
 
-  const featureRows = report.featureUpdates.length > 0
-    ? report.featureUpdates.map((update) => `
-      <tr>
-        <td style="padding:0 0 10px;">
-          <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:7px;padding:11px 13px;">
-            <div style="font-size:13px;font-weight:700;color:#0C4A6E;">${escapeHtml(update.title)}</div>
-            <div style="font-size:12px;color:#155E75;line-height:1.5;margin-top:3px;">${escapeHtml(update.summary)}</div>
-            ${update.actionUrl ? `<a href="${appUrl(update.actionUrl)}" style="display:inline-block;margin-top:7px;color:#0F7490;font-size:12px;font-weight:700;text-decoration:none;">Explore update →</a>` : ""}
-          </div>
-        </td>
-      </tr>`).join("")
-    : `<tr><td style="padding:13px 0;font-size:12px;color:#6B7280;">No new agent-facing SavvyOS updates were published in the last 30 days.</td></tr>`;
-
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
       <div style="font-size:22px;font-weight:700;color:#111827;line-height:1.25;">Your Daily SavvyOS Report</div>
@@ -826,9 +747,6 @@ export function renderDailyAgentReportHtml(report: DailyAgentReportSnapshot): st
 
       ${sectionTitle("Pipeline health", `${report.metrics.staleLeads} stalled active lead${report.metrics.staleLeads === 1 ? "" : "s"} · ${report.metrics.dueSoonTasks} task${report.metrics.dueSoonTasks === 1 ? "" : "s"} due within three days · ${report.metrics.upcomingClosings} upcoming closing${report.metrics.upcomingClosings === 1 ? "" : "s"} in 30 days`)}
       <div style="margin-top:7px;">${pipelineRows}</div>
-
-      ${sectionTitle("New or updated SavvyOS features", "Agent-facing improvements published in the last 30 days.")}
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">${featureRows}</table>
 
       <table cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 0;" role="presentation"><tr><td style="background:#0FC0DF;border-radius:7px;">
         <a href="${APP_URL}/daily-report" style="display:inline-block;padding:12px 22px;color:#0A0A0A;font-size:14px;font-weight:700;text-decoration:none;">Open your live report</a>
@@ -920,7 +838,6 @@ export async function sendDailyAgentReports(asOf = new Date()): Promise<void> {
   try {
     const db = await getDb();
     if (!db) throw new Error("Database is not available for daily report recipients.");
-    await ensureInitialFeatureUpdate();
 
     const agents = await db.select({ id: users.id, name: users.name, email: users.email })
       .from(users)

@@ -13,7 +13,6 @@ vi.mock("./llm", () => ({ invokeLLM: vi.fn() }));
 
 import {
   __testables__,
-  notifySavvyOSFeatureUpdate,
   notifySavvyOSRelease,
 } from "./slackNotifications";
 import { invokeLLM } from "./llm";
@@ -25,7 +24,7 @@ afterEach(() => {
   invokeLlmMock.mockReset();
 });
 
-describe("SavvyOS Slack Feature Update notifications", () => {
+describe("SavvyOS Slack notifications", () => {
   it("escapes Slack markup and prevents broadcast mentions", () => {
     expect(
       __testables__.sanitizeForSlack("Improve <reports> & alert @channel")
@@ -87,37 +86,6 @@ describe("SavvyOS Slack Feature Update notifications", () => {
     );
     expect(summary.howToUse).toBe(
       "When moving a To-Do or Issue in Pulse, choose an authorized meeting destination."
-    );
-  });
-
-  it("posts a concise published Feature Update with the in-app action", async () => {
-    fetchMock.mockResolvedValue({ ok: true });
-
-    await expect(
-      notifySavvyOSFeatureUpdate({
-        event: "published",
-        title: "Hot Leads now shows email engagement",
-        summary: "Prioritize leads using recent delivery and reply signals.",
-        details: "Review the engagement column before starting outreach.",
-        actionUrl: "/hot-leads",
-      })
-    ).resolves.toBe(true);
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://hooks.slack.com/services/test",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text: [
-            ":mega: *Savvy OS has just been updated!*",
-            "*Hot Leads now shows email engagement*",
-            "Prioritize leads using recent delivery and reply signals.",
-            "Review the engagement column before starting outreach.",
-            "<https://os.savvy-agents.com/hot-leads|Open in SavvyOS>",
-          ].join("\n"),
-        }),
-      }
     );
   });
 
@@ -209,19 +177,4 @@ describe("SavvyOS Slack Feature Update notifications", () => {
     expect(JSON.parse(request.body).text).toContain("*How to use it:* Agents can open Resources");
   });
 
-  it("returns false rather than blocking an update when Slack rejects the request", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: async () => "error",
-    });
-
-    await expect(
-      notifySavvyOSFeatureUpdate({
-        event: "revised",
-        title: "Reports",
-        summary: "A revision.",
-      })
-    ).resolves.toBe(false);
-  });
 });

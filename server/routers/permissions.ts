@@ -123,7 +123,6 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewSuperPermissions",       label: "Super Permissions",          group: "Admin" },
   { key: "canViewPasswords",              label: "Passwords",                  group: "Admin" },
   { key: "canViewEmailNotifications",     label: "Email Notifications",        group: "Admin" },
-  { key: "canViewFeatureUpdates",         label: "Feature Updates",            group: "Admin" },
   { key: "canViewWebhooks",               label: "Webhooks",                   group: "Admin" },
 ] as const;
 

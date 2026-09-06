@@ -4082,38 +4082,6 @@ export type McpOAuthRefreshToken = typeof mcpOAuthRefreshTokens.$inferSelect;
 export type InsertMcpOAuthRefreshToken =
   typeof mcpOAuthRefreshTokens.$inferInsert;
 
-// ─── SavvyOS Feature Updates ─────────────────────────────────────────────────
-// Admin-managed, agent-facing release notes. The daily report only includes
-// published updates, keeping operational emails free from draft work.
-export const savvyosFeatureUpdates = mysqlTable(
-  "savvyos_feature_updates",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    title: varchar("title", { length: 255 }).notNull(),
-    summary: text("summary").notNull(),
-    details: text("details"),
-    actionUrl: varchar("actionUrl", { length: 512 }),
-    isAgentFacing: boolean("isAgentFacing").notNull().default(true),
-    isPublished: boolean("isPublished").notNull().default(false),
-    publishedAt: timestamp("publishedAt"),
-    createdById: int("createdById").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    index("savvyos_feature_updates_published_idx").on(
-      table.isPublished,
-      table.isAgentFacing,
-      table.publishedAt
-    ),
-  ]
-);
-export type SavvyosFeatureUpdate = typeof savvyosFeatureUpdates.$inferSelect;
-export type InsertSavvyosFeatureUpdate =
-  typeof savvyosFeatureUpdates.$inferInsert;
-
 // ─── Short Links ─────────────────────────────────────────────────────────────
 // Public redirects run only on home.savvy-agents.com. Click rows retain useful
 // attribution while the aggregate keeps the management list fast.
@@ -4964,9 +4932,6 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewSmartPlans: boolean("canViewSmartPlans").default(false).notNull(),
   canViewEmailNotifications: boolean("canViewEmailNotifications")
     .default(false)
-    .notNull(),
-  canViewFeatureUpdates: boolean("canViewFeatureUpdates")
-    .default(true)
     .notNull(),
   // Inbox access is sensitive because it exposes inbound external correspondence.
   canViewResendInbox: boolean("canViewResendInbox").default(false).notNull(),

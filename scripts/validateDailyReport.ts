@@ -27,7 +27,6 @@ async function main() {
     pipelineStages: report.pipeline.filter((stage) => stage.count > 0),
     hotLeadCount: report.hotLeads.length,
     overdueTaskCount: report.overdueTasks.length,
-    featureUpdateCount: report.featureUpdates.length,
     suggestionCount: report.suggestions.length,
     aiGenerated: report.aiGenerated,
   }, null, 2));

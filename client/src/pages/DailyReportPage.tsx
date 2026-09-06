@@ -137,7 +137,7 @@ export default function DailyReportPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
+      <div className="grid gap-6">
         <Card>
           <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><TrendingUp className="h-4.5 w-4.5 text-cyan-700" /> Pipeline health</CardTitle><CardDescription className="mt-1">Stage distribution and immediate execution flags for your active business.</CardDescription></CardHeader>
           <CardContent className="space-y-5">
@@ -151,13 +151,6 @@ export default function DailyReportPage() {
               <div className="rounded-lg bg-muted/50 p-3"><div className="text-xl font-bold">{report.metrics.upcomingClosings}</div><div className="mt-1 text-xs text-muted-foreground">Closings in next 30 days</div></div>
             </div>
             {report.upcomingTasks.length > 0 && <div><div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Coming due</div><div className="divide-y">{report.upcomingTasks.slice(0, 4).map((task) => <button key={task.id} onClick={() => navigate(task.actionPath)} className="flex w-full items-center justify-between gap-3 py-2 text-left hover:bg-muted/40"><span className="truncate text-sm">{task.title}</span><span className="shrink-0 text-xs text-muted-foreground">{formatDate(task.dueDate)}</span></button>)}</div></div>}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><Sparkles className="h-4.5 w-4.5 text-cyan-700" /> New in SavvyOS</CardTitle><CardDescription className="mt-1">Agent-facing updates published during the last 30 days.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {report.featureUpdates.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">No new agent-facing features were published recently.</p> : report.featureUpdates.map((update) => <div key={update.id} className="rounded-lg border border-cyan-100 bg-cyan-50/50 p-3"><div className="text-sm font-semibold text-cyan-950">{update.title}</div><p className="mt-1 text-xs leading-relaxed text-cyan-900/80">{update.summary}</p>{update.actionUrl && <Button variant="link" className="mt-1 h-auto p-0 text-xs" onClick={() => navigate(update.actionUrl!)}>Explore update<ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}</div>)}
           </CardContent>
         </Card>
       </div>

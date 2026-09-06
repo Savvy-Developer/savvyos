@@ -122,7 +122,6 @@ import PulsePermissioningPage from "./pages/PulsePermissioningPage";
 import PulseCreateMeetingPage from "./pages/PulseCreateMeetingPage";
 import PulseMeetingEffectivenessPage from "./pages/PulseMeetingEffectivenessPage";
 import DailyReportPage from "./pages/DailyReportPage";
-import DailyReportFeatureUpdatesPage from "./pages/DailyReportFeatureUpdatesPage";
 import ReferralsPage from "./pages/ReferralsPage";
 import ReferralPartnersPage from "./pages/ReferralPartnersPage";
 import ResendInboxPage from "./pages/ResendInboxPage";
@@ -500,7 +499,6 @@ function Router() {
           <Route path="/duplicates">{() => <AdminRoute><DuplicatesPage /></AdminRoute>}</Route>
           <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
-          <Route path="/daily-report-updates">{() => <AdminRoute><DailyReportFeatureUpdatesPage /></AdminRoute>}</Route>
           <Route path="/admin/vendors">{() => <AdminRoute><VendorListsAdminPage /></AdminRoute>}</Route>
           <Route path="/resend-inbox">{() => <AdminOrIsaRoute><ResendInboxPage /></AdminOrIsaRoute>}</Route>
           <Route path="/marketing-text-inbox">{() => <AdminOrIsaRoute><MarketingTextInboxPage /></AdminOrIsaRoute>}</Route>

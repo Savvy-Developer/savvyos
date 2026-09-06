@@ -5,14 +5,6 @@ const SAVVYOS_BASE_URL = "https://os.savvy-agents.com";
 const SLACK_TEXT_LIMIT = 3_500;
 const RELEASE_DIFF_LIMIT = 36_000;
 
-export type SavvyOSFeatureUpdateNotification = {
-  event: "published" | "revised";
-  title: string;
-  summary: string;
-  details?: string | null;
-  actionUrl?: string | null;
-};
-
 /** A PII-free operational notice for every SavvyOS prompt run or prompt update. */
 export type SavvyOSPromptRunNotification = {
   title: string;
@@ -395,32 +387,6 @@ async function postToSavvyOSPromptQueue(
     console.warn(`[Slack] ${context} notification failed:`, error);
     return false;
   }
-}
-
-/**
- * Posts a concise, agent-safe Feature Update message to #savvyos-prompt-queue.
- * The webhook is optional so local development and a temporarily unavailable
- * Slack integration never prevent a Feature Update from being saved.
- */
-export async function notifySavvyOSFeatureUpdate(
-  notification: SavvyOSFeatureUpdateNotification
-): Promise<boolean> {
-  const actionUrl = toSavvyOSUrl(notification.actionUrl);
-  const lines = [
-    ":mega: *Savvy OS has just been updated!*",
-    `*${sanitizeForSlack(notification.title)}*`,
-    sanitizeForSlack(notification.summary),
-  ];
-
-  if (notification.details?.trim()) {
-    lines.push(sanitizeForSlack(notification.details.trim()));
-  }
-
-  if (actionUrl) {
-    lines.push(`<${actionUrl}|Open in SavvyOS>`);
-  }
-
-  return postToSavvyOSPromptQueue(lines.join("\n"), "Feature Update");
 }
 
 /**
