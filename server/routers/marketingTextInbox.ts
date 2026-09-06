@@ -546,7 +546,11 @@ export const marketingTextInboxRouter = router({
     };
   }),
 
-  /** The sidebar badge count for unread replies on the dedicated marketing line. */
+  /**
+   * The sidebar badge count for unread, contact-linked replies on the dedicated
+   * marketing line. Unmatched Aircall events have no conversation to show,
+   * read, or archive in this inbox and therefore cannot contribute to its badge.
+   */
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
     await requireMarketingTextInboxAccess(ctx.user);
     const db = await getDb();
@@ -564,6 +568,7 @@ export const marketingTextInboxRouter = router({
         and(
           eq(aircallMessages.aircallNumberId, line.marketingNumberId),
           eq(aircallMessages.direction, "inbound"),
+          isNotNull(aircallMessages.contactId),
           isNull(aircallMessages.readAt),
           isNull(marketingTextInboxThreads.archivedAt)
         )
