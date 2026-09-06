@@ -64,6 +64,7 @@ import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import AgentMarketsPage from "./pages/AgentMarketsPage";
 import MarketMatchCallPage from "./pages/MarketMatchCallPage";
 import MarketMatchSettingsPage from "./pages/MarketMatchSettingsPage";
+import MarketMatchQuizAdminPage from "./pages/MarketMatchQuizAdminPage";
 import MarketingRequestsPage from "./pages/MarketingRequestsPage";
 import MarketingAdminPage from "./pages/MarketingAdminPage";
 import TechRequestsPage from "./pages/TechRequestsPage";
@@ -135,6 +136,7 @@ import ReviewsPage from "./pages/ReviewsPage";
 import PublicReviewPage from "./pages/PublicReviewPage";
 import CoachFeedbackPage from "./pages/CoachFeedbackPage";
 import PublicCoachFeedbackPage from "./pages/PublicCoachFeedbackPage";
+import PublicMarketMatchQuizPage from "./pages/PublicMarketMatchQuizPage";
 import ShortLinksPage from "./pages/ShortLinksPage";
 import VendorListManagementPage from "./pages/VendorListManagementPage";
 import VendorListsAdminPage from "./pages/VendorListsAdminPage";
@@ -399,6 +401,7 @@ function Router() {
           <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
           <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
           <Route path="/market-match/:id">{() => <AdminOrIsaRoute><MarketMatchCallPage /></AdminOrIsaRoute>}</Route>
+          <Route path="/admin/market-match-quiz">{() => <AgentMarketsRoute><MarketMatchQuizAdminPage /></AgentMarketsRoute>}</Route>
           <Route path="/transactions" component={TransactionsPage} />
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>
@@ -538,6 +541,7 @@ function App() {
           {/* Public routes — no auth required */}
           {isPublicLandingHost ? <PublicLandingPage /> : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
+            <Route path="/market-match" component={PublicMarketMatchQuizPage} />
             <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />
             <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />

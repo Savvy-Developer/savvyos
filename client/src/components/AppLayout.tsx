@@ -80,6 +80,7 @@ import {
   Video,
   Star,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -473,6 +474,11 @@ function buildAdminNav(
       label: "Agent Success Team",
       items: [
         { icon: Map, label: "Agent Markets", path: "/agent-markets" },
+        {
+          icon: Sparkles,
+          label: "Market Match Quiz",
+          path: "/admin/market-match-quiz",
+        },
         { icon: Star, label: "Reviews", path: "/reviews" },
         { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
         {

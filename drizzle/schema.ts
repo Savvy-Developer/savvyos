@@ -2978,6 +2978,224 @@ export const marketMatchSettings = mysqlTable("market_match_settings", {
 });
 export type MarketMatchSettings = typeof marketMatchSettings.$inferSelect;
 
+// ─── Public Market Match Quiz ────────────────────────────────────────────────
+// This deliberately uses dedicated tables instead of overloading Agent Markets
+// or contacts. Agent Markets remains the live market source of truth; each quiz
+// retains the criteria, eligibility decision, and handoff the buyer actually saw.
+export const marketMatchQuizSettings = mysqlTable("market_match_quiz_settings", {
+  id: int("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(true),
+  publicTitle: varchar("publicTitle", { length: 255 }).notNull(),
+  publicSubtitle: text("publicSubtitle"),
+  publicCta: varchar("publicCta", { length: 120 }).notNull(),
+  leadSourceId: int("leadSourceId").references(() => leadSources.id, { onDelete: "set null" }),
+  finishPlanId: int("finishPlanId").references(() => smartPlans.id, { onDelete: "set null" }),
+  maxRecommendedMarkets: int("maxRecommendedMarkets").notNull().default(3),
+  maxAgentConnections: int("maxAgentConnections").notNull().default(2),
+  dailyPropertyAudienceId: varchar("dailyPropertyAudienceId", { length: 255 }),
+  questionConfig: json("questionConfig").$type<Array<Record<string, unknown>>>(),
+  aiGuidance: text("aiGuidance"),
+  autoTestingEnabled: boolean("autoTestingEnabled").notNull().default(false),
+  autoPromoteMinCompletions: int("autoPromoteMinCompletions").notNull().default(100),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MarketMatchQuizSettings = typeof marketMatchQuizSettings.$inferSelect;
+
+export const marketMatchQuizVariants = mysqlTable("market_match_quiz_variants", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  hypothesis: text("hypothesis"),
+  status: mysqlEnum("status", ["draft", "published", "paused", "archived"]).notNull().default("draft"),
+  trafficAllocation: int("trafficAllocation").notNull().default(0),
+  isControl: boolean("isControl").notNull().default(false),
+  questionConfig: json("questionConfig").$type<Array<Record<string, unknown>>>(),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  publishedAt: timestamp("publishedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  index("market_match_quiz_variants_status_idx").on(table.status, table.updatedAt),
+]);
+export type MarketMatchQuizVariant = typeof marketMatchQuizVariants.$inferSelect;
+
+export const marketMatchQuizSessions = mysqlTable("market_match_quiz_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  // The browser credential is stored only as a SHA-256 digest. It is never an
+  // email-derived identifier, which prevents lookup by a guessed address.
+  browserTokenHash: varchar("browserTokenHash", { length: 64 }).notNull().unique(),
+  resumeNonce: varchar("resumeNonce", { length: 64 }).notNull(),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  variantId: int("variantId").references(() => marketMatchQuizVariants.id, { onDelete: "set null" }),
+  status: mysqlEnum("status", ["in_progress", "completed", "abandoned"]).notNull().default("in_progress"),
+  currentStep: varchar("currentStep", { length: 100 }).notNull().default("email"),
+  answers: json("answers").$type<Record<string, unknown>>().notNull(),
+  firstTouch: json("firstTouch").$type<Record<string, unknown>>(),
+  lastTouch: json("lastTouch").$type<Record<string, unknown>>(),
+  deviceCategory: varchar("deviceCategory", { length: 24 }),
+  emailReminderConsent: boolean("emailReminderConsent").notNull().default(false),
+  marketingEmailConsent: boolean("marketingEmailConsent").notNull().default(false),
+  marketingSmsConsent: boolean("marketingSmsConsent").notNull().default(false),
+  isNewContact: boolean("isNewContact").notNull().default(false),
+  isTest: boolean("isTest").notNull().default(false),
+  lastActiveAt: timestamp("lastActiveAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  index("market_match_quiz_sessions_contact_idx").on(table.contactId, table.createdAt),
+  index("market_match_quiz_sessions_status_active_idx").on(table.status, table.lastActiveAt),
+]);
+export type MarketMatchQuizSession = typeof marketMatchQuizSessions.$inferSelect;
+
+export const marketMatchQuizAnswerRevisions = mysqlTable("market_match_quiz_answer_revisions", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  questionId: varchar("questionId", { length: 100 }).notNull(),
+  answer: json("answer").$type<unknown>(),
+  answerSource: mysqlEnum("answerSource", ["explicit", "inference"]).notNull().default("explicit"),
+  aiInterpretation: json("aiInterpretation").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [
+  index("market_match_answer_revisions_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type MarketMatchQuizAnswerRevision = typeof marketMatchQuizAnswerRevisions.$inferSelect;
+
+// Participation is scoped only to the public quiz. It never changes an Agent
+// Market's operating status or an agent's availability in another workflow.
+export const marketMatchQuizMarketSettings = mysqlTable("market_match_quiz_market_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  marketProfileId: int("marketProfileId").notNull().references(() => marketProfiles.id, { onDelete: "cascade" }),
+  isEnabled: boolean("isEnabled").notNull().default(true),
+  priorityWeight: int("priorityWeight").notNull().default(0),
+  connectionCap: int("connectionCap"),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_quiz_market_unique").on(table.marketProfileId),
+]);
+export type MarketMatchQuizMarketSetting = typeof marketMatchQuizMarketSettings.$inferSelect;
+
+export const marketMatchQuizAgentSettings = mysqlTable("market_match_quiz_agent_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  marketProfileId: int("marketProfileId").notNull().references(() => marketProfiles.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  isEnabled: boolean("isEnabled").notNull().default(true),
+  connectionCap: int("connectionCap"),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_quiz_agent_unique").on(table.marketProfileId, table.agentId),
+]);
+export type MarketMatchQuizAgentSetting = typeof marketMatchQuizAgentSettings.$inferSelect;
+
+export const marketMatchQuizResultSnapshots = mysqlTable("market_match_quiz_result_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  buyBox: json("buyBox").$type<Record<string, unknown>>().notNull(),
+  matches: json("matches").$type<Array<Record<string, unknown>>>().notNull(),
+  noFitReason: text("noFitReason"),
+  eligibilityContext: json("eligibilityContext").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [
+  index("market_match_result_snapshots_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type MarketMatchQuizResultSnapshot = typeof marketMatchQuizResultSnapshots.$inferSelect;
+
+export const marketMatchQuizConnectionRequests = mysqlTable("market_match_quiz_connection_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  marketProfileId: int("marketProfileId").notNull().references(() => marketProfiles.id, { onDelete: "cascade" }),
+  agentId: int("agentId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  agentConnectionId: int("agentConnectionId").references(() => agentConnections.id, { onDelete: "set null" }),
+  requestedPath: mysqlEnum("requestedPath", ["introduction", "schedule"]).notNull(),
+  introDeliveryStatus: mysqlEnum("introDeliveryStatus", ["pending", "sent", "failed", "skipped"]).notNull().default("pending"),
+  introDeliveryError: text("introDeliveryError"),
+  introSentAt: timestamp("introSentAt"),
+  scheduleOpenedAt: timestamp("scheduleOpenedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_connection_request_unique").on(table.sessionId, table.marketProfileId),
+  index("market_match_connection_agent_idx").on(table.marketProfileId, table.agentId, table.createdAt),
+  index("market_match_connection_contact_idx").on(table.contactId, table.createdAt),
+]);
+export type MarketMatchQuizConnectionRequest = typeof marketMatchQuizConnectionRequests.$inferSelect;
+
+export const marketMatchQuizBookings = mysqlTable("market_match_quiz_bookings", {
+  id: int("id").autoincrement().primaryKey(),
+  connectionRequestId: int("connectionRequestId").references(() => marketMatchQuizConnectionRequests.id, { onDelete: "set null" }),
+  lenderRequestId: int("lenderRequestId"),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  agentId: int("agentId").references(() => users.id, { onDelete: "set null" }),
+  // Calendly API resource URIs fit comfortably below 512 characters. Keeping
+  // these indexed values within MySQL's utf8mb4 key limit enables webhook
+  // idempotency without a fragile prefix index.
+  calendlyEventUri: varchar("calendlyEventUri", { length: 500 }),
+  calendlyInviteeUri: varchar("calendlyInviteeUri", { length: 500 }),
+  status: mysqlEnum("status", ["confirmed", "canceled", "rescheduled"]).notNull().default("confirmed"),
+  attributionLabel: varchar("attributionLabel", { length: 64 }).notNull().default("MarketMatchSurvey"),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  canceledAt: timestamp("canceledAt"),
+  rawPayload: json("rawPayload").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_booking_event_unique").on(table.calendlyEventUri),
+  index("market_match_booking_session_idx").on(table.sessionId, table.createdAt),
+]);
+export type MarketMatchQuizBooking = typeof marketMatchQuizBookings.$inferSelect;
+
+export const marketMatchQuizLenders = mysqlTable("market_match_quiz_lenders", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  coverage: text("coverage"),
+  availabilityNote: text("availabilityNote"),
+  bookingLink: varchar("bookingLink", { length: 1024 }),
+  isEnabled: boolean("isEnabled").notNull().default(true),
+  createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MarketMatchQuizLender = typeof marketMatchQuizLenders.$inferSelect;
+
+export const marketMatchQuizLenderRequests = mysqlTable("market_match_quiz_lender_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull().references(() => marketMatchQuizSessions.id, { onDelete: "cascade" }),
+  contactId: int("contactId").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  lenderId: int("lenderId").notNull().references(() => marketMatchQuizLenders.id, { onDelete: "cascade" }),
+  requestedPath: mysqlEnum("requestedPath", ["introduction", "schedule"]).notNull(),
+  introDeliveryStatus: mysqlEnum("introDeliveryStatus", ["pending", "sent", "failed", "skipped"]).notNull().default("pending"),
+  introDeliveryError: text("introDeliveryError"),
+  introSentAt: timestamp("introSentAt"),
+  scheduleOpenedAt: timestamp("scheduleOpenedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("market_match_lender_request_unique").on(table.sessionId, table.lenderId),
+]);
+export type MarketMatchQuizLenderRequest = typeof marketMatchQuizLenderRequests.$inferSelect;
+
+export const marketMatchQuizEvents = mysqlTable("market_match_quiz_events", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").references(() => marketMatchQuizSessions.id, { onDelete: "set null" }),
+  contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+  eventType: varchar("eventType", { length: 80 }).notNull(),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+}, table => [
+  index("market_match_events_type_time_idx").on(table.eventType, table.occurredAt),
+  index("market_match_events_session_idx").on(table.sessionId, table.occurredAt),
+]);
+export type MarketMatchQuizEvent = typeof marketMatchQuizEvents.$inferSelect;
+
 export const marketAgentAssignments = mysqlTable("market_agent_assignments", {
   id: int("id").autoincrement().primaryKey(),
   marketProfileId: int("marketProfileId")

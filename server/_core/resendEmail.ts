@@ -135,6 +135,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "monthly_featured_vendor_earnings",
   "agent_featured_vendor_earnings",
   "market_profile_survey",
+  "market_match_connection",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
@@ -165,6 +166,7 @@ interface EmailContext {
   ccEmails?: string[];
   contactName?: string;
   agentName?: string;
+  marketMatchSummary?: string;
   transactionNumber?: string;
   transactionType?: string;
   propertyAddress?: string;
@@ -1281,6 +1283,23 @@ const TEMPLATES: Record<
       ${ctx.agentBookingLink ? ctaButton("Schedule a Call with Your Agent", ctx.agentBookingLink) : ctaButton("Get Started", APP_URL)}
       ${bodyText("If you have any questions in the meantime, feel free to reply to this email.")}`,
       `Meet ${ctx.agentName ?? "your agent"} — your dedicated STR specialist`
+    ),
+  }),
+
+  market_match_connection: ctx => ({
+    subject: `New Market Match introduction — ${ctx.contactName ?? "Investor"}`,
+    html: emailLayout(
+      `${heading("New Market Match introduction", CYAN)}
+      ${subheading(ctx.marketName ? `${ctx.marketName} market match` : "Savvy Market Match")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`An investor requested an introduction after completing the Savvy Market Match quiz${ctx.marketName ? ` for <strong>${escapeHtml(ctx.marketName)}</strong>` : ""}.`)}
+      ${infoCard([
+        `<strong style="color:${BLACK};">Investor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName ?? "Investor")}`,
+        ...(ctx.marketMatchSummary ? [`<strong style="color:${BLACK};">Stated buy box</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary)}`] : []),
+      ])}
+      ${bodyText("Open the contact record in SavvyOS to review the investor's stated answers, inferred preferences, and dated match history before following up.")}
+      ${ctaButton("Open contact", ctx.pulseActionUrl ?? APP_URL + "/contacts")}`,
+      `New Savvy Market Match introduction for ${ctx.contactName ?? "an investor"}`
     ),
   }),
 

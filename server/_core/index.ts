@@ -54,6 +54,8 @@ import { registerReleaseNotificationRoute } from "../releaseNotificationRoute";
 import { registerMarketingEmailUnsubscribeRoutes } from "../marketingEmailUnsubscribe";
 import { registerReadOnlyMcpRoute } from "../readOnlyMcp";
 import { registerMcpOAuthRoutes } from "../mcpOAuth";
+import { registerMarketMatchQuizCalendlyWebhook } from "../marketMatchQuizCalendlyWebhook";
+import { scheduleInactiveQuizFollowUps } from "../marketMatchQuiz";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -211,6 +213,10 @@ async function startServer() {
   registerReadOnlyMcpRoute(app);
   // Inbound webhook route — must be before express.json to capture raw body for HMAC
   registerWebhookRoute(app);
+
+  // Calendly sends provider-confirmed Market Match bookings and cancellations.
+  // This endpoint is intentionally separate from the landing-page client event.
+  registerMarketMatchQuizCalendlyWebhook(app);
 
   // Aircall webhook — live call sync
   registerAircallWebhook(app);
@@ -375,6 +381,9 @@ async function startServer() {
   // Agent Markets: refresh source-grounded market intelligence only when its
   // bounded evidence fingerprint changes, preserving a living market profile.
   scheduleMarketIntelligenceRefresh();
+  // Public Market Match: consented two-step follow-up begins only after a
+  // buyer leaves an in-progress quiz inactive for 24 hours.
+  scheduleInactiveQuizFollowUps();
   scheduleMarketProfileSurveyReminders();
 
   // Email Behaviors: sync Resend + GHL email activity every 4 hours

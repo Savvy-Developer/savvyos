@@ -36,6 +36,7 @@ import { leadershipRouter } from "./routers/leadership";
 import { commissionExceptionsRouter } from "./routers/commissionExceptions";
 import { agentMarketsRouter } from "./routers/agentMarkets";
 import { marketMatchRouter } from "./routers/marketMatch";
+import { marketMatchQuizRouter } from "./routers/marketMatchQuiz";
 import { marketingRequestsRouter } from "./routers/marketingRequests";
 import { techRequestsRouter } from "./routers/techRequests";
 import { pmRouter } from "./routers/pm";
@@ -103,6 +104,7 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
 
 export const appRouter = router({
   system: systemRouter,
+  marketMatchQuiz: marketMatchQuizRouter,
 
   auth: router({
     me: publicProcedure.query(opts => {
