@@ -314,11 +314,15 @@ export const agentMarketsRouter = router({
 
   sendProfileUpdateTest: adminProcedure.input(z.object({ marketId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
-      const recipientEmail = ctx.user.email?.trim().toLowerCase();
+      // An admin can be simulating another account while reviewing a market.
+      // A test initiated from that view must go to the real administrator, not
+      // the simulated teammate or agent.
+      const recipient = ctx.realUser ?? ctx.user;
+      const recipientEmail = recipient.email?.trim().toLowerCase();
       if (!recipientEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "Your SavvyOS account needs an email address before a test can be sent." });
       return sendMarketProfileUpdateTestEmail({
         marketProfileId: input.marketId,
-        recipient: { id: ctx.user.id, name: ctx.user.name, email: recipientEmail },
+        recipient: { id: recipient.id, name: recipient.name, email: recipientEmail },
       });
     }),
 
