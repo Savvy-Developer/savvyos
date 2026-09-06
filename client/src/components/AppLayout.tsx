@@ -148,6 +148,7 @@ function buildAgentNav(
         { icon: Home, label: "My Dashboard", path: "/" },
         { icon: Settings, label: "My Profile", path: "/profile" },
         { icon: Activity, label: "Daily Report", path: "/daily-report" },
+        { icon: BrainCircuit, label: "My Market AI", path: "/my-market-ai" },
         { icon: BarChart3, label: "My Stats", path: "/stats" },
         { icon: Trophy, label: "Agent Leaderboard", path: "/leaderboard" },
       ],

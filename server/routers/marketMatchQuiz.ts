@@ -69,6 +69,7 @@ export const marketMatchQuizRouter = router({
     firstName: z.string().trim().min(1).max(128),
     lastName: z.string().trim().min(1).max(128),
     phone: z.string().trim().max(32).nullable().optional(),
+    marketingSmsConsent: z.boolean().optional(),
   })).mutation(async ({ input }) => {
     try { return await completeQuizContactDetails(input); } catch (error) { return publicError(error); }
   }),

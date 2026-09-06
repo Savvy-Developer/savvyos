@@ -508,7 +508,7 @@ export async function startQuizFromEmail(input: EmailStartInput) {
   return { browserToken, sessionId, requiresContactDetails: isNewContact, questions: questionsFromConfig(variant?.questionConfig ?? settings.questionConfig), resumeNonce };
 }
 
-export async function completeQuizContactDetails(input: { browserToken: string; firstName: string; lastName: string; phone?: string | null }) {
+export async function completeQuizContactDetails(input: { browserToken: string; firstName: string; lastName: string; phone?: string | null; marketingSmsConsent?: boolean }) {
   const { db, session } = await sessionForToken(input.browserToken);
   if (!session.isNewContact || session.currentStep !== "contact") throw new Error("This Market Match does not need additional contact details.");
   const firstName = text(input.firstName, 128);
@@ -517,9 +517,14 @@ export async function completeQuizContactDetails(input: { browserToken: string; 
   const phone = text(input.phone, 32) || null;
   const current = safeJson(session.answers, {} as Record<string, unknown>);
   await db.transaction(async tx => {
-    await tx.update(contacts).set({ firstName, lastName, phone }).where(eq(contacts.id, session.contactId));
-    await tx.update(marketMatchQuizSessions).set({ answers: { ...current, contact: { ...(safeJson(current.contact, {} as Record<string, unknown>)), firstName, lastName, phone } }, currentStep: "goals", lastActiveAt: now() }).where(eq(marketMatchQuizSessions.id, session.id));
-    await tx.insert(marketMatchQuizEvents).values({ sessionId: session.id, contactId: session.contactId, eventType: "quiz_contact_details_captured", metadata: { phoneProvided: Boolean(phone) } });
+    await tx.update(contacts).set({
+      firstName,
+      lastName,
+      phone,
+      ...(input.marketingSmsConsent ? { smsMarketingConsentAt: now(), smsMarketingConsentSource: "Market Match Quiz", smsMarketingOptedOutAt: null, smsMarketingOptOutReason: null } : {}),
+    }).where(eq(contacts.id, session.contactId));
+    await tx.update(marketMatchQuizSessions).set({ answers: { ...current, contact: { ...(safeJson(current.contact, {} as Record<string, unknown>)), firstName, lastName, phone } }, currentStep: "goals", marketingSmsConsent: Boolean(input.marketingSmsConsent), lastActiveAt: now() }).where(eq(marketMatchQuizSessions.id, session.id));
+    await tx.insert(marketMatchQuizEvents).values({ sessionId: session.id, contactId: session.contactId, eventType: "quiz_contact_details_captured", metadata: { phoneProvided: Boolean(phone), marketingSmsConsent: Boolean(input.marketingSmsConsent) } });
     await tx.insert(marketMatchQuizEvents).values({ sessionId: session.id, contactId: session.contactId, eventType: "quiz_started", metadata: { isNewContact: true } });
   });
   return { success: true };

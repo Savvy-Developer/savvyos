@@ -43,6 +43,13 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   });
 });
 
+const agentMyMarketProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "agent") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "My Market AI is available to agents only." });
+  }
+  return next({ ctx });
+});
+
 function cleanText(value: string, max = MAX_TEXT_CHARS): string {
   return value.replace(/\u0000/g, "").replace(/\r\n/g, "\n").trim().slice(0, max);
 }
@@ -144,7 +151,89 @@ async function getMarketDetail(marketId: number) {
   };
 }
 
+async function assignedMarketForAgent(agentId: number) {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+  const [agent] = await db.select({ marketProfileId: users.marketProfileId }).from(users).where(eq(users.id, agentId)).limit(1);
+  const assignments = await db.select({ marketProfileId: marketAgentAssignments.marketProfileId, isPrimary: marketAgentAssignments.isPrimary })
+    .from(marketAgentAssignments)
+    .where(and(eq(marketAgentAssignments.agentId, agentId), eq(marketAgentAssignments.isAvailable, true)))
+    .orderBy(desc(marketAgentAssignments.isPrimary), asc(marketAgentAssignments.id));
+  const assignedIds = new Set(assignments.map(assignment => assignment.marketProfileId));
+  const marketId = agent?.marketProfileId && assignedIds.has(agent.marketProfileId)
+    ? agent.marketProfileId
+    : assignments[0]?.marketProfileId;
+  if (!marketId) throw new TRPCError({ code: "NOT_FOUND", message: "No active Agent Market has been assigned to your account yet. Ask an administrator to assign your market." });
+  return { db, marketId };
+}
+
 export const agentMarketsRouter = router({
+  myMarket: agentMyMarketProcedure.query(async ({ ctx }) => {
+    const { marketId } = await assignedMarketForAgent(ctx.user.id);
+    return getMarketDetail(marketId);
+  }),
+
+  myMarketAddNote: agentMyMarketProcedure.input(z.object({
+    title: z.string().trim().min(1).max(512),
+    content: z.string().trim().min(1).max(MAX_TEXT_CHARS),
+  })).mutation(async ({ input, ctx }) => {
+    const { db, marketId } = await assignedMarketForAgent(ctx.user.id);
+    const [result] = await db.insert(marketProfileSources).values({
+      marketProfileId: marketId,
+      sourceType: "note",
+      title: input.title,
+      content: cleanText(input.content),
+      extractionStatus: "ready",
+      createdById: ctx.user.id,
+    });
+    void refreshMarketIntelligence(marketId, "source_added");
+    void logActivity({ userId: ctx.user.id, action: "my_market_ai_source_added", entityType: "market", entityId: marketId, details: { sourceType: "note", title: input.title } });
+    return { id: Number((result as any).insertId) };
+  }),
+
+  myMarketUploadSource: agentMyMarketProcedure.input(z.object({
+    fileName: z.string().trim().min(1).max(512),
+    mimeType: z.string().trim().min(1).max(128),
+    base64Data: z.string().min(1).max(17_000_000),
+  })).mutation(async ({ input, ctx }) => {
+    const { db, marketId } = await assignedMarketForAgent(ctx.user.id);
+    const buffer = Buffer.from(input.base64Data, "base64");
+    if (!buffer.length || buffer.byteLength > MAX_UPLOAD_BYTES) {
+      throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Market source files must be 12 MB or smaller." });
+    }
+    const name = safeFileName(input.fileName);
+    const key = `agent-markets/${marketId}/sources/${nanoid(12)}-${name}`;
+    const [{ url }, extracted] = await Promise.all([
+      storagePut(key, buffer, input.mimeType),
+      extractTextFromUpload(buffer, input.mimeType, input.fileName),
+    ]);
+    const [result] = await db.insert(marketProfileSources).values({
+      marketProfileId: marketId,
+      sourceType: "file",
+      title: sourceTitle(input.fileName),
+      content: extracted.content,
+      fileUrl: url,
+      fileKey: key,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      fileSize: buffer.byteLength,
+      extractionStatus: extracted.status,
+      createdById: ctx.user.id,
+    });
+    void refreshMarketIntelligence(marketId, "source_added");
+    void logActivity({ userId: ctx.user.id, action: "my_market_ai_source_added", entityType: "market", entityId: marketId, details: { sourceType: "file", fileName: input.fileName, extractionStatus: extracted.status } });
+    return { id: Number((result as any).insertId), extractionStatus: extracted.status };
+  }),
+
+  myMarketRefresh: agentMyMarketProcedure.mutation(async ({ ctx }) => {
+    const { db, marketId } = await assignedMarketForAgent(ctx.user.id);
+    await db.insert(marketIntelligenceProfiles).values({ marketProfileId: marketId, status: "refreshing", refreshReason: "manual" })
+      .onDuplicateKeyUpdate({ set: { status: "refreshing", refreshReason: "manual", errorMessage: null, updatedAt: new Date() } });
+    void refreshMarketIntelligence(marketId, "manual");
+    void logActivity({ userId: ctx.user.id, action: "my_market_ai_refresh_requested", entityType: "market", entityId: marketId, details: {} });
+    return { success: true };
+  }),
+
   list: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });

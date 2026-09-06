@@ -102,7 +102,7 @@ export default function LeadSourcePicker({
         searchPlaceholder="Search main sources and sub-sources…"
         emptyText="No selectable lead sources found."
         showSelectedDescription
-        listClassName="!max-h-[min(28rem,calc(100vh-12rem))]"
+        listClassName="!max-h-[min(28rem,calc(100dvh-9rem))] !overflow-y-auto overscroll-contain touch-pan-y"
       />
       <p className="mt-1.5 text-xs text-muted-foreground">
         Sub-sources show the main source they belong to. Unattributed sources are reserved for automated records.

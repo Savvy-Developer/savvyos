@@ -115,17 +115,18 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="p-0"
-        style={{ width: "var(--radix-popover-trigger-width)", minWidth: "220px" }}
+        className="z-[100] max-h-[calc(100dvh-1rem)] overflow-hidden p-0"
+        style={{ width: "var(--radix-popover-trigger-width)", minWidth: "220px", maxHeight: "calc(100dvh - 1rem)" }}
         align="start"
+        collisionPadding={8}
       >
-        <Command>
+        <Command className="max-h-[calc(100dvh-1rem)]">
           <CommandInput
             placeholder={searchPlaceholder}
             value={searchValue}
             onValueChange={onSearchChange}
           />
-          <CommandList className={listClassName}>
+          <CommandList className={cn("max-h-[min(22rem,calc(100dvh-9rem))] overflow-y-auto overscroll-contain touch-pan-y", listClassName)}>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (

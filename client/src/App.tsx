@@ -63,6 +63,7 @@ import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import AgentMarketsPage from "./pages/AgentMarketsPage";
 import AgentMarketProfileFeedbackPage from "./pages/AgentMarketProfileFeedbackPage";
+import MyMarketAIPage from "./pages/MyMarketAIPage";
 import MarketMatchCallPage from "./pages/MarketMatchCallPage";
 import MarketMatchSettingsPage from "./pages/MarketMatchSettingsPage";
 import MarketMatchQuizAdminPage from "./pages/MarketMatchQuizAdminPage";
@@ -415,6 +416,7 @@ function Router() {
           <Route path="/proforma-defaults" component={ProformaDefaultsPage} />
           <Route path="/pipeline" component={PipelinePage} />
           <Route path="/daily-report">{() => <AgentOnlyRoute><DailyReportPage /></AgentOnlyRoute>}</Route>
+          <Route path="/my-market-ai">{() => <AgentOnlyRoute><MyMarketAIPage /></AgentOnlyRoute>}</Route>
           <Route path="/market-profile-survey" component={MarketProfileSurveyPage} />
           <Route path="/stats">{() => <AgentOnlyRoute><StatsPage /></AgentOnlyRoute>}</Route>
           <Route path="/referral-partners">{() => <AgentOnlyRoute><ReferralPartnersPage /></AgentOnlyRoute>}</Route>
@@ -544,8 +546,6 @@ function App() {
           {/* Public routes — no auth required */}
           {isPublicLandingHost ? (isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
-            <Route path="/market-match" component={PublicMarketMatchQuizPage} />
-            <Route path="/marketmatch" component={PublicMarketMatchQuizPage} />
             <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />
             <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />
