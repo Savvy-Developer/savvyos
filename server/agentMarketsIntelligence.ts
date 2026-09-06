@@ -462,7 +462,10 @@ export async function refreshMarketIntelligence(
       generatedAt,
       errorMessage: null,
     }).where(eq(marketIntelligenceProfiles.marketProfileId, marketProfileId));
-    if (stableHash(previousProfile) !== stableHash(profileJson)) {
+    // A newly created profile is an initial backfill, not an update agents
+    // requested. Only notify when a previously generated profile materially
+    // changes, avoiding a one-time bulk send as existing markets are adopted.
+    if (previousProfile && stableHash(previousProfile) !== stableHash(profileJson)) {
       await notifyAssignedAgentsOfMarketProfileUpdate({
         marketProfileId,
         previousProfile,
