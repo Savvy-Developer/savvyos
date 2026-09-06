@@ -12,6 +12,25 @@ import { getDb } from "./db";
 
 type MarketProfile = Record<string, any>;
 
+const TEST_MARKET_PROFILE: MarketProfile = {
+  executiveSummary: "This is a SavvyOS workflow test that demonstrates the complete evidence-backed Agent Market profile format and the private local-feedback loop.",
+  bestFitInvestors: ["Investors who value property-specific STR diligence", "Buyers seeking evidence-led market context"],
+  notIdealFor: ["Buyers seeking guaranteed revenue, financing, or regulatory outcomes"],
+  buyBox: {
+    purchasePriceGuidance: "Validate current purchase-price guidance against live market evidence.",
+    propertyTypes: ["STR-suitable homes"],
+    bedroomGuidance: "Confirm guest demand and operating assumptions before purchase.",
+    locations: ["Market-specific locations subject to current due diligence"],
+    propertyCharacteristics: ["Verify property-level STR feasibility"],
+  },
+  marketDynamics: ["Demand, supply, and regulation require current local validation.", "Operating economics should be assessed property by property."],
+  agentGuidance: ["Use the profile as decision support rather than a guarantee.", "Submit local intelligence through this feedback workflow."],
+  watchouts: ["Verify regulations, revenue, insurance, operating costs, and property-level feasibility."],
+  evidenceNotes: ["This is a complete test snapshot for delivery validation.", "Live profiles use approved current market evidence."],
+  researchGaps: ["Add current local research before using a test snapshot for client guidance."],
+  confidence: "limited",
+};
+
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -181,8 +200,7 @@ export async function sendMarketProfileUpdateTestEmail(params: {
     .from(marketIntelligenceProfiles)
     .where(eq(marketIntelligenceProfiles.marketProfileId, params.marketProfileId))
     .limit(1);
-  const profile = intelligence?.profileJson as MarketProfile | null;
-  if (!profile) throw new Error("Generate this market's AI profile before sending a live test email.");
+  const profile = intelligence?.profileJson as MarketProfile | null ?? TEST_MARKET_PROFILE;
 
   const changes = summarizeMarketProfileChanges(null, profile);
   const fingerprint = crypto
