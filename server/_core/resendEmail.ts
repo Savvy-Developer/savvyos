@@ -136,6 +136,7 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "agent_featured_vendor_earnings",
   "market_profile_survey",
   "market_match_connection",
+  "market_match_results",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
@@ -167,6 +168,8 @@ interface EmailContext {
   contactName?: string;
   agentName?: string;
   marketMatchSummary?: string;
+  marketMatchDetails?: string;
+  marketMatchResumeUrl?: string;
   transactionNumber?: string;
   transactionType?: string;
   propertyAddress?: string;
@@ -1287,19 +1290,33 @@ const TEMPLATES: Record<
   }),
 
   market_match_connection: ctx => ({
-    subject: `New Market Match introduction — ${ctx.contactName ?? "Investor"}`,
+    subject: `Your Savvy Market Match introduction — ${ctx.marketName ?? "STR market"}`,
     html: emailLayout(
-      `${heading("New Market Match introduction", CYAN)}
+      `${heading("Your Savvy Market Match introduction", CYAN)}
       ${subheading(ctx.marketName ? `${ctx.marketName} market match` : "Savvy Market Match")}
       ${greeting(ctx.recipientName)}
-      ${bodyText(`An investor requested an introduction after completing the Savvy Market Match quiz${ctx.marketName ? ` for <strong>${escapeHtml(ctx.marketName)}</strong>` : ""}.`)}
+      ${bodyText(`We're introducing you to <strong>${escapeHtml(ctx.agentName ?? "your Savvy STR specialist")}</strong>, who can help you explore the <strong>${escapeHtml(ctx.marketName ?? "matched")}</strong> market.`)}
       ${infoCard([
         `<strong style="color:${BLACK};">Investor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName ?? "Investor")}`,
         ...(ctx.marketMatchSummary ? [`<strong style="color:${BLACK};">Stated buy box</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary)}`] : []),
       ])}
-      ${bodyText("Open the contact record in SavvyOS to review the investor's stated answers, inferred preferences, and dated match history before following up.")}
-      ${ctaButton("Open contact", ctx.pulseActionUrl ?? APP_URL + "/contacts")}`,
-      `New Savvy Market Match introduction for ${ctx.contactName ?? "an investor"}`
+      ${bodyText("This thread is intentionally limited to this market match. Reply all to coordinate the next step together.")}
+      ${ctx.agentBookingLink ? ctaButton("Schedule a call", ctx.agentBookingLink) : ""}`,
+      `Your Savvy Market Match introduction for ${ctx.marketName ?? "a matched market"}`
+    ),
+  }),
+
+  market_match_results: ctx => ({
+    subject: "Your Savvy STR Market Match results",
+    html: emailLayout(
+      `${heading("Your STR BUYBOX and market matches", CYAN)}
+      ${greeting(ctx.recipientName)}
+      ${bodyText("Your Market Match is ready. These are the current Savvy markets that best fit the information you shared; they are a starting point for diligence, not a property or return guarantee.")}
+      ${infoCard([`<strong style="color:${BLACK};">Your BUYBOX</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary ?? "Your investment criteria are saved.")}`])}
+      ${ctx.marketMatchDetails ? `<div style="margin:20px 0;padding:16px 18px;border:1px solid ${BORDER};border-radius:10px;font-size:14px;line-height:1.65;color:#374151;white-space:pre-line;">${escapeHtml(ctx.marketMatchDetails)}</div>` : ""}
+      ${bodyText("You can return privately to review your matches, update answers, request an introduction, or schedule a call.")}
+      ${ctaButton("View my Market Match", ctx.marketMatchResumeUrl ?? APP_URL)}`,
+      "Your Savvy STR Market Match results"
     ),
   }),
 

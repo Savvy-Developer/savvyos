@@ -533,15 +533,17 @@ function Router() {
 
 function App() {
   const isPublicLandingHost = typeof window !== "undefined" && window.location.hostname.toLowerCase() === (import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  const isMarketMatchPublicPath = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "") === "/marketmatch";
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
           {/* Public routes — no auth required */}
-          {isPublicLandingHost ? <PublicLandingPage /> : <Switch>
+          {isPublicLandingHost ? (isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
             <Route path="/market-match" component={PublicMarketMatchQuizPage} />
+            <Route path="/marketmatch" component={PublicMarketMatchQuizPage} />
             <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />
             <Route path="/coach-feedback/survey" component={PublicCoachFeedbackPage} />

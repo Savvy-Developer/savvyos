@@ -4,6 +4,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
 import {
   beginQuizSession,
+  completeQuizContactDetails,
   enrollmentForAbandonedQuiz,
   generateQuizResults,
   getSessionState,
@@ -19,6 +20,9 @@ import {
   saveQuizMarketSetting,
   saveQuizSettings,
   saveQuizVariant,
+  startQuizFromEmail,
+  resumeQuizFromPrivateLink,
+  subscribeToDailyProperties,
 } from "../marketMatchQuiz";
 
 const tokenInput = z.object({ browserToken: z.string().min(20).max(200) });
@@ -44,11 +48,32 @@ const questionSchema = z.object({
   type: z.enum(["single", "multi", "currency_range", "text"]),
   options: z.array(z.object({ value: z.string().trim().min(1).max(100), label: z.string().trim().min(1).max(300) })).max(20).optional(),
   required: z.boolean().optional(),
+  showWhen: z.object({ questionId: z.string().trim().min(1).max(100), values: z.array(z.string().trim().min(1).max(100)).min(1).max(20) }).optional(),
 });
 
 export const marketMatchQuizRouter = router({
   publicConfiguration: publicProcedure.query(async () => {
     try { return await publicQuizConfiguration(); } catch (error) { return publicError(error); }
+  }),
+  startFromEmail: publicProcedure.input(z.object({
+    email: z.string().trim().email().max(320),
+    firstTouch: touchSchema,
+    deviceCategory: z.string().trim().max(24).nullable().optional(),
+    emailReminderConsent: z.boolean(),
+    marketingEmailConsent: z.boolean(),
+    marketingSmsConsent: z.boolean(),
+  })).mutation(async ({ input }) => {
+    try { return await startQuizFromEmail(input); } catch (error) { return publicError(error); }
+  }),
+  completeContactDetails: publicProcedure.input(tokenInput.extend({
+    firstName: z.string().trim().min(1).max(128),
+    lastName: z.string().trim().min(1).max(128),
+    phone: z.string().trim().max(32).nullable().optional(),
+  })).mutation(async ({ input }) => {
+    try { return await completeQuizContactDetails(input); } catch (error) { return publicError(error); }
+  }),
+  resume: publicProcedure.input(z.object({ resumeNonce: z.string().trim().min(20).max(200) })).mutation(async ({ input }) => {
+    try { return await resumeQuizFromPrivateLink(input.resumeNonce); } catch (error) { return publicError(error); }
   }),
   begin: publicProcedure.input(z.object({
     email: z.string().trim().email().max(320),
@@ -86,6 +111,9 @@ export const marketMatchQuizRouter = router({
   requestLender: publicProcedure.input(tokenInput.extend({ lenderId: z.number().int().positive(), path: z.enum(["introduction", "schedule"]) })).mutation(async ({ input }) => {
     try { return await requestLenderConnection(input); } catch (error) { return publicError(error); }
   }),
+  subscribeDailyProperties: publicProcedure.input(tokenInput).mutation(async ({ input }) => {
+    try { return await subscribeToDailyProperties(input.browserToken); } catch (error) { return publicError(error); }
+  }),
   recordAbandonment: publicProcedure.input(tokenInput).mutation(async ({ input }) => {
     try { return await enrollmentForAbandonedQuiz(input); } catch (error) { return publicError(error); }
   }),
@@ -93,7 +121,7 @@ export const marketMatchQuizRouter = router({
   adminBootstrap: quizAdminProcedure.query(() => quizAdminBootstrap()),
   adminSaveSettings: quizAdminProcedure.input(z.object({
     enabled: z.boolean().optional(), publicTitle: z.string().trim().max(255).optional(), publicSubtitle: z.string().trim().max(4_000).nullable().optional(), publicCta: z.string().trim().max(120).optional(),
-    leadSourceId: z.number().int().positive().nullable().optional(), finishPlanId: z.number().int().positive().nullable().optional(), maxRecommendedMarkets: z.number().int().min(1).max(5).optional(), maxAgentConnections: z.number().int().min(1).max(3).optional(), dailyPropertyAudienceId: z.string().trim().max(255).nullable().optional(), questionConfig: z.array(questionSchema).min(1).max(20).optional(), aiGuidance: z.string().trim().max(4_000).nullable().optional(), autoTestingEnabled: z.boolean().optional(), autoPromoteMinCompletions: z.number().int().min(50).max(10_000).optional(),
+    leadSourceId: z.number().int().positive().nullable().optional(), finishPlanId: z.number().int().positive().nullable().optional(), maxRecommendedMarkets: z.number().int().min(1).max(3).optional(), maxAgentConnections: z.number().int().min(1).max(3).optional(), dailyPropertyAudienceId: z.string().trim().max(255).nullable().optional(), questionConfig: z.array(questionSchema).min(1).max(20).optional(), aiGuidance: z.string().trim().max(4_000).nullable().optional(), autoTestingEnabled: z.boolean().optional(), autoPromoteMinCompletions: z.number().int().min(50).max(10_000).optional(),
   })).mutation(({ input, ctx }) => saveQuizSettings(input, ctx.user.id)),
   adminSaveMarket: quizAdminProcedure.input(z.object({ marketId: z.number().int().positive(), isEnabled: z.boolean(), priorityWeight: z.number().int().min(-3).max(3), connectionCap: z.number().int().positive().max(10_000).nullable() })).mutation(({ input, ctx }) => saveQuizMarketSetting(input, ctx.user.id)),
   adminSaveAgent: quizAdminProcedure.input(z.object({ marketId: z.number().int().positive(), agentId: z.number().int().positive(), isEnabled: z.boolean(), connectionCap: z.number().int().positive().max(10_000).nullable() })).mutation(({ input, ctx }) => saveQuizAgentSetting(input, ctx.user.id)),

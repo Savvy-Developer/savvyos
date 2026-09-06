@@ -1,7 +1,7 @@
 /**
  * Merge tag renderer for Smart Plan email/SMS templates.
  * Supported tags: {{first_name}}/{{firstname}}, {{last_name}}, {{full_name}},
- * {{agent_name}}, {{lead_source}}, and {{property}}.
+ * {{agent_name}}, {{lead_source}}, {{property}}, and {{market_match_resume_url}}.
  */
 
 export type MergeTagContext = {
@@ -10,6 +10,7 @@ export type MergeTagContext = {
   agentName?: string | null;
   leadSource?: string | null;
   propertyAddress?: string | null;
+  marketMatchResumeUrl?: string | null;
 };
 
 export function renderMergeTags(template: string, ctx: MergeTagContext): string {
@@ -20,5 +21,6 @@ export function renderMergeTags(template: string, ctx: MergeTagContext): string 
     .replace(/\{\{full_name\}\}/gi, fullName)
     .replace(/\{\{agent_name\}\}/gi, ctx.agentName || "Your Agent")
     .replace(/\{\{lead_source\}\}/gi, ctx.leadSource || "")
-    .replace(/\{\{property\}\}/gi, ctx.propertyAddress || "");
+    .replace(/\{\{property\}\}/gi, ctx.propertyAddress || "")
+    .replace(/\{\{market_match_resume_url\}\}/gi, ctx.marketMatchResumeUrl || "");
 }

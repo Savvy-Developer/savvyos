@@ -18,6 +18,7 @@ import {
   oneTimeSends,
   oneTimeSendRecipients,
   aircallIntegrationState,
+  marketMatchQuizSessions,
 } from "../drizzle/schema";
 import { and, eq, gte, inArray, lt, lte, isNotNull, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -285,6 +286,12 @@ async function processEnrollmentStep(
     ? await db.select().from(leadSources).where(eq(leadSources.id, contact.leadSourceId)).limit(1)
     : [];
   const leadSourceName = leadSourceRows[0]?.name ?? null;
+  const [marketMatchSession] = await db.select({ resumeNonce: marketMatchQuizSessions.resumeNonce })
+    .from(marketMatchQuizSessions)
+    .where(and(eq(marketMatchQuizSessions.contactId, contact.id), eq(marketMatchQuizSessions.status, "in_progress")))
+    .orderBy(sql`${marketMatchQuizSessions.lastActiveAt} DESC`)
+    .limit(1);
+  const marketMatchBaseUrl = process.env.MARKET_MATCH_PUBLIC_URL || "https://home.savvy-agents.com/marketmatch";
 
   const mergeCtx = {
     firstName: contact.firstName,
@@ -294,6 +301,7 @@ async function processEnrollmentStep(
     propertyAddress: plan.propertyAddressFromNotes && leadSourceName === OFFER_SHEET_REFERRAL_SOURCE_NAME
       ? extractOfferSheetReferralPropertyAddress(contact.notes)
       : null,
+    marketMatchResumeUrl: marketMatchSession?.resumeNonce ? `${marketMatchBaseUrl}${marketMatchBaseUrl.includes("?") ? "&" : "?"}resume=${encodeURIComponent(marketMatchSession.resumeNonce)}` : null,
   };
 
   const propertyFallbackRequired = plan.propertyAddressFromNotes

@@ -16,6 +16,17 @@ describe("Market Match quiz helpers", () => {
     expect(box.locationPreference).toBe("Smokies");
   });
 
+  it("keeps primary, cash, and setup criteria distinct in the BUYBOX", () => {
+    const box = __testables__.buyBoxFromAnswers({
+      primaryGoal: "cash_flow", investmentGoals: ["cash_flow", "portfolio"],
+      budget: { min: "400000", max: "600000" }, cashAvailable: { min: "100000", max: "150000" }, setupBudget: { min: "30000", max: "50000" },
+    });
+    expect(box.primaryGoal).toBe("cash_flow");
+    expect(box.investmentGoals).toEqual(["cash_flow", "portfolio"]);
+    expect(box.cashAvailable).toBe("$100,000 – $150,000");
+    expect(box.setupBudget).toBe("$30,000 – $50,000");
+  });
+
   it("keeps AI-derived signals explicitly labeled and lower confidence", () => {
     const box = __testables__.buyBoxFromAnswers({
       inferredPreferences: {
@@ -62,5 +73,17 @@ describe("Market Match quiz helpers", () => {
     expect(url).toContain("utm_source=MarketMatchSurvey");
     expect(url).toContain("utm_content=mm-42-agent");
     expect(url).not.toContain("email");
+  });
+
+  it("uses a private public-host resume URL and no CRM information", () => {
+    const url = __testables__.publicMarketMatchUrl("private-resume-token");
+    expect(url).toBe("https://home.savvy-agents.com/marketmatch?resume=private-resume-token");
+    expect(url).not.toContain("contact");
+  });
+
+  it("formats private result details with a market-specific tradeoff", () => {
+    const details = __testables__.marketResultsEmailDetails([{ marketName: "Smokies", state: "Tennessee", reasons: ["Fits your stated range"] }], null);
+    expect(details).toContain("Smokies, Tennessee");
+    expect(details).toContain("Validate next");
   });
 });
