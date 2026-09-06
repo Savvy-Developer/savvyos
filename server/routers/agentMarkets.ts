@@ -6,6 +6,7 @@ import {
   marketAgentAssignments,
   marketIntelligenceProfiles,
   marketProfileSources,
+  marketProfileSurveyInvitations,
   marketProfiles,
   users,
 } from "../../drizzle/schema";
@@ -158,10 +159,18 @@ export const agentMarketsRouter = router({
       generatedAt: marketIntelligenceProfiles.generatedAt,
       sourceCount: sql<number>`(SELECT COUNT(*) FROM ${marketProfileSources} mps WHERE mps.marketProfileId = ${marketProfiles.id})`,
       agentCount: sql<number>`(SELECT COUNT(DISTINCT maa.agentId) FROM ${marketAgentAssignments} maa WHERE maa.marketProfileId = ${marketProfiles.id})`,
+      surveyInvitedCount: sql<number>`(SELECT COUNT(*) FROM ${marketProfileSurveyInvitations} mpsi WHERE mpsi.marketProfileId = ${marketProfiles.id} AND mpsi.initialSentAt IS NOT NULL)`,
+      surveyResponseCount: sql<number>`(SELECT COUNT(*) FROM ${marketProfileSurveyInvitations} mpsi WHERE mpsi.marketProfileId = ${marketProfiles.id} AND mpsi.status = 'completed')`,
     }).from(marketProfiles)
       .leftJoin(marketIntelligenceProfiles, eq(marketIntelligenceProfiles.marketProfileId, marketProfiles.id))
       .orderBy(asc(marketProfiles.name));
-    return rows.map(row => ({ ...row, sourceCount: Number(row.sourceCount ?? 0), agentCount: Number(row.agentCount ?? 0) }));
+    return rows.map(row => ({
+      ...row,
+      sourceCount: Number(row.sourceCount ?? 0),
+      agentCount: Number(row.agentCount ?? 0),
+      surveyInvitedCount: Number(row.surveyInvitedCount ?? 0),
+      surveyResponseCount: Number(row.surveyResponseCount ?? 0),
+    }));
   }),
 
   get: adminProcedure.input(z.object({ marketId: z.number().int().positive() }))

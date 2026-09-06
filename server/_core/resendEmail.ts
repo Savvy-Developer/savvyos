@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { ENV } from "./env";
 import { getDb } from "../db";
 import {
+  emailNotificationDeliveries,
   emailTemplates,
   emailNotificationSettings,
   magicLinkTokens,
@@ -40,7 +41,7 @@ async function sendViaResendHttpFallback(params: {
   html: string;
   idempotencyKey?: string;
   replyTo?: string;
-}): Promise<{ sent: boolean; reason?: string }> {
+}): Promise<{ sent: boolean; providerMessageId?: string; reason?: string }> {
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -67,7 +68,8 @@ async function sendViaResendHttpFallback(params: {
         reason: `HTTP ${response.status}: ${await response.text()}`,
       };
     }
-    return { sent: true };
+    const data = await response.json().catch(() => null) as { id?: string } | null;
+    return { sent: true, providerMessageId: data?.id };
   } catch (error) {
     return {
       sent: false,
@@ -135,11 +137,17 @@ export const EMAIL_NOTIFICATION_TYPES = [
   "monthly_featured_vendor_earnings",
   "agent_featured_vendor_earnings",
   "market_profile_survey",
+  "market_profile_updated",
   "market_match_connection",
   "market_match_results",
 ] as const;
 
 export type EmailType = (typeof EMAIL_NOTIFICATION_TYPES)[number];
+
+export type NotificationRecipient = {
+  name?: string;
+  email: string;
+};
 
 interface EmailContext {
   recipientName?: string;
@@ -192,6 +200,10 @@ interface EmailContext {
   marketName?: string;
   marketSurveyUrl?: string;
   marketSurveyReminderNumber?: number;
+  // Market profile update feedback fields
+  marketProfileUpdateUrl?: string;
+  marketProfileChangeSummary?: string;
+  marketProfileSnapshotHtml?: string;
   // PTO request and decision fields
   employeeName?: string;
   managerName?: string;
@@ -909,6 +921,22 @@ const TEMPLATES: Record<
       ),
     };
   },
+
+  market_profile_updated: ctx => ({
+    subject: `Your ${ctx.marketName ?? "market"} AI profile was updated`,
+    html: emailLayout(
+      `${heading("Your market profile was updated", "#0891B2")}
+      ${subheading("Agent Markets")}
+      ${greeting(ctx.recipientName)}
+      ${bodyText(`SavvyOS refreshed the living AI profile for <strong>${escapeHtml(ctx.marketName ?? "your market")}</strong> from its current permitted research and operating evidence. The complete latest profile is included below so you can review exactly what the AI will use.`)}
+      ${ctx.marketProfileChangeSummary ? infoCard([`<strong style="color:${BLACK};">What changed</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketProfileChangeSummary)}`], "#0891B2") : ""}
+      ${ctx.marketProfileSnapshotHtml ?? bodyText("The current market profile is available in SavvyOS.")}
+      ${bodyText("Your local expertise is important. Use the link below to comment on anything that is missing, inaccurate, or needs more context. Your comments will be added as evidence and synthesized into the next AI refresh for this market.")}
+      ${ctx.marketProfileUpdateUrl ? ctaButton("Review Profile & Add Comments", escapeHtml(ctx.marketProfileUpdateUrl), "#0891B2") : ""}
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:${MUTED};">Market profiles are decision-support tools, not guarantees of revenue, regulatory approval, financing, or property performance.</p>`,
+      `Your ${ctx.marketName ?? "market"} AI profile has been updated. Review the full profile and share local context.`
+    ),
+  }),
 
   listing_created: ctx => ({
     subject: `New Listing Created${ctx.contactName ? ` — ${ctx.contactName}` : ""}${ctx.listingAddress ? ` — ${ctx.listingAddress}` : ""}`,
@@ -1653,7 +1681,52 @@ export interface EmailDeliveryOptions {
 export interface EmailDeliveryResult {
   sent: boolean;
   skipped: boolean;
+  providerMessageId?: string;
   reason?: string;
+}
+
+async function recordEmailDelivery(params: {
+  type: EmailType;
+  recipientEmail: string;
+  recipientName?: string;
+  ccEmails: string[];
+  subject: string;
+  html: string;
+  providerMessageId?: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db || typeof (db as any).insert !== "function") return;
+  const recipients = Array.from(
+    new Set([params.recipientEmail, ...params.ccEmails].map(email => email.trim().toLowerCase()).filter(Boolean))
+  );
+  if (!recipients.length) return;
+  const now = new Date();
+  await db
+    .insert(emailNotificationDeliveries)
+    .values(
+      recipients.map(email => ({
+        notificationKey: params.type,
+        provider: "resend",
+        providerMessageId: params.providerMessageId ?? null,
+        recipientEmail: email,
+        recipientName: email === params.recipientEmail.trim().toLowerCase()
+          ? params.recipientName ?? null
+          : null,
+        subject: params.subject,
+        htmlBody: params.html,
+        status: "sent" as const,
+        sentAt: now,
+      }))
+    )
+    .onDuplicateKeyUpdate({
+      set: {
+        subject: params.subject,
+        htmlBody: params.html,
+        status: "sent",
+        sentAt: now,
+        errorMessage: null,
+      },
+    });
 }
 
 /**
@@ -1674,6 +1747,45 @@ async function isNotificationDisabled(type: EmailType): Promise<boolean> {
     .where(eq(emailNotificationSettings.notificationKey, type))
     .limit(1);
   return Boolean(setting && !setting.isEnabled);
+}
+
+/**
+ * Resolves the operational distribution list for an administrative or
+ * leadership notification. A saved list intentionally replaces the coded
+ * default; an unset/empty list preserves the original behavior.
+ */
+export async function resolveNotificationRecipients(
+  type: EmailType,
+  defaultRecipients: NotificationRecipient[],
+): Promise<NotificationRecipient[]> {
+  const defaultByEmail = new Map<string, NotificationRecipient>();
+  for (const recipient of defaultRecipients) {
+    const email = recipient.email?.trim().toLowerCase();
+    if (email) defaultByEmail.set(email, { ...recipient, email });
+  }
+
+  try {
+    const db = await getDb();
+    if (!db) return Array.from(defaultByEmail.values());
+    const [setting] = await db
+      .select({ recipientEmails: emailNotificationSettings.recipientEmails })
+      .from(emailNotificationSettings)
+      .where(eq(emailNotificationSettings.notificationKey, type))
+      .limit(1);
+    const configured = Array.isArray(setting?.recipientEmails)
+      ? setting.recipientEmails
+          .filter((email): email is string => typeof email === "string")
+          .map(email => email.trim().toLowerCase())
+          .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      : [];
+    if (!configured.length) return Array.from(defaultByEmail.values());
+    return Array.from(new Set(configured)).map(email =>
+      defaultByEmail.get(email) ?? { email, name: email }
+    );
+  } catch (error) {
+    console.warn("[Resend] Could not resolve notification recipients:", error);
+    return Array.from(defaultByEmail.values());
+  }
 }
 
 /**
@@ -1914,7 +2026,16 @@ export async function sendTransactionalEmail(
       });
       if (fallback.sent) {
         console.info("[Resend] Direct provider fallback succeeded.");
-        return { sent: true, skipped: false };
+        await recordEmailDelivery({
+          type,
+          recipientEmail: ctx.recipientEmail,
+          recipientName: ctx.recipientName,
+          ccEmails: ctx.ccEmails?.length ? ctx.ccEmails : ctx.ccEmail ? [ctx.ccEmail] : [],
+          subject,
+          html,
+          providerMessageId: fallback.providerMessageId,
+        }).catch(error => console.warn("[Resend] Could not record fallback email delivery:", error));
+        return { sent: true, skipped: false, providerMessageId: fallback.providerMessageId };
       }
       return {
         sent: false,
@@ -1923,7 +2044,17 @@ export async function sendTransactionalEmail(
       };
     }
 
-    return { sent: true, skipped: false };
+    const providerMessageId = result.data?.id ?? undefined;
+    await recordEmailDelivery({
+      type,
+      recipientEmail: ctx.recipientEmail,
+      recipientName: ctx.recipientName,
+      ccEmails: ctx.ccEmails?.length ? ctx.ccEmails : ctx.ccEmail ? [ctx.ccEmail] : [],
+      subject,
+      html,
+      providerMessageId,
+    }).catch(error => console.warn("[Resend] Could not record email delivery:", error));
+    return { sent: true, skipped: false, providerMessageId };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.error("[Resend] Failed to send email:", err);

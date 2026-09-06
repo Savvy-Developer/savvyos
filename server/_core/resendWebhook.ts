@@ -9,6 +9,7 @@ import { getDb } from "../db";
 import {
   contacts,
   emailBehaviors,
+  emailNotificationDeliveries,
   smartPlanExecutions,
   smartPlanMessageEvents,
   oneTimeSends,
@@ -354,6 +355,51 @@ export async function handleResendWebhook(event: ResendWebhookEvent, webhookEven
 
   const db = await getDb();
   if (!db) return { handled: false, reason: "db_unavailable" };
+
+  // Operational notification sends are recorded by the common email helper.
+  // Keep the current state projection lightweight and idempotent; Resend can
+  // emit lifecycle events more than once and in non-linear order.
+  if (emailId && SMART_PLAN_EVENT_TYPES.has(type)) {
+    const occurredAt = eventTimestamp(event);
+    const deliveryProjection: Partial<typeof emailNotificationDeliveries.$inferInsert> = {};
+    switch (type) {
+      case "email.delivered":
+        deliveryProjection.status = "delivered";
+        deliveryProjection.deliveredAt = occurredAt;
+        break;
+      case "email.opened":
+        deliveryProjection.status = "opened";
+        deliveryProjection.openedAt = occurredAt;
+        break;
+      case "email.clicked":
+        deliveryProjection.status = "clicked";
+        deliveryProjection.clickedAt = occurredAt;
+        break;
+      case "email.bounced":
+        deliveryProjection.status = "bounced";
+        deliveryProjection.bouncedAt = occurredAt;
+        break;
+      case "email.complained":
+        deliveryProjection.status = "complained";
+        break;
+      case "email.suppressed":
+        deliveryProjection.status = "suppressed";
+        break;
+      case "email.failed":
+        deliveryProjection.status = "failed";
+        deliveryProjection.errorMessage = "Resend reported that the email could not be sent";
+        break;
+    }
+    if (Object.keys(deliveryProjection).length) {
+      await db
+        .update(emailNotificationDeliveries)
+        .set(deliveryProjection)
+        .where(and(
+          eq(emailNotificationDeliveries.provider, "resend"),
+          eq(emailNotificationDeliveries.providerMessageId, emailId),
+        ));
+    }
+  }
 
   // A reply address with an sp- token is matched to its exact email execution
   // above. For normal inbound email, match the sender to a contact and pause only

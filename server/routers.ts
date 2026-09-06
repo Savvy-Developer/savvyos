@@ -11,8 +11,8 @@ import { EMAIL_NOTIFICATION_TYPES, sendTransactionalEmail, getEmailPreview } fro
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
-import { customEmailNotifications, emailTemplates, emailNotificationSettings } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { customEmailNotifications, emailNotificationDeliveries, emailTemplates, emailNotificationSettings } from "../drizzle/schema";
+import { desc, eq } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
 import { propertiesRouter } from "./routers/properties";
@@ -76,6 +76,7 @@ import { ptoRouter } from "./routers/pto";
 import { agentRenewalsRouter } from "./routers/agentRenewals";
 import { affiliateLinksRouter } from "./routers/affiliateLinks";
 import { marketProfileSurveyRouter } from "./routers/marketProfileSurvey";
+import { marketProfileFeedbackRouter } from "./routers/marketProfileFeedback";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -93,6 +94,7 @@ function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: s
     ["listing_created", { ...ctx2, listingAddress: "456 Blue Ridge Pkwy, Asheville, NC", contactName: "Bob Seller", listPrice: "$875,000", listingDate: "Mar 18, 2026", expirationDate: "Jun 18, 2026" }],
     ["listing_expiration_reminder", { ...ctx2, listingAddress: "456 Blue Ridge Pkwy, Asheville, NC", contactName: "Bob Seller", listPrice: "$875,000", expirationDate: "March 1, 2026" }],
     ["onboarding_overdue", { ...ctx2, overdueCount: "3", taskList: "• Complete W-9 form\n• Upload license copy\n• Sign brokerage agreement" }],
+    ["market_profile_updated", { ...ctx2, marketName: "Smoky Mountains, TN", marketProfileChangeSummary: "Market read was updated. Best-fit investors was updated. Buy-box guidance was updated. Watchouts and diligence was updated.", marketProfileSnapshotHtml: "<div style=\"margin:20px 0;border:1px solid #D1D5DB;border-radius:9px;padding:20px;background:#FFFFFF;\"><h2 style=\"margin:0 0 8px;font-size:17px;color:#111827;\">Complete current market profile</h2><p style=\"margin:0 0 15px;font-size:13px;line-height:1.6;color:#374151;\"><strong>Market read:</strong> The current evidence supports a selective, diligence-led STR conversation for qualified investors.</p><p style=\"margin:0 0 15px;font-size:13px;line-height:1.6;color:#374151;\"><strong>Best-fit investors:</strong> Buyers who prioritize verified local operating context and are prepared to validate property-specific regulations.</p><p style=\"margin:0;font-size:13px;line-height:1.6;color:#374151;\"><strong>Watchouts:</strong> Verify regulations, seasonality, operating costs, and property-level feasibility before making a decision.</p></div>", marketProfileUpdateUrl: "https://os.savvy-agents.com/agent-market-feedback/preview" }],
     ["commission_exception_warning", { ...ctx2, transactionNumber: "TXN-TEST-001", notes: "Total payout exceeds 100% — please review split" }],
     ["client_intro", { ...ctx2, agentName: "Sarah Mitchell", contactName: "Alex Johnson", isaName: "Jordan Lee", agentBookingLink: "https://calendly.com/sarah-mitchell" }],
     ["connection_request_approved", { ...ctx2, contactName: "Jane Smith", agentName: "Sarah Mitchell", pipelineStatus: "Nurture" }],
@@ -302,6 +304,7 @@ export const appRouter = router({
   agentRenewals: agentRenewalsRouter,
   affiliateLinks: affiliateLinksRouter,
   marketProfileSurvey: marketProfileSurveyRouter,
+  marketProfileFeedback: marketProfileFeedbackRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({
@@ -331,6 +334,37 @@ export const appRouter = router({
           .values({ notificationKey: input.notificationKey, isEnabled: input.isEnabled, updatedBy: ctx.user.id })
           .onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, updatedBy: ctx.user.id } });
         return { success: true };
+      }),
+    /** Set the operational distribution list for an administrative notification. */
+    updateRecipients: protectedProcedure
+      .input(z.object({
+        notificationKey: z.enum(EMAIL_NOTIFICATION_TYPES),
+        recipientEmails: z.array(z.string().email()).max(30),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db2 = await db.getDb();
+        if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const recipientEmails = Array.from(new Set(input.recipientEmails.map(email => email.trim().toLowerCase())));
+        await db2
+          .insert(emailNotificationSettings)
+          .values({ notificationKey: input.notificationKey, recipientEmails, updatedBy: ctx.user.id })
+          .onDuplicateKeyUpdate({ set: { recipientEmails, updatedBy: ctx.user.id } });
+        return { success: true, recipientEmails };
+      }),
+    /** Return delivery/open history and the exact rendered HTML for one notification. */
+    history: protectedProcedure
+      .input(z.object({ notificationKey: z.string().min(1).max(128) }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db2 = await db.getDb();
+        if (!db2) return [];
+        return db2
+          .select()
+          .from(emailNotificationDeliveries)
+          .where(eq(emailNotificationDeliveries.notificationKey, input.notificationKey))
+          .orderBy(desc(emailNotificationDeliveries.sentAt))
+          .limit(100);
       }),
   }),
 

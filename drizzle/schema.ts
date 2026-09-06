@@ -2963,6 +2963,49 @@ export const marketIntelligenceProfiles = mysqlTable(
 export type MarketIntelligenceProfile =
   typeof marketIntelligenceProfiles.$inferSelect;
 
+// ─── Agent Market Profile Feedback ──────────────────────────────────────────
+// A snapshot of each material profile update is sent to every assigned agent.
+// Feedback is retained beside that snapshot and added as a source before the
+// living profile is regenerated.
+export const marketProfileFeedbackRequests = mysqlTable(
+  "market_profile_feedback_requests",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    marketProfileId: int("marketProfileId")
+      .notNull()
+      .references(() => marketProfiles.id, { onDelete: "cascade" }),
+    agentId: int("agentId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profileFingerprint: varchar("profileFingerprint", { length: 64 }).notNull(),
+    previousProfileJson: json("previousProfileJson"),
+    profileJson: json("profileJson").notNull(),
+    changeSummary: json("changeSummary").$type<string[]>().notNull(),
+    feedbackText: mediumtext("feedbackText"),
+    emailSentAt: timestamp("emailSentAt").defaultNow().notNull(),
+    feedbackSubmittedAt: timestamp("feedbackSubmittedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("market_profile_feedback_request_unique").on(
+      table.marketProfileId,
+      table.agentId,
+      table.profileFingerprint
+    ),
+    index("market_profile_feedback_agent_created_idx").on(
+      table.agentId,
+      table.createdAt
+    ),
+    index("market_profile_feedback_market_created_idx").on(
+      table.marketProfileId,
+      table.createdAt
+    ),
+  ]
+);
+export type MarketProfileFeedbackRequest =
+  typeof marketProfileFeedbackRequests.$inferSelect;
+
 // ─── Market Match Feature Settings ──────────────────────────────────────────
 // One organization-wide row controls the call experience. Market data remains
 // owned by Agent Markets; these values only gate and cap recommendations.
@@ -4062,6 +4105,9 @@ export const emailNotificationSettings = mysqlTable(
     // A populated list replaces the event's normal recipient(s); null preserves
     // the existing event-specific recipient behavior.
     recipientUserIds: json("recipientUserIds").$type<number[]>(),
+    // Operational distribution lists can include any valid business email
+    // address, including teammates who do not hold a SavvyOS user account.
+    recipientEmails: json("recipientEmails").$type<string[]>(),
     // When enabled, include active email-enabled users created after the saved
     // cutoff in addition to the specifically selected recipients.
     includeFutureUsers: boolean("includeFutureUsers").notNull().default(false),
@@ -4075,7 +4121,57 @@ export const emailNotificationSettings = mysqlTable(
 export type EmailNotificationSetting =
   typeof emailNotificationSettings.$inferSelect;
 
-// ─── Scheduled Report Runs ────────────────────────────────────────────────────
+// ─── Email Notification Delivery History ───────────────────────────────────
+// Every message sent through the shared Resend helper is retained with the
+// rendered content and provider message id so administrators can inspect the
+// intended audience and delivery/open status by notification type.
+export const emailNotificationDeliveries = mysqlTable(
+  "email_notification_deliveries",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    notificationKey: varchar("notificationKey", { length: 128 }).notNull(),
+    provider: varchar("provider", { length: 32 }).notNull().default("resend"),
+    providerMessageId: varchar("providerMessageId", { length: 255 }),
+    recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+    recipientName: varchar("recipientName", { length: 255 }),
+    subject: text("subject").notNull(),
+    htmlBody: mediumtext("htmlBody").notNull(),
+    status: mysqlEnum("status", [
+      "sent",
+      "delivered",
+      "opened",
+      "clicked",
+      "bounced",
+      "complained",
+      "suppressed",
+      "failed",
+    ]).notNull().default("sent"),
+    errorMessage: text("errorMessage"),
+    sentAt: timestamp("sentAt").defaultNow().notNull(),
+    deliveredAt: timestamp("deliveredAt"),
+    openedAt: timestamp("openedAt"),
+    clickedAt: timestamp("clickedAt"),
+    bouncedAt: timestamp("bouncedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("email_notification_delivery_key_sent_idx").on(
+      table.notificationKey,
+      table.sentAt
+    ),
+    index("email_notification_delivery_provider_message_idx").on(
+      table.providerMessageId
+    ),
+    uniqueIndex("email_notification_delivery_message_recipient_unique").on(
+      table.providerMessageId,
+      table.recipientEmail
+    ),
+  ]
+);
+export type EmailNotificationDelivery = typeof emailNotificationDeliveries.$inferSelect;
+
+// ─── Scheduled Report Runs ───────────────────────────────────────────────────
 // A unique report/date record prevents duplicate delivery across process restarts
 // and provides an auditable delivery outcome for scheduled reports.
 export const scheduledReportRuns = mysqlTable(

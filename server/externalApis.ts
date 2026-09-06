@@ -1,5 +1,6 @@
 import express from "express";
 import { sdk } from "./_core/sdk";
+import { makeRequest } from "./_core/map";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
 const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
@@ -71,7 +72,77 @@ export function mapZillowPropertyResponse(data: any) {
   };
 }
 
+type GoogleAddressComponent = { long_name?: string; short_name?: string; types?: string[] };
+
+export function parseGoogleAddressDetails(result: any) {
+  const components = Array.isArray(result?.address_components)
+    ? result.address_components as GoogleAddressComponent[]
+    : [];
+  const component = (type: string, short = false) => {
+    const value = components.find(item => item.types?.includes(type));
+    return short ? value?.short_name : value?.long_name;
+  };
+  const streetNumber = component("street_number") ?? "";
+  const route = component("route") ?? "";
+  const streetAddress = `${streetNumber} ${route}`.trim();
+  const city = component("locality") ?? component("postal_town") ?? component("sublocality") ?? component("administrative_area_level_3") ?? "";
+  return {
+    address: streetAddress || result?.formatted_address?.split(",")[0] || "",
+    city,
+    state: component("administrative_area_level_1", true) ?? "",
+    zip: component("postal_code") ?? "",
+    formattedAddress: result?.formatted_address ?? "",
+  };
+}
+
 export function registerExternalApiRoutes(app: express.Application) {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GOOGLE ADDRESS AUTOCOMPLETE
+  // ═══════════════════════════════════════════════════════════════════════════
+  // The Maps request is performed server-side with the built-in Forge key. This
+  // avoids relying on a browser build-time key, which can be absent after a
+  // deployment even though address verification remains available server-side.
+  app.post("/api/external/address-suggestions", express.json(), async (req: any, res: any) => {
+    try {
+      try { await sdk.authenticateRequest(req); } catch { return res.status(401).json({ error: "Unauthorized" }); }
+      const query = typeof req.body?.query === "string" ? req.body.query.trim().slice(0, 250) : "";
+      const placeId = typeof req.body?.placeId === "string" ? req.body.placeId.trim().slice(0, 255) : "";
+      if (!query && !placeId) return res.status(400).json({ error: "Enter an address to search." });
+
+      if (placeId) {
+        const data = await makeRequest<any>("/maps/api/place/details/json", {
+          place_id: placeId,
+          fields: "address_component,formatted_address",
+        });
+        if (data?.status !== "OK" || !data?.result) {
+          return res.status(502).json({ error: "Address details are temporarily unavailable." });
+        }
+        return res.json({ success: true, address: parseGoogleAddressDetails(data.result) });
+      }
+
+      if (query.length < 3) return res.json({ success: true, suggestions: [] });
+      const data = await makeRequest<any>("/maps/api/place/autocomplete/json", {
+        input: query,
+        types: "address",
+        components: "country:us",
+      });
+      if (data?.status && !["OK", "ZERO_RESULTS"].includes(data.status)) {
+        console.warn("[AddressAutocomplete] Provider returned a non-success status", data.status);
+        return res.status(502).json({ error: "Address suggestions are temporarily unavailable." });
+      }
+      const suggestions = Array.isArray(data?.predictions)
+        ? data.predictions.slice(0, 6).map((prediction: any) => ({
+            placeId: String(prediction.place_id ?? ""),
+            description: String(prediction.description ?? ""),
+          })).filter((prediction: { placeId: string; description: string }) => prediction.placeId && prediction.description)
+        : [];
+      return res.json({ success: true, suggestions });
+    } catch (err: any) {
+      console.error("[AddressAutocomplete] Error:", err.message);
+      return res.status(503).json({ error: "Address suggestions are temporarily unavailable. You can still enter the address manually." });
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // ZILLOW PROPERTY LOOKUP
   // ═══════════════════════════════════════════════════════════════════════════

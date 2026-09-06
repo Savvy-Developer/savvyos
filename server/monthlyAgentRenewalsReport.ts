@@ -7,7 +7,7 @@ import {
   easternDateTimeToUtc,
   getEasternTimeParts,
 } from "./agentProductionReportScheduler";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 
 const EASTERN_TIME_ZONE = "America/New_York";
 const REPORT_KEY = "monthly_agent_renewals";
@@ -42,7 +42,7 @@ export interface MonthlyAgentRenewalsReport {
   upcomingThroughLabel: string;
   overdue: AgentRenewalReportRow[];
   upcoming: AgentRenewalReportRow[];
-  recipients: Array<{ id: number; name: string; email: string }>;
+  recipients: Array<{ id?: number; name?: string; email: string }>;
 }
 
 function escapeHtml(value: string): string {
@@ -141,24 +141,10 @@ export function renderMonthlyAgentRenewalsEmail(report: MonthlyAgentRenewalsRepo
 }
 
 async function getRecipients(): Promise<MonthlyAgentRenewalsReport["recipients"]> {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available for monthly Agent Renewals report recipients.");
-  const rows = await db.select({ id: users.id, name: users.name, email: users.email })
-    .from(users)
-    .where(and(
-      inArray(users.email, [...MONTHLY_AGENT_RENEWALS_RECIPIENT_EMAILS]),
-      eq(users.isActive, true),
-      isNotNull(users.email),
-    ));
-  const byEmail = new Map(rows.map((row) => [row.email!.toLowerCase(), row]));
-  const missing = MONTHLY_AGENT_RENEWALS_RECIPIENT_EMAILS.filter((email) => !byEmail.has(email));
-  if (missing.length > 0) {
-    throw new Error(`Monthly Agent Renewals recipient account(s) missing or inactive: ${missing.join(", ")}`);
-  }
-  return MONTHLY_AGENT_RENEWALS_RECIPIENT_EMAILS.map((email) => {
-    const row = byEmail.get(email)!;
-    return { id: row.id, name: row.name?.trim() || email, email };
-  });
+  return resolveNotificationRecipients(
+    "monthly_agent_renewals",
+    MONTHLY_AGENT_RENEWALS_RECIPIENT_EMAILS.map(email => ({ email }))
+  );
 }
 
 /** Builds the shared leadership renewal report from active scheduled renewals. */
@@ -265,8 +251,8 @@ export async function sendMonthlyAgentRenewalsReport(asOf = new Date()): Promise
     const report = await buildMonthlyAgentRenewalsReport(asOf);
     const primaryRecipient = report.recipients[0];
     const copiedRecipients = report.recipients.slice(1);
-    if (!primaryRecipient || copiedRecipients.length !== MONTHLY_AGENT_RENEWALS_RECIPIENT_EMAILS.length - 1) {
-      throw new Error("The configured monthly Agent Renewals recipient group is incomplete.");
+    if (!primaryRecipient) {
+      throw new Error("At least one Monthly Agent Renewals recipient is required.");
     }
 
     const delivery = await sendTransactionalEmail(
@@ -295,7 +281,7 @@ export async function sendMonthlyAgentRenewalsReport(asOf = new Date()): Promise
     await finalizeReportRun(reportDate, delivery.skipped ? "skipped" : "failed", recipientCount, 0, delivery.reason);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    await finalizeReportRun(reportDate, "failed", MONTHLY_AGENT_RENEWALS_RECIPIENT_EMAILS.length, 0, reason);
+    await finalizeReportRun(reportDate, "failed", 0, 0, reason);
     console.error("[MonthlyAgentRenewals] Shared leadership delivery failed:", error);
   }
 }

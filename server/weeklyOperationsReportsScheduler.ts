@@ -11,7 +11,7 @@ import {
   webinars,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 import {
   addEasternDays,
   easternDateKey,
@@ -431,7 +431,10 @@ export async function sendWeeklyWebinarReport(asOf = new Date()): Promise<void> 
   if (!(await claimReportRun(WEBINAR_REPORT_KEY, report.reportDateKey))) return;
 
   try {
-    const recipients = await getCompanyWebinarRecipients();
+    const recipients = await resolveNotificationRecipients(
+      "weekly_webinar_report",
+      await getCompanyWebinarRecipients()
+    );
     const reportHtml = renderWeeklyWebinarReport(report);
     let successfulRecipientCount = 0;
     const failures: string[] = [];
@@ -468,9 +471,10 @@ export async function sendWeeklyReferralReport(asOf = new Date()): Promise<void>
 
   try {
     const reportHtml = renderWeeklyReferralReport(report);
+    const recipients = await resolveNotificationRecipients("weekly_referral_report", [...REFERRAL_RECIPIENTS]);
     let successfulRecipientCount = 0;
     const failures: string[] = [];
-    for (const recipient of REFERRAL_RECIPIENTS) {
+    for (const recipient of recipients) {
       const delivery = await sendTransactionalEmail("weekly_referral_report", {
         recipientName: recipient.name,
         recipientEmail: recipient.email,
@@ -484,11 +488,11 @@ export async function sendWeeklyReferralReport(asOf = new Date()): Promise<void>
       if (delivery.sent) successfulRecipientCount += 1;
       else if (!delivery.skipped) failures.push(`${recipient.email}: ${delivery.reason ?? "email delivery failed"}`);
     }
-    const status = successfulRecipientCount === REFERRAL_RECIPIENTS.length ? "sent"
+    const status = successfulRecipientCount === recipients.length ? "sent"
       : successfulRecipientCount > 0 ? "partial"
         : failures.length > 0 ? "failed" : "skipped";
-    await finalizeReportRun(REFERRAL_REPORT_KEY, report.reportDateKey, status, REFERRAL_RECIPIENTS.length, successfulRecipientCount, failures.join(" | ") || undefined);
-    console.info(`[WeeklyReferralReport] ${status}: ${successfulRecipientCount}/${REFERRAL_RECIPIENTS.length} delivery attempt(s) completed for ${report.reportDateKey}.`);
+    await finalizeReportRun(REFERRAL_REPORT_KEY, report.reportDateKey, status, recipients.length, successfulRecipientCount, failures.join(" | ") || undefined);
+    console.info(`[WeeklyReferralReport] ${status}: ${successfulRecipientCount}/${recipients.length} delivery attempt(s) completed for ${report.reportDateKey}.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await finalizeReportRun(REFERRAL_REPORT_KEY, report.reportDateKey, "failed", 0, 0, message);

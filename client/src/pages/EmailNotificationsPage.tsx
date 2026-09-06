@@ -9,9 +9,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus, UsersRound } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Mail, Search, Bell, Zap, Clock, CheckCircle2, Plus, UsersRound, History, Pencil, ExternalLink } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -72,6 +74,7 @@ const NOTIFICATIONS: NotifMeta[] = [
   { id: "pto_request_decision", name: "PTO Request Decision", description: "Sent only to the requesting employee when their reporting manager approves or declines PTO.", trigger: "Reporting manager approves or declines a PTO request", triggerType: "Event", recipient: "Requesting Employee", category: "PTO" },
   // ── Onboarding ──────────────────────────────────────────────────────────
   { id: "onboarding_overdue", name: "Onboarding Overdue Alert", description: "Sends the overdue checklist to the specific active administrators chosen in On/Offboarding → Overdue Alerts. An optional private copy can be sent to each affected agent for their own tasks.", trigger: "Daily scheduler — fires when onboarding tasks are past their due date", triggerType: "Scheduled", recipient: "Configured Admins + Optional Agent", category: "Onboarding" },
+  { id: "market_profile_updated", name: "Agent Market Profile Updated", description: "Sends each assigned agent the complete newly generated AI market profile, a summary of what changed, and a private link to contribute local corrections or context.", trigger: "The living Agent Market profile changes after a manual, source, or scheduled refresh", triggerType: "Event", recipient: "Assigned Agent", category: "Onboarding" },
   // ── Projects ──────────────────────────────────────────────────────────────────────────────────────
   { id: "pm_mention", name: "Project Mention Notification", description: "Notifies a user when they are @mentioned in a project note or todo comment.", trigger: "@mention detected in a project note or todo comment", triggerType: "Event", recipient: "Mentioned User", category: "Projects" },
   // ── Transaction reviews ──────────────────────────────────────────────────
@@ -158,6 +161,20 @@ const RECIPIENT_COLORS: Record<Recipient, string> = {
   "Not Currently Sent": "bg-zinc-100 text-zinc-600",
 };
 
+const EDITABLE_RECIPIENT_NOTIFICATIONS = new Set([
+  "webinar_marketing_request",
+  "coaching_tips_for_today",
+  "coaching_weekly_accountability",
+  "monthly_agent_renewals",
+  "daily_isa_activities",
+  "weekly_referral_report",
+  "weekly_webinar_report",
+  "weekly_lead_report",
+  "commission_exception_warning",
+  "monthly_featured_vendor_earnings",
+  "vendor_featured_payment_received",
+]);
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EmailNotificationsPage() {
@@ -165,6 +182,9 @@ export default function EmailNotificationsPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [triggerFilter, setTriggerFilter] = useState<string>("all");
+  const [recipientEditor, setRecipientEditor] = useState<NotifMeta | null>(null);
+  const [recipientText, setRecipientText] = useState("");
+  const [historyFor, setHistoryFor] = useState<NotifMeta | null>(null);
 
   // Live settings from DB
   const { data: settings = [], isLoading, refetch } = trpc.emailNotifications.list.useQuery();
@@ -172,6 +192,18 @@ export default function EmailNotificationsPage() {
     onSuccess: () => { refetch(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetch(); },
   });
+  const updateRecipientsMutation = trpc.emailNotifications.updateRecipients.useMutation({
+    onSuccess: () => {
+      toast.success("Recipient list saved.");
+      setRecipientEditor(null);
+      refetch();
+    },
+    onError: (err) => toast.error(`Failed to save recipients: ${err.message}`),
+  });
+  const { data: history = [], isLoading: historyLoading } = trpc.emailNotifications.history.useQuery(
+    { notificationKey: historyFor?.id ?? "_none" },
+    { enabled: Boolean(historyFor) && historyFor?.customId === undefined },
+  );
   const { data: customNotifications = [], isLoading: isCustomLoading, refetch: refetchCustomNotifications } = trpc.customEmailNotifications.list.useQuery();
   const createCustomNotificationMutation = trpc.customEmailNotifications.create.useMutation({
     onSuccess: () => {
@@ -185,9 +217,9 @@ export default function EmailNotificationsPage() {
     onSuccess: () => { refetchCustomNotifications(); },
     onError: (err) => { toast.error(`Failed to update: ${err.message}`); refetchCustomNotifications(); },
   });
-  // Build a quick lookup map: notificationKey → isEnabled
-  const enabledMap = new Map<string, boolean>(
-    settings.map((s: { notificationKey: string; isEnabled: boolean }) => [s.notificationKey, s.isEnabled])
+  // Build a quick lookup map for the persisted settings and recipient lists.
+  const settingsMap = new Map<string, { isEnabled: boolean; recipientEmails?: string[] | null }>(
+    settings.map((s: { notificationKey: string; isEnabled: boolean; recipientEmails?: string[] | null }) => [s.notificationKey, s])
   );
 
   const customNotificationMeta: NotifMeta[] = customNotifications.map((notification) => ({
@@ -206,7 +238,7 @@ export default function EmailNotificationsPage() {
   function isEnabled(notification: NotifMeta): boolean {
     if (notification.customId !== undefined) return notification.isEnabled ?? true;
     // Default to true if the system setting has not yet been seeded.
-    return enabledMap.has(notification.id) ? enabledMap.get(notification.id)! : true;
+    return settingsMap.has(notification.id) ? settingsMap.get(notification.id)!.isEnabled : true;
   }
 
   function handleToggle(notification: NotifMeta, newValue: boolean) {
@@ -220,6 +252,37 @@ export default function EmailNotificationsPage() {
   function handleCreateCustomNotification(values: CustomNotificationFormValues) {
     createCustomNotificationMutation.mutate(values);
   }
+
+  function openRecipientEditor(notification: NotifMeta) {
+    setRecipientText((settingsMap.get(notification.id)?.recipientEmails ?? []).join("\n"));
+    setRecipientEditor(notification);
+  }
+
+  function saveRecipients() {
+    if (!recipientEditor) return;
+    const recipientEmails = Array.from(new Set(
+      recipientText
+        .split(/[\n,;]+/)
+        .map(email => email.trim().toLowerCase())
+        .filter(Boolean)
+    ));
+    const invalid = recipientEmails.find(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    if (invalid) {
+      toast.error(`Enter a valid email address: ${invalid}`);
+      return;
+    }
+    updateRecipientsMutation.mutate({ notificationKey: recipientEditor.id as any, recipientEmails });
+  }
+
+  const historyGroups = Array.from(
+    history.reduce((groups, record) => {
+      const key = record.providerMessageId || String(record.id);
+      const group = groups.get(key) ?? { ...record, recipients: [] as string[] };
+      group.recipients.push(record.recipientEmail);
+      groups.set(key, group);
+      return groups;
+    }, new Map<string, any>()).values()
+  );
 
   const filtered = notificationItems.filter((n) => {
     const q = search.toLowerCase();
@@ -384,7 +447,25 @@ export default function EmailNotificationsPage() {
                     </div>
 
                     {/* Controls */}
-                    <div className="shrink-0 flex items-center gap-3">
+                    <div className="shrink-0 flex flex-wrap justify-end items-center gap-2">
+                      {n.customId === undefined && EDITABLE_RECIPIENT_NOTIFICATIONS.has(n.id) && (
+                        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => openRecipientEditor(n)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">Recipients</span>
+                        </Button>
+                      )}
+                      {n.id === "onboarding_overdue" && (
+                        <Button variant="outline" size="sm" className="h-8 gap-1.5" asChild>
+                          <a href="/onboarding?tab=overdue-alerts">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Recipients</span>
+                          </a>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setHistoryFor(n)}>
+                        <History className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">History</span>
+                      </Button>
                       <div className="flex flex-col items-center gap-1.5">
                       <Switch
                         checked={enabled}
@@ -417,6 +498,72 @@ export default function EmailNotificationsPage() {
         onCreate={handleCreateCustomNotification}
         isSaving={createCustomNotificationMutation.isPending}
       />
+      <Dialog open={Boolean(recipientEditor)} onOpenChange={(open) => !open && setRecipientEditor(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit recipients — {recipientEditor?.name}</DialogTitle>
+            <DialogDescription>
+              Add one business email address per line. This replaces the current default distribution when the notification is sent. Leave the list empty to restore the built-in recipients.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={recipientText}
+            onChange={(event) => setRecipientText(event.target.value)}
+            placeholder={"leader@savvy.realty\noperations@savvy.realty"}
+            className="min-h-40 font-mono text-sm"
+            aria-label="Notification recipient email addresses"
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setRecipientEditor(null)}>Cancel</Button>
+            <Button onClick={saveRecipients} disabled={updateRecipientsMutation.isPending}>
+              {updateRecipientsMutation.isPending ? "Saving…" : "Save recipients"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(historyFor)} onOpenChange={(open) => !open && setHistoryFor(null)}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Email history — {historyFor?.name}</DialogTitle>
+            <DialogDescription>
+              Each sent message lists its audience, provider delivery state, and the exact rendered email. Open status is recorded when Resend receives an open event.
+            </DialogDescription>
+          </DialogHeader>
+          {historyFor?.customId !== undefined ? (
+            <p className="rounded-md bg-muted px-3 py-4 text-sm text-muted-foreground">History is available for SavvyOS system notifications sent through the tracked delivery service.</p>
+          ) : historyLoading ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading email history…</p>
+          ) : historyGroups.length === 0 ? (
+            <p className="rounded-md bg-muted px-3 py-4 text-sm text-muted-foreground">No tracked emails have been sent for this notification yet. New sends will appear here automatically.</p>
+          ) : (
+            <div className="space-y-5">
+              {historyGroups.map((email: any) => (
+                <div key={email.providerMessageId || email.id} className="rounded-lg border bg-card overflow-hidden">
+                  <div className="border-b bg-muted/30 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold text-sm">{email.subject}</p>
+                      <Badge variant={email.status === "opened" || email.status === "clicked" || email.status === "delivered" ? "default" : "secondary"} className="capitalize">
+                        {email.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                      <p><span className="font-medium text-foreground">Sent:</span> {new Date(email.sentAt).toLocaleString()}</p>
+                      <p><span className="font-medium text-foreground">Recipients:</span> {Array.from(new Set(email.recipients)).join(", ")}</p>
+                      <p><span className="font-medium text-foreground">Opened:</span> {email.openedAt ? new Date(email.openedAt).toLocaleString() : "Not reported opened"}</p>
+                    </div>
+                  </div>
+                  <iframe
+                    title={`Rendered email: ${email.subject}`}
+                    sandbox=""
+                    srcDoc={email.htmlBody}
+                    className="h-[500px] w-full bg-white"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

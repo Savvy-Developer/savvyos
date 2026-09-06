@@ -13,7 +13,7 @@ import {
 import { createCommunication, createContact, getDb, logActivity } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission } from "./permissions";
-import { sendTransactionalEmail } from "../_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "../_core/resendEmail";
 import { triggerSmartPlansForContact } from "../smartPlanScheduler";
 import {
   createZoomWebinar,
@@ -337,10 +337,19 @@ export const webinarsRouter = router({
       const creatorName = ctx.user.name ?? ctx.user.email ?? "SavvyOS user";
       const creatorEmail = ctx.user.email ?? undefined;
       const webinarRegistrationUrl = zoomWebinar.registration_url ?? zoomWebinar.join_url ?? undefined;
+      const marketingRecipients = await resolveNotificationRecipients("webinar_marketing_request", [{
+        name: "Marketing Team",
+        email: MARKETING_EMAIL,
+      }]);
+      const [primaryMarketingRecipient, ...copiedMarketingRecipients] = marketingRecipients;
+      if (!primaryMarketingRecipient) throw new TRPCError({ code: "BAD_REQUEST", message: "At least one webinar marketing recipient is required." });
       const marketingEmail = await sendTransactionalEmail("webinar_marketing_request", {
-        recipientEmail: MARKETING_EMAIL,
-        recipientName: "Marketing Team",
-        ccEmail: creatorEmail,
+        recipientEmail: primaryMarketingRecipient.email,
+        recipientName: primaryMarketingRecipient.name,
+        ccEmails: Array.from(new Set([
+          ...copiedMarketingRecipients.map(recipient => recipient.email),
+          ...(creatorEmail ? [creatorEmail] : []),
+        ].filter(email => email !== primaryMarketingRecipient.email))),
         webinarTitle: input.title,
         webinarDescription: input.description ?? undefined,
         webinarStartTime: startTime.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: input.timezone }),

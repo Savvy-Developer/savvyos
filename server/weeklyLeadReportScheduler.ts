@@ -9,7 +9,7 @@ import {
   transactions,
   scheduledReportRuns,
 } from "../drizzle/schema";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 import { addEasternDays, easternDateKey, easternDateTimeToUtc, getEasternTimeParts, getNextFridayAt6PmEastern } from "./agentProductionReportScheduler";
 
 const EASTERN_TIME_ZONE = "America/New_York";
@@ -629,8 +629,9 @@ export async function sendWeeklyLeadReport(asOf = new Date()): Promise<void> {
     let successfulRecipientCount = 0;
     const failures: string[] = [];
     const reportHtml = renderWeeklyLeadReport(report);
+    const recipients = await resolveNotificationRecipients("weekly_lead_report", [...LIVE_RECIPIENTS]);
 
-    for (const recipient of LIVE_RECIPIENTS) {
+    for (const recipient of recipients) {
       const delivery = await sendTransactionalEmail(
         "weekly_lead_report",
         {
@@ -655,7 +656,7 @@ export async function sendWeeklyLeadReport(asOf = new Date()): Promise<void> {
       }
     }
 
-    const status = successfulRecipientCount === LIVE_RECIPIENTS.length
+    const status = successfulRecipientCount === recipients.length
       ? "sent"
       : successfulRecipientCount > 0
         ? "partial"
@@ -665,11 +666,11 @@ export async function sendWeeklyLeadReport(asOf = new Date()): Promise<void> {
     await finalizeWeeklyLeadReportRun(
       report.reportDateKey,
       status,
-      LIVE_RECIPIENTS.length,
+      recipients.length,
       successfulRecipientCount,
       failures.length ? failures.join(" | ") : undefined,
     );
-    console.info(`[WeeklyLeadReport] ${status}: ${successfulRecipientCount}/${LIVE_RECIPIENTS.length} delivery attempt(s) completed for ${report.reportDateKey}.`);
+    console.info(`[WeeklyLeadReport] ${status}: ${successfulRecipientCount}/${recipients.length} delivery attempt(s) completed for ${report.reportDateKey}.`);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     await finalizeWeeklyLeadReportRun(report.reportDateKey, "failed", 0, 0, message);

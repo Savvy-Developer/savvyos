@@ -18,6 +18,7 @@ import {
 } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
+import { notifyAssignedAgentsOfMarketProfileUpdate } from "./agentMarketProfileFeedback";
 
 export type MarketRefreshReason = "manual" | "source_added" | "scheduled";
 
@@ -417,6 +418,13 @@ export async function refreshMarketIntelligence(
     const draft = await collectMarketProfileDraft(marketProfileId);
     if (!draft) throw new Error("Market not found");
 
+    const [existingProfile] = await db
+      .select({ profileJson: marketIntelligenceProfiles.profileJson })
+      .from(marketIntelligenceProfiles)
+      .where(eq(marketIntelligenceProfiles.marketProfileId, marketProfileId))
+      .limit(1);
+    const previousProfile = existingProfile?.profileJson as Record<string, unknown> | null | undefined;
+
     await db.insert(marketIntelligenceProfiles).values({
       marketProfileId,
       status: "refreshing",
@@ -454,6 +462,13 @@ export async function refreshMarketIntelligence(
       generatedAt,
       errorMessage: null,
     }).where(eq(marketIntelligenceProfiles.marketProfileId, marketProfileId));
+    if (stableHash(previousProfile) !== stableHash(profileJson)) {
+      await notifyAssignedAgentsOfMarketProfileUpdate({
+        marketProfileId,
+        previousProfile,
+        profile: profileJson,
+      }).catch(error => console.error(`[AgentMarkets] Could not notify agents for market ${marketProfileId}:`, error));
+    }
     return { status: "ready", generatedAt };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Profile refresh failed";

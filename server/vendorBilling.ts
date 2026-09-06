@@ -10,7 +10,7 @@ import {
   vendors,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 
 const APP_URL = "https://os.savvy-agents.com";
 const CURRENCY = "usd";
@@ -189,9 +189,19 @@ async function notifyFeaturedVendorPaymentReceived(subscriptionId: number, invoi
     console.warn(`[VendorBilling] Cannot send payment receipt for subscription ${subscriptionId}: agent email unavailable.`);
     return false;
   }
+  const recipients = await resolveNotificationRecipients("vendor_featured_payment_received", [{
+    name: context.agentName ?? "Agent",
+    email: context.agentEmail,
+  }]);
+  const [primaryRecipient, ...copiedRecipients] = recipients;
+  if (!primaryRecipient) {
+    console.warn(`[VendorBilling] No payment receipt recipients are configured for subscription ${subscriptionId}.`);
+    return false;
+  }
   const delivery = await sendTransactionalEmail("vendor_featured_payment_received", {
-    recipientName: context.agentName ?? "Agent",
-    recipientEmail: context.agentEmail,
+    recipientName: primaryRecipient.name,
+    recipientEmail: primaryRecipient.email,
+    ccEmails: copiedRecipients.map(recipient => recipient.email),
     vendorBusinessName: context.vendorName,
     vendorContactName: context.vendorContactName ?? undefined,
     vendorPaymentReceivedAmount: formatUsdFromCents(amountPaidCents),

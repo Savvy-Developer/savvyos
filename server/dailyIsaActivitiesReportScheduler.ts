@@ -8,7 +8,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 import {
   addEasternDays,
   easternDateKey,
@@ -408,15 +408,21 @@ export async function sendDailyIsaActivitiesReport(asOf = new Date()): Promise<v
     return;
   }
 
-  const recipientCount = 1 + COPIED_RECIPIENTS.length;
   try {
     const report = await buildDailyIsaActivitiesReport(reportDate);
+    const recipients = await resolveNotificationRecipients("daily_isa_activities", [
+      PRIMARY_RECIPIENT,
+      ...COPIED_RECIPIENTS.map(email => ({ email })),
+    ]);
+    const [primaryRecipient, ...copiedRecipients] = recipients;
+    const recipientCount = recipients.length;
+    if (!primaryRecipient) throw new Error("At least one Daily ISA Activities recipient is required.");
     const delivery = await sendTransactionalEmail(
       "daily_isa_activities",
       {
-        recipientName: PRIMARY_RECIPIENT.name,
-        recipientEmail: PRIMARY_RECIPIENT.email,
-        ccEmails: COPIED_RECIPIENTS,
+        recipientName: primaryRecipient.name,
+        recipientEmail: primaryRecipient.email,
+        ccEmails: copiedRecipients.map(recipient => recipient.email),
         dailyIsaReportDate: report.periodLabel,
         dailyIsaReportHtml: renderDailyIsaActivitiesReportEmail(report),
         dailyIsaReportSubject: `Daily ISA Activities | ${report.periodLabel}`,
@@ -430,7 +436,7 @@ export async function sendDailyIsaActivitiesReport(asOf = new Date()): Promise<v
 
     if (delivery.sent) {
       await finalizeReportRun(reportDate, "sent", recipientCount, recipientCount);
-      console.info(`[DailyIsaActivities] Sent ${reportDate} report to ${PRIMARY_RECIPIENT.email} with ${COPIED_RECIPIENTS.length} copied recipient(s).`);
+      console.info(`[DailyIsaActivities] Sent ${reportDate} report to ${primaryRecipient.email} with ${copiedRecipients.length} copied recipient(s).`);
       return;
     }
 
@@ -443,7 +449,7 @@ export async function sendDailyIsaActivitiesReport(asOf = new Date()): Promise<v
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    await finalizeReportRun(reportDate, "failed", recipientCount, 0, reason);
+    await finalizeReportRun(reportDate, "failed", 0, 0, reason);
     console.error("[DailyIsaActivities] Shared leadership delivery failed:", error);
   }
 }

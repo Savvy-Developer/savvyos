@@ -18,7 +18,7 @@ import {
   formatUsdFromCents,
   isStripeConfigured,
 } from "./vendorBilling";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 
 const EASTERN_TIME_ZONE = "America/New_York";
 const REPORT_KEY = "monthly_featured_vendor_earnings";
@@ -57,7 +57,7 @@ export interface FeaturedVendorMonthlyEarningsReport {
   grossCollectedCents: number;
   agentEarningsCents: number;
   savvyShareCents: number;
-  leadershipRecipients: Array<{ name: string; email: string }>;
+  leadershipRecipients: Array<{ name?: string; email: string }>;
 }
 
 function escapeHtml(value: string): string {
@@ -157,18 +157,11 @@ export function renderAgentFeaturedVendorEarningsReport(report: Pick<FeaturedVen
   </div>`;
 }
 
-async function getLeadershipRecipients(): Promise<Array<{ name: string; email: string }>> {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable while preparing featured vendor report recipients.");
-  const rows = await db.select({ name: users.name, email: users.email }).from(users)
-    .where(and(inArray(users.email, [...FEATURED_VENDOR_LEADERSHIP_EMAILS]), eq(users.isActive, true)));
-  const byEmail = new Map(rows.filter((row) => row.email).map((row) => [row.email!.toLowerCase(), row]));
-  const missing = FEATURED_VENDOR_LEADERSHIP_EMAILS.filter((email) => !byEmail.has(email));
-  if (missing.length) throw new Error(`Featured Vendor leadership recipient account(s) missing or inactive: ${missing.join(", ")}`);
-  return FEATURED_VENDOR_LEADERSHIP_EMAILS.map((email) => {
-    const recipient = byEmail.get(email)!;
-    return { name: recipient.name?.trim() || email, email };
-  });
+async function getLeadershipRecipients(): Promise<Array<{ name?: string; email: string }>> {
+  return resolveNotificationRecipients(
+    "monthly_featured_vendor_earnings",
+    FEATURED_VENDOR_LEADERSHIP_EMAILS.map(email => ({ email }))
+  );
 }
 
 /** Builds the prior calendar-month earnings report from successfully paid Stripe invoices. */
@@ -320,6 +313,7 @@ export async function sendMonthlyFeaturedVendorEarningsReport(asOf = new Date())
     const report = await buildMonthlyFeaturedVendorEarningsReport(asOf);
     const primaryRecipient = report.leadershipRecipients[0];
     const copiedRecipients = report.leadershipRecipients.slice(1);
+    if (!primaryRecipient) throw new Error("At least one Featured Vendor leadership recipient is required.");
     const outcomes: Array<{ recipient: string; sent: boolean; reason?: string }> = [];
     const leadershipDelivery = await sendTransactionalEmail("monthly_featured_vendor_earnings", {
       recipientName: primaryRecipient.name,

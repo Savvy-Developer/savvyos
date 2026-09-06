@@ -69,6 +69,10 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> =
     subject: "Onboarding Tasks Overdue — {{agentName}}",
     bodyText: "Some onboarding tasks are now past their due date. Please complete them as soon as possible to keep your pipeline moving.",
   },
+  market_profile_updated: {
+    subject: "Your {{marketName}} AI profile was updated",
+    bodyText: "Sends the complete market profile, a change summary, and a private link for the assigned agent to submit local market corrections for synthesis.",
+  },
   commission_exception_warning: {
     subject: "⚠️ Commission Exception Warning — Transaction #{{transactionNumber}}",
     bodyText: "A commission exception was approved for a transaction with the following warnings. Please review and take action if needed.",
@@ -173,6 +177,13 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
     { key: "overdueCount", description: "Number of overdue tasks" },
     { key: "taskList", description: "Bullet list of overdue tasks" },
   ],
+  market_profile_updated: [
+    { key: "recipientName", description: "Assigned agent's name" },
+    { key: "marketName", description: "Assigned Agent Market" },
+    { key: "marketProfileChangeSummary", description: "Sections that changed from the previous profile" },
+    { key: "marketProfileSnapshotHtml", description: "Complete generated structured market profile" },
+    { key: "marketProfileUpdateUrl", description: "Private SavvyOS feedback link" },
+  ],
   commission_exception_warning: [
     { key: "recipientName", description: "Recipient's name (admin)" },
     { key: "transactionNumber", description: "Transaction ID" },
@@ -214,6 +225,7 @@ const EMAIL_TYPES = [
   { key: "listing_created", label: "Listing Created", description: "Sent when a new listing is created for an agent" },
   { key: "listing_expiration_reminder", label: "Listing Expiration Reminder", description: "Sent daily when an active listing has passed its expiration date" },
   { key: "onboarding_overdue", label: "Onboarding Overdue", description: "Sent when onboarding tasks are past their due date" },
+  { key: "market_profile_updated", label: "Agent Market Profile Updated", description: "Sent to an assigned agent when the living AI market profile changes" },
   { key: "commission_exception_warning", label: "Commission Exception Warning", description: "Sent when a commission exception is approved with warnings" },
   { key: "client_intro", label: "Client Introduction", description: "Sent to introduce a client to their assigned agent, with agent CC'd" },
   { key: "connection_request_approved", label: "Connection Request Approved", description: "Sent to an agent when their connection request is approved by an admin" },

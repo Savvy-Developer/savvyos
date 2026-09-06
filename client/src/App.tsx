@@ -62,6 +62,7 @@ import LeadershipDashboardPage from "./pages/LeadershipDashboardPage";
 import CommissionExceptionsPage from "./pages/CommissionExceptionsPage";
 import MarketDrillDownPage from "./pages/MarketDrillDownPage";
 import AgentMarketsPage from "./pages/AgentMarketsPage";
+import AgentMarketProfileFeedbackPage from "./pages/AgentMarketProfileFeedbackPage";
 import MarketMatchCallPage from "./pages/MarketMatchCallPage";
 import MarketMatchSettingsPage from "./pages/MarketMatchSettingsPage";
 import MarketMatchQuizAdminPage from "./pages/MarketMatchQuizAdminPage";
@@ -502,6 +503,7 @@ function Router() {
           <Route path="/duplicates">{() => <AdminRoute><DuplicatesPage /></AdminRoute>}</Route>
           <Route path="/webhooks">{() => <AdminRoute><WebhooksPage /></AdminRoute>}</Route>
           <Route path="/email-notifications">{() => <AdminRoute><EmailNotificationsPage /></AdminRoute>}</Route>
+          <Route path="/agent-market-feedback/:requestId" component={AgentMarketProfileFeedbackPage} />
           <Route path="/admin/vendors">{() => <AdminRoute><VendorListsAdminPage /></AdminRoute>}</Route>
           <Route path="/resend-inbox">{() => <AdminOrIsaRoute><ResendInboxPage /></AdminOrIsaRoute>}</Route>
           <Route path="/marketing-text-inbox">{() => <AdminOrIsaRoute><MarketingTextInboxPage /></AdminOrIsaRoute>}</Route>

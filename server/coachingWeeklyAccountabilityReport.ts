@@ -13,7 +13,7 @@ import {
   easternDateTimeToUtc,
   getEasternTimeParts,
 } from "./agentProductionReportScheduler";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 
 const EASTERN_TIME_ZONE = "America/New_York";
 const TEST_RECIPIENT_EMAIL = "tyler@savvy.realty";
@@ -107,7 +107,7 @@ export interface CoachingWeeklyAccountabilityReport {
   summary: CoachingWeeklySummary;
   coaches: CoachingWeeklyCoachRow[];
   exceptions: CoachingWeeklyException[];
-  leadershipRecipients: Array<{ id: number; name: string; email: string }>;
+  leadershipRecipients: Array<{ id?: number; name?: string; email: string }>;
 }
 
 interface ProfileRecord {
@@ -217,28 +217,11 @@ export function getPreviousEasternWeek(asOf = new Date()): { start: Date; endExc
   return { start, endExclusive, periodLabel };
 }
 
-async function getLeadershipRecipients(): Promise<Array<{ id: number; name: string; email: string }>> {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available for weekly coaching report recipients.");
-
-  const rows = await db.select({ id: users.id, name: users.name, email: users.email })
-    .from(users)
-    .where(and(
-      inArray(users.email, [...WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS]),
-      eq(users.isActive, true),
-      isNotNull(users.email),
-    ));
-
-  const byEmail = new Map(rows.map((row) => [row.email!.toLowerCase(), row]));
-  const missing = WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS.filter((email) => !byEmail.has(email));
-  if (missing.length > 0) {
-    throw new Error(`Weekly coaching leadership recipient account(s) missing or inactive: ${missing.join(", ")}`);
-  }
-
-  return WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS.map((email) => {
-    const row = byEmail.get(email)!;
-    return { id: row.id, name: row.name?.trim() || email, email };
-  });
+async function getLeadershipRecipients(): Promise<Array<{ name?: string; email: string }>> {
+  return resolveNotificationRecipients(
+    "coaching_weekly_accountability",
+    WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS.map(email => ({ email }))
+  );
 }
 
 /**
@@ -611,7 +594,7 @@ export function renderWeeklyCoachingAccountabilityEmail(
   </tr>`).join("");
   const exceptionRows = report.exceptions.map(exceptionRowHtml).join("");
   const scheduledMeetingLabel = getCompletedLabel(summary.completed, summary.scheduled);
-  const recipients = report.leadershipRecipients.map((recipient) => escapeHtml(recipient.name)).join(", ");
+  const recipients = report.leadershipRecipients.map((recipient) => escapeHtml(recipient.name ?? recipient.email)).join(", ");
   const compactCoachCards = report.coaches.map((row) => `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 0 12px;border:1px solid #D1D5DB;border-radius:8px;border-collapse:separate;background:#FFFFFF;">
     <tr><td colspan="2" style="padding:11px 12px;background:#F8FAFC;border-bottom:1px solid #E5E7EB;font-size:14px;font-weight:800;color:#111827;">${escapeHtml(row.coachName)} <span style="float:right;color:${row.exceptionCount > 0 ? "#B91C1C" : "#047857"};font-size:12px;">${row.exceptionCount} exception${row.exceptionCount === 1 ? "" : "s"}</span></td></tr>
     <tr><td style="width:50%;padding:9px 12px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;">Roster <strong style="float:right;color:#111827;">${row.activeRoster}</strong></td><td style="width:50%;padding:9px 12px;border-bottom:1px solid #E5E7EB;border-left:1px solid #E5E7EB;font-size:12px;color:#374151;">Meetings completed <strong style="float:right;color:#111827;">${getCompletedLabel(row.completed, row.scheduled)}</strong></td></tr>
@@ -766,8 +749,8 @@ export async function sendWeeklyCoachingAccountabilityReport(
 
   const primaryRecipient = report.leadershipRecipients[0];
   const copiedRecipients = report.leadershipRecipients.slice(1);
-  if (!primaryRecipient || copiedRecipients.length !== WEEKLY_COACHING_LEADERSHIP_RECIPIENT_EMAILS.length - 1) {
-    const reason = "The configured shared leadership recipient group is incomplete.";
+  if (!primaryRecipient) {
+    const reason = "At least one weekly coaching recipient is required.";
     await finalizeLiveCoachingReportRun(reportKey, reportDate, "failed", report.leadershipRecipients.length, 0, reason);
     return { sent: false, skipped: false, reason, report };
   }

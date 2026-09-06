@@ -4,11 +4,28 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { commissionExceptions, transactions, users } from "../../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { sendTransactionalEmail } from "../_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "../_core/resendEmail";
 
 const PROTECTED_EMAIL = "tyler@savvy.realty";
 const WARN_AGENT_MIN_PCT = 50;
 const WARN_SAVVY_MIN_PCT = 20;
+
+async function sendCommissionExceptionWarning(transactionId: number, notes: string) {
+  const recipients = await resolveNotificationRecipients("commission_exception_warning", [{
+    name: "Tyler",
+    email: PROTECTED_EMAIL,
+  }]);
+  const [primaryRecipient, ...copiedRecipients] = recipients;
+  if (!primaryRecipient) return { sent: false, skipped: true, reason: "No warning recipients configured" };
+  return sendTransactionalEmail("commission_exception_warning", {
+    recipientEmail: primaryRecipient.email,
+    recipientName: primaryRecipient.name,
+    ccEmails: copiedRecipients.map(recipient => recipient.email),
+    transactionNumber: String(transactionId),
+    transactionId: String(transactionId),
+    notes,
+  });
+}
 
 export const commissionExceptionsRouter = router({
   // Agent: request an exception on their transaction
@@ -194,13 +211,7 @@ export const commissionExceptionsRouter = router({
         }
 
         if (warnings.length > 0) {
-          await sendTransactionalEmail("commission_exception_warning", {
-            recipientEmail: PROTECTED_EMAIL,
-            recipientName: "Tyler",
-            transactionNumber: String(exc.transactionId),
-            transactionId: String(exc.transactionId),
-            notes: warnings.join("\n"),
-          });
+          await sendCommissionExceptionWarning(exc.transactionId, warnings.join("\n"));
         }
 
         // Update the transaction splits
@@ -296,13 +307,7 @@ export const commissionExceptionsRouter = router({
       }
 
       if (warnings.length > 0) {
-        await sendTransactionalEmail("commission_exception_warning", {
-          recipientEmail: PROTECTED_EMAIL,
-          recipientName: "Tyler",
-          transactionNumber: String(input.transactionId),
-          transactionId: String(input.transactionId),
-          notes: warnings.join("\n"),
-        });
+        await sendCommissionExceptionWarning(input.transactionId, warnings.join("\n"));
       }
 
       await db

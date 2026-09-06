@@ -5,7 +5,7 @@ import {
   transactions,
   users,
 } from "../drizzle/schema";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 
 const EASTERN_TIME_ZONE = "America/New_York";
 const REPORT_KEY = "agent_production_report";
@@ -508,10 +508,14 @@ export async function sendAgentProductionReport(asOf = new Date()): Promise<void
     const db = await getDb();
     if (!db) throw new Error("Database is not available for administrator lookup.");
 
-    const admins = await db
+    const defaultAdmins = await db
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
       .where(and(eq(users.role, "admin"), eq(users.isActive, true), isNotNull(users.email)));
+    const admins = await resolveNotificationRecipients(
+      "agent_production_report",
+      defaultAdmins.map(admin => ({ name: admin.name ?? undefined, email: admin.email! }))
+    );
 
     if (admins.length === 0) {
       await finalizeReportRun(report.reportDateKey, "skipped", 0, 0, "No active administrators with email addresses were found.");
@@ -535,7 +539,7 @@ export async function sendAgentProductionReport(asOf = new Date()): Promise<void
         },
         {
           allowTemplateOverride: false,
-          idempotencyKey: `${REPORT_KEY}:${report.reportDateKey}:admin:${admin.id}`,
+          idempotencyKey: `${REPORT_KEY}:${report.reportDateKey}:admin:${admin.email}`,
         },
       );
 

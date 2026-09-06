@@ -6,7 +6,7 @@ import {
 } from "../drizzle/schema";
 import { getDb } from "./db";
 import { invokeLLM } from "./_core/llm";
-import { sendTransactionalEmail } from "./_core/resendEmail";
+import { resolveNotificationRecipients, sendTransactionalEmail } from "./_core/resendEmail";
 import {
   addEasternDays,
   easternDateKey,
@@ -764,18 +764,11 @@ export function renderDailyCoachingTipsHtml(briefing: { reportDate: string; snap
   return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0F172A;"><div style="padding:24px 24px 20px;border-radius:11px 11px 0 0;background:#07131F;"><div style="font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#0FC0DF;">Savvy STR Agents · Leadership briefing</div><div style="margin-top:8px;font-size:27px;line-height:1.15;font-weight:850;letter-spacing:-.4px;color:#FFFFFF;">Coaching Tips For Today</div><div style="margin-top:8px;font-size:12px;line-height:1.5;color:#B8C7D6;">${escapeHtml(briefing.reportDate)} · Today’s primary rotation: ${escapeHtml(THEME_LABELS[rotation.primaryTheme])}</div></div><div style="padding:22px 24px 27px;border-radius:0 0 11px 11px;background:#FFFFFF;"><p style="margin:0 0 17px;font-size:14px;line-height:1.62;color:#334155;">${escapeHtml(content.opening)}</p><div style="margin:0 0 8px;font-size:15px;font-weight:850;color:#0F172A;">Company pulse</div><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"><tr>${metricCard(String(snapshot.company.closed30d), "Closed units · 30 days", "Recent execution", "#047857")}${metricCard(`${snapshot.company.closed90d} · ${formatMoney(snapshot.company.closed90dVolume)}`, "Closed · 90 days", `Avg. price ${formatMoney(snapshot.company.averageClosedPrice90d)}`)}${metricCard(`${snapshot.company.underContractUnits} · ${formatMoney(snapshot.company.underContractVolume)}`, "Under contract", "Conversion work in flight", "#0284C7")}${metricCard(String(snapshot.company.noCurrentProduction), "No 90-day close or UC", "Leading-action focus", "#B45309")}</tr></table><p style="margin:11px 0 22px;padding:10px 11px;border-radius:6px;background:#F8FAFC;font-size:12px;line-height:1.55;color:#475569;">${escapeHtml(content.companyNarrative)}</p><div style="margin:0 0 9px;font-size:16px;font-weight:850;color:#0F172A;">Today’s coaching conversations</div><p style="margin:0 0 11px;font-size:12px;line-height:1.5;color:#64748B;">Named conversations rotate across editions. They are coaching prompts, not verdicts about an agent or a deal.</p>${content.conversations.map(conversationCard).join("")}<div style="margin:25px 0 8px;font-size:16px;font-weight:850;color:#0F172A;">${escapeHtml(content.commissionTitle)}</div><p style="margin:0 0 9px;font-size:12px;line-height:1.58;color:#334155;">${escapeHtml(content.commissionNarrative)}</p><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;border:1px solid #E6EAF0;border-radius:8px;overflow:hidden;"><tr style="background:#F8FAFC;"><th style="padding:8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;">Agent</th><th style="padding:8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;">Side</th><th style="padding:8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;">Price</th><th style="padding:8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;">Rate</th><th style="padding:8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;">Action</th></tr>${dealRows}</table><div style="margin:25px 0 8px;font-size:16px;font-weight:850;color:#0F172A;">Market-to-message move</div><table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border:1px solid #BAE6FD;border-radius:8px;background:#F0F9FF;"><tr><td style="padding:13px 14px;"><div style="font-size:13px;font-weight:800;color:#0C4A6E;">${escapeHtml(content.marketTitle)}</div><div style="margin-top:6px;font-size:12px;line-height:1.58;color:#155E75;">${escapeHtml(content.marketNarrative)}</div><div style="margin-top:7px;font-size:12px;line-height:1.58;color:#155E75;"><strong>Coach move today:</strong> ${escapeHtml(content.marketAction)}</div><div style="margin-top:9px;padding:9px 10px;border-radius:6px;background:#FFFFFF;font-size:12px;line-height:1.55;color:#1E293B;"><strong>Client language:</strong> “${escapeHtml(content.marketClientLanguage)}”</div></td></tr></table><div style="margin:25px 0 8px;font-size:16px;font-weight:850;color:#0F172A;">Training playbook move</div><p style="margin:0;font-size:12px;line-height:1.58;color:#334155;"><strong>${escapeHtml(content.playTitle)}.</strong> ${escapeHtml(content.playNarrative)}</p><p style="margin:8px 0 0;font-size:12px;line-height:1.58;color:#334155;"><strong>Coach move today:</strong> ${escapeHtml(content.playAction)}</p><div style="margin-top:10px;padding:11px 12px;border-left:3px solid #0FC0DF;border-radius:6px;background:#F8FAFC;font-size:12px;line-height:1.58;color:#1E293B;"><strong>Exact language to role-play:</strong> “${escapeHtml(content.playExactLanguage)}”</div><div style="margin:24px 0 8px;font-size:16px;font-weight:850;color:#0F172A;">Leadership reflection</div><p style="margin:0;font-size:12px;line-height:1.58;color:#334155;">${escapeHtml(content.leverageReflection)}</p><p style="margin:20px 0 0;padding-top:14px;border-top:1px solid #E6EAF0;font-size:12px;line-height:1.58;color:#475569;">${escapeHtml(content.close)}</p><p style="margin:14px 0 0;font-size:10px;line-height:1.55;color:#94A3B8;">This is a decision-support coaching briefing built from current SavvyOS records. National STR context rotates among verified 2026 sources, including <a href="https://www.airdna.co/outlook-report" style="color:#0284C7;">AirDNA’s U.S. STR Outlook</a> and <a href="https://www.redawning.com/pm/post/2026-short-term-rental-market-forecast" style="color:#0284C7;">RedAwning’s STR Forecast</a>. Review the underlying SavvyOS record before acting. No market statement is a property-level performance, financing, legal, tax, insurance, or regulatory promise.</p></div></div>`;
 }
 
-async function getRecipients(): Promise<Array<{ id: number; name: string; email: string }>> {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available for coaching-tip recipients.");
-  const rows = await db.select({ id: users.id, name: users.name, email: users.email }).from(users)
-    .where(sql`${users.isActive} = 1 AND ${users.email} IN (${sql.join(COACHING_TIPS_RECIPIENT_EMAILS.map((email) => sql`${email}`), sql`, `)})`);
-  const byEmail = new Map(rows.filter((row) => row.email).map((row) => [row.email!.toLowerCase(), row]));
-  const missing = COACHING_TIPS_RECIPIENT_EMAILS.filter((email) => !byEmail.has(email));
-  if (missing.length) throw new Error(`Coaching Tips recipient account(s) missing or inactive: ${missing.join(", ")}`);
-  return COACHING_TIPS_RECIPIENT_EMAILS.map((email) => {
-    const row = byEmail.get(email)!;
-    return { id: row.id, name: row.name?.trim() || email, email };
-  });
+async function getRecipients(): Promise<Array<{ name?: string; email: string }>> {
+  return resolveNotificationRecipients(
+    "coaching_tips_for_today",
+    COACHING_TIPS_RECIPIENT_EMAILS.map(email => ({ email }))
+  );
 }
 
 async function claimReportRun(reportDate: string): Promise<boolean> {
@@ -834,12 +827,12 @@ export async function sendDailyCoachingTips(asOf = new Date()): Promise<{ sent: 
   if (!["Mon", "Tue", "Wed", "Thu", "Fri"].includes(eastern.weekday)) return { sent: false, skipped: true, reason: "Coaching Tips is configured for weekdays only.", reportDate };
   if (!(await claimReportRun(reportDate))) return { sent: false, skipped: true, reason: "This weekday briefing was already handled for the Eastern calendar date.", reportDate };
 
-  const recipientCount = COACHING_TIPS_RECIPIENT_EMAILS.length;
   try {
     const [briefing, recipients] = await Promise.all([buildDailyCoachingBriefing(asOf), getRecipients()]);
+    const recipientCount = recipients.length;
     await saveBriefing(briefing);
     const [primary, ...cc] = recipients;
-    if (!primary || cc.length !== recipientCount - 1) throw new Error("The configured Coaching Tips leadership recipient group is incomplete.");
+    if (!primary) throw new Error("At least one Coaching Tips recipient is required.");
     const delivery = await sendTransactionalEmail(
       "coaching_tips_for_today",
       {
@@ -861,7 +854,7 @@ export async function sendDailyCoachingTips(asOf = new Date()): Promise<{ sent: 
     return { sent: false, skipped: Boolean(delivery.skipped), reason: delivery.reason, reportDate: briefing.reportDate };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    await finalizeReportRun(reportDate, "failed", recipientCount, 0, reason);
+    await finalizeReportRun(reportDate, "failed", 0, 0, reason);
     console.error("[CoachingTips] Shared weekday briefing failed:", error);
     return { sent: false, skipped: false, reason, reportDate };
   }
