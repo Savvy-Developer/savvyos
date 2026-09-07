@@ -5,100 +5,161 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import {
-  Mail, Send, CheckCircle2, XCircle, Loader2, Pencil, RotateCcw,
-  Eye, ChevronDown, ChevronRight, Code2, X,
+  Mail,
+  Send,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Pencil,
+  RotateCcw,
+  Eye,
+  ChevronDown,
+  ChevronRight,
+  Code2,
+  X,
 } from "lucide-react";
 
 // Default body text for each email type (mirrors the hardcoded template content)
-const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> = {
-  lead_assigned: {
-    subject: "New Lead Assigned: {{contactName}}",
-    bodyText: "A new lead has been assigned to you, including their source and a concise client-context briefing when existing CRM history is available.",
-  },
-  transaction_created: {
-    subject: "New Transaction #{{transactionNumber}} Created",
-    bodyText: "A new transaction has been created and assigned to you. Please review the details and ensure all required documents are uploaded.",
-  },
-  transaction_status_changed: {
-    subject: "Transaction Status Updated — #{{transactionNumber}}",
-    bodyText: "The status of your transaction has been updated. Please log in to review the latest details and take any necessary action.",
-  },
-  transaction_closed: {
-    subject: "Transaction Closed — #{{transactionNumber}}",
-    bodyText: "Congratulations! Your transaction has been successfully closed. Thank you for your hard work on this deal.",
-  },
-  transaction_review_request: {
-    subject: "How was your experience with {{agentName}}?",
-    bodyText: "Thank you for trusting your Savvy STR Agents representative with your recent real estate transaction. Please take a moment to share your experience using your personalized review link.",
-  },
-  transaction_review_received: {
-    subject: "New {{reviewRating}}-Star Client Review — #{{transactionNumber}}",
-    bodyText: "A client has submitted feedback about their transaction experience. Review their rating and comments in SavvyOS.",
-  },
-  commission_calculated: {
-    subject: "Commission Calculated — #{{transactionNumber}}",
-    bodyText: "Your commission payout has been calculated for a recently closed transaction. Please review the details below.",
-  },
-  task_assigned: {
-    subject: "New Task: {{taskTitle}}",
-    bodyText: "A new task has been assigned to you. Please complete it by the due date shown below.",
-  },
-  task_due: {
-    subject: "Task Due Soon: {{taskTitle}}",
-    bodyText: "This is a reminder that one of your tasks is due soon. Please take action before the deadline.",
-  },
-  payout_integrity_fail: {
-    subject: "Commission Integrity Issue — Action Required",
-    bodyText: "A transaction has commission payouts that exceed 100%. Please review and correct the payout items immediately to avoid processing errors.",
-  },
-  listing_created: {
-    subject: "New Listing Created — {{listingAddress}}",
-    bodyText: "A new listing has been created and assigned to you. Please review the details and ensure all required information is complete.",
-  },
-  listing_expiration_reminder: {
-    subject: "Listing Expiration Notice — {{listingAddress}}",
-    bodyText: "One of your active listings has passed its expiration date. Please review and update the expiration date, or change the listing status to keep your pipeline accurate.",
-  },
-  onboarding_overdue: {
-    subject: "Onboarding Tasks Overdue — {{agentName}}",
-    bodyText: "Some onboarding tasks are now past their due date. Please complete them as soon as possible to keep your pipeline moving.",
-  },
-  market_profile_updated: {
-    subject: "Your {{marketName}} AI profile was updated",
-    bodyText: "Sends the complete market profile, a change summary, and a private link for the assigned agent to submit local market corrections for synthesis.",
-  },
-  commission_exception_warning: {
-    subject: "⚠️ Commission Exception Warning — Transaction #{{transactionNumber}}",
-    bodyText: "A commission exception was approved for a transaction with the following warnings. Please review and take action if needed.",
-  },
-  client_intro: {
-    subject: "Meet {{agentName}} — Savvy STR Agents",
-    bodyText: "We're excited to introduce you to your dedicated agent, who will be working with you on your short-term rental journey. Your agent specializes in STR properties and is ready to help you find the perfect investment.",
-  },
-  connection_request_approved: {
-    subject: "Connection Request Approved — {{contactName}}",
-    bodyText: "Your connection request has been approved. You can now view and manage this contact in your pipeline.",
-  },
-  pm_mention: {
-    subject: "{{mentionedByName}} mentioned you in a project note or comment",
-    bodyText: "You were mentioned in a project note or comment. Click below to open the exact activity and respond.",
-  },
-};
+const DEFAULT_TEMPLATES: Record<string, { subject: string; bodyText: string }> =
+  {
+    lead_assigned: {
+      subject: "New Lead Assigned: {{contactName}}",
+      bodyText:
+        "A new lead has been assigned to you, including their source and a concise client-context briefing when existing CRM history is available.",
+    },
+    transaction_created: {
+      subject: "New Transaction #{{transactionNumber}} Created",
+      bodyText:
+        "A new transaction has been created and assigned to you. Please review the details and ensure all required documents are uploaded.",
+    },
+    transaction_status_changed: {
+      subject: "Transaction Status Updated — #{{transactionNumber}}",
+      bodyText:
+        "The status of your transaction has been updated. Please log in to review the latest details and take any necessary action.",
+    },
+    transaction_closed: {
+      subject: "Transaction Closed — #{{transactionNumber}}",
+      bodyText:
+        "Congratulations! Your transaction has been successfully closed. Thank you for your hard work on this deal.",
+    },
+    transaction_review_request: {
+      subject: "How was your experience with {{agentName}}?",
+      bodyText:
+        "Thank you for trusting your Savvy STR Agents representative with your recent real estate transaction. Please take a moment to share your experience using your personalized review link.",
+    },
+    transaction_review_received: {
+      subject:
+        "New {{reviewRating}}-Star Client Review — #{{transactionNumber}}",
+      bodyText:
+        "A client has submitted feedback about their transaction experience. Review their rating and comments in SavvyOS.",
+    },
+    commission_calculated: {
+      subject: "Commission Calculated — #{{transactionNumber}}",
+      bodyText:
+        "Your commission payout has been calculated for a recently closed transaction. Please review the details below.",
+    },
+    task_assigned: {
+      subject: "New Task: {{taskTitle}}",
+      bodyText:
+        "A new task has been assigned to you. Please complete it by the due date shown below.",
+    },
+    task_due: {
+      subject: "Task Due Soon: {{taskTitle}}",
+      bodyText:
+        "This is a reminder that one of your tasks is due soon. Please take action before the deadline.",
+    },
+    payout_integrity_fail: {
+      subject: "Commission Integrity Issue — Action Required",
+      bodyText:
+        "A transaction has commission payouts that exceed 100%. Please review and correct the payout items immediately to avoid processing errors.",
+    },
+    listing_created: {
+      subject: "New Listing Created — {{listingAddress}}",
+      bodyText:
+        "A new listing has been created and assigned to you. Please review the details and ensure all required information is complete.",
+    },
+    listing_expiration_reminder: {
+      subject: "Listing Expiration Notice — {{listingAddress}}",
+      bodyText:
+        "One of your active listings has passed its expiration date. Please review and update the expiration date, or change the listing status to keep your pipeline accurate.",
+    },
+    onboarding_overdue: {
+      subject: "Onboarding Tasks Overdue — {{agentName}}",
+      bodyText:
+        "Some onboarding tasks are now past their due date. Please complete them as soon as possible to keep your pipeline moving.",
+    },
+    market_profile_updated: {
+      subject: "Your {{marketName}} AI profile was updated",
+      bodyText:
+        "Sends the complete market profile, a change summary, and a private link for the assigned agent to submit local market corrections for synthesis.",
+    },
+    commission_exception_warning: {
+      subject:
+        "⚠️ Commission Exception Warning — Transaction #{{transactionNumber}}",
+      bodyText:
+        "A commission exception was approved for a transaction with the following warnings. Please review and take action if needed.",
+    },
+    client_intro: {
+      subject: "Meet {{agentName}} — Savvy STR Agents",
+      bodyText:
+        "We're excited to introduce you to your dedicated agent, who will be working with you on your short-term rental journey. Your agent specializes in STR properties and is ready to help you find the perfect investment.",
+    },
+    connection_request_approved: {
+      subject: "Connection Request Approved — {{contactName}}",
+      bodyText:
+        "Your connection request has been approved. You can now view and manage this contact in your pipeline.",
+    },
+    pm_mention: {
+      subject: "{{mentionedByName}} mentioned you in a project note or comment",
+      bodyText:
+        "You were mentioned in a project note or comment. Click below to open the exact activity and respond.",
+    },
+  };
 
 // Variable reference per email type — shown in the edit dialog
-const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]> = {
+const TEMPLATE_VARIABLES: Record<
+  string,
+  { key: string; description: string }[]
+> = {
   lead_assigned: [
-    { key: "recipientName", description: "Name of the person receiving the email" },
+    {
+      key: "recipientName",
+      description: "Name of the person receiving the email",
+    },
     { key: "contactName", description: "Name of the new lead" },
-    { key: "leadSourceLabel", description: "Original lead source, including its parent category when available" },
+    {
+      key: "leadSourceLabel",
+      description:
+        "Original lead source, including its parent category when available",
+    },
     { key: "notes", description: "Notes about the lead from the ISA" },
-    { key: "clientContextSummary", description: "Concise AI briefing based on pre-existing CRM history, when enough context exists" },
+    {
+      key: "clientContextSummary",
+      description:
+        "Concise AI briefing based on pre-existing CRM history, when enough context exists",
+    },
   ],
   transaction_created: [
     { key: "recipientName", description: "Recipient's name" },
@@ -128,8 +189,14 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
     { key: "reviewUrl", description: "One-time public review link" },
   ],
   transaction_review_received: [
-    { key: "recipientName", description: "Agent or coach receiving the notification" },
-    { key: "reviewerName", description: "Client or spouse/partner who submitted the review" },
+    {
+      key: "recipientName",
+      description: "Agent or coach receiving the notification",
+    },
+    {
+      key: "reviewerName",
+      description: "Client or spouse/partner who submitted the review",
+    },
     { key: "reviewRating", description: "Rating from 1 to 5" },
     { key: "reviewComment", description: "Optional written client feedback" },
     { key: "agentName", description: "Transaction agent's name" },
@@ -180,9 +247,18 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
   market_profile_updated: [
     { key: "recipientName", description: "Assigned agent's name" },
     { key: "marketName", description: "Assigned Agent Market" },
-    { key: "marketProfileChangeSummary", description: "Sections that changed from the previous profile" },
-    { key: "marketProfileSnapshotHtml", description: "Complete generated structured market profile" },
-    { key: "marketProfileUpdateUrl", description: "Private SavvyOS feedback link" },
+    {
+      key: "marketProfileChangeSummary",
+      description: "Sections that changed from the previous profile",
+    },
+    {
+      key: "marketProfileSnapshotHtml",
+      description: "Complete generated structured market profile",
+    },
+    {
+      key: "marketProfileUpdateUrl",
+      description: "Private SavvyOS feedback link",
+    },
   ],
   commission_exception_warning: [
     { key: "recipientName", description: "Recipient's name (admin)" },
@@ -192,7 +268,10 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
   client_intro: [
     { key: "recipientName", description: "Client's name" },
     { key: "agentName", description: "Agent's full name" },
-    { key: "contactName", description: "Client's name (same as recipientName)" },
+    {
+      key: "contactName",
+      description: "Client's name (same as recipientName)",
+    },
     { key: "isaName", description: "ISA who made the introduction" },
     { key: "agentBookingLink", description: "Agent's calendar booking URL" },
   ],
@@ -204,32 +283,120 @@ const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]>
   ],
   pm_mention: [
     { key: "recipientName", description: "Mentioned user's name" },
-    { key: "mentionedByName", description: "Name of person who wrote the note or comment" },
+    {
+      key: "mentionedByName",
+      description: "Name of person who wrote the note or comment",
+    },
     { key: "projectTitle", description: "Project title" },
-    { key: "noteContent", description: "First 300 characters of the note or comment" },
-    { key: "projectUrl", description: "Direct link to the exact note or comment" },
+    {
+      key: "noteContent",
+      description: "First 300 characters of the note or comment",
+    },
+    {
+      key: "projectUrl",
+      description: "Direct link to the exact note or comment",
+    },
   ],
 };
 
 const EMAIL_TYPES = [
-  { key: "lead_assigned", label: "Lead Assigned", description: "Sent when a new lead is assigned to an ISA or agent" },
-  { key: "transaction_created", label: "Transaction Created", description: "Sent when a new transaction is created for an agent" },
-  { key: "transaction_status_changed", label: "Transaction Status Changed", description: "Sent when a transaction status is updated" },
-  { key: "transaction_closed", label: "Transaction Closed", description: "Sent when a transaction is marked as closed" },
-  { key: "transaction_review_request", label: "Client Review Request", description: "Sent to clients and spouses/partners when a transaction first closes" },
-  { key: "transaction_review_received", label: "Client Review Received", description: "Sent to the transaction agent and their coach of record when a client submits a review" },
-  { key: "commission_calculated", label: "Commission Calculated", description: "Sent when a commission payout is added for an agent" },
-  { key: "task_assigned", label: "Task Assigned", description: "Sent when a task is assigned to a user" },
-  { key: "task_due", label: "Task Due Soon", description: "Sent as a reminder when a task is due" },
-  { key: "payout_integrity_fail", label: "Payout Integrity Issue", description: "Sent when commission payouts exceed 100%" },
-  { key: "listing_created", label: "Listing Created", description: "Sent when a new listing is created for an agent" },
-  { key: "listing_expiration_reminder", label: "Listing Expiration Reminder", description: "Sent daily when an active listing has passed its expiration date" },
-  { key: "onboarding_overdue", label: "Onboarding Overdue", description: "Sent when onboarding tasks are past their due date" },
-  { key: "market_profile_updated", label: "Agent Market Profile Updated", description: "Sent to an assigned agent when the living AI market profile changes" },
-  { key: "commission_exception_warning", label: "Commission Exception Warning", description: "Sent when a commission exception is approved with warnings" },
-  { key: "client_intro", label: "Client Introduction", description: "Sent to introduce a client to their assigned agent, with agent CC'd" },
-  { key: "connection_request_approved", label: "Connection Request Approved", description: "Sent to an agent when their connection request is approved by an admin" },
-  { key: "pm_mention", label: "Project Mention", description: "Sent when a user is @mentioned in a project note or todo comment" },
+  {
+    key: "lead_assigned",
+    label: "Lead Assigned",
+    description: "Sent when a new lead is assigned to an ISA or agent",
+  },
+  {
+    key: "transaction_created",
+    label: "Transaction Created",
+    description: "Sent when a new transaction is created for an agent",
+  },
+  {
+    key: "transaction_status_changed",
+    label: "Transaction Status Changed",
+    description: "Sent when a transaction status is updated",
+  },
+  {
+    key: "transaction_closed",
+    label: "Transaction Closed",
+    description: "Sent when a transaction is marked as closed",
+  },
+  {
+    key: "transaction_review_request",
+    label: "Client Review Request",
+    description:
+      "Sent to clients and spouses/partners when a transaction first closes",
+  },
+  {
+    key: "transaction_review_received",
+    label: "Client Review Received",
+    description:
+      "Sent to the transaction agent and their coach of record when a client submits a review",
+  },
+  {
+    key: "commission_calculated",
+    label: "Commission Calculated",
+    description: "Sent when a commission payout is added for an agent",
+  },
+  {
+    key: "task_assigned",
+    label: "Task Assigned",
+    description: "Sent when a task is assigned to a user",
+  },
+  {
+    key: "task_due",
+    label: "Task Due Soon",
+    description: "Sent as a reminder when a task is due",
+  },
+  {
+    key: "payout_integrity_fail",
+    label: "Payout Integrity Issue",
+    description: "Sent when commission payouts exceed 100%",
+  },
+  {
+    key: "listing_created",
+    label: "Listing Created",
+    description: "Sent when a new listing is created for an agent",
+  },
+  {
+    key: "listing_expiration_reminder",
+    label: "Listing Expiration Reminder",
+    description:
+      "Sent daily when an active listing has passed its expiration date",
+  },
+  {
+    key: "onboarding_overdue",
+    label: "Onboarding Overdue",
+    description: "Sent when onboarding tasks are past their due date",
+  },
+  {
+    key: "market_profile_updated",
+    label: "Agent Market Profile Updated",
+    description:
+      "Sent to an assigned agent when the living AI market profile changes",
+  },
+  {
+    key: "commission_exception_warning",
+    label: "Commission Exception Warning",
+    description: "Sent when a commission exception is approved with warnings",
+  },
+  {
+    key: "client_intro",
+    label: "Client Introduction",
+    description:
+      "Sent to introduce a client to their assigned agent, with agent CC'd",
+  },
+  {
+    key: "connection_request_approved",
+    label: "Connection Request Approved",
+    description:
+      "Sent to an agent when their connection request is approved by an admin",
+  },
+  {
+    key: "pm_mention",
+    label: "Project Mention",
+    description:
+      "Sent when a user is @mentioned in a project note or todo comment",
+  },
 ];
 
 export default function EmailTestPage() {
@@ -254,70 +421,105 @@ export default function EmailTestPage() {
   const { data: savedTemplates = [] } = trpc.emailTemplates.list.useQuery();
 
   // Preview query — only fires when previewType is set
-  const { data: previewData, isFetching: previewLoading } = trpc.emailTest.getPreview.useQuery(
-    { emailType: previewType ?? "", recipientName: name || "Tyler" },
-    { enabled: !!previewType }
-  );
+  const { data: previewData, isFetching: previewLoading } =
+    trpc.emailTest.getPreview.useQuery(
+      { emailType: previewType ?? "", recipientName: name || "Tyler" },
+      { enabled: !!previewType }
+    );
 
   const upsertTemplate = trpc.emailTemplates.upsert.useMutation({
     onSuccess: () => {
-      toast.success("Template saved — this will be used for all future sends of this email type.");
+      toast.success(
+        "Template saved — this will be used for all future sends of this email type."
+      );
       utils.emailTemplates.list.invalidate();
       setEditOpen(false);
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const resetTemplate = trpc.emailTemplates.reset.useMutation({
     onSuccess: () => {
       toast.success("Template reset to default.");
       utils.emailTemplates.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const sendAll = trpc.emailTest.sendAll.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       setResults(data.results);
-      const successCount = Object.values(data.results).filter(v => v === "sent").length;
-      const errorCount = Object.values(data.results).filter(v => v.startsWith("error")).length;
+      const successCount = Object.values(data.results).filter(
+        v => v === "sent"
+      ).length;
+      const errorCount = Object.values(data.results).filter(v =>
+        v.startsWith("error")
+      ).length;
       if (errorCount === 0) {
         toast.success(`All ${successCount} email types sent successfully!`);
       } else {
-        toast.warning(`${successCount} sent, ${errorCount} failed. Check results below.`);
+        toast.warning(
+          `${successCount} sent, ${errorCount} failed. Check results below.`
+        );
       }
     },
-    onError: (err) => toast.error(`Failed: ${err.message}`),
+    onError: err => toast.error(`Failed: ${err.message}`),
   });
 
   const sendOne = trpc.emailTest.sendOne.useMutation({
-    onSuccess: (_, vars) => {
+    onSuccess: (data, vars) => {
+      const label =
+        EMAIL_TYPES.find(t => t.key === vars.emailType)?.label ??
+        vars.emailType;
+      if (data.skipped) {
+        setResults(prev => ({
+          ...prev,
+          [vars.emailType]:
+            "skipped: market AI update email sent within 48 hours",
+        }));
+        toast.info(
+          `"${label}" was skipped because ${vars.recipientEmail} received a market AI update email within the last 48 hours.`
+        );
+        setSendingOne(null);
+        return;
+      }
       setResults(prev => ({ ...prev, [vars.emailType]: "sent" }));
-      const label = EMAIL_TYPES.find(t => t.key === vars.emailType)?.label ?? vars.emailType;
       toast.success(`"${label}" sent to ${vars.recipientEmail}`);
       setSendingOne(null);
     },
     onError: (err, vars) => {
-      setResults(prev => ({ ...prev, [vars.emailType]: `error: ${err.message}` }));
+      setResults(prev => ({
+        ...prev,
+        [vars.emailType]: `error: ${err.message}`,
+      }));
       toast.error(`Failed to send: ${err.message}`);
       setSendingOne(null);
     },
   });
 
   const handleSendAll = () => {
-    if (!email) { toast.error("Please enter a recipient email address"); return; }
+    if (!email) {
+      toast.error("Please enter a recipient email address");
+      return;
+    }
     setResults({});
     sendAll.mutate({ recipientEmail: email, recipientName: name });
   };
 
   const handleSendOne = (emailType: string) => {
-    if (!email) { toast.error("Please enter a recipient email address"); return; }
+    if (!email) {
+      toast.error("Please enter a recipient email address");
+      return;
+    }
     setSendingOne(emailType);
     sendOne.mutate({ recipientEmail: email, recipientName: name, emailType });
   };
 
   const openEdit = (typeKey: string) => {
-    const saved = (savedTemplates as any[]).find((t) => t.emailType === typeKey);
-    const defaults = DEFAULT_TEMPLATES[typeKey] ?? { subject: "", bodyText: "" };
+    const saved = (savedTemplates as any[]).find(t => t.emailType === typeKey);
+    const defaults = DEFAULT_TEMPLATES[typeKey] ?? {
+      subject: "",
+      bodyText: "",
+    };
     setEditType(typeKey);
     setEditSubject(saved?.subject ?? defaults.subject);
     setEditBody(saved?.bodyText ?? defaults.bodyText);
@@ -335,15 +537,21 @@ export default function EmailTestPage() {
       toast.error("Subject and body are required.");
       return;
     }
-    upsertTemplate.mutate({ emailType: editType, subject: editSubject, bodyText: editBody });
+    upsertTemplate.mutate({
+      emailType: editType,
+      subject: editSubject,
+      bodyText: editBody,
+    });
   };
 
   const handleResetTemplate = (typeKey: string) => {
     resetTemplate.mutate({ emailType: typeKey });
   };
 
-  const editTypeLabel = EMAIL_TYPES.find(t => t.key === editType)?.label ?? editType;
-  const previewTypeLabel = EMAIL_TYPES.find(t => t.key === previewType)?.label ?? previewType;
+  const editTypeLabel =
+    EMAIL_TYPES.find(t => t.key === editType)?.label ?? editType;
+  const previewTypeLabel =
+    EMAIL_TYPES.find(t => t.key === previewType)?.label ?? previewType;
   const editVars = editType ? (TEMPLATE_VARIABLES[editType] ?? []) : [];
 
   return (
@@ -355,7 +563,8 @@ export default function EmailTestPage() {
           Transactional Emails
         </h1>
         <p className="text-muted-foreground mt-1">
-          Edit email templates, preview rendered output, test individual sends, or send all types at once.
+          Edit email templates, preview rendered output, test individual sends,
+          or send all types at once.
         </p>
       </div>
 
@@ -363,7 +572,9 @@ export default function EmailTestPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Test Recipient</CardTitle>
-          <CardDescription>All test emails will be sent to this address with sample data.</CardDescription>
+          <CardDescription>
+            All test emails will be sent to this address with sample data.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -373,7 +584,7 @@ export default function EmailTestPage() {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={e => setEmail(e.target.value)}
                 placeholder="tyler@savvy.realty"
               />
             </div>
@@ -382,7 +593,7 @@ export default function EmailTestPage() {
               <Input
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={e => setName(e.target.value)}
                 placeholder="Tyler"
               />
             </div>
@@ -393,9 +604,15 @@ export default function EmailTestPage() {
             className="w-full sm:w-auto"
           >
             {sendAll.isPending ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending all {EMAIL_TYPES.length} emails...</>
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending all{" "}
+                {EMAIL_TYPES.length} emails...
+              </>
             ) : (
-              <><Send className="h-4 w-4 mr-2" /> Send All {EMAIL_TYPES.length} Email Types</>
+              <>
+                <Send className="h-4 w-4 mr-2" /> Send All {EMAIL_TYPES.length}{" "}
+                Email Types
+              </>
             )}
           </Button>
         </CardContent>
@@ -404,17 +621,23 @@ export default function EmailTestPage() {
       {/* Email Types List */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Email Templates ({EMAIL_TYPES.length})</CardTitle>
+          <CardTitle className="text-base">
+            Email Templates ({EMAIL_TYPES.length})
+          </CardTitle>
           <CardDescription>
-            Click <strong>Preview</strong> to see the rendered email. Click <strong>Edit</strong> to customize subject and body. Click <strong>Send</strong> to test delivery.
+            Click <strong>Preview</strong> to see the rendered email. Click{" "}
+            <strong>Edit</strong> to customize subject and body. Click{" "}
+            <strong>Send</strong> to test delivery.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-1">
-            {EMAIL_TYPES.map((type) => {
+            {EMAIL_TYPES.map(type => {
               const result = results[type.key];
               const isSending = sendingOne === type.key;
-              const isCustomized = (savedTemplates as any[]).some((t) => t.emailType === type.key);
+              const isCustomized = (savedTemplates as any[]).some(
+                t => t.emailType === type.key
+              );
               return (
                 <div
                   key={type.key}
@@ -424,10 +647,17 @@ export default function EmailTestPage() {
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium">{type.label}</p>
                       {isCustomized && (
-                        <Badge variant="outline" className="text-xs text-primary border-primary/40 py-0">Edited</Badge>
+                        <Badge
+                          variant="outline"
+                          className="text-xs text-primary border-primary/40 py-0"
+                        >
+                          Edited
+                        </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">{type.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {type.description}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {result === "sent" ? (
@@ -435,14 +665,18 @@ export default function EmailTestPage() {
                         <CheckCircle2 className="h-3.5 w-3.5" /> Sent
                       </span>
                     ) : result?.startsWith("error") ? (
-                      <span className="flex items-center gap-1 text-xs text-red-600 font-medium" title={result}>
+                      <span
+                        className="flex items-center gap-1 text-xs text-red-600 font-medium"
+                        title={result}
+                      >
                         <XCircle className="h-3.5 w-3.5" /> Error
                       </span>
-                    ) : result == null && !sendAll.isPending ? null : (
-                      sendAll.isPending ? (
-                        <Badge variant="outline" className="text-xs">Sending…</Badge>
-                      ) : null
-                    )}
+                    ) : result == null &&
+                      !sendAll.isPending ? null : sendAll.isPending ? (
+                      <Badge variant="outline" className="text-xs">
+                        Sending…
+                      </Badge>
+                    ) : null}
                     {isCustomized && (
                       <Button
                         size="sm"
@@ -461,7 +695,8 @@ export default function EmailTestPage() {
                       className="h-7 px-2.5 text-xs"
                       onClick={() => openPreview(type.key)}
                     >
-                      <Eye className="h-3 w-3 mr-1" />Preview
+                      <Eye className="h-3 w-3 mr-1" />
+                      Preview
                     </Button>
                     <Button
                       size="sm"
@@ -469,7 +704,8 @@ export default function EmailTestPage() {
                       className="h-7 px-2.5 text-xs"
                       onClick={() => openEdit(type.key)}
                     >
-                      <Pencil className="h-3 w-3 mr-1" />Edit
+                      <Pencil className="h-3 w-3 mr-1" />
+                      Edit
                     </Button>
                     <Button
                       size="sm"
@@ -481,7 +717,10 @@ export default function EmailTestPage() {
                       {isSending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        <><Send className="h-3 w-3 mr-1" />Send</>
+                        <>
+                          <Send className="h-3 w-3 mr-1" />
+                          Send
+                        </>
                       )}
                     </Button>
                   </div>
@@ -500,32 +739,51 @@ export default function EmailTestPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-xs text-muted-foreground">
-              Changes here override the default template for all future sends of this email type. Use <code className="bg-muted px-1 rounded">**bold**</code> for bold text.
+              Changes here override the default template for all future sends of
+              this email type. Use{" "}
+              <code className="bg-muted px-1 rounded">**bold**</code> for bold
+              text.
             </p>
 
             {/* Variable Reference */}
             {editVars.length > 0 && (
               <Collapsible open={varsOpen} onOpenChange={setVarsOpen}>
                 <CollapsibleTrigger asChild>
-                  <Button variant="outline" size="sm" className="w-full justify-between text-xs h-8">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-between text-xs h-8"
+                  >
                     <span className="flex items-center gap-1.5">
                       <Code2 className="h-3.5 w-3.5" />
                       Available Variables ({editVars.length})
                     </span>
-                    {varsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    {varsOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="mt-2 rounded-md border bg-muted/30 p-3 space-y-1.5">
                     <p className="text-xs text-muted-foreground mb-2">
-                      These variables are automatically filled at send time. You can reference them in the subject line as <code className="bg-muted px-1 rounded">{`{{variableName}}`}</code>.
+                      These variables are automatically filled at send time. You
+                      can reference them in the subject line as{" "}
+                      <code className="bg-muted px-1 rounded">{`{{variableName}}`}</code>
+                      .
                     </p>
                     {editVars.map(v => (
-                      <div key={v.key} className="flex items-start gap-2 text-xs">
+                      <div
+                        key={v.key}
+                        className="flex items-start gap-2 text-xs"
+                      >
                         <code className="bg-background border rounded px-1.5 py-0.5 font-mono text-primary shrink-0">
                           {`{{${v.key}}}`}
                         </code>
-                        <span className="text-muted-foreground pt-0.5">{v.description}</span>
+                        <span className="text-muted-foreground pt-0.5">
+                          {v.description}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -538,7 +796,7 @@ export default function EmailTestPage() {
               <Input
                 className="mt-1"
                 value={editSubject}
-                onChange={(e) => setEditSubject(e.target.value)}
+                onChange={e => setEditSubject(e.target.value)}
                 placeholder="Email subject..."
               />
             </div>
@@ -548,22 +806,40 @@ export default function EmailTestPage() {
                 className="mt-1 font-mono text-sm"
                 rows={6}
                 value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
+                onChange={e => setEditBody(e.target.value)}
                 placeholder="Email body text..."
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveTemplate} disabled={upsertTemplate.isPending}>
-              {upsertTemplate.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Template"}
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveTemplate}
+              disabled={upsertTemplate.isPending}
+            >
+              {upsertTemplate.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Template"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Preview Dialog */}
-      <Dialog open={previewOpen} onOpenChange={(open) => { setPreviewOpen(open); if (!open) setPreviewType(null); }}>
+      <Dialog
+        open={previewOpen}
+        onOpenChange={open => {
+          setPreviewOpen(open);
+          if (!open) setPreviewType(null);
+        }}
+      >
         <DialogContent className="max-w-3xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col">
           <DialogHeader className="shrink-0">
             <div className="flex items-center justify-between">
@@ -574,14 +850,16 @@ export default function EmailTestPage() {
             </div>
             {previewData && (
               <p className="text-xs text-muted-foreground mt-1">
-                <span className="font-medium">Subject:</span> {previewData.subject}
+                <span className="font-medium">Subject:</span>{" "}
+                {previewData.subject}
               </p>
             )}
           </DialogHeader>
           <div className="flex-1 overflow-auto rounded-md border bg-white min-h-0">
             {previewLoading ? (
               <div className="flex items-center justify-center h-48 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading preview…
+                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading
+                preview…
               </div>
             ) : previewData?.html ? (
               <iframe
@@ -597,7 +875,13 @@ export default function EmailTestPage() {
             )}
           </div>
           <DialogFooter className="shrink-0 pt-2">
-            <Button variant="outline" onClick={() => { setPreviewOpen(false); setPreviewType(null); }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPreviewOpen(false);
+                setPreviewType(null);
+              }}
+            >
               <X className="h-4 w-4 mr-1" /> Close
             </Button>
             {previewType && (

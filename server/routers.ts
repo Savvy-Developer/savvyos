@@ -4,14 +4,28 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { sdk } from "./_core/sdk";
 import { z } from "zod";
-import { SIMULATE_COOKIE, SIMULATE_OWNER_EMAIL, WORK_AS_COOKIE } from "./_core/context";
+import {
+  SIMULATE_COOKIE,
+  SIMULATE_OWNER_EMAIL,
+  WORK_AS_COOKIE,
+} from "./_core/context";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
-import { EMAIL_NOTIFICATION_TYPES, sendTransactionalEmail, getEmailPreview } from "./_core/resendEmail";
+import {
+  EMAIL_NOTIFICATION_TYPES,
+  sendTransactionalEmail,
+  getEmailPreview,
+} from "./_core/resendEmail";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
-import { customEmailNotifications, emailNotificationDeliveries, emailTemplates, emailNotificationSettings, marketProfiles } from "../drizzle/schema";
+import {
+  customEmailNotifications,
+  emailNotificationDeliveries,
+  emailTemplates,
+  emailNotificationSettings,
+  marketProfiles,
+} from "../drizzle/schema";
 import { asc, desc, eq } from "drizzle-orm";
 import { contactsRouter, connectionRequestsRouter } from "./routers/contacts";
 import { agentConnectionsRouter } from "./routers/agentConnections";
@@ -41,7 +55,10 @@ import { marketingRequestsRouter } from "./routers/marketingRequests";
 import { techRequestsRouter } from "./routers/techRequests";
 import { pmRouter } from "./routers/pm";
 import { knowledgeBaseRouter } from "./routers/knowledgeBase";
-import { agentSupportRouter, WORK_AS_COOKIE as AS_WORK_COOKIE } from "./routers/agentSupport";
+import {
+  agentSupportRouter,
+  WORK_AS_COOKIE as AS_WORK_COOKIE,
+} from "./routers/agentSupport";
 import { duplicatesRouter } from "./routers/duplicates";
 import { webhooksRouter } from "./routers/webhooks";
 import { ghlSyncRouter } from "./routers/ghlSync";
@@ -80,28 +97,205 @@ import { marketProfileFeedbackRouter } from "./routers/marketProfileFeedback";
 import { sendMarketProfileUpdateTestEmail } from "./agentMarketProfileFeedback";
 
 // Shared test email payload builder
-function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
+function buildTestEmailPayloads(ctx2: {
+  recipientEmail: string;
+  recipientName: string;
+}) {
   return [
-    ["lead_assigned", { ...ctx2, contactName: "Jane Smith", leadSourceLabel: "Paid Leads › AirDNA", notes: "Interested in STR investment, budget $500k", clientContextSummary: "Jane has been researching an STR purchase with a roughly $500,000 budget. Prior activity suggests she is focused on validating market data; a quick discovery call about her target market and buy box is the best next step." }],
-    ["transaction_created", { ...ctx2, transactionNumber: "TXN-TEST-001", transactionType: "buyer", contactName: "Jane Smith", propertyAddress: "123 Mountain View Dr, Asheville, NC", amount: "$525,000" }],
-    ["transaction_status_changed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", status: "Under Contract" }],
-    ["transaction_closed", { ...ctx2, transactionNumber: "TXN-TEST-001", contactName: "Jane Smith", amount: "$525,000" }],
-    ["transaction_review_request", { ...ctx2, agentName: "Sarah Mitchell", transactionNumber: "TXN-TEST-001", propertyAddress: "123 Mountain View Dr, Asheville, NC", reviewUrl: "https://os.savvy-agents.com/review?token=preview-link" }],
-    ["transaction_review_received", { ...ctx2, agentName: "Sarah Mitchell", reviewerName: "Jane Smith", reviewRating: "5", reviewComment: "Sarah made the process clear, responsive, and enjoyable from start to finish.", transactionNumber: "TXN-TEST-001", propertyAddress: "123 Mountain View Dr, Asheville, NC" }],
-    ["commission_calculated", { ...ctx2, transactionNumber: "TXN-TEST-001", percentage: "80", amount: "$12,600" }],
-    ["task_assigned", { ...ctx2, taskTitle: "Follow up with Jane Smith re: buy box", dueDate: "Mar 25, 2026", contactName: "Jane Smith" }],
-    ["task_due", { ...ctx2, taskTitle: "Follow up with Jane Smith re: buy box", dueDate: "Today" }],
+    [
+      "lead_assigned",
+      {
+        ...ctx2,
+        contactName: "Jane Smith",
+        leadSourceLabel: "Paid Leads › AirDNA",
+        notes: "Interested in STR investment, budget $500k",
+        clientContextSummary:
+          "Jane has been researching an STR purchase with a roughly $500,000 budget. Prior activity suggests she is focused on validating market data; a quick discovery call about her target market and buy box is the best next step.",
+      },
+    ],
+    [
+      "transaction_created",
+      {
+        ...ctx2,
+        transactionNumber: "TXN-TEST-001",
+        transactionType: "buyer",
+        contactName: "Jane Smith",
+        propertyAddress: "123 Mountain View Dr, Asheville, NC",
+        amount: "$525,000",
+      },
+    ],
+    [
+      "transaction_status_changed",
+      {
+        ...ctx2,
+        transactionNumber: "TXN-TEST-001",
+        contactName: "Jane Smith",
+        status: "Under Contract",
+      },
+    ],
+    [
+      "transaction_closed",
+      {
+        ...ctx2,
+        transactionNumber: "TXN-TEST-001",
+        contactName: "Jane Smith",
+        amount: "$525,000",
+      },
+    ],
+    [
+      "transaction_review_request",
+      {
+        ...ctx2,
+        agentName: "Sarah Mitchell",
+        transactionNumber: "TXN-TEST-001",
+        propertyAddress: "123 Mountain View Dr, Asheville, NC",
+        reviewUrl: "https://os.savvy-agents.com/review?token=preview-link",
+      },
+    ],
+    [
+      "transaction_review_received",
+      {
+        ...ctx2,
+        agentName: "Sarah Mitchell",
+        reviewerName: "Jane Smith",
+        reviewRating: "5",
+        reviewComment:
+          "Sarah made the process clear, responsive, and enjoyable from start to finish.",
+        transactionNumber: "TXN-TEST-001",
+        propertyAddress: "123 Mountain View Dr, Asheville, NC",
+      },
+    ],
+    [
+      "commission_calculated",
+      {
+        ...ctx2,
+        transactionNumber: "TXN-TEST-001",
+        percentage: "80",
+        amount: "$12,600",
+      },
+    ],
+    [
+      "task_assigned",
+      {
+        ...ctx2,
+        taskTitle: "Follow up with Jane Smith re: buy box",
+        dueDate: "Mar 25, 2026",
+        contactName: "Jane Smith",
+      },
+    ],
+    [
+      "task_due",
+      {
+        ...ctx2,
+        taskTitle: "Follow up with Jane Smith re: buy box",
+        dueDate: "Today",
+      },
+    ],
     ["payout_integrity_fail", { ...ctx2, transactionNumber: "TXN-TEST-001" }],
-    ["listing_created", { ...ctx2, listingAddress: "456 Blue Ridge Pkwy, Asheville, NC", contactName: "Bob Seller", listPrice: "$875,000", listingDate: "Mar 18, 2026", expirationDate: "Jun 18, 2026" }],
-    ["listing_expiration_reminder", { ...ctx2, listingAddress: "456 Blue Ridge Pkwy, Asheville, NC", contactName: "Bob Seller", listPrice: "$875,000", expirationDate: "March 1, 2026" }],
-    ["onboarding_overdue", { ...ctx2, overdueCount: "3", taskList: "• Complete W-9 form\n• Upload license copy\n• Sign brokerage agreement" }],
-    ["market_profile_updated", { ...ctx2, marketName: "Smoky Mountains, TN", marketProfileChangeSummary: "Market read was updated. Best-fit investors was updated. Buy-box guidance was updated. Watchouts and diligence was updated.", marketProfileSnapshotHtml: "<div style=\"margin:20px 0;border:1px solid #D1D5DB;border-radius:9px;padding:20px;background:#FFFFFF;\"><h2 style=\"margin:0 0 8px;font-size:17px;color:#111827;\">Complete current market profile</h2><p style=\"margin:0 0 15px;font-size:13px;line-height:1.6;color:#374151;\"><strong>Market read:</strong> The current evidence supports a selective, diligence-led STR conversation for qualified investors.</p><p style=\"margin:0 0 15px;font-size:13px;line-height:1.6;color:#374151;\"><strong>Best-fit investors:</strong> Buyers who prioritize verified local operating context and are prepared to validate property-specific regulations.</p><p style=\"margin:0;font-size:13px;line-height:1.6;color:#374151;\"><strong>Watchouts:</strong> Verify regulations, seasonality, operating costs, and property-level feasibility before making a decision.</p></div>", marketProfileUpdateUrl: "https://os.savvy-agents.com/agent-market-feedback/preview" }],
-    ["commission_exception_warning", { ...ctx2, transactionNumber: "TXN-TEST-001", notes: "Total payout exceeds 100% — please review split" }],
-    ["client_intro", { ...ctx2, agentName: "Sarah Mitchell", contactName: "Alex Johnson", isaName: "Jordan Lee", agentBookingLink: "https://calendly.com/sarah-mitchell" }],
-    ["connection_request_approved", { ...ctx2, contactName: "Jane Smith", agentName: "Sarah Mitchell", pipelineStatus: "Nurture" }],
-    ["pm_mention", { ...ctx2, mentionedByName: "Tyler Coon", projectTitle: "Website Redesign Q2", noteContent: "Hey, can you review the wireframes for the landing page before Friday?", projectUrl: "https://os.savvy-agents.com/projects/1" }],
-    ["pto_request_submitted", { ...ctx2, employeeName: "Jordan Lee", ptoType: "Vacation", ptoDateRange: "July 6, 2026 to July 10, 2026", ptoRequestedDays: "5 days", coverageNotes: "Coverage plan is documented in the weekly handoff." }],
-    ["pto_request_decision", { ...ctx2, managerName: "Tyler Coon", decisionStatus: "Approved", decisionReason: "Coverage plan confirmed.", ptoType: "Vacation", ptoDateRange: "July 6, 2026 to July 10, 2026", ptoRequestedDays: "5 days" }],
+    [
+      "listing_created",
+      {
+        ...ctx2,
+        listingAddress: "456 Blue Ridge Pkwy, Asheville, NC",
+        contactName: "Bob Seller",
+        listPrice: "$875,000",
+        listingDate: "Mar 18, 2026",
+        expirationDate: "Jun 18, 2026",
+      },
+    ],
+    [
+      "listing_expiration_reminder",
+      {
+        ...ctx2,
+        listingAddress: "456 Blue Ridge Pkwy, Asheville, NC",
+        contactName: "Bob Seller",
+        listPrice: "$875,000",
+        expirationDate: "March 1, 2026",
+      },
+    ],
+    [
+      "onboarding_overdue",
+      {
+        ...ctx2,
+        overdueCount: "3",
+        taskList:
+          "• Complete W-9 form\n• Upload license copy\n• Sign brokerage agreement",
+      },
+    ],
+    [
+      "market_profile_updated",
+      {
+        ...ctx2,
+        marketName: "Smoky Mountains, TN",
+        marketProfileChangeSummary:
+          "Market read was updated. Best-fit investors was updated. Buy-box guidance was updated. Watchouts and diligence was updated.",
+        marketProfileSnapshotHtml:
+          '<div style="margin:20px 0;border:1px solid #D1D5DB;border-radius:9px;padding:20px;background:#FFFFFF;"><h2 style="margin:0 0 8px;font-size:17px;color:#111827;">Complete current market profile</h2><p style="margin:0 0 15px;font-size:13px;line-height:1.6;color:#374151;"><strong>Market read:</strong> The current evidence supports a selective, diligence-led STR conversation for qualified investors.</p><p style="margin:0 0 15px;font-size:13px;line-height:1.6;color:#374151;"><strong>Best-fit investors:</strong> Buyers who prioritize verified local operating context and are prepared to validate property-specific regulations.</p><p style="margin:0;font-size:13px;line-height:1.6;color:#374151;"><strong>Watchouts:</strong> Verify regulations, seasonality, operating costs, and property-level feasibility before making a decision.</p></div>',
+        marketProfileUpdateUrl:
+          "https://os.savvy-agents.com/agent-market-feedback/preview",
+      },
+    ],
+    [
+      "commission_exception_warning",
+      {
+        ...ctx2,
+        transactionNumber: "TXN-TEST-001",
+        notes: "Total payout exceeds 100% — please review split",
+      },
+    ],
+    [
+      "client_intro",
+      {
+        ...ctx2,
+        agentName: "Sarah Mitchell",
+        contactName: "Alex Johnson",
+        isaName: "Jordan Lee",
+        agentBookingLink: "https://calendly.com/sarah-mitchell",
+      },
+    ],
+    [
+      "connection_request_approved",
+      {
+        ...ctx2,
+        contactName: "Jane Smith",
+        agentName: "Sarah Mitchell",
+        pipelineStatus: "Nurture",
+      },
+    ],
+    [
+      "pm_mention",
+      {
+        ...ctx2,
+        mentionedByName: "Tyler Coon",
+        projectTitle: "Website Redesign Q2",
+        noteContent:
+          "Hey, can you review the wireframes for the landing page before Friday?",
+        projectUrl: "https://os.savvy-agents.com/projects/1",
+      },
+    ],
+    [
+      "pto_request_submitted",
+      {
+        ...ctx2,
+        employeeName: "Jordan Lee",
+        ptoType: "Vacation",
+        ptoDateRange: "July 6, 2026 to July 10, 2026",
+        ptoRequestedDays: "5 days",
+        coverageNotes: "Coverage plan is documented in the weekly handoff.",
+      },
+    ],
+    [
+      "pto_request_decision",
+      {
+        ...ctx2,
+        managerName: "Tyler Coon",
+        decisionStatus: "Approved",
+        decisionReason: "Coverage plan confirmed.",
+        ptoType: "Vacation",
+        ptoDateRange: "July 6, 2026 to July 10, 2026",
+        ptoRequestedDays: "5 days",
+      },
+    ],
   ] as [string, Record<string, string>][];
 }
 
@@ -115,7 +309,8 @@ export const appRouter = router({
       const isSimulating = opts.ctx.realUser?.id !== opts.ctx.user?.id;
       const realRole = opts.ctx.realUser?.role;
       // Expose realUser for admins simulating AND for agent_support working as agent
-      const exposeRealUser = realRole === "admin" || realRole === "agent_support";
+      const exposeRealUser =
+        realRole === "admin" || realRole === "agent_support";
       return {
         ...opts.ctx.user,
         isSimulating,
@@ -134,23 +329,29 @@ export const appRouter = router({
       .input(z.object({ userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.realUser?.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to simulate users" });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Not authorized to simulate users",
+          });
         }
         const target = await db.getUserById(input.userId);
-        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+        if (!target)
+          throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(SIMULATE_COOKIE, String(input.userId), { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        ctx.res.cookie(SIMULATE_COOKIE, String(input.userId), {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
         return { success: true, simulatedUser: target };
       }),
-    stopSimulation: protectedProcedure
-      .mutation(({ ctx }) => {
-        if (ctx.realUser?.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized" });
-        }
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.clearCookie(SIMULATE_COOKIE, { ...cookieOptions, maxAge: -1 });
-        return { success: true };
-      }),
+    stopSimulation: protectedProcedure.mutation(({ ctx }) => {
+      if (ctx.realUser?.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized" });
+      }
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(SIMULATE_COOKIE, { ...cookieOptions, maxAge: -1 });
+      return { success: true };
+    }),
     /** DEV ONLY: log in as a mock user by role without OAuth */
     devLogin: publicProcedure
       .input(z.object({ role: z.enum(["admin", "isa", "agent"]) }))
@@ -164,34 +365,65 @@ export const appRouter = router({
           agent: "dev_agent_001",
         };
         const openId = openIdMap[input.role];
-        const token = await sdk.createSessionToken(openId, { name: `Dev ${input.role}` });
+        const token = await sdk.createSessionToken(openId, {
+          name: `Dev ${input.role}`,
+        });
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        ctx.res.cookie(COOKIE_NAME, token, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
         return { success: true, role: input.role };
       }),
 
     /** Email + password login — replaces Manus OAuth */
     login: publicProcedure
-      .input(z.object({ email: z.string().email(), password: z.string().min(1) }))
+      .input(
+        z.object({ email: z.string().email(), password: z.string().min(1) })
+      )
       .mutation(async ({ input, ctx }) => {
         const user = await db.getUserByEmail(input.email);
         if (!user || !user.passwordHash) {
-          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid email or password",
+          });
         }
         const valid = await bcrypt.compare(input.password, user.passwordHash);
         if (!valid) {
-          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid email or password",
+          });
         }
         if (!user.isActive) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Your account has been deactivated. Please contact an admin." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Your account has been deactivated. Please contact an admin.",
+          });
         }
         if (user.personType === "teammate") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "This directory record is not enabled for sign-in." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This directory record is not enabled for sign-in.",
+          });
         }
-        const token = await sdk.createSessionToken(user.openId, { name: user.name ?? user.email ?? "" });
+        const token = await sdk.createSessionToken(user.openId, {
+          name: user.name ?? user.email ?? "",
+        });
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        void db.logActivity({ userId: user.id, action: "user_login", entityType: "user", entityId: user.id, details: { email: user.email, name: user.name } });
+        ctx.res.cookie(COOKIE_NAME, token, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+        void db.logActivity({
+          userId: user.id,
+          action: "user_login",
+          entityType: "user",
+          entityId: user.id,
+          details: { email: user.email, name: user.name },
+        });
         return { success: true };
       }),
 
@@ -216,11 +448,20 @@ export const appRouter = router({
 
     /** Complete a password reset using a token */
     resetPassword: publicProcedure
-      .input(z.object({ token: z.string().min(1), password: z.string().min(8) }))
+      .input(
+        z.object({ token: z.string().min(1), password: z.string().min(8) })
+      )
       .mutation(async ({ input }) => {
         const user = await db.getUserByResetToken(input.token);
-        if (!user || !user.passwordResetExpiry || user.passwordResetExpiry < new Date()) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This reset link is invalid or has expired." });
+        if (
+          !user ||
+          !user.passwordResetExpiry ||
+          user.passwordResetExpiry < new Date()
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This reset link is invalid or has expired.",
+          });
         }
         const hash = await bcrypt.hash(input.password, 12);
         await db.setUserPassword(user.id, hash);
@@ -289,7 +530,7 @@ export const appRouter = router({
   coaching: coachingRouter,
   hotLeads: hotLeadsRouter,
   passwords: passwordsRouter,
-    rolesResponsibilities: rolesResponsibilitiesRouter,
+  rolesResponsibilities: rolesResponsibilitiesRouter,
   dailyReport: dailyReportRouter,
   referrals: referralsRouter,
   pulse: pulseRouter,
@@ -316,54 +557,88 @@ export const appRouter = router({
       if (!db2) return [];
       // Seed any missing rows
       const existing = await db2.select().from(emailNotificationSettings);
-      const existingKeys = new Set(existing.map((r: { notificationKey: string }) => r.notificationKey));
-      const missing = EMAIL_NOTIFICATION_TYPES.filter(k => !existingKeys.has(k));
+      const existingKeys = new Set(
+        existing.map((r: { notificationKey: string }) => r.notificationKey)
+      );
+      const missing = EMAIL_NOTIFICATION_TYPES.filter(
+        k => !existingKeys.has(k)
+      );
       if (missing.length > 0) {
-        await db2.insert(emailNotificationSettings).values(missing.map(k => ({ notificationKey: k, isEnabled: true })));
+        await db2
+          .insert(emailNotificationSettings)
+          .values(missing.map(k => ({ notificationKey: k, isEnabled: true })));
       }
       return db2.select().from(emailNotificationSettings);
     }),
     /** Toggle a single notification on/off */
     toggle: protectedProcedure
-      .input(z.object({ notificationKey: z.string().min(1), isEnabled: z.boolean() }))
+      .input(
+        z.object({ notificationKey: z.string().min(1), isEnabled: z.boolean() })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await db2
           .insert(emailNotificationSettings)
-          .values({ notificationKey: input.notificationKey, isEnabled: input.isEnabled, updatedBy: ctx.user.id })
-          .onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, updatedBy: ctx.user.id } });
+          .values({
+            notificationKey: input.notificationKey,
+            isEnabled: input.isEnabled,
+            updatedBy: ctx.user.id,
+          })
+          .onDuplicateKeyUpdate({
+            set: { isEnabled: input.isEnabled, updatedBy: ctx.user.id },
+          });
         return { success: true };
       }),
     /** Set the operational distribution list for an administrative notification. */
     updateRecipients: protectedProcedure
-      .input(z.object({
-        notificationKey: z.enum(EMAIL_NOTIFICATION_TYPES),
-        recipientEmails: z.array(z.string().email()).max(30),
-      }))
+      .input(
+        z.object({
+          notificationKey: z.enum(EMAIL_NOTIFICATION_TYPES),
+          recipientEmails: z.array(z.string().email()).max(30),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const recipientEmails = Array.from(new Set(input.recipientEmails.map(email => email.trim().toLowerCase())));
+        const recipientEmails = Array.from(
+          new Set(
+            input.recipientEmails.map(email => email.trim().toLowerCase())
+          )
+        );
         await db2
           .insert(emailNotificationSettings)
-          .values({ notificationKey: input.notificationKey, recipientEmails, updatedBy: ctx.user.id })
-          .onDuplicateKeyUpdate({ set: { recipientEmails, updatedBy: ctx.user.id } });
+          .values({
+            notificationKey: input.notificationKey,
+            recipientEmails,
+            updatedBy: ctx.user.id,
+          })
+          .onDuplicateKeyUpdate({
+            set: { recipientEmails, updatedBy: ctx.user.id },
+          });
         return { success: true, recipientEmails };
       }),
     /** Return delivery/open history and the exact rendered HTML for one notification. */
     history: protectedProcedure
       .input(z.object({ notificationKey: z.string().min(1).max(128) }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) return [];
         return db2
           .select()
           .from(emailNotificationDeliveries)
-          .where(eq(emailNotificationDeliveries.notificationKey, input.notificationKey))
+          .where(
+            eq(
+              emailNotificationDeliveries.notificationKey,
+              input.notificationKey
+            )
+          )
           .orderBy(desc(emailNotificationDeliveries.sentAt))
           .limit(100);
       }),
@@ -378,27 +653,47 @@ export const appRouter = router({
       return db2.select().from(customEmailNotifications);
     }),
     create: protectedProcedure
-      .input(z.object({
-        name: z.string().trim().min(2).max(160),
-        description: z.string().trim().max(500).optional(),
-        trigger: z.string().trim().min(2).max(255),
-        triggerType: z.enum(["Event", "Scheduled"]),
-        recipient: z.enum(["Agent", "Admin", "ISA", "Agent + Admin", "Mentioned User"]),
-        category: z.enum(["Transactions", "Listings", "Tasks", "Leads & CRM", "Onboarding", "Commission", "Projects", "Recognition", "Reporting"]),
-        subject: z.string().trim().min(1).max(512),
-        bodyText: z.string().trim().min(1),
-        isEnabled: z.boolean(),
-      }))
+      .input(
+        z.object({
+          name: z.string().trim().min(2).max(160),
+          description: z.string().trim().max(500).optional(),
+          trigger: z.string().trim().min(2).max(255),
+          triggerType: z.enum(["Event", "Scheduled"]),
+          recipient: z.enum([
+            "Agent",
+            "Admin",
+            "ISA",
+            "Agent + Admin",
+            "Mentioned User",
+          ]),
+          category: z.enum([
+            "Transactions",
+            "Listings",
+            "Tasks",
+            "Leads & CRM",
+            "Onboarding",
+            "Commission",
+            "Projects",
+            "Recognition",
+            "Reporting",
+          ]),
+          subject: z.string().trim().min(1).max(512),
+          bodyText: z.string().trim().min(1),
+          isEnabled: z.boolean(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-        const slug = input.name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_+|_+$/g, "")
-          .slice(0, 100) || "notification";
+        const slug =
+          input.name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "")
+            .slice(0, 100) || "notification";
         const notificationKey = `custom_${slug}_${crypto.randomUUID().slice(0, 8)}`;
 
         await db2.insert(customEmailNotifications).values({
@@ -418,12 +713,16 @@ export const appRouter = router({
         return { success: true, notificationKey };
       }),
     toggle: protectedProcedure
-      .input(z.object({ id: z.number().int().positive(), isEnabled: z.boolean() }))
+      .input(
+        z.object({ id: z.number().int().positive(), isEnabled: z.boolean() })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        await db2.update(customEmailNotifications)
+        await db2
+          .update(customEmailNotifications)
           .set({ isEnabled: input.isEnabled })
           .where(eq(customEmailNotifications.id, input.id));
         return { success: true };
@@ -438,28 +737,45 @@ export const appRouter = router({
       return db2.select().from(emailTemplates);
     }),
     upsert: protectedProcedure
-      .input(z.object({
-        emailType: z.string().min(1),
-        subject: z.string().min(1),
-        bodyText: z.string().min(1),
-      }))
+      .input(
+        z.object({
+          emailType: z.string().min(1),
+          subject: z.string().min(1),
+          bodyText: z.string().min(1),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await db2
           .insert(emailTemplates)
-          .values({ emailType: input.emailType, subject: input.subject, bodyText: input.bodyText, updatedById: ctx.user.id })
-          .onDuplicateKeyUpdate({ set: { subject: input.subject, bodyText: input.bodyText, updatedById: ctx.user.id } });
+          .values({
+            emailType: input.emailType,
+            subject: input.subject,
+            bodyText: input.bodyText,
+            updatedById: ctx.user.id,
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              subject: input.subject,
+              bodyText: input.bodyText,
+              updatedById: ctx.user.id,
+            },
+          });
         return { success: true };
       }),
     reset: protectedProcedure
       .input(z.object({ emailType: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         const db2 = await db.getDb();
         if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        await db2.delete(emailTemplates).where(eq(emailTemplates.emailType, input.emailType));
+        await db2
+          .delete(emailTemplates)
+          .where(eq(emailTemplates.emailType, input.emailType));
         return { success: true };
       }),
   }),
@@ -467,10 +783,19 @@ export const appRouter = router({
   // ─── Admin: Test Email Triggers ───────────────────────────────────────────
   emailTest: router({
     sendAll: protectedProcedure
-      .input(z.object({ recipientEmail: z.string().email(), recipientName: z.string().optional() }))
+      .input(
+        z.object({
+          recipientEmail: z.string().email(),
+          recipientName: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        const ctx2 = { recipientEmail: input.recipientEmail, recipientName: input.recipientName ?? "Tyler" };
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+        const ctx2 = {
+          recipientEmail: input.recipientEmail,
+          recipientName: input.recipientName ?? "Tyler",
+        };
         const results: Record<string, string> = {};
         const types = buildTestEmailPayloads(ctx2);
         for (const [type, emailCtx] of types) {
@@ -484,34 +809,60 @@ export const appRouter = router({
         return { results };
       }),
     sendOne: protectedProcedure
-      .input(z.object({
-        recipientEmail: z.string().email(),
-        recipientName: z.string().optional(),
-        emailType: z.string(),
-      }))
+      .input(
+        z.object({
+          recipientEmail: z.string().email(),
+          recipientName: z.string().optional(),
+          emailType: z.string(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
         // Unlike ordinary template previews, this test creates a private
         // feedback request so the email CTA is a real working workflow.
         if (input.emailType === "market_profile_updated") {
           const recipient = await db.getUserByEmail(input.recipientEmail);
           if (!recipient?.isActive || !recipient.email) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "The test recipient must be an active SavvyOS user with an email address." });
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "The test recipient must be an active SavvyOS user with an email address.",
+            });
           }
           const db2 = await db.getDb();
           if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-          const [market] = await db2.select({ id: marketProfiles.id }).from(marketProfiles).orderBy(asc(marketProfiles.id)).limit(1);
-          if (!market) throw new TRPCError({ code: "BAD_REQUEST", message: "Create an Agent Market before sending this test." });
-          await sendMarketProfileUpdateTestEmail({
+          const [market] = await db2
+            .select({ id: marketProfiles.id })
+            .from(marketProfiles)
+            .orderBy(asc(marketProfiles.id))
+            .limit(1);
+          if (!market)
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Create an Agent Market before sending this test.",
+            });
+          const result = await sendMarketProfileUpdateTestEmail({
             marketProfileId: market.id,
-            recipient: { id: recipient.id, name: input.recipientName ?? recipient.name, email: recipient.email },
+            recipient: {
+              id: recipient.id,
+              name: input.recipientName ?? recipient.name,
+              email: recipient.email,
+            },
           });
-          return { sent: true };
+          return { sent: !result.skipped, skipped: result.skipped };
         }
-        const ctx2 = { recipientEmail: input.recipientEmail, recipientName: input.recipientName ?? "Tyler" };
+        const ctx2 = {
+          recipientEmail: input.recipientEmail,
+          recipientName: input.recipientName ?? "Tyler",
+        };
         const allPayloads = buildTestEmailPayloads(ctx2);
         const match = allPayloads.find(([type]) => type === input.emailType);
-        if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: `Unknown email type: ${input.emailType}` });
+        if (!match)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Unknown email type: ${input.emailType}`,
+          });
         const [type, emailCtx] = match;
         await sendTransactionalEmail(type as any, emailCtx as any);
         return { sent: true };
@@ -519,26 +870,47 @@ export const appRouter = router({
 
     /** Return the rendered HTML for a given email type (for preview) */
     getPreview: protectedProcedure
-      .input(z.object({ emailType: z.string(), recipientName: z.string().optional() }))
+      .input(
+        z.object({
+          emailType: z.string(),
+          recipientName: z.string().optional(),
+        })
+      )
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        const ctx2 = { recipientEmail: "preview@savvy.realty", recipientName: input.recipientName ?? "Tyler" };
+        if (ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+        const ctx2 = {
+          recipientEmail: "preview@savvy.realty",
+          recipientName: input.recipientName ?? "Tyler",
+        };
         const allPayloads = buildTestEmailPayloads(ctx2);
         const match = allPayloads.find(([type]) => type === input.emailType);
-        if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: `Unknown email type: ${input.emailType}` });
+        if (!match)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Unknown email type: ${input.emailType}`,
+          });
         const [, emailCtx] = match;
-        const { html, subject } = getEmailPreview(input.emailType as any, emailCtx as any);
+        const { html, subject } = getEmailPreview(
+          input.emailType as any,
+          emailCtx as any
+        );
         return { html, subject };
       }),
 
     /** Return all registered email types with their sample variable keys */
     listTypes: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const ctx2 = { recipientEmail: "preview@savvy.realty", recipientName: "Tyler" };
+      const ctx2 = {
+        recipientEmail: "preview@savvy.realty",
+        recipientName: "Tyler",
+      };
       const payloads = buildTestEmailPayloads(ctx2);
       return payloads.map(([type, vars]) => ({
         type,
-        variables: Object.keys(vars).filter(k => k !== "recipientEmail" && k !== "recipientName"),
+        variables: Object.keys(vars).filter(
+          k => k !== "recipientEmail" && k !== "recipientName"
+        ),
       }));
     }),
   }),
