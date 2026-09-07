@@ -260,6 +260,26 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "info";
       break;
 
+    case "market_match_results_generated":
+      title = "Market Match investment profile completed";
+      lines = [
+        details.investorBrief ? String(details.investorBrief) : "Investor criteria were saved to the Market Match note.",
+        Array.isArray(details.markets) && details.markets.length ? `Markets shown: ${details.markets.map(String).join(", ")}` : "No current market match was shown.",
+        details.noFitReason ? `Next step: ${String(details.noFitReason)}` : "",
+      ].filter(Boolean);
+      icon = "check";
+      break;
+
+    case "market_match_agent_connection_requested":
+      title = details.path === "schedule" ? "Market Match call scheduled with agent" : "Market Match agent introduction requested";
+      lines = [
+        details.agentName ? `Agent: ${String(details.agentName)}` : "",
+        details.marketName ? `Market: ${String(details.marketName)}` : "",
+        details.investorBrief ? String(details.investorBrief) : "See the Market Match investment profile note for submitted criteria.",
+      ].filter(Boolean);
+      icon = "link";
+      break;
+
     case "smart_plan_step_sent":
     case "smart_plan_step_failed":
     case "smart_plan_step_skipped": {

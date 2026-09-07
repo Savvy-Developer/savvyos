@@ -175,7 +175,10 @@ interface EmailContext {
   ccEmails?: string[];
   contactName?: string;
   agentName?: string;
+  agentEmail?: string;
+  agentPhone?: string;
   marketMatchSummary?: string;
+  marketMatchBrief?: string;
   marketMatchDetails?: string;
   marketMatchResumeUrl?: string;
   transactionNumber?: string;
@@ -1326,8 +1329,10 @@ const TEMPLATES: Record<
       ${bodyText(`We're introducing you to <strong>${escapeHtml(ctx.agentName ?? "your Savvy STR specialist")}</strong>, who can help you explore the <strong>${escapeHtml(ctx.marketName ?? "matched")}</strong> market.`)}
       ${infoCard([
         `<strong style="color:${BLACK};">Investor</strong>&nbsp;&nbsp; ${escapeHtml(ctx.contactName ?? "Investor")}`,
-        ...(ctx.marketMatchSummary ? [`<strong style="color:${BLACK};">Stated buy box</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary)}`] : []),
+        ...(ctx.agentEmail ? [`<strong style="color:${BLACK};">${escapeHtml(ctx.agentName ?? "Agent")} email</strong>&nbsp;&nbsp; <a href="mailto:${escapeHtml(ctx.agentEmail)}" style="color:${CYAN};">${escapeHtml(ctx.agentEmail)}</a>`] : []),
+        ...(ctx.agentPhone ? [`<strong style="color:${BLACK};">${escapeHtml(ctx.agentName ?? "Agent")} phone</strong>&nbsp;&nbsp; <a href="tel:${escapeHtml(ctx.agentPhone)}" style="color:${CYAN};">${escapeHtml(ctx.agentPhone)}</a>`] : []),
       ])}
+      ${ctx.marketMatchBrief ? `<div style="margin:20px 0;padding:16px 18px;border:1px solid ${BORDER};border-radius:10px;font-size:14px;line-height:1.65;color:#374151;white-space:pre-line;"><strong style="color:${BLACK};">Investor profile</strong><br/>${escapeHtml(ctx.marketMatchBrief)}</div>` : ctx.marketMatchSummary ? infoCard([`<strong style="color:${BLACK};">Stated buy box</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary)}`]) : ""}
       ${bodyText("This thread is intentionally limited to this market match. Reply all to coordinate the next step together.")}
       ${ctx.agentBookingLink ? ctaButton("Schedule a call", ctx.agentBookingLink) : ""}`,
       `Your Savvy Market Match introduction for ${ctx.marketName ?? "a matched market"}`
@@ -1340,7 +1345,7 @@ const TEMPLATES: Record<
       `${heading("Your STR BUYBOX and market matches", CYAN)}
       ${greeting(ctx.recipientName)}
       ${bodyText("Your Market Match is ready. These are the current Savvy markets that best fit the information you shared; they are a starting point for diligence, not a property or return guarantee.")}
-      ${infoCard([`<strong style="color:${BLACK};">Your BUYBOX</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary ?? "Your investment criteria are saved.")}`])}
+      ${ctx.marketMatchBrief ? `<div style="margin:20px 0;padding:16px 18px;border:1px solid ${BORDER};border-radius:10px;font-size:14px;line-height:1.65;color:#374151;white-space:pre-line;"><strong style="color:${BLACK};">Your investment profile</strong><br/>${escapeHtml(ctx.marketMatchBrief)}</div>` : infoCard([`<strong style="color:${BLACK};">Your BUYBOX</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary ?? "Your investment criteria are saved.")}`])}
       ${ctx.marketMatchDetails ? `<div style="margin:20px 0;padding:16px 18px;border:1px solid ${BORDER};border-radius:10px;font-size:14px;line-height:1.65;color:#374151;white-space:pre-line;">${escapeHtml(ctx.marketMatchDetails)}</div>` : ""}
       ${bodyText("You can return privately to review your matches, update answers, request an introduction, or schedule a call.")}
       ${ctaButton("View my Market Match", ctx.marketMatchResumeUrl ?? APP_URL)}`,

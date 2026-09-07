@@ -35,6 +35,20 @@ describe("Market Match quiz helpers", () => {
     expect(DEFAULT_QUIZ_QUESTIONS.find(question => question.id === "experience")?.options?.map(option => option.value)).not.toContain("not_sure");
   });
 
+  it("turns submitted criteria into a readable investor brief without combining cash and setup funds", () => {
+    const brief = __testables__.deterministicInvestorBrief({
+      primaryGoal: "cash_flow", investmentGoals: ["cash_flow", "tax_strategy", "appreciation"], timeline: "0_3",
+      budget: { min: "$500,000", max: "$1,000,000" }, cashAvailable: { min: "$100,000", max: "$600,000" }, setupBudget: { min: "$300,000", max: "$600,000" },
+      financing: "exploring", lenderOpenness: true, locationPreference: "Smokies or a mountain market", propertyType: ["cabin"], managementPreference: "property_manager", freeformWin: "A strong first investment with room to grow.",
+    });
+    expect(brief).toContain("primary objective is cash flow");
+    expect(brief).toContain("$500,000 – $1,000,000");
+    expect(brief).toContain("$100,000 – $600,000 for down payment and closing");
+    expect(brief).toContain("separate $300,000 – $600,000");
+    expect(brief).toContain("purchase within 0–3 months");
+    expect(brief).toContain("Smokies or a mountain market");
+  });
+
   it("keeps AI-derived signals explicitly labeled and lower confidence", () => {
     const box = __testables__.buyBoxFromAnswers({
       inferredPreferences: {
