@@ -578,8 +578,9 @@ export const marketingTextInboxRouter = router({
 
   /**
    * Inbound Aircall SMS events on the marketing line that could not be matched
-   * to a CRM contact. They remain visible for operations review, but do not
-   * represent actionable inbox conversations or contribute to the badge.
+   * to a CRM contact and have not been dismissed. They remain visible for
+   * operations review, but do not represent actionable inbox conversations or
+   * contribute to the badge.
    */
   listUnmatchedInbound: protectedProcedure.query(async ({ ctx }) => {
     await requireMarketingTextInboxAccess(ctx.user);
@@ -604,7 +605,8 @@ export const marketingTextInboxRouter = router({
         and(
           eq(aircallMessages.aircallNumberId, line.marketingNumberId),
           eq(aircallMessages.direction, "inbound"),
-          isNull(aircallMessages.contactId)
+          isNull(aircallMessages.contactId),
+          isNull(aircallMessages.readAt)
         )
       )
       .orderBy(
@@ -614,6 +616,51 @@ export const marketingTextInboxRouter = router({
       )
       .limit(100);
   }),
+
+  /**
+   * Dismisses an unmatched inbound event from operational review while
+   * preserving the original Aircall record for audit and later reconciliation.
+   */
+  dismissUnmatchedInbound: protectedProcedure
+    .input(z.object({ messageId: positiveId }))
+    .mutation(async ({ ctx, input }) => {
+      await requireMarketingTextInboxAccess(ctx.user);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const line = await marketingLine(db);
+      if (!line?.marketingNumberId)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Select a dedicated Aircall marketing number first.",
+        });
+      const result = await db
+        .update(aircallMessages)
+        .set({ readAt: new Date() })
+        .where(
+          and(
+            eq(aircallMessages.id, input.messageId),
+            eq(aircallMessages.aircallNumberId, line.marketingNumberId),
+            eq(aircallMessages.direction, "inbound"),
+            isNull(aircallMessages.contactId),
+            isNull(aircallMessages.readAt)
+          )
+        );
+      const count = Number((result as any)[0]?.affectedRows ?? 0);
+      if (count === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That unmatched text is no longer available to dismiss.",
+        });
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "marketing_text_unmatched_dismissed",
+        entityType: "aircall_message",
+        entityId: input.messageId,
+        details: { aircallNumberId: line.marketingNumberId },
+      });
+      return { success: true };
+    }),
 
   /** Mean elapsed time from each inbound marketing SMS to the first SavvyOS reply. */
   speedToLead: protectedProcedure.query(async ({ ctx }) => {

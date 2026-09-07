@@ -347,6 +347,14 @@ export default function MarketingTextInboxPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const dismissUnmatchedInbound =
+    trpc.marketingTextInbox.dismissUnmatchedInbound.useMutation({
+      onSuccess: () => {
+        toast.success("Unmatched inbound text dismissed.");
+        void unmatchedInboundQuery.refetch();
+      },
+      onError: error => toast.error(error.message),
+    });
   const finishThread = trpc.marketingTextInbox.finishThread.useMutation({
     onSuccess: (_, values) => {
       toast.success(
@@ -482,6 +490,8 @@ export default function MarketingTextInboxPage() {
   }
 
   const config = configuration.data;
+  const unmatchedInboundTexts = (unmatchedInboundQuery.data ??
+    []) as UnmatchedInboundText[];
   const cannotReply =
     !!selectedThread?.doNotContact || !!selectedThread?.smsMarketingOptedOutAt;
   const messageControlsPending =
@@ -510,7 +520,7 @@ export default function MarketingTextInboxPage() {
   };
 
   return (
-    <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-5 p-4 md:p-6">
+    <div className="mx-auto flex min-h-full max-w-[1600px] flex-col gap-5 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -562,59 +572,67 @@ export default function MarketingTextInboxPage() {
         errorMessage={speedToLead.error?.message}
       />
 
-      {config?.sendReady &&
-        ((unmatchedInboundQuery.data ?? []) as UnmatchedInboundText[]).length >
-          0 && (
-          <Card className="border-amber-200 bg-amber-50/40">
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base text-amber-950">
-                    <AlertTriangle className="h-5 w-5" /> Unmatched inbound
-                    texts
-                  </CardTitle>
-                  <CardDescription className="mt-1 text-amber-900/80">
-                    These messages reached the marketing line but could not be
-                    matched to a CRM contact, so they are not shown as inbox
-                    conversations or included in the inbox badge.
-                  </CardDescription>
-                </div>
-                <Badge className="border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-100">
-                  {(unmatchedInboundQuery.data ?? []).length} unmatched
-                </Badge>
+      {config?.sendReady && unmatchedInboundTexts.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+                  <AlertTriangle className="h-5 w-5" /> Unmatched inbound texts
+                </CardTitle>
+                <CardDescription className="mt-1 text-amber-900/80">
+                  These messages reached the marketing line but could not be
+                  matched to a CRM contact, so they are not shown as inbox
+                  conversations or included in the inbox badge.
+                </CardDescription>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="max-h-[300px] overflow-y-auto rounded-md border border-amber-200 bg-background">
-                {(
-                  (unmatchedInboundQuery.data ?? []) as UnmatchedInboundText[]
-                ).map(message => (
-                  <div
-                    key={message.id}
-                    className="border-b border-amber-100 px-4 py-3 last:border-b-0"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                      <p className="font-mono text-xs text-foreground">
-                        From {message.fromNumber || "Unknown number"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Received{" "}
-                        {formatTime(
-                          message.receivedAt ??
-                            message.sentAt ??
-                            message.createdAt
-                        )}
-                      </p>
-                    </div>
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                      {message.body?.trim() || "No message body was provided."}
+              <Badge className="border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-100">
+                {unmatchedInboundTexts.length} unmatched
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-[300px] overflow-y-auto rounded-md border border-amber-200 bg-background">
+              {unmatchedInboundTexts.map(message => (
+                <div
+                  key={message.id}
+                  className="border-b border-amber-100 px-4 py-3 last:border-b-0"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                    <p className="font-mono text-xs text-foreground">
+                      From {message.fromNumber || "Unknown number"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Received{" "}
+                      {formatTime(
+                        message.receivedAt ??
+                          message.sentAt ??
+                          message.createdAt
+                      )}
                     </p>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 h-7 px-2 text-xs"
+                    onClick={() =>
+                      dismissUnmatchedInbound.mutate({
+                        messageId: message.id,
+                      })
+                    }
+                    disabled={dismissUnmatchedInbound.isPending}
+                  >
+                    <CheckCheck className="mr-1 h-3.5 w-3.5" /> Dismiss
+                  </Button>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {message.body?.trim() || "No message body was provided."}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {!config?.sendReady && (
         <Card className="border-amber-200 bg-amber-50/50">
