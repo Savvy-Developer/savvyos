@@ -22,6 +22,7 @@ import {
   marketProfiles,
   smartPlanSteps,
   smartPlans,
+  userProfiles,
   users,
 } from "../drizzle/schema";
 import { getDb, createAgentConnection, createContact, getUserByEmail, logActivity } from "./db";
@@ -38,7 +39,7 @@ export type QuizQuestion = {
   section: "goals" | "budget" | "property" | "geography" | "financing" | "timeline" | "preferences";
   label: string;
   helper?: string;
-  type: "single" | "multi" | "currency_range" | "text";
+  type: "single" | "multi" | "currency_range" | "text" | "boolean";
   options?: Array<{ value: string; label: string }>;
   required?: boolean;
   showWhen?: { questionId: string; values: string[] };
@@ -46,11 +47,11 @@ export type QuizQuestion = {
 
 export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
-    id: "primaryGoal",
+    id: "investmentGoals",
     section: "goals",
-    label: "What matters most for this investment?",
-    helper: "Choose the goal that should guide your market shortlist.",
-    type: "single",
+    label: "What goals matter for this investment?",
+    helper: "Choose every goal that matters. You will choose the one that should lead your market ranking next.",
+    type: "multi",
     required: true,
     options: [
       { value: "cash_flow", label: "Generate cash flow" },
@@ -63,11 +64,13 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     ],
   },
   {
-    id: "investmentGoals",
+    id: "primaryGoal",
     section: "goals",
-    label: "Which other goals matter to you?",
-    helper: "Optional — choose any secondary priorities.",
-    type: "multi",
+    label: "Of the goals you selected, which is most important?",
+    helper: "Choose one goal to guide your market ranking first.",
+    type: "single",
+    required: true,
+    showWhen: { questionId: "investmentGoals", values: ["cash_flow", "tax_strategy", "appreciation", "value_add", "lifestyle", "portfolio", "not_sure"] },
     options: [
       { value: "cash_flow", label: "Cash flow" },
       { value: "tax_strategy", label: "Tax strategy" },
@@ -100,7 +103,6 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
       { value: "first_str", label: "This would be my first STR" },
       { value: "some", label: "I own or have owned one before" },
       { value: "portfolio", label: "I am actively growing a portfolio" },
-      { value: "not_sure", label: "Not sure yet" },
     ],
   },
   {
@@ -132,10 +134,9 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     type: "single",
     required: true,
     options: [
-      { value: "cash", label: "Planning a cash purchase" },
+      { value: "cash", label: "Paying with cash" },
       { value: "preapproved", label: "Pre-approved or working with a lender" },
-      { value: "need_lender", label: "I would like lender guidance" },
-      { value: "exploring", label: "Still exploring options" },
+      { value: "exploring", label: "Still exploring different lenders" },
     ],
   },
   {
@@ -149,15 +150,10 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "lenderOpenness",
     section: "financing",
-    label: "Would you be open to a lender introduction or comparing options?",
-    helper: "This only helps us offer the option later. It does not request an introduction or promise approval.",
-    type: "single",
-    showWhen: { questionId: "financing", values: ["preapproved", "exploring"] },
-    options: [
-      { value: "yes", label: "Yes, I am open to it" },
-      { value: "no", label: "No, not right now" },
-      { value: "not_sure", label: "Not sure yet" },
-    ],
+    label: "If we can pair you with a lender with potentially better terms or a rate, are you open to it?",
+    helper: "This is checked by default. It only helps us offer lender options later; it does not request an introduction or promise approval.",
+    type: "boolean",
+    showWhen: { questionId: "financing", values: ["cash", "preapproved", "exploring"] },
   },
   {
     id: "geographyFlexibility",
@@ -174,7 +170,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     id: "locationPreference",
     section: "geography",
     label: "Which areas are you considering, and what is a firm restriction versus a preference?",
-    helper: "A city, state, region, drive-time limit, or airport preference works. You can also say “not sure yet.”",
+    helper: "A city, state, region, drive-time limit, or airport preference works. If you are open to guidance, use the Not sure yet button below.",
     type: "text",
   },
   {
@@ -222,8 +218,8 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     label: "How do you expect to operate the property?",
     type: "single",
     options: [
-      { value: "remote_manager", label: "Remote ownership with local management" },
-      { value: "hands_on", label: "I want to be more hands-on" },
+      { value: "self_manage", label: "I am going to manage it myself" },
+      { value: "property_manager", label: "I am going to hire a property manager" },
       { value: "hybrid", label: "A mix, depending on the market" },
       { value: "not_sure", label: "Not sure yet" },
     ],
@@ -262,9 +258,14 @@ const publicMarketMatchUrl = (nonce?: string) => {
 };
 
 export function formatCurrency(value: unknown): string | null {
-  const numeric = Number(value);
+  const numeric = numericAmount(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(numeric);
+}
+
+function numericAmount(value: unknown): number {
+  const normalized = String(value ?? "").replace(/[^0-9.]/g, "");
+  return Number(normalized);
 }
 
 function buyBoxFromAnswers(answers: Record<string, unknown>) {
@@ -373,8 +374,8 @@ function scoreMarket(input: {
     score += 8; reasons.push("Matches your stated location preference"); hasGroundedEvidence = true;
   } else if (box.geographyFlexibility === "open") { score += 2; reasons.push("You are open to markets that fit your criteria"); }
   const budgetAnswer = safeJson(input.answers.budget, {} as { min?: unknown; max?: unknown });
-  const userMin = Number(budgetAnswer.min) || 0;
-  const userMax = Number(budgetAnswer.max) || Number.POSITIVE_INFINITY;
+  const userMin = numericAmount(budgetAnswer.min) || 0;
+  const userMax = numericAmount(budgetAnswer.max) || Number.POSITIVE_INFINITY;
   const range = guidanceRange(input.profile);
   if (range && userMin <= range.max && userMax >= range.min) { score += 5; reasons.push("Fits the purchase range you shared"); hasGroundedEvidence = true; }
   const matchedGoals = box.investmentGoals.filter(goal => includesOne(evidence, goalTerms[goal] ?? []));
@@ -419,7 +420,7 @@ export async function getQuizSettings() {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   let [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
-  if (settings && isLegacyDefaultQuestionConfig(settings.questionConfig)) {
+  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig))) {
     await db.update(marketMatchQuizSettings).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any, updatedAt: now() }).where(eq(marketMatchQuizSettings.id, 1));
     [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
   }
@@ -435,6 +436,18 @@ function questionsFromConfig(config: unknown): QuizQuestion[] {
 function isLegacyDefaultQuestionConfig(config: unknown) {
   const ids = Array.isArray(config) ? config.map(item => text((item as any)?.id, 100)) : [];
   return ids.length === 9 && ids.join(",") === "investmentGoals,budget,propertyType,bedrooms,locationPreference,geographyFlexibility,financing,timeline,freeformPreferences";
+}
+
+/** Upgrades only the exact original bundled flow, never administrator-authored question changes. */
+function isPriorBundledQuestionConfig(config: unknown) {
+  if (!Array.isArray(config) || config.length !== 19) return false;
+  const rows = config as Array<Record<string, unknown>>;
+  return rows[0]?.id === "primaryGoal"
+    && rows[0]?.type === "single"
+    && rows[0]?.label === "What matters most for this investment?"
+    && rows[1]?.id === "investmentGoals"
+    && rows[1]?.type === "multi"
+    && rows[1]?.label === "Which other goals matter to you?";
 }
 
 async function pickVariant(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
@@ -625,9 +638,11 @@ async function publicCandidates(db: NonNullable<Awaited<ReturnType<typeof getDb>
 async function eligibleAgentsForMarket(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, marketId: number, contactId: number) {
   const agents = await db.select({
     agentId: users.id, name: users.name, email: users.email, bookingLink: users.callBookingLink,
+    profilePhotoUrl: userProfiles.profilePhotoUrl,
     isAvailable: marketAgentAssignments.isAvailable, quizEnabled: marketMatchQuizAgentSettings.isEnabled, cap: marketMatchQuizAgentSettings.connectionCap,
   }).from(marketAgentAssignments)
     .innerJoin(users, eq(users.id, marketAgentAssignments.agentId))
+    .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
     .leftJoin(marketMatchQuizAgentSettings, and(eq(marketMatchQuizAgentSettings.marketProfileId, marketId), eq(marketMatchQuizAgentSettings.agentId, users.id)))
     .where(and(eq(marketAgentAssignments.marketProfileId, marketId), eq(marketAgentAssignments.isAvailable, true), eq(users.isActive, true), eq(users.role, "agent")));
   const requests = await db.select({ agentId: marketMatchQuizConnectionRequests.agentId, count: sql<number>`COUNT(*)`, oldest: sql<Date>`MIN(${marketMatchQuizConnectionRequests.createdAt})` })
@@ -678,7 +693,7 @@ export async function generateQuizResults(browserToken: string) {
     if (!item.qualified) continue;
     const agent = (await eligibleAgentsForMarket(db, item.candidate.id, session.contactId))[0];
     if (!agent) continue;
-    selected.push({ rank: selected.length + 1, marketId: item.candidate.id, marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, agent: { id: agent.agentId, name: agent.name, bookingLink: agent.bookingLink, existingRelationship: agent.existingRelationship }, reasons: item.reasons, tradeoff: marketTradeoff(item.candidate.profile), confidence: item.reasons.length >= 2 ? "high" : "medium", profileStatus: item.candidate.intelligenceStatus ?? "unavailable" });
+    selected.push({ rank: selected.length + 1, marketId: item.candidate.id, marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, agent: { id: agent.agentId, name: agent.name, bookingLink: normalizeBookingUrl(agent.bookingLink), profilePhotoUrl: agent.profilePhotoUrl, existingRelationship: agent.existingRelationship }, reasons: item.reasons, tradeoff: marketTradeoff(item.candidate.profile), confidence: item.reasons.length >= 2 ? "high" : "medium", profileStatus: item.candidate.intelligenceStatus ?? "unavailable" });
   }
   const noFitReason = selected.length ? null : candidates.length ? "We do not have an eligible Savvy agent available for the active markets that currently fit your preferences. A Savvy team member can review your request." : "No public Market Match markets are currently enabled.";
   const buyBox = buyBoxFromAnswers(answers);
@@ -691,13 +706,26 @@ export async function generateQuizResults(browserToken: string) {
 
 function appendTracking(url: string, sessionId: number, destination: "agent" | "lender", handoffId?: number) {
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(normalizeBookingUrl(url) ?? url);
     parsed.searchParams.set("utm_source", "MarketMatchSurvey");
     parsed.searchParams.set("utm_medium", "quiz");
     parsed.searchParams.set("utm_campaign", "market_match");
     parsed.searchParams.set("utm_content", `mm-${sessionId}-${destination}${handoffId ? `-${handoffId}` : ""}`);
     return parsed.toString();
   } catch { return url; }
+}
+
+/** Stored booking links predate URL validation and commonly omit the https scheme. */
+function normalizeBookingUrl(value: unknown): string | null {
+  const raw = text(value, 1_024);
+  if (!raw) return null;
+  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" && parsed.hostname ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function addToDailyPropertyAudience(contact: typeof contacts.$inferSelect, settings: typeof marketMatchQuizSettings.$inferSelect) {
@@ -715,7 +743,6 @@ async function addToDailyPropertyAudience(contact: typeof contacts.$inferSelect,
 
 export async function requestAgentConnection(input: { browserToken: string; marketId: number; path: "introduction" | "schedule" }) {
   const { db, session } = await sessionForToken(input.browserToken);
-  const settings = await getQuizSettings();
   const [latestSnapshot] = await db.select().from(marketMatchQuizResultSnapshots).where(eq(marketMatchQuizResultSnapshots.sessionId, session.id)).orderBy(desc(marketMatchQuizResultSnapshots.createdAt)).limit(1);
   const snapshot = latestSnapshot ? { matches: latestSnapshot.matches } : await generateQuizResults(input.browserToken);
   const matches = snapshot.matches as Array<any>;
@@ -723,18 +750,14 @@ export async function requestAgentConnection(input: { browserToken: string; mark
   if (!match?.agent?.id) throw new Error("That market is no longer eligible for a connection. Please refresh your matches.");
   const stillEligible = (await eligibleAgentsForMarket(db, input.marketId, session.contactId)).some(agent => agent.agentId === match.agent.id);
   if (!stillEligible) throw new Error("The Savvy agent shown for this market is no longer available. Please refresh your matches to review the current options.");
+  const agentBookingLink = normalizeBookingUrl(match.agent.bookingLink);
   const [existingRequest] = await db.select().from(marketMatchQuizConnectionRequests).where(and(eq(marketMatchQuizConnectionRequests.sessionId, session.id), eq(marketMatchQuizConnectionRequests.marketProfileId, input.marketId))).limit(1);
   let requestId = existingRequest?.id;
   if (!existingRequest) {
-    const [requestCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(marketMatchQuizConnectionRequests)
-      .where(eq(marketMatchQuizConnectionRequests.sessionId, session.id));
-    if (Number(requestCount?.count ?? 0) >= settings.maxAgentConnections) {
-      throw new Error(`You can request up to ${settings.maxAgentConnections} Savvy agent connection${settings.maxAgentConnections === 1 ? "" : "s"} from this match.`);
-    }
     const [connection] = await db.select({ id: agentConnections.id }).from(agentConnections).where(and(eq(agentConnections.contactId, session.contactId), eq(agentConnections.agentId, match.agent.id), isNull(agentConnections.archivedAt))).limit(1);
     const answerBudget = safeJson(session.answers, {} as any).budget ?? {};
-    const minPrice = Number(answerBudget.min);
-    const maxPrice = Number(answerBudget.max);
+    const minPrice = numericAmount(answerBudget.min);
+    const maxPrice = numericAmount(answerBudget.max);
     const agentConnectionId = connection?.id ?? await createAgentConnection({ agentId: match.agent.id, contactId: session.contactId, pipelineStatus: "new_lead", minPrice: minPrice > 0 ? String(minPrice) : null, maxPrice: maxPrice > 0 ? String(maxPrice) : null, investmentNotes: answerSummary(safeJson(session.answers, {} as Record<string, unknown>)), agingUpdatedAt: now() });
     const [result] = await db.insert(marketMatchQuizConnectionRequests).values({ sessionId: session.id, contactId: session.contactId, marketProfileId: input.marketId, agentId: match.agent.id, agentConnectionId, requestedPath: input.path, scheduleOpenedAt: input.path === "schedule" ? now() : null });
     requestId = Number((result as any).insertId);
@@ -745,7 +768,7 @@ export async function requestAgentConnection(input: { browserToken: string; mark
     const contactRecord = contact[0]; const agentRecord = agent[0];
     if (contactRecord && agentRecord?.email) {
       const delivery = contactRecord.email
-        ? await sendTransactionalEmail("market_match_connection", { recipientName: contactRecord.firstName || "there", recipientEmail: contactRecord.email, ccEmail: agentRecord.email, agentName: agentRecord.name ?? "your Savvy STR agent", agentBookingLink: match.agent.bookingLink ? appendTracking(match.agent.bookingLink, session.id, "agent", requestId) : undefined, contactName: `${contactRecord.firstName} ${contactRecord.lastName}`.trim(), marketName: match.marketName, marketMatchSummary: answerSummary(safeJson(session.answers, {} as Record<string, unknown>)) }, { idempotencyKey: `market-match-agent-${session.id}-${input.marketId}`, injectMagicLinks: false })
+        ? await sendTransactionalEmail("market_match_connection", { recipientName: contactRecord.firstName || "there", recipientEmail: contactRecord.email, ccEmail: agentRecord.email, agentName: agentRecord.name ?? "your Savvy STR agent", agentBookingLink: agentBookingLink ? appendTracking(agentBookingLink, session.id, "agent", requestId) : undefined, contactName: `${contactRecord.firstName} ${contactRecord.lastName}`.trim(), marketName: match.marketName, marketMatchSummary: answerSummary(safeJson(session.answers, {} as Record<string, unknown>)) }, { idempotencyKey: `market-match-agent-${session.id}-${input.marketId}`, injectMagicLinks: false })
         : { sent: false, skipped: true, reason: "Contact has no email address" };
       await db.update(marketMatchQuizConnectionRequests).set({ introDeliveryStatus: delivery.sent ? "sent" : delivery.skipped ? "skipped" : "failed", introDeliveryError: delivery.reason ?? null, introSentAt: delivery.sent ? now() : null }).where(eq(marketMatchQuizConnectionRequests.id, requestId!));
     }
@@ -754,7 +777,7 @@ export async function requestAgentConnection(input: { browserToken: string; mark
   } else if (input.path === "schedule") {
     await db.update(marketMatchQuizConnectionRequests).set({ scheduleOpenedAt: now() }).where(eq(marketMatchQuizConnectionRequests.id, existingRequest.id));
   }
-  const bookingUrl = match.agent.bookingLink ? appendTracking(match.agent.bookingLink, session.id, "agent", requestId) : null;
+  const bookingUrl = agentBookingLink ? appendTracking(agentBookingLink, session.id, "agent", requestId) : null;
   return { requestId, bookingUrl, agentName: match.agent.name, marketName: match.marketName };
 }
 

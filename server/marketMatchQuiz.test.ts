@@ -27,6 +27,14 @@ describe("Market Match quiz helpers", () => {
     expect(box.setupBudget).toBe("$30,000 – $50,000");
   });
 
+  it("formats comma-delimited currency answers and asks goals before primary priority", () => {
+    const box = __testables__.buyBoxFromAnswers({ budget: { min: "$400,000", max: "$600,000" } });
+    expect(box.purchaseRange).toBe("$400,000 – $600,000");
+    expect(DEFAULT_QUIZ_QUESTIONS[0]).toMatchObject({ id: "investmentGoals", type: "multi", required: true });
+    expect(DEFAULT_QUIZ_QUESTIONS[1]).toMatchObject({ id: "primaryGoal", type: "single", required: true });
+    expect(DEFAULT_QUIZ_QUESTIONS.find(question => question.id === "experience")?.options?.map(option => option.value)).not.toContain("not_sure");
+  });
+
   it("keeps AI-derived signals explicitly labeled and lower confidence", () => {
     const box = __testables__.buyBoxFromAnswers({
       inferredPreferences: {
@@ -73,6 +81,12 @@ describe("Market Match quiz helpers", () => {
     expect(url).toContain("utm_source=MarketMatchSurvey");
     expect(url).toContain("utm_content=mm-42-agent");
     expect(url).not.toContain("email");
+  });
+
+  it("normalizes legacy Calendly links before tracking", () => {
+    const url = __testables__.appendTracking("calendly.com/savvy/demo", 42, "agent");
+    expect(url).toMatch(/^https:\/\/calendly\.com\/savvy\/demo/);
+    expect(url).toContain("utm_source=MarketMatchSurvey");
   });
 
   it("uses a private public-host resume URL and no CRM information", () => {

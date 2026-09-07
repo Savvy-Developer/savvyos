@@ -45,7 +45,7 @@ const questionSchema = z.object({
   section: z.enum(["goals", "budget", "property", "geography", "financing", "timeline", "preferences"]),
   label: z.string().trim().min(1).max(500),
   helper: z.string().trim().max(1_000).optional(),
-  type: z.enum(["single", "multi", "currency_range", "text"]),
+  type: z.enum(["single", "multi", "currency_range", "text", "boolean"]),
   options: z.array(z.object({ value: z.string().trim().min(1).max(100), label: z.string().trim().min(1).max(300) })).max(20).optional(),
   required: z.boolean().optional(),
   showWhen: z.object({ questionId: z.string().trim().min(1).max(100), values: z.array(z.string().trim().min(1).max(100)).min(1).max(20) }).optional(),
@@ -122,7 +122,7 @@ export const marketMatchQuizRouter = router({
   adminBootstrap: quizAdminProcedure.query(() => quizAdminBootstrap()),
   adminSaveSettings: quizAdminProcedure.input(z.object({
     enabled: z.boolean().optional(), publicTitle: z.string().trim().max(255).optional(), publicSubtitle: z.string().trim().max(4_000).nullable().optional(), publicCta: z.string().trim().max(120).optional(),
-    leadSourceId: z.number().int().positive().nullable().optional(), finishPlanId: z.number().int().positive().nullable().optional(), maxRecommendedMarkets: z.number().int().min(1).max(3).optional(), maxAgentConnections: z.number().int().min(1).max(3).optional(), dailyPropertyAudienceId: z.string().trim().max(255).nullable().optional(), questionConfig: z.array(questionSchema).min(1).max(20).optional(), aiGuidance: z.string().trim().max(4_000).nullable().optional(), autoTestingEnabled: z.boolean().optional(), autoPromoteMinCompletions: z.number().int().min(50).max(10_000).optional(),
+    leadSourceId: z.number().int().positive().nullable().optional(), finishPlanId: z.number().int().positive().nullable().optional(), maxRecommendedMarkets: z.number().int().min(1).max(3).optional(), maxAgentConnections: z.number().int().min(1).max(10_000).optional(), dailyPropertyAudienceId: z.string().trim().max(255).nullable().optional(), questionConfig: z.array(questionSchema).min(1).max(20).optional(), aiGuidance: z.string().trim().max(4_000).nullable().optional(), autoTestingEnabled: z.boolean().optional(), autoPromoteMinCompletions: z.number().int().min(50).max(10_000).optional(),
   })).mutation(({ input, ctx }) => saveQuizSettings(input, ctx.user.id)),
   adminSaveMarket: quizAdminProcedure.input(z.object({ marketId: z.number().int().positive(), isEnabled: z.boolean(), priorityWeight: z.number().int().min(-3).max(3), connectionCap: z.number().int().positive().max(10_000).nullable() })).mutation(({ input, ctx }) => saveQuizMarketSetting(input, ctx.user.id)),
   adminSaveAgent: quizAdminProcedure.input(z.object({ marketId: z.number().int().positive(), agentId: z.number().int().positive(), isEnabled: z.boolean(), connectionCap: z.number().int().positive().max(10_000).nullable() })).mutation(({ input, ctx }) => saveQuizAgentSetting(input, ctx.user.id)),
