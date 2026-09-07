@@ -46,12 +46,21 @@ export type QuizQuestion = {
   showWhen?: { questionId: string; values: string[] };
 };
 
+export type QuizMarketFact = {
+  id: string;
+  marketName: string;
+  state: string;
+  title: string;
+  fact: string;
+  generatedAt: string | null;
+};
+
 export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "investmentGoals",
     section: "goals",
-    label: "What goals matter for this investment?",
-    helper: "Choose every goal that matters. You will choose the one that should lead your market ranking next.",
+    label: "What do you want this short-term rental investment to accomplish?",
+    helper: "Choose every goal that matters for this STR. You will choose the one that should lead your market ranking next.",
     type: "multi",
     required: true,
     options: [
@@ -67,8 +76,8 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "primaryGoal",
     section: "goals",
-    label: "Of the goals you selected, which is most important?",
-    helper: "Choose one goal to guide your market ranking first.",
+    label: "Of the STR goals you selected, which is most important?",
+    helper: "Choose one goal to guide your short-term-rental market ranking first.",
     type: "single",
     required: true,
     showWhen: { questionId: "investmentGoals", values: ["cash_flow", "tax_strategy", "appreciation", "value_add", "lifestyle", "portfolio", "not_sure"] },
@@ -84,7 +93,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "timeline",
     section: "timeline",
-    label: "When would you like to purchase?",
+    label: "When would you like to purchase your short-term rental?",
     type: "single",
     required: true,
     options: [
@@ -98,7 +107,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "experience",
     section: "goals",
-    label: "What is your short-term-rental experience?",
+    label: "What is your short-term-rental investing experience?",
     type: "single",
     options: [
       { value: "first_str", label: "This would be my first STR" },
@@ -109,29 +118,29 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "budget",
     section: "budget",
-    label: "What purchase range feels comfortable?",
-    helper: "An estimate is completely fine. You can revise it later.",
+    label: "What purchase range feels comfortable for your STR?",
+    helper: "An estimate is completely fine. This helps match your STR budget to current Market AI guidance.",
     type: "currency_range",
     required: true,
   },
   {
     id: "cashAvailable",
     section: "budget",
-    label: "How much cash could go toward down payment and closing?",
+    label: "How much cash could go toward your STR down payment and closing?",
     helper: "Keep furnishings, design, reserves, and renovations separate so we do not count the same money twice.",
     type: "currency_range",
   },
   {
     id: "setupBudget",
     section: "budget",
-    label: "What additional setup budget could you use for furnishings, design, amenities, renovation, and reserves?",
-    helper: "Choose a range if you are unsure. This is separate from the purchase funds above.",
+    label: "What additional STR setup budget could you use for furnishings, design, amenities, renovation, and reserves?",
+    helper: "Choose a range if you are unsure. This is separate from your STR purchase funds above.",
     type: "currency_range",
   },
   {
     id: "financing",
     section: "financing",
-    label: "Where are you in your financing process?",
+    label: "Where are you in financing your STR purchase?",
     type: "single",
     required: true,
     options: [
@@ -159,7 +168,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "geographyFlexibility",
     section: "geography",
-    label: "How flexible are you about location?",
+    label: "How flexible are you about where you buy your STR?",
     type: "single",
     options: [
       { value: "specific", label: "I have a specific location in mind" },
@@ -170,14 +179,14 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "locationPreference",
     section: "geography",
-    label: "Which areas are you considering, and what is a firm restriction versus a preference?",
-    helper: "A city, state, region, drive-time limit, or airport preference works. If you are open to guidance, use the Not sure yet button below.",
+    label: "Which STR markets or locations are you considering, and what is a firm restriction versus a preference?",
+    helper: "A city, state, region, drive-time limit, or airport preference works. If you are open to STR market guidance, use the Not sure yet button below.",
     type: "text",
   },
   {
     id: "guestExperience",
     section: "property",
-    label: "What guest experience do you want to create?",
+    label: "What short-term-rental guest experience do you want to create?",
     type: "multi",
     options: [
       { value: "couples", label: "Couples' getaways" },
@@ -190,7 +199,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "propertyType",
     section: "property",
-    label: "What kind of property are you considering?",
+    label: "What type of short-term-rental property are you considering?",
     type: "multi",
     options: [
       { value: "single_family", label: "Single-family home" },
@@ -204,7 +213,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "projectAppetite",
     section: "preferences",
-    label: "Which execution path fits you best?",
+    label: "Which STR execution path fits you best?",
     type: "single",
     options: [
       { value: "turnkey", label: "Turnkey or light refresh" },
@@ -216,7 +225,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "managementPreference",
     section: "preferences",
-    label: "How do you expect to operate the property?",
+    label: "How do you expect to operate your short-term rental?",
     type: "single",
     options: [
       { value: "self_manage", label: "I am going to manage it myself" },
@@ -228,22 +237,22 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "personalUse",
     section: "preferences",
-    label: "Will personal use, drive time, or airport access matter?",
-    helper: "Optional — share any travel or personal-use needs that should influence the market.",
+    label: "Will your own stays, drive time, or airport access matter for this STR?",
+    helper: "Optional — share any travel or personal-use needs that should influence the STR market.",
     type: "text",
   },
   {
     id: "freeformWin",
     section: "preferences",
-    label: "What would make this investment a win for you?",
-    helper: "Optional. Your own words help us understand the outcome you care about.",
+    label: "What would make this STR investment a win for you?",
+    helper: "Optional. Your own words help us understand the short-term-rental outcome you care about.",
     type: "text",
   },
   {
     id: "freeformPreferences",
     section: "preferences",
-    label: "Anything else we should know or avoid?",
-    helper: "Optional. Share a must-have, a concern, or a dealbreaker.",
+    label: "Anything else we should know or avoid for your STR?",
+    helper: "Optional. Share a short-term-rental must-have, concern, or dealbreaker.",
     type: "text",
   },
 ];
@@ -507,7 +516,7 @@ async function ensureQuizDefaults() {
     ] as any);
   }
   await db.insert(marketMatchQuizSettings).values({
-    id: 1, enabled: true, publicTitle: "Find Your STR Market Match", publicSubtitle: "Tell us a little about your investment goals. We will show you markets aligned to your stated preferences and connect you with the appropriate Savvy STR professional when you ask us to.", publicCta: "Get my market matches", maxRecommendedMarkets: 3, maxAgentConnections: 2, questionConfig: DEFAULT_QUIZ_QUESTIONS as any, finishPlanId: planId,
+    id: 1, enabled: true, publicTitle: "Find Your STR Market Match", publicSubtitle: "Spend about two minutes building your short-term-rental BUYBOX. Savvy's proprietary Market AI will surface current STR markets that fit your goals, budget, and operating style.", publicCta: "See my STR market matches", maxRecommendedMarkets: 3, maxAgentConnections: 2, questionConfig: DEFAULT_QUIZ_QUESTIONS as any, finishPlanId: planId,
   }).onDuplicateKeyUpdate({ set: { finishPlanId: sql`COALESCE(${marketMatchQuizSettings.finishPlanId}, ${planId})` } });
   return { db, planId, controlId };
 }
@@ -517,8 +526,18 @@ export async function getQuizSettings() {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   let [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
-  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig))) {
+  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig) || isPreMobileStrBundledQuestionConfig(settings.questionConfig))) {
     await db.update(marketMatchQuizSettings).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any, updatedAt: now() }).where(eq(marketMatchQuizSettings.id, 1));
+    [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
+  }
+  const originalSubtitle = "Tell us a little about your investment goals. We will show you markets aligned to your stated preferences and connect you with the appropriate Savvy STR professional when you ask us to.";
+  const originalCta = "Get my market matches";
+  if (settings && settings.publicSubtitle === originalSubtitle && settings.publicCta === originalCta) {
+    await db.update(marketMatchQuizSettings).set({
+      publicSubtitle: "Spend about two minutes building your short-term-rental BUYBOX. Savvy's proprietary Market AI will surface current STR markets that fit your goals, budget, and operating style.",
+      publicCta: "See my STR market matches",
+      updatedAt: now(),
+    }).where(eq(marketMatchQuizSettings.id, 1));
     [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
   }
   return settings!;
@@ -547,6 +566,16 @@ function isPriorBundledQuestionConfig(config: unknown) {
     && rows[1]?.label === "Which other goals matter to you?";
 }
 
+/** Upgrades the exact public bundle from before the STR/mobile conversion pass, never a custom admin flow. */
+function isPreMobileStrBundledQuestionConfig(config: unknown) {
+  if (!Array.isArray(config) || config.length !== 19) return false;
+  const rows = config as Array<Record<string, unknown>>;
+  return rows[0]?.id === "investmentGoals"
+    && rows[0]?.label === "What goals matter for this investment?"
+    && rows[4]?.id === "budget"
+    && rows[4]?.label === "What purchase range feels comfortable?";
+}
+
 async function pickVariant(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
   const variants = await db.select().from(marketMatchQuizVariants).where(eq(marketMatchQuizVariants.status, "published")).orderBy(desc(marketMatchQuizVariants.isControl), asc(marketMatchQuizVariants.id));
   const eligible = variants.filter(variant => variant.trafficAllocation > 0);
@@ -565,6 +594,7 @@ export async function publicQuizConfiguration() {
     subtitle: settings.publicSubtitle,
     cta: settings.publicCta,
     maxAgentConnections: settings.maxAgentConnections,
+    estimatedMinutes: 2,
     questions: questionsFromConfig(settings.questionConfig),
     privacyCopy: "We use your information to save your match and, only when you request it, connect you with the professional you select. Your consent choices are recorded separately from your market answers.",
   };
@@ -723,13 +753,60 @@ export async function saveQuizAnswer(input: { browserToken: string; questionId: 
 async function publicCandidates(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
   const rows = await db.select({
     id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, region: marketProfiles.region,
-    status: marketProfiles.status, profile: marketIntelligenceProfiles.profileJson, intelligenceStatus: marketIntelligenceProfiles.status,
+    status: marketProfiles.status, profile: marketIntelligenceProfiles.profileJson, intelligenceStatus: marketIntelligenceProfiles.status, intelligenceGeneratedAt: marketIntelligenceProfiles.generatedAt,
     enabled: marketMatchQuizMarketSettings.isEnabled, priorityWeight: marketMatchQuizMarketSettings.priorityWeight, connectionCap: marketMatchQuizMarketSettings.connectionCap,
   }).from(marketProfiles)
     .leftJoin(marketIntelligenceProfiles, eq(marketIntelligenceProfiles.marketProfileId, marketProfiles.id))
     .leftJoin(marketMatchQuizMarketSettings, eq(marketMatchQuizMarketSettings.marketProfileId, marketProfiles.id))
     .where(eq(marketProfiles.status, "active"));
   return rows.filter(row => row.enabled !== false);
+}
+
+function stableNumber(value: string) {
+  return crypto.createHash("sha256").update(value).digest().readUInt32BE(0);
+}
+
+function marketFactText(value: unknown, selector: number) {
+  const candidates = Array.isArray(value) ? value.map(item => text(item, 700)).filter(Boolean) : [text(value, 700)].filter(Boolean);
+  if (!candidates.length) return "";
+  const selected = candidates[selector % candidates.length];
+  const boundary = selected.search(/(?<=[.!?])\s+(?=[A-Z])/);
+  return text(boundary > 110 ? selected.slice(0, boundary + 1) : selected, 520);
+}
+
+function factForMarket(candidate: Awaited<ReturnType<typeof publicCandidates>>[number], seed: string): QuizMarketFact | null {
+  const profile = safeJson(candidate.profile, {} as Record<string, unknown>);
+  const buyBox = safeJson(profile.buyBox, {} as Record<string, unknown>);
+  const selector = stableNumber(`${seed}:${candidate.id}`);
+  const choices = [
+    { title: "STR purchase guidance", value: buyBox.purchasePriceGuidance },
+    { title: "STR property focus", value: buyBox.propertyTypes },
+    { title: "Savvy Market AI snapshot", value: profile.executiveSummary },
+    { title: "STR investor-fit signal", value: profile.bestFitInvestors },
+    { title: "Current STR market dynamic", value: profile.marketDynamics },
+    { title: "STR diligence cue", value: profile.agentGuidance },
+  ].map((choice, index) => ({ ...choice, fact: marketFactText(choice.value, selector + index) })).filter(choice => choice.fact.length >= 30);
+  if (!choices.length) return null;
+  const selected = choices[selector % choices.length];
+  return {
+    id: `market-${candidate.id}-${selector % choices.length}`,
+    marketName: candidate.name,
+    state: candidate.state,
+    title: selected.title,
+    fact: selected.fact,
+    generatedAt: candidate.intelligenceGeneratedAt ? new Date(candidate.intelligenceGeneratedAt).toISOString() : null,
+  };
+}
+
+/** Returns one current, source-grounded fact from the live Market AI inventory for the public quiz. */
+export async function publicQuizMarketFact(input: { browserToken: string; slot: number }) {
+  const { db, session } = await sessionForToken(input.browserToken);
+  const candidates = await publicCandidates(db);
+  const seed = `${session.id}:${session.browserTokenHash}`;
+  const facts = candidates.map(candidate => factForMarket(candidate, seed)).filter((fact): fact is QuizMarketFact => Boolean(fact));
+  if (!facts.length) return null;
+  facts.sort((left, right) => stableNumber(`${seed}:${left.id}`).toString(16).localeCompare(stableNumber(`${seed}:${right.id}`).toString(16)));
+  return facts[Math.max(0, input.slot) % facts.length];
 }
 
 async function eligibleAgentsForMarket(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, marketId: number, contactId: number) {
@@ -1196,4 +1273,4 @@ export async function recommendQuizExperiment() {
   };
 }
 
-export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl };
+export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl };

@@ -9,6 +9,7 @@ import {
   generateQuizResults,
   getSessionState,
   publicLenders,
+  publicQuizMarketFact,
   publicQuizConfiguration,
   quizAdminBootstrap,
   recommendQuizExperiment,
@@ -91,6 +92,9 @@ export const marketMatchQuizRouter = router({
   }),
   session: publicProcedure.input(tokenInput).query(async ({ input }) => {
     try { return await getSessionState(input.browserToken); } catch (error) { return publicError(error); }
+  }),
+  marketFact: publicProcedure.input(tokenInput.extend({ slot: z.number().int().min(0).max(100) })).query(async ({ input }) => {
+    try { return await publicQuizMarketFact(input); } catch (error) { return publicError(error); }
   }),
   saveAnswer: publicProcedure.input(tokenInput.extend({
     questionId: z.string().trim().min(1).max(100),

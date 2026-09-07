@@ -114,4 +114,16 @@ describe("Market Match quiz helpers", () => {
     expect(details).toContain("Smokies, Tennessee");
     expect(details).toContain("Validate next");
   });
+
+  it("selects a source-grounded STR fact from a current Market AI profile", () => {
+    const fact = __testables__.factForMarket({
+      id: 11, name: "Smokies", state: "TN", profile: {
+        executiveSummary: "Savvy Market AI has current STR diligence notes for this destination market.",
+        buyBox: { purchasePriceGuidance: "Observed STR purchase prices in supplied Savvy data range from $400,000 to $700,000." },
+      }, intelligenceGeneratedAt: new Date("2026-09-07T00:00:00Z"),
+    } as any, "session-seed");
+    expect(fact).toMatchObject({ marketName: "Smokies", state: "TN" });
+    expect(fact?.fact).toContain("STR");
+    expect(fact?.fact).not.toContain("guarantee");
+  });
 });

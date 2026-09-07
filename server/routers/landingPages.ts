@@ -710,6 +710,7 @@ export const LANDING_PAGE_PUBLIC_TRPC_PATHS = new Set([
   "marketMatchQuiz.completeContactDetails",
   "marketMatchQuiz.resume",
   "marketMatchQuiz.session",
+  "marketMatchQuiz.marketFact",
   "marketMatchQuiz.saveAnswer",
   "marketMatchQuiz.results",
   "marketMatchQuiz.lenders",
