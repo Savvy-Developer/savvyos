@@ -7940,18 +7940,27 @@ export const pulseSessionRatings = mysqlTable(
     sessionId: varchar("sessionId", { length: 36 })
       .notNull()
       .references(() => pulseMeetingSessions.id, { onDelete: "cascade" }),
+    /** Participant being rated for this session. */
     personId: int("personId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** The meeting’s configured facilitator or administrator who submitted the rating. */
+    ratedById: int("ratedById")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     rating: int("rating").notNull(),
+    /** Required by the canonical procedure whenever the rating is 7 or below. */
+    reason: text("reason"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    uniqueIndex("pulse_session_rating_unique").on(
+    uniqueIndex("pulse_session_rating_reviewer_participant_unique").on(
       table.sessionId,
+      table.ratedById,
       table.personId
     ),
+    index("pulse_session_rating_reviewer_idx").on(table.ratedById),
     check(
       "pulse_session_rating_range",
       sql`${table.rating} >= 1 and ${table.rating} <= 10`

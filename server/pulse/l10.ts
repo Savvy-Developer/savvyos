@@ -294,6 +294,11 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     getReports(db, targetMeetingId),
     getActiveSession(db, targetMeetingId),
   ]);
+  const participantRatings = activeSession
+    ? await db.select({ personId: pulseSessionRatings.personId, rating: pulseSessionRatings.rating, reason: pulseSessionRatings.reason })
+      .from(pulseSessionRatings)
+      .where(and(eq(pulseSessionRatings.sessionId, activeSession.id), eq(pulseSessionRatings.ratedById, user.id)))
+    : [];
   const sectionsEnabled = normaliseSections(meeting.sectionsEnabled);
   const [canConfigure, hasMatrixRunAuthority, canViewAllHealth] = await Promise.all([
     hasPulseCapability(db, user, "manage_l10s"),
@@ -328,7 +333,14 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     },
     members,
     activeSession,
-    permissions: { canConfigure, canRun: meeting.label === "level_10" && canRun, canRecallCompletedInRun: meeting.label === "level_10" && meeting.administratorId === user.id, canViewAllHealth },
+    permissions: {
+      canConfigure,
+      canRun: meeting.label === "level_10" && canRun,
+      canRecallCompletedInRun: meeting.label === "level_10" && meeting.administratorId === user.id,
+      canRateParticipants: meeting.label === "level_10" && (meeting.facilitatorId === user.id || meeting.administratorId === user.id),
+      canViewAllHealth,
+    },
+    participantRatings,
     sections: {
       overview: { attention, latestReport: reports[0]?.report ?? null, health: healthFromReports(reports, meeting.durationMinutes) },
       segue,
@@ -412,11 +424,25 @@ export const pulseL10Router = router({
     return { success: true };
   }),
 
-  rateSession: pulseMemberProcedure.input(z.object({ meetingId, sessionId, rating: z.number().int().min(1).max(10) })).mutation(async ({ ctx, input }) => {
+  rateSession: pulseMemberProcedure.input(z.object({
+    meetingId,
+    sessionId,
+    personId: z.number().int().positive(),
+    rating: z.number().int().min(1).max(10),
+    reason: z.string().trim().max(2000).nullable().optional(),
+  }).superRefine((input, refinement) => {
+    if (input.rating <= 7 && !input.reason?.trim()) refinement.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "Explain ratings of 7 or below." });
+  })).mutation(async ({ ctx, input }) => {
     const db = await database();
-    await require_visible_meeting(db, ctx.user.id, input.meetingId);
-    await requireSession(db, input.meetingId, input.sessionId);
-    await db.insert(pulseSessionRatings).values({ id: id(), sessionId: input.sessionId, personId: ctx.user.id, rating: input.rating }).onDuplicateKeyUpdate({ set: { rating: input.rating } });
+    const meeting = await require_visible_meeting(db, ctx.user.id, input.meetingId);
+    if (meeting.facilitatorId !== ctx.user.id && meeting.administratorId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Only this L10’s configured Facilitator or Administrator can rate participants." });
+    await requireSession(db, input.meetingId, input.sessionId, true);
+    await assertMember(db, input.meetingId, input.personId);
+    const reason = input.rating <= 7 ? input.reason!.trim() : null;
+    await db.transaction(async (tx: any) => {
+      await tx.insert(pulseSessionRatings).values({ id: id(), sessionId: input.sessionId, personId: input.personId, ratedById: ctx.user.id, rating: input.rating, reason }).onDuplicateKeyUpdate({ set: { rating: input.rating, reason } });
+      await writeActivity(tx, ctx.user.id, "session", input.sessionId, "participant_rated", null, { personId: input.personId, rating: input.rating, reason });
+    });
     return { success: true };
   }),
 
