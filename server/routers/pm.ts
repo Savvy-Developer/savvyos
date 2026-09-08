@@ -467,7 +467,7 @@ export const pmRouter = router({
         id: z.number(),
         title: z.string().min(1).max(5000).optional(),
         ownerId: z.number().optional(),
-        dueDate: z.date().optional(),
+        dueDate: z.date().nullable().optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
         notes: z.string().optional(),
       }))
@@ -479,7 +479,11 @@ export const pmRouter = router({
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
         const { id, ...fields } = input;
-        await db.update(pmTasks).set(fields).where(eq(pmTasks.id, id));
+        const updates = {
+          ...fields,
+          dueDate: fields.dueDate === null ? sql`NULL` : fields.dueDate,
+        };
+        await db.update(pmTasks).set(updates).where(eq(pmTasks.id, id));
         await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo", id);
         return { success: true };
       }),

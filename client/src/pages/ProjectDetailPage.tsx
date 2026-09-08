@@ -68,6 +68,19 @@ const ACTION_LABELS: Record<string, string> = {
   weekly_update_submitted: "submitted a weekly update",
 };
 
+function ProjectQuickWorkControls({ task, adminUsers, onUpdate }: { task: any; adminUsers: any[]; onUpdate: (id: number, data: any) => void }) {
+  const [dueDate, setDueDate] = useState(task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "");
+  const people = useMemo(() => [...adminUsers].sort((left: any, right: any) => (left.name ?? left.email ?? "").localeCompare(right.name ?? right.email ?? "")), [adminUsers]);
+  useEffect(() => {
+    setDueDate(task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "");
+  }, [task.dueDate]);
+  return <div className="order-last flex basis-full flex-wrap items-center gap-1.5 border-t border-border/60 pt-1.5 pl-7 xl:order-none xl:basis-auto xl:border-t-0 xl:pt-0 xl:pl-0" onClick={(event) => event.stopPropagation()}>
+    <Input aria-label="To-Do due date" type="date" value={dueDate} onChange={(event) => { const value = event.target.value; setDueDate(value); onUpdate(task.id, { dueDate: value ? new Date(`${value}T12:00:00`) : null }); }} className="h-7 w-[8.35rem] bg-background px-1.5 text-xs" />
+    <Select value={task.priority ?? "medium"} onValueChange={(value) => onUpdate(task.id, { priority: value as Priority })}><SelectTrigger aria-label="To-Do priority" className={`h-7 w-[6.6rem] px-2 text-xs ${PRIORITY_CONFIG[task.priority as Priority]?.badge ?? PRIORITY_CONFIG.medium.badge}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select>
+    <Select value={task.ownerId ? String(task.ownerId) : undefined} onValueChange={(value) => onUpdate(task.id, { ownerId: Number(value) })}><SelectTrigger aria-label="To-Do assignee" className="h-7 w-[8.5rem] bg-background px-2 text-xs"><SelectValue placeholder="Assignee" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User #${person.id}`}</SelectItem>)}</SelectContent></Select>
+  </div>;
+}
+
 // ─── Task Item ────────────────────────────────────────────────────────────────
 function TaskItem({
   task,
@@ -159,7 +172,7 @@ function TaskItem({
     onUpdate(task.id, {
       title: editForm.title,
       ownerId: Number(editForm.ownerId),
-      dueDate: editForm.dueDate ? new Date(editForm.dueDate) : undefined,
+      dueDate: editForm.dueDate ? new Date(`${editForm.dueDate}T12:00:00`) : null,
       priority: editForm.priority,
       notes: editForm.notes || undefined,
     });
@@ -204,7 +217,7 @@ function TaskItem({
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
       </button>
       {hasSubtodos ? <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs text-primary" onClick={toggleSubtodos} title={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`} aria-label={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span>{subTodoCount}</span></Button> : null}
-      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button>
+      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button><ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />
     </div>
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2 sm:p-2.5">
       <div className="grid overflow-hidden rounded-md border bg-background text-xs sm:grid-cols-3"><div className="flex min-w-0 items-center gap-1 border-b px-2 py-1 sm:border-b-0"><span className="text-muted-foreground">Assignee</span><p className="min-w-0 truncate font-medium">{task.ownerName ?? "Unassigned"}</p></div><div className="flex min-w-0 items-center gap-1 border-b px-2 py-1 sm:border-b-0 sm:border-l"><span className="text-muted-foreground">Due</span><p className={cn("min-w-0 truncate font-medium", isOverdue && "text-destructive")}>{dueLabel}</p></div><div className="flex min-w-0 items-center gap-1 px-2 py-1 sm:border-l"><span className="text-muted-foreground">Priority</span><span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITY_CONFIG[task.priority as Priority]?.badge}`}>{PRIORITY_CONFIG[task.priority as Priority]?.label ?? "Medium"}</span></div></div>
