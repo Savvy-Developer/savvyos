@@ -261,6 +261,28 @@ async function getReports(db: any, targetMeetingId: string) {
     .orderBy(desc(pulseSessionReports.createdAt));
 }
 
+function ratingSummary(rows: Array<{ rating: number }>) {
+  const count = rows.length;
+  const average = count ? Math.round((rows.reduce((sum, row) => sum + row.rating, 0) / count) * 10) / 10 : null;
+  return {
+    average,
+    count,
+    distribution: Array.from({ length: 10 }, (_, index) => {
+      const rating = index + 1;
+      return { rating, count: rows.filter(row => row.rating === rating).length };
+    }),
+  };
+}
+
+function ratingHistory(reports: any[], selectedReportId?: string) {
+  return reports.slice(0, 8).map((row: any) => ({
+    date: row.session.closedAt ?? row.session.scheduledFor,
+    average: row.report.ratingAverage == null ? null : Number(row.report.ratingAverage),
+    count: Number(row.report.ratingCount ?? 0),
+    current: selectedReportId ? row.report.id === selectedReportId : false,
+  }));
+}
+
 function healthFromReports(reports: any[], scheduledMinutes: number) {
   const latest = reports.slice(0, 8);
   const rated = latest.filter((row) => row.report.ratingAverage != null).map((row) => Number(row.report.ratingAverage));
@@ -294,11 +316,16 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
     getReports(db, targetMeetingId),
     getActiveSession(db, targetMeetingId),
   ]);
-  const participantRatings = activeSession
-    ? await db.select({ personId: pulseSessionRatings.personId, rating: pulseSessionRatings.rating, reason: pulseSessionRatings.reason })
-      .from(pulseSessionRatings)
-      .where(and(eq(pulseSessionRatings.sessionId, activeSession.id), eq(pulseSessionRatings.ratedById, user.id)))
-    : [];
+  const [participantRatings, sessionRatings] = activeSession
+    ? await Promise.all([
+      db.select({ personId: pulseSessionRatings.personId, rating: pulseSessionRatings.rating, reason: pulseSessionRatings.reason })
+        .from(pulseSessionRatings)
+        .where(and(eq(pulseSessionRatings.sessionId, activeSession.id), eq(pulseSessionRatings.ratedById, user.id))),
+      db.select({ rating: pulseSessionRatings.rating })
+        .from(pulseSessionRatings)
+        .where(eq(pulseSessionRatings.sessionId, activeSession.id)),
+    ])
+    : [[], []];
   const sectionsEnabled = normaliseSections(meeting.sectionsEnabled);
   const [canConfigure, hasMatrixRunAuthority, canViewAllHealth] = await Promise.all([
     hasPulseCapability(db, user, "manage_l10s"),
@@ -341,6 +368,8 @@ async function dashboardPayload(db: any, user: { id: number }, targetMeetingId: 
       canViewAllHealth,
     },
     participantRatings,
+    sessionRatingSummary: ratingSummary(sessionRatings),
+    ratingHistory: ratingHistory(reports),
     sections: {
       overview: { attention, latestReport: reports[0]?.report ?? null, health: healthFromReports(reports, meeting.durationMinutes) },
       segue,
@@ -562,7 +591,8 @@ export const pulseL10Router = router({
       db.select({ rating: pulseSessionRatings.rating }).from(pulseSessionRatings).where(eq(pulseSessionRatings.sessionId, input.sessionId)),
     ]);
     const cascades = await publishSessionCascades(db, ctx.user.id, input.meetingId, input.sessionId);
-    const ratingAverage = ratings.length ? (ratings.reduce((sum, row) => sum + row.rating, 0) / ratings.length).toFixed(1) : null;
+    const ratingsSummary = ratingSummary(ratings);
+    const ratingAverage = ratingsSummary.average == null ? null : ratingsSummary.average.toFixed(1);
     const reportId = id();
     await db.transaction(async (tx: any) => {
       await tx.update(pulseMeetingSessions).set({ status: "closed", activeStep: "conclude", elapsedSeconds: input.elapsedSeconds, attendeeIds: input.attendeeIds, notes: input.notes ?? session.notes, closedAt: new Date() }).where(eq(pulseMeetingSessions.id, input.sessionId));
@@ -579,7 +609,11 @@ export const pulseL10Router = router({
       .from(pulseSessionReports).innerJoin(pulseMeetingSessions, eq(pulseMeetingSessions.id, pulseSessionReports.sessionId))
       .where(and(eq(pulseSessionReports.id, input.reportId), eq(pulseSessionReports.meetingId, input.meetingId))).limit(1);
     if (!row) throw notFound("This L10 report is not available.");
-    return row;
+    const [ratings, priorReports] = await Promise.all([
+      db.select({ rating: pulseSessionRatings.rating }).from(pulseSessionRatings).where(eq(pulseSessionRatings.sessionId, row.session.id)),
+      getReports(db, input.meetingId),
+    ]);
+    return { ...row, ratingSummary: ratingSummary(ratings), ratingHistory: ratingHistory(priorReports, row.report.id) };
   }),
 
   configuration: pulseMemberProcedure.input(z.object({ meetingId })).query(async ({ ctx, input }) => {
