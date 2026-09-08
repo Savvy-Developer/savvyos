@@ -7,6 +7,7 @@ describe("SavvyOS MCP access", () => {
       "tyler@savvy.realty",
       "elana@savvy.realty",
       "dyl@savvy.realty",
+      "camilo@savvy.realty",
       "philleone@savvy.realty",
       "scott.asbell@savvy.realty",
       "amyrollins@savvy.realty",

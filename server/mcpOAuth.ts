@@ -792,7 +792,7 @@ export function registerMcpOAuthRoutes(app: Express): void {
         .send(
           renderPage(
             "Sign in",
-            `<h1>Sign in to SavvyOS</h1><p><span class="client">${escapeHtml(safeClientName(client))}</span> is requesting read-only access to SavvyOS.</p><form method="post" action="/oauth/login"><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" required><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in and continue</button></form><p class="fine">Only Tyler, Elana, and Dyl can authorize this SavvyOS data connection.</p>`
+            `<h1>Sign in to SavvyOS</h1><p><span class="client">${escapeHtml(safeClientName(client))}</span> is requesting read-only access to SavvyOS.</p><form method="post" action="/oauth/login"><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" required><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in and continue</button></form><p class="fine">Only authorized SavvyOS personnel can authorize this data connection.</p>`
           )
         );
     }

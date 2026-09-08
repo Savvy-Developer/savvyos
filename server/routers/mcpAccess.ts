@@ -5,6 +5,7 @@ export const MCP_AUTHORIZED_USER_EMAILS = new Set([
   "tyler@savvy.realty",
   "elana@savvy.realty",
   "dyl@savvy.realty",
+  "camilo@savvy.realty",
   "philleone@savvy.realty",
   "scott.asbell@savvy.realty",
   "amyrollins@savvy.realty",
