@@ -21,6 +21,13 @@ function configuredSecretMatches(request: Request): boolean {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function isSavvyAppointmentImportConfigured(): boolean {
+  // The legacy Market Match reconciler predates a webhook secret and remains
+  // compatible. General CRM appointment import creates contacts/connections,
+  // so it is enabled only once its authenticated subscription is configured.
+  return Boolean(process.env.CALENDLY_WEBHOOK_SECRET?.trim());
+}
+
 function trackingContent(payload: Record<string, unknown>) {
   const rootTracking = payload.tracking as Record<string, unknown> | undefined;
   const invitee = payload.invitee as Record<string, unknown> | undefined;
@@ -49,7 +56,9 @@ export function registerMarketMatchQuizCalendlyWebhook(app: Express) {
       const event = payload.event as Record<string, unknown> | undefined;
       const invitee = payload.invitee as Record<string, unknown> | undefined;
       const [savvyResult, marketMatchResult] = await Promise.all([
-        recordSavvyCalendlyAppointment({ eventType: parsed.data.event, payload }),
+        isSavvyAppointmentImportConfigured()
+          ? recordSavvyCalendlyAppointment({ eventType: parsed.data.event, payload })
+          : Promise.resolve({ matched: false, reason: "Calendly appointment import is awaiting authenticated webhook configuration" }),
         recordQuizCalendlyBooking({
         trackingContent: trackingContent(payload),
         eventUri: stringField(event?.uri ?? payload.event_uri),
@@ -66,4 +75,4 @@ export function registerMarketMatchQuizCalendlyWebhook(app: Express) {
   });
 }
 
-export const __testables__ = { configuredSecretMatches, trackingContent };
+export const __testables__ = { configuredSecretMatches, isSavvyAppointmentImportConfigured, trackingContent };
