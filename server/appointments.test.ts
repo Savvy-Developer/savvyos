@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { __testables__ as appointmentTests } from "./routers/appointments";
 import { __testables__ as notificationTests } from "./appointmentNotifications";
+import { __testables__ as calendlyWebhookTests } from "./marketMatchQuizCalendlyWebhook";
 
 describe("appointment helpers", () => {
   it("detects only truly overlapping availability blocks", () => {
@@ -31,5 +32,15 @@ describe("appointment helpers", () => {
     expect(ics).toContain("BEGIN:VCALENDAR");
     expect(ics).toContain("UID:savvyos-appointment-42@savvy-agents.com");
     expect(ics).toContain("SUMMARY:Investment strategy call");
+  });
+
+  it("requires a Calendly webhook secret before general CRM imports", () => {
+    const original = process.env.CALENDLY_WEBHOOK_SECRET;
+    delete process.env.CALENDLY_WEBHOOK_SECRET;
+    expect(calendlyWebhookTests.isSavvyAppointmentImportConfigured()).toBe(false);
+    process.env.CALENDLY_WEBHOOK_SECRET = "test-secret";
+    expect(calendlyWebhookTests.isSavvyAppointmentImportConfigured()).toBe(true);
+    if (original === undefined) delete process.env.CALENDLY_WEBHOOK_SECRET;
+    else process.env.CALENDLY_WEBHOOK_SECRET = original;
   });
 });
