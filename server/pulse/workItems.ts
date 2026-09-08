@@ -399,7 +399,7 @@ export const pulseWorkItemsRouter = router({
         await db.transaction(async (tx: any) => {
           await tx.insert(pulseWorkItems).values({
             id, type: input.type, title: input.title, description: details, ...destinationValues, parentWorkItemId, sourceSessionId, assigneeId: input.assigneeId, createdById: ctx.user.id,
-            status: input.status, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null,
+            status: input.status, dueDate: input.type === "issue" ? null : input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null,
             solvedNote: complete ? input.statusNote!.trim() : null, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null,
             percentComplete: 0, percentSource: "manual",
           });
@@ -416,12 +416,13 @@ export const pulseWorkItemsRouter = router({
       if (item.type !== input.type) throw new TRPCError({ code: "BAD_REQUEST", message: "An existing work item cannot change between To-Do and Issue." });
       const destinationChanged = item.meetingId !== destinationValues.meetingId || item.ownerPersonId !== destinationValues.ownerPersonId;
       const assigneeChanged = item.assigneeId !== input.assigneeId;
+      if (item.type === "issue" && input.status !== item.status) throw new TRPCError({ code: "BAD_REQUEST", message: "Issues are resolved from their context and do not use workflow status updates." });
       const statusChanged = item.status !== input.status;
       if (statusChanged && !input.statusNote?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: input.status === "completed" ? "Describe what completed looks like before marking this item completed." : "Describe this status update before saving it." });
       if (item.parentWorkItemId && destinationChanged) throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent To-Do first; its sub-To-Dos must stay in the same destination." });
       if (parentWorkItemId && parentWorkItemId !== item.parentWorkItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "A saved item’s parent cannot be changed. Create a new sub-To-Do under the intended parent instead." });
       await db.transaction(async (tx: any) => {
-        const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: statusChanged && complete ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
+        const values = { title: input.title, description: details, ...destinationValues, assigneeId: input.assigneeId, dueDate: input.type === "issue" ? null : input.dueDate, priorityLevel: input.priorityLevel, issueTimeframe: input.type === "issue" ? input.issueTimeframe : null, status: input.status, solvedNote: statusChanged && complete ? input.statusNote!.trim() : item.solvedNote, completedAt: complete ? new Date() : null, completedById: complete ? ctx.user.id : null };
         await tx.update(pulseWorkItems).set(values).where(eq(pulseWorkItems.id, item.id));
         if (destinationChanged) await tx.insert(pulseWorkItemMoves).values({ id: uuid(), workItemId: item.id, fromMeetingId: item.meetingId, toMeetingId: destinationValues.meetingId, movedById: ctx.user.id, reason: "Destination changed in the shared Pulse editor." });
         if (assigneeChanged) await writeActivity(tx, ctx.user.id, "work_item", item.id, "assignee_changed", "assigneeId", item.assigneeId, input.assigneeId);
@@ -447,6 +448,7 @@ export const pulseWorkItemsRouter = router({
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Quick fields are available for Pulse To-Dos and Issues." });
+      if (item.type === "issue" && input.dueDate !== undefined) throw new TRPCError({ code: "BAD_REQUEST", message: "Issues do not use due dates." });
       if (input.assigneeId !== undefined) {
         if (meeting) await requireMeetingMember(db, input.assigneeId, meeting);
         else if (input.assigneeId !== item.ownerPersonId) throw new TRPCError({ code: "BAD_REQUEST", message: "Personal work can only be assigned to its owner." });
@@ -480,6 +482,7 @@ export const pulseWorkItemsRouter = router({
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Only To-Dos and Issues use this workflow status." });
+      if (item.type === "issue" && input.status !== "completed") throw new TRPCError({ code: "BAD_REQUEST", message: "Issues can be resolved, but do not use workflow status updates." });
       if (item.status === input.status && (input.status !== "blocked" || input.blockerPersonId === item.blockerPersonId)) return { success: true, unchanged: true };
       if (input.status === "blocked" && meeting && !input.blockerPersonId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose the person who can unblock this item." });
@@ -766,6 +769,7 @@ export const pulseWorkItemsRouter = router({
       const db = await getDb();
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
+      if (item.type === "issue" && input.dueDate !== undefined) throw new TRPCError({ code: "BAD_REQUEST", message: "Issues do not use due dates." });
       if (input.assigneeId && meeting) await requireMeetingMember(db, input.assigneeId, meeting);
       const values: Record<string, unknown> = {};
       if (input.title !== undefined) values.title = input.title;
@@ -803,7 +807,7 @@ export const pulseWorkItemsRouter = router({
   setIssueStatus: pulseMemberProcedure
     .input(z.object({
       workItemId: z.string().uuid(),
-      status: issueStatusSchema,
+      status: z.literal("completed"),
       solvedNote: z.string().trim().max(2000).optional().nullable(),
       createTodo: z.object({ title: z.string().trim().min(1).max(500), dueDate: dateSchema.optional().nullable(), assigneeId: z.number().int().positive().optional() }).optional(),
     }))
@@ -812,8 +816,8 @@ export const pulseWorkItemsRouter = router({
       if (!db) throw unavailable();
       const { item, meeting } = await getAccessibleWorkItem(db, ctx.user.id, input.workItemId);
       if (item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "This item is not an issue." });
-      if (input.status === "completed" && !input.solvedNote?.trim()) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "What does completed look like? Add one sentence before completing this issue." });
+      if (!input.solvedNote?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "What was the solve? Add one sentence before resolving this Issue." });
       }
       if (input.createTodo && !meeting) throw new TRPCError({ code: "BAD_REQUEST", message: "A personal issue cannot create a meeting to-do." });
       if (input.createTodo && meeting) await requireMeetingMember(db, input.createTodo.assigneeId ?? item.assigneeId, meeting);
@@ -844,7 +848,7 @@ export const pulseWorkItemsRouter = router({
           await tx.insert(pulseIssueResultingTodos).values({ id: uuid(), issueWorkItemId: item.id, todoWorkItemId: todoId });
           await writeActivity(tx, ctx.user.id, "work_item", todoId, "created_from_issue", undefined, undefined, { issueWorkItemId: item.id });
         }
-        await writeActivity(tx, ctx.user.id, "work_item", item.id, "status_changed", "status", item.status, input.status);
+        await writeActivity(tx, ctx.user.id, "work_item", item.id, "issue_resolved", "status", item.status, input.status);
       });
       return { success: true, todoId };
     }),
