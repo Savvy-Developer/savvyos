@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { format, isPast, isToday } from "date-fns";
+import { format } from "date-fns";
 import {
   ArrowLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
@@ -74,7 +74,7 @@ function ProjectQuickWorkControls({ task, adminUsers, onUpdate }: { task: any; a
   useEffect(() => {
     setDueDate(task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "");
   }, [task.dueDate]);
-  return <div className="order-last flex basis-full flex-wrap items-center gap-1.5 border-t border-border/60 pt-1.5 pl-7 xl:order-none xl:basis-auto xl:border-t-0 xl:pt-0 xl:pl-0" onClick={(event) => event.stopPropagation()}>
+  return <div className="order-last flex basis-full flex-wrap items-center gap-1 border-t border-border/60 pt-1 pl-6 xl:order-none xl:basis-auto xl:border-t-0 xl:pt-0 xl:pl-0" onClick={(event) => event.stopPropagation()}>
     <Input aria-label="To-Do due date" type="date" value={dueDate} onChange={(event) => { const value = event.target.value; setDueDate(value); onUpdate(task.id, { dueDate: value ? new Date(`${value}T12:00:00`) : null }); }} className="h-7 w-[8.35rem] bg-background px-1.5 text-xs" />
     <Select value={task.priority ?? "medium"} onValueChange={(value) => onUpdate(task.id, { priority: value as Priority })}><SelectTrigger aria-label="To-Do priority" className={`h-7 w-[6.6rem] px-2 text-xs ${PRIORITY_CONFIG[task.priority as Priority]?.badge ?? PRIORITY_CONFIG.medium.badge}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select>
     <Select value={task.ownerId ? String(task.ownerId) : undefined} onValueChange={(value) => onUpdate(task.id, { ownerId: Number(value) })}><SelectTrigger aria-label="To-Do assignee" className="h-7 w-[8.5rem] bg-background px-2 text-xs"><SelectValue placeholder="Assignee" /></SelectTrigger><SelectContent>{people.map((person: any) => <SelectItem key={person.id} value={String(person.id)}>{person.name ?? person.email ?? `User #${person.id}`}</SelectItem>)}</SelectContent></Select>
@@ -147,10 +147,6 @@ function TaskItem({
     },
     onError: (error) => toast.error(error.message),
   });
-  const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const isOverdue = Boolean(dueDate && !task.completed && isPast(dueDate) && !isToday(dueDate));
-  const isDueToday = Boolean(dueDate && !task.completed && isToday(dueDate));
-  const dueLabel = dueDate ? (isOverdue ? "Overdue" : isDueToday ? "Today" : format(dueDate, "MMM d, yyyy")) : "No due date";
   const commentCount = Number(task.commentCount ?? comments.length ?? 0);
   const commentMentionCandidates = useMemo(() => mentionableUsers
     .filter((person: any) => !selectedCommentMentions.some((mention) => mention.id === person.userId))
@@ -208,19 +204,18 @@ function TaskItem({
     return entry.detail ?? `${entry.actorName ?? "A teammate"} updated this To-Do.`;
   }
   return <div id={`todo-${task.id}`} className={cn("overflow-hidden rounded-md border border-border bg-card", task.completed && !highlightedCommentId && "opacity-70")}>
-    <div className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/45">
+    <div className="flex w-full flex-wrap items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/45">
       <button type="button" onClick={() => onToggle(task.id, !task.completed)} aria-label={task.completed ? "Completed. Reopen To-Do." : "Complete To-Do"} title={task.completed ? "Completed" : "Complete To-Do"} className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", task.completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-700")}>
         {task.completed ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
       </button>
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className="min-w-0 flex-1"><span className={cn("block truncate text-sm font-medium", task.completed && "text-muted-foreground line-through")}>{task.title}</span><span className="block truncate text-xs text-muted-foreground">{task.ownerName ?? "Unassigned"} · due {dueLabel}</span><span className="mt-1 flex flex-wrap items-center gap-1"><span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITY_CONFIG[task.priority as Priority]?.badge}`}>{PRIORITY_CONFIG[task.priority as Priority]?.label ?? "Medium"}</span></span></span>
+        <span className="min-w-0 flex-1"><span className={cn("block truncate text-sm font-medium", task.completed && "text-muted-foreground line-through")}>{task.title}</span></span>
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
       </button>
       {hasSubtodos ? <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs text-primary" onClick={toggleSubtodos} title={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`} aria-label={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span>{subTodoCount}</span></Button> : null}
       <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button><ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />
     </div>
-    {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2 sm:p-2.5">
-      <div className="grid overflow-hidden rounded-md border bg-background text-xs sm:grid-cols-3"><div className="flex min-w-0 items-center gap-1 border-b px-2 py-1 sm:border-b-0"><span className="text-muted-foreground">Assignee</span><p className="min-w-0 truncate font-medium">{task.ownerName ?? "Unassigned"}</p></div><div className="flex min-w-0 items-center gap-1 border-b px-2 py-1 sm:border-b-0 sm:border-l"><span className="text-muted-foreground">Due</span><p className={cn("min-w-0 truncate font-medium", isOverdue && "text-destructive")}>{dueLabel}</p></div><div className="flex min-w-0 items-center gap-1 px-2 py-1 sm:border-l"><span className="text-muted-foreground">Priority</span><span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITY_CONFIG[task.priority as Priority]?.badge}`}>{PRIORITY_CONFIG[task.priority as Priority]?.label ?? "Medium"}</span></div></div>
+    {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
       {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-3"><div className="sm:col-span-3"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div></div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
       <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section>
       {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
