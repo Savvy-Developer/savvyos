@@ -235,33 +235,32 @@
   /* Pulse uses one compact, predictable rhythm across personal and meeting work. */
   .pulse-page {
     width: 100%;
-    max-width: 72rem;
-    margin-inline: auto;
-    padding-bottom: 1.5rem;
+    max-width: none;
+    padding-bottom: 1.25rem;
   }
 
   .pulse-page-stack {
     display: grid;
-    gap: 1.25rem;
+    gap: 1rem;
   }
 
   .pulse-section {
     display: grid;
-    gap: 0.75rem;
+    gap: 0.625rem;
     min-width: 0;
   }
 
   .pulse-card-compact {
-    gap: 0.75rem !important;
-    padding-block: 1rem !important;
+    gap: 0.625rem !important;
+    padding-block: 0.75rem !important;
   }
 
   .pulse-card-compact > [data-slot="card-header"] {
-    padding: 0 1rem !important;
+    padding: 0 0.875rem !important;
   }
 
   .pulse-card-compact > [data-slot="card-content"] {
-    padding: 0 1rem !important;
+    padding: 0 0.875rem !important;
   }
 
   .pulse-scroll-x {
@@ -286,28 +285,28 @@
 
   .pulse-runner-content {
     width: 100%;
-    max-width: 64rem;
+    max-width: 80rem;
     margin-inline: auto;
-    padding: 1.25rem 1rem 1.5rem;
+    padding: 1rem 0.875rem 1.25rem;
   }
 
   @media (min-width: 640px) {
     .pulse-page {
-      padding-bottom: 2rem;
+      padding-bottom: 1.5rem;
     }
 
     .pulse-page-stack {
-      gap: 1.5rem;
+      gap: 1.125rem;
     }
 
     .pulse-runner-content {
-      padding: 1.5rem;
+      padding: 1.25rem 1.5rem;
     }
   }
 
   @media (min-width: 1024px) {
     .pulse-runner-content {
-      padding: 1.75rem 2rem;
+      padding: 1.5rem 2rem;
     }
   }
 }
