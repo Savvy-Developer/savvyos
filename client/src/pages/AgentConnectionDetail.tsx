@@ -20,6 +20,7 @@ import SmartPlanContactTab from "@/components/SmartPlanContactTab";
 import EmailBehaviorsTab from "@/components/EmailBehaviorsTab";
 import PipelineEmailComposer from "@/components/PipelineEmailComposer";
 import { WebsiteBehaviorsTab } from "@/components/WebsiteBehaviorsTab";
+import ConnectionAppointmentManager from "@/components/ConnectionAppointmentManager";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
 
@@ -330,6 +331,18 @@ export default function AgentConnectionDetail() {
           </div>
         </div>
       )}
+
+      <div className="rounded-xl border bg-card p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold flex items-center gap-2"><Calendar className="h-4 w-4" /> Appointments</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Schedule, confirm, reschedule, or cancel appointments for this agent connection.</p>
+        </div>
+        <ConnectionAppointmentManager
+          connectionId={connection.id}
+          clientName={`${contact?.firstName ?? ""} ${contact?.lastName ?? ""}`.trim() || "Client"}
+          agentName={agent?.name ?? "Agent"}
+        />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Contact Info */}

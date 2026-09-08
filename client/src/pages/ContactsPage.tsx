@@ -56,8 +56,38 @@ const emptyForm: ContactForm = {
 
 type AssignForm = {
   agentId: string; pipelineStatus: string; agentNotes: string;
-  isaFollowUpDate: string; isaTaskAssigneeId: string; introduceClient: boolean; appointmentSet: boolean;
+  isaFollowUpDate: string; isaTaskAssigneeId: string; introduceClient: boolean;
+  appointmentEnabled: boolean; appointmentTitle: string; appointmentDate: string; appointmentTime: string;
+  appointmentDuration: string; appointmentTimezone: string; appointmentLocation: string;
 };
+
+const APPOINTMENT_TIMEZONES = [
+  ["America/New_York", "Eastern (ET)"], ["America/Chicago", "Central (CT)"],
+  ["America/Denver", "Mountain (MT)"], ["America/Phoenix", "Mountain — Arizona"],
+  ["America/Los_Angeles", "Pacific (PT)"], ["America/Anchorage", "Alaska (AKT)"], ["Pacific/Honolulu", "Hawaii (HST)"],
+] as const;
+
+function defaultAppointmentValues() {
+  const date = new Date(Date.now() + 60 * 60 * 1000);
+  return {
+    appointmentEnabled: false, appointmentTitle: "Client discovery call",
+    appointmentDate: date.toISOString().slice(0, 10), appointmentTime: date.toTimeString().slice(0, 5),
+    appointmentDuration: "30", appointmentTimezone: "America/New_York", appointmentLocation: "",
+  };
+}
+
+function zonedAppointmentDateTime(date: string, time: string, timezone: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const assumedUtc = Date.UTC(year, month - 1, day, hour, minute);
+  try {
+    const firstParts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date(assumedUtc));
+    const first = Object.fromEntries(firstParts.map(part => [part.type, part.value]));
+    const renderedUtc = Date.UTC(Number(first.year), Number(first.month) - 1, Number(first.day), Number(first.hour), Number(first.minute), Number(first.second));
+    return new Date(assumedUtc - (renderedUtc - assumedUtc));
+  } catch { return null; }
+}
 
 const PIPELINE_STATUS_LABELS: Record<string, string> = {
   new_lead: "New Lead", attempted_contact: "Attempted Contact", nurture: "Nurture",
@@ -303,7 +333,7 @@ export default function ContactsPage() {
   const [assignForm, setAssignForm] = useState<AssignForm>({
     agentId: "", pipelineStatus: "new_lead", agentNotes: "",
     isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "",
-    introduceClient: false, appointmentSet: false,
+    introduceClient: false, ...defaultAppointmentValues(),
   });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkIsaOpen, setBulkIsaOpen] = useState(false);
@@ -383,15 +413,18 @@ export default function ContactsPage() {
   });
 
   const createConnection = trpc.agentConnections.create.useMutation({
-    onSuccess: () => {
-      toast.success("Agent connection created — contact is now in the agent's pipeline");
-      setAssignOpen(false);
-      setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, appointmentSet: false });
-      utils.contacts.list.invalidate();
-      utils.agentConnections.list.invalidate();
-    },
     onError: (e) => toast.error(e.message),
   });
+  const scheduleAppointment = trpc.appointments.create.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
+
+  const finishAssignment = () => {
+    setAssignOpen(false);
+    setAssignForm({ agentId: "", pipelineStatus: "new_lead", agentNotes: "", isaFollowUpDate: "", isaTaskAssigneeId: user?.id ? String(user.id) : "", introduceClient: false, ...defaultAppointmentValues() });
+    utils.contacts.list.invalidate();
+    utils.agentConnections.list.invalidate();
+  };
 
   const requestConnMut = trpc.connectionRequests.create.useMutation({
     onSuccess: () => { toast.success("Connection created successfully!"); setCreateOpen(false); setForm(emptyForm); },
@@ -443,6 +476,20 @@ export default function ContactsPage() {
 
   function handleAssign() {
     if (!assignForm.agentId || !assignContactId) { toast.error("Please select an agent"); return; }
+    const appointmentStart = assignForm.appointmentEnabled
+      ? zonedAppointmentDateTime(assignForm.appointmentDate, assignForm.appointmentTime, assignForm.appointmentTimezone)
+      : null;
+    const appointmentEnd = appointmentStart
+      ? new Date(appointmentStart.getTime() + Number(assignForm.appointmentDuration || 30) * 60_000)
+      : null;
+    if (assignForm.appointmentEnabled && (!appointmentStart || !appointmentEnd || !assignForm.appointmentTitle.trim())) {
+      toast.error("Add a title, date, and time for the appointment.");
+      return;
+    }
+    const appointment = appointmentStart && appointmentEnd ? {
+      title: assignForm.appointmentTitle.trim(), startAt: appointmentStart, endAt: appointmentEnd,
+      timezone: assignForm.appointmentTimezone as any, location: assignForm.appointmentLocation.trim() || null, notes: null,
+    } : null;
     createConnection.mutate({
       agentId: Number(assignForm.agentId),
       contactId: assignContactId,
@@ -451,7 +498,26 @@ export default function ContactsPage() {
       isaFollowUpDate: assignForm.isaFollowUpDate || null,
       isaTaskAssigneeId: assignForm.isaTaskAssigneeId ? Number(assignForm.isaTaskAssigneeId) : null,
       introduceClient: assignForm.introduceClient,
-      appointmentSet: assignForm.appointmentSet,
+      appointmentSet: false,
+    }, {
+      onSuccess: (result) => {
+        if (!appointment) {
+          toast.success("Agent connection created — contact is now in the agent's pipeline");
+          finishAssignment();
+          return;
+        }
+        scheduleAppointment.mutate({ connectionId: result.id, appointment }, {
+          onSuccess: (scheduled) => {
+            toast.success(scheduled.calendar === "google" ? "Connection created and appointment added to Google Calendar." : "Connection created and calendar invitations emailed.");
+            finishAssignment();
+          },
+          onError: () => {
+            toast.error("Connection created, but the appointment could not be scheduled. Open the new connection to try again.");
+            finishAssignment();
+            navigate(`/pipeline/${result.id}`);
+          },
+        });
+      },
     });
   }
 
@@ -1225,18 +1291,32 @@ export default function ContactsPage() {
             })()}
             <div className="flex items-start gap-2">
               <Checkbox
-                id="appointmentSetContacts"
-                checked={assignForm.appointmentSet}
-                onCheckedChange={(v: boolean) => setAssignForm(f => ({ ...f, appointmentSet: !!v }))}
+                id="appointmentEnabledContacts"
+                checked={assignForm.appointmentEnabled}
+                onCheckedChange={(v: boolean) => setAssignForm(f => ({ ...f, appointmentEnabled: !!v }))}
                 className="mt-0.5"
               />
               <div>
-                <Label htmlFor="appointmentSetContacts" className="cursor-pointer">Set an appointment</Label>
-                {assignForm.appointmentSet && (
-                  <p className="text-xs text-muted-foreground mt-0.5">This will be tracked for ISA appointment-setting statistics.</p>
-                )}
+                <Label htmlFor="appointmentEnabledContacts" className="cursor-pointer">Schedule an appointment</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">A scheduled appointment is automatically credited to the ISA who books it.</p>
               </div>
             </div>
+            {assignForm.appointmentEnabled && (
+              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+                <p className="text-xs font-medium text-primary">Appointment details</p>
+                <div><Label className="text-xs">Title</Label><Input className="mt-1" value={assignForm.appointmentTitle} onChange={e => setAssignForm(f => ({ ...f, appointmentTitle: e.target.value }))} placeholder="Client discovery call" /></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><Label className="text-xs">Date</Label><Input type="date" min={new Date().toISOString().slice(0, 10)} className="mt-1" value={assignForm.appointmentDate} onChange={e => setAssignForm(f => ({ ...f, appointmentDate: e.target.value }))} /></div>
+                  <div><Label className="text-xs">Time</Label><Input type="time" className="mt-1" value={assignForm.appointmentTime} onChange={e => setAssignForm(f => ({ ...f, appointmentTime: e.target.value }))} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><Label className="text-xs">Duration</Label><Select value={assignForm.appointmentDuration} onValueChange={v => setAssignForm(f => ({ ...f, appointmentDuration: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="15">15 minutes</SelectItem><SelectItem value="30">30 minutes</SelectItem><SelectItem value="45">45 minutes</SelectItem><SelectItem value="60">1 hour</SelectItem><SelectItem value="90">90 minutes</SelectItem></SelectContent></Select></div>
+                  <div><Label className="text-xs">Timezone</Label><Select value={assignForm.appointmentTimezone} onValueChange={v => setAssignForm(f => ({ ...f, appointmentTimezone: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{APPOINTMENT_TIMEZONES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+                </div>
+                <div><Label className="text-xs">Location or meeting link <span className="font-normal text-muted-foreground">(optional)</span></Label><Input className="mt-1" value={assignForm.appointmentLocation} onChange={e => setAssignForm(f => ({ ...f, appointmentLocation: e.target.value }))} placeholder="Google Meet, Zoom, phone number, or address" /></div>
+                <p className="text-xs text-muted-foreground">If the agent has connected Google Calendar, SavvyOS checks availability and adds the event there. Otherwise, SavvyOS emails calendar invitations to the agent and client.</p>
+              </div>
+            )}
             <div className="flex items-start gap-2">
               <Checkbox
                 id="introduceClientContacts"
@@ -1254,8 +1334,8 @@ export default function ContactsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignOpen(false)}>Cancel</Button>
-            <Button onClick={handleAssign} disabled={createConnection.isPending}>
-              {createConnection.isPending ? "Assigning..." : "Assign to Agent"}
+            <Button onClick={handleAssign} disabled={createConnection.isPending || scheduleAppointment.isPending}>
+              {createConnection.isPending || scheduleAppointment.isPending ? "Saving..." : assignForm.appointmentEnabled ? "Assign & Schedule" : "Assign to Agent"}
             </Button>
           </DialogFooter>
         </DialogContent>

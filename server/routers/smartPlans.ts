@@ -1132,13 +1132,20 @@ export const smartPlansRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const { includeExistingContacts, ...data } = input.data;
+      let { includeExistingContacts, ...data } = input.data;
       const [existingPlan] = await db
         .select()
         .from(smartPlans)
         .where(eq(smartPlans.id, input.id))
         .limit(1);
       if (!existingPlan) throw new TRPCError({ code: "NOT_FOUND" });
+      const targetTrigger = data.triggerType ?? existingPlan.triggerType;
+      if (targetTrigger.startsWith("appointment_")) {
+        // Appointment lifecycle flows are event-driven. A static enrollment
+        // would have no appointment context or correct message merge tags.
+        includeExistingContacts = false;
+        data = { ...data, triggerScope: "new_only" };
+      }
       const windowChanged =
         data.defaultSendWindowEnabled !== undefined ||
         data.defaultSendDays !== undefined ||

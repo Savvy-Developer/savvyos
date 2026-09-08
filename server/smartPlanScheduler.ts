@@ -15,6 +15,7 @@ import {
   leadSources,
   transactions,
   listings,
+  appointments,
   oneTimeSends,
   oneTimeSendRecipients,
   aircallIntegrationState,
@@ -292,16 +293,46 @@ async function processEnrollmentStep(
     .orderBy(sql`${marketMatchQuizSessions.lastActiveAt} DESC`)
     .limit(1);
   const marketMatchBaseUrl = process.env.MARKET_MATCH_PUBLIC_URL || "https://home.savvy-agents.com/marketmatch";
+  const [appointment] = enrollment.appointmentId
+    ? await db
+      .select({
+        title: appointments.title,
+        startAt: appointments.startAt,
+        timezone: appointments.timezone,
+        location: appointments.location,
+        hostName: users.name,
+      })
+      .from(appointments)
+      .leftJoin(users, eq(appointments.hostUserId, users.id))
+      .where(eq(appointments.id, enrollment.appointmentId))
+      .limit(1)
+    : [];
+  const formatAppointmentPart = (options: Intl.DateTimeFormatOptions) => {
+    if (!appointment?.startAt) return "";
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: appointment.timezone || "America/New_York",
+        ...options,
+      }).format(appointment.startAt);
+    } catch {
+      return appointment.startAt.toLocaleString();
+    }
+  };
 
   const mergeCtx = {
     firstName: contact.firstName,
     lastName: contact.lastName,
-    agentName: null, // Not used — admin-only sends
     leadSource: leadSourceName,
     propertyAddress: plan.propertyAddressFromNotes && leadSourceName === OFFER_SHEET_REFERRAL_SOURCE_NAME
       ? extractOfferSheetReferralPropertyAddress(contact.notes)
       : null,
     marketMatchResumeUrl: marketMatchSession?.resumeNonce ? `${marketMatchBaseUrl}${marketMatchBaseUrl.includes("?") ? "&" : "?"}resume=${encodeURIComponent(marketMatchSession.resumeNonce)}` : null,
+    appointmentTitle: appointment?.title ?? null,
+    appointmentDate: formatAppointmentPart({ weekday: "long", month: "long", day: "numeric", year: "numeric" }) || null,
+    appointmentTime: formatAppointmentPart({ hour: "numeric", minute: "2-digit", timeZoneName: "short" }) || null,
+    appointmentTimezone: appointment?.timezone ?? null,
+    appointmentLocation: appointment?.location ?? null,
+    agentName: appointment?.hostName ?? null,
   };
 
   const propertyFallbackRequired = plan.propertyAddressFromNotes
@@ -459,6 +490,10 @@ export const SMART_PLAN_TRIGGER_TYPES = [
   "new_listing",
   "buyer_closed",
   "seller_closed",
+  "appointment_scheduled",
+  "appointment_confirmed",
+  "appointment_rescheduled",
+  "appointment_canceled",
 ] as const;
 
 export type SmartPlanTriggerType = (typeof SMART_PLAN_TRIGGER_TYPES)[number];
@@ -548,6 +583,10 @@ async function matchingCurrentContactIds(config: TriggerConfiguration): Promise<
     return rows.flatMap((row) => row.contactId ? [row.contactId] : []);
   }
 
+  // Appointment lifecycle plans are event-driven and cannot be bulk-enrolled
+  // from a static contact audience.
+  if (triggerType.startsWith("appointment_")) return [];
+
   const status = triggerType.endsWith("_closed") ? "closed" : "under_contract";
   const rows = await db
     .select({
@@ -578,14 +617,25 @@ async function matchingUnenrolledContactIds(planId: number, config: TriggerConfi
 /**
  * Enroll a contact in a Smart Plan exactly once. Returns whether an enrollment was created.
  */
-export async function enrollContactInPlan(contactId: number, planId: number): Promise<boolean> {
+export async function enrollContactInPlan(
+  contactId: number,
+  planId: number,
+  appointmentId: number | null = null,
+): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
 
   const existing = await db
     .select({ id: smartPlanEnrollments.id })
     .from(smartPlanEnrollments)
-    .where(and(eq(smartPlanEnrollments.contactId, contactId), eq(smartPlanEnrollments.planId, planId), isNull(smartPlanEnrollments.archivedAt)))
+    .where(and(
+      eq(smartPlanEnrollments.contactId, contactId),
+      eq(smartPlanEnrollments.planId, planId),
+      appointmentId === null
+        ? isNull(smartPlanEnrollments.appointmentId)
+        : eq(smartPlanEnrollments.appointmentId, appointmentId),
+      isNull(smartPlanEnrollments.archivedAt),
+    ))
     .limit(1);
   if (existing.length > 0) return false;
 
@@ -607,6 +657,7 @@ export async function enrollContactInPlan(contactId: number, planId: number): Pr
     await db.insert(smartPlanEnrollments).values({
       planId,
       contactId,
+      appointmentId,
       currentStepIndex: 0,
       enrolledAt: new Date(),
       nextStepAt,
@@ -650,6 +701,25 @@ export async function triggerSmartPlansForEvent(contactId: number, triggerType: 
     .where(and(eq(smartPlans.status, "active"), eq(smartPlans.triggerType, triggerType)));
   for (const plan of plans) {
     if (plan.triggerScope !== "manual") await enrollContactInPlan(contactId, plan.id);
+  }
+}
+
+/** Enroll a contact in each active appointment lifecycle plan once per appointment. */
+export async function triggerSmartPlansForAppointment(
+  contactId: number,
+  triggerType: Extract<SmartPlanTriggerType, `appointment_${string}`>,
+  appointmentId: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const plans = await db
+    .select()
+    .from(smartPlans)
+    .where(and(eq(smartPlans.status, "active"), eq(smartPlans.triggerType, triggerType)));
+  for (const plan of plans) {
+    if (plan.triggerScope !== "manual") {
+      await enrollContactInPlan(contactId, plan.id, appointmentId);
+    }
   }
 }
 

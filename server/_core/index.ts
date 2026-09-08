@@ -56,6 +56,7 @@ import { registerReadOnlyMcpRoute } from "../readOnlyMcp";
 import { registerMcpOAuthRoutes } from "../mcpOAuth";
 import { registerMarketMatchQuizCalendlyWebhook } from "../marketMatchQuizCalendlyWebhook";
 import { scheduleInactiveQuizFollowUps } from "../marketMatchQuiz";
+import { registerCalendarOAuthRoutes } from "../calendarOAuthRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -193,6 +194,8 @@ async function startServer() {
   registerShortLinkRedirects(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  // Per-user Google Calendar OAuth connection and callback.
+  registerCalendarOAuthRoutes(app);
   // Magic link auth — auto-login from email links
   registerMagicLinkRoutes(app);
   // File upload routes

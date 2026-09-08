@@ -551,6 +551,142 @@ export const agentConnections = mysqlTable(
 export type AgentConnection = typeof agentConnections.$inferSelect;
 export type InsertAgentConnection = typeof agentConnections.$inferInsert;
 
+// ─── Calendar Connections and Appointments ───────────────────────────────────
+// A calendar connection belongs to one SavvyOS user, not an organization-wide
+// credential. OAuth tokens are encrypted at rest by calendarService.ts and are
+// never returned to the client.
+export const calendarConnections = mysqlTable(
+  "calendar_connections",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: mysqlEnum("provider", ["google"]).notNull(),
+    calendarId: varchar("calendarId", { length: 512 }).default("primary").notNull(),
+    connectedEmail: varchar("connectedEmail", { length: 320 }),
+    refreshTokenEncrypted: text("refreshTokenEncrypted"),
+    accessTokenEncrypted: text("accessTokenEncrypted"),
+    tokenExpiresAt: timestamp("tokenExpiresAt"),
+    grantedScopes: text("grantedScopes"),
+    status: mysqlEnum("status", ["connected", "disconnected", "error"])
+      .default("disconnected")
+      .notNull(),
+    lastError: text("lastError"),
+    lastSyncedAt: timestamp("lastSyncedAt"),
+    disconnectedAt: timestamp("disconnectedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("calendar_connections_user_provider_unique").on(
+      table.userId,
+      table.provider
+    ),
+  ]
+);
+export type CalendarConnection = typeof calendarConnections.$inferSelect;
+
+// Appointments are connection-scoped so a contact's calls with different
+// agents retain independent history and permissions. Calendly webhooks use the
+// provider URIs for idempotent reconciliation.
+export const appointments = mysqlTable(
+  "appointments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentConnectionId: int("agentConnectionId")
+      .notNull()
+      .references(() => agentConnections.id, { onDelete: "cascade" }),
+    contactId: int("contactId")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    hostUserId: int("hostUserId")
+      .notNull()
+      .references(() => users.id),
+    scheduledByUserId: int("scheduledByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    source: mysqlEnum("source", ["savvyos", "calendly"])
+      .default("savvyos")
+      .notNull(),
+    status: mysqlEnum("status", [
+      "scheduled",
+      "confirmed",
+      "canceled",
+      "completed",
+      "no_show",
+    ])
+      .default("scheduled")
+      .notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    startAt: timestamp("startAt").notNull(),
+    endAt: timestamp("endAt").notNull(),
+    timezone: varchar("timezone", { length: 64 }).notNull().default("America/New_York"),
+    location: varchar("location", { length: 512 }),
+    notes: text("notes"),
+    calendarProvider: mysqlEnum("calendarProvider", ["google", "calendly", "none"])
+      .default("none")
+      .notNull(),
+    externalCalendarEventId: varchar("externalCalendarEventId", { length: 512 }),
+    externalCalendarEventUrl: text("externalCalendarEventUrl"),
+    calendlyEventUri: varchar("calendlyEventUri", { length: 500 }),
+    calendlyInviteeUri: varchar("calendlyInviteeUri", { length: 500 }),
+    calendlyCancelUrl: text("calendlyCancelUrl"),
+    calendlyRescheduleUrl: text("calendlyRescheduleUrl"),
+    invitationDeliveryStatus: mysqlEnum("invitationDeliveryStatus", [
+      "not_needed",
+      "sent",
+      "failed",
+      "managed_by_calendly",
+    ])
+      .default("not_needed")
+      .notNull(),
+    invitationDeliveryError: text("invitationDeliveryError"),
+    confirmedAt: timestamp("confirmedAt"),
+    canceledAt: timestamp("canceledAt"),
+    rescheduledAt: timestamp("rescheduledAt"),
+    completedAt: timestamp("completedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("appointments_calendly_invitee_unique").on(table.calendlyInviteeUri),
+    index("appointments_connection_start_idx").on(table.agentConnectionId, table.startAt),
+    index("appointments_contact_start_idx").on(table.contactId, table.startAt),
+    index("appointments_host_start_idx").on(table.hostUserId, table.startAt),
+  ]
+);
+export type Appointment = typeof appointments.$inferSelect;
+export type InsertAppointment = typeof appointments.$inferInsert;
+
+// Each lifecycle event is immutable. It supplies a durable in-app timeline for
+// manual bookings, Google Calendar changes, and Calendly webhook activity.
+export const appointmentEvents = mysqlTable(
+  "appointment_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    appointmentId: int("appointmentId")
+      .notNull()
+      .references(() => appointments.id, { onDelete: "cascade" }),
+    actorUserId: int("actorUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    eventType: mysqlEnum("eventType", [
+      "scheduled",
+      "confirmed",
+      "rescheduled",
+      "canceled",
+      "completed",
+      "no_show",
+      "imported",
+    ]).notNull(),
+    details: json("details").$type<Record<string, unknown>>(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("appointment_events_appointment_created_idx").on(table.appointmentId, table.createdAt)]
+);
+export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
+
 // ─── Properties ───────────────────────────────────────────────────────────────
 export const properties = mysqlTable(
   "properties",
@@ -1430,6 +1566,10 @@ export const smartPlans = mysqlTable("smart_plans", {
     "new_listing",
     "buyer_closed",
     "seller_closed",
+    "appointment_scheduled",
+    "appointment_confirmed",
+    "appointment_rescheduled",
+    "appointment_canceled",
   ])
     .default("lead_source")
     .notNull(),
@@ -1487,6 +1627,10 @@ export const oneTimeSends = mysqlTable(
       "new_listing",
       "buyer_closed",
       "seller_closed",
+      "appointment_scheduled",
+      "appointment_confirmed",
+      "appointment_rescheduled",
+      "appointment_canceled",
     ]).notNull(),
     triggerLeadSourceIds: json("triggerLeadSourceIds").$type<number[]>(),
     // Calendar-date constraints used only when a one-time send targets a lead
@@ -1688,6 +1832,11 @@ export const smartPlanEnrollments = mysqlTable(
     contactId: int("contactId")
       .notNull()
       .references(() => contacts.id),
+    // Appointment-triggered plans retain their own enrollment history. This
+    // lets the same client enter a reminder workflow for separate appointments.
+    appointmentId: int("appointmentId").references(() => appointments.id, {
+      onDelete: "cascade",
+    }),
     // Index of the next step to execute (0-based)
     currentStepIndex: int("currentStepIndex").default(0).notNull(),
     enrolledAt: timestamp("enrolledAt").defaultNow().notNull(),
@@ -1709,11 +1858,13 @@ export const smartPlanEnrollments = mysqlTable(
     mergedIntoEnrollmentId: int("mergedIntoEnrollmentId"),
   },
   table => [
-    // One contact can only enter a given plan once, even when a webhook is retried
-    // or multiple intake events arrive at the same time.
-    uniqueIndex("smart_plan_enrollments_plan_contact_unique").on(
+    // A general plan remains one enrollment per contact while appointment plans
+    // are idempotent per appointment. The service layer preserves the legacy
+    // no-duplicate rule for null appointment IDs.
+    uniqueIndex("smart_plan_enrollments_plan_contact_appointment_unique").on(
       table.planId,
-      table.contactId
+      table.contactId,
+      table.appointmentId
     ),
   ]
 );

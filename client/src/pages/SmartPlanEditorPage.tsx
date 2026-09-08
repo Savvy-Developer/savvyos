@@ -426,7 +426,7 @@ function StepComposer({ planId, step, defaultSchedule, onSaved, onDelete, proper
   );
 }
 
-type TriggerType = "lead_source" | "all_lead_sources" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed";
+type TriggerType = "lead_source" | "all_lead_sources" | "buyer_under_contract" | "seller_under_contract" | "new_listing" | "buyer_closed" | "seller_closed" | "appointment_scheduled" | "appointment_confirmed" | "appointment_rescheduled" | "appointment_canceled";
 
 const SMART_PLAN_TRIGGERS: Array<{ value: TriggerType; label: string; futureLabel: string }> = [
   { value: "lead_source", label: "Lead Source", futureLabel: "contacts from the selected lead source" },
@@ -436,6 +436,10 @@ const SMART_PLAN_TRIGGERS: Array<{ value: TriggerType; label: string; futureLabe
   { value: "new_listing", label: "New Listing", futureLabel: "new listing contacts" },
   { value: "buyer_closed", label: "Buyer Transaction Closed", futureLabel: "buyer contacts whose transactions close" },
   { value: "seller_closed", label: "Seller Transaction Closed", futureLabel: "seller contacts whose transactions close" },
+  { value: "appointment_scheduled", label: "Appointment Scheduled", futureLabel: "clients when an appointment is scheduled" },
+  { value: "appointment_confirmed", label: "Appointment Confirmed", futureLabel: "clients when an appointment is confirmed" },
+  { value: "appointment_rescheduled", label: "Appointment Rescheduled", futureLabel: "clients when an appointment is rescheduled" },
+  { value: "appointment_canceled", label: "Appointment Canceled", futureLabel: "clients when an appointment is canceled" },
 ];
 
 function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources: LeadSource[]; onSaved: () => void }) {
@@ -469,6 +473,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
 
   const selectedTrigger = SMART_PLAN_TRIGGERS.find((trigger) => trigger.value === form.triggerType) ?? SMART_PLAN_TRIGGERS[0];
   const isLeadSourceTrigger = form.triggerType === "lead_source";
+  const isAppointmentTrigger = form.triggerType.startsWith("appointment_");
   const { data: matchingData, isLoading: isLoadingMatchCount } = trpc.smartPlans.countMatchingContactsForTrigger.useQuery({
     triggerType: form.triggerType,
     triggerLeadSourceIds: isLeadSourceTrigger ? form.triggerLeadSourceIds : null,
@@ -495,8 +500,8 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
         description: form.description.trim() || null,
         triggerType: form.triggerType,
         triggerLeadSourceIds: isLeadSourceTrigger && form.triggerLeadSourceIds.length ? form.triggerLeadSourceIds : null,
-        triggerScope: form.includeExistingContacts ? "existing_and_new" : "new_only",
-        includeExistingContacts: form.includeExistingContacts,
+        triggerScope: isAppointmentTrigger ? "new_only" : form.includeExistingContacts ? "existing_and_new" : "new_only",
+        includeExistingContacts: isAppointmentTrigger ? false : form.includeExistingContacts,
         pauseOnReply: form.pauseOnReply,
         defaultSendWindowEnabled: true,
         defaultSendDays: form.defaultSendDays,
@@ -545,6 +550,11 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
             <div className="flex flex-wrap gap-2">{selectedSources.map((source) => <Badge key={source.id} variant="secondary" className="gap-1.5 py-1"><Zap className="h-3 w-3" />{formatLeadSourcePath(source, leadSources)}<button type="button" aria-label={`Remove ${formatLeadSourcePath(source, leadSources)}`} className="ml-0.5 text-muted-foreground hover:text-destructive" onClick={() => setForm((current) => ({ ...current, triggerLeadSourceIds: current.triggerLeadSourceIds.filter((id) => id !== source.id) }))}>×</button></Badge>)}</div>
           </div>}
 
+          {isAppointmentTrigger && <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+            <p className="font-medium">Appointment lifecycle plan</p>
+            <p className="mt-1 text-xs leading-relaxed text-sky-900">This plan enters a client once for each matching appointment event. Use <code className="rounded bg-white/70 px-1 py-0.5">{"{{appointment_date}}"}</code>, <code className="rounded bg-white/70 px-1 py-0.5">{"{{appointment_time}}"}</code>, <code className="rounded bg-white/70 px-1 py-0.5">{"{{appointment_title}}"}</code>, and <code className="rounded bg-white/70 px-1 py-0.5">{"{{appointment_location}}"}</code> in workflow messages.</p>
+          </div>}
+
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -555,7 +565,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
             </div>
           </div>
 
-          <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
+          {!isAppointmentTrigger && <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
             <div className="flex items-start gap-3">
               <Checkbox id="include-current-contacts" checked={form.includeExistingContacts} onCheckedChange={(checked) => setForm((current) => ({ ...current, includeExistingContacts: checked === true }))} />
               <div className="space-y-1.5">
@@ -565,7 +575,7 @@ function SettingsPanel({ plan, leadSources, onSaved }: { plan: any; leadSources:
                   : <p className="text-xs text-muted-foreground">This Smart Plan will only be applied to new {selectedTrigger.futureLabel}.</p>}
               </div>
             </div>
-          </div>
+          </div>}
 
           <div className="flex justify-end border-t pt-4"><Button disabled={update.isPending} onClick={save}><Save className="mr-1.5 h-4 w-4" />{update.isPending ? "Saving..." : "Save settings"}</Button></div>
         </CardContent>

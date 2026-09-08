@@ -78,6 +78,8 @@ import { affiliateLinksRouter } from "./routers/affiliateLinks";
 import { marketProfileSurveyRouter } from "./routers/marketProfileSurvey";
 import { marketProfileFeedbackRouter } from "./routers/marketProfileFeedback";
 import { sendMarketProfileUpdateTestEmail } from "./agentMarketProfileFeedback";
+import { appointmentsRouter } from "./routers/appointments";
+import { calendarConnectionsRouter } from "./routers/calendarConnections";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -243,6 +245,8 @@ export const appRouter = router({
 
   contacts: contactsRouter,
   agentConnections: agentConnectionsRouter,
+  appointments: appointmentsRouter,
+  calendarConnections: calendarConnectionsRouter,
   connectionRequests: connectionRequestsRouter,
   properties: propertiesRouter,
   transactions: transactionsRouter,

@@ -16,6 +16,8 @@ import {
   Loader2,
   FileSignature,
   Save,
+  CalendarDays,
+  Link2,
 } from "lucide-react";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -43,6 +45,9 @@ export default function ProfilePage() {
   const utils = trpc.useUtils();
 
   const profileQuery = trpc.users.getMyCoreProfile.useQuery(undefined, {
+    enabled: !!user,
+  });
+  const calendarConnectionQuery = trpc.calendarConnections.me.useQuery(undefined, {
     enabled: !!user,
   });
 
@@ -114,6 +119,13 @@ export default function ProfilePage() {
         );
       },
     });
+  const disconnectCalendarMutation = trpc.calendarConnections.disconnect.useMutation({
+    onSuccess: () => {
+      calendarConnectionQuery.refetch();
+      setErrorMsg(null);
+    },
+    onError: error => setErrorMsg(error.message ?? "Unable to disconnect Google Calendar."),
+  });
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -285,6 +297,44 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Google Calendar Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarDays className="h-4 w-4" />
+            Google Calendar
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {calendarConnectionQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Checking calendar connection…</p>
+          ) : calendarConnectionQuery.data?.connection?.status === "connected" ? (
+            <>
+              <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                <div><p className="font-medium">Google Calendar connected</p><p className="mt-0.5 text-xs text-emerald-900">SavvyOS can check your live availability and create appointment events on your primary calendar{calendarConnectionQuery.data.connection.connectedEmail ? ` (${calendarConnectionQuery.data.connection.connectedEmail})` : ""}.</p></div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => window.location.assign("/api/calendar/google/connect")}><Link2 className="mr-1.5 h-3.5 w-3.5" />Reconnect</Button>
+                <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={disconnectCalendarMutation.isPending} onClick={() => disconnectCalendarMutation.mutate()}>{disconnectCalendarMutation.isPending ? "Disconnecting…" : "Disconnect"}</Button>
+              </div>
+            </>
+          ) : calendarConnectionQuery.data?.configured ? (
+            <>
+              <p className="text-sm text-muted-foreground">Connect your Google Calendar to let SavvyOS check availability and add appointments to your calendar. Client invitations are sent automatically.</p>
+              <Button type="button" onClick={() => window.location.assign("/api/calendar/google/connect")}><Link2 className="mr-1.5 h-4 w-4" />Connect Google Calendar</Button>
+            </>
+          ) : (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+              <p className="font-medium">Calendar connection is being prepared</p>
+              <p className="mt-1 text-xs text-sky-900">Appointments can still be scheduled in SavvyOS. Until Google Calendar connection is activated, the agent and client receive calendar invitations by email.</p>
+            </div>
+          )}
+          {typeof window !== "undefined" && new URLSearchParams(window.location.search).get("calendar") === "connected" && <p className="text-sm text-emerald-700">Google Calendar connected successfully.</p>}
+          {typeof window !== "undefined" && ["failed", "declined"].includes(new URLSearchParams(window.location.search).get("calendar") || "") && <p className="text-sm text-destructive">Google Calendar was not connected. You can try again whenever you are ready.</p>}
+        </CardContent>
+      </Card>
 
       {/* Profile Photo Card */}
       <Card>

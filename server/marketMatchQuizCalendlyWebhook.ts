@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { recordQuizCalendlyBooking } from "./marketMatchQuiz";
+import { recordSavvyCalendlyAppointment } from "./routers/appointments";
 
 const webhookSchema = z.object({
   event: z.enum(["invitee.created", "invitee.canceled"]),
@@ -47,14 +48,17 @@ export function registerMarketMatchQuizCalendlyWebhook(app: Express) {
       const payload = parsed.data.payload;
       const event = payload.event as Record<string, unknown> | undefined;
       const invitee = payload.invitee as Record<string, unknown> | undefined;
-      const result = await recordQuizCalendlyBooking({
+      const [savvyResult, marketMatchResult] = await Promise.all([
+        recordSavvyCalendlyAppointment({ eventType: parsed.data.event, payload }),
+        recordQuizCalendlyBooking({
         trackingContent: trackingContent(payload),
         eventUri: stringField(event?.uri ?? payload.event_uri),
         inviteeUri: stringField(invitee?.uri ?? payload.invitee_uri),
         eventType: parsed.data.event,
         rawPayload: parsed.data as unknown as Record<string, unknown>,
-      });
-      return res.json({ ok: true, ...result });
+        }),
+      ]);
+      return res.json({ ok: true, savvy: savvyResult, marketMatch: marketMatchResult });
     } catch (error) {
       console.error("[MarketMatchQuiz] Calendly webhook failed:", error);
       return res.status(500).json({ error: "Unable to record Calendly event" });
