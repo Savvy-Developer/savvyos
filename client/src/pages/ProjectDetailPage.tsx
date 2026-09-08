@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { format, isPast, isToday } from "date-fns";
 import {
-  ArrowLeft, Plus, CheckCircle2, Circle, AlertTriangle, TrendingUp,
+  ArrowLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity,
   BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks,
@@ -69,7 +69,6 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 // ─── Task Item ────────────────────────────────────────────────────────────────
-
 function TaskItem({
   task,
   adminUsers,
@@ -79,6 +78,8 @@ function TaskItem({
   onAddSubtask,
   mentionableUsers,
   highlightedCommentId,
+  activity = [],
+  onChanged,
   children,
 }: {
   task: any;
@@ -89,16 +90,20 @@ function TaskItem({
   onAddSubtask?: (task: any) => void;
   mentionableUsers: any[];
   highlightedCommentId?: number | null;
+  activity?: any[];
+  onChanged?: () => void;
   children?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [subtasksExpanded, setSubtasksExpanded] = useState(true);
-  const subTodoCount = Children.count(children);
-  const hasSubtodos = subTodoCount > 0;
+  const [subtasksExpanded, setSubtasksExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [commentMentionQuery, setCommentMentionQuery] = useState<string | null>(null);
   const [selectedCommentMentions, setSelectedCommentMentions] = useState<{ id: number; name: string }[]>([]);
+  const subTodoCount = Children.count(children);
+  const hasSubtodos = subTodoCount > 0;
   const [editForm, setEditForm] = useState({
     title: task.title,
     ownerId: String(task.ownerId ?? ""),
@@ -106,34 +111,50 @@ function TaskItem({
     priority: task.priority as Priority,
     notes: task.notes ?? "",
   });
-
   const { data: comments = [], refetch: refetchComments } = trpc.pm.tasks.getComments.useQuery(
     { taskId: task.id },
-    { enabled: expanded }
+    { enabled: expanded },
   );
-
   const addComment = trpc.pm.tasks.addComment.useMutation({
-    onSuccess: () => { setCommentText(""); setCommentMentionQuery(null); setSelectedCommentMentions([]); refetchComments(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      setCommentText("");
+      setCommentMentionQuery(null);
+      setSelectedCommentMentions([]);
+      setComposerOpen(false);
+      void refetchComments();
+      onChanged?.();
+    },
+    onError: (error) => toast.error(error.message),
   });
-
+  const deleteComment = trpc.pm.tasks.deleteComment.useMutation({
+    onSuccess: () => {
+      void refetchComments();
+      onChanged?.();
+      toast.success("Comment deleted.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const isOverdue = dueDate && !task.completed && isPast(dueDate) && !isToday(dueDate);
-  const isDueToday = dueDate && !task.completed && isToday(dueDate);
+  const isOverdue = Boolean(dueDate && !task.completed && isPast(dueDate) && !isToday(dueDate));
+  const isDueToday = Boolean(dueDate && !task.completed && isToday(dueDate));
+  const dueLabel = dueDate ? (isOverdue ? "Overdue" : isDueToday ? "Today" : format(dueDate, "MMM d, yyyy")) : "No due date";
+  const commentCount = Number(task.commentCount ?? comments.length ?? 0);
   const commentMentionCandidates = useMemo(() => mentionableUsers
     .filter((person: any) => !selectedCommentMentions.some((mention) => mention.id === person.userId))
     .filter((person: any) => !commentMentionQuery || (person.name ?? person.email ?? "").toLowerCase().includes(commentMentionQuery.toLowerCase())), [mentionableUsers, selectedCommentMentions, commentMentionQuery]);
-
+  const taskActivity = useMemo(() => {
+    const recorded = (activity ?? []).filter((entry: any) => entry.taskId === task.id);
+    const entries = recorded.some((entry: any) => entry.action === "task_created") ? recorded : [{ id: `created-${task.id}`, action: "task_created", detail: "Created this To-Do.", actorName: null, createdAt: task.createdAt }, ...recorded];
+    return entries.filter((entry: any) => entry.createdAt).sort((left: any, right: any) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  }, [activity, task.createdAt, task.id]);
   useEffect(() => {
     if (highlightedCommentId) setExpanded(true);
   }, [highlightedCommentId]);
-
   useEffect(() => {
     if (!highlightedCommentId || !(comments as any[]).some((comment: any) => comment.id === highlightedCommentId)) return;
     const timeout = window.setTimeout(() => document.getElementById(`todo-${task.id}-comment-${highlightedCommentId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
     return () => window.clearTimeout(timeout);
   }, [comments, highlightedCommentId, task.id]);
-
   function handleSaveEdit() {
     onUpdate(task.id, {
       title: editForm.title,
@@ -144,243 +165,56 @@ function TaskItem({
     });
     setEditing(false);
   }
-
   function insertCommentMention(person: { id: number; name: string }) {
     setSelectedCommentMentions((current) => current.some((mention) => mention.id === person.id) ? current : [...current, person]);
     setCommentText((current) => current.replace(/(^|\s)@[^\s@]*$/, `$1@${person.name} `));
     setCommentMentionQuery(null);
   }
-
   function submitComment() {
     if (!commentText.trim()) return;
     addComment.mutate({ taskId: task.id, content: commentText.trim(), mentionedUserIds: selectedCommentMentions.map((mention) => mention.id) });
   }
-
-  return (
-    <div id={`todo-${task.id}`} className={cn("border border-border rounded-lg overflow-hidden transition-all", task.completed && !highlightedCommentId && "opacity-60")}>
-      <div className="flex items-center gap-3 px-4 py-3">
-        <button
-          onClick={() => onToggle(task.id, !task.completed)}
-          className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
-        >
-          {task.completed
-            ? <CheckCircle2 className="h-5 w-5 text-green-500" />
-            : <Circle className="h-5 w-5" />
-          }
-        </button>
-
-        <div className="flex-1 min-w-0">
-          {editing ? (
-            <Input
-              value={editForm.title}
-              onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
-              className="h-7 text-sm"
-              autoFocus
-            />
-          ) : (
-            <span className={cn("text-sm font-medium", task.completed && "line-through text-muted-foreground")}>
-              {task.title}
-            </span>
-          )}
-        </div>
-
-        {/* Priority */}
-        <span className={`hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium border ${PRIORITY_CONFIG[task.priority as Priority]?.badge}`}>
-          {PRIORITY_CONFIG[task.priority as Priority]?.label}
-        </span>
-
-        {/* Owner */}
-        {task.ownerName && (
-          <span className="hidden md:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-            <User className="h-3 w-3" />
-            {task.ownerName.split(" ")[0]}
-          </span>
-        )}
-
-        {/* Due date */}
-        {dueDate && (
-          <span className={cn(
-            "hidden lg:block text-xs shrink-0",
-            isOverdue ? "text-red-600 font-medium" : isDueToday ? "text-amber-600 font-medium" : "text-muted-foreground"
-          )}>
-            {isOverdue ? "Overdue" : isDueToday ? "Today" : format(dueDate, "MMM d")}
-          </span>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          {hasSubtodos && (
-            <Button
-              variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs"
-              onClick={() => {
-                if (!expanded) {
-                  setExpanded(true);
-                  setSubtasksExpanded(true);
-                  return;
-                }
-                setSubtasksExpanded((value) => !value);
-              }}
-              aria-label={expanded && subtasksExpanded ? "Hide sub-To-Dos" : "Show sub-To-Dos"}
-              title={expanded && subtasksExpanded ? "Hide sub-To-Dos" : "Show sub-To-Dos"}
-            >
-              <ListChecks className="h-3.5 w-3.5 text-primary" />{subTodoCount}
-              {expanded && subtasksExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </Button>
-          )}
-          {onAddSubtask && (
-            <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => onAddSubtask(task)} title="Add sub-To-Do">
-              <Plus className="h-3.5 w-3.5" />Add sub-To-Do
-            </Button>
-          )}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setExpanded(e => !e)}
-            aria-label={expanded ? "Collapse todo details" : "Expand todo details"}
-            title={expanded ? "Collapse todo details" : "Expand todo details"}
-          >
-            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setExpanded(true)}
-            aria-label="Open todo comments"
-            title="Open todo comments"
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            {(comments as any[]).length > 0 && (
-              <span className="ml-0.5 text-xs">{(comments as any[]).length}</span>
-            )}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7">
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setEditing(e => !e)}>
-                <Edit2 className="h-3.5 w-3.5 mr-2" /> Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setExpanded(true)}>
-                <MessageSquare className="h-3.5 w-3.5 mr-2" /> Open details & comments
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive" onClick={() => onDelete(task.id)}>
-                <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      {/* Edit form */}
-      {editing && (
-        <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <Label className="text-xs">Owner</Label>
-              <SearchableSelect
-                className="w-full h-8 text-xs"
-                options={(adminUsers as any[]).map((u: any) => ({ value: String(u.id), label: u.name ?? `User #${u.id}` }))}
-                value={editForm.ownerId}
-                onValueChange={v => setEditForm(f => ({ ...f, ownerId: v }))}
-                placeholder="Select owner"
-                searchPlaceholder="Search users…"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Priority</Label>
-              <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v as Priority }))}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Due Date</Label>
-              <Input type="date" value={editForm.dueDate} onChange={e => setEditForm(f => ({ ...f, dueDate: e.target.value }))} className="h-8 text-xs" />
-            </div>
-          </div>
-          <div>
-            <Label className="text-xs">Notes</Label>
-            <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} className="text-xs" />
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleSaveEdit}><Save className="h-3.5 w-3.5 mr-1" /> Save</Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}><X className="h-3.5 w-3.5 mr-1" /> Cancel</Button>
-          </div>
-        </div>
-      )}
-
-      {expanded && hasSubtodos && subtasksExpanded && (
-        <div className="border-t border-border bg-muted/10 px-3 py-2 sm:pl-8">
-          <div className="space-y-2 border-l-2 border-primary/15 pl-3">{children}</div>
-        </div>
-      )}
-
-      {/* Comments */}
-      {expanded && (
-        <div className="border-t border-border bg-muted/10 px-4 py-3 space-y-3">
-          <section className="rounded-md border border-border bg-background/70 p-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Details</h3>
-            {task.notes ? <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1.5 text-sm text-muted-foreground">No details added.</p>}
-          </section>
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Comments</h3>
-            {(comments as any[]).map((c: any) => (
-              <div id={`todo-${task.id}-comment-${c.id}`} key={c.id} className={cn("mt-3 flex gap-2 rounded-md p-2 transition-colors", highlightedCommentId === c.id && "bg-amber-100 ring-2 ring-amber-400/70 shadow-sm")}>
-                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
-                  {c.authorName?.[0] ?? "?"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-medium">{c.authorName ?? "Unknown"}</span>
-                    <span className="text-xs text-muted-foreground">{format(new Date(c.createdAt), "MMM d, h:mm a")}</span>
-                  </div>
-                  <p className="text-sm text-foreground">{c.content}</p>
-                  {c.mentions?.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {c.mentions.map((mention: any) => <span key={mention.userId} className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">@{mention.name ?? "Teammate"}</span>)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            <div className="relative mt-3">
-              <Textarea
-                placeholder="Add a comment… Type @ to mention a collaborator."
-                value={commentText}
-                onChange={e => {
-                  const value = e.target.value;
-                  setCommentText(value);
-                  const match = value.match(/(?:^|\s)@([^\s@]*)$/);
-                  setCommentMentionQuery(match ? match[1] : null);
-                }}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
-                    e.preventDefault();
-                    submitComment();
-                  }
-                }}
-                className="min-h-20 resize-none text-sm"
-              />
-              {commentMentionQuery !== null && (
-                <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
-                  {commentMentionCandidates.length === 0 ? <p className="px-3 py-2 text-xs text-muted-foreground">No matching collaborators. Add them to the project first.</p> : <div className="max-h-44 overflow-y-auto py-1">{commentMentionCandidates.map((person: any) => <button key={person.userId} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => insertCommentMention({ id: person.userId, name: person.name ?? person.email })}><span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-medium text-primary">{(person.name ?? person.email ?? "?")[0]}</span><span>{person.name ?? person.email}</span></button>)}</div>}
-                </div>
-              )}
-            </div>
-            {selectedCommentMentions.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{selectedCommentMentions.map((mention) => <span key={mention.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">@{mention.name}<button type="button" onClick={() => setSelectedCommentMentions((current) => current.filter((item) => item.id !== mention.id))}><X className="h-3 w-3" /></button></span>)}</div>}
-            <div className="mt-2 flex justify-end">
-              <Button size="sm" disabled={!commentText.trim() || addComment.isPending} onClick={submitComment}>Post</Button>
-            </div>
-          </section>
-        </div>
-      )}
+  function openComments() {
+    setExpanded(true);
+    window.setTimeout(() => document.getElementById(`todo-${task.id}-comments`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+  }
+  function toggleSubtodos() {
+    if (!expanded) {
+      setExpanded(true);
+      setSubtasksExpanded(true);
+      return;
+    }
+    setSubtasksExpanded((value) => !value);
+  }
+  function activityLabel(entry: any) {
+    if (entry.action === "task_created") return entry.actorName ? `${entry.actorName} created this To-Do.` : "Created this To-Do.";
+    if (entry.action === "task_completed") return `${entry.actorName ?? "A teammate"} completed this To-Do.`;
+    if (entry.action === "task_reopened") return `${entry.actorName ?? "A teammate"} reopened this To-Do.`;
+    if (entry.action === "comment_added") return `${entry.actorName ?? "A teammate"} left a comment.`;
+    if (entry.action === "task_updated") return `${entry.actorName ?? "A teammate"} updated this To-Do.`;
+    return entry.detail ?? `${entry.actorName ?? "A teammate"} updated this To-Do.`;
+  }
+  return <div id={`todo-${task.id}`} className={cn("overflow-hidden rounded-md border border-border bg-card", task.completed && !highlightedCommentId && "opacity-70")}>
+    <div className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/45">
+      <button type="button" onClick={() => onToggle(task.id, !task.completed)} aria-label={task.completed ? "Completed. Reopen To-Do." : "Complete To-Do"} title={task.completed ? "Completed" : "Complete To-Do"} className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", task.completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-700")}>
+        {task.completed ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+      </button>
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+        <span className="min-w-0 flex-1"><span className={cn("block truncate text-sm font-medium", task.completed && "text-muted-foreground line-through")}>{task.title}</span><span className="block truncate text-xs text-muted-foreground">{task.ownerName ?? "Unassigned"} · due {dueLabel}</span><span className="mt-1 flex flex-wrap items-center gap-1"><span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITY_CONFIG[task.priority as Priority]?.badge}`}>{PRIORITY_CONFIG[task.priority as Priority]?.label ?? "Medium"}</span></span></span>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+      </button>
+      {hasSubtodos ? <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs text-primary" onClick={toggleSubtodos} title={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`} aria-label={`${subtasksExpanded && expanded ? "Hide" : "Show"} ${subTodoCount} sub-To-Do${subTodoCount === 1 ? "" : "s"}`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span>{subTodoCount}</span></Button> : null}
+      <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button>
     </div>
-  );
+    {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2 sm:p-2.5">
+      <div className="grid overflow-hidden rounded-md border bg-background text-xs sm:grid-cols-3"><div className="flex min-w-0 items-center gap-1 border-b px-2 py-1 sm:border-b-0"><span className="text-muted-foreground">Assignee</span><p className="min-w-0 truncate font-medium">{task.ownerName ?? "Unassigned"}</p></div><div className="flex min-w-0 items-center gap-1 border-b px-2 py-1 sm:border-b-0 sm:border-l"><span className="text-muted-foreground">Due</span><p className={cn("min-w-0 truncate font-medium", isOverdue && "text-destructive")}>{dueLabel}</p></div><div className="flex min-w-0 items-center gap-1 px-2 py-1 sm:border-l"><span className="text-muted-foreground">Priority</span><span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITY_CONFIG[task.priority as Priority]?.badge}`}>{PRIORITY_CONFIG[task.priority as Priority]?.label ?? "Medium"}</span></div></div>
+      {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-3"><div className="sm:col-span-3"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div></div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
+      <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section>
+      {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
+      <section id={`todo-${task.id}-comments`} className="mt-2 rounded-md border bg-background p-2"><div className="flex items-center justify-between gap-2"><h4 className="flex items-center gap-1.5 text-sm font-semibold"><MessageCircle className="h-4 w-4 text-primary" />Comments</h4><span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{comments.length}</span></div>{(comments as any[]).length ? <div className="mt-1 divide-y">{(comments as any[]).map((comment: any) => <article id={`todo-${task.id}-comment-${comment.id}`} key={comment.id} className={cn("flex gap-2 py-1.5 first:pt-0 last:pb-0", highlightedCommentId === comment.id && "rounded bg-amber-100 ring-2 ring-amber-400/70 shadow-sm")}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">{(comment.authorName ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((part: string) => part[0]).join("").toUpperCase()}</span><div className="min-w-0 flex-1"><div className="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-0.5"><span className="text-xs font-semibold">{comment.authorName ?? "Teammate"}</span><span className="text-[11px] text-muted-foreground">{format(new Date(comment.createdAt), "MMM d, h:mm a")}</span>{comment.canDelete ? <Button type="button" variant="ghost" size="icon" className="ml-auto h-6 w-6 text-muted-foreground hover:text-destructive" disabled={deleteComment.isPending} aria-label="Delete comment" title="Delete comment" onClick={() => { if (window.confirm("Delete this comment?")) deleteComment.mutate({ commentId: comment.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button> : null}</div><p className="mt-0.5 whitespace-pre-wrap text-sm">{comment.content}</p>{comment.mentions?.length ? <div className="mt-1 flex flex-wrap gap-1">{comment.mentions.map((mention: any) => <span key={mention.userId} className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">@{mention.name ?? "Teammate"}</span>)}</div> : null}</div></article>)}</div> : <p className="mt-1 text-sm text-muted-foreground">No comments yet. Add context or @mention a project collaborator.</p>}{composerOpen ? <div className="mt-1.5 rounded border bg-muted/20 p-1.5"><div className="relative"><Textarea placeholder="Add a comment… Type @ to mention a collaborator." value={commentText} onChange={event => { const value = event.target.value; setCommentText(value); const match = value.match(/(?:^|\s)@([^\s@]*)$/); setCommentMentionQuery(match ? match[1] : null); }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && commentText.trim()) { event.preventDefault(); submitComment(); } }} className="min-h-16 resize-none text-sm" autoFocus />{commentMentionQuery !== null ? <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">{commentMentionCandidates.length === 0 ? <p className="px-3 py-2 text-xs text-muted-foreground">No matching collaborators. Add them to the project first.</p> : <div className="max-h-44 overflow-y-auto py-1">{commentMentionCandidates.map((person: any) => <button key={person.userId} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => insertCommentMention({ id: person.userId, name: person.name ?? person.email })}><span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">{(person.name ?? person.email ?? "?")[0]}</span><span>{person.name ?? person.email}</span></button>)}</div>}</div> : null}</div>{selectedCommentMentions.length ? <div className="mt-1 flex flex-wrap gap-1">{selectedCommentMentions.map((mention) => <span key={mention.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">@{mention.name}<button type="button" onClick={() => setSelectedCommentMentions((current) => current.filter((item) => item.id !== mention.id))} aria-label={`Remove ${mention.name} mention`}><X className="h-3 w-3" /></button></span>)}</div> : null}<div className="mt-1.5 flex items-center justify-end gap-1.5"><Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => { setComposerOpen(false); setCommentText(""); setCommentMentionQuery(null); setSelectedCommentMentions([]); }}>Cancel</Button><Button type="button" size="sm" className="h-7" disabled={!commentText.trim() || addComment.isPending} onClick={submitComment}>{addComment.isPending ? "Posting…" : <><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Post</>}</Button></div></div> : <Button type="button" variant="ghost" size="sm" className="mt-1.5 h-7 px-1.5 text-xs" onClick={() => setComposerOpen(true)}><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Add comment</Button>}</section>
+      <section className="mt-2 rounded-md border bg-background"><div className="flex flex-wrap items-center justify-between gap-1.5 px-2 py-1.5"><button type="button" className="inline-flex items-center gap-1.5 rounded px-0.5 py-0.5 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => setShowActivity((current) => !current)} aria-expanded={showActivity}><History className="h-4 w-4 text-primary" /><span className="text-sm font-semibold">Activity</span><span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{taskActivity.length}</span><ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", showActivity && "rotate-180")} /><span className="sr-only">{showActivity ? "Hide activity" : "Show activity"}</span></button><div className="flex flex-wrap items-center justify-end gap-1.5"><Button type="button" size="sm" variant="outline" className="h-8" onClick={() => { setExpanded(true); setEditing(true); }}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit To-Do</Button>{onAddSubtask ? <Button type="button" size="sm" className="h-8" onClick={() => onAddSubtask(task)}>Add sub-To-Do</Button> : null}{hasSubtodos ? <Button type="button" size="icon" variant="outline" className="relative h-8 w-8" onClick={toggleSubtodos} aria-label={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`} title={`${subtasksExpanded ? "Hide" : "View"} ${subTodoCount} sub-To-Dos`}><CornerDownRight className="h-4 w-4" strokeWidth={2.75} /><span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{subTodoCount}</span></Button> : null}<Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => { if (window.confirm(`Delete “${task.title}”?`)) onDelete(task.id); }} aria-label="Delete To-Do" title="Delete To-Do"><Trash2 className="h-4 w-4" /></Button></div></div>{showActivity ? <div className="border-t px-2 py-2"><div className="space-y-1.5 border-l border-border pl-2.5">{taskActivity.map((entry: any) => <article key={entry.id} className="relative text-sm"><span className="absolute -left-[1.22rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground"><History className="h-3.5 w-3.5" /></span><p>{activityLabel(entry)}</p>{entry.detail && entry.action !== "task_created" ? <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{entry.detail}</p> : null}<p className="mt-0.5 text-[11px] text-muted-foreground">{format(new Date(entry.createdAt), "MMM d, h:mm a")}</p></article>)}</div></div> : null}</section>
+    </div> : null}
+  </div>;
 }
 
 // ─── Weekly Update Form ───────────────────────────────────────────────────────
@@ -1040,6 +874,8 @@ export default function ProjectDetailPage() {
                 <TaskItem
                   key={task.id}
                   task={task}
+                  activity={project.activity as any[]}
+                  onChanged={() => refetch()}
                   adminUsers={adminUsers as any[]}
                   onToggle={(id, completed) => toggleTask.mutate({ id, completed })}
                   onDelete={(id) => deleteTask.mutate({ id })}
@@ -1049,7 +885,7 @@ export default function ProjectDetailPage() {
                   onAddSubtask={(parent) => { setParentTodo(parent); setTaskForm({ title: "", ownerId: String(parent.ownerId ?? ""), dueDate: parent.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "", priority: parent.priority as Priority, notes: "" }); setShowAddTask(true); }}
                 >
                   {(subTodosByParent.get(task.id) ?? []).map((subTodo) => (
-                    <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
+                    <TaskItem key={subTodo.id} task={subTodo} activity={project.activity as any[]} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
                   ))}
                 </TaskItem>
               ))}
@@ -1070,7 +906,7 @@ export default function ProjectDetailPage() {
                         onAddSubtask={(parent) => { setParentTodo(parent); setTaskForm({ title: "", ownerId: String(parent.ownerId ?? ""), dueDate: parent.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "", priority: parent.priority as Priority, notes: "" }); setShowAddTask(true); }}
                       >
                         {(subTodosByParent.get(task.id) ?? []).map((subTodo) => (
-                          <TaskItem key={subTodo.id} task={subTodo} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
+                          <TaskItem key={subTodo.id} task={subTodo} activity={project.activity as any[]} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={(id) => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />
                         ))}
                       </TaskItem>
                     ))}

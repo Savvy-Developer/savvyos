@@ -247,6 +247,7 @@ export const pmRouter = router({
             notes: pmTasks.notes,
             sortOrder: pmTasks.sortOrder,
             createdAt: pmTasks.createdAt,
+            commentCount: sql<number>`(select count(*) from ${pmTaskComments} where ${pmTaskComments.taskId} = ${pmTasks.id})`.as("commentCount"),
           })
           .from(pmTasks)
           .leftJoin(users, eq(pmTasks.ownerId, users.id))
@@ -479,7 +480,7 @@ export const pmRouter = router({
         await assertProjectAccess(db, task.projectId, ctx.user);
         const { id, ...fields } = input;
         await db.update(pmTasks).set(fields).where(eq(pmTasks.id, id));
-        await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo");
+        await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo", id);
         return { success: true };
       }),
 
@@ -598,6 +599,28 @@ export const pmRouter = router({
         return { id: commentId };
       }),
 
+    deleteComment: protectedProcedure
+      .input(z.object({ commentId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [comment] = await db
+          .select({ id: pmTaskComments.id, authorId: pmTaskComments.authorId, taskId: pmTaskComments.taskId, projectId: pmTasks.projectId, projectOwnerId: pmProjects.ownerId })
+          .from(pmTaskComments)
+          .innerJoin(pmTasks, eq(pmTaskComments.taskId, pmTasks.id))
+          .innerJoin(pmProjects, eq(pmTasks.projectId, pmProjects.id))
+          .where(eq(pmTaskComments.id, input.commentId))
+          .limit(1);
+        if (!comment) throw new TRPCError({ code: "NOT_FOUND", message: "This comment no longer exists." });
+        await assertProjectAccess(db, comment.projectId, ctx.user);
+        if (comment.authorId !== ctx.user.id && comment.projectOwnerId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only the comment author or Project owner can delete this comment." });
+        }
+        await db.delete(pmTaskComments).where(eq(pmTaskComments.id, comment.id));
+        await logActivity(comment.projectId, ctx.user.id, "comment_deleted", "Deleted a comment", comment.taskId);
+        return { success: true };
+      }),
     getComments: protectedProcedure
       .input(z.object({ taskId: z.number() }))
       .query(async ({ ctx, input }) => {
@@ -607,6 +630,7 @@ export const pmRouter = router({
         const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.taskId)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
+        const [project] = await db.select({ ownerId: pmProjects.ownerId }).from(pmProjects).where(eq(pmProjects.id, task.projectId)).limit(1);
         const comments = await db
           .select({
             id: pmTaskComments.id,
@@ -632,7 +656,7 @@ export const pmRouter = router({
           group.push({ userId: mention.userId, name: mention.name });
           mentionsByComment.set(mention.commentId, group);
         }
-        return comments.map((comment) => ({ ...comment, mentions: mentionsByComment.get(comment.id) ?? [] }));
+        return comments.map((comment) => ({ ...comment, canDelete: comment.authorId === ctx.user.id || project?.ownerId === ctx.user.id, mentions: mentionsByComment.get(comment.id) ?? [] }));
       }),
   }),
 
