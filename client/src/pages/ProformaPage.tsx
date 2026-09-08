@@ -8,11 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/PageHeader";
 import ProformaEmailComposer from "@/components/ProformaEmailComposer";
-import { ArrowLeft, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail } from "lucide-react";
+import { ArrowLeft, Copy, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -280,6 +280,23 @@ function hydrateProformaForm(formData: Partial<ProformaForm> | null | undefined)
   };
 }
 
+function getNextDuplicateTitle(sourceTitle: string, existingProformas: Array<{ title: string | null }>) {
+  const baseTitle = sourceTitle.trim() || "STR Investment Analysis";
+  const existingTitles = new Set(
+    existingProformas
+      .map((proforma) => proforma.title?.trim().toLocaleLowerCase())
+      .filter((title): title is string => Boolean(title)),
+  );
+  const copyTitle = `${baseTitle} Copy`;
+  if (!existingTitles.has(copyTitle.toLocaleLowerCase())) return copyTitle;
+
+  let copyNumber = 2;
+  while (existingTitles.has(`${copyTitle} ${copyNumber}`.toLocaleLowerCase())) {
+    copyNumber += 1;
+  }
+  return `${copyTitle} ${copyNumber}`;
+}
+
 export default function ProformaPage() {
   const { id: propId } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
@@ -299,6 +316,10 @@ export default function ProformaPage() {
   const [showExistingComps, setShowExistingComps] = useState(false);
   const [showEmailProforma, setShowEmailProforma] = useState(false);
   const [showReportSettings, setShowReportSettings] = useState(false);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateTitle, setDuplicateTitle] = useState("");
+  const [isDuplicating, setIsDuplicating] = useState(false);
+  const [shouldHighlightDuplicate, setShouldHighlightDuplicate] = useState(false);
   const [autoLoadDone, setAutoLoadDone] = useState(false);
 
   const utils = trpc.useUtils();
@@ -313,6 +334,15 @@ export default function ProformaPage() {
   const updateMutation = trpc.properties.updateProforma.useMutation({ onSuccess: () => { refetch(); } });
   const updatePropertyMutation = trpc.properties.update.useMutation({ onSuccess: () => { utils.properties.get.invalidate({ id: propertyId }); } });
   const deleteMutation = trpc.properties.deleteProforma.useMutation({ onSuccess: () => { refetch(); } });
+  const duplicateHintStorageKey = `savvyos.proforma-duplicate-hint-seen.${user?.id ?? "anonymous"}`;
+
+  useEffect(() => {
+    if (!editingId || typeof window === "undefined") {
+      setShouldHighlightDuplicate(false);
+      return;
+    }
+    setShouldHighlightDuplicate(window.localStorage.getItem(duplicateHintStorageKey) !== "true");
+  }, [duplicateHintStorageKey, editingId]);
 
   // ─── AUTO-SAVE (debounced 2s after any field change) ─────────────────────────
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -841,6 +871,68 @@ export default function ProformaPage() {
     if (editingId === id) { setEditing(false); setEditingId(null); setForm(defaultForm); }
   };
 
+  const openDuplicateDialog = () => {
+    if (!editingId) return;
+    setDuplicateTitle(getNextDuplicateTitle(title, (proformas ?? []) as Array<{ title: string | null }>));
+    setShowDuplicateDialog(true);
+    if (shouldHighlightDuplicate) {
+      window.localStorage.setItem(duplicateHintStorageKey, "true");
+      setShouldHighlightDuplicate(false);
+    }
+  };
+
+  const normalizedDuplicateTitle = duplicateTitle.trim();
+  const duplicateTitleExists = normalizedDuplicateTitle.length > 0 && (proformas ?? []).some((proforma: any) =>
+    (proforma.title || "").trim().toLocaleLowerCase() === normalizedDuplicateTitle.toLocaleLowerCase(),
+  );
+  const duplicateTitleError = !normalizedDuplicateTitle
+    ? "Enter a name for the new pro-forma."
+    : duplicateTitleExists
+      ? "Choose a name that is different from the saved pro-formas for this property."
+      : null;
+
+  const handleDuplicate = async () => {
+    if (!editingId || duplicateTitleError) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+
+    setIsDuplicating(true);
+    try {
+      // Save any in-progress edits first, then make the copy from the current snapshot.
+      await doAutoSave();
+      const sourceForm = formRef.current;
+      const formData = { ...sourceForm } as any;
+      const currentCalc = calcRef.current;
+      formData._calcGrossRevenue = currentCalc.s2?.grossRevenue > 0 ? currentCalc.s2.grossRevenue.toFixed(2) : null;
+      formData._calcNoi = currentCalc.s2?.noi ? currentCalc.s2.noi.toFixed(2) : null;
+      formData._calcCashFlow = currentCalc.s2?.cashFlow ? currentCalc.s2.cashFlow.toFixed(2) : null;
+      formData._calcCashOnCash = currentCalc.s2?.cashOnCash ? currentCalc.s2.cashOnCash.toFixed(4) : null;
+      formData._calcCapRate = currentCalc.s2?.capRate ? currentCalc.s2.capRate.toFixed(4) : null;
+
+      const result = await createMutation.mutateAsync({
+        propertyId,
+        title: normalizedDuplicateTitle,
+        formData,
+        notes: sourceForm.notes,
+      });
+      await Promise.all([
+        refetch(),
+        utils.properties.listAllProformas.invalidate(),
+      ]);
+
+      setTitle(normalizedDuplicateTitle);
+      setEditingId(result.id);
+      lastSavedForm.current = JSON.stringify(sourceForm);
+      hasDirtyChanges.current = false;
+      setShowDuplicateDialog(false);
+      navigate(`/properties/${propertyId}/proforma?load=${result.id}`);
+    } catch (error: any) {
+      console.error("Pro-forma duplication failed:", error);
+      alert(`Could not duplicate this pro-forma: ${error.message || "Unknown error"}`);
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
   const [downloadingReport, setDownloadingReport] = useState(false);
   const handleDownloadInvestorReport = async (coBrand?: ReportOption["coBrand"]) => {
     setDownloadingReport(true);
@@ -1004,6 +1096,18 @@ export default function ProformaPage() {
           <Button variant="outline" size="sm" onClick={openEmailProforma} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
             <Mail className="h-4 w-4 mr-1" /> Email Proforma
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openDuplicateDialog}
+            disabled={!editingId || isDuplicating}
+            className={shouldHighlightDuplicate
+              ? "border-primary bg-primary/10 text-primary shadow-sm ring-2 ring-primary/30 hover:bg-primary/15"
+              : undefined}
+            aria-describedby={shouldHighlightDuplicate ? "duplicate-proforma-hint" : undefined}
+          >
+            <Copy className="h-4 w-4 mr-1" /> {isDuplicating ? "Duplicating..." : "Duplicate a Pro-forma"}
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" disabled={downloadingReport} className="border-cyan-600 text-cyan-700 hover:bg-cyan-50">
@@ -1028,6 +1132,11 @@ export default function ProformaPage() {
       <div className="mb-4">
         <Input className="text-lg font-semibold border-none shadow-none px-0 focus-visible:ring-0" value={title} onChange={e => setTitle(e.target.value)} placeholder="Pro-forma Title" />
         <p className="text-sm text-slate-500">{[property?.address, [property?.city, property?.state, property?.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</p>
+        {shouldHighlightDuplicate && (
+          <p id="duplicate-proforma-hint" className="mt-2 text-xs font-medium text-primary">
+            Need a what-if version? Duplicate this saved pro-forma to keep the original intact.
+          </p>
+        )}
       </div>
 
       <Tabs defaultValue="acquisition" className="w-full">
@@ -2196,6 +2305,52 @@ export default function ProformaPage() {
               );
             })}
           </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={showDuplicateDialog}
+        onOpenChange={(open) => {
+          if (!isDuplicating) setShowDuplicateDialog(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Duplicate this pro-forma</DialogTitle>
+            <DialogDescription>
+              A separate copy will be created with all current inputs. Give it a distinct name so it is easy to tell apart from the original.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="duplicate-proforma-title">New pro-forma name</Label>
+            <Input
+              id="duplicate-proforma-title"
+              value={duplicateTitle}
+              onChange={(event) => setDuplicateTitle(event.target.value)}
+              placeholder="e.g. STR Investment Analysis — 25% Down"
+              autoFocus
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !duplicateTitleError) {
+                  event.preventDefault();
+                  handleDuplicate();
+                }
+              }}
+              aria-invalid={Boolean(duplicateTitleError)}
+              aria-describedby={duplicateTitleError ? "duplicate-proforma-title-error" : undefined}
+            />
+            {duplicateTitleError ? (
+              <p id="duplicate-proforma-title-error" className="text-sm text-destructive">{duplicateTitleError}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">The duplicate will appear first in the pro-forma list.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDuplicateDialog(false)} disabled={isDuplicating}>
+              Cancel
+            </Button>
+            <Button onClick={handleDuplicate} disabled={Boolean(duplicateTitleError) || isDuplicating}>
+              <Copy className="h-4 w-4" /> {isDuplicating ? "Duplicating..." : "Create Duplicate"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <ProformaEmailComposer

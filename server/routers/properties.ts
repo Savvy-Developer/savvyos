@@ -668,7 +668,7 @@ export const propertiesRouter = router({
       }).from(proformas)
         .leftJoin(users, eq(proformas.createdByUserId, users.id))
         .where(and(...conditions))
-        .orderBy(desc(proformas.createdAt));
+        .orderBy(desc(proformas.createdAt), desc(proformas.id));
       return rows;
     }),
 
@@ -708,7 +708,7 @@ export const propertiesRouter = router({
         .leftJoin(users, eq(proformas.createdByUserId, users.id))
         .leftJoin(properties, eq(proformas.propertyId, properties.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(proformas.updatedAt));
+        .orderBy(desc(proformas.updatedAt), desc(proformas.id));
     }),
 
   listProformaCountsByAgent: protectedProcedure
