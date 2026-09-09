@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 const QUIZ_ACCESS_STORAGE_KEY = "savvy-market-match-access";
 const SAVVY_LOGO_LIGHT_BACKGROUND = "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
-const SAVVY_LOGO_DARK_BACKGROUND = "/brand/savvy-logo-dark.png";
+const SAVVY_LOGO_DARK_BACKGROUND = "https://files.manuscdn.com/user_upload_by_module/session_file/310519663374872019/NMpaLvYjADzKNCID.png";
 
 type QuizQuestion = {
   id: string;
