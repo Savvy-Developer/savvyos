@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, like, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  agentConnections,
   agentProfiles,
   contacts,
   proformas,
@@ -23,7 +24,7 @@ import {
   capitalizeCity,
   normalizeState,
 } from "../addressNormalization";
-import { getDb } from "../db";
+import { getDb, logActivity } from "../db";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
 
@@ -36,6 +37,48 @@ const LEAD_IP_MAX_ATTEMPTS = 12;
 const LEAD_EMAIL_MAX_ATTEMPTS = 3;
 
 const hashLeadKey = (value: string) => createHash("sha256").update(value).digest("hex");
+
+/**
+ * Pick the agent a website inquiry should be routed to. The visitor's context
+ * wins: an explicit agent (agent profile page, or the property's assigned
+ * agent passed by the property page), then the website property's assigned
+ * agent as a fallback. Returns null when the inquiry has no agent context
+ * (home, about, contact pages); those stay unassigned for an ISA to route.
+ */
+export async function resolveInquiryAgent(
+  db: any,
+  propertyId: number | undefined,
+  agentUserId: number | undefined,
+): Promise<{ agentId: number | null; propertyAddress: string | null }> {
+  let agentId: number | null = agentUserId ?? null;
+  let propertyAddress: string | null = null;
+  if (propertyId) {
+    const [row] = await db
+      .select({
+        assignedAgentId: websiteProperties.assignedAgentId,
+        address: properties.address,
+        city: properties.city,
+        state: properties.state,
+      })
+      .from(websiteProperties)
+      .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+      .where(eq(websiteProperties.propertyId, propertyId))
+      .limit(1);
+    if (row) {
+      if (!agentId && row.assignedAgentId) agentId = row.assignedAgentId;
+      propertyAddress = [row.address, row.city, row.state].filter(Boolean).join(", ") || null;
+    }
+  }
+  if (agentId) {
+    const [agent] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, agentId), eq(users.isActive, true)))
+      .limit(1);
+    if (!agent) agentId = null;
+  }
+  return { agentId, propertyAddress };
+}
 
 async function enforceLeadThrottle(db: any, req: any, email: string) {
   const forwarded = String(req?.headers?.["x-forwarded-for"] || "").split(",").map((value: string) => value.trim()).filter(Boolean);
@@ -812,6 +855,43 @@ export const websiteRouter = router({
         sourcePath: input.sourcePath || null,
         attribution: input.attribution || {},
       });
+
+      // Website inquiries are SavvyOS contacts, not a separate lead queue.
+      // Connect the contact to the agent the visitor was already looking at
+      // (the property's assigned agent or the agent whose profile they were on)
+      // so the inquiry lands in that agent's pipeline immediately.
+      const { agentId, propertyAddress } = await resolveInquiryAgent(db, input.propertyId, input.agentUserId);
+      let connectionCreated = false;
+      if (contactId && agentId) {
+        const [existingConnection] = await db
+          .select({ id: agentConnections.id })
+          .from(agentConnections)
+          .where(and(eq(agentConnections.agentId, agentId), eq(agentConnections.contactId, contactId)))
+          .limit(1);
+        if (!existingConnection) {
+          await db.insert(agentConnections).values({ agentId, contactId });
+          connectionCreated = true;
+        }
+      }
+      if (contactId) {
+        await logActivity({
+          userId: agentId ?? null,
+          action: "website_inquiry_submitted",
+          entityType: "contact",
+          entityId: contactId,
+          relatedContactId: contactId,
+          details: {
+            intent: input.intent,
+            message: input.message || null,
+            propertyId: input.propertyId ?? null,
+            propertyAddress,
+            agentId,
+            connectionCreated,
+            sourcePath: input.sourcePath || null,
+            attribution: input.attribution || {},
+          },
+        });
+      }
       return { success: true };
     }),
 

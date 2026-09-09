@@ -708,6 +708,25 @@ export function formatActivityEntry(entry: ActivityEntry): FormattedActivity {
       icon = "alert";
       break;
 
+    case "website_inquiry_submitted": {
+      const intent = String(details.intent ?? "general");
+      const intentLabel =
+        intent === "buy" ? "Buying" :
+        intent === "sell" ? "Selling" :
+        intent === "property" ? "Property inquiry" :
+        intent === "agent" ? "Agent inquiry" :
+        "General inquiry";
+      title = "Website Inquiry";
+      lines = [
+        intentLabel,
+        ...(details.propertyAddress ? [details.propertyAddress as string] : []),
+        ...(details.message ? [String(details.message)] : []),
+        ...(details.connectionCreated ? ["Connected to agent automatically"] : []),
+      ];
+      icon = "alert";
+      break;
+    }
+
     case "lead_created": {
       // Fired by the savvy-web "lead.created" event (Message Agent, Financing buttons).
       // The source field inside webhookData indicates which CTA was clicked.
