@@ -27,8 +27,9 @@ import {
 import {
   ArrowLeft, FileText, Home, User, DollarSign, Phone, Mail, Building2,
   History, Link2, UserCheck, TrendingUp, ClipboardList, Calendar,
-  Trash2, Search, ArrowRightLeft, AlertTriangle, Copy,
+  Trash2, Search, ArrowRightLeft, AlertTriangle, Copy, Plus, ChevronDown, List, Globe2,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLocation, useParams, Link } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
 import { useAppBack } from "@/lib/navigationHistory";
@@ -182,6 +183,8 @@ export default function PropertyDetail() {
   const isAgent = user?.role === "agent";
   const goToContact = useAgentContactNav();
   const utils = trpc.useUtils();
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const canCreateWebsiteProperty = !!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties;
 
   const { data: property } = trpc.properties.get.useQuery({ id: propId });
   const { data: associations } = trpc.properties.getAssociations.useQuery(
@@ -313,6 +316,16 @@ export default function PropertyDetail() {
         subtitle={formatCityStateZip(property.city, property.state, property.zip)}
         actions={
           <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Create<ChevronDown className="ml-1 h-4 w-4" /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onSelect={() => navigate(`/transactions?create=1&propertyId=${propId}`)}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate(`/listings?create=1&propertyId=${propId}`)}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>
+                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate(`/website?tab=properties&create=1&propertyId=${propId}`)}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma?new=true`)}>
               <FileText className="h-4 w-4 mr-1" /> Create Pro-forma
             </Button>

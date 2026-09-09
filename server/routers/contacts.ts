@@ -1232,6 +1232,7 @@ Please write the comprehensive AI summary now.`;
         user_registered: "Registered on Savvy-Agents",
         analysis_requested: "Requested an analysis",
         showing_requested: "Requested a showing",
+        website_inquiry_submitted: "Sent an inquiry from the Savvy website",
         // Task actions
         task_created: "Task created",
         task_completed: "Task completed",

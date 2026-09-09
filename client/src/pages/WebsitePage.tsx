@@ -66,7 +66,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: "case-studies", label: "Case Studies", icon: Sparkles },
   { key: "blog", label: "Blog", icon: BookOpen },
   { key: "leads", label: "Leads", icon: Mail },
-  { key: "settings", label: "Homepage", icon: Settings2 },
+  { key: "settings", label: "CMS", icon: Settings2 },
 ];
 
 function Field({
@@ -796,8 +796,9 @@ function AgentEditor({
             {initial ? "Edit public agent profile" : "Add public agent profile"}
           </DialogTitle>
           <DialogDescription>
-            Publish selected SavvyOS agent data, then add website-specific
-            positioning and market expertise.
+            Pick an existing SavvyOS agent to feature on the website. Their
+            name, contact details, and bio come from their SavvyOS profile;
+            you only add the website positioning and market expertise here.
           </DialogDescription>
         </DialogHeader>
         <div>
@@ -822,7 +823,7 @@ function AgentEditor({
             }}
           >
             <SelectTrigger className="mt-1">
-              <SelectValue placeholder="Select an agent" />
+              <SelectValue placeholder="Choose a SavvyOS agent" />
             </SelectTrigger>
             <SelectContent>
               {sourceAgents.map((agent: any) => (
@@ -1403,7 +1404,9 @@ export default function WebsitePage() {
   const permissions = trpc.permissions.getMyPermissions.useQuery();
   const can = (key: string) =>
     (permissions.data as Record<string, boolean> | undefined)?.[key] === true;
-  const visibleTabs = tabs.filter(item => item.key !== "leads" || can("canViewWebsiteLeads"));
+  // Website inquiries are routed straight into SavvyOS contacts and the
+  // agent's pipeline, so there is no separate lead queue to manage here.
+  const visibleTabs = tabs.filter(item => item.key !== "leads");
   const data = overview.data;
   const counts = useMemo(
     () => ({
@@ -1509,7 +1512,7 @@ export default function WebsitePage() {
             {tab === "properties"
               ? "website property"
               : tab === "agents"
-                ? "agent profile"
+                ? "featured agent"
                 : tab === "case-studies"
                   ? "case study"
                   : "blog post"}
@@ -1524,7 +1527,7 @@ export default function WebsitePage() {
               ["Live agents", counts.liveAgents, UserRound],
               ["Case studies", counts.liveStories, Sparkles],
               ["Blog posts", counts.livePosts, BookOpen],
-              ["New leads", counts.newLeads, Mail],
+              ["New inquiries", counts.newLeads, Mail],
             ].map(([label, value, Icon]: any) => (
               <Card key={label}>
                 <CardContent className="flex items-center gap-4 p-5">

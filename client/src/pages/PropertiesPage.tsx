@@ -146,10 +146,11 @@ export default function PropertiesPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" />Create<ChevronDown className="ml-1 h-4 w-4" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuItem onSelect={() => navigate("/transactions?create=1")}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => navigate("/listings?create=1")}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>
-                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate("/website?tab=properties&create=1")}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
+                {/* The page-level Create menu only creates property records.
+                    Transactions and listings are created from a specific
+                    property (row menu below, or the property detail page). */}
                 <DropdownMenuItem onSelect={() => { setOpen(true); setDuplicateInfo(null); }}><Building2 className="mr-2 h-4 w-4" />Property Record</DropdownMenuItem>
+                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate("/website?tab=properties&create=1")}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
