@@ -47,6 +47,7 @@ import { constructStripeWebhookEvent, handleStripeWebhookEvent, isStripeConfigur
 import { scheduleMonthlyFeaturedVendorEarningsReport } from "../monthlyFeaturedVendorEarningsReport";
 import { ENV } from "./env";
 import { LANDING_PAGE_PUBLIC_TRPC_PATHS } from "../routers/landingPages";
+import { WEBSITE_PUBLIC_TRPC_PATHS } from "../routers/website";
 import { registerShortLinkRedirects } from "../shortLinkRedirects";
 import { getLandingPageMetadata } from "../landingPageHtml";
 import { registerLandingPageRedirects } from "../landingPageRedirects";
@@ -87,13 +88,17 @@ async function startServer() {
   // serves public documents on that host, while all protected/admin API calls
   // are rejected before they can reach authentication or application routers.
   const landingHost = (process.env.PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  const landingHostPublicProcedures = new Set([
+    ...Array.from(LANDING_PAGE_PUBLIC_TRPC_PATHS),
+    ...Array.from(WEBSITE_PUBLIC_TRPC_PATHS),
+  ]);
   app.use((req, res, next) => {
     const host = (req.hostname || req.headers.host || "").split(":")[0].toLowerCase();
     if (host !== landingHost) return next();
     if (!req.path.startsWith("/api/")) return next();
     if (!req.path.startsWith("/api/trpc/")) return res.status(404).json({ error: "Not found." });
     const procedures = req.path.slice("/api/trpc/".length).split(",").filter(Boolean);
-    if (procedures.length && procedures.every((procedure) => LANDING_PAGE_PUBLIC_TRPC_PATHS.has(procedure))) return next();
+    if (procedures.length && procedures.every((procedure) => landingHostPublicProcedures.has(procedure))) return next();
     return res.status(404).json({ error: "Not found." });
   });
 

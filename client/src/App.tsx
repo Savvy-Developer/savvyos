@@ -152,6 +152,8 @@ import ConversationIntelligencePage from "./pages/ConversationIntelligencePage";
 import AffiliateLinksPage from "./pages/AffiliateLinksPage";
 import MarketProfileSurveyPage from "./pages/MarketProfileSurveyPage";
 import EventsPage from "./pages/EventsPage";
+import WebsitePage from "./pages/WebsitePage";
+import PublicWebsite from "./pages/PublicWebsite";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -322,6 +324,16 @@ function EventsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewEvents) return <NotFound />;
+  return <>{children}</>;
+}
+
+function WebsiteRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewWebsite) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -505,6 +517,7 @@ function Router() {
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
           <Route path="/webinars">{() => <WebinarRoute><WebinarsAdminPage /></WebinarRoute>}</Route>
           <Route path="/events">{() => <EventsRoute><EventsPage /></EventsRoute>}</Route>
+          <Route path="/website">{() => <WebsiteRoute><WebsitePage /></WebsiteRoute>}</Route>
           <Route path="/landing-pages">{() => <LandingPagesRoute><LandingPagesPage /></LandingPagesRoute>}</Route>
           <Route path="/short-links">{() => <ShortLinksRoute><ShortLinksPage /></ShortLinksRoute>}</Route>
           <Route path="/tech-requests" component={TechRequestsPage} />
@@ -550,13 +563,14 @@ function Router() {
 function App() {
   const isPublicLandingHost = typeof window !== "undefined" && window.location.hostname.toLowerCase() === (import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
   const isMarketMatchPublicPath = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "") === "/marketmatch";
+  const isPublicWebsitePath = typeof window !== "undefined" && (window.location.pathname === "/newsite" || window.location.pathname.startsWith("/newsite/"));
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
           {/* Public routes — no auth required */}
-          {isPublicLandingHost ? (isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
+          {isPublicWebsitePath ? <PublicWebsite /> : isPublicLandingHost ? (isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
             <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />

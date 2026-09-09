@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import PageHeader from "@/components/PageHeader";
 import { toast } from "sonner";
-import { Plus, Building2, Search, ArrowRightLeft, List, Users, Upload, ArrowUpAZ, ArrowDownAZ, Loader2, AlertTriangle, FileText, X } from "lucide-react";
+import { Plus, Building2, Search, ArrowRightLeft, List, Users, Upload, ArrowUpAZ, ArrowDownAZ, Loader2, AlertTriangle, FileText, X, ChevronDown, Globe2 } from "lucide-react";
 import BulkUploadDialog, { type BulkUploadColumn } from "@/components/BulkUploadDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLocation } from "wouter";
@@ -23,6 +24,9 @@ const PROPERTY_TYPES = ["single_family","multi_family","condo","townhouse","cabi
 export default function PropertiesPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  const canCreateWebsiteProperty = !!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties;
   const [search, setSearch] = usePersistentState("properties.search", "");
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("properties.sortOrder", "desc");
   const [open, setOpen] = useState(false);
@@ -139,7 +143,15 @@ export default function PropertiesPage() {
                 <Upload className="h-4 w-4 mr-1" /> Bulk Upload
               </Button>
             )}
-            <Button onClick={() => { setOpen(true); setDuplicateInfo(null); }} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Property</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" />Create<ChevronDown className="ml-1 h-4 w-4" /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onSelect={() => navigate("/transactions?create=1")}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/listings?create=1")}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>
+                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate("/website?tab=properties&create=1")}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
+                <DropdownMenuItem onSelect={() => { setOpen(true); setDuplicateInfo(null); }}><Building2 className="mr-2 h-4 w-4" />Property Record</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />
@@ -291,7 +303,7 @@ export default function PropertiesPage() {
                         </div>
                       </TooltipProvider>
                     </td>
-                    <td className="py-3 px-4"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/properties/${property.id}`); }}>View</Button></td>
+                    <td className="py-3 px-4"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/properties/${property.id}`); }}>View</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>Create<ChevronDown className="ml-1 h-3.5 w-3.5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}><DropdownMenuItem onSelect={() => navigate(`/transactions?create=1&propertyId=${property.id}`)}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem><DropdownMenuItem onSelect={() => navigate(`/listings?create=1&propertyId=${property.id}`)}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>{canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate(`/website?tab=properties&create=1&propertyId=${property.id}`)}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu></div></td>
                   </tr>
                 ))
               )}

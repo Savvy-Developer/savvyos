@@ -37,6 +37,24 @@ const headshotUpload = multer({
 });
 
 export function registerUploadRoutes(app: express.Application) {
+  // POST /api/upload/website-image — public-site media, restricted by the
+  // opt-in Website permissions used by the CMS.
+  app.post("/api/upload/website-image", landingPageImageUpload.single("file"), async (req: any, res: any) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req); } catch { user = null; }
+      if (!user || !(await canAdminUsePermission(user, "canViewWebsite"))) return res.status(403).json({ error: "Website permission is required" });
+      if (!req.file) return res.status(400).json({ error: "No image provided" });
+      const ext = req.file.mimetype === "image/png" ? "png" : req.file.mimetype === "image/webp" ? "webp" : "jpg";
+      const fileKey = `website/${user.id}/${nanoid(12)}.${ext}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      return res.json({ url, fileKey, mimeType: req.file.mimetype, fileSize: req.file.size });
+    } catch (err: any) {
+      console.error("[WebsiteImageUpload] Error:", err);
+      return res.status(500).json({ error: err.message ?? "Upload failed" });
+    }
+  });
+
   // POST /api/upload/landing-page-image — optimized public-page media stored in S3.
   app.post("/api/upload/landing-page-image", landingPageImageUpload.single("file"), async (req: any, res: any) => {
     try {

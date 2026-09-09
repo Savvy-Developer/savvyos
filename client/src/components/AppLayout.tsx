@@ -81,6 +81,7 @@ import {
   Star,
   Search,
   Sparkles,
+  Globe2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -369,6 +370,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewAffiliateLinks: "/affiliate-links",
   canViewVendorLists: "/admin/vendors",
   canViewEvents: "/events",
+  canViewWebsite: "/website",
 };
 
 function filterNavByPermissions(
@@ -537,6 +539,12 @@ function buildAdminNav(
           badge: pendingMarketing > 0 ? pendingMarketing : undefined,
         },
         { icon: Link2, label: "Short Links", path: "/short-links" },
+      ],
+    },
+    {
+      label: "Website",
+      items: [
+        { icon: Globe2, label: "Website Studio", path: "/website" },
       ],
     },
     {

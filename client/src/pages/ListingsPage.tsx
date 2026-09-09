@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { usePersistentState } from "@/hooks/usePersistentState";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -100,6 +100,11 @@ export default function ListingsPage() {
   const [showNewProperty, setShowNewProperty] = useState(false);
   const [newPropertyForm, setNewPropertyForm] = useState(EMPTY_PROPERTY_FORM);
   const [duplicateProperty, setDuplicateProperty] = useState<{ id: number; address: string } | null>(null);
+  const appliedCreateShortcut = useRef(false);
+  const creationParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const createFromPropertyId = /^\d+$/.test(creationParams.get("propertyId") ?? "")
+    ? Number(creationParams.get("propertyId"))
+    : 0;
 
   // Date filter state
   const [filterAgentId, setFilterAgentId] = usePersistentState("listings.filterAgentId", "");
@@ -149,10 +154,29 @@ export default function ListingsPage() {
     { search: form.propertySearch || undefined },
     { enabled: form.propertySearch.length > 1 }
   );
+  const { data: createFromProperty } = trpc.properties.get.useQuery(
+    { id: createFromPropertyId },
+    { enabled: creationParams.get("create") === "1" && createFromPropertyId > 0 },
+  );
   const { data: listingNotes = [] } = trpc.listings.getNotes.useQuery(
     { listingId: notesListing?.listing?.id ?? 0 },
     { enabled: !!notesListing && notesOpen }
   );
+
+  useEffect(() => {
+    if (creationParams.get("create") !== "1" || appliedCreateShortcut.current) return;
+    if (createFromPropertyId > 0 && !createFromProperty) return;
+    setForm({
+      ...EMPTY_FORM,
+      propertyId: createFromProperty ? String(createFromProperty.id) : "",
+      propertySearch: createFromProperty
+        ? [formatStreet(createFromProperty.address), formatCityStateZip(createFromProperty.city, createFromProperty.state, createFromProperty.zip)].filter(Boolean).join(", ")
+        : "",
+      listPrice: createFromProperty?.listPrice || "",
+    });
+    setCreateOpen(true);
+    appliedCreateShortcut.current = true;
+  }, [createFromProperty, createFromPropertyId]);
 
   const createContact = trpc.contacts.create.useMutation({
     onError: (e) => toast.error(e.message),

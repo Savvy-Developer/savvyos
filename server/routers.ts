@@ -81,6 +81,7 @@ import { sendMarketProfileUpdateTestEmail } from "./agentMarketProfileFeedback";
 import { appointmentsRouter } from "./routers/appointments";
 import { calendarConnectionsRouter } from "./routers/calendarConnections";
 import { eventsRouter } from "./routers/events";
+import { websiteRouter } from "./routers/website";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -301,6 +302,7 @@ export const appRouter = router({
   resendInbox: resendInboxRouter,
   webinars: webinarsRouter,
   events: eventsRouter,
+  website: websiteRouter,
   landingPages: landingPagesRouter,
   shortLinks: shortLinksRouter,
   reviews: reviewsRouter,

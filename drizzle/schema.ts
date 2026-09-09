@@ -734,6 +734,199 @@ export const properties = mysqlTable(
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = typeof properties.$inferInsert;
 
+// ─── Public Website CMS ───────────────────────────────────────────────────────
+// Public website records extend the shared SavvyOS intelligence layer. A
+// website property always points to the same canonical property used by
+// listings, transactions, contacts, and pro-formas.
+export const websiteProperties = mysqlTable(
+  "website_properties",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    propertyId: int("propertyId").notNull().unique().references(() => properties.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
+    sourceUrl: text("sourceUrl"),
+    sourceProformaId: int("sourceProformaId").references(() => proformas.id, { onDelete: "set null" }),
+    assignedAgentId: int("assignedAgentId").references(() => users.id, { onDelete: "set null" }),
+    headline: varchar("headline", { length: 512 }),
+    summary: text("summary"),
+    heroImageUrl: text("heroImageUrl"),
+    galleryImageUrls: json("galleryImageUrls").$type<string[]>().notNull(),
+    featureTags: json("featureTags").$type<string[]>().notNull(),
+    investmentHighlights: json("investmentHighlights").$type<string[]>().notNull(),
+    projectedRevenue: decimal("projectedRevenue", { precision: 12, scale: 2 }),
+    cashOnCash: decimal("cashOnCash", { precision: 8, scale: 4 }),
+    capRate: decimal("capRate", { precision: 8, scale: 4 }),
+    occupancyRate: decimal("occupancyRate", { precision: 8, scale: 4 }),
+    averageDailyRate: decimal("averageDailyRate", { precision: 10, scale: 2 }),
+    regulationSummary: text("regulationSummary"),
+    callToActionText: varchar("callToActionText", { length: 255 }).default("Request the full investment analysis").notNull(),
+    metaTitle: varchar("metaTitle", { length: 255 }),
+    metaDescription: text("metaDescription"),
+    importedData: json("importedData").$type<Record<string, unknown>>(),
+    isFeatured: boolean("isFeatured").default(false).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    publishedAt: timestamp("publishedAt"),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("website_properties_status_featured_idx").on(table.status, table.isFeatured, table.sortOrder),
+    index("website_properties_agent_idx").on(table.assignedAgentId),
+  ]
+);
+export type WebsiteProperty = typeof websiteProperties.$inferSelect;
+export type InsertWebsiteProperty = typeof websiteProperties.$inferInsert;
+
+export const websiteCaseStudies = mysqlTable(
+  "website_case_studies",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    title: varchar("title", { length: 512 }).notNull(),
+    eyebrow: varchar("eyebrow", { length: 255 }),
+    excerpt: text("excerpt"),
+    body: mediumtext("body"),
+    heroImageUrl: text("heroImageUrl"),
+    propertyId: int("propertyId").references(() => properties.id, { onDelete: "set null" }),
+    agentUserId: int("agentUserId").references(() => users.id, { onDelete: "set null" }),
+    primaryMetricLabel: varchar("primaryMetricLabel", { length: 128 }),
+    primaryMetricValue: varchar("primaryMetricValue", { length: 128 }),
+    secondaryMetricLabel: varchar("secondaryMetricLabel", { length: 128 }),
+    secondaryMetricValue: varchar("secondaryMetricValue", { length: 128 }),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
+    isFeatured: boolean("isFeatured").default(false).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    publishedAt: timestamp("publishedAt"),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("website_case_studies_status_featured_idx").on(table.status, table.isFeatured, table.sortOrder)]
+);
+export type WebsiteCaseStudy = typeof websiteCaseStudies.$inferSelect;
+export type InsertWebsiteCaseStudy = typeof websiteCaseStudies.$inferInsert;
+
+export const websiteBlogPosts = mysqlTable(
+  "website_blog_posts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    title: varchar("title", { length: 512 }).notNull(),
+    excerpt: text("excerpt"),
+    body: mediumtext("body"),
+    coverImageUrl: text("coverImageUrl"),
+    category: varchar("category", { length: 128 }).default("STR Investing"),
+    authorUserId: int("authorUserId").references(() => users.id, { onDelete: "set null" }),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
+    isFeatured: boolean("isFeatured").default(false).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    publishedAt: timestamp("publishedAt"),
+    metaTitle: varchar("metaTitle", { length: 255 }),
+    metaDescription: text("metaDescription"),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("website_blog_posts_status_published_idx").on(table.status, table.publishedAt)]
+);
+export type WebsiteBlogPost = typeof websiteBlogPosts.$inferSelect;
+export type InsertWebsiteBlogPost = typeof websiteBlogPosts.$inferInsert;
+
+export const websiteAgentProfiles = mysqlTable(
+  "website_agent_profiles",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    headline: varchar("headline", { length: 512 }),
+    shortBio: text("shortBio"),
+    markets: json("markets").$type<string[]>().notNull(),
+    specialties: json("specialties").$type<string[]>().notNull(),
+    imageUrl: text("imageUrl"),
+    publicEmail: varchar("publicEmail", { length: 320 }),
+    publicPhone: varchar("publicPhone", { length: 64 }),
+    bookingUrl: text("bookingUrl"),
+    status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
+    isFeatured: boolean("isFeatured").default(false).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    publishedAt: timestamp("publishedAt"),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("website_agent_profiles_status_featured_idx").on(table.status, table.isFeatured, table.sortOrder)]
+);
+export type WebsiteAgentProfile = typeof websiteAgentProfiles.$inferSelect;
+export type InsertWebsiteAgentProfile = typeof websiteAgentProfiles.$inferInsert;
+
+export const websiteSiteSettings = mysqlTable("website_site_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  singletonKey: varchar("singletonKey", { length: 64 }).default("primary").notNull().unique(),
+  siteName: varchar("siteName", { length: 255 }).default("Savvy STR Agents").notNull(),
+  announcementText: varchar("announcementText", { length: 512 }),
+  heroEyebrow: varchar("heroEyebrow", { length: 255 }),
+  heroTitle: varchar("heroTitle", { length: 512 }).notNull(),
+  heroBody: text("heroBody"),
+  heroImageUrl: text("heroImageUrl"),
+  stats: json("stats").$type<Array<{ value: string; label: string }>>().notNull(),
+  testimonials: json("testimonials").$type<Array<{ quote: string; name: string; role?: string }>>().notNull(),
+  contactEmail: varchar("contactEmail", { length: 320 }),
+  contactPhone: varchar("contactPhone", { length: 64 }),
+  footerText: text("footerText"),
+  updatedById: int("updatedById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WebsiteSiteSettings = typeof websiteSiteSettings.$inferSelect;
+
+export const websiteLeads = mysqlTable(
+  "website_leads",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    contactId: int("contactId").references(() => contacts.id, { onDelete: "set null" }),
+    propertyId: int("propertyId").references(() => properties.id, { onDelete: "set null" }),
+    agentUserId: int("agentUserId").references(() => users.id, { onDelete: "set null" }),
+    firstName: varchar("firstName", { length: 128 }).notNull(),
+    lastName: varchar("lastName", { length: 128 }).notNull(),
+    email: varchar("email", { length: 320 }).notNull(),
+    phone: varchar("phone", { length: 64 }),
+    intent: mysqlEnum("intent", ["buy", "sell", "property", "agent", "general"]).default("general").notNull(),
+    message: text("message"),
+    sourcePath: varchar("sourcePath", { length: 512 }),
+    attribution: json("attribution").$type<Record<string, string>>(),
+    status: mysqlEnum("status", ["new", "contacted", "qualified", "closed"]).default("new").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("website_leads_status_created_idx").on(table.status, table.createdAt),
+    index("website_leads_property_idx").on(table.propertyId),
+    index("website_leads_agent_idx").on(table.agentUserId),
+  ]
+);
+export type WebsiteLead = typeof websiteLeads.$inferSelect;
+
+export const websiteLeadAttempts = mysqlTable(
+  "website_lead_attempts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    ipHash: varchar("ipHash", { length: 64 }).notNull(),
+    emailHash: varchar("emailHash", { length: 64 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("website_lead_attempts_ip_created_idx").on(table.ipHash, table.createdAt),
+    index("website_lead_attempts_email_created_idx").on(table.emailHash, table.createdAt),
+    index("website_lead_attempts_created_idx").on(table.createdAt),
+  ]
+);
+
 // ─── Property Ownership ───────────────────────────────────────────────────────
 export const propertyOwnership = mysqlTable("property_ownership", {
   id: int("id").autoincrement().primaryKey(),
@@ -5386,6 +5579,14 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canArchiveLandingPages: boolean("canArchiveLandingPages")
     .default(false)
     .notNull(),
+  // Website CMS access is opt-in. Tyler's synthetic permissions remain all-true.
+  canViewWebsite: boolean("canViewWebsite").default(false).notNull(),
+  canManageWebsiteProperties: boolean("canManageWebsiteProperties").default(false).notNull(),
+  canManageWebsiteAgents: boolean("canManageWebsiteAgents").default(false).notNull(),
+  canManageWebsiteCaseStudies: boolean("canManageWebsiteCaseStudies").default(false).notNull(),
+  canManageWebsiteBlog: boolean("canManageWebsiteBlog").default(false).notNull(),
+  canManageWebsiteSettings: boolean("canManageWebsiteSettings").default(false).notNull(),
+  canViewWebsiteLeads: boolean("canViewWebsiteLeads").default(false).notNull(),
   // Short Links send public traffic through the Savvy-owned redirect domain.
   canViewShortLinks: boolean("canViewShortLinks").default(false).notNull(),
   // Dev Tools

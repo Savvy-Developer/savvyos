@@ -609,6 +609,10 @@ export default function TransactionsPage() {
   // must be read from the browser URL. Analytics evidence links intentionally
   // take precedence over persisted list filters on their initial load.
   const analyticsQuery = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
+  const creationParams = new URLSearchParams(analyticsQuery);
+  const createFromPropertyId = /^\d+$/.test(creationParams.get("propertyId") ?? "")
+    ? Number(creationParams.get("propertyId"))
+    : 0;
   const analyticsReturnUrl = (() => {
     const candidate = new URLSearchParams(analyticsQuery).get("returnTo");
     return candidate && candidate.startsWith("/analytics") && !candidate.startsWith("//") ? candidate : null;
@@ -705,6 +709,7 @@ export default function TransactionsPage() {
   const [selectedProperty, setSelectedProperty] = useState<any>(null);
   const [selectedListing, setSelectedListing] = useState<any>(null);
   const [listingSearch, setListingSearch] = useState("");
+  const appliedCreateShortcut = useRef(false);
 
   // Queries
   const marketIdParam = marketFilter === "all" ? undefined : Number(marketFilter);
@@ -760,6 +765,10 @@ export default function TransactionsPage() {
     { enabled: isAdmin && (statsOpen || applyStatsToAll || isPaginated) }
   );
   const { data: agents } = trpc.users.list.useQuery({ role: "agent" }, { enabled: isAdmin });
+  const { data: createFromProperty } = trpc.properties.get.useQuery(
+    { id: createFromPropertyId },
+    { enabled: creationParams.get("create") === "1" && createFromPropertyId > 0 },
+  );
   const { data: listingsData } = trpc.listings.list.useQuery(
     { search: listingSearch || undefined },
     { enabled: listingSearch.length >= 2 }
@@ -808,6 +817,18 @@ export default function TransactionsPage() {
     setSelectedListing(null);
     setListingSearch("");
   }
+
+  useEffect(() => {
+    if (creationParams.get("create") !== "1" || appliedCreateShortcut.current) return;
+    if (createFromPropertyId > 0 && !createFromProperty) return;
+    resetDialog();
+    if (createFromProperty) {
+      setSelectedProperty(createFromProperty);
+      setForm(current => ({ ...current, purchasePrice: createFromProperty.listPrice || "" }));
+    }
+    setOpen(true);
+    appliedCreateShortcut.current = true;
+  }, [analyticsQuery, createFromProperty, createFromPropertyId]);
 
   const canAdvanceStep1 = useCallback(() => {
     if (form.mode === "buy") return !!buyerContact && !!selectedProperty && (!isAdmin || !!selectedAgent);

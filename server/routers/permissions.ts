@@ -105,6 +105,14 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewSmartPlans",             label: "Smart Plans",                group: "Marketing" },
   { key: "canViewMarketingAdmin",         label: "Marketing Requests",         group: "Marketing" },
   { key: "canViewShortLinks",             label: "Short Links",                group: "Marketing" },
+  // Website — opt-in controls for the staged public-site CMS.
+  { key: "canViewWebsite",                label: "Website workspace",          group: "Website" },
+  { key: "canManageWebsiteProperties",    label: "Website properties",         group: "Website" },
+  { key: "canManageWebsiteAgents",        label: "Website agent profiles",     group: "Website" },
+  { key: "canManageWebsiteCaseStudies",   label: "Website case studies",       group: "Website" },
+  { key: "canManageWebsiteBlog",          label: "Website blog",               group: "Website" },
+  { key: "canManageWebsiteSettings",      label: "Website settings",           group: "Website" },
+  { key: "canViewWebsiteLeads",           label: "Website leads",              group: "Website" },
   // Approvals
   { key: "canViewConnectionRequests",     label: "Connection Requests",        group: "Approvals" },
   { key: "canViewAdminApprovals",         label: "Admin Approvals",            group: "Approvals" },
@@ -349,6 +357,13 @@ export const permissionsRouter = router({
             "canArchiveLandingPages",
             "canViewShortLinks",
             "canAdministerTransactions",
+            "canViewWebsite",
+            "canManageWebsiteProperties",
+            "canManageWebsiteAgents",
+            "canManageWebsiteCaseStudies",
+            "canManageWebsiteBlog",
+            "canManageWebsiteSettings",
+            "canViewWebsiteLeads",
           ]);
           for (const p of ADMIN_NAV_PERMISSIONS) {
             perms[p.key] = !defaultOff.has(p.key);
