@@ -9,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -26,7 +27,7 @@ import {
 import {
   ArrowLeft, FileText, Home, User, DollarSign, Phone, Mail, Building2,
   History, Link2, UserCheck, TrendingUp, ClipboardList, Calendar,
-  Trash2, Search, ArrowRightLeft, AlertTriangle,
+  Trash2, Search, ArrowRightLeft, AlertTriangle, Copy,
 } from "lucide-react";
 import { useLocation, useParams, Link } from "wouter";
 import { safeFormat } from "@/lib/safeFormat";
@@ -56,6 +57,20 @@ const OUTCOME_COLORS: Record<string, string> = {
   orange: "bg-orange-100 text-orange-700",
   gray: "bg-gray-100 text-gray-700",
 };
+
+function getNextDuplicateTitle(sourceTitle: string | null | undefined, existingProformas: Array<{ title: string | null }>) {
+  const baseTitle = sourceTitle?.trim() || "STR Investment Analysis";
+  const existingTitles = new Set(
+    existingProformas
+      .map(proforma => proforma.title?.trim().toLocaleLowerCase())
+      .filter((title): title is string => Boolean(title)),
+  );
+  const copyTitle = `${baseTitle} Copy`;
+  if (!existingTitles.has(copyTitle.toLocaleLowerCase())) return copyTitle;
+  let copyNumber = 2;
+  while (existingTitles.has(`${copyTitle} ${copyNumber}`.toLocaleLowerCase())) copyNumber += 1;
+  return `${copyTitle} ${copyNumber}`;
+}
 
 function formatCurrency(val: string | number | null | undefined): string {
   if (!val) return "—";
@@ -189,6 +204,8 @@ export default function PropertyDetail() {
   const [transferSearch, setTransferSearch] = useState("");
   const [transferTargetId, setTransferTargetId] = useState<number | null>(null);
   const [transferTargetName, setTransferTargetName] = useState("");
+  const [duplicateSource, setDuplicateSource] = useState<{ id: number; title: string | null } | null>(null);
+  const [duplicateTitle, setDuplicateTitle] = useState("");
 
   const { data: transferSearchResults = [] } = trpc.properties.list.useQuery(
     { search: transferSearch, limit: 10 },
@@ -224,6 +241,11 @@ export default function PropertyDetail() {
     onError: (e) => toast.error(e.message),
   });
 
+  const duplicateProformaMutation = trpc.properties.createProforma.useMutation({
+    onSuccess: () => utils.properties.listProformas.invalidate({ propertyId: propId }),
+    onError: error => toast.error(`Could not duplicate pro-forma: ${error.message}`),
+  });
+
   const handleDelete = () => {
     setDeleteBlocked(null);
     deleteMutation.mutate({ id: propId });
@@ -235,6 +257,40 @@ export default function PropertyDetail() {
       return;
     }
     transferMutation.mutate({ fromPropertyId: propId, toPropertyId: transferTargetId });
+  };
+
+  const openDuplicateDialog = (proforma: { id: number; title: string | null }) => {
+    setDuplicateSource(proforma);
+    setDuplicateTitle(getNextDuplicateTitle(proforma.title, (proformasData ?? []) as Array<{ title: string | null }>));
+  };
+
+  const handleDuplicateProforma = async () => {
+    const newTitle = duplicateTitle.trim();
+    if (!duplicateSource || !newTitle) {
+      toast.error("Enter a name for the new pro-forma");
+      return;
+    }
+    const titleExists = (proformasData ?? []).some((proforma: any) =>
+      (proforma.title || "").trim().toLocaleLowerCase() === newTitle.toLocaleLowerCase(),
+    );
+    if (titleExists) {
+      toast.error("Choose a name that differs from the saved pro-formas for this property");
+      return;
+    }
+    try {
+      const source = await utils.properties.getProforma.fetch({ id: duplicateSource.id });
+      const result = await duplicateProformaMutation.mutateAsync({
+        propertyId: propId,
+        title: newTitle,
+        formData: source.formData,
+        notes: source.notes,
+      });
+      setDuplicateSource(null);
+      toast.success("Pro-forma duplicated");
+      navigate(`/properties/${propId}/proforma?load=${result.id}`);
+    } catch {
+      // The mutation reports its error through its configured handler.
+    }
   };
 
   if (!property) return <div className="p-6 text-muted-foreground">Loading...</div>;
@@ -508,8 +564,8 @@ export default function PropertyDetail() {
               ) : (
                 <div className="space-y-2">
                   {proformasList.map((pf: any) => (
-                    <div key={pf.id} className="flex items-center justify-between border rounded-lg p-3 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate(`/properties/${id}/proforma?load=${pf.id}`)}>
-                      <div className="flex-1">
+                    <div key={pf.id} className="flex items-center justify-between gap-3 border rounded-lg p-3 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate(`/properties/${id}/proforma?load=${pf.id}`)}>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm">{pf.title || "Untitled Pro-forma"}</span>
                           {pf.purchasePrice && <Badge variant="outline" className="text-xs">${Number(pf.purchasePrice).toLocaleString()}</Badge>}
@@ -526,6 +582,18 @@ export default function PropertyDetail() {
                           {pf.capRate && <span>Cap: {(Number(pf.capRate) * 100).toFixed(1)}%</span>}
                         </div>
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={event => {
+                          event.stopPropagation();
+                          openDuplicateDialog({ id: pf.id, title: pf.title || null });
+                        }}
+                      >
+                        <Copy className="mr-1 h-3.5 w-3.5" /> Duplicate
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -534,6 +602,40 @@ export default function PropertyDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={Boolean(duplicateSource)} onOpenChange={open => { if (!open && !duplicateProformaMutation.isPending) setDuplicateSource(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Duplicate pro-forma</DialogTitle>
+            <DialogDescription>
+              Create a separate copy of “{duplicateSource?.title || "Untitled Pro-forma"}” for this property.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="duplicate-proforma-title" className="text-sm font-medium">New pro-forma name</label>
+            <Input
+              id="duplicate-proforma-title"
+              value={duplicateTitle}
+              onChange={event => setDuplicateTitle(event.target.value)}
+              placeholder="e.g. STR Investment Analysis — 25% Down"
+              autoFocus
+              onKeyDown={event => {
+                if (event.key === "Enter" && !duplicateProformaMutation.isPending) {
+                  event.preventDefault();
+                  handleDuplicateProforma();
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">The new copy will open immediately after it is created.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicateSource(null)} disabled={duplicateProformaMutation.isPending}>Cancel</Button>
+            <Button onClick={handleDuplicateProforma} disabled={!duplicateTitle.trim() || duplicateProformaMutation.isPending}>
+              <Copy className="mr-1 h-4 w-4" /> {duplicateProformaMutation.isPending ? "Duplicating..." : "Create duplicate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Delete Confirmation Dialog ─────────────────────────────────────── */}
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
