@@ -2593,7 +2593,7 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, availableSlots }: {
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="flex h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:h-[92vh] sm:w-[min(96vw,1600px)]">
+      <DialogContent showCloseButton={false} className="flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:h-[94vh] sm:w-[min(98vw,2200px)] sm:max-w-[calc(100vw-2rem)]">
         <DialogHeader className="border-b bg-gradient-to-r from-slate-950 to-slate-800 px-5 py-5 text-left sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -2639,7 +2639,7 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, availableSlots }: {
           {filteredComps.length === 0 ? (
             <div className="py-14 text-center"><BookOpen className="mx-auto mb-3 h-6 w-6 text-slate-300" /><p className="text-sm font-medium text-slate-700">No comparable properties match</p><p className="mt-1 text-sm text-slate-500">Try broadening or clearing the current filters.</p></div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {filteredComps.map(({ comp, sourceIndex }) => {
                 const isSelected = selected.has(sourceIndex);
                 const revenue = getCompRevenue(comp);
