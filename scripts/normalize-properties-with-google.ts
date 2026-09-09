@@ -24,14 +24,25 @@ type NormalizedAddress = {
   normalizedAddress: string;
 };
 
-const CONCURRENCY = 4;
+// Stay comfortably below Google's 600 Search Text requests/minute project quota.
+// The small interval also leaves capacity for live address searches in SavvyOS.
+const REQUEST_INTERVAL_MS = 300;
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
+let nextRequestAt = 0;
+
+async function reserveGoogleRequest(): Promise<void> {
+  const now = Date.now();
+  const scheduledAt = Math.max(now, nextRequestAt);
+  nextRequestAt = scheduledAt + REQUEST_INTERVAL_MS;
+  if (scheduledAt > now) await sleep(scheduledAt - now);
+}
 
 function groupKey(property: Property): string {
   return buildNormalizedKey(property.address, property.city, property.state, property.zip) || `property:${property.id}`;
 }
 
 async function normalizePropertyAddress(property: Property): Promise<NormalizedAddress | null> {
+  await reserveGoogleRequest();
   const geocoded = await geocodeAddress(property.address, property.city, property.state, property.zip);
   if (!geocoded?.success || !geocoded.streetNumber || !geocoded.route || !geocoded.city || !geocoded.state || !geocoded.zip || !geocoded.normalizedKey) {
     return null;
@@ -68,20 +79,14 @@ async function main() {
     const failures: Array<{ ids: number[]; address: string }> = [];
     let cursor = 0;
     let completed = 0;
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, entries.length) }, async () => {
+    await Promise.all(Array.from({ length: Math.min(4, entries.length) }, async () => {
       while (cursor < entries.length) {
         const [key, group] = entries[cursor++];
         let result: NormalizedAddress | null = null;
-        for (let attempt = 1; attempt <= 3 && !result; attempt += 1) {
-          try {
-            result = await normalizePropertyAddress(group[0]);
-          } catch (error) {
-            if (attempt === 3) {
-              console.warn(`Google normalization failed for property ${group[0].id}:`, error instanceof Error ? error.message : error);
-            } else {
-              await sleep(attempt * 750);
-            }
-          }
+        try {
+          result = await normalizePropertyAddress(group[0]);
+        } catch (error) {
+          console.warn(`Google normalization failed for property ${group[0].id}:`, error instanceof Error ? error.message : error);
         }
         if (!result) failures.push({
           ids: group.map(property => property.id),
