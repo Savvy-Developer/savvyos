@@ -123,7 +123,7 @@ export default function PayoutReportPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [memoSearch, setMemoSearch] = usePersistentState("payouts.memoSearch", "");
+  const [payoutSearch, setPayoutSearch] = usePersistentState("payouts.memoSearch", "");
   const [payoutAggregateMode, setPayoutAggregateMode] = usePersistentState<AggregateMode>("payouts.aggregateMode", "sum");
   const [payoutPage, setPayoutPage] = usePersistentState("payouts.page", 1);
   const [payoutLimit, setPayoutLimit] = usePersistentState<number>("payouts.limit", 25);
@@ -134,11 +134,11 @@ export default function PayoutReportPage() {
     ...(statusFilter !== "all" ? { status: statusFilter } : {}),
     ...(agentFilter !== "all" ? { agentId: Number(agentFilter) } : {}),
     ...(payeeTypeFilter !== "all" ? { payeeType: payeeTypeFilter } : {}),
-    ...(memoSearch.trim() ? { search: memoSearch.trim() } : {}),
+    ...(payoutSearch.trim() ? { search: payoutSearch.trim() } : {}),
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
     sortOrder,
-  }), [statusFilter, agentFilter, payeeTypeFilter, memoSearch, dateFrom, dateTo, sortOrder]);
+  }), [statusFilter, agentFilter, payeeTypeFilter, payoutSearch, dateFrom, dateTo, sortOrder]);
 
   const { data: payouts = [], isLoading } = trpc.payouts.listAll.useQuery(queryInput);
 
@@ -150,7 +150,7 @@ export default function PayoutReportPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", memoSearch.trim(), dateFrom, dateTo, statusFilter !== "all"].filter(Boolean).length;
+  const activeFilterCount = [agentFilter !== "all", payeeTypeFilter !== "all", payoutSearch.trim(), dateFrom, dateTo, statusFilter !== "all"].filter(Boolean).length;
 
   const rows = payouts as PayoutRow[];
   const payoutTotalPages = Math.max(1, Math.ceil(rows.length / payoutLimit));
@@ -184,13 +184,13 @@ export default function PayoutReportPage() {
 
         {/* Filter bar */}
         <div className="mt-4 flex flex-wrap gap-2 items-end">
-          <div className="relative w-full sm:w-56">
+          <div className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               className="h-9 pl-9"
-              value={memoSearch}
-              onChange={(event) => { setMemoSearch(event.target.value); setPayoutPage(1); }}
-              placeholder="Search eXp memo #..."
+              value={payoutSearch}
+              onChange={(event) => { setPayoutSearch(event.target.value); setPayoutPage(1); }}
+              placeholder="Search eXp memo # or address..."
             />
           </div>
           {/* Sort toggle */}
@@ -260,7 +260,7 @@ export default function PayoutReportPage() {
               variant="ghost"
               size="sm"
               className="text-xs h-9"
-              onClick={() => { setStatusFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setMemoSearch(""); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
+              onClick={() => { setStatusFilter("all"); setAgentFilter("all"); setPayeeTypeFilter("all"); setPayoutSearch(""); setDateFrom(""); setDateTo(""); setPayoutPage(1); }}
             >
               Clear filters
             </Button>

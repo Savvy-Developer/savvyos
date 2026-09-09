@@ -37,6 +37,7 @@ import { ENV } from "./_core/env";
 import { resolveActivityRecordLinks } from "./activityLinkResolver";
 import { normalizePhoneFields } from "@shared/phone";
 import { buildNormalizedKey } from "./addressNormalization";
+import { buildPayoutSearchCondition } from "./payoutSearch";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -1963,12 +1964,7 @@ export async function getAllPayoutItems(filters?: { agentId?: number; payeeUserI
   if (filters?.payeeUserId !== undefined) conditions.push(eq(transactionPayoutItems.payeeUserId, filters.payeeUserId));
   if (filters?.payeeType !== undefined) conditions.push(eq(transactionPayoutItems.payeeType, filters.payeeType as any));
   if (filters?.agentId !== undefined) conditions.push(eq(transactions.agentId, filters.agentId));
-  if (filters?.search) {
-    const memoSearch = filters.search.replace(/\s+/g, " ").trim();
-    conditions.push(memoSearch.includes(".")
-      ? eq(transactionPayoutItems.expMemoNumber, memoSearch)
-      : or(eq(transactionPayoutItems.expMemoNumber, memoSearch), like(transactionPayoutItems.expMemoNumber, `${memoSearch}.%`)));
-  }
+  if (filters?.search) conditions.push(buildPayoutSearchCondition(filters.search));
   if (filters?.dateFrom !== undefined) conditions.push(gte(transactions.closingDate, filters.dateFrom));
   if (filters?.dateTo !== undefined) conditions.push(lte(transactions.closingDate, filters.dateTo));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
