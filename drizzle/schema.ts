@@ -5369,6 +5369,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewVendorLists: boolean("canViewVendorLists").default(true).notNull(),
   // Every admin sidebar entry must have a matching Super Permissions flag.
   canViewWebinars: boolean("canViewWebinars").default(true).notNull(),
+  canViewEvents: boolean("canViewEvents").default(true).notNull(),
   canViewTechRequests: boolean("canViewTechRequests").default(true).notNull(),
   canViewGoals: boolean("canViewGoals").default(true).notNull(),
   canViewJobBoard: boolean("canViewJobBoard").default(true).notNull(),
@@ -5418,6 +5419,277 @@ export const adminPermissions = mysqlTable("admin_permissions", {
 });
 export type AdminPermissions = typeof adminPermissions.$inferSelect;
 export type InsertAdminPermissions = typeof adminPermissions.$inferInsert;
+
+// ─── Events Console ──────────────────────────────────────────────────────────
+// The Events Console is deliberately normalized around one portfolio event. Its
+// tier captures operating responsibility only; it never derives a revenue split.
+export const eventPortfolio = mysqlTable(
+  "event_portfolio",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seedKey: varchar("seedKey", { length: 64 }).unique(),
+    name: varchar("name", { length: 255 }).notNull(),
+    tier: int("tier").notNull().default(2),
+    status: varchar("status", { length: 64 }).notNull().default("Idea"),
+    startDate: date("startDate"),
+    endDate: date("endDate"),
+    timezone: varchar("timezone", { length: 64 })
+      .notNull()
+      .default("America/New_York"),
+    city: varchar("city", { length: 255 }),
+    venue: varchar("venue", { length: 255 }),
+    ownerName: varchar("ownerName", { length: 255 }),
+    counterpart: varchar("counterpart", { length: 255 }),
+    registrationPlatform: varchar("registrationPlatform", { length: 255 }),
+    swoogoEventId: varchar("swoogoEventId", { length: 128 }).unique(),
+    revenueTarget: decimal("revenueTarget", { precision: 15, scale: 2 }),
+    revenueBooked: decimal("revenueBooked", { precision: 15, scale: 2 })
+      .notNull()
+      .default("0"),
+    savvyRevenueShare: decimal("savvyRevenueShare", { precision: 5, scale: 2 }),
+    shareStatus: mysqlEnum("shareStatus", ["written", "verbal", "not_agreed"]),
+    committedCost: decimal("committedCost", { precision: 15, scale: 2 }),
+    headcountGuarantee: int("headcountGuarantee"),
+    headcountGuaranteeVendor: varchar("headcountGuaranteeVendor", {
+      length: 255,
+    }),
+    workingHeadcount: int("workingHeadcount"),
+    notes: text("notes"),
+    version: int("version").notNull().default(1),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedById: int("updatedById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("event_portfolio_tier_start_idx").on(table.tier, table.startDate),
+  ]
+);
+export type EventPortfolio = typeof eventPortfolio.$inferSelect;
+export type InsertEventPortfolio = typeof eventPortfolio.$inferInsert;
+
+export const eventHeadcountComponents = mysqlTable(
+  "event_headcount_components",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    label: varchar("label", { length: 255 }).notNull(),
+    count: int("count"),
+    sourceType: varchar("sourceType", { length: 255 })
+      .notNull()
+      .default("Manual"),
+    lastSyncedAt: timestamp("lastSyncedAt"),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("event_headcount_components_event_idx").on(table.eventId)]
+);
+export type EventHeadcountComponent =
+  typeof eventHeadcountComponents.$inferSelect;
+export type InsertEventHeadcountComponent =
+  typeof eventHeadcountComponents.$inferInsert;
+
+export const eventObligations = mysqlTable(
+  "event_obligations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seedKey: varchar("seedKey", { length: 64 }).unique(),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    dueDate: date("dueDate"),
+    title: varchar("title", { length: 255 }).notNull(),
+    amountAtRisk: decimal("amountAtRisk", { precision: 15, scale: 2 }),
+    amountNote: varchar("amountNote", { length: 255 }),
+    isPayable: boolean("isPayable").notNull().default(true),
+    ownerName: varchar("ownerName", { length: 255 }),
+    status: varchar("status", { length: 64 }).notNull().default("Open"),
+    consequence: text("consequence"),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("event_obligations_event_due_idx").on(table.eventId, table.dueDate),
+    index("event_obligations_due_idx").on(table.dueDate),
+  ]
+);
+export type EventObligation = typeof eventObligations.$inferSelect;
+export type InsertEventObligation = typeof eventObligations.$inferInsert;
+
+export const eventSponsors = mysqlTable(
+  "event_sponsors",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seedKey: varchar("seedKey", { length: 64 }).unique(),
+    companyName: varchar("companyName", { length: 255 }).notNull(),
+    category: varchar("category", { length: 255 }),
+    contactName: varchar("contactName", { length: 255 }),
+    notes: text("notes"),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("event_sponsors_category_idx").on(table.category)]
+);
+export type EventSponsor = typeof eventSponsors.$inferSelect;
+export type InsertEventSponsor = typeof eventSponsors.$inferInsert;
+
+export const eventSponsorAsks = mysqlTable(
+  "event_sponsor_asks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sponsorId: int("sponsorId")
+      .notNull()
+      .references(() => eventSponsors.id, { onDelete: "cascade" }),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 15, scale: 2 }),
+    stage: mysqlEnum("stage", [
+      "signed",
+      "invoiced",
+      "verbal",
+      "proposed",
+      "target",
+      "partner",
+      "speaker",
+    ]).notNull(),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("event_sponsor_asks_sponsor_event_unique").on(
+      table.sponsorId,
+      table.eventId
+    ),
+    index("event_sponsor_asks_event_idx").on(table.eventId),
+  ]
+);
+export type EventSponsorAsk = typeof eventSponsorAsks.$inferSelect;
+export type InsertEventSponsorAsk = typeof eventSponsorAsks.$inferInsert;
+
+export const eventExclusivityClaims = mysqlTable(
+  "event_exclusivity_claims",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seedKey: varchar("seedKey", { length: 64 }).unique(),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    category: varchar("category", { length: 255 }).notNull(),
+    sponsorId: int("sponsorId").references(() => eventSponsors.id, {
+      onDelete: "set null",
+    }),
+    holderName: varchar("holderName", { length: 255 }),
+    isWritten: boolean("isWritten").notNull().default(false),
+    notes: text("notes"),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("event_exclusivity_claims_event_category_unique").on(
+      table.eventId,
+      table.category
+    ),
+  ]
+);
+export type EventExclusivityClaim = typeof eventExclusivityClaims.$inferSelect;
+export type InsertEventExclusivityClaim =
+  typeof eventExclusivityClaims.$inferInsert;
+
+export const eventUnaffiliatedContacts = mysqlTable(
+  "event_unaffiliated_contacts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seedKey: varchar("seedKey", { length: 64 }).unique(),
+    companyName: varchar("companyName", { length: 255 }).notNull(),
+    category: varchar("category", { length: 255 }),
+    contactName: varchar("contactName", { length: 255 }),
+    notes: text("notes"),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  }
+);
+export type EventUnaffiliatedContact =
+  typeof eventUnaffiliatedContacts.$inferSelect;
+export type InsertEventUnaffiliatedContact =
+  typeof eventUnaffiliatedContacts.$inferInsert;
+
+export const eventAlerts = mysqlTable(
+  "event_alerts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    seedKey: varchar("seedKey", { length: 64 }).unique(),
+    eventId: int("eventId").references(() => eventPortfolio.id, {
+      onDelete: "set null",
+    }),
+    level: mysqlEnum("level", ["blocking", "warning"])
+      .notNull()
+      .default("warning"),
+    title: varchar("title", { length: 255 }).notNull(),
+    body: text("body"),
+    secondaryBody: text("secondaryBody"),
+    source: varchar("source", { length: 500 }),
+    isOpen: boolean("isOpen").notNull().default(true),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("event_alerts_open_level_idx").on(table.isOpen, table.level)]
+);
+export type EventAlert = typeof eventAlerts.$inferSelect;
+export type InsertEventAlert = typeof eventAlerts.$inferInsert;
+
+// Webhook records are intentionally a delivery/audit trail rather than a
+// counter. At-least-once events are recounted from the provider only after its
+// registrant/source semantics have been confirmed.
+export const eventSwoogoSyncActivity = mysqlTable(
+  "event_swoogo_sync_activity",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventId: int("eventId").references(() => eventPortfolio.id, {
+      onDelete: "set null",
+    }),
+    providerEventId: varchar("providerEventId", { length: 128 }).notNull(),
+    eventType: varchar("eventType", { length: 64 }).notNull(),
+    status: mysqlEnum("status", [
+      "awaiting_source_confirmation",
+      "processed",
+      "failed",
+    ])
+      .notNull()
+      .default("awaiting_source_confirmation"),
+    payload: json("payload").$type<Record<string, unknown>>(),
+    receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+    processedAt: timestamp("processedAt"),
+    errorMessage: text("errorMessage"),
+  },
+  table => [
+    index("event_swoogo_sync_activity_provider_received_idx").on(
+      table.providerEventId,
+      table.receivedAt
+    ),
+    index("event_swoogo_sync_activity_event_received_idx").on(
+      table.eventId,
+      table.receivedAt
+    ),
+  ]
+);
+export type EventSwoogoSyncActivity =
+  typeof eventSwoogoSyncActivity.$inferSelect;
+export type InsertEventSwoogoSyncActivity =
+  typeof eventSwoogoSyncActivity.$inferInsert;
 
 // ─── Admin Navigation Preferences ─────────────────────────────────────────────
 // Per-admin usage history and shortcuts. The sidebar remains permission-filtered

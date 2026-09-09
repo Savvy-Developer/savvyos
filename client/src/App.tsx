@@ -151,6 +151,7 @@ import AgentRenewalsPage from "./pages/AgentRenewalsPage";
 import ConversationIntelligencePage from "./pages/ConversationIntelligencePage";
 import AffiliateLinksPage from "./pages/AffiliateLinksPage";
 import MarketProfileSurveyPage from "./pages/MarketProfileSurveyPage";
+import EventsPage from "./pages/EventsPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -311,6 +312,16 @@ function WebinarRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewWebinars) return <NotFound />;
+  return <>{children}</>;
+}
+
+function EventsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewEvents) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -493,6 +504,7 @@ function Router() {
           <Route path="/marketing-requests" component={MarketingRequestsPage} />
           <Route path="/marketing-admin">{() => <AdminRoute><MarketingAdminPage /></AdminRoute>}</Route>
           <Route path="/webinars">{() => <WebinarRoute><WebinarsAdminPage /></WebinarRoute>}</Route>
+          <Route path="/events">{() => <EventsRoute><EventsPage /></EventsRoute>}</Route>
           <Route path="/landing-pages">{() => <LandingPagesRoute><LandingPagesPage /></LandingPagesRoute>}</Route>
           <Route path="/short-links">{() => <ShortLinksRoute><ShortLinksPage /></ShortLinksRoute>}</Route>
           <Route path="/tech-requests" component={TechRequestsPage} />

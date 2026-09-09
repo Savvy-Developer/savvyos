@@ -93,6 +93,8 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewJobBoard",               label: "Job Board",                  group: "Work" },
   { key: "canViewTalentProfile",          label: "Talent Profiles",            group: "Work" },
   { key: "canViewKnowledgeBase",          label: "Knowledgebase",              group: "Work" },
+  // Events
+  { key: "canViewEvents",                 label: "Events Console",             group: "Events" },
   // Marketing
   { key: "canViewWebinars",               label: "Webinars",                   group: "Marketing" },
   { key: "canViewLandingPages",           label: "Landing Pages",              group: "Marketing" },

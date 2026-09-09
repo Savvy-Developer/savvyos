@@ -33,6 +33,7 @@ const GROUP_ORDER = [
   "Dev Tools",
   "Resources",
   "Projects & Plans",
+  "Events",
 ];
 
 export default function AdminPermissionsDialog({

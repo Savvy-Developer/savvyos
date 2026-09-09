@@ -57,6 +57,8 @@ import { registerMcpOAuthRoutes } from "../mcpOAuth";
 import { registerMarketMatchQuizCalendlyWebhook } from "../marketMatchQuizCalendlyWebhook";
 import { scheduleInactiveQuizFollowUps } from "../marketMatchQuiz";
 import { registerCalendarOAuthRoutes } from "../calendarOAuthRoutes";
+import { registerSwoogoEventsWebhook } from "../eventsSwoogoWebhook";
+import { startSwoogoTokenRefresh } from "../swoogoEvents";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -223,6 +225,9 @@ async function startServer() {
 
   // Aircall webhook — live call sync
   registerAircallWebhook(app);
+  // Swoogo deliveries are acknowledged before deferred verification work.
+  registerSwoogoEventsWebhook(app);
+  startSwoogoTokenRefresh();
   // Scheduled task: nightly duplicate scan
   // Auth: session cookie (any authenticated user) OR internal secret header
   app.post("/api/scheduled/duplicate-scan", async (req, res) => {

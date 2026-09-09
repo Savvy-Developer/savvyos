@@ -368,6 +368,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewAgentDirectory: "/agent-directory",
   canViewAffiliateLinks: "/affiliate-links",
   canViewVendorLists: "/admin/vendors",
+  canViewEvents: "/events",
 };
 
 function filterNavByPermissions(
@@ -514,6 +515,10 @@ function buildAdminNav(
         },
         { icon: BookOpen, label: "Knowledgebase", path: "/kb" },
       ],
+    },
+    {
+      label: "Events",
+      items: [{ icon: CalendarDays, label: "Events", path: "/events" }],
     },
     {
       label: "Marketing",
