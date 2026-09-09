@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import {
   pmProjects,
   pmProjectCollaborators,
+  pmTodoSections,
   pmTasks,
   pmTaskComments,
   pmTaskCommentMentions,
@@ -21,6 +22,7 @@ import {
 import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
+import { collectTaskFamilyIds, moveSectionInOrder } from "../pmTodoSections";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
@@ -233,11 +235,18 @@ export const pmRouter = router({
           .leftJoin(users, eq(pmProjectCollaborators.userId, users.id))
           .where(eq(pmProjectCollaborators.projectId, input.id));
 
+        const todoSections = await db
+          .select()
+          .from(pmTodoSections)
+          .where(eq(pmTodoSections.projectId, input.id))
+          .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.createdAt), asc(pmTodoSections.id));
+
         const tasks = await db
           .select({
             id: pmTasks.id,
             title: pmTasks.title,
             parentTaskId: pmTasks.parentTaskId,
+            sectionId: pmTasks.sectionId,
             ownerId: pmTasks.ownerId,
             ownerName: users.name,
             dueDate: pmTasks.dueDate,
@@ -287,7 +296,7 @@ export const pmRouter = router({
           .orderBy(desc(pmProjectActivity.createdAt))
           .limit(50);
 
-        return { ...project, collaborators, tasks, weeklyUpdates, activity };
+        return { ...project, collaborators, todoSections, tasks, weeklyUpdates, activity };
       }),
 
     create: protectedProcedure
@@ -424,6 +433,92 @@ export const pmRouter = router({
       }),
   }),
 
+  // ── Todo Sections ──────────────────────────────────────────────────────────
+
+  sections: router({
+    create: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        title: z.string().trim().min(1).max(128),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await assertProjectAccess(db, input.projectId, ctx.user);
+
+        const [orderResult] = await db
+          .select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
+          .from(pmTodoSections)
+          .where(eq(pmTodoSections.projectId, input.projectId));
+        const [result] = await db.insert(pmTodoSections).values({
+          projectId: input.projectId,
+          title: input.title,
+          sortOrder: Number(orderResult?.maxSortOrder ?? -1) + 1,
+        });
+        await logActivity(input.projectId, ctx.user.id, "section_created", `Created todo section "${input.title}"`);
+        return { id: result.insertId };
+      }),
+
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), title: z.string().trim().min(1).max(128) }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title })
+          .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
+        if (!section) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, section.projectId, ctx.user);
+        await db.update(pmTodoSections).set({ title: input.title }).where(eq(pmTodoSections.id, input.id));
+        await logActivity(section.projectId, ctx.user.id, "section_updated", `Renamed todo section "${section.title}" to "${input.title}"`);
+        return { success: true };
+      }),
+
+    move: protectedProcedure
+      .input(z.object({ id: z.number(), direction: z.enum(["up", "down"]) }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [section] = await db.select({ projectId: pmTodoSections.projectId })
+          .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
+        if (!section) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, section.projectId, ctx.user);
+
+        const siblings = await db.select({ id: pmTodoSections.id })
+          .from(pmTodoSections)
+          .where(eq(pmTodoSections.projectId, section.projectId))
+          .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.createdAt), asc(pmTodoSections.id));
+        const reorderedIds = moveSectionInOrder(siblings.map(sibling => sibling.id), input.id, input.direction);
+        await db.transaction(async transaction => {
+          for (let sortOrder = 0; sortOrder < reorderedIds.length; sortOrder += 1) {
+            await transaction.update(pmTodoSections).set({ sortOrder }).where(eq(pmTodoSections.id, reorderedIds[sortOrder]));
+          }
+        });
+        await logActivity(section.projectId, ctx.user.id, "section_moved", `Moved a todo section ${input.direction}`);
+        return { success: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        assertPmAccess(ctx);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title })
+          .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
+        if (!section) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertProjectAccess(db, section.projectId, ctx.user);
+        await db.transaction(async transaction => {
+          await transaction.update(pmTasks).set({ sectionId: null }).where(eq(pmTasks.sectionId, input.id));
+          await transaction.delete(pmTodoSections).where(eq(pmTodoSections.id, input.id));
+        });
+        await logActivity(section.projectId, ctx.user.id, "section_deleted", `Deleted todo section "${section.title}"; its todos are now unsectioned`);
+        return { success: true };
+      }),
+  }),
+
   // ── Tasks ─────────────────────────────────────────────────────────────────
 
   tasks: router({
@@ -431,6 +526,7 @@ export const pmRouter = router({
       .input(z.object({
         projectId: z.number(),
         parentTaskId: z.number().nullable().optional(),
+        sectionId: z.number().nullable().optional(),
         title: z.string().min(1).max(5000),
         ownerId: z.number(),
         dueDate: z.date(),
@@ -442,16 +538,25 @@ export const pmRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await assertProjectAccess(db, input.projectId, ctx.user);
+        let sectionId = input.sectionId ?? null;
         if (input.parentTaskId) {
-          const [parent] = await db.select({ id: pmTasks.id, projectId: pmTasks.projectId })
+          const [parent] = await db.select({ id: pmTasks.id, projectId: pmTasks.projectId, sectionId: pmTasks.sectionId })
             .from(pmTasks).where(eq(pmTasks.id, input.parentTaskId)).limit(1);
           if (!parent || parent.projectId !== input.projectId) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "A sub-todo must belong to a todo in this project." });
+          }
+          sectionId = parent.sectionId;
+        } else if (sectionId !== null) {
+          const [section] = await db.select({ projectId: pmTodoSections.projectId })
+            .from(pmTodoSections).where(eq(pmTodoSections.id, sectionId)).limit(1);
+          if (!section || section.projectId !== input.projectId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "The selected section must belong to this project." });
           }
         }
         const [result] = await db.insert(pmTasks).values({
           projectId: input.projectId,
           parentTaskId: input.parentTaskId ?? null,
+          sectionId,
           title: input.title,
           ownerId: input.ownerId,
           dueDate: input.dueDate,
@@ -466,6 +571,7 @@ export const pmRouter = router({
       .input(z.object({
         id: z.number(),
         title: z.string().min(1).max(5000).optional(),
+        sectionId: z.number().nullable().optional(),
         ownerId: z.number().optional(),
         dueDate: z.date().nullable().optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
@@ -475,15 +581,39 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
+        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId })
+          .from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
-        const { id, ...fields } = input;
+        const { id, sectionId, ...fields } = input;
         const updates = {
           ...fields,
           dueDate: fields.dueDate === null ? sql`NULL` : fields.dueDate,
         };
-        await db.update(pmTasks).set(updates).where(eq(pmTasks.id, id));
+        let familyIds: number[] | null = null;
+        if (sectionId !== undefined) {
+          if (task.parentTaskId !== null) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent todo to move its sub-todos between sections." });
+          }
+          if (sectionId !== null) {
+            const [section] = await db.select({ projectId: pmTodoSections.projectId })
+              .from(pmTodoSections).where(eq(pmTodoSections.id, sectionId)).limit(1);
+            if (!section || section.projectId !== task.projectId) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "The selected section must belong to this project." });
+            }
+          }
+          const projectTasks = await db.select({ id: pmTasks.id, parentTaskId: pmTasks.parentTaskId })
+            .from(pmTasks).where(eq(pmTasks.projectId, task.projectId));
+          familyIds = collectTaskFamilyIds(projectTasks, id);
+        }
+        await db.transaction(async transaction => {
+          if (Object.keys(fields).length > 0) {
+            await transaction.update(pmTasks).set(updates).where(eq(pmTasks.id, id));
+          }
+          if (familyIds) {
+            await transaction.update(pmTasks).set({ sectionId }).where(inArray(pmTasks.id, familyIds));
+          }
+        });
         await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo", id);
         return { success: true };
       }),

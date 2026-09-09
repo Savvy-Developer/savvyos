@@ -3995,6 +3995,23 @@ export const pmProjects = mysqlTable("pm_projects", {
 export type PmProject = typeof pmProjects.$inferSelect;
 export type InsertPmProject = typeof pmProjects.$inferInsert;
 
+export const pmTodoSections = mysqlTable(
+  "pm_todo_sections",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    projectId: int("projectId")
+      .notNull()
+      .references(() => pmProjects.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 128 }).notNull(),
+    sortOrder: int("sortOrder").notNull().default(0),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("pm_todo_sections_project_order_idx").on(table.projectId, table.sortOrder)]
+);
+export type PmTodoSection = typeof pmTodoSections.$inferSelect;
+export type InsertPmTodoSection = typeof pmTodoSections.$inferInsert;
+
 export const pmProjectCollaborators = mysqlTable(
   "pm_project_collaborators",
   {
@@ -4023,6 +4040,7 @@ export const pmTasks = mysqlTable(
       .notNull()
       .references(() => pmProjects.id, { onDelete: "cascade" }),
     parentTaskId: int("parentTaskId"),
+    sectionId: int("sectionId").references(() => pmTodoSections.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     ownerId: int("ownerId")
       .notNull()
@@ -4043,6 +4061,7 @@ export const pmTasks = mysqlTable(
       name: "pm_tasks_parentTaskId_pm_tasks_id_fk",
     }).onDelete("set null"),
     index("pm_tasks_parent_idx").on(table.parentTaskId),
+    index("pm_tasks_section_order_idx").on(table.sectionId, table.sortOrder, table.createdAt),
   ]
 );
 export type PmTask = typeof pmTasks.$inferSelect;
