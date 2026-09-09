@@ -10,6 +10,7 @@ const PERMISSION_MANAGERS = [
   "tyler@savvy.realty",
   "elana@savvy.realty",
   "dyl@savvy.realty",
+  "dhruv@savvy.realty",
 ];
 
 // ── Tyler's email — her permissions can never be edited ───────────────────────
