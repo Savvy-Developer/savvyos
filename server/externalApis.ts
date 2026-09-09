@@ -1,6 +1,5 @@
 import express from "express";
 import { sdk } from "./_core/sdk";
-import { makeRequest } from "./_core/map";
 import { extractAirbnbListingId, extractAirbnbPhotoUrls } from "./airbnbListing";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
@@ -73,15 +72,47 @@ export function mapZillowPropertyResponse(data: any) {
   };
 }
 
-type GoogleAddressComponent = { long_name?: string; short_name?: string; types?: string[] };
+type GoogleAddressComponent = {
+  long_name?: string;
+  short_name?: string;
+  longText?: string;
+  shortText?: string;
+  types?: string[];
+};
+
+function getGoogleMapsApiKey(): string {
+  const key = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (!key) throw new Error("Google Maps is not configured: set GOOGLE_MAPS_API_KEY");
+  return key;
+}
+
+async function requestGooglePlaces<T>(path: string, options: RequestInit, fieldMask: string): Promise<T> {
+  const response = await fetch(`https://places.googleapis.com${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": getGoogleMapsApiKey(),
+      "X-Goog-FieldMask": fieldMask,
+      ...(options.headers ?? {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Google Places request failed (${response.status}): ${await response.text()}`);
+  }
+  return await response.json() as T;
+}
 
 export function parseGoogleAddressDetails(result: any) {
   const components = Array.isArray(result?.address_components)
     ? result.address_components as GoogleAddressComponent[]
+    : Array.isArray(result?.addressComponents)
+      ? result.addressComponents as GoogleAddressComponent[]
     : [];
   const component = (type: string, short = false) => {
     const value = components.find(item => item.types?.includes(type));
-    return short ? value?.short_name : value?.long_name;
+    return short
+      ? value?.shortText ?? value?.short_name
+      : value?.longText ?? value?.long_name;
   };
   const streetNumber = component("street_number") ?? "";
   const route = component("route") ?? "";
@@ -92,7 +123,7 @@ export function parseGoogleAddressDetails(result: any) {
     city,
     state: component("administrative_area_level_1", true) ?? "",
     zip: component("postal_code") ?? "",
-    formattedAddress: result?.formatted_address ?? "",
+    formattedAddress: result?.formattedAddress ?? result?.formatted_address ?? "",
   };
 }
 
@@ -110,31 +141,23 @@ export function registerExternalApiRoutes(app: express.Application) {
       if (!query && !placeId) return res.status(400).json({ error: "Enter an address to search." });
 
       if (placeId) {
-        const data = await makeRequest<any>("/maps/api/place/details/json", {
-          place_id: placeId,
-          fields: "address_component,formatted_address",
-        });
-        if (data?.status !== "OK" || !data?.result) {
+        const data = await requestGooglePlaces<any>(`/v1/places/${encodeURIComponent(placeId)}`, { method: "GET" }, "addressComponents,formattedAddress");
+        if (!data?.addressComponents || !data?.formattedAddress) {
           return res.status(502).json({ error: "Address details are temporarily unavailable." });
         }
-        return res.json({ success: true, address: parseGoogleAddressDetails(data.result) });
+        return res.json({ success: true, address: parseGoogleAddressDetails(data) });
       }
 
       if (query.length < 3) return res.json({ success: true, suggestions: [] });
-      const data = await makeRequest<any>("/maps/api/place/autocomplete/json", {
-        input: query,
-        types: "address",
-        components: "country:us",
-      });
-      if (data?.status && !["OK", "ZERO_RESULTS"].includes(data.status)) {
-        console.warn("[AddressAutocomplete] Google Places returned a non-success status", data.status);
-        return res.status(502).json({ error: "Address suggestions are temporarily unavailable." });
-      }
-      const suggestions = Array.isArray(data?.predictions)
-        ? data.predictions.slice(0, 6).map((prediction: any) => ({
-            placeId: String(prediction.place_id ?? ""),
-            description: String(prediction.description ?? ""),
-          })).filter((prediction: { placeId: string; description: string }) => prediction.placeId && prediction.description)
+      const data = await requestGooglePlaces<any>("/v1/places:autocomplete", {
+        method: "POST",
+        body: JSON.stringify({ input: query, includedRegionCodes: ["us"] }),
+      }, "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text");
+      const suggestions = Array.isArray(data?.suggestions)
+        ? data.suggestions.slice(0, 6).map((suggestion: any) => ({
+            placeId: String(suggestion?.placePrediction?.placeId ?? ""),
+            description: String(suggestion?.placePrediction?.text?.text ?? ""),
+          })).filter((suggestion: { placeId: string; description: string }) => suggestion.placeId && suggestion.description)
         : [];
       return res.json({ success: true, suggestions });
     } catch (err: any) {

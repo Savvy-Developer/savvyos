@@ -3,6 +3,7 @@ import {
   ZillowLookupInputError,
   buildZillowLookupUrl,
   mapZillowPropertyResponse,
+  parseGoogleAddressDetails,
 } from "./externalApis";
 
 describe("Zillow import helpers", () => {
@@ -86,5 +87,26 @@ describe("Zillow import helpers", () => {
         propertyDetails: {},
       })
     ).toBeNull();
+  });
+});
+
+describe("Google Places address parsing", () => {
+  it("maps the current Places API response shape into property fields", () => {
+    expect(parseGoogleAddressDetails({
+      formattedAddress: "1600 Pennsylvania Avenue NW, Washington, DC 20500, USA",
+      addressComponents: [
+        { longText: "1600", shortText: "1600", types: ["street_number"] },
+        { longText: "Pennsylvania Avenue Northwest", shortText: "Pennsylvania Ave NW", types: ["route"] },
+        { longText: "Washington", shortText: "Washington", types: ["locality", "political"] },
+        { longText: "District of Columbia", shortText: "DC", types: ["administrative_area_level_1", "political"] },
+        { longText: "20500", shortText: "20500", types: ["postal_code"] },
+      ],
+    })).toEqual({
+      address: "1600 Pennsylvania Avenue Northwest",
+      city: "Washington",
+      state: "DC",
+      zip: "20500",
+      formattedAddress: "1600 Pennsylvania Avenue NW, Washington, DC 20500, USA",
+    });
   });
 });
