@@ -725,7 +725,7 @@ export const properties = mysqlTable(
     addedByUserIdx: index("idx_properties_addedByUserId").on(
       table.addedByUserId
     ),
-    normalizedAddressIdx: index("idx_properties_normalizedAddress").on(
+    normalizedAddressUnique: uniqueIndex("properties_normalizedAddress_unique").on(
       table.normalizedAddress
     ),
   })
