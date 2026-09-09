@@ -178,7 +178,7 @@ export async function geocodeAddress(
       }>;
     }>("/v1/places:searchText", {
       method: "POST",
-      body: JSON.stringify({ textQuery: fullAddress, includedRegionCodes: ["us"] }),
+      body: JSON.stringify({ textQuery: fullAddress, regionCode: "US" }),
     }, "places.id,places.formattedAddress,places.addressComponents");
     const first = result.places?.[0];
     const components = first?.addressComponents;
