@@ -16,21 +16,32 @@ import { ENV } from "./env";
 type MapsConfig = {
   baseUrl: string;
   apiKey: string;
+  usesForgeProxy: boolean;
 };
 
 function getMapsConfig(): MapsConfig {
+  const directGoogleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (directGoogleMapsApiKey) {
+    return {
+      baseUrl: "https://maps.googleapis.com",
+      apiKey: directGoogleMapsApiKey,
+      usesForgeProxy: false,
+    };
+  }
+
   const baseUrl = ENV.forgeApiUrl;
   const apiKey = ENV.forgeApiKey;
 
-  if (!baseUrl || !apiKey) {
+  if (!baseUrl || !apiKey || new URL(baseUrl).hostname === "api.openai.com") {
     throw new Error(
-      "Google Maps proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"
+      "Google Maps is not configured: set GOOGLE_MAPS_API_KEY"
     );
   }
 
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
     apiKey,
+    usesForgeProxy: true,
   };
 }
 
@@ -56,10 +67,11 @@ export async function makeRequest<T = unknown>(
   params: Record<string, unknown> = {},
   options: RequestOptions = {}
 ): Promise<T> {
-  const { baseUrl, apiKey } = getMapsConfig();
+  const { baseUrl, apiKey, usesForgeProxy } = getMapsConfig();
 
-  // Construct full URL: baseUrl + /v1/maps/proxy + endpoint
-  const url = new URL(`${baseUrl}/v1/maps/proxy${endpoint}`);
+  // The dedicated Google key path is the reliable production default. The
+  // Forge proxy remains supported for environments that provide it correctly.
+  const url = new URL(usesForgeProxy ? `${baseUrl}/v1/maps/proxy${endpoint}` : `${baseUrl}${endpoint}`);
 
   // Add API key as query parameter (standard Google Maps API authentication)
   url.searchParams.append("key", apiKey);
@@ -313,7 +325,6 @@ export type RoadsResult = {
  * Output: Image URL (not JSON) - use directly in <img src={url} />
  * Note: Construct URL manually with getMapsConfig() for auth
  */
-
 
 
 

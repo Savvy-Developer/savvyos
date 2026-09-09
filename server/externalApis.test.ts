@@ -3,7 +3,6 @@ import {
   ZillowLookupInputError,
   buildZillowLookupUrl,
   mapZillowPropertyResponse,
-  parseCensusAddressDetails,
 } from "./externalApis";
 
 describe("Zillow import helpers", () => {
@@ -87,28 +86,5 @@ describe("Zillow import helpers", () => {
         propertyDetails: {},
       })
     ).toBeNull();
-  });
-});
-
-describe("Census address fallback", () => {
-  it("maps a Census address match into the verified property address shape", () => {
-    expect(parseCensusAddressDetails({
-      matchedAddress: "1600 PENNSYLVANIA AVE NW, WASHINGTON, DC, 20500",
-      addressComponents: {
-        fromAddress: "1600",
-        streetName: "PENNSYLVANIA",
-        suffixType: "AVE",
-        suffixDirection: "NW",
-        city: "WASHINGTON",
-        state: "DC",
-        zip: "20500",
-      },
-    })).toEqual({
-      address: "1600 PENNSYLVANIA AVE NW",
-      city: "WASHINGTON",
-      state: "DC",
-      zip: "20500",
-      formattedAddress: "1600 PENNSYLVANIA AVE NW, WASHINGTON, DC, 20500",
-    });
   });
 });

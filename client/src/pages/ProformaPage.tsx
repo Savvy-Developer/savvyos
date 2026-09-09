@@ -2593,7 +2593,7 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, availableSlots }: {
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-h-[85vh]">
+      <DialogContent className="flex h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:h-[92vh] sm:w-[min(96vw,1600px)]">
         <DialogHeader className="border-b bg-gradient-to-r from-slate-950 to-slate-800 px-5 py-5 text-left sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -2617,7 +2617,7 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, availableSlots }: {
             <div className="flex items-center gap-2 text-sm text-slate-500"><SlidersHorizontal className="h-4 w-4" />{filteredComps.length} match{filteredComps.length === 1 ? "" : "es"}</div>
             {hasActiveFilters && <Button type="button" variant="ghost" size="sm" className="text-slate-600" onClick={clearFilters}>Clear filters</Button>}
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
             {isAdmin && <div>
               <Label className="sr-only">Market</Label>
               <Select value={filterMarket || "all"} onValueChange={value => setFilterMarket(value === "all" ? "" : value)}><SelectTrigger className="h-9 w-full bg-white text-xs"><SelectValue placeholder="All markets" /></SelectTrigger><SelectContent><SelectItem value="all">All markets</SelectItem>{markets.map(market => <SelectItem key={market} value={market}>{market}</SelectItem>)}</SelectContent></Select>
@@ -2639,7 +2639,7 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, availableSlots }: {
           {filteredComps.length === 0 ? (
             <div className="py-14 text-center"><BookOpen className="mx-auto mb-3 h-6 w-6 text-slate-300" /><p className="text-sm font-medium text-slate-700">No comparable properties match</p><p className="mt-1 text-sm text-slate-500">Try broadening or clearing the current filters.</p></div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {filteredComps.map(({ comp, sourceIndex }) => {
                 const isSelected = selected.has(sourceIndex);
                 const revenue = getCompRevenue(comp);
