@@ -2,6 +2,7 @@ import express from "express";
 import { sdk } from "./_core/sdk";
 import { extractAirbnbListingId, extractAirbnbPhotoUrls } from "./airbnbListing";
 import { requestGooglePlaces, type GooglePlacesAddressComponent } from "./_core/googlePlaces";
+import { buildUnitAwareStreetAddress } from "./addressNormalization";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
 const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
@@ -73,7 +74,7 @@ export function mapZillowPropertyResponse(data: any) {
   };
 }
 
-export function parseGoogleAddressDetails(result: any) {
+export function parseGoogleAddressDetails(result: any, sourceAddress?: string) {
   const components = Array.isArray(result?.address_components)
     ? result.address_components as GooglePlacesAddressComponent[]
     : Array.isArray(result?.addressComponents)
@@ -87,7 +88,8 @@ export function parseGoogleAddressDetails(result: any) {
   };
   const streetNumber = component("street_number") ?? "";
   const route = component("route") ?? "";
-  const streetAddress = `${streetNumber} ${route}`.trim();
+  const subpremise = component("subpremise") ?? "";
+  const streetAddress = buildUnitAwareStreetAddress(`${streetNumber} ${route}`.trim(), sourceAddress, subpremise);
   const city = component("locality") ?? component("postal_town") ?? component("sublocality") ?? component("administrative_area_level_3") ?? "";
   return {
     address: streetAddress || result?.formatted_address?.split(",")[0] || "",
@@ -116,7 +118,7 @@ export function registerExternalApiRoutes(app: express.Application) {
         if (!data?.addressComponents || !data?.formattedAddress) {
           return res.status(502).json({ error: "Address details are temporarily unavailable." });
         }
-        return res.json({ success: true, address: parseGoogleAddressDetails(data) });
+        return res.json({ success: true, address: parseGoogleAddressDetails(data, query) });
       }
 
       if (query.length < 3) return res.json({ success: true, suggestions: [] });

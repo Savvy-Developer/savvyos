@@ -63,6 +63,10 @@ export function normalizeAddressString(addr: string | null | undefined): string 
   let normalized = addr
     .trim()
     .toLowerCase()
+    // Preserve a unit's identity while treating common designators as equivalent.
+    // This happens before stripping # and punctuation so “Apt. 2” and “#2” match.
+    .replace(/\b(?:apt(?:artment)?\.?|unit|suite|ste\.?|lot|bldg|building)(?:\s*#\s*|\s+)([a-z0-9][a-z0-9-]*)/g, (_, unit: string) => ` unit ${unit.replace(/-/g, " unitdash ")}`)
+    .replace(/#\s*([a-z0-9][a-z0-9-]*)/g, (_, unit: string) => ` unit ${unit.replace(/-/g, " unitdash ")}`)
     .replace(/[.,#\-']/g, "")  // Strip punctuation
     .replace(/\s+/g, " ");      // Collapse whitespace
 
@@ -92,6 +96,32 @@ export function buildNormalizedKey(
   const parts = [address, city, state, zip].filter(Boolean).map(p => p!.trim());
   const combined = parts.join(" ");
   return normalizeAddressString(combined);
+}
+
+/**
+ * Pull a trailing apartment, unit, suite, lot, or hash-number designator from
+ * a street-address field. The returned value is canonicalized for storage and
+ * duplicate keys, so “Apt. 2”, “#2”, and “Unit 2” identify the same unit.
+ */
+export function extractAddressUnit(address: string | null | undefined): string | null {
+  if (!address) return null;
+  const match = address.trim().match(/(?:^|[\s,])(?:#\s*([A-Za-z0-9][A-Za-z0-9-]*)|(?:apt(?:artment)?|unit|suite|ste\.?|lot|bldg|building)(?:\s*#\s*|\s+)([A-Za-z0-9][A-Za-z0-9-]*))\s*$/i);
+  const value = match?.[1] ?? match?.[2];
+  return value ? value.toUpperCase() : null;
+}
+
+/**
+ * Adds a normalized unit designator to a Google street result. User-entered
+ * unit data wins because Places sometimes resolves a building but omits its
+ * subpremise; Google subpremise data fills the gap when it is available.
+ */
+export function buildUnitAwareStreetAddress(
+  streetAddress: string,
+  sourceAddress?: string | null,
+  googleSubpremise?: string | null,
+): string {
+  const unit = extractAddressUnit(sourceAddress) ?? extractAddressUnit(googleSubpremise) ?? googleSubpremise?.trim().toUpperCase();
+  return [streetAddress.trim(), unit ? `Unit ${unit}` : null].filter(Boolean).join(" ");
 }
 
 /**
@@ -163,6 +193,7 @@ export async function geocodeAddress(
   normalizedKey?: string;
   streetNumber?: string;
   route?: string;
+  subpremise?: string;
   city?: string;
   state?: string;
   zip?: string;
@@ -194,12 +225,17 @@ export async function geocodeAddress(
 
     const streetNumber = getComponent("street_number");
     const route = getComponent("route");
+    const subpremise = getComponent("subpremise");
     const locality = getComponent("locality") || getComponent("postal_town") || getComponent("sublocality") || getComponent("administrative_area_level_3");
     const adminArea = getComponent("administrative_area_level_1", true) || getComponent("administrative_area_level_1");
     const postalCode = getComponent("postal_code");
 
     // Build normalized key from geocoded components
-    const geocodedAddress = [streetNumber, route].filter(Boolean).join(" ");
+    const geocodedAddress = buildUnitAwareStreetAddress(
+      [streetNumber, route].filter(Boolean).join(" "),
+      address,
+      subpremise,
+    );
     const normalizedKey = buildNormalizedKey(geocodedAddress, locality, adminArea, postalCode);
 
     return {
@@ -208,6 +244,7 @@ export async function geocodeAddress(
       normalizedKey,
       streetNumber,
       route,
+      subpremise,
       city: locality,
       state: adminArea,
       zip: postalCode,

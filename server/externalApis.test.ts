@@ -109,4 +109,38 @@ describe("Google Places address parsing", () => {
       formattedAddress: "1600 Pennsylvania Avenue NW, Washington, DC 20500, USA",
     });
   });
+
+  it("keeps a Places subpremise in the selected street address", () => {
+    expect(parseGoogleAddressDetails({
+      formattedAddress: "34 Chivas Lane Unit 102C, Point Washington, FL 32459, USA",
+      addressComponents: [
+        { longText: "34", shortText: "34", types: ["street_number"] },
+        { longText: "Chivas Lane", shortText: "Chivas Ln", types: ["route"] },
+        { longText: "102C", shortText: "102C", types: ["subpremise"] },
+        { longText: "Point Washington", shortText: "Point Washington", types: ["locality", "political"] },
+        { longText: "Florida", shortText: "FL", types: ["administrative_area_level_1", "political"] },
+        { longText: "32459", shortText: "32459", types: ["postal_code"] },
+      ],
+    })).toMatchObject({
+      address: "34 Chivas Lane Unit 102C",
+      city: "Point Washington",
+      state: "FL",
+      zip: "32459",
+    });
+  });
+
+  it("retains a typed unit when the selected building omits its subpremise", () => {
+    expect(parseGoogleAddressDetails({
+      formattedAddress: "2350 West County Highway 30A, Santa Rosa Beach, FL 32459, USA",
+      addressComponents: [
+        { longText: "2350", shortText: "2350", types: ["street_number"] },
+        { longText: "West County Highway 30A", shortText: "W County Hwy 30A", types: ["route"] },
+        { longText: "Santa Rosa Beach", shortText: "Santa Rosa Beach", types: ["locality", "political"] },
+        { longText: "Florida", shortText: "FL", types: ["administrative_area_level_1", "political"] },
+        { longText: "32459", shortText: "32459", types: ["postal_code"] },
+      ],
+    }, "2350 W County Highway 30A Unit 2")).toMatchObject({
+      address: "2350 West County Highway 30A Unit 2",
+    });
+  });
 });

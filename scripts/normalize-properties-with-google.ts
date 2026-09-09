@@ -1,6 +1,7 @@
 import mysql from "mysql2/promise";
 import {
   buildNormalizedKey,
+  buildUnitAwareStreetAddress,
   capitalizeAddress,
   capitalizeCity,
   geocodeAddress,
@@ -48,7 +49,11 @@ async function normalizePropertyAddress(property: Property): Promise<NormalizedA
     return null;
   }
   return {
-    address: capitalizeAddress(`${geocoded.streetNumber} ${geocoded.route}`),
+    address: capitalizeAddress(buildUnitAwareStreetAddress(
+      `${geocoded.streetNumber} ${geocoded.route}`,
+      property.address,
+      geocoded.subpremise,
+    )),
     city: capitalizeCity(geocoded.city),
     state: normalizeState(geocoded.state),
     zip: geocoded.zip,

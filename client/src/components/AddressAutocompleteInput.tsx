@@ -83,11 +83,13 @@ export function AddressAutocompleteInput({
     setSuggestions([]);
     try {
       const response = await fetch("/api/external/address-suggestions", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ placeId: suggestion.placeId }),
-      });
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          // Keep any unit the user typed when Places resolves the building but
+          // omits its subpremise component.
+          body: JSON.stringify({ placeId: suggestion.placeId, query: value }),
+        });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.address) throw new Error(payload.error || "Unable to retrieve address details.");
       const address = payload.address as VerifiedAddress;

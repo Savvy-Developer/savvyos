@@ -14,13 +14,47 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents } from "../../drizzle/schema";
 import { aliasedTable, eq, desc, or, and, sql, inArray } from "drizzle-orm";
-import { buildNormalizedKey, geocodeAddress, capitalizeAddress, capitalizeCity, normalizeState } from "../addressNormalization";
+import { buildNormalizedKey, buildUnitAwareStreetAddress, geocodeAddress, capitalizeAddress, capitalizeCity, normalizeState } from "../addressNormalization";
 
 const wholePropertyCount = z.union([
   z.string().regex(/^\d{1,2}$/, "Must be a whole number with no more than two digits"),
   z.literal(""),
 ]);
 const MAX_PROFORMA_COMPS = 8;
+
+async function resolvePropertyAddress(input: { address: string; city?: string | null; state?: string | null; zip?: string | null }) {
+  const cleanAddress = capitalizeAddress(input.address);
+  const cleanCity = capitalizeCity(input.city);
+  const cleanState = normalizeState(input.state);
+  const cleanZip = input.zip?.trim() ?? "";
+  let geocodeResult: Awaited<ReturnType<typeof geocodeAddress>> = null;
+
+  try {
+    geocodeResult = await geocodeAddress(cleanAddress, cleanCity, cleanState, cleanZip);
+  } catch (_) {
+    // Local normalization remains correct even while Google is unavailable.
+  }
+
+  const address = geocodeResult?.success && geocodeResult.streetNumber && geocodeResult.route
+    ? capitalizeAddress(buildUnitAwareStreetAddress(
+        `${geocodeResult.streetNumber} ${geocodeResult.route}`,
+        cleanAddress,
+        geocodeResult.subpremise,
+      ))
+    : cleanAddress;
+  const city = geocodeResult?.success && geocodeResult.city ? capitalizeCity(geocodeResult.city) : cleanCity;
+  const state = geocodeResult?.success && geocodeResult.state ? normalizeState(geocodeResult.state) : cleanState;
+  const zip = geocodeResult?.success && geocodeResult.zip ? geocodeResult.zip : cleanZip;
+
+  return {
+    address,
+    city,
+    state,
+    zip,
+    normalizedAddress: buildNormalizedKey(address, city, state, zip),
+    geocodeVerified: Boolean(geocodeResult?.success),
+  };
+}
 
 function validateProformaCompLimit(formData: any): void {
   if (!Array.isArray(formData?.comps) || formData.comps.length <= MAX_PROFORMA_COMPS) return;
@@ -80,28 +114,12 @@ export const propertiesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Apply proper capitalization to address fields
-      const cleanAddress = capitalizeAddress(input.address);
-      const cleanCity = capitalizeCity(input.city);
-      const cleanState = normalizeState(input.state);
-      const cleanZip = input.zip.trim();
-
-      // Build normalized key for duplicate detection
-      let normalizedKey = buildNormalizedKey(cleanAddress, cleanCity, cleanState, cleanZip);
-
-      // Try geocoding for better normalization and address verification
-      let geocodeResult: Awaited<ReturnType<typeof geocodeAddress>> = null;
-      try {
-        geocodeResult = await geocodeAddress(cleanAddress, cleanCity, cleanState, cleanZip);
-        if (geocodeResult?.success && geocodeResult.normalizedKey) {
-          normalizedKey = geocodeResult.normalizedKey;
-        }
-      } catch (_) {}
+      const resolvedAddress = await resolvePropertyAddress(input);
 
       // Check for duplicate by normalized address before creating the record.
       const existing = await db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
         .from(properties)
-        .where(eq(properties.normalizedAddress, normalizedKey))
+        .where(eq(properties.normalizedAddress, resolvedAddress.normalizedAddress))
         .limit(1);
       if (existing.length > 0) {
         throw new TRPCError({
@@ -114,22 +132,14 @@ export const propertiesRouter = router({
         });
       }
 
-      // Use geocoded data to fill/correct fields if available
-      const finalAddress = geocodeResult?.success && geocodeResult.streetNumber && geocodeResult.route
-        ? capitalizeAddress(`${geocodeResult.streetNumber} ${geocodeResult.route}`)
-        : cleanAddress;
-      const finalCity = geocodeResult?.success && geocodeResult.city ? capitalizeCity(geocodeResult.city) : cleanCity;
-      const finalState = geocodeResult?.success && geocodeResult.state ? normalizeState(geocodeResult.state) : cleanState;
-      const finalZip = geocodeResult?.success && geocodeResult.zip ? geocodeResult.zip : cleanZip;
-
       let id: number;
       try {
         id = await createProperty({
-          address: finalAddress,
-          normalizedAddress: normalizedKey,
-          city: finalCity,
-          state: finalState,
-          zip: finalZip,
+          address: resolvedAddress.address,
+          normalizedAddress: resolvedAddress.normalizedAddress,
+          city: resolvedAddress.city,
+          state: resolvedAddress.state,
+          zip: resolvedAddress.zip,
           beds: input.beds,
           baths: input.baths,
           sqft: input.sqft,
@@ -170,31 +180,21 @@ export const propertiesRouter = router({
       const db = await getDb();
       if (!db) return { isDuplicate: false, existingProperty: null, geocodeVerified: false };
 
-      let normalizedKey = buildNormalizedKey(input.address, input.city, input.state, input.zip);
-      let geocodeVerified = false;
-
-      // Try geocoding for better normalization
-      try {
-        const geocodeResult = await geocodeAddress(input.address, input.city, input.state, input.zip);
-        if (geocodeResult?.success && geocodeResult.normalizedKey) {
-          normalizedKey = geocodeResult.normalizedKey;
-          geocodeVerified = true;
-        }
-      } catch (_) {}
+      const resolvedAddress = await resolvePropertyAddress(input);
 
       const existing = await db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
         .from(properties)
-        .where(eq(properties.normalizedAddress, normalizedKey))
+        .where(eq(properties.normalizedAddress, resolvedAddress.normalizedAddress))
         .limit(1);
 
       if (existing.length > 0) {
         return {
           isDuplicate: true,
           existingProperty: existing[0],
-          geocodeVerified,
+          geocodeVerified: resolvedAddress.geocodeVerified,
         };
       }
-      return { isDuplicate: false, existingProperty: null, geocodeVerified };
+      return { isDuplicate: false, existingProperty: null, geocodeVerified: resolvedAddress.geocodeVerified };
     }),
 
   update: protectedProcedure
