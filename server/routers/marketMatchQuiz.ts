@@ -15,6 +15,7 @@ import {
   recommendQuizExperiment,
   requestAgentConnection,
   requestLenderConnection,
+  runMarketMatchQualityChecks,
   saveQuizAgentSetting,
   saveQuizAnswer,
   saveQuizLender,
@@ -135,4 +136,5 @@ export const marketMatchQuizRouter = router({
   }),
   adminSaveVariant: quizAdminProcedure.input(z.object({ id: z.number().int().positive().optional(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(4_000).nullable().optional(), hypothesis: z.string().trim().max(4_000).nullable().optional(), status: z.enum(["draft", "published", "paused", "archived"]), trafficAllocation: z.number().int().min(0).max(100), questionConfig: z.array(questionSchema).min(1).max(20).nullable().optional(), isControl: z.boolean().optional() })).mutation(({ input, ctx }) => saveQuizVariant(input, ctx.user.id)),
   adminExperimentRecommendation: quizAdminProcedure.mutation(() => recommendQuizExperiment()),
+  adminRunQualityChecks: quizAdminProcedure.mutation(() => runMarketMatchQualityChecks()),
 });

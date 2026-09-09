@@ -455,6 +455,77 @@ function includesOne(textValue: string, terms: string[]) {
   return terms.some(term => textValue.includes(term));
 }
 
+type LocationConstraint = {
+  requestedRegions: string[];
+  requestedStates: string[];
+  locationText: string;
+  isConstrained: boolean;
+};
+
+const STATE_ABBREVIATIONS: Record<string, string[]> = {
+  AL: ["alabama"], AZ: ["arizona"], CA: ["california"], CO: ["colorado"], FL: ["florida"], GA: ["georgia"], IL: ["illinois"], IN: ["indiana"],
+  IA: ["iowa"], KS: ["kansas"], KY: ["kentucky"], MI: ["michigan"], MN: ["minnesota"], MO: ["missouri", "missourri"], MT: ["montana"], NC: ["north carolina"],
+  NE: ["nebraska"], NJ: ["new jersey"], NY: ["new york"], OH: ["ohio"], OK: ["oklahoma"], OR: ["oregon"], PA: ["pennsylvania"], SC: ["south carolina"],
+  SD: ["south dakota"], TN: ["tennessee"], TX: ["texas"], UT: ["utah"], VA: ["virginia"], WA: ["washington"], WI: ["wisconsin"], WV: ["west virginia"],
+};
+
+const REGION_STATES: Record<string, { aliases: string[]; states: string[] }> = {
+  west_coast: { aliases: ["west coast", "western coast", "pacific coast"], states: ["CA", "OR", "WA"] },
+  midwest: { aliases: ["midwest", "midwestern"], states: ["IL", "IN", "IA", "KS", "MI", "MN", "MO", "NE", "ND", "OH", "SD", "WI"] },
+  northeast: { aliases: ["northeast", "northeastern", "new england"], states: ["CT", "ME", "MA", "NH", "NJ", "NY", "PA", "RI", "VT"] },
+  southeast: { aliases: ["southeast", "southeastern"], states: ["AL", "AR", "FL", "GA", "KY", "LA", "MS", "NC", "SC", "TN", "VA", "WV"] },
+  southwest: { aliases: ["southwest", "southwestern"], states: ["AZ", "NM", "OK", "TX"] },
+  mountain_west: { aliases: ["mountain west", "rocky mountains", "rockies"], states: ["CO", "ID", "MT", "UT", "WY"] },
+};
+
+function normalizedLocation(value: unknown) {
+  return text(value, 2_000).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function locationConstraintFromAnswers(answers: Record<string, unknown>): LocationConstraint {
+  const box = buyBoxFromAnswers(answers);
+  const inferred = box.inferredPreferences.filter(item => item.field === "locationPreference").map(item => item.value).join(" ");
+  const rawLocation = text(`${box.locationPreference} ${inferred}`, 2_000);
+  const locationText = normalizedLocation(rawLocation);
+  if (!locationText || /\b(open to guidance|not sure yet|no preference|anywhere|open to the right market)\b/.test(locationText)) {
+    return { requestedRegions: [], requestedStates: [], locationText, isConstrained: false };
+  }
+  const requestedRegions = Object.entries(REGION_STATES)
+    .filter(([region, rule]) => rule.aliases.some(alias => {
+      if (!locationText.includes(alias)) return false;
+      // "Central West Coast FL" is a local Florida description, not a request for the U.S. Pacific West Coast.
+      return region !== "west_coast" || !/\b(florida|fl)\b/.test(locationText);
+    }))
+    .map(([region]) => region);
+  const requestedStates = Object.entries(STATE_ABBREVIATIONS)
+    .filter(([abbreviation, names]) => names.some(name => locationText.includes(name)) || new RegExp(`\\b${abbreviation}\\b`).test(rawLocation))
+    .map(([abbreviation]) => abbreviation);
+  return { requestedRegions, requestedStates, locationText, isConstrained: requestedRegions.length > 0 || requestedStates.length > 0 };
+}
+
+function candidateStateCodes(candidate: { name: string; state: string; region: string | null }) {
+  const candidateText = normalizedLocation(`${candidate.name} ${candidate.state} ${candidate.region ?? ""}`);
+  const candidateRawText = `${candidate.name} ${candidate.state} ${candidate.region ?? ""}`.toUpperCase();
+  const direct = text(candidate.state, 10).toUpperCase();
+  return Object.entries(STATE_ABBREVIATIONS)
+    .filter(([abbreviation, names]) => abbreviation === direct || names.some(name => candidateText.includes(name)) || new RegExp(`\\b${abbreviation}\\b`).test(candidateRawText))
+    .map(([abbreviation]) => abbreviation);
+}
+
+function candidateMatchesLocationConstraint(candidate: { name: string; state: string; region: string | null }, constraint: LocationConstraint) {
+  if (!constraint.isConstrained) return true;
+  const states = candidateStateCodes(candidate);
+  const matchesRegion = constraint.requestedRegions.some(region => states.some(state => REGION_STATES[region]?.states.includes(state)));
+  const matchesState = constraint.requestedStates.some(state => states.includes(state));
+  return matchesRegion || matchesState;
+}
+
+function describedLocationConstraint(constraint: LocationConstraint) {
+  const regions = constraint.requestedRegions.map(region => REGION_STATES[region].aliases[0].replace(/\b\w/g, character => character.toUpperCase()));
+  const states = constraint.requestedStates.map(state => STATE_ABBREVIATIONS[state]?.[0].replace(/\b\w/g, character => character.toUpperCase()) ?? state);
+  return [...regions, ...states].join(" or ");
+}
+
 const goalTerms: Record<string, string[]> = {
   cash_flow: ["cash flow", "rental income", "income"],
   tax_strategy: ["tax", "cost segregation", "depreciation"],
@@ -474,10 +545,15 @@ function scoreMarket(input: {
   const reasons: string[] = [];
   let hasGroundedEvidence = false;
   let score = 1 + Math.max(-3, Math.min(3, input.priorityWeight));
+  const locationConstraint = locationConstraintFromAnswers(input.answers);
+  const matchesLocationConstraint = candidateMatchesLocationConstraint(input, locationConstraint);
   const inferredLocation = box.inferredPreferences.filter(item => item.field === "locationPreference").map(item => item.value).join(" ").toLowerCase();
   const location = `${box.locationPreference} ${inferredLocation}`.toLowerCase();
-  if (location && location !== "open to guidance" && (location.includes(input.name.toLowerCase()) || location.includes(input.state.toLowerCase()) || (input.region && location.includes(input.region.toLowerCase())))) {
+  const directLocationMatch = Boolean(location && location !== "open to guidance" && (location.includes(input.name.toLowerCase()) || location.includes(input.state.toLowerCase()) || (input.region && location.includes(input.region.toLowerCase()))));
+  if (directLocationMatch) {
     score += 8; reasons.push("Matches your stated location preference"); hasGroundedEvidence = true;
+  } else if (locationConstraint.isConstrained && matchesLocationConstraint) {
+    score += 8; reasons.push(`Matches your stated ${describedLocationConstraint(locationConstraint)} location preference`); hasGroundedEvidence = true;
   } else if (box.geographyFlexibility === "open") { score += 2; reasons.push("You are open to markets that fit your criteria"); }
   const budgetAnswer = safeJson(input.answers.budget, {} as { min?: unknown; max?: unknown });
   const userMin = numericAmount(budgetAnswer.min) || 0;
@@ -489,7 +565,7 @@ function scoreMarket(input: {
   const preferenceText = `${box.propertyTypes.join(" ")} ${box.freeformPreferences} ${box.inferredPreferences.map(item => item.value).join(" ")}`.toLowerCase();
   if (preferenceText && ["cabin", "beach", "condo", "townhome", "single family"].some(term => preferenceText.includes(term) && haystack.includes(term))) { score += 2; reasons.push("Property preferences align with current market guidance"); hasGroundedEvidence = true; }
   if (!reasons.length) reasons.push("Best current fit based on your stated criteria");
-  return { score, reasons, qualified: hasGroundedEvidence };
+  return { score, reasons, qualified: hasGroundedEvidence, matchesLocationConstraint, directLocationMatch, locationConstraint };
 }
 
 async function ensureQuizDefaults() {
@@ -781,7 +857,6 @@ function factForMarket(candidate: Awaited<ReturnType<typeof publicCandidates>>[n
   const choices = [
     { title: "STR purchase guidance", value: buyBox.purchasePriceGuidance },
     { title: "STR property focus", value: buyBox.propertyTypes },
-    { title: "Savvy Market AI snapshot", value: profile.executiveSummary },
     { title: "STR investor-fit signal", value: profile.bestFitInvestors },
     { title: "Current STR market dynamic", value: profile.marketDynamics },
     { title: "STR diligence cue", value: profile.agentGuidance },
@@ -827,6 +902,62 @@ async function eligibleAgentsForMarket(db: NonNullable<Awaited<ReturnType<typeof
   return agents.filter(agent => agent.quizEnabled !== false).map(agent => ({ ...agent, existingRelationship: existingIds.has(agent.agentId), allocation: requestCounts.get(agent.agentId) ?? { count: 0, oldest: null } }))
     .filter(agent => agent.existingRelationship || agent.cap == null || agent.allocation.count < agent.cap)
     .sort((a, b) => Number(b.existingRelationship) - Number(a.existingRelationship) || a.allocation.count - b.allocation.count || new Date(a.allocation.oldest ?? 0).getTime() - new Date(b.allocation.oldest ?? 0).getTime() || a.agentId - b.agentId);
+}
+
+const MARKET_MATCH_QUALITY_SCENARIOS = [
+  { id: "west-or-midwest", name: "West Coast or Midwest", locationPreference: "West Coast or Midwest", geographyFlexibility: "regional", permittedStates: ["CA", "OR", "WA", "IL", "IN", "IA", "KS", "MI", "MN", "MO", "NE", "ND", "OH", "SD", "WI"], expectNoMatch: false },
+  { id: "west-coast-only", name: "West Coast only", locationPreference: "West Coast only", geographyFlexibility: "regional", permittedStates: ["CA", "OR", "WA"], expectNoMatch: true },
+  { id: "arizona-only", name: "Phoenix, Arizona", locationPreference: "Phoenix, Arizona", geographyFlexibility: "specific", permittedStates: ["AZ"], expectNoMatch: false },
+  { id: "southeast-only", name: "Southeast only", locationPreference: "Southeast", geographyFlexibility: "regional", permittedStates: ["AL", "AR", "FL", "GA", "KY", "LA", "MS", "NC", "SC", "TN", "VA", "WV"], expectNoMatch: false },
+] as const;
+
+/** Runs non-mutating regression checks against the live Market AI and agent inventory. */
+export async function runMarketMatchQualityChecks() {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const candidates = await publicCandidates(db);
+  const checks = [] as Array<Record<string, unknown>>;
+  for (const scenario of MARKET_MATCH_QUALITY_SCENARIOS) {
+    const answers: Record<string, unknown> = {
+      investmentGoals: ["cash_flow"], primaryGoal: "cash_flow", budget: { min: "400000", max: "800000" },
+      geographyFlexibility: scenario.geographyFlexibility, locationPreference: scenario.locationPreference,
+    };
+    const constraint = locationConstraintFromAnswers(answers);
+    const eligible = candidates
+      .map(candidate => ({ candidate, ...scoreMarket({ ...candidate, priorityWeight: candidate.priorityWeight ?? 0, answers }) }))
+      .filter(item => item.qualified && (!constraint.isConstrained || item.matchesLocationConstraint))
+      .sort((left, right) => right.score - left.score || left.candidate.name.localeCompare(right.candidate.name));
+    const matches = [] as Array<{ marketName: string; state: string; region: string | null; stateCodes: string[] }>;
+    for (const item of eligible) {
+      if (matches.length >= 3) break;
+      if (!(await eligibleAgentsForMarket(db, item.candidate.id, 0))[0]) continue;
+      matches.push({ marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, stateCodes: candidateStateCodes(item.candidate) });
+    }
+    const permittedStates = scenario.permittedStates as readonly string[];
+    const outOfRegion = matches.filter(match => !match.stateCodes.some(state => permittedStates.includes(state)));
+    const expectedNoMatchSatisfied = !scenario.expectNoMatch || matches.length === 0;
+    const passed = outOfRegion.length === 0 && expectedNoMatchSatisfied;
+    checks.push({
+      id: scenario.id,
+      name: scenario.name,
+      requestedLocation: scenario.locationPreference,
+      locationConstraintDetected: constraint.isConstrained ? describedLocationConstraint(constraint) : null,
+      matches: matches.map(({ stateCodes: _stateCodes, ...match }) => match),
+      passed,
+      issues: [
+        ...(outOfRegion.length ? [`Outside stated geography: ${outOfRegion.map(match => `${match.marketName}, ${match.state}`).join("; ")}`] : []),
+        ...(!expectedNoMatchSatisfied ? ["Expected no match because no currently participating West Coast market is available."] : []),
+      ],
+    });
+  }
+  const passed = checks.filter(check => check.passed).length;
+  return {
+    generatedAt: now().toISOString(),
+    candidateCount: candidates.length,
+    checks,
+    summary: { passed, failed: checks.length - passed, total: checks.length },
+    note: "These checks do not create contacts, quiz sessions, emails, introductions, bookings, or CRM activity. They apply the current live Market AI profiles, market settings, agent availability, and capacity rules.",
+  };
 }
 
 function marketResultsEmailDetails(matches: Array<Record<string, any>>, noFitReason: string | null) {
@@ -900,19 +1031,27 @@ export async function generateQuizResults(browserToken: string) {
   const settings = await getQuizSettings();
   const answers = safeJson(session.answers, {} as Record<string, unknown>);
   const candidates = await publicCandidates(db);
+  const locationConstraint = locationConstraintFromAnswers(answers);
   const scored = candidates.map(candidate => ({ candidate, ...scoreMarket({ ...candidate, priorityWeight: candidate.priorityWeight ?? 0, answers }) })).sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name));
+  const hasNamedLocationMatch = scored.some(item => item.directLocationMatch);
+  const mustHonorLocation = locationConstraint.isConstrained || hasNamedLocationMatch;
   const selected = [] as Array<Record<string, unknown>>;
   for (const item of scored) {
     if (selected.length >= settings.maxRecommendedMarkets) break;
+    if (mustHonorLocation && !item.matchesLocationConstraint && !item.directLocationMatch) continue;
     if (!item.qualified) continue;
     const agent = (await eligibleAgentsForMarket(db, item.candidate.id, session.contactId))[0];
     if (!agent) continue;
     selected.push({ rank: selected.length + 1, marketId: item.candidate.id, marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, agent: { id: agent.agentId, name: agent.name, bookingLink: normalizeBookingUrl(agent.bookingLink), profilePhotoUrl: agent.profilePhotoUrl, existingRelationship: agent.existingRelationship }, reasons: item.reasons, tradeoff: marketTradeoff(item.candidate.profile), confidence: item.reasons.length >= 2 ? "high" : "medium", profileStatus: item.candidate.intelligenceStatus ?? "unavailable" });
   }
-  const noFitReason = selected.length ? null : candidates.length ? "We do not have an eligible Savvy agent available for the active markets that currently fit your preferences. A Savvy team member can review your request." : "No public Market Match markets are currently enabled.";
+  const constrainedCandidates = mustHonorLocation ? scored.filter(item => item.matchesLocationConstraint || item.directLocationMatch) : scored;
+  const noFitReason = selected.length ? null
+    : !candidates.length ? "No public Market Match markets are currently enabled."
+    : locationConstraint.isConstrained && !constrainedCandidates.length ? `We do not currently have a participating Savvy STR market in the ${describedLocationConstraint(locationConstraint)} area you selected. We did not substitute markets outside that location preference. A Savvy team member can review your request.`
+    : "We do not have an eligible Savvy agent available for the active markets that currently fit your preferences. A Savvy team member can review your request.";
   const buyBox = buyBoxFromAnswers(answers);
   const investorBrief = await getInvestorBrief({ db, session, answers });
-  const [result] = await db.insert(marketMatchQuizResultSnapshots).values({ sessionId: session.id, buyBox, matches: selected, noFitReason, eligibilityContext: { activeMarketsConsidered: candidates.length, matchCount: selected.length, generatedAt: now().toISOString() } });
+  const [result] = await db.insert(marketMatchQuizResultSnapshots).values({ sessionId: session.id, buyBox, matches: selected, noFitReason, eligibilityContext: { activeMarketsConsidered: candidates.length, locationConstraint: locationConstraint.isConstrained ? { requested: describedLocationConstraint(locationConstraint), candidatesConsidered: constrainedCandidates.length } : null, matchCount: selected.length, generatedAt: now().toISOString() } });
   await db.update(marketMatchQuizSessions).set({ status: "completed", currentStep: "results", lastActiveAt: now(), completedAt: session.completedAt ?? now() }).where(eq(marketMatchQuizSessions.id, session.id));
   await db.insert(marketMatchQuizEvents).values({ sessionId: session.id, contactId: session.contactId, eventType: "results_generated", metadata: { resultSnapshotId: Number((result as any).insertId), matchCount: selected.length, noFit: Boolean(noFitReason) } });
   await writeMarketMatchContactNote({ db, session, answers, investorBrief, matches: selected, noFitReason });
@@ -1273,4 +1412,4 @@ export async function recommendQuizExperiment() {
   };
 }
 
-export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl };
+export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl, locationConstraintFromAnswers, candidateMatchesLocationConstraint, candidateStateCodes };

@@ -78,6 +78,34 @@ describe("Market Match quiz helpers", () => {
     expect(scored.reasons).toContain("Aligned with several investment goals");
   });
 
+  it("does not allow a stated West Coast or Midwest constraint to fall back to an unrelated market", () => {
+    const answers = { budget: { min: "400000", max: "800000" }, investmentGoals: ["cash_flow"], geographyFlexibility: "regional", locationPreference: "West Coast or Midwest" };
+    const unrelated = __testables__.scoreMarket({
+      name: "Asheville", state: "NC", region: "Western NC", priorityWeight: 0,
+      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } }, answers,
+    });
+    const midwest = __testables__.scoreMarket({
+      name: "Indianapolis", state: "IN", region: "Midwestern", priorityWeight: 0,
+      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } }, answers,
+    });
+    const floridaWestCoast = __testables__.scoreMarket({
+      name: "Bradenton/Sarasota", state: "FL", region: "Central West Coast FL", priorityWeight: 0,
+      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } }, answers,
+    });
+    expect(unrelated.matchesLocationConstraint).toBe(false);
+    expect(midwest.matchesLocationConstraint).toBe(true);
+    expect(floridaWestCoast.matchesLocationConstraint).toBe(false);
+  });
+
+  it("recognizes a named state in a market record even when the state field is unavailable", () => {
+    const scored = __testables__.scoreMarket({
+      name: "Phoenix, Arizona", state: "N/A", region: null, priorityWeight: 0,
+      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } },
+      answers: { budget: { min: "400000", max: "800000" }, investmentGoals: ["cash_flow"], geographyFlexibility: "specific", locationPreference: "Phoenix, Arizona" },
+    });
+    expect(scored.matchesLocationConstraint).toBe(true);
+  });
+
   it("falls back to the approved default questions when a version configuration is invalid", () => {
     expect(__testables__.questionsFromConfig([{ id: "broken" }])).toEqual(DEFAULT_QUIZ_QUESTIONS);
   });
@@ -125,5 +153,6 @@ describe("Market Match quiz helpers", () => {
     expect(fact).toMatchObject({ marketName: "Smokies", state: "TN" });
     expect(fact?.fact).toContain("STR");
     expect(fact?.fact).not.toContain("guarantee");
+    expect(fact?.title).not.toBe("Savvy Market AI snapshot");
   });
 });
