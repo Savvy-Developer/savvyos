@@ -9,6 +9,7 @@ import {
   logActivity,
   updateProperty,
   getDb,
+  DuplicatePropertyError,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { propertyOwnership, transactions, listings, contacts, contactProperties, users, activityLog, properties, proformas, documents } from "../../drizzle/schema";
@@ -74,7 +75,6 @@ export const propertiesRouter = router({
       strZoning: z.string().optional().nullable(),
       strNotes: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
-      skipDuplicateCheck: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -98,22 +98,20 @@ export const propertiesRouter = router({
         }
       } catch (_) {}
 
-      // Check for duplicate by normalized address
-      if (!input.skipDuplicateCheck) {
-        const existing = await db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
-          .from(properties)
-          .where(eq(properties.normalizedAddress, normalizedKey))
-          .limit(1);
-        if (existing.length > 0) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: JSON.stringify({
-              type: "DUPLICATE_PROPERTY",
-              existingId: existing[0].id,
-              existingAddress: [existing[0].address, existing[0].city, existing[0].state, existing[0].zip].filter(Boolean).join(", "),
-            }),
-          });
-        }
+      // Check for duplicate by normalized address before creating the record.
+      const existing = await db.select({ id: properties.id, address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
+        .from(properties)
+        .where(eq(properties.normalizedAddress, normalizedKey))
+        .limit(1);
+      if (existing.length > 0) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: JSON.stringify({
+            type: "DUPLICATE_PROPERTY",
+            existingId: existing[0].id,
+            existingAddress: [existing[0].address, existing[0].city, existing[0].state, existing[0].zip].filter(Boolean).join(", "),
+          }),
+        });
       }
 
       // Use geocoded data to fill/correct fields if available
@@ -124,23 +122,38 @@ export const propertiesRouter = router({
       const finalState = geocodeResult?.success && geocodeResult.state ? normalizeState(geocodeResult.state) : cleanState;
       const finalZip = geocodeResult?.success && geocodeResult.zip ? geocodeResult.zip : cleanZip;
 
-      const id = await createProperty({
-        address: finalAddress,
-        normalizedAddress: normalizedKey,
-        city: finalCity,
-        state: finalState,
-        zip: finalZip,
-        beds: input.beds,
-        baths: input.baths,
-        sqft: input.sqft,
-        propertyType: input.propertyType,
-        yearBuilt: input.yearBuilt,
-        listPrice: input.listPrice ? input.listPrice.replace(/[^0-9.]/g, "") : null,
-        strZoning: input.strZoning,
-        strNotes: input.strNotes,
-        notes: input.notes,
-        addedByUserId: ctx.user.id,
-      } as any);
+      let id: number;
+      try {
+        id = await createProperty({
+          address: finalAddress,
+          normalizedAddress: normalizedKey,
+          city: finalCity,
+          state: finalState,
+          zip: finalZip,
+          beds: input.beds,
+          baths: input.baths,
+          sqft: input.sqft,
+          propertyType: input.propertyType,
+          yearBuilt: input.yearBuilt,
+          listPrice: input.listPrice ? input.listPrice.replace(/[^0-9.]/g, "") : null,
+          strZoning: input.strZoning,
+          strNotes: input.strNotes,
+          notes: input.notes,
+          addedByUserId: ctx.user.id,
+        } as any);
+      } catch (error) {
+        if (error instanceof DuplicatePropertyError) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: JSON.stringify({
+              type: "DUPLICATE_PROPERTY",
+              existingId: error.existingProperty.id,
+              existingAddress: [error.existingProperty.address, error.existingProperty.city, error.existingProperty.state, error.existingProperty.zip].filter(Boolean).join(", "),
+            }),
+          });
+        }
+        throw error;
+      }
       await logActivity({ userId: ctx.user.id, action: "property_created", entityType: "property", entityId: id });
       return { id };
     }),

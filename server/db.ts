@@ -36,6 +36,7 @@ import {
 import { ENV } from "./_core/env";
 import { resolveActivityRecordLinks } from "./activityLinkResolver";
 import { normalizePhoneFields } from "@shared/phone";
+import { buildNormalizedKey } from "./addressNormalization";
 
 let _pool: mysql.Pool | null = null;
 let _db: MySql2Database<Record<string, unknown>> | null = null;
@@ -926,16 +927,53 @@ export async function getPropertyById(id: number) {
   return result[0];
 }
 
+export class DuplicatePropertyError extends Error {
+  constructor(public readonly existingProperty: { id: number; address: string; city: string | null; state: string | null; zip: string | null }) {
+    super("A property with this address already exists.");
+    this.name = "DuplicatePropertyError";
+  }
+}
+
+async function assertPropertyAddressIsUnique(
+  data: Pick<typeof properties.$inferInsert, "address" | "city" | "state" | "zip" | "normalizedAddress">,
+  excludeId?: number,
+): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const normalizedAddress = data.normalizedAddress || buildNormalizedKey(data.address, data.city, data.state, data.zip);
+  const existing = await db.select({
+    id: properties.id,
+    address: properties.address,
+    city: properties.city,
+    state: properties.state,
+    zip: properties.zip,
+  }).from(properties).where(eq(properties.normalizedAddress, normalizedAddress)).limit(1);
+  if (existing[0] && existing[0].id !== excludeId) throw new DuplicatePropertyError(existing[0]);
+  return normalizedAddress;
+}
+
 export async function createProperty(data: typeof properties.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const [result] = await db.insert(properties).values(data);
+  const normalizedAddress = await assertPropertyAddressIsUnique(data);
+  const [result] = await db.insert(properties).values({ ...data, normalizedAddress });
   return (result as any).insertId as number;
 }
 
 export async function updateProperty(id: number, data: Partial<typeof properties.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  if (data.normalizedAddress) {
+    const existing = await getPropertyById(id);
+    if (!existing) throw new Error("Property not found");
+    await assertPropertyAddressIsUnique({
+      address: data.address ?? existing.address,
+      city: data.city !== undefined ? data.city : existing.city,
+      state: data.state !== undefined ? data.state : existing.state,
+      zip: data.zip !== undefined ? data.zip : existing.zip,
+      normalizedAddress: data.normalizedAddress,
+    }, id);
+  }
   await db.update(properties).set(data).where(eq(properties.id, id));
 }
 

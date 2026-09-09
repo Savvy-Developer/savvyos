@@ -3,12 +3,12 @@
  * 
  * Strategy:
  * 1. Normalize: lowercase, strip punctuation, collapse whitespace, expand common abbreviations
- * 2. Geocode via Google Maps API for verification and canonical address
+ * 2. Look up the address through Google Places for verification and canonical address
  * 3. Build a normalized key from address + city + state + zip for duplicate detection
  * 4. Capitalize: proper title-case for stored addresses
  */
 
-import { makeRequest, type GeocodingResult } from "./_core/map";
+import { requestGooglePlaces, type GooglePlacesAddressComponent } from "./_core/googlePlaces";
 
 // Common street suffix abbreviations → full forms
 const STREET_ABBREVIATIONS: Record<string, string> = {
@@ -148,7 +148,7 @@ export function normalizeState(state: string | null | undefined): string {
 }
 
 /**
- * Geocode an address using Google Maps API.
+ * Look up an address through Google Places API (New).
  * Returns the formatted address and components if successful.
  * Falls back gracefully if the API is unavailable.
  */
@@ -170,26 +170,32 @@ export async function geocodeAddress(
 } | null> {
   try {
     const fullAddress = [address, city, state, zip].filter(Boolean).join(", ");
-    const result = await makeRequest<GeocodingResult>("/maps/api/geocode/json", {
-      address: fullAddress,
-    });
+    const result = await requestGooglePlaces<{
+      places?: Array<{
+        id?: string;
+        formattedAddress?: string;
+        addressComponents?: GooglePlacesAddressComponent[];
+      }>;
+    }>("/v1/places:searchText", {
+      method: "POST",
+      body: JSON.stringify({ textQuery: fullAddress, includedRegionCodes: ["us"] }),
+    }, "places.id,places.formattedAddress,places.addressComponents");
+    const first = result.places?.[0];
+    const components = first?.addressComponents;
 
-    if (result.status !== "OK" || !result.results?.length) {
+    if (!first || !components?.length) {
       return { success: false };
     }
 
-    const first = result.results[0];
-    const components = first.address_components;
-
-    const getComponent = (type: string): string | undefined => {
-      const comp = components.find(c => c.types.includes(type));
-      return comp?.short_name || comp?.long_name;
+    const getComponent = (type: string, short = false): string | undefined => {
+      const comp = components.find(c => c.types?.includes(type));
+      return short ? comp?.shortText : comp?.longText;
     };
 
     const streetNumber = getComponent("street_number");
     const route = getComponent("route");
-    const locality = getComponent("locality") || getComponent("sublocality");
-    const adminArea = getComponent("administrative_area_level_1");
+    const locality = getComponent("locality") || getComponent("postal_town") || getComponent("sublocality") || getComponent("administrative_area_level_3");
+    const adminArea = getComponent("administrative_area_level_1", true) || getComponent("administrative_area_level_1");
     const postalCode = getComponent("postal_code");
 
     // Build normalized key from geocoded components
@@ -198,14 +204,14 @@ export async function geocodeAddress(
 
     return {
       success: true,
-      formattedAddress: first.formatted_address,
+      formattedAddress: first.formattedAddress,
       normalizedKey,
       streetNumber,
       route,
       city: locality,
       state: adminArea,
       zip: postalCode,
-      placeId: first.place_id,
+      placeId: first.id,
     };
   } catch (err) {
     // If geocoding fails (API unavailable, etc.), return null to fall back to local normalization

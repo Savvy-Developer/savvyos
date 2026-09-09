@@ -1,6 +1,7 @@
 import express from "express";
 import { sdk } from "./_core/sdk";
 import { extractAirbnbListingId, extractAirbnbPhotoUrls } from "./airbnbListing";
+import { requestGooglePlaces, type GooglePlacesAddressComponent } from "./_core/googlePlaces";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
 const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
@@ -72,41 +73,11 @@ export function mapZillowPropertyResponse(data: any) {
   };
 }
 
-type GoogleAddressComponent = {
-  long_name?: string;
-  short_name?: string;
-  longText?: string;
-  shortText?: string;
-  types?: string[];
-};
-
-function getGoogleMapsApiKey(): string {
-  const key = process.env.GOOGLE_MAPS_API_KEY?.trim();
-  if (!key) throw new Error("Google Maps is not configured: set GOOGLE_MAPS_API_KEY");
-  return key;
-}
-
-async function requestGooglePlaces<T>(path: string, options: RequestInit, fieldMask: string): Promise<T> {
-  const response = await fetch(`https://places.googleapis.com${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": getGoogleMapsApiKey(),
-      "X-Goog-FieldMask": fieldMask,
-      ...(options.headers ?? {}),
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Google Places request failed (${response.status}): ${await response.text()}`);
-  }
-  return await response.json() as T;
-}
-
 export function parseGoogleAddressDetails(result: any) {
   const components = Array.isArray(result?.address_components)
-    ? result.address_components as GoogleAddressComponent[]
+    ? result.address_components as GooglePlacesAddressComponent[]
     : Array.isArray(result?.addressComponents)
-      ? result.addressComponents as GoogleAddressComponent[]
+      ? result.addressComponents as GooglePlacesAddressComponent[]
     : [];
   const component = (type: string, short = false) => {
     const value = components.find(item => item.types?.includes(type));

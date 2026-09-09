@@ -495,6 +495,7 @@ export default function ContactDetail() {
     propertyType: "single_family", beds: "", baths: "", sqft: "",
     label: "Primary home",
   });
+  const [newPropertyDuplicateInfo, setNewPropertyDuplicateInfo] = useState<{ id: number; address: string } | null>(null);
 
 const [assignForm, setAssignForm] = useState<AssignForm>({
     agentId: "", pipelineStatus: "new_lead", agentNotes: "",
@@ -736,8 +737,35 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       await trpc.useUtils().contactProperties.list.invalidate();
       await linkProperty.mutateAsync({ contactId, propertyId: prop.id, label: newPropertyForm.label });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.type === "DUPLICATE_PROPERTY") {
+          setNewPropertyDuplicateInfo({ id: parsed.existingId, address: parsed.existingAddress });
+          return;
+        }
+      } catch {}
+      toast.error(e.message);
+    },
   });
+
+  const newPropertyAddressComplete = Boolean(newPropertyForm.address && newPropertyForm.city && newPropertyForm.state && newPropertyForm.zip);
+  const { data: newPropertyDuplicateCheck } = trpc.properties.checkDuplicate.useQuery({
+    address: newPropertyForm.address || "-",
+    city: newPropertyForm.city,
+    state: newPropertyForm.state,
+    zip: newPropertyForm.zip,
+  }, {
+    enabled: addPropertyOpen && newPropertyAddressComplete,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const detectedNewPropertyDuplicate = newPropertyDuplicateInfo ?? (newPropertyDuplicateCheck?.isDuplicate && newPropertyDuplicateCheck.existingProperty
+    ? {
+        id: newPropertyDuplicateCheck.existingProperty.id,
+        address: [newPropertyDuplicateCheck.existingProperty.address, newPropertyDuplicateCheck.existingProperty.city, newPropertyDuplicateCheck.existingProperty.state, newPropertyDuplicateCheck.existingProperty.zip].filter(Boolean).join(", "),
+      }
+    : null);
 
   const linkProperty = trpc.contactProperties.link.useMutation({
     onSuccess: () => {
@@ -745,6 +773,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
       setAddPropertyOpen(false);
       setLinkPropertyOpen(false);
       setNewPropertyForm({ address: "", city: "", state: "", zip: "", propertyType: "single_family", beds: "", baths: "", sqft: "", label: "Primary home" });
+      setNewPropertyDuplicateInfo(null);
       setLinkPropertyId("");
       setPropertyLabel("Primary home");
       refetchProps();
@@ -2089,12 +2118,12 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
             </div>
             <div>
               <Label>Street Address *</Label>
-              <Input className="mt-1" value={newPropertyForm.address} onChange={e => setNewPropertyForm(f => ({ ...f, address: e.target.value }))} placeholder="123 Main St" />
+              <Input className="mt-1" value={newPropertyForm.address} onChange={e => { setNewPropertyDuplicateInfo(null); setNewPropertyForm(f => ({ ...f, address: e.target.value })); }} placeholder="123 Main St" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div><Label>City *</Label><Input className="mt-1" value={newPropertyForm.city} onChange={e => setNewPropertyForm(f => ({ ...f, city: e.target.value }))} placeholder="e.g. Glendale" /></div>
-              <div><Label>State *</Label><Input className="mt-1" value={newPropertyForm.state} onChange={e => setNewPropertyForm(f => ({ ...f, state: e.target.value }))} placeholder="e.g. UT" maxLength={2} /></div>
-              <div><Label>ZIP *</Label><Input className="mt-1" value={newPropertyForm.zip} onChange={e => setNewPropertyForm(f => ({ ...f, zip: e.target.value }))} placeholder="e.g. 84729" /></div>
+              <div><Label>City *</Label><Input className="mt-1" value={newPropertyForm.city} onChange={e => { setNewPropertyDuplicateInfo(null); setNewPropertyForm(f => ({ ...f, city: e.target.value })); }} placeholder="e.g. Glendale" /></div>
+              <div><Label>State *</Label><Input className="mt-1" value={newPropertyForm.state} onChange={e => { setNewPropertyDuplicateInfo(null); setNewPropertyForm(f => ({ ...f, state: e.target.value })); }} placeholder="e.g. UT" maxLength={2} /></div>
+              <div><Label>ZIP *</Label><Input className="mt-1" value={newPropertyForm.zip} onChange={e => { setNewPropertyDuplicateInfo(null); setNewPropertyForm(f => ({ ...f, zip: e.target.value })); }} placeholder="e.g. 84729" /></div>
             </div>
             <div>
               <Label>Property Type</Label>
@@ -2112,11 +2141,27 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               <div><Label>Baths</Label><Input className="mt-1" type="number" value={newPropertyForm.baths} onChange={e => setNewPropertyForm(f => ({ ...f, baths: e.target.value }))} /></div>
               <div><Label>Sqft</Label><Input className="mt-1" type="number" value={newPropertyForm.sqft} onChange={e => setNewPropertyForm(f => ({ ...f, sqft: e.target.value }))} /></div>
             </div>
+            {detectedNewPropertyDuplicate && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">This property already exists</p>
+                    <p className="mt-0.5 text-xs text-amber-700">{detectedNewPropertyDuplicate.address}</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" className="w-full border-amber-300 text-amber-800 hover:bg-amber-100" onClick={() => {
+                  setAddPropertyOpen(false);
+                  setNewPropertyDuplicateInfo(null);
+                  navigate(`/properties/${detectedNewPropertyDuplicate.id}`);
+                }}>Go to existing property</Button>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddPropertyOpen(false)}>Cancel</Button>
             <Button
-              disabled={!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip || createProperty.isPending || linkProperty.isPending}
+              disabled={!newPropertyForm.address || !newPropertyForm.city || !newPropertyForm.state || !newPropertyForm.zip || createProperty.isPending || linkProperty.isPending || Boolean(detectedNewPropertyDuplicate)}
               onClick={() => createProperty.mutate({
                 address: newPropertyForm.address,
                 city: newPropertyForm.city,

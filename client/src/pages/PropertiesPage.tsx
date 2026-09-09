@@ -55,6 +55,23 @@ export default function PropertiesPage() {
 
   const { data: propertiesData, refetch, isLoading, isError, error } = trpc.properties.list.useQuery({ search: search || undefined, sortOrder });
   const properties = propertiesData as Array<{ property: any; transactionCount: number; listingCount: number; contactCount: number; transactionNames: string | null; listingNames: string | null; contactNames: string | null }> | undefined;
+  const completeAddressEntered = Boolean(form.address && form.city && form.state && form.zip);
+  const { data: duplicateCheck } = trpc.properties.checkDuplicate.useQuery({
+    address: form.address || "-",
+    city: form.city,
+    state: form.state,
+    zip: form.zip,
+  }, {
+    enabled: open && completeAddressEntered,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const detectedDuplicate = duplicateInfo ?? (duplicateCheck?.isDuplicate && duplicateCheck.existingProperty
+    ? {
+        id: duplicateCheck.existingProperty.id,
+        address: [duplicateCheck.existingProperty.address, duplicateCheck.existingProperty.city, duplicateCheck.existingProperty.state, duplicateCheck.existingProperty.zip].filter(Boolean).join(", "),
+      }
+    : null);
   const create = trpc.properties.create.useMutation({
     onSuccess: (data) => {
       toast.success("Property created");
@@ -86,6 +103,10 @@ export default function PropertiesPage() {
   const handleCreate = () => {
     if (!form.address || !form.city || !form.state || !form.zip) {
       toast.error("Address, City, State, and ZIP are all required");
+      return;
+    }
+    if (detectedDuplicate) {
+      setDuplicateInfo(detectedDuplicate);
       return;
     }
     setDuplicateInfo(null);
@@ -286,7 +307,10 @@ export default function PropertiesPage() {
               <Label>Address *</Label>
               <AddressAutocompleteInput
                 value={form.address}
-                onChange={(address) => setForm(current => ({ ...current, address }))}
+                onChange={(address) => {
+                  setDuplicateInfo(null);
+                  setForm(current => ({ ...current, address }));
+                }}
                 onSelectAddress={handleAddressSelect}
                 onVerificationChange={setAddressVerified}
               />
@@ -313,13 +337,13 @@ export default function PropertiesPage() {
             {!addressVerified && form.address && <p className="text-xs text-muted-foreground">A manually entered address will be verified and standardized when the property is saved.</p>}
 
             {/* Duplicate Warning */}
-            {duplicateInfo && (
+            {detectedDuplicate && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-amber-800">This property already exists</p>
-                    <p className="text-xs text-amber-700 mt-0.5">{duplicateInfo.address}</p>
+                    <p className="text-xs text-amber-700 mt-0.5">{detectedDuplicate.address}</p>
                   </div>
                 </div>
                 <Button
@@ -329,7 +353,7 @@ export default function PropertiesPage() {
                   onClick={() => {
                     setOpen(false);
                     setDuplicateInfo(null);
-                    navigate(`/properties/${duplicateInfo.id}`);
+                    navigate(`/properties/${detectedDuplicate.id}`);
                   }}
                 >
                   Go to existing property
@@ -339,7 +363,7 @@ export default function PropertiesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setOpen(false); setDuplicateInfo(null); setAddressVerified(false); }}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!form.address || !form.city || !form.state || !form.zip || create.isPending}>
+            <Button onClick={handleCreate} disabled={!form.address || !form.city || !form.state || !form.zip || create.isPending || Boolean(detectedDuplicate)}>
               {create.isPending ? "Creating..." : "Create Property"}
             </Button>
           </DialogFooter>
