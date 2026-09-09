@@ -152,10 +152,10 @@ export function registerExternalApiRoutes(app: express.Application) {
       const data = await requestGooglePlaces<any>("/v1/places:autocomplete", {
         method: "POST",
         body: JSON.stringify({ input: query, includedRegionCodes: ["us"] }),
-      }, "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text");
+      }, "suggestions.placePrediction.place,suggestions.placePrediction.text.text");
       const suggestions = Array.isArray(data?.suggestions)
         ? data.suggestions.slice(0, 6).map((suggestion: any) => ({
-            placeId: String(suggestion?.placePrediction?.placeId ?? ""),
+            placeId: String(suggestion?.placePrediction?.place ?? "").replace(/^places\//, ""),
             description: String(suggestion?.placePrediction?.text?.text ?? ""),
           })).filter((suggestion: { placeId: string; description: string }) => suggestion.placeId && suggestion.description)
         : [];
