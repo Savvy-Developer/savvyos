@@ -1333,7 +1333,6 @@ const TEMPLATES: Record<
         ...(ctx.agentPhone ? [`<strong style="color:${BLACK};">${escapeHtml(ctx.agentName ?? "Agent")} phone</strong>&nbsp;&nbsp; <a href="tel:${escapeHtml(ctx.agentPhone)}" style="color:${CYAN};">${escapeHtml(ctx.agentPhone)}</a>`] : []),
       ])}
       ${ctx.marketMatchBrief ? `<div style="margin:20px 0;padding:16px 18px;border:1px solid ${BORDER};border-radius:10px;font-size:14px;line-height:1.65;color:#374151;white-space:pre-line;"><strong style="color:${BLACK};">Investor profile</strong><br/>${escapeHtml(ctx.marketMatchBrief)}</div>` : ctx.marketMatchSummary ? infoCard([`<strong style="color:${BLACK};">Stated buy box</strong>&nbsp;&nbsp; ${escapeHtml(ctx.marketMatchSummary)}`]) : ""}
-      ${bodyText("This thread is intentionally limited to this market match. Reply all to coordinate the next step together.")}
       ${ctx.agentBookingLink ? ctaButton("Schedule a call", ctx.agentBookingLink) : ""}`,
       `Your Savvy Market Match introduction for ${ctx.marketName ?? "a matched market"}`
     ),
