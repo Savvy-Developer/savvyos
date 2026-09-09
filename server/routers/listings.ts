@@ -486,8 +486,8 @@ export const listingsRouter = router({
         // Carry over listing documents to the seller-side transaction
         const docCount = await carryOverDocs(sellerTxId);
 
-        // Mark listing as closed, link to the seller-side transaction
-        await updateListing(input.listingId, { listingStatus: "closed", convertedTransactionId: sellerTxId } as any);
+        // Keep the listing lifecycle aligned with the newly created transaction.
+        await updateListing(input.listingId, { listingStatus: "under_contract", convertedTransactionId: sellerTxId } as any);
         if ((listingData.listing as any).referralId) {
           await linkReferralTransaction((listingData.listing as any).referralId, sellerTxId, ctx.user.id);
           await linkReferralTransaction((listingData.listing as any).referralId, buyerTxId, ctx.user.id);
@@ -519,7 +519,7 @@ export const listingsRouter = router({
       // Carry over listing documents to the new transaction
       const docCount = await carryOverDocs(txId);
 
-      await updateListing(input.listingId, { listingStatus: "closed", convertedTransactionId: txId } as any);
+      await updateListing(input.listingId, { listingStatus: "under_contract", convertedTransactionId: txId } as any);
       if ((listingData.listing as any).referralId) {
         await linkReferralTransaction((listingData.listing as any).referralId, txId, ctx.user.id);
       }
