@@ -117,3 +117,18 @@ describe("Transactions Admin permission", () => {
     expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canAdministerTransactions", label: "Transactions Admin", group: "Transactions Admin" });
   });
 });
+
+describe("Website Studio permissions", () => {
+  it("registers the Website Studio navigation link and all Website controls in one group", () => {
+    const websitePermissions = ADMIN_NAV_PERMISSIONS.filter(permission => permission.group === "Website");
+    expect(websitePermissions).toEqual([
+      { key: "canViewWebsite", label: "Website Studio", group: "Website" },
+      { key: "canManageWebsiteProperties", label: "Website properties", group: "Website" },
+      { key: "canManageWebsiteAgents", label: "Website agent profiles", group: "Website" },
+      { key: "canManageWebsiteCaseStudies", label: "Website case studies", group: "Website" },
+      { key: "canManageWebsiteBlog", label: "Website blog", group: "Website" },
+      { key: "canManageWebsiteSettings", label: "Website settings", group: "Website" },
+      { key: "canViewWebsiteLeads", label: "Website leads", group: "Website" },
+    ]);
+  });
+});

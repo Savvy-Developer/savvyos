@@ -46,6 +46,7 @@ const GROUP_ORDER = [
   "Work",
   "Events",
   "Marketing",
+  "Website",
   "Approvals",
   "Admin",
 ];
@@ -61,6 +62,7 @@ const GROUP_COLORS: Record<string, { bg: string; text: string; border: string }>
   "Work":             { bg: "#fffbeb", text: "#92400e", border: "#fde68a" },
   "Events":           { bg: "#ecfeff", text: "#0e7490", border: "#a5f3fc" },
   "Marketing":        { bg: "#fff7ed", text: "#9a3412", border: "#fed7aa" },
+  "Website":          { bg: "#ecfeff", text: "#0e7490", border: "#a5f3fc" },
   "Approvals":        { bg: "#f0fdfa", text: "#134e4a", border: "#99f6e4" },
   "Admin":            { bg: "#fff1f2", text: "#9f1239", border: "#fecdd3" },
 };

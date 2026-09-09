@@ -107,7 +107,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewMarketingAdmin",         label: "Marketing Requests",         group: "Marketing" },
   { key: "canViewShortLinks",             label: "Short Links",                group: "Marketing" },
   // Website — opt-in controls for the staged public-site CMS.
-  { key: "canViewWebsite",                label: "Website workspace",          group: "Website" },
+  { key: "canViewWebsite",                label: "Website Studio",             group: "Website" },
   { key: "canManageWebsiteProperties",    label: "Website properties",         group: "Website" },
   { key: "canManageWebsiteAgents",        label: "Website agent profiles",     group: "Website" },
   { key: "canManageWebsiteCaseStudies",   label: "Website case studies",       group: "Website" },
