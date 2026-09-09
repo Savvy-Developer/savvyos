@@ -40,6 +40,7 @@ export function AddressAutocompleteInput({
   const [loading, setLoading] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [verified, setVerified] = useState(false);
+  const [verificationProvider, setVerificationProvider] = useState("address lookup");
   const [unavailable, setUnavailable] = useState(false);
   const requestId = useRef(0);
 
@@ -97,6 +98,7 @@ export function AddressAutocompleteInput({
         return;
       }
       setVerified(true);
+      setVerificationProvider(payload.provider === "census" ? "U.S. Census Bureau" : "Google Maps");
       onVerificationChange?.(true);
       onSelectAddress(address);
     } catch {
@@ -114,6 +116,7 @@ export function AddressAutocompleteInput({
           value={value}
           onChange={event => {
             setVerified(false);
+            setVerificationProvider("address lookup");
             onVerificationChange?.(false);
             onChange(event.target.value);
           }}
@@ -143,7 +146,7 @@ export function AddressAutocompleteInput({
         )}
       </div>
       {verified ? (
-        <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Verified with Google Maps</p>
+        <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Verified with {verificationProvider}</p>
       ) : unavailable ? (
         <p className="text-xs text-muted-foreground">Address suggestions are temporarily unavailable; the address will still be verified when saved.</p>
       ) : (

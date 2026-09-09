@@ -19,6 +19,15 @@ const wholePropertyCount = z.union([
   z.string().regex(/^\d{1,2}$/, "Must be a whole number with no more than two digits"),
   z.literal(""),
 ]);
+const MAX_PROFORMA_COMPS = 8;
+
+function validateProformaCompLimit(formData: any): void {
+  if (!Array.isArray(formData?.comps) || formData.comps.length <= MAX_PROFORMA_COMPS) return;
+  throw new TRPCError({
+    code: "BAD_REQUEST",
+    message: `A pro-forma can include no more than ${MAX_PROFORMA_COMPS} comparable properties.`,
+  });
+}
 
 export const propertiesRouter = router({
   list: protectedProcedure
@@ -752,6 +761,7 @@ export const propertiesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const fd = input.formData || {};
+      validateProformaCompLimit(fd);
       const [result] = await db.insert(proformas).values({
         propertyId: input.propertyId,
         createdByUserId: ctx.user.id,
@@ -800,6 +810,7 @@ export const propertiesRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       const fd = input.formData || {};
+      validateProformaCompLimit(fd);
       await db.update(proformas).set({
         title: input.title ?? existing.title,
         formData: fd,

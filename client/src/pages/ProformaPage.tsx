@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/PageHeader";
 import ProformaEmailComposer from "@/components/ProformaEmailComposer";
-import { ArrowLeft, Copy, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail } from "lucide-react";
+import { ArrowLeft, Check, Copy, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail, Search, SlidersHorizontal, X } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -39,6 +40,15 @@ const parseNum = (val: string): number => {
   const n = parseFloat(cleaned);
   return isNaN(n) ? 0 : n;
 };
+const MAX_PROFORMA_COMPS = 8;
+type ProformaComp = ProformaForm["comps"][number];
+const getCalculatedCompRevenue = (comp: Pick<ProformaComp, "adr" | "occupancy">): number => {
+  const adr = parseNum(comp.adr || "");
+  const occupancy = parseNum(comp.occupancy || "") / 100;
+  return adr > 0 && occupancy > 0 ? Math.round(adr * occupancy * 365) : 0;
+};
+const getCompRevenue = (comp: Pick<ProformaComp, "annualRevenue" | "adr" | "occupancy">): number =>
+  getCalculatedCompRevenue(comp) || parseNum(comp.annualRevenue || "");
 const pmt = (rate: number, nper: number, pv: number): number => {
   if (rate === 0) return -pv / nper;
   const pvif = Math.pow(1 + rate, nper);
@@ -2125,46 +2135,60 @@ export default function ProformaPage() {
 
         {/* ─── TAB: COMPS ──────────────────────────────────────────────────── */}
         <TabsContent value="comps">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm">Revenue Comparable Properties</CardTitle>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setShowExistingComps(true)}>
-                    <BookOpen className="h-3 w-3 mr-1" /> Import Existing Comps
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b bg-gradient-to-r from-slate-50 to-white pb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base text-slate-900">Revenue Comparable Properties</CardTitle>
+                  <p className="mt-1 text-sm text-slate-500">Use up to eight relevant listings to substantiate the projected revenue.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${form.comps.length >= MAX_PROFORMA_COMPS ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+                    {form.comps.length} / {MAX_PROFORMA_COMPS} selected
+                  </span>
+                  <Button size="sm" variant="outline" className="border-slate-300 bg-white shadow-sm" onClick={() => setShowExistingComps(true)} disabled={form.comps.length >= MAX_PROFORMA_COMPS}>
+                    <BookOpen className="mr-1.5 h-3.5 w-3.5" /> Import comps
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setField("comps", [...form.comps, { name: "", annualRevenue: "", occupancy: "", adr: "", beds: "", link: "", notes: "", saved: false }])}>
-                    <Plus className="h-3 w-3 mr-1" /> Add Comp
+                  <Button
+                    size="sm"
+                    className="shadow-sm"
+                    disabled={form.comps.length >= MAX_PROFORMA_COMPS}
+                    onClick={() => setField("comps", [...form.comps, { name: "", annualRevenue: "", occupancy: "", adr: "", beds: "", link: "", notes: "", saved: false }])}
+                  >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" /> Add comp
                   </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               {form.comps.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-4">No comps added yet. Add comparable properties to support your revenue projections.</p>
+                <div className="py-10 text-center">
+                  <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500"><BookOpen className="h-5 w-5" /></div>
+                  <p className="text-sm font-medium text-slate-700">No comps selected yet</p>
+                  <p className="mt-1 text-sm text-slate-500">Import a saved listing or add a new one to support the revenue projection.</p>
+                </div>
               ) : (
                 <div className="space-y-3">
                   {form.comps.map((comp, i) => {
-                    const compAdr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
-                    const compOcc = parseFloat(comp.occupancy?.replace(/%/g, "") || "0") / 100;
-                    const compCalcRevenue = compAdr > 0 && compOcc > 0 ? Math.round(compAdr * compOcc * 365) : 0;
+                    const compCalcRevenue = getCalculatedCompRevenue(comp);
+                    const compRevenue = getCompRevenue(comp);
                     // Treat comps as saved if explicitly marked OR if they have data (loaded from DB)
                     const isSaved = comp.saved === true || comp.saved === "true" || (comp.saved === undefined && (comp.name || comp.link));
 
                     // SAVED/DISPLAY MODE: show comp as text with edit button
                     if (isSaved) {
                       return (
-                        <div key={i} className="border rounded p-3 bg-slate-50">
+                        <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start gap-3 flex-1">
-                              {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-16 h-16 rounded object-cover flex-shrink-0" />}
+                              {comp.photoUrl ? <img src={comp.photoUrl} alt="" className="h-16 w-16 flex-shrink-0 rounded-lg object-cover" /> : <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400"><Home className="h-5 w-5" /></div>}
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-sm">{comp.name || `Comp ${i + 1}`}</span>
                                   {comp.rating && <span className="text-xs text-amber-600">★ {comp.rating}{comp.reviewCount ? ` (${comp.reviewCount})` : ""}</span>}
                                 </div>
                                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-600">
-                                  {compCalcRevenue > 0 && <span className="font-semibold text-emerald-700">Rev: ${compCalcRevenue.toLocaleString()}/yr</span>}
+                                  {compRevenue > 0 && <span className="font-semibold text-emerald-700">Revenue: ${compRevenue.toLocaleString()}/yr</span>}
                                   {comp.adr && <span>ADR: ${comp.adr}</span>}
                                   {comp.occupancy && <span>Occ: {comp.occupancy}%</span>}
                                   {comp.beds && <span>{comp.beds} beds</span>}
@@ -2189,12 +2213,12 @@ export default function ProformaPage() {
 
                     // EDIT MODE: show inputs
                     return (
-                    <div key={i} className="border rounded p-3 space-y-2 border-blue-200 bg-blue-50/30">
+                    <div key={i} className="space-y-3 rounded-xl border border-cyan-200 bg-cyan-50/30 p-4 shadow-sm">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-10 h-10 rounded object-cover" />}
+                          {comp.photoUrl ? <img src={comp.photoUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-slate-400"><Home className="h-4 w-4" /></div>}
                           <span className="text-xs font-medium text-slate-500">Comp {i + 1}{comp.rating ? ` \u2022 \u2b50 ${comp.rating}` : ""}{comp.reviewCount ? ` (${comp.reviewCount} reviews)` : ""}</span>
-                          {compCalcRevenue > 0 && <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Gross: ${compCalcRevenue.toLocaleString()}/yr</span>}
+                          {compRevenue > 0 && <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">Gross: ${compRevenue.toLocaleString()}/yr</span>}
                         </div>
                         <div className="flex gap-1">
                           <Button variant="default" size="sm" className="text-xs" onClick={() => { const c = [...form.comps]; c[i] = { ...c[i], saved: true }; setField("comps", c); }}>
@@ -2247,12 +2271,15 @@ export default function ProformaPage() {
                 const existingLinks = new Set(form.comps.map(c => c.link).filter(Boolean));
                 const newComps = comps.filter((c: any) => !c.link || !existingLinks.has(c.link)).map((c: any) => ({ ...c, saved: true }));
                 const dupeCount = comps.length - newComps.length;
+                const availableSlots = Math.max(0, MAX_PROFORMA_COMPS - form.comps.length);
+                const compsToAdd = newComps.slice(0, availableSlots);
                 if (dupeCount > 0) alert(`${dupeCount} comp(s) already exist in this proforma and were skipped.`);
-                if (newComps.length > 0) setField("comps", [...form.comps, ...newComps]);
+                if (newComps.length > availableSlots) alert(`Only ${availableSlots} more comp${availableSlots === 1 ? "" : "s"} can be added. The rest were not imported.`);
+                if (compsToAdd.length > 0) setField("comps", [...form.comps, ...compsToAdd]);
                 setShowExistingComps(false);
               }}
               isAdmin={(user as any)?.role === "admin"}
-              userId={(user as any)?.id}
+              availableSlots={Math.max(0, MAX_PROFORMA_COMPS - form.comps.length)}
             />
           )}
         </TabsContent>
@@ -2501,11 +2528,11 @@ export default function ProformaPage() {
 
 
 // ─── EXISTING COMPS MODAL ─────────────────────────────────────────────────────
-function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
+function ExistingCompsModal({ onClose, onImport, isAdmin, availableSlots }: {
   onClose: () => void;
   onImport: (comps: any[]) => void;
   isAdmin: boolean;
-  userId: number;
+  availableSlots: number;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filterBeds, setFilterBeds] = useState("");
@@ -2518,31 +2545,21 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
   const [filterAgent, setFilterAgent] = useState("");
   const [search, setSearch] = useState("");
 
-  // Fetch all comps from other proformas
   const { data: allComps = [] } = trpc.properties.listAllComps.useQuery({ isAdmin });
-  const markets = Array.from(new Set((allComps as any[]).map(comp => comp.market).filter(Boolean))).sort();
-  const agents = Array.from(new Set((allComps as any[]).map(comp => comp.addedBy).filter(Boolean))).sort();
+  const indexedComps = (allComps as any[]).map((comp, sourceIndex) => ({ comp, sourceIndex }));
+  const markets = Array.from(new Set(indexedComps.map(({ comp }) => comp.market).filter(Boolean))).sort();
+  const agents = Array.from(new Set(indexedComps.map(({ comp }) => comp.addedBy).filter(Boolean))).sort();
+  const hasActiveFilters = [filterBeds, filterCity, filterMinRevenue, filterMaxRevenue, filterMinADR, filterMaxADR, filterMarket, filterAgent, search].some(Boolean);
 
-  // Filter comps
-  const filteredComps = (allComps as any[]).filter((comp: any) => {
+  const filteredComps = indexedComps.filter(({ comp }) => {
     if (filterBeds && comp.beds && !comp.beds.includes(filterBeds)) return false;
     if (filterCity && comp.city && !comp.city.toLowerCase().includes(filterCity.toLowerCase())) return false;
-    if (filterMinRevenue) {
-      const rev = parseFloat(comp.annualRevenue?.replace(/[$,]/g, "") || "0");
-      if (rev < parseFloat(filterMinRevenue)) return false;
-    }
-    if (filterMaxRevenue) {
-      const rev = parseFloat(comp.annualRevenue?.replace(/[$,]/g, "") || "0");
-      if (rev > parseFloat(filterMaxRevenue)) return false;
-    }
-    if (filterMinADR) {
-      const adr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
-      if (adr < parseFloat(filterMinADR)) return false;
-    }
-    if (filterMaxADR) {
-      const adr = parseFloat(comp.adr?.replace(/[$,]/g, "") || "0");
-      if (adr > parseFloat(filterMaxADR)) return false;
-    }
+    const revenue = getCompRevenue(comp);
+    if (filterMinRevenue && revenue < parseNum(filterMinRevenue)) return false;
+    if (filterMaxRevenue && revenue > parseNum(filterMaxRevenue)) return false;
+    const adr = parseNum(comp.adr || "");
+    if (filterMinADR && adr < parseNum(filterMinADR)) return false;
+    if (filterMaxADR && adr > parseNum(filterMaxADR)) return false;
     if (isAdmin && filterMarket && comp.market !== filterMarket) return false;
     if (isAdmin && filterAgent && comp.addedBy !== filterAgent) return false;
     if (search.trim()) {
@@ -2553,121 +2570,96 @@ function ExistingCompsModal({ onClose, onImport, isAdmin, userId }: {
     return true;
   });
 
-  const toggleSelect = (idx: number) => {
+  const clearFilters = () => {
+    setFilterBeds(""); setFilterCity(""); setFilterMinRevenue(""); setFilterMaxRevenue("");
+    setFilterMinADR(""); setFilterMaxADR(""); setFilterMarket(""); setFilterAgent(""); setSearch("");
+  };
+
+  const toggleSelect = (sourceIndex: number) => {
     const next = new Set(selected);
-    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    if (next.has(sourceIndex)) next.delete(sourceIndex);
+    else if (next.size < availableSlots) next.add(sourceIndex);
     setSelected(next);
   };
 
   const handleImport = () => {
-    const compsToImport = filteredComps.filter((_: any, i: number) => selected.has(i)).map((c: any) => ({
-      name: c.name || "",
-      annualRevenue: c.annualRevenue || "",
-      occupancy: c.occupancy || "",
-      adr: c.adr || "",
-      beds: c.beds || "",
-      link: c.link || "",
-      notes: c.notes || "",
-      photoUrl: c.photoUrl || "",
-      rating: c.rating || "",
-      reviewCount: c.reviewCount || "",
-      city: c.city || "",
+    const compsToImport = indexedComps.filter(({ sourceIndex }) => selected.has(sourceIndex)).map(({ comp }) => ({
+      name: comp.name || "", annualRevenue: comp.annualRevenue || "", occupancy: comp.occupancy || "",
+      adr: comp.adr || "", beds: comp.beds || "", link: comp.link || "", notes: comp.notes || "",
+      photoUrl: comp.photoUrl || "", rating: comp.rating || "", reviewCount: comp.reviewCount || "", city: comp.city || "",
     }));
     onImport(compsToImport);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
-        <div className="p-4 border-b flex items-center justify-between">
-          <h3 className="font-semibold text-lg">Import Existing Comps</h3>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleImport} disabled={selected.size === 0}>
-              Import {selected.size} Selected
-            </Button>
-            <Button size="sm" variant="outline" onClick={onClose}>Close</Button>
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-h-[85vh]">
+        <DialogHeader className="border-b bg-gradient-to-r from-slate-950 to-slate-800 px-5 py-5 text-left sm:px-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <DialogTitle className="text-lg text-white">Import comparable properties</DialogTitle>
+              <DialogDescription className="mt-1 text-slate-300">Search the saved listing library, then choose the strongest evidence for this pro-forma.</DialogDescription>
+            </div>
+            <Button type="button" size="icon" variant="ghost" className="-mt-1 shrink-0 text-slate-300 hover:bg-white/10 hover:text-white" onClick={onClose} aria-label="Close import comps dialog"><X className="h-4 w-4" /></Button>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-xs text-slate-200">
+            <span className="rounded-full bg-white/15 px-2.5 py-1 font-semibold">{availableSlots} slot{availableSlots === 1 ? "" : "s"} available</span>
+            <span>{selected.size} selected</span>
+          </div>
+        </DialogHeader>
+
+        <div className="border-b bg-slate-50 px-5 py-4 sm:px-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input className="h-10 border-slate-300 bg-white pl-9 shadow-sm" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search by name, city, revenue, or notes" />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-slate-500"><SlidersHorizontal className="h-4 w-4" />{filteredComps.length} match{filteredComps.length === 1 ? "" : "es"}</div>
+            {hasActiveFilters && <Button type="button" variant="ghost" size="sm" className="text-slate-600" onClick={clearFilters}>Clear filters</Button>}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
+            {isAdmin && <div>
+              <Label className="sr-only">Market</Label>
+              <Select value={filterMarket || "all"} onValueChange={value => setFilterMarket(value === "all" ? "" : value)}><SelectTrigger className="h-9 w-full bg-white text-xs"><SelectValue placeholder="All markets" /></SelectTrigger><SelectContent><SelectItem value="all">All markets</SelectItem>{markets.map(market => <SelectItem key={market} value={market}>{market}</SelectItem>)}</SelectContent></Select>
+            </div>}
+            {isAdmin && <div>
+              <Label className="sr-only">Agent</Label>
+              <Select value={filterAgent || "all"} onValueChange={value => setFilterAgent(value === "all" ? "" : value)}><SelectTrigger className="h-9 w-full bg-white text-xs"><SelectValue placeholder="All agents" /></SelectTrigger><SelectContent><SelectItem value="all">All agents</SelectItem>{agents.map(agent => <SelectItem key={agent} value={agent}>{agent}</SelectItem>)}</SelectContent></Select>
+            </div>}
+            <Input className="h-9 bg-white text-xs" value={filterCity} onChange={event => setFilterCity(event.target.value)} placeholder="City" aria-label="Filter by city" />
+            <Input className="h-9 bg-white text-xs" value={filterBeds} onChange={event => setFilterBeds(event.target.value)} placeholder="Bedrooms" aria-label="Filter by bedrooms" />
+            <Input className="h-9 bg-white text-xs" inputMode="decimal" value={filterMinRevenue} onChange={event => setFilterMinRevenue(event.target.value)} placeholder="Min revenue" aria-label="Minimum annual revenue" />
+            <Input className="h-9 bg-white text-xs" inputMode="decimal" value={filterMaxRevenue} onChange={event => setFilterMaxRevenue(event.target.value)} placeholder="Max revenue" aria-label="Maximum annual revenue" />
+            <Input className="h-9 bg-white text-xs" inputMode="decimal" value={filterMinADR} onChange={event => setFilterMinADR(event.target.value)} placeholder="Min ADR" aria-label="Minimum nightly rate" />
+            <Input className="h-9 bg-white text-xs" inputMode="decimal" value={filterMaxADR} onChange={event => setFilterMaxADR(event.target.value)} placeholder="Max ADR" aria-label="Maximum nightly rate" />
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="p-3 border-b bg-slate-50">
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
-            {isAdmin && <div className="space-y-1">
-              <Label className="text-xs">Market</Label>
-              <select className="h-7 w-full rounded border bg-white px-2 text-xs" value={filterMarket} onChange={e => setFilterMarket(e.target.value)}>
-                <option value="">All markets</option>
-                {markets.map(market => <option key={market} value={market}>{market}</option>)}
-              </select>
-            </div>}
-            {isAdmin && <div className="space-y-1">
-              <Label className="text-xs">Agent</Label>
-              <select className="h-7 w-full rounded border bg-white px-2 text-xs" value={filterAgent} onChange={e => setFilterAgent(e.target.value)}>
-                <option value="">All agents</option>
-                {agents.map(agent => <option key={agent} value={agent}>{agent}</option>)}
-              </select>
-            </div>}
-            <div className="space-y-1">
-              <Label className="text-xs">Search</Label>
-              <Input className="h-7 text-xs" value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, city..." />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Beds</Label>
-              <Input className="h-7 text-xs" value={filterBeds} onChange={e => setFilterBeds(e.target.value)} placeholder="e.g. 3" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">City</Label>
-              <Input className="h-7 text-xs" value={filterCity} onChange={e => setFilterCity(e.target.value)} placeholder="Gatlinburg" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Min Revenue</Label>
-              <Input className="h-7 text-xs" value={filterMinRevenue} onChange={e => setFilterMinRevenue(e.target.value)} placeholder="50000" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Max Revenue</Label>
-              <Input className="h-7 text-xs" value={filterMaxRevenue} onChange={e => setFilterMaxRevenue(e.target.value)} placeholder="200000" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Min ADR</Label>
-              <Input className="h-7 text-xs" value={filterMinADR} onChange={e => setFilterMinADR(e.target.value)} placeholder="200" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Max ADR</Label>
-              <Input className="h-7 text-xs" value={filterMaxADR} onChange={e => setFilterMaxADR(e.target.value)} placeholder="500" />
-            </div>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">{filteredComps.length} comps found{!isAdmin ? " (your comps only)" : " (all users)"}</p>
-        </div>
-
-        {/* Comp List */}
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-white p-4 sm:p-5">
           {filteredComps.length === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-8">No comps match your filters.</p>
+            <div className="py-14 text-center"><BookOpen className="mx-auto mb-3 h-6 w-6 text-slate-300" /><p className="text-sm font-medium text-slate-700">No comparable properties match</p><p className="mt-1 text-sm text-slate-500">Try broadening or clearing the current filters.</p></div>
           ) : (
-            <div className="space-y-2">
-              {filteredComps.map((comp: any, i: number) => (
-                <div
-                  key={i}
-                  className={`border rounded p-2 cursor-pointer transition-colors ${selected.has(i) ? "border-emerald-500 bg-emerald-50" : "hover:bg-slate-50"}`}
-                  onClick={() => toggleSelect(i)}
-                >
-                  <div className="flex items-center gap-3">
-                    <input type="checkbox" checked={selected.has(i)} readOnly className="rounded" />
-                    {comp.photoUrl && <img src={comp.photoUrl} alt="" className="w-10 h-10 rounded object-cover" />}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{comp.name || "Unnamed Comp"}</p>
-                      <p className="text-xs text-slate-500">
-                        {comp.beds ? `${comp.beds} beds` : ""}{comp.city ? ` • ${comp.city}` : ""}{comp.annualRevenue ? ` • Rev: ${comp.annualRevenue}` : ""}{comp.adr ? ` • ADR: ${comp.adr}` : ""}{comp.occupancy ? ` • Occ: ${comp.occupancy}` : ""}{isAdmin && comp.market ? ` • ${comp.market}` : ""}
-                      </p>
-                    </div>
-                    {comp.rating && <span className="text-xs text-amber-600">⭐ {comp.rating}</span>}
-                    {comp.addedBy && <span className="text-xs text-slate-400">{comp.addedBy}</span>}
-                  </div>
-                </div>
-              ))}
+            <div className="grid gap-3 md:grid-cols-2">
+              {filteredComps.map(({ comp, sourceIndex }) => {
+                const isSelected = selected.has(sourceIndex);
+                const revenue = getCompRevenue(comp);
+                const selectionDisabled = !isSelected && selected.size >= availableSlots;
+                return <button key={sourceIndex} type="button" onClick={() => toggleSelect(sourceIndex)} disabled={selectionDisabled} aria-pressed={isSelected} className={`group flex min-h-28 items-start gap-3 rounded-xl border p-3 text-left transition-all ${isSelected ? "border-cyan-500 bg-cyan-50 shadow-sm ring-1 ring-cyan-500/20" : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"} disabled:cursor-not-allowed disabled:opacity-50`}>
+                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${isSelected ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 bg-white"}`}>{isSelected && <Check className="h-3.5 w-3.5" />}</div>
+                  {comp.photoUrl ? <img src={comp.photoUrl} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" /> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400"><Home className="h-5 w-5" /></div>}
+                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-800">{comp.name || "Unnamed comp"}</p><div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-500">{comp.city && <span>{comp.city}</span>}{comp.beds && <span>{comp.beds} bed</span>}{comp.adr && <span>ADR ${comp.adr}</span>}{comp.occupancy && <span>{comp.occupancy}% occ.</span>}</div>{revenue > 0 && <p className="mt-2 text-sm font-bold text-emerald-700">${revenue.toLocaleString()}<span className="ml-1 text-xs font-medium text-emerald-600">annual revenue</span></p>}{isAdmin && (comp.market || comp.addedBy) && <p className="mt-1 truncate text-[11px] text-slate-400">{[comp.market, comp.addedBy].filter(Boolean).join(" · ")}</p>}</div>
+                </button>;
+              })}
             </div>
           )}
         </div>
-      </div>
-    </div>
+
+        <DialogFooter className="border-t bg-slate-50 px-5 py-4 sm:px-6 sm:py-4">
+          <p className="mr-auto text-sm text-slate-500">{selected.size ? `${selected.size} comp${selected.size === 1 ? "" : "s"} ready to import` : `Select up to ${availableSlots} comps`}</p>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" onClick={handleImport} disabled={selected.size === 0}>Import {selected.size || ""} comp{selected.size === 1 ? "" : "s"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

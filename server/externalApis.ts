@@ -1,6 +1,7 @@
 import express from "express";
 import { sdk } from "./_core/sdk";
 import { makeRequest } from "./_core/map";
+import { extractAirbnbListingId, extractAirbnbPhotoUrls } from "./airbnbListing";
 
 const RAPIDAPI_HOST = "private-zillow.p.rapidapi.com";
 const RAPIDAPI_KEY = "526283dbe0msh15c17fdb8e08c0bp17f809jsn6eb94ee12316";
@@ -95,6 +96,49 @@ export function parseGoogleAddressDetails(result: any) {
   };
 }
 
+type CensusAddressMatch = {
+  matchedAddress?: string;
+  addressComponents?: {
+    fromAddress?: string;
+    preDirection?: string;
+    streetName?: string;
+    suffixType?: string;
+    suffixDirection?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+};
+
+export function parseCensusAddressDetails(match: CensusAddressMatch) {
+  const components = match.addressComponents ?? {};
+  const address = [
+    components.fromAddress,
+    components.preDirection,
+    components.streetName,
+    components.suffixType,
+    components.suffixDirection,
+  ].filter(Boolean).join(" ");
+  return {
+    address,
+    city: components.city ?? "",
+    state: components.state ?? "",
+    zip: components.zip ?? "",
+    formattedAddress: match.matchedAddress ?? "",
+  };
+}
+
+async function findCensusAddressMatches(query: string): Promise<CensusAddressMatch[]> {
+  const url = new URL("https://geocoding.geo.census.gov/geocoder/locations/onelineaddress");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("benchmark", "Public_AR_Current");
+  url.searchParams.set("address", query);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Census address lookup failed (${response.status})`);
+  const data = await response.json() as { result?: { addressMatches?: CensusAddressMatch[] } };
+  return Array.isArray(data?.result?.addressMatches) ? data.result.addressMatches : [];
+}
+
 export function registerExternalApiRoutes(app: express.Application) {
   // ═══════════════════════════════════════════════════════════════════════════
   // GOOGLE ADDRESS AUTOCOMPLETE
@@ -110,6 +154,12 @@ export function registerExternalApiRoutes(app: express.Application) {
       if (!query && !placeId) return res.status(400).json({ error: "Enter an address to search." });
 
       if (placeId) {
+        if (placeId.startsWith("census:")) {
+          const matchedAddress = decodeURIComponent(placeId.slice("census:".length));
+          const match = (await findCensusAddressMatches(matchedAddress))[0];
+          if (!match) return res.status(502).json({ error: "Address details are temporarily unavailable." });
+          return res.json({ success: true, provider: "census", address: parseCensusAddressDetails(match) });
+        }
         const data = await makeRequest<any>("/maps/api/place/details/json", {
           place_id: placeId,
           fields: "address_component,formatted_address",
@@ -117,26 +167,38 @@ export function registerExternalApiRoutes(app: express.Application) {
         if (data?.status !== "OK" || !data?.result) {
           return res.status(502).json({ error: "Address details are temporarily unavailable." });
         }
-        return res.json({ success: true, address: parseGoogleAddressDetails(data.result) });
+        return res.json({ success: true, provider: "google", address: parseGoogleAddressDetails(data.result) });
       }
 
       if (query.length < 3) return res.json({ success: true, suggestions: [] });
-      const data = await makeRequest<any>("/maps/api/place/autocomplete/json", {
-        input: query,
-        types: "address",
-        components: "country:us",
-      });
-      if (data?.status && !["OK", "ZERO_RESULTS"].includes(data.status)) {
-        console.warn("[AddressAutocomplete] Provider returned a non-success status", data.status);
-        return res.status(502).json({ error: "Address suggestions are temporarily unavailable." });
+      try {
+        const data = await makeRequest<any>("/maps/api/place/autocomplete/json", {
+          input: query,
+          types: "address",
+          components: "country:us",
+        });
+        if (data?.status && !["OK", "ZERO_RESULTS"].includes(data.status)) {
+          throw new Error(`Google Places returned ${data.status}`);
+        }
+        const suggestions = Array.isArray(data?.predictions)
+          ? data.predictions.slice(0, 6).map((prediction: any) => ({
+              placeId: String(prediction.place_id ?? ""),
+              description: String(prediction.description ?? ""),
+            })).filter((prediction: { placeId: string; description: string }) => prediction.placeId && prediction.description)
+          : [];
+        return res.json({ success: true, suggestions });
+      } catch (googleError: any) {
+        // Railway-hosted deployments do not always receive the built-in Forge
+        // Maps proxy variables. Keep property creation functional by validating
+        // complete US addresses against the public Census geocoder instead.
+        console.warn("[AddressAutocomplete] Google Places unavailable; using Census fallback:", googleError.message);
+        const matches = await findCensusAddressMatches(query);
+        const suggestions = matches.slice(0, 6).map((match) => ({
+          placeId: `census:${encodeURIComponent(match.matchedAddress ?? "")}`,
+          description: match.matchedAddress ?? "",
+        })).filter((suggestion) => suggestion.placeId !== "census:" && suggestion.description);
+        return res.json({ success: true, suggestions, provider: "census" });
       }
-      const suggestions = Array.isArray(data?.predictions)
-        ? data.predictions.slice(0, 6).map((prediction: any) => ({
-            placeId: String(prediction.place_id ?? ""),
-            description: String(prediction.description ?? ""),
-          })).filter((prediction: { placeId: string; description: string }) => prediction.placeId && prediction.description)
-        : [];
-      return res.json({ success: true, suggestions });
     } catch (err: any) {
       console.error("[AddressAutocomplete] Error:", err.message);
       return res.status(503).json({ error: "Address suggestions are temporarily unavailable. You can still enter the address manually." });
@@ -206,9 +268,7 @@ export function registerExternalApiRoutes(app: express.Application) {
       // Extract listing ID from URL if provided
       let id = listingId;
       if (!id && listingUrl) {
-        // URLs like: https://www.airbnb.com/rooms/52009498 or https://www.airbnb.com/rooms/52009498?...
-        const match = listingUrl.match(/rooms\/(\d+)/);
-        if (match) id = match[1];
+        id = extractAirbnbListingId(listingUrl);
       }
       if (!id) return res.status(400).json({ error: "Listing ID or Airbnb URL is required" });
 
@@ -257,33 +317,9 @@ export function registerExternalApiRoutes(app: express.Application) {
         }
       }
 
-      // Extract photos
-      let photos: string[] = [];
-      for (const sec of sections) {
-        if (sec.sectionId === "HERO_DEFAULT") {
-          const mediaItems = sec.section?.mediaItems || [];
-          photos = mediaItems
-            .filter((m: any) => m.baseUrl || m.url)
-            .map((m: any) => m.baseUrl || m.url)
-            .slice(0, 5);
-          break;
-        }
-      }
-      // Fallback: sleeping arrangement images
-      if (photos.length === 0) {
-        for (const sec of sections) {
-          if (sec.sectionId === "SLEEPING_ARRANGEMENT_WITH_IMAGES") {
-            const arrangements = sec.section?.arrangementDetails || [];
-            for (const arr of arrangements) {
-              const imgs = arr.images || [];
-              for (const img of imgs) {
-                if (img.baseUrl) photos.push(img.baseUrl);
-              }
-            }
-            break;
-          }
-        }
-      }
+      // Extract photos across both the current previewImages response shape and
+      // historical Airbnb payload variants.
+      const photos = extractAirbnbPhotoUrls(data.data);
 
       // Extract reviews
       let rating = loggingContext.guestSatisfactionOverall || null;
