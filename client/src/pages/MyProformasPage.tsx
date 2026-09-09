@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import PageHeader from "@/components/PageHeader";
+import ProformaHowToDialog from "@/components/ProformaHowToDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -96,21 +97,24 @@ export default function MyProformasPage() {
         title="My Pro-formas"
         subtitle={isAdmin ? "Review saved property analyses across the team, or filter by an agent." : "Review the property analyses you have created."}
         actions={
-          isAdmin ? (
-            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-              <SelectTrigger className="w-[190px]" aria-label="Filter pro-formas by agent">
-                <SelectValue placeholder="All agents" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All agents</SelectItem>
-                {agents.map((agent: any) => (
-                  <SelectItem key={agent.id} value={String(agent.id)}>
-                    {agent.name || agent.email || `Agent #${agent.id}`} ({agentCountById.get(agent.id) ?? 0})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : undefined
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <ProformaHowToDialog />
+            {isAdmin && (
+              <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+                <SelectTrigger className="w-[190px]" aria-label="Filter pro-formas by agent">
+                  <SelectValue placeholder="All agents" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All agents</SelectItem>
+                  {agents.map((agent: any) => (
+                    <SelectItem key={agent.id} value={String(agent.id)}>
+                      {agent.name || agent.email || `Agent #${agent.id}`} ({agentCountById.get(agent.id) ?? 0})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         }
       />
 

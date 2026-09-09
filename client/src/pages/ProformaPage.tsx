@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import ProformaEmailComposer from "@/components/ProformaEmailComposer";
+import ProformaHowToDialog from "@/components/ProformaHowToDialog";
 import { ArrowLeft, Check, FileText, Save, Plus, Trash2, Download, TrendingUp, DollarSign, Home, Calculator, BarChart3, Shield, BookOpen, Settings, Pencil, ChevronDown, Mail, Search, SlidersHorizontal, X } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -991,11 +992,12 @@ export default function ProformaPage() {
   // ─── EDITING VIEW ──────────────────────────────────────────────────────────
   return (
     <div className="p-4 max-w-7xl mx-auto">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-col items-start justify-between gap-3 sm:flex-row">
         <Button variant="ghost" size="sm" onClick={() => navigate(`/properties/${propertyId}`)}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to Property
         </Button>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+          <ProformaHowToDialog />
           <Button variant="outline" size="sm" onClick={() => setShowReportSettings(true)}>
             <Settings className="h-4 w-4 mr-1" /> Settings
           </Button>
