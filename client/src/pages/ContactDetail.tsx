@@ -31,6 +31,7 @@ import { useCelebration } from "@/hooks/useCelebration";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
 import { useAppBack } from "@/lib/navigationHistory";
+import { unwrapPropertyListRows } from "@/lib/propertyList";
 import { sortActivityTimeline } from "@shared/activityTimeline";
 
 // ─── US Timezone Options ─────────────────────────────────────────────────────
@@ -548,7 +549,8 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
   const { data: isas = [] } = trpc.users.list.useQuery({ role: "isa" });
   const { data: contactProps, refetch: refetchProps } = trpc.contactProperties.list.useQuery({ contactId });
   const { data: contactListings = [] } = trpc.listings.list.useQuery({ contactId });
-  const { data: allProperties = [] } = trpc.properties.list.useQuery({});
+  const { data: allPropertyRows } = trpc.properties.list.useQuery({});
+  const allProperties = unwrapPropertyListRows(allPropertyRows);
   const { data: activityLog } = trpc.analytics.activityLog.useQuery({ contactId });
   const { data: contactReferrals = [] } = trpc.referrals.byContact.useQuery({ contactId }, { enabled: user?.role === "admin" || user?.role === "isa" });
   const { data: referralConfig } = trpc.referrals.config.useQuery(undefined, { enabled: user?.role === "admin" || user?.role === "isa" });
@@ -2367,7 +2369,7 @@ const [assignForm, setAssignForm] = useState<AssignForm>({
               <Label>Property</Label>
               <SearchableSelect
                 className="mt-1 w-full"
-                options={(allProperties as any[]).map((p: any) => ({
+                options={allProperties.map((p) => ({
                   value: String(p.id),
                   label: `${p.address ?? "Property address not set"}${p.city ? `, ${p.city}` : ""}`,
                   description: [p.state, p.zip].filter(Boolean).join(" ") || undefined,

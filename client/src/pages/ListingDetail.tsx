@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
+import { unwrapPropertyListRows } from "@/lib/propertyList";
 import { Link, useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -262,10 +263,11 @@ export default function ListingDetail() {
   );
   const editContactRows = contactSearchResults?.rows ?? [];
 
-  const { data: propertySearchResults = [] } = trpc.properties.list.useQuery(
-    { search: editPropertySearch },
+  const { data: propertySearchRows } = trpc.properties.list.useQuery(
+    { search: editPropertySearch, limit: 8 },
     { enabled: editPropertySearch.length >= 2 && editPropertyMode === "search" }
   );
+  const propertySearchResults = unwrapPropertyListRows(propertySearchRows);
 
   const { data: convertContactResults } = trpc.contacts.list.useQuery(
     { search: convertForm.contactSearch, limit: 8 },
@@ -1417,7 +1419,7 @@ export default function ListingDetail() {
                       />
                       {propertySearchResults.length > 0 && (
                         <div className="border rounded-md divide-y max-h-36 overflow-y-auto">
-                          {propertySearchResults.map((p: any) => (
+                          {propertySearchResults.map((p) => (
                             <button
                               key={p.id}
                               type="button"

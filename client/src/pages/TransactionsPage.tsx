@@ -19,6 +19,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { safeFormat } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput as _parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import LeadSourcePicker from "@/components/LeadSourcePicker";
+import { unwrapPropertyListRows } from "@/lib/propertyList";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const formatCurrency = (val: string | null | undefined) => {
@@ -213,10 +214,10 @@ function PropertyPicker({
   const [newZip, setNewZip] = useState("");
 
   const { data: propData } = trpc.properties.list.useQuery(
-    { search: search || undefined },
+    { search: search || undefined, limit: 10 },
     { enabled: search.length >= 2 }
   );
-  const properties = propData ?? [];
+  const properties = unwrapPropertyListRows(propData);
 
   const createProperty = trpc.properties.create.useMutation({
     onSuccess: (data: any) => {

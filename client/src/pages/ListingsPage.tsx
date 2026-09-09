@@ -24,6 +24,7 @@ import { useLocation } from "wouter";
 import { safeFormat, safeFormatDate } from "@/lib/safeFormat";
 import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatStreet, formatCityStateZip } from "@/lib/format";
+import { unwrapPropertyListRows } from "@/lib/propertyList";
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
@@ -150,10 +151,11 @@ export default function ListingsPage() {
     { enabled: convertForm.contactSearch.length > 1 }
   );
   const convertContacts = convertContactsData?.rows ?? [];
-  const { data: properties = [] } = trpc.properties.list.useQuery(
-    { search: form.propertySearch || undefined },
+  const { data: propertyRows } = trpc.properties.list.useQuery(
+    { search: form.propertySearch || undefined, limit: 8 },
     { enabled: form.propertySearch.length > 1 }
   );
+  const properties = unwrapPropertyListRows(propertyRows);
   const { data: createFromProperty } = trpc.properties.get.useQuery(
     { id: createFromPropertyId },
     { enabled: creationParams.get("create") === "1" && createFromPropertyId > 0 },
@@ -900,9 +902,9 @@ export default function ListingsPage() {
                     value={form.propertySearch}
                     onChange={(e) => setForm({ ...form, propertySearch: e.target.value, propertyId: "" })}
                   />
-                  {form.propertySearch.length > 1 && (properties as any[]).length > 0 && !form.propertyId && (
+                  {form.propertySearch.length > 1 && properties.length > 0 && !form.propertyId && (
                     <div className="border rounded-md mt-1 max-h-36 overflow-y-auto bg-background shadow-sm">
-                      {(properties as any[]).slice(0, 8).map((p: any) => (
+                      {properties.map((p) => (
                         <button key={p.id}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50"
                           onClick={() => setForm({ ...form, propertyId: String(p.id), propertySearch: [formatStreet(p.address), formatCityStateZip(p.city, p.state, p.zip)].filter(Boolean).join(", ") })}

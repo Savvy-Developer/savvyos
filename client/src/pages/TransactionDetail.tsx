@@ -27,6 +27,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { useCelebration } from "@/hooks/useCelebration";
 import { useAppBack } from "@/lib/navigationHistory";
+import { unwrapPropertyListRows } from "@/lib/propertyList";
 
 // ─── Transaction History Timeline ─────────────────────────────────────────────────────────
 const TX_HISTORY_OUTCOME_COLORS: Record<string, string> = {
@@ -360,10 +361,11 @@ export default function TransactionDetail() {
   const buyerContactResults = buyerContactsData?.rows ?? [];
 
   // Property search for edit dialog
-  const { data: editProperties = [] } = trpc.properties.list.useQuery(
-    { search: editPropertySearch || undefined },
+  const { data: editPropertyRows } = trpc.properties.list.useQuery(
+    { search: editPropertySearch || undefined, limit: 8 },
     { enabled: editPropertySearch.length > 1 }
   );
+  const editProperties = unwrapPropertyListRows(editPropertyRows);
 
   const { celebrate } = useCelebration();
 
@@ -2006,9 +2008,9 @@ export default function TransactionDetail() {
                       onChange={(e) => setEditPropertySearch(e.target.value)}
                     />
                   </div>
-                  {editPropertySearch.length > 1 && (editProperties as any[]).length > 0 && (
+                  {editPropertySearch.length > 1 && editProperties.length > 0 && (
                     <div className="border rounded-md mt-1 max-h-36 overflow-y-auto bg-background shadow-sm">
-                      {(editProperties as any[]).slice(0, 8).map((p: any) => (
+                      {editProperties.map((p) => (
                         <button key={p.id}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50"
                           onClick={() => {
