@@ -100,27 +100,35 @@ async function main() {
       }
     }));
 
+    // Google lookups take several minutes. Open a fresh connection only for the
+    // short write phase so Railway does not close an idle database connection.
+    await connection.end();
+    const writer = await mysql.createConnection(databaseUrl);
     let updatedProperties = 0;
     let unchangedProperties = 0;
-    for (const [key, group] of entries) {
-      const normalized = results.get(key);
-      if (!normalized) continue;
-      for (const property of group) {
-        const isUnchanged = property.address === normalized.address
-          && property.city === normalized.city
-          && property.state === normalized.state
-          && property.zip === normalized.zip
-          && property.normalizedAddress === normalized.normalizedAddress;
-        if (isUnchanged) {
-          unchangedProperties += 1;
-          continue;
+    try {
+      for (const [key, group] of entries) {
+        const normalized = results.get(key);
+        if (!normalized) continue;
+        for (const property of group) {
+          const isUnchanged = property.address === normalized.address
+            && property.city === normalized.city
+            && property.state === normalized.state
+            && property.zip === normalized.zip
+            && property.normalizedAddress === normalized.normalizedAddress;
+          if (isUnchanged) {
+            unchangedProperties += 1;
+            continue;
+          }
+          await writer.execute(
+            "UPDATE properties SET address = ?, city = ?, state = ?, zip = ?, normalizedAddress = ?, updatedAt = NOW() WHERE id = ?",
+            [normalized.address, normalized.city, normalized.state, normalized.zip, normalized.normalizedAddress, property.id],
+          );
+          updatedProperties += 1;
         }
-        await connection.execute(
-          "UPDATE properties SET address = ?, city = ?, state = ?, zip = ?, normalizedAddress = ?, updatedAt = NOW() WHERE id = ?",
-          [normalized.address, normalized.city, normalized.state, normalized.zip, normalized.normalizedAddress, property.id],
-        );
-        updatedProperties += 1;
       }
+    } finally {
+      await writer.end();
     }
 
     console.log(JSON.stringify({
@@ -133,7 +141,7 @@ async function main() {
       unresolvedSample: failures.slice(0, 20),
     }, null, 2));
   } finally {
-    await connection.end();
+    await connection.end().catch(() => {});
   }
 }
 
