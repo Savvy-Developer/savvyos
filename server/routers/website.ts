@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gte, like, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, like, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   agentConnections,
@@ -682,6 +682,16 @@ export const websiteRouter = router({
         .object({
           search: z.string().trim().max(200).optional(),
           agentSlug: z.string().optional(),
+          state: z.string().trim().max(2).optional(),
+          city: z.string().trim().max(120).optional(),
+          minPrice: z.number().nonnegative().optional(),
+          maxPrice: z.number().nonnegative().optional(),
+          minBeds: z.number().int().nonnegative().max(20).optional(),
+          minBaths: z.number().nonnegative().max(20).optional(),
+          propertyType: z.string().trim().max(40).optional(),
+          sort: z
+            .enum(["featured", "priceAsc", "priceDesc", "newest"])
+            .optional(),
         })
         .optional()
     )
@@ -702,6 +712,35 @@ export const websiteRouter = router({
       }
       if (input?.agentSlug)
         conditions.push(eq(websiteAgentProfiles.slug, input.agentSlug));
+      if (input?.state) conditions.push(eq(properties.state, input.state));
+      if (input?.city) conditions.push(eq(properties.city, input.city));
+      // Price, beds and baths filter on the SavvyOS property record, which is
+      // the source of truth for those numbers. A property with no price on file
+      // drops out of a price-bounded search rather than being shown as a match
+      // we cannot actually justify.
+      if (input?.minPrice != null)
+        conditions.push(gte(properties.listPrice, String(input.minPrice)));
+      if (input?.maxPrice != null)
+        conditions.push(lte(properties.listPrice, String(input.maxPrice)));
+      if (input?.minBeds != null)
+        conditions.push(gte(properties.beds, String(input.minBeds)));
+      if (input?.minBaths != null)
+        conditions.push(gte(properties.baths, String(input.minBaths)));
+      if (input?.propertyType)
+        conditions.push(eq(properties.propertyType, input.propertyType as any));
+
+      const order =
+        input?.sort === "priceAsc"
+          ? [asc(properties.listPrice)]
+          : input?.sort === "priceDesc"
+            ? [desc(properties.listPrice)]
+            : input?.sort === "newest"
+              ? [desc(websiteProperties.publishedAt)]
+              : [
+                  asc(websiteProperties.sortOrder),
+                  desc(websiteProperties.publishedAt),
+                ];
+
       return db
         .select(propertyProjection)
         .from(websiteProperties)
@@ -713,11 +752,47 @@ export const websiteRouter = router({
           eq(users.id, websiteAgentProfiles.userId)
         )
         .where(and(...conditions))
-        .orderBy(
-          asc(websiteProperties.sortOrder),
-          desc(websiteProperties.publishedAt)
-        );
+        .orderBy(...order);
     }),
+
+  /**
+   * The values worth offering as filters, derived from what is actually
+   * published. Offering a market or a price band that matches nothing is worse
+   * than offering no filter at all, so the UI builds its controls from this.
+   */
+  publicPropertyFacets: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { states: [], cities: [], propertyTypes: [], priceRange: null };
+    const rows = await db
+      .select({
+        state: properties.state,
+        city: properties.city,
+        propertyType: properties.propertyType,
+        listPrice: properties.listPrice,
+      })
+      .from(websiteProperties)
+      .innerJoin(properties, eq(websiteProperties.propertyId, properties.id))
+      .where(eq(websiteProperties.status, "published"));
+
+    // Array.from rather than spreading a Set: this tsconfig targets below es2015
+    // for iteration, so the spread form does not compile.
+    const distinct = (values: (string | null)[]) =>
+      Array.from(new Set(values.filter((v): v is string => !!v))).sort();
+    const states = distinct(rows.map(r => r.state));
+    const cities = distinct(rows.map(r => r.city));
+    const propertyTypes = distinct(rows.map(r => r.propertyType));
+    const prices = rows
+      .map(r => (r.listPrice == null ? null : Number(r.listPrice)))
+      .filter((n): n is number => n != null && !Number.isNaN(n));
+    return {
+      states,
+      cities,
+      propertyTypes,
+      priceRange: prices.length
+        ? { min: Math.min(...prices), max: Math.max(...prices) }
+        : null,
+    };
+  }),
 
   publicProperty: publicProcedure
     .input(z.object({ slug: z.string() }))
