@@ -187,6 +187,48 @@ export function reconcileCanonical(
   return { fills, ignored };
 }
 
+/**
+ * Booking links are typed by hand into the studio, and people type them the way
+ * they read them: "calendly.com/ana-savvy", no scheme. Dropped straight into an
+ * href that is a RELATIVE path, so "Book a call" lands on
+ * /newsite/agents/calendly.com/ana-savvy instead of Calendly. Agent profiles are
+ * the largest single booking surface on the site, so that button silently failing
+ * is expensive.
+ *
+ * Returns an absolute https URL, or null when the value cannot be trusted as one.
+ * Anything that is not http or https is rejected rather than repaired: these
+ * values are rendered into an href, so a "javascript:" or "data:" URL here would
+ * execute in the visitor's browser.
+ */
+export function normalizeBookingUrl(
+  value: string | null | undefined
+): string | null {
+  const raw = (value ?? "").trim();
+  if (!raw) return null;
+  // A bare "//host/path" inherits the page's scheme; treat it as https.
+  const candidate = /^\/\//.test(raw)
+    ? `https:${raw}`
+    : /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)
+      ? raw
+      : `https://${raw}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  if (!parsed.hostname.includes(".")) return null;
+  return parsed.toString();
+}
+
+/** Repair rows stored before normalizeBookingUrl existed, without a migration. */
+function withNormalizedBooking<T extends { bookingUrl?: string | null }>(
+  row: T
+): T {
+  return { ...row, bookingUrl: normalizeBookingUrl(row.bookingUrl) };
+}
+
 function asDecimal(value: number | null | undefined) {
   return value === null || value === undefined || Number.isNaN(value)
     ? null
@@ -541,7 +583,7 @@ async function getPublishedHome() {
   return {
     settings: settingsRows[0] ?? null,
     properties: propertyRows,
-    agents: agentRows,
+    agents: agentRows.map(withNormalizedBooking),
     caseStudies: caseRows,
     posts: postRows,
   };
@@ -721,7 +763,7 @@ export const websiteRouter = router({
           )!
         );
       }
-      return db
+      const agentRows = await db
         .select({
           id: websiteAgentProfiles.id,
           userId: websiteAgentProfiles.userId,
@@ -740,6 +782,7 @@ export const websiteRouter = router({
         .innerJoin(users, eq(websiteAgentProfiles.userId, users.id))
         .where(and(...conditions))
         .orderBy(asc(websiteAgentProfiles.sortOrder), asc(users.name));
+      return agentRows.map(withNormalizedBooking);
     }),
 
   publicAgent: publicProcedure
@@ -793,7 +836,7 @@ export const websiteRouter = router({
         )
         .orderBy(asc(websiteProperties.sortOrder))
         .limit(6);
-      return { ...rows[0], properties: relatedProperties };
+      return { ...withNormalizedBooking(rows[0]), properties: relatedProperties };
     }),
 
   publicCaseStudies: publicProcedure.query(async () => {
@@ -1103,12 +1146,14 @@ export const websiteRouter = router({
     return {
       settings: settingsRows[0] ?? null,
       properties: propertyRows,
-      agents: agentRows,
+      agents: agentRows.map(withNormalizedBooking),
       caseStudies: caseRows,
       posts: postRows,
       leads: leadRows,
       canViewLeads,
-      sourceAgents,
+      // These feed the "feature an agent" picker, so the value prefilled into the
+      // form should already be a working link.
+      sourceAgents: sourceAgents.map(withNormalizedBooking),
     };
   }),
 
@@ -1412,7 +1457,9 @@ export const websiteRouter = router({
         headline: input.headline || null,
         shortBio: input.shortBio || null,
         imageUrl: input.imageUrl || null,
-        bookingUrl: input.bookingUrl || null,
+        // Store it absolute so every consumer gets a working link, not just the
+        // ones that remember to normalise.
+        bookingUrl: normalizeBookingUrl(input.bookingUrl),
         publishedAt: input.status === "published" ? new Date() : null,
         updatedById: ctx.user.id,
       };
