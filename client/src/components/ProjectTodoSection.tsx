@@ -34,35 +34,35 @@ export function ProjectTodoSection({
   onDelete,
   children,
 }: {
-  section: { id: number; title: string } | null;
+  section: { id: number; title: string };
   sectionIndex: number;
   sectionCount: number;
   todoCount: number;
   completedCount: number;
   displayCount: number;
   onAddTodo: () => void;
-  onRename?: (title: string) => void;
-  onMove?: (direction: Direction) => void;
-  onDelete?: () => void;
+  onRename: (title: string) => void;
+  onMove: (direction: Direction) => void;
+  onDelete: () => void;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(section?.title ?? "Unsectioned");
+  const [title, setTitle] = useState(section.title);
 
   useEffect(() => {
-    setTitle(section?.title ?? "Unsectioned");
-  }, [section?.title]);
+    setTitle(section.title);
+  }, [section.title]);
 
   function saveTitle() {
     const normalizedTitle = title.trim();
-    if (!normalizedTitle || !onRename) return;
+    if (!normalizedTitle) return;
     onRename(normalizedTitle);
     setEditing(false);
   }
 
   function cancelEditing() {
-    setTitle(section?.title ?? "Unsectioned");
+    setTitle(section.title);
     setEditing(false);
   }
 
@@ -99,7 +99,7 @@ export function ProjectTodoSection({
             <button
               type="button"
               className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-label={`${expanded ? "Collapse" : "Expand"} ${section?.title ?? "Unsectioned"} section`}
+              aria-label={`${expanded ? "Collapse" : "Expand"} ${section.title} section`}
             >
               <ChevronDown
                 className={cn(
@@ -109,7 +109,7 @@ export function ProjectTodoSection({
               />
               <ListChecks className="h-4 w-4 shrink-0 text-primary" />
               <span className="truncate text-sm font-semibold">
-                {section?.title ?? "Unsectioned"}
+                {section.title}
               </span>
               <Badge
                 variant="secondary"
@@ -149,7 +149,7 @@ export function ProjectTodoSection({
                 <X className="h-3.5 w-3.5" />
               </Button>
             </>
-          ) : section ? (
+          ) : (
             <>
               <Button
                 type="button"
@@ -167,7 +167,7 @@ export function ProjectTodoSection({
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
-                onClick={() => onMove?.("up")}
+                onClick={() => onMove("up")}
                 disabled={sectionIndex === 0}
                 aria-label={`Move ${section.title} higher`}
                 title="Move section higher"
@@ -179,7 +179,7 @@ export function ProjectTodoSection({
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
-                onClick={() => onMove?.("down")}
+                onClick={() => onMove("down")}
                 disabled={sectionIndex === sectionCount - 1}
                 aria-label={`Move ${section.title} lower`}
                 title="Move section lower"
@@ -198,7 +198,7 @@ export function ProjectTodoSection({
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </>
-          ) : null}
+          )}
           <Button
             type="button"
             size="sm"

@@ -73,6 +73,8 @@ const ACTION_LABELS: Record<string, string> = {
   weekly_update_submitted: "submitted a weekly update",
 };
 
+const NO_SECTION_VALUE = "no-section";
+
 function ProjectQuickWorkControls({ task, adminUsers, onUpdate }: { task: any; adminUsers: any[]; onUpdate: (id: number, data: any) => void }) {
   const [dueDate, setDueDate] = useState(task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "");
   const people = useMemo(() => [...adminUsers].sort((left: any, right: any) => (left.name ?? left.email ?? "").localeCompare(right.name ?? right.email ?? "")), [adminUsers]);
@@ -126,7 +128,7 @@ function TaskItem({
   const hasSubtodos = subTodoCount > 0;
   const [editForm, setEditForm] = useState({
     title: task.title,
-    sectionId: task.sectionId ? String(task.sectionId) : "unsectioned",
+    sectionId: task.sectionId ? String(task.sectionId) : NO_SECTION_VALUE,
     ownerId: String(task.ownerId ?? ""),
     dueDate: task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "",
     priority: task.priority as Priority,
@@ -175,7 +177,7 @@ function TaskItem({
   function handleSaveEdit() {
     onUpdate(task.id, {
       title: editForm.title,
-      ...(!task.parentTaskId ? { sectionId: editForm.sectionId === "unsectioned" ? null : Number(editForm.sectionId) } : {}),
+      ...(!task.parentTaskId ? { sectionId: editForm.sectionId === NO_SECTION_VALUE ? null : Number(editForm.sectionId) } : {}),
       ownerId: Number(editForm.ownerId),
       dueDate: editForm.dueDate ? new Date(`${editForm.dueDate}T12:00:00`) : null,
       priority: editForm.priority,
@@ -225,7 +227,7 @@ function TaskItem({
       <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-1.5 text-xs" onClick={openComments} title="Open comments" aria-label="Open comments"><MessageCircle className="h-3.5 w-3.5" />{commentCount > 0 ? <span>{commentCount}</span> : null}</Button><ProjectQuickWorkControls task={task} adminUsers={adminUsers} onUpdate={onUpdate} />
     </div>
     {expanded ? <div className="border-t border-primary/20 bg-primary/[0.025] p-2">
-      {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-4"><div className="sm:col-span-4"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div>{!task.parentTaskId ? <div><Label className="text-xs">Section</Label><Select value={editForm.sectionId} onValueChange={value => setEditForm((form) => ({ ...form, sectionId: value }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unsectioned">Unsectioned</SelectItem>{todoSections.map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{section.title}</SelectItem>)}</SelectContent></Select></div> : null}</div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
+      {editing ? <div className="mt-2 rounded-md border bg-muted/20 p-2"><div className="grid gap-2 sm:grid-cols-4"><div className="sm:col-span-4"><Label className="text-xs">Title</Label><Input value={editForm.title} onChange={event => setEditForm((form) => ({ ...form, title: event.target.value }))} className="mt-1 h-8 text-sm" autoFocus /></div><div><Label className="text-xs">Assignee</Label><SearchableSelect className="mt-1 h-8 w-full text-xs" options={(adminUsers as any[]).map((person: any) => ({ value: String(person.id), label: person.name ?? `User #${person.id}` }))} value={editForm.ownerId} onValueChange={value => setEditForm((form) => ({ ...form, ownerId: value }))} placeholder="Select assignee" searchPlaceholder="Search users…" /></div><div><Label className="text-xs">Priority</Label><Select value={editForm.priority} onValueChange={value => setEditForm((form) => ({ ...form, priority: value as Priority }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent></Select></div><div><Label className="text-xs">Due date</Label><Input type="date" value={editForm.dueDate} onChange={event => setEditForm((form) => ({ ...form, dueDate: event.target.value }))} className="mt-1 h-8 text-xs" /></div>{!task.parentTaskId && todoSections.length > 0 ? <div><Label className="text-xs">Section (optional)</Label><Select value={editForm.sectionId} onValueChange={value => setEditForm((form) => ({ ...form, sectionId: value }))}><SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NO_SECTION_VALUE}>No section</SelectItem>{todoSections.map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{section.title}</SelectItem>)}</SelectContent></Select></div> : null}</div><div className="mt-2"><Label className="text-xs">Details</Label><Textarea value={editForm.notes} onChange={event => setEditForm((form) => ({ ...form, notes: event.target.value }))} rows={2} className="mt-1 text-sm" /></div><div className="mt-2 flex justify-end gap-1.5"><Button type="button" size="sm" className="h-8" onClick={handleSaveEdit}><Save className="mr-1.5 h-3.5 w-3.5" />Save</Button><Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button></div></div> : null}
       <section className="mt-2 rounded-md border bg-background p-2 sm:p-2.5"><h4 className="text-sm font-semibold">Details</h4>{task.notes ? <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{task.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No details added.</p>}</section>
       {hasSubtodos && subtasksExpanded ? <section className="mt-2 ml-2 border-l-4 border-primary/30 pl-3"><div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary"><CornerDownRight className="h-3.5 w-3.5" strokeWidth={2.75} />Sub-To-Dos</div><div className="space-y-1.5">{children}</div></section> : null}
       <section id={`todo-${task.id}-comments`} className="mt-2 rounded-md border bg-background p-2"><div className="flex items-center justify-between gap-2"><h4 className="flex items-center gap-1.5 text-sm font-semibold"><MessageCircle className="h-4 w-4 text-primary" />Comments</h4><span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{comments.length}</span></div>{(comments as any[]).length ? <div className="mt-1 divide-y">{(comments as any[]).map((comment: any) => <article id={`todo-${task.id}-comment-${comment.id}`} key={comment.id} className={cn("flex gap-2 py-1.5 first:pt-0 last:pb-0", highlightedCommentId === comment.id && "rounded bg-amber-100 ring-2 ring-amber-400/70 shadow-sm")}><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">{(comment.authorName ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((part: string) => part[0]).join("").toUpperCase()}</span><div className="min-w-0 flex-1"><div className="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-0.5"><span className="text-xs font-semibold">{comment.authorName ?? "Teammate"}</span><span className="text-[11px] text-muted-foreground">{format(new Date(comment.createdAt), "MMM d, h:mm a")}</span>{comment.canDelete ? <Button type="button" variant="ghost" size="icon" className="ml-auto h-6 w-6 text-muted-foreground hover:text-destructive" disabled={deleteComment.isPending} aria-label="Delete comment" title="Delete comment" onClick={() => { if (window.confirm("Delete this comment?")) deleteComment.mutate({ commentId: comment.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button> : null}</div><p className="mt-0.5 whitespace-pre-wrap text-sm">{comment.content}</p>{comment.mentions?.length ? <div className="mt-1 flex flex-wrap gap-1">{comment.mentions.map((mention: any) => <span key={mention.userId} className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">@{mention.name ?? "Teammate"}</span>)}</div> : null}</div></article>)}</div> : <p className="mt-1 text-sm text-muted-foreground">No comments yet. Add context or @mention a project collaborator.</p>}{composerOpen ? <div className="mt-1.5 rounded border bg-muted/20 p-1.5"><div className="relative"><Textarea placeholder="Add a comment… Type @ to mention a collaborator." value={commentText} onChange={event => { const value = event.target.value; setCommentText(value); const match = value.match(/(?:^|\s)@([^\s@]*)$/); setCommentMentionQuery(match ? match[1] : null); }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && commentText.trim()) { event.preventDefault(); submitComment(); } }} className="min-h-16 resize-none text-sm" autoFocus />{commentMentionQuery !== null ? <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">{commentMentionCandidates.length === 0 ? <p className="px-3 py-2 text-xs text-muted-foreground">No matching collaborators. Add them to the project first.</p> : <div className="max-h-44 overflow-y-auto py-1">{commentMentionCandidates.map((person: any) => <button key={person.userId} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent" onClick={() => insertCommentMention({ id: person.userId, name: person.name ?? person.email })}><span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">{(person.name ?? person.email ?? "?")[0]}</span><span>{person.name ?? person.email}</span></button>)}</div>}</div> : null}</div>{selectedCommentMentions.length ? <div className="mt-1 flex flex-wrap gap-1">{selectedCommentMentions.map((mention) => <span key={mention.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">@{mention.name}<button type="button" onClick={() => setSelectedCommentMentions((current) => current.filter((item) => item.id !== mention.id))} aria-label={`Remove ${mention.name} mention`}><X className="h-3 w-3" /></button></span>)}</div> : null}<div className="mt-1.5 flex items-center justify-end gap-1.5"><Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => { setComposerOpen(false); setCommentText(""); setCommentMentionQuery(null); setSelectedCommentMentions([]); }}>Cancel</Button><Button type="button" size="sm" className="h-7" disabled={!commentText.trim() || addComment.isPending} onClick={submitComment}>{addComment.isPending ? "Posting…" : <><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Post</>}</Button></div></div> : <Button type="button" variant="ghost" size="sm" className="mt-1.5 h-7 px-1.5 text-xs" onClick={() => setComposerOpen(true)}><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Add comment</Button>}</section>
@@ -317,7 +319,7 @@ export default function ProjectDetailPage() {
   const [showAddSection, setShowAddSection] = useState(false);
   const [sectionTitle, setSectionTitle] = useState("");
   const [parentTodo, setParentTodo] = useState<any>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", sectionId: "unsectioned", ownerId: "", dueDate: "", priority: "medium" as Priority, notes: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", priority: "medium" as Priority, notes: "" });
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -337,7 +339,7 @@ export default function ProjectDetailPage() {
   const [selectedMentions, setSelectedMentions] = useState<{ id: number; name: string }[]>([]);
 
   const createTask = trpc.pm.tasks.create.useMutation({
-    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: "unsectioned", ownerId: "", dueDate: "", priority: "medium", notes: "" }); },
+    onSuccess: () => { toast.success(parentTodo ? "Sub-todo added" : "Todo added"); refetch(); setShowAddTask(false); setParentTodo(null); setTaskForm({ title: "", sectionId: NO_SECTION_VALUE, ownerId: "", dueDate: "", priority: "medium", notes: "" }); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -354,7 +356,7 @@ export default function ProjectDetailPage() {
     onError: (e) => toast.error(e.message),
   });
   const deleteSection = trpc.pm.sections.delete.useMutation({
-    onSuccess: () => { toast.success("Section deleted; its todos are now unsectioned"); refetch(); },
+    onSuccess: () => { toast.success("Section deleted; its todos returned to the main list"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -481,7 +483,7 @@ export default function ProjectDetailPage() {
     createTask.mutate({
       projectId,
       parentTaskId: parentTodo?.id ?? null,
-      sectionId: parentTodo ? undefined : (taskForm.sectionId === "unsectioned" ? null : Number(taskForm.sectionId)),
+      sectionId: parentTodo ? undefined : (taskForm.sectionId === NO_SECTION_VALUE ? null : Number(taskForm.sectionId)),
       title: taskForm.title,
       ownerId: Number(taskForm.ownerId),
       dueDate: new Date(taskForm.dueDate),
@@ -544,7 +546,7 @@ export default function ProjectDetailPage() {
     setParentTodo(parent);
     setTaskForm({
       title: "",
-      sectionId: String(parent?.sectionId ?? sectionId ?? "unsectioned"),
+      sectionId: String(parent?.sectionId ?? sectionId ?? NO_SECTION_VALUE),
       ownerId: parent?.ownerId ? String(parent.ownerId) : "",
       dueDate: parent?.dueDate ? format(new Date(parent.dueDate), "yyyy-MM-dd") : "",
       priority: (parent?.priority as Priority) ?? "medium",
@@ -562,6 +564,10 @@ export default function ProjectDetailPage() {
   function todosForSection(sectionId: number | null) {
     return topLevelTodos.filter((task: any) => (task.sectionId ?? null) === sectionId);
   }
+
+  const unassignedTodos = todosForSection(null);
+  const openUnassignedTodos = unassignedTodos.filter((task: any) => !task.completed);
+  const completedUnassignedTodos = unassignedTodos.filter((task: any) => task.completed);
 
   return (
     <div>
@@ -873,8 +879,11 @@ export default function ProjectDetailPage() {
           </div>
 
           {showAddSection && (
-            <form onSubmit={event => { event.preventDefault(); if (sectionTitle.trim()) createSection.mutate({ projectId, title: sectionTitle.trim() }); }} className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-card p-3 sm:flex-row sm:items-center">
-              <Input value={sectionTitle} onChange={event => setSectionTitle(event.target.value)} placeholder="Section title, such as Launch tasks" maxLength={128} autoFocus />
+            <form onSubmit={event => { event.preventDefault(); if (sectionTitle.trim()) createSection.mutate({ projectId, title: sectionTitle.trim() }); }} className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-card p-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <Label htmlFor="project-todo-section-title" className="mb-1.5 block text-xs">Section Title *</Label>
+                <Input id="project-todo-section-title" value={sectionTitle} onChange={event => setSectionTitle(event.target.value)} placeholder="Such as Launch tasks" maxLength={128} required autoFocus />
+              </div>
               <div className="flex shrink-0 gap-2">
                 <Button type="submit" size="sm" disabled={!sectionTitle.trim() || createSection.isPending}>{createSection.isPending ? "Adding…" : "Add Section"}</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddSection(false); setSectionTitle(""); }}>Cancel</Button>
@@ -896,12 +905,12 @@ export default function ProjectDetailPage() {
                     autoFocus
                   />
                 </div>
-                {!parentTodo && <div>
-                  <Label className="text-xs">Section</Label>
+                {!parentTodo && todoSections.length > 0 && <div>
+                  <Label className="text-xs">Section (optional)</Label>
                   <Select value={taskForm.sectionId} onValueChange={value => setTaskForm(form => ({ ...form, sectionId: value }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="unsectioned">Unsectioned</SelectItem>
+                      <SelectItem value={NO_SECTION_VALUE}>No section</SelectItem>
                       {(todoSections as any[]).map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{section.title}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -949,30 +958,25 @@ export default function ProjectDetailPage() {
           {tasks.length === 0 && todoSections.length === 0 && !showAddTask ? (
             <div className="text-center py-10 text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No todo sections or todos yet. Add a section to organize the work.</p>
+              <p className="text-sm">No todos yet. Add a todo, or create a titled section to organize the work.</p>
             </div>
           ) : (
             <div className="space-y-3">
+              {unassignedTodos.length > 0 ? <div className="space-y-2">
+                {openUnassignedTodos.map(renderTodo)}
+                {showCompletedTodos && completedUnassignedTodos.length > 0 ? <div className="mt-3 space-y-2 border-t border-border pt-3"><p className="text-xs font-medium text-muted-foreground">Completed ({completedUnassignedTodos.length})</p>{completedUnassignedTodos.map(renderTodo)}</div> : null}
+                {!showCompletedTodos && openUnassignedTodos.length === 0 ? <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-sm text-muted-foreground">No open todos. Turn on Show completed to view completed todos.</p> : null}
+              </div> : null}
               {(todoSections as any[]).map((section: any, sectionIndex: number) => {
                 const sectionTodos = todosForSection(section.id);
                 const openTodos = sectionTodos.filter((task: any) => !task.completed);
                 const doneTodos = sectionTodos.filter((task: any) => task.completed);
                 const displayCount = openTodos.length + (showCompletedTodos ? doneTodos.length : 0);
-                return <ProjectTodoSection key={section.id} section={section} sectionIndex={sectionIndex} sectionCount={todoSections.length} todoCount={sectionTodos.length} completedCount={doneTodos.length} displayCount={displayCount} onAddTodo={() => openAddTodo(section.id)} onRename={title => updateSection.mutate({ id: section.id, title })} onMove={direction => moveSection.mutate({ id: section.id, direction })} onDelete={() => { if (window.confirm(`Delete “${section.title}”? Its todos will move to Unsectioned.`)) deleteSection.mutate({ id: section.id }); }}>
+                return <ProjectTodoSection key={section.id} section={section} sectionIndex={sectionIndex} sectionCount={todoSections.length} todoCount={sectionTodos.length} completedCount={doneTodos.length} displayCount={displayCount} onAddTodo={() => openAddTodo(section.id)} onRename={title => updateSection.mutate({ id: section.id, title })} onMove={direction => moveSection.mutate({ id: section.id, direction })} onDelete={() => { if (window.confirm(`Delete “${section.title}”? Todos in it will return to the main list.`)) deleteSection.mutate({ id: section.id }); }}>
                   {openTodos.map(renderTodo)}
                   {showCompletedTodos && doneTodos.length > 0 ? <div className="mt-3 space-y-2 border-t border-border pt-3"><p className="text-xs font-medium text-muted-foreground">Completed ({doneTodos.length})</p>{doneTodos.map(renderTodo)}</div> : null}
                 </ProjectTodoSection>;
               })}
-              {todosForSection(null).length > 0 ? (() => {
-                const unsectionedTodos = todosForSection(null);
-                const openTodos = unsectionedTodos.filter((task: any) => !task.completed);
-                const doneTodos = unsectionedTodos.filter((task: any) => task.completed);
-                const displayCount = openTodos.length + (showCompletedTodos ? doneTodos.length : 0);
-                return <ProjectTodoSection section={null} sectionIndex={todoSections.length} sectionCount={todoSections.length + 1} todoCount={unsectionedTodos.length} completedCount={doneTodos.length} displayCount={displayCount} onAddTodo={() => openAddTodo(null)}>
-                  {openTodos.map(renderTodo)}
-                  {showCompletedTodos && doneTodos.length > 0 ? <div className="mt-3 space-y-2 border-t border-border pt-3"><p className="text-xs font-medium text-muted-foreground">Completed ({doneTodos.length})</p>{doneTodos.map(renderTodo)}</div> : null}
-                </ProjectTodoSection>;
-              })() : null}
             </div>
           )}
         </TabsContent>

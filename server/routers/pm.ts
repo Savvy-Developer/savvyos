@@ -514,7 +514,7 @@ export const pmRouter = router({
           await transaction.update(pmTasks).set({ sectionId: null }).where(eq(pmTasks.sectionId, input.id));
           await transaction.delete(pmTodoSections).where(eq(pmTodoSections.id, input.id));
         });
-        await logActivity(section.projectId, ctx.user.id, "section_deleted", `Deleted todo section "${section.title}"; its todos are now unsectioned`);
+        await logActivity(section.projectId, ctx.user.id, "section_deleted", `Deleted todo section "${section.title}"; its todos returned to the main list`);
         return { success: true };
       }),
   }),
