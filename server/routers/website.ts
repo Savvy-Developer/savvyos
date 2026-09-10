@@ -1619,6 +1619,33 @@ export const websiteRouter = router({
     }),
 
   /** Whether the signed-in user may publish this property, and its current state. */
+  /**
+   * Remove a property from the website. This deletes only the websiteProperties
+   * row: the SavvyOS property record, and anything hanging off it, is untouched.
+   * Without this there was no way to undo a publish, so a mistaken or test entry
+   * stayed in the studio forever.
+   */
+  unpublishProperty: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteProperties");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db
+        .select({ id: websiteProperties.id, propertyId: websiteProperties.propertyId })
+        .from(websiteProperties)
+        .where(eq(websiteProperties.id, input.id))
+        .limit(1);
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That website property no longer exists.",
+        });
+      }
+      await db.delete(websiteProperties).where(eq(websiteProperties.id, input.id));
+      return { removedPropertyId: existing.propertyId };
+    }),
+
   propertyPublishState: protectedProcedure
     .input(z.object({ propertyId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
