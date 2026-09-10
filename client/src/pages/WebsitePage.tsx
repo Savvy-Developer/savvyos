@@ -156,6 +156,22 @@ function numberOrNull(value: string) {
   const parsed = Number(value.replace(/[$,%\s,]/g, ""));
   return value.trim() && Number.isFinite(parsed) ? parsed : null;
 }
+const CANONICAL_FIELD_LABELS: Record<string, string> = {
+  address: "address",
+  city: "city",
+  state: "state",
+  zip: "ZIP",
+  beds: "beds",
+  baths: "baths",
+  sqft: "square feet",
+  propertyType: "property type",
+  listPrice: "list price",
+};
+
+function fieldLabel(field: string) {
+  return CANONICAL_FIELD_LABELS[field] ?? field;
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -327,6 +343,16 @@ function PropertyEditor({
     onSuccess: async result => {
       await utils.website.adminOverview.invalidate();
       toast.success("Website property saved.");
+      // The SavvyOS property record owns the physical facts. If the form tried
+      // to change one that was already filled in, the save kept the SavvyOS
+      // value, so say so rather than letting the edit disappear quietly.
+      if (result?.ignoredFields?.length) {
+        toast.info(
+          `Kept the SavvyOS values for ${result.ignoredFields
+            .map(fieldLabel)
+            .join(", ")}. Edit the property record to change those.`
+        );
+      }
       onClose();
     },
     onError: error => toast.error(error.message),
