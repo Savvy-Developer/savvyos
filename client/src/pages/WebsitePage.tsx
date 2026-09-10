@@ -15,6 +15,7 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Trash2,
   Upload,
   UserRound,
 } from "lucide-react";
@@ -411,45 +412,16 @@ function PropertyEditor({
             {initial ? "Edit website property" : "Add website property"}
           </DialogTitle>
           <DialogDescription>
-            One canonical property powers its website page, listings,
-            transactions, and pro-formas. Import public listing fields or
-            connect an existing SavvyOS property, then add investor
-            intelligence.
+            Pick one of your SavvyOS properties to publish. The property
+            record stays the source of truth for the address and the numbers,
+            and this page adds the public headline, summary and investor
+            intelligence on top.
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
-          <p className="font-semibold text-cyan-950">
-            Start with Zillow or SavvyOS
-          </p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={zillowUrl}
-              onChange={event => setZillowUrl(event.target.value)}
-              placeholder="https://www.zillow.com/homedetails/..."
-            />
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!zillowUrl || importZillow.isPending}
-              onClick={() => importZillow.mutate({ url: zillowUrl })}
-            >
-              {importZillow.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="mr-2 h-4 w-4" />
-              )}
-              Import Zillow
-            </Button>
-          </div>
-          <p className="mt-2 text-xs text-cyan-900">
-            The importer reads public metadata only. Confirm facts and media
-            rights before publishing.
-          </p>
-        </div>
         {!initial && (
-          <div className="relative">
+          <div className="relative rounded-xl border border-cyan-200 bg-cyan-50 p-4">
             <Field
-              label="Or connect an existing SavvyOS property"
+              label="Connect an existing SavvyOS property"
               value={propertySearch}
               onChange={setPropertySearch}
               placeholder="Search address or city"
@@ -483,6 +455,35 @@ function PropertyEditor({
             ) : null}
           </div>
         )}
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="font-semibold text-slate-700">
+            Not in SavvyOS yet? Import from Zillow
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={zillowUrl}
+              onChange={event => setZillowUrl(event.target.value)}
+              placeholder="https://www.zillow.com/homedetails/..."
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!zillowUrl || importZillow.isPending}
+              onClick={() => importZillow.mutate({ url: zillowUrl })}
+            >
+              {importZillow.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="mr-2 h-4 w-4" />
+              )}
+              Import Zillow
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-slate-600">
+            The importer reads public metadata only. Confirm facts and media
+            rights before publishing.
+          </p>
+        </div>
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-2">
             <Field
@@ -1427,6 +1428,25 @@ export default function WebsitePage() {
     { enabled: shortcutPropertyId > 0 }
   );
   const overview = trpc.website.adminOverview.useQuery();
+  const pageUtils = trpc.useUtils();
+  const unpublish = trpc.website.unpublishProperty.useMutation({
+    onSuccess: async () => {
+      await pageUtils.website.adminOverview.invalidate();
+      toast.success("Removed from the website. The property record is unchanged.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  // Deleting only ever removes the public listing, so a plain confirm is enough.
+  const removeProperty = (item: any) => {
+    const label = item.address || "this property";
+    if (
+      window.confirm(
+        `Remove ${label} from the public website?\n\nThe SavvyOS property record, its transactions and its listings are not affected.`
+      )
+    ) {
+      unpublish.mutate({ id: item.id });
+    }
+  };
   const permissions = trpc.permissions.getMyPermissions.useQuery();
   const can = (key: string) =>
     (permissions.data as Record<string, boolean> | undefined)?.[key] === true;
@@ -1534,14 +1554,13 @@ export default function WebsitePage() {
         <div className="flex justify-end">
           <Button onClick={actionForTab}>
             <Plus className="mr-2 h-4 w-4" />
-            Create{" "}
             {tab === "properties"
-              ? "website property"
+              ? "Publish a SavvyOS property"
               : tab === "agents"
-                ? "featured agent"
+                ? "Feature a SavvyOS agent"
                 : tab === "case-studies"
-                  ? "case study"
-                  : "blog post"}
+                  ? "Create case study"
+                  : "Create blog post"}
           </Button>
         </div>
       )}
@@ -1612,6 +1631,17 @@ export default function WebsitePage() {
           columns={["address", "city", "listPrice", "assignedAgentName"]}
           onEdit={item => setEditor({ type: "property", initial: item })}
           preview={item => `${PUBLIC_PREVIEW_URL}properties/${item.slug}`}
+          title="SavvyOS properties on the website"
+          description="Every row is one of your SavvyOS properties. This page controls how it appears publicly, not the property record itself."
+          sourceHref={item =>
+            item.propertyId ? `/properties/${item.propertyId}` : null
+          }
+          sourceLabel="Property record"
+          onDelete={
+            can("canManageWebsiteProperties")
+              ? item => removeProperty(item)
+              : undefined
+          }
         />
       )}
       {tab === "agents" && (
@@ -1620,6 +1650,10 @@ export default function WebsitePage() {
           columns={["name", "headline"]}
           onEdit={item => setEditor({ type: "agent", initial: item })}
           preview={item => `${PUBLIC_PREVIEW_URL}agents/${item.slug}`}
+          title="SavvyOS agents on the website"
+          description="Every row is one of your SavvyOS agents. This page controls their public profile, not their agent record."
+          sourceHref={item => (item.userId ? `/agents/${item.userId}` : null)}
+          sourceLabel="Agent record"
         />
       )}
       {tab === "case-studies" && (
@@ -1733,19 +1767,28 @@ function RecordTable({
   columns,
   onEdit,
   preview,
+  title = "Content library",
+  description = "Draft, publish, and update without touching the public site code.",
+  sourceHref,
+  sourceLabel = "SavvyOS record",
+  onDelete,
 }: {
   items: any[];
   columns: string[];
   onEdit: (item: any) => void;
   preview: (item: any) => string;
+  title?: string;
+  description?: string;
+  /** Link back to the SavvyOS record this row is published from, when there is one. */
+  sourceHref?: (item: any) => string | null;
+  sourceLabel?: string;
+  onDelete?: (item: any) => void;
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Content library</CardTitle>
-        <CardDescription>
-          Draft, publish, and update without touching the public site code.
-        </CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         {items.length ? (
@@ -1757,6 +1800,7 @@ function RecordTable({
                     {column.replace(/([A-Z])/g, " $1")}
                   </th>
                 ))}
+                {sourceHref ? <th className="p-3">{sourceLabel}</th> : null}
                 <th className="p-3">Status</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
@@ -1774,6 +1818,21 @@ function RecordTable({
                         : item[column] || "—"}
                     </td>
                   ))}
+                  {sourceHref ? (
+                    <td className="p-3">
+                      {sourceHref(item) ? (
+                        <a
+                          className="inline-flex items-center gap-1 font-medium text-cyan-700 hover:underline"
+                          href={sourceHref(item) as string}
+                        >
+                          Open record
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400">Not linked</span>
+                      )}
+                    </td>
+                  ) : null}
                   <td className="p-3">
                     <StatusBadge status={item.status} />
                   </td>
@@ -1796,6 +1855,16 @@ function RecordTable({
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      {onDelete ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Remove from the website"
+                          onClick={() => onDelete(item)}
+                        >
+                          <Trash2 className="h-4 w-4 text-rose-600" />
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
