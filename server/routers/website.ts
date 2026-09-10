@@ -123,6 +123,70 @@ async function uniqueSlug(db: any, table: any, base: string): Promise<string> {
   return `${root}-${Date.now()}`;
 }
 
+/**
+ * The physical facts of a property (address, beds, baths, sqft, price) live on
+ * the SavvyOS `properties` record, which transactions and listings hang off.
+ * The website studio may ENRICH that record by filling fields that are still
+ * blank, but it must never rewrite or blank out a value that is already there.
+ * Without this, a regex-scraped Zillow import whose address happens to match an
+ * existing property would silently overwrite real deal data.
+ */
+const CANONICAL_PROPERTY_FIELDS = [
+  "address",
+  "normalizedAddress",
+  "city",
+  "state",
+  "zip",
+  "beds",
+  "baths",
+  "sqft",
+  "propertyType",
+  "listPrice",
+] as const;
+
+type CanonicalPropertyField = (typeof CANONICAL_PROPERTY_FIELDS)[number];
+
+function isBlankValue(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    (typeof value === "string" && value.trim() === "")
+  );
+}
+
+/**
+ * Split the incoming canonical values against what the property record already
+ * holds. `fills` are blanks we may safely populate. `ignored` names the fields
+ * the caller tried to change on an already-populated record, so the UI can tell
+ * the user their edit was not applied instead of silently dropping it.
+ */
+export function reconcileCanonical(
+  current: Record<string, unknown>,
+  incoming: Record<string, unknown>
+): { fills: Record<string, unknown>; ignored: CanonicalPropertyField[] } {
+  const fills: Record<string, unknown> = {};
+  const ignored: CanonicalPropertyField[] = [];
+  for (const field of CANONICAL_PROPERTY_FIELDS) {
+    const has = !isBlankValue(current[field]);
+    const wants = !isBlankValue(incoming[field]);
+    if (!has && wants) {
+      fills[field] = incoming[field];
+      continue;
+    }
+    // normalizedAddress is derived from address, so reporting it as well would
+    // just name the same rejected edit twice.
+    if (
+      has &&
+      wants &&
+      field !== "normalizedAddress" &&
+      String(current[field]) !== String(incoming[field])
+    ) {
+      ignored.push(field);
+    }
+  }
+  return { fills, ignored };
+}
+
 function asDecimal(value: number | null | undefined) {
   return value === null || value === undefined || Number.isNaN(value)
     ? null
@@ -1253,8 +1317,39 @@ export const websiteRouter = router({
       };
       return db.transaction(async tx => {
         let savedPropertyId = propertyId;
+        let ignoredFields: CanonicalPropertyField[] = [];
         if (savedPropertyId) {
-          await tx.update(properties).set(canonical).where(eq(properties.id, savedPropertyId));
+          const [current] = await tx
+            .select({
+              address: properties.address,
+              normalizedAddress: properties.normalizedAddress,
+              city: properties.city,
+              state: properties.state,
+              zip: properties.zip,
+              beds: properties.beds,
+              baths: properties.baths,
+              sqft: properties.sqft,
+              propertyType: properties.propertyType,
+              listPrice: properties.listPrice,
+            })
+            .from(properties)
+            .where(eq(properties.id, savedPropertyId))
+            .limit(1);
+          if (!current) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "That SavvyOS property no longer exists.",
+            });
+          }
+          // Enrich blanks only. See reconcileCanonical.
+          const reconciled = reconcileCanonical(current, canonical);
+          ignoredFields = reconciled.ignored;
+          if (Object.keys(reconciled.fills).length > 0) {
+            await tx
+              .update(properties)
+              .set(reconciled.fills)
+              .where(eq(properties.id, savedPropertyId));
+          }
         } else {
           const created = await tx.insert(properties).values({ ...canonical, addedByUserId: ctx.user.id });
           savedPropertyId = Number((created as any)[0]?.insertId);
@@ -1290,15 +1385,15 @@ export const websiteRouter = router({
         };
         if (input.id) {
           await tx.update(websiteProperties).set(data).where(eq(websiteProperties.id, input.id));
-          return { id: input.id, propertyId: savedPropertyId };
+          return { id: input.id, propertyId: savedPropertyId, ignoredFields };
         }
         const existing = await tx.select({ id: websiteProperties.id }).from(websiteProperties).where(eq(websiteProperties.propertyId, savedPropertyId)).limit(1);
         if (existing[0]) {
           await tx.update(websiteProperties).set(data).where(eq(websiteProperties.id, existing[0].id));
-          return { id: existing[0].id, propertyId: savedPropertyId };
+          return { id: existing[0].id, propertyId: savedPropertyId, ignoredFields };
         }
         const result = await tx.insert(websiteProperties).values({ ...data, createdById: ctx.user.id });
-        return { id: Number((result as any)[0]?.insertId), propertyId: savedPropertyId };
+        return { id: Number((result as any)[0]?.insertId), propertyId: savedPropertyId, ignoredFields };
       });
     }),
 
