@@ -57,4 +57,12 @@ describe("project todo section UI", () => {
     );
     expect(projectRouter).toContain("title: z.string().trim().min(1).max(128)");
   });
+
+  it("keeps empty expanded sections compact", () => {
+    expect(sectionComponent).toContain("displayCount > 0 ? (");
+    expect(sectionComponent).toContain(
+      'className="px-3 py-2 text-xs text-muted-foreground"'
+    );
+    expect(sectionComponent).not.toContain("px-2 py-5 text-center");
+  });
 });

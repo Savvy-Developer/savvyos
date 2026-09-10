@@ -193,16 +193,15 @@ export function ProjectTodoSection({
       </div>
 
       <CollapsibleContent>
-        <div className="space-y-2 p-2.5">
-          {children}
-          {displayCount === 0 ? (
-            <p className="px-2 py-5 text-center text-sm text-muted-foreground">
-              {todoCount > 0
-                ? "No open todos in this section. Turn on Show completed to view them."
-                : "No todos in this section yet."}
-            </p>
-          ) : null}
-        </div>
+        {displayCount > 0 ? (
+          <div className="space-y-2 p-2.5">{children}</div>
+        ) : (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            {todoCount > 0
+              ? "No open todos in this section. Turn on Show completed to view them."
+              : "No todos in this section yet."}
+          </p>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
