@@ -1,29 +1,74 @@
-export type SectionMoveDirection = "up" | "down";
-
 type TaskTreeRow = {
   id: number;
   parentTaskId: number | null;
 };
 
-export function moveSectionInOrder(
-  orderedIds: number[],
-  sectionId: number,
-  direction: SectionMoveDirection
+export type ProjectTodoLayoutItem =
+  | { type: "task"; id: number }
+  | { type: "section"; id: number; taskIds: number[] };
+
+export type ProjectTodoLayoutChange = {
+  id: number;
+  sectionId: number | null;
+  sortOrder: number;
+};
+
+export function normalizeProjectTodoLayout(
+  layout: ProjectTodoLayoutItem[],
+  sectionIds: number[],
+  tasks: TaskTreeRow[]
 ) {
-  const currentIndex = orderedIds.indexOf(sectionId);
-  if (currentIndex === -1) {
-    throw new Error("Section is not part of the supplied order.");
+  const expectedSectionIds = new Set(sectionIds);
+  const expectedTaskIds = new Set(
+    tasks.filter(task => task.parentTaskId === null).map(task => task.id)
+  );
+  const seenSectionIds = new Set<number>();
+  const seenTaskIds = new Set<number>();
+  const sectionChanges: Array<{ id: number; sortOrder: number }> = [];
+  const taskChanges: ProjectTodoLayoutChange[] = [];
+
+  function registerTask(
+    taskId: number,
+    sectionId: number | null,
+    sortOrder: number
+  ) {
+    if (!expectedTaskIds.has(taskId)) {
+      throw new Error("Todo is not a top-level todo in this project.");
+    }
+    if (seenTaskIds.has(taskId)) {
+      throw new Error("Each top-level todo must appear exactly once.");
+    }
+    seenTaskIds.add(taskId);
+    taskChanges.push({ id: taskId, sectionId, sortOrder });
   }
 
-  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-  if (nextIndex < 0 || nextIndex >= orderedIds.length) return [...orderedIds];
+  layout.forEach((item, rootSortOrder) => {
+    if (item.type === "task") {
+      registerTask(item.id, null, rootSortOrder);
+      return;
+    }
 
-  const reordered = [...orderedIds];
-  [reordered[currentIndex], reordered[nextIndex]] = [
-    reordered[nextIndex],
-    reordered[currentIndex],
-  ];
-  return reordered;
+    if (!expectedSectionIds.has(item.id)) {
+      throw new Error("Section is not part of this project.");
+    }
+    if (seenSectionIds.has(item.id)) {
+      throw new Error("Each section must appear exactly once.");
+    }
+    seenSectionIds.add(item.id);
+    sectionChanges.push({ id: item.id, sortOrder: rootSortOrder });
+    item.taskIds.forEach((taskId, sectionSortOrder) => {
+      registerTask(taskId, item.id, sectionSortOrder);
+    });
+  });
+
+  if (seenSectionIds.size !== expectedSectionIds.size) {
+    throw new Error("The layout must include every project section.");
+  }
+  if (seenTaskIds.size !== expectedTaskIds.size) {
+    throw new Error("The layout must include every top-level project todo.");
+  }
+
+  return { sectionChanges, taskChanges };
 }
 
 export function collectTaskFamilyIds(tasks: TaskTreeRow[], rootTaskId: number) {

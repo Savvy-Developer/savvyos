@@ -21,13 +21,13 @@ import {
   ArrowLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity,
-  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks,
+  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useAppBack } from "@/lib/navigationHistory";
-import { ProjectTodoSection } from "@/components/ProjectTodoSection";
+import { ProjectTodoBoard, type ProjectTodoLayoutItem } from "@/components/ProjectTodoBoard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +62,7 @@ const ACTION_LABELS: Record<string, string> = {
   project_archived: "archived this project",
   task_created: "added a task",
   task_updated: "updated a task",
+  task_reordered: "reordered todos and sections",
   task_completed: "completed task",
   task_reopened: "reopened task",
   task_deleted: "deleted a task",
@@ -101,6 +102,7 @@ function TaskItem({
   activity = [],
   onChanged,
   todoSections = [],
+  dragHandle,
   children,
 }: {
   task: any;
@@ -114,6 +116,7 @@ function TaskItem({
   activity?: any[];
   onChanged?: () => void;
   todoSections?: any[];
+  dragHandle?: any;
   children?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -216,6 +219,7 @@ function TaskItem({
   }
   return <div id={`todo-${task.id}`} className={cn("overflow-hidden rounded-md border border-border bg-card", task.completed && !highlightedCommentId && "opacity-70")}>
     <div className="flex w-full flex-wrap items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/45">
+      {dragHandle ? <button type="button" ref={dragHandle.setActivatorNodeRef} {...dragHandle.attributes} {...dragHandle.listeners} className="flex h-6 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 active:cursor-grabbing" aria-label={`Drag ${task.title}`} title="Drag todo"><GripVertical className="h-4 w-4" /></button> : null}
       <button type="button" onClick={() => onToggle(task.id, !task.completed)} aria-label={task.completed ? "Completed. Reopen To-Do." : "Complete To-Do"} title={task.completed ? "Completed" : "Complete To-Do"} className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", task.completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-700")}>
         {task.completed ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
       </button>
@@ -351,10 +355,6 @@ export default function ProjectDetailPage() {
     onSuccess: () => { toast.success("Section renamed"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const moveSection = trpc.pm.sections.move.useMutation({
-    onSuccess: () => refetch(),
-    onError: (e) => toast.error(e.message),
-  });
   const deleteSection = trpc.pm.sections.delete.useMutation({
     onSuccess: () => { toast.success("Section deleted; its todos returned to the main list"); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -372,6 +372,10 @@ export default function ProjectDetailPage() {
 
   const updateTask = trpc.pm.tasks.update.useMutation({
     onSuccess: () => { toast.success("Todo updated"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const saveTodoLayout = trpc.pm.tasks.saveLayout.useMutation({
+    onSuccess: () => refetch(),
     onError: (e) => toast.error(e.message),
   });
 
@@ -555,19 +559,11 @@ export default function ProjectDetailPage() {
     setShowAddTask(true);
   }
 
-  function renderTodo(task: any) {
-    return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)}>
+  function renderTodo(task: any, dragHandle?: any) {
+    return <TaskItem key={task.id} task={task} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} dragHandle={dragHandle} highlightedCommentId={highlightedTodoId === task.id ? highlightedCommentId : null} onAddSubtask={parent => openAddTodo(parent.sectionId ?? null, parent)}>
       {(subTodosByParent.get(task.id) ?? []).map(subTodo => <TaskItem key={subTodo.id} task={subTodo} activity={projectActivity} onChanged={() => refetch()} adminUsers={adminUsers as any[]} mentionableUsers={collaborators as any[]} todoSections={todoSections as any[]} highlightedCommentId={highlightedTodoId === subTodo.id ? highlightedCommentId : null} onToggle={(id, completed) => toggleTask.mutate({ id, completed })} onDelete={id => deleteTask.mutate({ id })} onUpdate={(id, data) => updateTask.mutate({ id, ...data })} />)}
     </TaskItem>;
   }
-
-  function todosForSection(sectionId: number | null) {
-    return topLevelTodos.filter((task: any) => (task.sectionId ?? null) === sectionId);
-  }
-
-  const unassignedTodos = todosForSection(null);
-  const openUnassignedTodos = unassignedTodos.filter((task: any) => !task.completed);
-  const completedUnassignedTodos = unassignedTodos.filter((task: any) => task.completed);
 
   return (
     <div>
@@ -961,23 +957,22 @@ export default function ProjectDetailPage() {
               <p className="text-sm">No todos yet. Add a todo, or create a titled section to organize the work.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {unassignedTodos.length > 0 ? <div className="space-y-2">
-                {openUnassignedTodos.map(renderTodo)}
-                {showCompletedTodos && completedUnassignedTodos.length > 0 ? <div className="mt-3 space-y-2 border-t border-border pt-3"><p className="text-xs font-medium text-muted-foreground">Completed ({completedUnassignedTodos.length})</p>{completedUnassignedTodos.map(renderTodo)}</div> : null}
-                {!showCompletedTodos && openUnassignedTodos.length === 0 ? <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-sm text-muted-foreground">No open todos. Turn on Show completed to view completed todos.</p> : null}
-              </div> : null}
-              {(todoSections as any[]).map((section: any, sectionIndex: number) => {
-                const sectionTodos = todosForSection(section.id);
-                const openTodos = sectionTodos.filter((task: any) => !task.completed);
-                const doneTodos = sectionTodos.filter((task: any) => task.completed);
-                const displayCount = openTodos.length + (showCompletedTodos ? doneTodos.length : 0);
-                return <ProjectTodoSection key={section.id} section={section} sectionIndex={sectionIndex} sectionCount={todoSections.length} todoCount={sectionTodos.length} completedCount={doneTodos.length} displayCount={displayCount} onAddTodo={() => openAddTodo(section.id)} onRename={title => updateSection.mutate({ id: section.id, title })} onMove={direction => moveSection.mutate({ id: section.id, direction })} onDelete={() => { if (window.confirm(`Delete “${section.title}”? Todos in it will return to the main list.`)) deleteSection.mutate({ id: section.id }); }}>
-                  {openTodos.map(renderTodo)}
-                  {showCompletedTodos && doneTodos.length > 0 ? <div className="mt-3 space-y-2 border-t border-border pt-3"><p className="text-xs font-medium text-muted-foreground">Completed ({doneTodos.length})</p>{doneTodos.map(renderTodo)}</div> : null}
-                </ProjectTodoSection>;
-              })}
-            </div>
+            <>
+              <p className="text-xs text-muted-foreground">Drag section rows or todo handles to reorder them. Drop between rows to keep a todo in the main list, or drop inside a section to move the todo and its sub-todos into that section.</p>
+              <ProjectTodoBoard
+                sections={todoSections as any[]}
+                todos={topLevelTodos as any[]}
+                showCompleted={showCompletedTodos}
+                renderTodo={renderTodo}
+                onAddTodo={sectionId => openAddTodo(sectionId)}
+                onRenameSection={(sectionId, title) => updateSection.mutate({ id: sectionId, title })}
+                onDeleteSection={section => {
+                  if (window.confirm(`Delete “${section.title}”? Todos in it will return to the main list.`)) deleteSection.mutate({ id: section.id });
+                }}
+                onLayoutChange={(layout: ProjectTodoLayoutItem[]) => saveTodoLayout.mutateAsync({ projectId, layout })}
+                saving={saveTodoLayout.isPending}
+              />
+            </>
           )}
         </TabsContent>
 

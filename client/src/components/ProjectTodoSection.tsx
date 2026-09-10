@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import {
   Check,
   ChevronDown,
-  ChevronUp,
+  GripVertical,
   ListChecks,
   Pencil,
   Plus,
@@ -19,31 +19,25 @@ import {
   X,
 } from "lucide-react";
 
-type Direction = "up" | "down";
-
 export function ProjectTodoSection({
   section,
-  sectionIndex,
-  sectionCount,
   todoCount,
   completedCount,
   displayCount,
   onAddTodo,
   onRename,
-  onMove,
   onDelete,
+  dragHandle,
   children,
 }: {
   section: { id: number; title: string };
-  sectionIndex: number;
-  sectionCount: number;
   todoCount: number;
   completedCount: number;
   displayCount: number;
   onAddTodo: () => void;
   onRename: (title: string) => void;
-  onMove: (direction: Direction) => void;
   onDelete: () => void;
+  dragHandle: any;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -73,6 +67,17 @@ export function ProjectTodoSection({
       className="overflow-hidden rounded-lg border border-border bg-card shadow-sm"
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5">
+        <button
+          type="button"
+          ref={dragHandle.setActivatorNodeRef}
+          {...dragHandle.attributes}
+          {...dragHandle.listeners}
+          className="flex h-7 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 active:cursor-grabbing"
+          aria-label={`Drag ${section.title} section`}
+          title="Drag section"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
         {editing ? (
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <ListChecks className="h-4 w-4 shrink-0 text-primary" />
@@ -166,30 +171,6 @@ export function ProjectTodoSection({
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-7 w-7"
-                onClick={() => onMove("up")}
-                disabled={sectionIndex === 0}
-                aria-label={`Move ${section.title} higher`}
-                title="Move section higher"
-              >
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-                onClick={() => onMove("down")}
-                disabled={sectionIndex === sectionCount - 1}
-                aria-label={`Move ${section.title} lower`}
-                title="Move section lower"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                 onClick={onDelete}
                 aria-label={`Delete ${section.title}`}
@@ -213,15 +194,14 @@ export function ProjectTodoSection({
 
       <CollapsibleContent>
         <div className="space-y-2 p-2.5">
-          {displayCount > 0 ? (
-            children
-          ) : (
+          {children}
+          {displayCount === 0 ? (
             <p className="px-2 py-5 text-center text-sm text-muted-foreground">
               {todoCount > 0
                 ? "No open todos in this section. Turn on Show completed to view them."
                 : "No todos in this section yet."}
             </p>
-          )}
+          ) : null}
         </div>
       </CollapsibleContent>
     </Collapsible>

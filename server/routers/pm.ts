@@ -22,7 +22,7 @@ import {
 import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
-import { collectTaskFamilyIds, moveSectionInOrder } from "../pmTodoSections";
+import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayoutItem } from "../pmTodoSections";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
@@ -261,7 +261,7 @@ export const pmRouter = router({
           .from(pmTasks)
           .leftJoin(users, eq(pmTasks.ownerId, users.id))
           .where(eq(pmTasks.projectId, input.id))
-          .orderBy(asc(pmTasks.completed), asc(pmTasks.sortOrder), asc(pmTasks.createdAt));
+          .orderBy(asc(pmTasks.sortOrder), asc(pmTasks.createdAt), asc(pmTasks.id));
 
         const weeklyUpdates = await db
           .select({
@@ -447,14 +447,18 @@ export const pmRouter = router({
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await assertProjectAccess(db, input.projectId, ctx.user);
 
-        const [orderResult] = await db
-          .select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
-          .from(pmTodoSections)
-          .where(eq(pmTodoSections.projectId, input.projectId));
+        const [[sectionOrder], [taskOrder]] = await Promise.all([
+          db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
+            .from(pmTodoSections)
+            .where(eq(pmTodoSections.projectId, input.projectId)),
+          db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+            .from(pmTasks)
+            .where(and(eq(pmTasks.projectId, input.projectId), isNull(pmTasks.parentTaskId), isNull(pmTasks.sectionId))),
+        ]);
         const [result] = await db.insert(pmTodoSections).values({
           projectId: input.projectId,
           title: input.title,
-          sortOrder: Number(orderResult?.maxSortOrder ?? -1) + 1,
+          sortOrder: Math.max(Number(sectionOrder?.maxSortOrder ?? -1), Number(taskOrder?.maxSortOrder ?? -1)) + 1,
         });
         await logActivity(input.projectId, ctx.user.id, "section_created", `Created todo section "${input.title}"`);
         return { id: result.insertId };
@@ -475,31 +479,6 @@ export const pmRouter = router({
         return { success: true };
       }),
 
-    move: protectedProcedure
-      .input(z.object({ id: z.number(), direction: z.enum(["up", "down"]) }))
-      .mutation(async ({ ctx, input }) => {
-        assertPmAccess(ctx);
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [section] = await db.select({ projectId: pmTodoSections.projectId })
-          .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
-        if (!section) throw new TRPCError({ code: "NOT_FOUND" });
-        await assertProjectAccess(db, section.projectId, ctx.user);
-
-        const siblings = await db.select({ id: pmTodoSections.id })
-          .from(pmTodoSections)
-          .where(eq(pmTodoSections.projectId, section.projectId))
-          .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.createdAt), asc(pmTodoSections.id));
-        const reorderedIds = moveSectionInOrder(siblings.map(sibling => sibling.id), input.id, input.direction);
-        await db.transaction(async transaction => {
-          for (let sortOrder = 0; sortOrder < reorderedIds.length; sortOrder += 1) {
-            await transaction.update(pmTodoSections).set({ sortOrder }).where(eq(pmTodoSections.id, reorderedIds[sortOrder]));
-          }
-        });
-        await logActivity(section.projectId, ctx.user.id, "section_moved", `Moved a todo section ${input.direction}`);
-        return { success: true };
-      }),
-
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -510,8 +489,62 @@ export const pmRouter = router({
           .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
         if (!section) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, section.projectId, ctx.user);
+
+        const [sections, projectTasks] = await Promise.all([
+          db.select({ id: pmTodoSections.id, sortOrder: pmTodoSections.sortOrder, createdAt: pmTodoSections.createdAt })
+            .from(pmTodoSections)
+            .where(eq(pmTodoSections.projectId, section.projectId)),
+          db.select({
+            id: pmTasks.id,
+            parentTaskId: pmTasks.parentTaskId,
+            sectionId: pmTasks.sectionId,
+            sortOrder: pmTasks.sortOrder,
+            createdAt: pmTasks.createdAt,
+          }).from(pmTasks).where(eq(pmTasks.projectId, section.projectId)),
+        ]);
+        const compareRows = (
+          left: { sortOrder: number; createdAt: Date; id: number },
+          right: { sortOrder: number; createdAt: Date; id: number }
+        ) => left.sortOrder - right.sortOrder || left.createdAt.getTime() - right.createdAt.getTime() || left.id - right.id;
+        const rootRows = [
+          ...sections.map(item => ({ ...item, type: "section" as const })),
+          ...projectTasks
+            .filter(task => task.parentTaskId === null && task.sectionId === null)
+            .map(item => ({ ...item, type: "task" as const })),
+        ].sort(compareRows);
+        const layout: ProjectTodoLayoutItem[] = [];
+        for (const item of rootRows) {
+          if (item.type === "task") {
+            layout.push({ type: "task", id: item.id });
+            continue;
+          }
+          const taskIds = projectTasks
+            .filter(task => task.parentTaskId === null && task.sectionId === item.id)
+            .sort(compareRows)
+            .map(task => task.id);
+          if (item.id === input.id) {
+            layout.push(...taskIds.map(id => ({ type: "task" as const, id })));
+          } else {
+            layout.push({ type: "section", id: item.id, taskIds });
+          }
+        }
+        const normalizedLayout = normalizeProjectTodoLayout(
+          layout,
+          sections.filter(item => item.id !== input.id).map(item => item.id),
+          projectTasks
+        );
+        const taskFamilies = new Map(normalizedLayout.taskChanges.map(change => [
+          change.id,
+          collectTaskFamilyIds(projectTasks, change.id),
+        ]));
         await db.transaction(async transaction => {
-          await transaction.update(pmTasks).set({ sectionId: null }).where(eq(pmTasks.sectionId, input.id));
+          for (const orderedSection of normalizedLayout.sectionChanges) {
+            await transaction.update(pmTodoSections).set({ sortOrder: orderedSection.sortOrder }).where(eq(pmTodoSections.id, orderedSection.id));
+          }
+          for (const task of normalizedLayout.taskChanges) {
+            await transaction.update(pmTasks).set({ sectionId: task.sectionId }).where(inArray(pmTasks.id, taskFamilies.get(task.id) ?? [task.id]));
+            await transaction.update(pmTasks).set({ sortOrder: task.sortOrder }).where(eq(pmTasks.id, task.id));
+          }
           await transaction.delete(pmTodoSections).where(eq(pmTodoSections.id, input.id));
         });
         await logActivity(section.projectId, ctx.user.id, "section_deleted", `Deleted todo section "${section.title}"; its todos returned to the main list`);
@@ -553,6 +586,30 @@ export const pmRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "The selected section must belong to this project." });
           }
         }
+        let sortOrder = 0;
+        if (input.parentTaskId) {
+          const [orderResult] = await db
+            .select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+            .from(pmTasks)
+            .where(eq(pmTasks.parentTaskId, input.parentTaskId));
+          sortOrder = Number(orderResult?.maxSortOrder ?? -1) + 1;
+        } else if (sectionId !== null) {
+          const [orderResult] = await db
+            .select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+            .from(pmTasks)
+            .where(and(eq(pmTasks.projectId, input.projectId), isNull(pmTasks.parentTaskId), eq(pmTasks.sectionId, sectionId)));
+          sortOrder = Number(orderResult?.maxSortOrder ?? -1) + 1;
+        } else {
+          const [[sectionOrder], [taskOrder]] = await Promise.all([
+            db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
+              .from(pmTodoSections)
+              .where(eq(pmTodoSections.projectId, input.projectId)),
+            db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+              .from(pmTasks)
+              .where(and(eq(pmTasks.projectId, input.projectId), isNull(pmTasks.parentTaskId), isNull(pmTasks.sectionId))),
+          ]);
+          sortOrder = Math.max(Number(sectionOrder?.maxSortOrder ?? -1), Number(taskOrder?.maxSortOrder ?? -1)) + 1;
+        }
         const [result] = await db.insert(pmTasks).values({
           projectId: input.projectId,
           parentTaskId: input.parentTaskId ?? null,
@@ -562,6 +619,7 @@ export const pmRouter = router({
           dueDate: input.dueDate,
           priority: input.priority,
           notes: input.notes ?? null,
+          sortOrder,
         });
         await logActivity(input.projectId, ctx.user.id, "task_created", `Added todo "${input.title}"`, result.insertId);
         return { id: result.insertId };
@@ -581,7 +639,7 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId })
+        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId })
           .from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
@@ -591,6 +649,7 @@ export const pmRouter = router({
           dueDate: fields.dueDate === null ? sql`NULL` : fields.dueDate,
         };
         let familyIds: number[] | null = null;
+        let destinationSortOrder: number | null = null;
         if (sectionId !== undefined) {
           if (task.parentTaskId !== null) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent todo to move its sub-todos between sections." });
@@ -605,6 +664,25 @@ export const pmRouter = router({
           const projectTasks = await db.select({ id: pmTasks.id, parentTaskId: pmTasks.parentTaskId })
             .from(pmTasks).where(eq(pmTasks.projectId, task.projectId));
           familyIds = collectTaskFamilyIds(projectTasks, id);
+          if (sectionId !== task.sectionId) {
+            if (sectionId !== null) {
+              const [orderResult] = await db
+                .select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+                .from(pmTasks)
+                .where(and(eq(pmTasks.projectId, task.projectId), isNull(pmTasks.parentTaskId), eq(pmTasks.sectionId, sectionId)));
+              destinationSortOrder = Number(orderResult?.maxSortOrder ?? -1) + 1;
+            } else {
+              const [[sectionOrder], [taskOrder]] = await Promise.all([
+                db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
+                  .from(pmTodoSections)
+                  .where(eq(pmTodoSections.projectId, task.projectId)),
+                db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTasks.sortOrder}), -1)` })
+                  .from(pmTasks)
+                  .where(and(eq(pmTasks.projectId, task.projectId), isNull(pmTasks.parentTaskId), isNull(pmTasks.sectionId))),
+              ]);
+              destinationSortOrder = Math.max(Number(sectionOrder?.maxSortOrder ?? -1), Number(taskOrder?.maxSortOrder ?? -1)) + 1;
+            }
+          }
         }
         await db.transaction(async transaction => {
           if (Object.keys(fields).length > 0) {
@@ -612,6 +690,9 @@ export const pmRouter = router({
           }
           if (familyIds) {
             await transaction.update(pmTasks).set({ sectionId }).where(inArray(pmTasks.id, familyIds));
+          }
+          if (destinationSortOrder !== null) {
+            await transaction.update(pmTasks).set({ sortOrder: destinationSortOrder }).where(eq(pmTasks.id, id));
           }
         });
         await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo", id);
@@ -650,18 +731,53 @@ export const pmRouter = router({
         return { success: true };
       }),
 
-    reorder: protectedProcedure
-      .input(z.array(z.object({ id: z.number(), sortOrder: z.number() })))
+    saveLayout: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        layout: z.array(z.discriminatedUnion("type", [
+          z.object({ type: z.literal("task"), id: z.number() }),
+          z.object({ type: z.literal("section"), id: z.number(), taskIds: z.array(z.number()) }),
+        ])),
+      }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        for (const item of input) {
-          const [task] = await db.select({ projectId: pmTasks.projectId }).from(pmTasks).where(eq(pmTasks.id, item.id)).limit(1);
-          if (!task) throw new TRPCError({ code: "NOT_FOUND" });
-          await assertProjectAccess(db, task.projectId, ctx.user);
-          await db.update(pmTasks).set({ sortOrder: item.sortOrder }).where(eq(pmTasks.id, item.id));
+        await assertProjectAccess(db, input.projectId, ctx.user);
+
+        const [sections, projectTasks] = await Promise.all([
+          db.select({ id: pmTodoSections.id }).from(pmTodoSections).where(eq(pmTodoSections.projectId, input.projectId)),
+          db.select({ id: pmTasks.id, parentTaskId: pmTasks.parentTaskId }).from(pmTasks).where(eq(pmTasks.projectId, input.projectId)),
+        ]);
+        let normalizedLayout;
+        try {
+          normalizedLayout = normalizeProjectTodoLayout(
+            input.layout,
+            sections.map(section => section.id),
+            projectTasks
+          );
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "Invalid todo layout.",
+          });
         }
+        const taskFamilies = new Map(normalizedLayout.taskChanges.map(change => [
+          change.id,
+          collectTaskFamilyIds(projectTasks, change.id),
+        ]));
+
+        await db.transaction(async transaction => {
+          for (const section of normalizedLayout.sectionChanges) {
+            await transaction.update(pmTodoSections).set({ sortOrder: section.sortOrder }).where(eq(pmTodoSections.id, section.id));
+          }
+          for (const task of normalizedLayout.taskChanges) {
+            await transaction.update(pmTasks).set({ sectionId: task.sectionId }).where(inArray(pmTasks.id, taskFamilies.get(task.id) ?? [task.id]));
+            await transaction.update(pmTasks).set({ sortOrder: task.sortOrder }).where(eq(pmTasks.id, task.id));
+          }
+        });
+
+        await logActivity(input.projectId, ctx.user.id, "task_reordered", "Reordered project todos and sections");
         return { success: true };
       }),
 
