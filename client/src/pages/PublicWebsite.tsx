@@ -274,6 +274,18 @@ function SectionHeading({
 
 function PropertyCard({ item }: { item: any }) {
   const tags = Array.isArray(item.featureTags) ? item.featureTags : [];
+  // Only the figures this property actually has. A card showing three dashes
+  // reads as broken, so the whole strip is dropped when there is nothing to put
+  // in it rather than rendering empty placeholders.
+  const roi = (
+    [
+      ["Revenue", item.projectedRevenue, money],
+      ["Cash-on-cash", item.cashOnCash, percent],
+      ["Cap rate", item.capRate, percent],
+    ] as const
+  )
+    .filter(([, value]) => value != null && value !== "")
+    .map(([label, value, format]) => [label, format(value)] as const);
   return (
     <article className="group flex overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
       <a
@@ -337,6 +349,20 @@ function PropertyCard({ item }: { item: any }) {
               {item.sqft ? Number(item.sqft).toLocaleString() : "—"}
             </span>
           </div>
+          {roi.length ? (
+            <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-cyan-50/70 p-3">
+              {roi.map(([label, value]) => (
+                <div key={label} className="text-center">
+                  <p className="text-sm font-black tabular-nums text-[#05314a]">
+                    {value}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-800">
+                    {label}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-1.5">
             {tags.slice(0, 4).map((tag: string) => (
               <span
@@ -878,22 +904,91 @@ function HomePage() {
   );
 }
 
+const PROPERTY_TYPE_LABELS: Record<string, string> = {
+  single_family: "Single family",
+  multi_family: "Multi family",
+  condo: "Condo",
+  townhouse: "Townhouse",
+  cabin: "Cabin",
+  vacation_rental: "Vacation rental",
+  commercial: "Commercial",
+  land: "Land",
+  other: "Other",
+};
+
+const SORT_LABELS: Record<string, string> = {
+  featured: "Featured first",
+  priceAsc: "Price, low to high",
+  priceDesc: "Price, high to low",
+  newest: "Recently added",
+};
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <select
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-[#05314a] outline-none focus:border-cyan-500"
+        value={value}
+        onChange={event => onChange(event.target.value)}
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
 function PropertiesPage() {
   usePageTitle("Short-Term Rental Properties for Sale");
   const initial =
     new URLSearchParams(window.location.search).get("search") || "";
   const [search, setSearch] = useState(initial);
+  const [state, setState] = useState("");
+  const [propertyType, setPropertyType] = useState("");
+  const [minBeds, setMinBeds] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [sort, setSort] = useState("featured");
+  const facets = trpc.website.publicPropertyFacets.useQuery();
   const query = trpc.website.publicProperties.useQuery({
-    search: initial || undefined,
+    search: search || undefined,
+    state: state || undefined,
+    propertyType: propertyType || undefined,
+    minBeds: minBeds ? Number(minBeds) : undefined,
+    maxPrice: maxPrice ? Number(maxPrice) : undefined,
+    sort: sort as any,
   });
-  if (query.isLoading) return <LoadingPage />;
-  const items = (query.data || []).filter(
-    (item: any) =>
-      !search ||
-      `${item.address} ${item.city} ${item.state} ${item.headline}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
-  );
+  const activeFilters = [state, propertyType, minBeds, maxPrice].filter(
+    Boolean
+  ).length;
+  const clearFilters = () => {
+    setState("");
+    setPropertyType("");
+    setMinBeds("");
+    setMaxPrice("");
+  };
+  // Price bands are built from what is published, so we never offer a ceiling
+  // that no property sits under.
+  const priceBands = (() => {
+    const max = facets.data?.priceRange?.max;
+    if (!max) return [];
+    return [500000, 750000, 1000000, 1500000, 2000000, 3000000].filter(
+      band => band < max
+    );
+  })();
+  if (query.isLoading && !query.data) return <LoadingPage />;
+  const items = query.data || [];
   return (
     <Shell>
       <section className="border-b bg-slate-50 py-16">
@@ -913,6 +1008,70 @@ function PropertiesPage() {
               value={search}
               onChange={event => setSearch(event.target.value)}
             />
+          </div>
+          <div className="mx-auto mt-4 flex max-w-5xl flex-wrap items-end justify-center gap-3 text-left">
+            {facets.data?.states?.length ? (
+              <FilterSelect label="Market" value={state} onChange={setState}>
+                <option value="">All markets</option>
+                {facets.data.states.map((code: string) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </FilterSelect>
+            ) : null}
+            {facets.data?.propertyTypes?.length ? (
+              <FilterSelect
+                label="Type"
+                value={propertyType}
+                onChange={setPropertyType}
+              >
+                <option value="">Any type</option>
+                {facets.data.propertyTypes.map((type: string) => (
+                  <option key={type} value={type}>
+                    {PROPERTY_TYPE_LABELS[type] || type}
+                  </option>
+                ))}
+              </FilterSelect>
+            ) : null}
+            <FilterSelect label="Beds" value={minBeds} onChange={setMinBeds}>
+              <option value="">Any</option>
+              {[2, 3, 4, 5, 6].map(n => (
+                <option key={n} value={String(n)}>
+                  {n}+
+                </option>
+              ))}
+            </FilterSelect>
+            {priceBands.length ? (
+              <FilterSelect
+                label="Max price"
+                value={maxPrice}
+                onChange={setMaxPrice}
+              >
+                <option value="">No limit</option>
+                {priceBands.map(band => (
+                  <option key={band} value={String(band)}>
+                    {money(band)}
+                  </option>
+                ))}
+              </FilterSelect>
+            ) : null}
+            <FilterSelect label="Sort" value={sort} onChange={setSort}>
+              {Object.entries(SORT_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </FilterSelect>
+            {activeFilters ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+              >
+                Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -941,8 +1100,19 @@ function PropertiesPage() {
                 No properties found
               </h3>
               <p className="mt-2 text-slate-500">
-                Try a broader market, city, or address.
+                {activeFilters
+                  ? "No published property matches these filters yet. Try widening them."
+                  : "Try a broader market, city, or address."}
               </p>
+              {activeFilters ? (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+                >
+                  Clear filters
+                </button>
+              ) : null}
             </div>
           )}
         </div>
