@@ -17,6 +17,8 @@ import {
   websiteLeadAttempts,
   websiteProperties,
   websiteSiteSettings,
+  listings,
+  transactions,
 } from "../../drizzle/schema";
 import {
   buildNormalizedKey,
@@ -106,6 +108,21 @@ function cleanSlug(value: string) {
     .slice(0, 240);
 }
 
+/** Append -2, -3 ... until the slug is free. Slugs are unique per table. */
+async function uniqueSlug(db: any, table: any, base: string): Promise<string> {
+  const root = base || "property";
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = attempt === 0 ? root : `${root}-${attempt + 1}`;
+    const [taken] = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(eq(table.slug, candidate))
+      .limit(1);
+    if (!taken) return candidate;
+  }
+  return `${root}-${Date.now()}`;
+}
+
 function asDecimal(value: number | null | undefined) {
   return value === null || value === undefined || Number.isNaN(value)
     ? null
@@ -132,6 +149,51 @@ async function requireWebsitePermission(
       message: "Website permission required",
     });
   }
+}
+
+/**
+ * Whether an agent may act on a property. Mirrors the visibility rule the
+ * Properties list already uses (properties they added, or that they hold a
+ * transaction on) and adds listings, so an agent's own inventory is publishable
+ * without giving them the rest of the book.
+ */
+export async function agentOwnsProperty(db: any, userId: number, propertyId: number): Promise<boolean> {
+  const [added] = await db
+    .select({ id: properties.id })
+    .from(properties)
+    .where(and(eq(properties.id, propertyId), eq(properties.addedByUserId, userId)))
+    .limit(1);
+  if (added) return true;
+  const [tx] = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(and(eq(transactions.propertyId, propertyId), eq(transactions.agentId, userId)))
+    .limit(1);
+  if (tx) return true;
+  const [listing] = await db
+    .select({ id: listings.id })
+    .from(listings)
+    .where(and(eq(listings.propertyId, propertyId), eq(listings.agentId, userId)))
+    .limit(1);
+  return Boolean(listing);
+}
+
+/**
+ * Publishing gate for a single property. Admins keep the permission-based
+ * route into the full studio; agents may publish the properties they own.
+ */
+async function requirePropertyPublishAccess(ctx: any, db: any, propertyId: number) {
+  if (ctx.user?.role === "admin") {
+    await requireWebsitePermission(ctx, "canManageWebsiteProperties");
+    return;
+  }
+  if (ctx.user?.role === "agent" && (await agentOwnsProperty(db, ctx.user.id, propertyId))) {
+    return;
+  }
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "You can only publish properties you added or are working on.",
+  });
 }
 
 const propertyInput = z.object({
@@ -1320,6 +1382,237 @@ export const websiteRouter = router({
           .insert(websiteBlogPosts)
           .values({ ...data, createdById: ctx.user.id } as any);
       return { success: true };
+    }),
+
+  /**
+   * Publish a property that already exists in SavvyOS to the public site.
+   * Deliberately small: an agent gives it a headline and a status, everything
+   * else comes from the property record. Admins can still refine it afterwards
+   * in the Website Studio.
+   */
+  publishProperty: protectedProcedure
+    .input(
+      z.object({
+        propertyId: z.number().int().positive(),
+        headline: z.string().trim().max(255).nullable().optional(),
+        summary: z.string().trim().max(2000).nullable().optional(),
+        status: statusSchema.default("draft"),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await requirePropertyPublishAccess(ctx, db, input.propertyId);
+
+      const [property] = await db
+        .select({
+          id: properties.id,
+          address: properties.address,
+          city: properties.city,
+          state: properties.state,
+        })
+        .from(properties)
+        .where(eq(properties.id, input.propertyId))
+        .limit(1);
+      if (!property) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found" });
+
+      const [existing] = await db
+        .select({ id: websiteProperties.id, slug: websiteProperties.slug, status: websiteProperties.status })
+        .from(websiteProperties)
+        .where(eq(websiteProperties.propertyId, input.propertyId))
+        .limit(1);
+
+      const publishedAt = input.status === "published" ? new Date() : null;
+
+      if (existing) {
+        await db
+          .update(websiteProperties)
+          .set({
+            status: input.status,
+            ...(input.headline !== undefined ? { headline: input.headline || null } : {}),
+            ...(input.summary !== undefined ? { summary: input.summary || null } : {}),
+            ...(publishedAt ? { publishedAt } : {}),
+            updatedById: ctx.user.id,
+          })
+          .where(eq(websiteProperties.id, existing.id));
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_property_updated",
+          entityType: "property",
+          entityId: input.propertyId,
+          details: { slug: existing.slug, status: input.status, previousStatus: existing.status },
+        });
+        return { id: existing.id, slug: existing.slug, status: input.status, created: false };
+      }
+
+      const base = cleanSlug(
+        [property.address, property.city].filter(Boolean).join(" ") || `property-${property.id}`
+      );
+      const slug = await uniqueSlug(db, websiteProperties, base);
+
+      const assignedAgentId = ctx.user.role === "agent" ? ctx.user.id : null;
+      const result = await db.insert(websiteProperties).values({
+        propertyId: input.propertyId,
+        slug,
+        status: input.status,
+        headline: input.headline || null,
+        summary: input.summary || null,
+        assignedAgentId,
+        publishedAt,
+        galleryImageUrls: [],
+        featureTags: [],
+        investmentHighlights: [],
+        createdById: ctx.user.id,
+        updatedById: ctx.user.id,
+      });
+      const id = Number((result as any)[0]?.insertId);
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_property_published",
+        entityType: "property",
+        entityId: input.propertyId,
+        details: { slug, status: input.status, assignedAgentId },
+      });
+      return { id, slug, status: input.status, created: true };
+    }),
+
+  /** Whether the signed-in user may publish this property, and its current state. */
+  propertyPublishState: protectedProcedure
+    .input(z.object({ propertyId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { canPublish: false, website: null };
+      let canPublish = false;
+      if (ctx.user?.role === "admin") {
+        canPublish = await canAdminUsePermission(ctx.user, "canManageWebsiteProperties");
+      } else if (ctx.user?.role === "agent") {
+        canPublish = await agentOwnsProperty(db, ctx.user.id, input.propertyId);
+      }
+      const [website] = await db
+        .select({
+          id: websiteProperties.id,
+          slug: websiteProperties.slug,
+          status: websiteProperties.status,
+          headline: websiteProperties.headline,
+          summary: websiteProperties.summary,
+        })
+        .from(websiteProperties)
+        .where(eq(websiteProperties.propertyId, input.propertyId))
+        .limit(1);
+      return { canPublish, website: website ?? null };
+    }),
+
+  /**
+   * Website presence for one SavvyOS agent, read from their own record rather
+   * than the studio's list. Lets the agent profile page show whether they are
+   * on the public site without a second place to look.
+   */
+  agentPublishState: protectedProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { canManage: false, profile: null, publishedProperties: 0 };
+      const canManage =
+        ctx.user?.role === "admin" &&
+        (await canAdminUsePermission(ctx.user, "canManageWebsiteAgents"));
+      const [profile] = await db
+        .select({
+          id: websiteAgentProfiles.id,
+          slug: websiteAgentProfiles.slug,
+          status: websiteAgentProfiles.status,
+          headline: websiteAgentProfiles.headline,
+          isFeatured: websiteAgentProfiles.isFeatured,
+        })
+        .from(websiteAgentProfiles)
+        .where(eq(websiteAgentProfiles.userId, input.userId))
+        .limit(1);
+      const [counts] = await db
+        .select({ total: sql<number>`count(*)` })
+        .from(websiteProperties)
+        .where(
+          and(
+            eq(websiteProperties.assignedAgentId, input.userId),
+            eq(websiteProperties.status, "published")
+          )
+        );
+      return {
+        canManage,
+        profile: profile ?? null,
+        publishedProperties: Number(counts?.total || 0),
+      };
+    }),
+
+  /** Put a SavvyOS agent on the public site, or change their visibility. */
+  publishAgent: protectedProcedure
+    .input(
+      z.object({
+        userId: z.number().int().positive(),
+        status: statusSchema.default("draft"),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireWebsitePermission(ctx, "canManageWebsiteAgents");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [agent] = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1);
+      if (!agent) throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
+
+      const [existing] = await db
+        .select({ id: websiteAgentProfiles.id, slug: websiteAgentProfiles.slug })
+        .from(websiteAgentProfiles)
+        .where(eq(websiteAgentProfiles.userId, input.userId))
+        .limit(1);
+
+      if (existing) {
+        await db
+          .update(websiteAgentProfiles)
+          .set({ status: input.status, updatedById: ctx.user.id })
+          .where(eq(websiteAgentProfiles.id, existing.id));
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_agent_updated",
+          entityType: "user",
+          entityId: input.userId,
+          details: { slug: existing.slug, status: input.status },
+        });
+        return { slug: existing.slug, status: input.status, created: false };
+      }
+
+      const [coreProfile] = await db
+        .select({
+          photo: userProfiles.profilePhotoUrl,
+          phone: userProfiles.primaryPhone,
+        })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, input.userId))
+        .limit(1);
+
+      const slug = await uniqueSlug(db, websiteAgentProfiles, cleanSlug(agent.name || `agent-${agent.id}`));
+      await db.insert(websiteAgentProfiles).values({
+        userId: input.userId,
+        slug,
+        status: input.status,
+        imageUrl: coreProfile?.photo ?? null,
+        publicEmail: agent.email ?? null,
+        publicPhone: coreProfile?.phone ?? null,
+        markets: [],
+        specialties: [],
+        createdById: ctx.user.id,
+        updatedById: ctx.user.id,
+      });
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_agent_published",
+        entityType: "user",
+        entityId: input.userId,
+        details: { slug, status: input.status },
+      });
+      return { slug, status: input.status, created: true };
     }),
 
   saveSettings: protectedProcedure

@@ -205,6 +205,22 @@ export default function AgentProfilePage() {
     { enabled: !!agentId }
   );
 
+  const { data: websitePresence, refetch: refetchWebsitePresence } =
+    trpc.website.agentPublishState.useQuery({ userId: agentId }, { enabled: !!agentId });
+  const publishAgent = trpc.website.publishAgent.useMutation({
+    onSuccess: async (result) => {
+      toast.success(
+        result.status === "published"
+          ? "Live on the Savvy website."
+          : result.created
+            ? "Website profile created as a draft."
+            : "Website profile hidden."
+      );
+      await refetchWebsitePresence();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const { data: markets = [] } = trpc.markets.list.useQuery();
   const { data: allUsers = [] } = trpc.users.list.useQuery({});
 
@@ -764,6 +780,58 @@ export default function AgentProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      {websitePresence && (websitePresence.canManage || websitePresence.profile) && (
+        <Card className="mb-6">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">Savvy website</p>
+                <Badge variant="outline" className="capitalize">
+                  {websitePresence.profile ? websitePresence.profile.status : "not on the site"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {websitePresence.profile ? (
+                  <>
+                    Public profile at /newsite/agents/{websitePresence.profile.slug}
+                    {websitePresence.publishedProperties > 0
+                      ? ` · ${websitePresence.publishedProperties} published ${websitePresence.publishedProperties === 1 ? "property" : "properties"}`
+                      : ""}
+                  </>
+                ) : (
+                  "This agent does not appear on the public website yet."
+                )}
+              </p>
+            </div>
+            {websitePresence.canManage && (
+              <div className="flex items-center gap-2">
+                {websitePresence.profile?.status === "published" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={publishAgent.isPending}
+                    onClick={() => publishAgent.mutate({ userId: agentId, status: "draft" })}
+                  >
+                    Hide from website
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled={publishAgent.isPending}
+                    onClick={() => publishAgent.mutate({ userId: agentId, status: "published" })}
+                  >
+                    {websitePresence.profile ? "Publish" : "Add to website"}
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => navigate("/website?tab=agents")}>
+                  Edit in studio
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue={agentData.role === "agent" ? "transactions" : "tasks"}>

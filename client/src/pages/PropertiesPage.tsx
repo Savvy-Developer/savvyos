@@ -25,8 +25,12 @@ export default function PropertiesPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isAgent = user?.role === "agent";
   const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
-  const canCreateWebsiteProperty = !!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties;
+  // Admins publish from the studio; agents publish from a property's own page,
+  // so the row menu offers the shortcut to both and the page checks ownership.
+  const canCreateWebsiteProperty =
+    !!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties || isAgent;
   const [search, setSearch] = usePersistentState("properties.search", "");
   const [sortOrder, setSortOrder] = usePersistentState<"asc" | "desc">("properties.sortOrder", "desc");
   const [open, setOpen] = useState(false);
@@ -150,7 +154,7 @@ export default function PropertiesPage() {
                     Transactions and listings are created from a specific
                     property (row menu below, or the property detail page). */}
                 <DropdownMenuItem onSelect={() => { setOpen(true); setDuplicateInfo(null); }}><Building2 className="mr-2 h-4 w-4" />Property Record</DropdownMenuItem>
-                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate("/website?tab=properties&create=1")}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
+                {isAdmin && !!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties && <DropdownMenuItem onSelect={() => navigate("/website?tab=properties&create=1")}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -304,7 +308,7 @@ export default function PropertiesPage() {
                         </div>
                       </TooltipProvider>
                     </td>
-                    <td className="py-3 px-4"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/properties/${property.id}`); }}>View</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>Create<ChevronDown className="ml-1 h-3.5 w-3.5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}><DropdownMenuItem onSelect={() => navigate(`/transactions?create=1&propertyId=${property.id}`)}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem><DropdownMenuItem onSelect={() => navigate(`/listings?create=1&propertyId=${property.id}`)}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>{canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate(`/website?tab=properties&create=1&propertyId=${property.id}`)}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu></div></td>
+                    <td className="py-3 px-4"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/properties/${property.id}`); }}>View</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>Create<ChevronDown className="ml-1 h-3.5 w-3.5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}><DropdownMenuItem onSelect={() => navigate(`/transactions?create=1&propertyId=${property.id}`)}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem><DropdownMenuItem onSelect={() => navigate(`/listings?create=1&propertyId=${property.id}`)}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>{canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate(isAdmin ? `/website?tab=properties&create=1&propertyId=${property.id}` : `/properties/${property.id}`)}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu></div></td>
                   </tr>
                 ))
               )}

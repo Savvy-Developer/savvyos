@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { formatPhone, formatEmail, formatStreet, formatCityStateZip } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -184,7 +186,30 @@ export default function PropertyDetail() {
   const goToContact = useAgentContactNav();
   const utils = trpc.useUtils();
   const { data: adminPermissions } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
-  const canCreateWebsiteProperty = !!(adminPermissions as Record<string, boolean> | undefined)?.canManageWebsiteProperties;
+  const { data: publishState, refetch: refetchPublishState } = trpc.website.propertyPublishState.useQuery(
+    { propertyId: propId },
+    { enabled: !!propId },
+  );
+  const canCreateWebsiteProperty = !!publishState?.canPublish;
+  const websiteListing = publishState?.website ?? null;
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishDraft, setPublishDraft] = useState({ headline: "", summary: "", status: "draft" as "draft" | "published" });
+  const publishProperty = trpc.website.publishProperty.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.created ? "Published to the website." : "Website listing updated.");
+      setPublishOpen(false);
+      await refetchPublishState();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const openPublishDialog = () => {
+    setPublishDraft({
+      headline: websiteListing?.headline ?? "",
+      summary: websiteListing?.summary ?? "",
+      status: websiteListing?.status === "published" ? "published" : "draft",
+    });
+    setPublishOpen(true);
+  };
 
   const { data: property } = trpc.properties.get.useQuery({ id: propId });
   const { data: associations } = trpc.properties.getAssociations.useQuery(
@@ -323,7 +348,7 @@ export default function PropertyDetail() {
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem onSelect={() => navigate(`/transactions?create=1&propertyId=${propId}`)}><ArrowRightLeft className="mr-2 h-4 w-4" />Transaction</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate(`/listings?create=1&propertyId=${propId}`)}><List className="mr-2 h-4 w-4" />Listing</DropdownMenuItem>
-                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={() => navigate(`/website?tab=properties&create=1&propertyId=${propId}`)}><Globe2 className="mr-2 h-4 w-4" />Website Property</DropdownMenuItem>}
+                {canCreateWebsiteProperty && <DropdownMenuItem onSelect={openPublishDialog}><Globe2 className="mr-2 h-4 w-4" />{websiteListing ? "Website Property (edit)" : "Website Property"}</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button size="sm" onClick={() => navigate(`/properties/${propId}/proforma?new=true`)}>
@@ -771,6 +796,82 @@ export default function PropertyDetail() {
               className="bg-red-600 hover:bg-red-700"
             >
               {transferMutation.isPending ? "Transferring..." : "Transfer & Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{websiteListing ? "Update website listing" : "Publish to the website"}</DialogTitle>
+            <DialogDescription>
+              {formatStreet(property.address)} appears on the public site using this property's own
+              details. Add a headline to lead with, or leave it blank to use the address.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="website-headline">Headline</Label>
+              <Input
+                id="website-headline"
+                className="mt-1"
+                value={publishDraft.headline}
+                placeholder="Turnkey coastal STR with strong summer demand"
+                onChange={(event) => setPublishDraft((prior) => ({ ...prior, headline: event.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="website-summary">Summary</Label>
+              <Textarea
+                id="website-summary"
+                className="mt-1"
+                rows={3}
+                value={publishDraft.summary}
+                placeholder="A short paragraph investors see on the listing card."
+                onChange={(event) => setPublishDraft((prior) => ({ ...prior, summary: event.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="website-status">Visibility</Label>
+              <select
+                id="website-status"
+                className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={publishDraft.status}
+                onChange={(event) =>
+                  setPublishDraft((prior) => ({ ...prior, status: event.target.value as "draft" | "published" }))
+                }
+              >
+                <option value="draft">Draft, not visible to the public</option>
+                <option value="published">Published, live on the website</option>
+              </select>
+            </div>
+            {websiteListing && (
+              <p className="text-xs text-muted-foreground">
+                Live at /newsite/properties/{websiteListing.slug}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPublishOpen(false)}>Cancel</Button>
+            <Button
+              disabled={publishProperty.isPending}
+              onClick={() =>
+                publishProperty.mutate({
+                  propertyId: propId,
+                  headline: publishDraft.headline.trim() || null,
+                  summary: publishDraft.summary.trim() || null,
+                  status: publishDraft.status,
+                })
+              }
+            >
+              {publishProperty.isPending
+                ? "Saving..."
+                : websiteListing
+                  ? "Save changes"
+                  : publishDraft.status === "published"
+                    ? "Publish"
+                    : "Create draft"}
             </Button>
           </DialogFooter>
         </DialogContent>
