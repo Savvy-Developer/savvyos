@@ -358,7 +358,7 @@ export default function PropertyWebsiteTab({
         <CardContent className="space-y-4">
           {proformaOptions.length > 0 && (
             <div>
-              <Label>Copy numbers from a pro-forma</Label>
+              <Label>Link a pro-forma</Label>
               <Select
                 value={draft.sourceProformaId || "none"}
                 onValueChange={value => set("sourceProformaId", value === "none" ? "" : value)}
@@ -381,6 +381,14 @@ export default function PropertyWebsiteTab({
               <p className="mt-1 text-xs text-muted-foreground">
                 Blank fields below are filled from the pro-forma on save. Anything you type wins.
               </p>
+              {draft.sourceProformaId && (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                  The public listing will also show this pro-forma's revenue
+                  range and its comparable properties, read live rather than
+                  copied. Only a pro-forma marked <strong>final</strong> is
+                  published; a draft shows nothing.
+                </p>
+              )}
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-5">

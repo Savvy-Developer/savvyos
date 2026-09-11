@@ -74,6 +74,126 @@ const money = (value: unknown) =>
 const percent = (value: unknown) =>
   value == null || value === "" ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
 
+/**
+ * The revenue range and the comparable listings behind it.
+ *
+ * Shown as a range rather than a single figure on purpose. One number reads as
+ * a promise; the spread between the conservative and the strong case is the
+ * uncertainty that is genuinely in the model, and an investor is entitled to
+ * see it. The comps sit underneath as the evidence, because a projection
+ * nobody can check is just a number on a page.
+ */
+function RevenueRangeSection({
+  revenue,
+  comps,
+}: {
+  revenue: { low: number; high: number; single: boolean };
+  comps: Array<{
+    name: string;
+    annualRevenue: number;
+    adr: number | null;
+    occupancy: number | null;
+    beds: number | null;
+    city: string | null;
+    photoUrl: string | null;
+    link: string | null;
+  }>;
+}) {
+  return (
+    <div className="rounded-2xl border bg-white p-7 shadow-sm">
+      <h2 className="text-2xl font-bold text-[#05314a]">
+        Projected annual revenue
+      </h2>
+      <p className="mt-4 text-3xl font-black text-[#05314a] sm:text-4xl">
+        {revenue.single ? (
+          money(revenue.low)
+        ) : (
+          <>
+            {money(revenue.low)}
+            <span className="mx-2 font-bold text-slate-400">to</span>
+            {money(revenue.high)}
+          </>
+        )}
+      </p>
+      {!revenue.single && (
+        <p className="mt-1 text-sm text-slate-500">
+          Conservative through strong execution.
+        </p>
+      )}
+
+      {comps.length > 0 && (
+        <div className="mt-7 border-t pt-6">
+          <h3 className="font-bold text-[#05314a]">
+            Comparable properties
+          </h3>
+          <p className="mt-1 text-sm text-slate-500">
+            {comps.length === 1
+              ? "The listing this projection is based on."
+              : `The ${comps.length} listings this projection is based on.`}
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {comps.map((comp, index) => {
+              const details = [
+                comp.beds ? `${comp.beds} bed` : null,
+                comp.adr ? `${money(comp.adr)} ADR` : null,
+                comp.occupancy ? `${Math.round(comp.occupancy * 100)}% occupancy` : null,
+              ].filter(Boolean);
+              const body = (
+                <>
+                  {comp.photoUrl && (
+                    <img
+                      src={comp.photoUrl}
+                      alt=""
+                      loading="lazy"
+                      className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-800">
+                      {comp.name}
+                    </p>
+                    <p className="text-sm font-bold text-cyan-700">
+                      {money(comp.annualRevenue)}
+                      <span className="font-medium text-slate-500"> a year</span>
+                    </p>
+                    {details.length > 0 && (
+                      <p className="mt-0.5 truncate text-xs text-slate-500">
+                        {[comp.city, ...details].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                </>
+              );
+              return comp.link ? (
+                <a
+                  key={`${index}-${comp.name}`}
+                  href={comp.link}
+                  target="_blank"
+                  rel="nofollow noopener noreferrer"
+                  className="flex gap-3 rounded-xl bg-slate-50 p-3 transition hover:bg-slate-100"
+                >
+                  {body}
+                </a>
+              ) : (
+                <div key={`${index}-${comp.name}`} className="flex gap-3 rounded-xl bg-slate-50 p-3">
+                  {body}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-6 text-xs leading-5 text-slate-500">
+        Projections are estimates based on the comparable listings shown, not a
+        forecast or a guarantee of future performance. Actual results vary with
+        seasonality, management, local regulation and market conditions. Review
+        the full analysis with your agent before making an investment decision.
+      </p>
+    </div>
+  );
+}
+
 function usePageTitle(title: string) {
   useEffect(() => {
     document.title = title ? `${title} | Savvy STR Agents` : "Savvy STR Agents";
@@ -1146,6 +1266,9 @@ function PropertiesPage() {
 
 function PropertyDetailPage({ slug }: { slug: string }) {
   const query = trpc.website.publicProperty.useQuery({ slug });
+  // The revenue range and comps come from the linked pro-forma, read live, so
+  // the listing cannot drift from the analysis it claims to be based on.
+  const evidence = trpc.website.publicPropertyEvidence.useQuery({ slug });
   const [showLead, setShowLead] = useState(false);
   usePageTitle(query.data?.metaTitle || query.data?.address || "Property");
   if (query.isLoading) return <LoadingPage />;
@@ -1272,6 +1395,12 @@ function PropertyDetailPage({ slug }: { slug: string }) {
                 ))}
               </div>
             </div>
+            {evidence.data?.revenue && (
+              <RevenueRangeSection
+                revenue={evidence.data.revenue}
+                comps={evidence.data.comps}
+              />
+            )}
             {highlights.length > 0 && (
               <div className="rounded-2xl border bg-white p-7 shadow-sm">
                 <h2 className="text-2xl font-bold text-[#05314a]">

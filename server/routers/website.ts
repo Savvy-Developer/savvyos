@@ -29,6 +29,11 @@ import {
 import { getDb, logActivity } from "../db";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
+import {
+  publicComps,
+  publicRevenueRange,
+  type PublicComp,
+} from "../proformaPublicFigures";
 
 const statusSchema = z.enum(["draft", "published", "archived"]);
 const nullableNumber = z.number().finite().nullable().optional();
@@ -919,6 +924,64 @@ export const websiteRouter = router({
         )
         .limit(1);
       return rows[0] ?? null;
+    }),
+
+  /**
+   * The investor evidence behind a published listing: a revenue range and the
+   * comparable listings that support it, read live from the pro-forma the
+   * admin linked on the property's Website tab.
+   *
+   * Three gates stand between a pro-forma and this output, and each exists
+   * because the result is shown to people deciding where to put money:
+   *
+   * 1. The property must be published. A draft listing publishes nothing.
+   * 2. The pro-forma must be final. A draft pro-forma is someone's
+   *    work in progress, and half-entered numbers must never reach the public.
+   * 3. The pro-forma must be the one linked to this property. Reading any
+   *    other would attach one property's numbers to another's address.
+   *
+   * Returns nulls rather than zeros when there is nothing to show, so the page
+   * can omit the section instead of publishing an empty claim.
+   */
+  publicPropertyEvidence: publicProcedure
+    .input(z.object({ slug: z.string() }))
+    .query(async ({ input }) => {
+      const empty = { revenue: null, comps: [] as PublicComp[] };
+      const db = await getDb();
+      if (!db) return empty;
+
+      const [listing] = await db
+        .select({
+          propertyId: websiteProperties.propertyId,
+          sourceProformaId: websiteProperties.sourceProformaId,
+        })
+        .from(websiteProperties)
+        .where(
+          and(
+            eq(websiteProperties.slug, input.slug),
+            eq(websiteProperties.status, "published")
+          )
+        )
+        .limit(1);
+      if (!listing?.sourceProformaId) return empty;
+
+      const [proforma] = await db
+        .select({ formData: proformas.formData, status: proformas.status })
+        .from(proformas)
+        .where(
+          and(
+            eq(proformas.id, listing.sourceProformaId),
+            eq(proformas.propertyId, listing.propertyId),
+            eq(proformas.status, "final")
+          )
+        )
+        .limit(1);
+      if (!proforma) return empty;
+
+      return {
+        revenue: publicRevenueRange(proforma.formData),
+        comps: publicComps(proforma.formData),
+      };
     }),
 
   publicAgents: publicProcedure
