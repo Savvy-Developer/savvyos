@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1081,12 +1082,17 @@ function ContentEditor({
           value={draft.excerpt || ""}
           onChange={value => set("excerpt", value)}
         />
-        <Area
-          label="Article / story body"
-          value={draft.body || ""}
-          onChange={value => set("body", value)}
-          rows={14}
-        />
+        <div>
+          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Article / story body
+          </Label>
+          <div className="mt-1">
+            <WebsiteRichTextEditor
+              value={draft.body || ""}
+              onChange={value => set("body", value)}
+            />
+          </div>
+        </div>
         <div className="grid gap-4 md:grid-cols-2">
           <Field
             label="Cover image URL"
