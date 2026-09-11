@@ -71,6 +71,7 @@ import { formatPhone as _formatPhone, parseCurrencyInput, isValidEmail, isValidP
 import LeadSourcePicker from "@/components/LeadSourcePicker";
 import React from "react";
 import { useAppBack } from "@/lib/navigationHistory";
+import ChecklistPanel from "@/components/checklists/ChecklistPanel";
 
 function formatListingActivity(entry: any): { icon: React.ReactNode; label: string; description: string; color: string } {
   // activityLog returns { log, user } objects
@@ -914,6 +915,10 @@ export default function ListingDetail() {
 
         {/* Right: Notes + Documents (stacked) */}
         <div className="lg:col-span-2 space-y-4">
+          {(role === "agent" || role === "admin") && (
+            <ChecklistPanel targetType="listing" targetId={listingId} />
+          )}
+
           {/* Notes */}
           <Card>
             <CardHeader className="pb-3">

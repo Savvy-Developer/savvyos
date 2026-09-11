@@ -83,6 +83,7 @@ import { calendarConnectionsRouter } from "./routers/calendarConnections";
 import { eventsRouter } from "./routers/events";
 import { websiteRouter } from "./routers/website";
 import { agentCelebrationsRouter } from "./routers/agentCelebrations";
+import { checklistsRouter } from "./routers/checklists";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -253,6 +254,7 @@ export const appRouter = router({
   connectionRequests: connectionRequestsRouter,
   properties: propertiesRouter,
   transactions: transactionsRouter,
+  checklists: checklistsRouter,
   tasks: tasksRouter,
   documents: documentsRouter,
   communications: communicationsRouter,

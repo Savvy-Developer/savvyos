@@ -28,6 +28,7 @@ import { useAgentContactNav } from "@/_core/hooks/useAgentContactNav";
 import { useCelebration } from "@/hooks/useCelebration";
 import { useAppBack } from "@/lib/navigationHistory";
 import { unwrapPropertyListRows } from "@/lib/propertyList";
+import ChecklistPanel from "@/components/checklists/ChecklistPanel";
 
 // ─── Transaction History Timeline ─────────────────────────────────────────────────────────
 const TX_HISTORY_OUTCOME_COLORS: Record<string, string> = {
@@ -1266,6 +1267,7 @@ export default function TransactionDetail() {
               <TabsTrigger value="documents" className="shrink-0 whitespace-nowrap">Documents{documents && documents.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{documents.length}</span>}</TabsTrigger>
               <TabsTrigger value="notes" className="shrink-0 whitespace-nowrap">Notes{notes && notes.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{notes.length}</span>}</TabsTrigger>
               <TabsTrigger value="tasks" className="shrink-0 whitespace-nowrap">Tasks</TabsTrigger>
+              {(isAgent || isAdmin) && <TabsTrigger value="checklists" className="shrink-0 whitespace-nowrap">Checklists</TabsTrigger>}
               <TabsTrigger value="activity" className="shrink-0 whitespace-nowrap">Activity</TabsTrigger>
               <TabsTrigger value="history" className="shrink-0 whitespace-nowrap">History</TabsTrigger>
             </TabsList>
@@ -1808,6 +1810,17 @@ export default function TransactionDetail() {
                 </div>
               )}
             </TabsContent>
+
+            {/* Checklists Tab */}
+            {(isAgent || isAdmin) && (
+              <TabsContent value="checklists">
+                <ChecklistPanel
+                  targetType="transaction"
+                  targetId={txId}
+                  transactionType={tx.transactionType}
+                />
+              </TabsContent>
+            )}
 
             {/* Activity Tab */}
             <TabsContent value="activity">

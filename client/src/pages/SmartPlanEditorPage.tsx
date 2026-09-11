@@ -267,14 +267,38 @@ function StepComposer({ planId, step, defaultSchedule, onSaved, onDelete, proper
       sendEndHour: step.sendWindowOverride ? step.sendEndHour ?? defaultSchedule.endHour : defaultSchedule.endHour,
       timezone: step.sendWindowOverride ? step.timezone || defaultSchedule.timezone : defaultSchedule.timezone,
     });
-  }, [step?.id, defaultSchedule.enabled, defaultSchedule.startHour, defaultSchedule.endHour, defaultSchedule.timezone, defaultSchedule.days.join(",")]);
+  }, [
+    step?.id,
+    step?.channel,
+    step?.delayDays,
+    step?.delayHours,
+    step?.subject,
+    step?.body,
+    step?.businessHoursOnly,
+    step?.sendWindowOverride,
+    step?.sendWindowEnabled,
+    step?.sendDays?.join(","),
+    step?.sendStartHour,
+    step?.sendEndHour,
+    step?.timezone,
+    defaultSchedule.enabled,
+    defaultSchedule.startHour,
+    defaultSchedule.endHour,
+    defaultSchedule.timezone,
+    defaultSchedule.days.join(","),
+  ]);
 
   const addStep = trpc.smartPlans.steps.add.useMutation({
     onSuccess: (result) => { toast.success("Step added"); onSaved(result.id); },
     onError: (error) => toast.error(error.message),
   });
   const updateStep = trpc.smartPlans.steps.updateOne.useMutation({
-    onSuccess: () => { toast.success("Step saved"); onSaved(step?.id); },
+    onSuccess: (result) => {
+      toast.success(
+        `Step saved — ${delayLabel(result.step.delayDays, result.step.delayHours)} (now Step ${result.step.stepOrder + 1})`
+      );
+      onSaved(result.step.id);
+    },
     onError: (error) => toast.error(error.message),
   });
   const saving = addStep.isPending || updateStep.isPending;
@@ -328,7 +352,7 @@ function StepComposer({ planId, step, defaultSchedule, onSaved, onDelete, proper
           </Select>
         </div>
         <div className="space-y-2">
-          <Label>Wait days</Label>
+          <Label>Wait from enrollment (days)</Label>
           <Input type="number" min={0} value={form.delayDays} onChange={(event) => setForm((current) => ({ ...current, delayDays: Math.max(0, Number(event.target.value) || 0) }))} />
         </div>
         <div className="space-y-2">
@@ -629,14 +653,24 @@ function PlanWorkspace({ planId }: { planId: number }) {
   const publish = trpc.smartPlans.publish.useMutation({ onSuccess: () => { toast.success("Plan published and active"); utils.smartPlans.get.invalidate({ id: planId }); utils.smartPlans.list.invalidate(); }, onError: (error) => toast.error(error.message) });
   const deleteStep = trpc.smartPlans.steps.delete.useMutation({ onSuccess: () => { toast.success("Step deleted"); setSelectedStepId("new"); refresh(); }, onError: (error) => toast.error(error.message) });
 
-  const refresh = () => {
-    utils.smartPlans.get.invalidate({ id: planId });
-    utils.smartPlans.analytics.get.invalidate({ planId });
-    utils.smartPlans.list.invalidate();
+  const refresh = async () => {
+    await Promise.all([
+      utils.smartPlans.get.invalidate({ id: planId }),
+      utils.smartPlans.analytics.get.invalidate({ planId }),
+      utils.smartPlans.list.invalidate(),
+    ]);
   };
   const plan = (planData as any)?.plan;
   const analyticsSteps = ((analyticsData as any)?.steps || []) as Step[];
-  const steps = useMemo(() => analyticsSteps.length ? analyticsSteps : (((planData as any)?.steps || []) as Step[]).map((step) => ({ ...step, metrics: EMPTY_METRICS })), [analyticsSteps, planData]);
+  const steps = useMemo(() => {
+    const metricsByStepId = new Map(
+      analyticsSteps.map((step) => [step.id, step.metrics ?? EMPTY_METRICS])
+    );
+    return (((planData as any)?.steps || []) as Step[]).map((step) => ({
+      ...step,
+      metrics: metricsByStepId.get(step.id) ?? EMPTY_METRICS,
+    }));
+  }, [analyticsData, planData]);
   const selectedStep = selectedStepId === "new" ? null : steps.find((step) => step.id === selectedStepId) || null;
   const totals = ((analyticsData as any)?.totals || EMPTY_METRICS) as Metrics;
   const leadSources = (sourceRows as any[]).map((row) => ({ id: row.ls?.id ?? row.id, name: row.ls?.name ?? row.name, parentId: row.ls?.parentId ?? row.parentId ?? null })) as LeadSource[];
@@ -650,7 +684,7 @@ function PlanWorkspace({ planId }: { planId: number }) {
 
   useEffect(() => {
     if (selectedStepId !== "new" && !steps.some((step) => step.id === selectedStepId)) setSelectedStepId(steps[0]?.id || "new");
-  }, [steps.length]);
+  }, [selectedStepId, steps]);
 
   if (isLoading || !plan) return <div className="flex min-h-[45vh] items-center justify-center text-sm text-muted-foreground">Loading Smart Plan workspace...</div>;
 
@@ -685,7 +719,7 @@ function PlanWorkspace({ planId }: { planId: number }) {
           </div>
           <div className="grid grid-cols-2 gap-2 border-t p-3"><Button size="sm" variant={selectedStepId === "new" ? "default" : "outline"} onClick={() => { setSelectedStepId("new"); setTab("workflow"); }}><Mail className="mr-1 h-3.5 w-3.5" />Email</Button><Button size="sm" variant="outline" className="border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800" onClick={() => { setSelectedStepId("new"); setTab("workflow"); }}><MessageSquare className="mr-1 h-3.5 w-3.5" />Text</Button></div>
         </aside>
-        <div className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"><StepComposer key={selectedStep?.id ?? "new"} planId={planId} step={selectedStep} defaultSchedule={defaultSchedule} propertyAddressFromNotes={plan.propertyAddressFromNotes === true} onSaved={(id) => { refresh(); if (id) setSelectedStepId(id); }} onDelete={() => selectedStep && deleteStep.mutate({ stepId: selectedStep.id, planId })} /></div>
+        <div className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"><StepComposer key={selectedStep?.id ?? "new"} planId={planId} step={selectedStep} defaultSchedule={defaultSchedule} propertyAddressFromNotes={plan.propertyAddressFromNotes === true} onSaved={(id) => { void refresh(); if (id) setSelectedStepId(id); }} onDelete={() => selectedStep && deleteStep.mutate({ stepId: selectedStep.id, planId })} /></div>
       </div>}
 
       {tab === "analytics" && <AnalyticsPanel steps={steps} totals={totals} />}

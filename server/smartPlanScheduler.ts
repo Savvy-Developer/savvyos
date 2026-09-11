@@ -47,6 +47,7 @@ import {
   nextSmartPlanSendWindowStart,
   normaliseSmartPlanSendWindow,
 } from "./smartPlanScheduling";
+import { smartPlanStepScheduledAt } from "./smartPlanStepOrder";
 
 let isRunning = false;
 
@@ -471,9 +472,7 @@ async function processEnrollmentStep(
   } else {
     // Schedule next step
     const nextStep = steps[nextIndex];
-    const nextStepAt = new Date();
-    nextStepAt.setDate(nextStepAt.getDate() + nextStep.delayDays);
-    nextStepAt.setHours(nextStepAt.getHours() + nextStep.delayHours);
+    const nextStepAt = smartPlanStepScheduledAt(enrollment.enrolledAt, nextStep);
 
     await db
       .update(smartPlanEnrollments)
@@ -646,11 +645,10 @@ export async function enrollContactInPlan(
     .orderBy(smartPlanSteps.stepOrder)
     .limit(1);
 
+  const enrolledAt = new Date();
   let nextStepAt: Date | null = null;
   if (firstSteps.length > 0) {
-    nextStepAt = new Date();
-    nextStepAt.setDate(nextStepAt.getDate() + firstSteps[0].delayDays);
-    nextStepAt.setHours(nextStepAt.getHours() + firstSteps[0].delayHours);
+    nextStepAt = smartPlanStepScheduledAt(enrolledAt, firstSteps[0]);
   }
 
   try {
@@ -659,7 +657,7 @@ export async function enrollContactInPlan(
       contactId,
       appointmentId,
       currentStepIndex: 0,
-      enrolledAt: new Date(),
+      enrolledAt,
       nextStepAt,
       status: "active",
     });

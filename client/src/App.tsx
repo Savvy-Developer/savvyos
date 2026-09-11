@@ -155,6 +155,7 @@ import EventsPage from "./pages/EventsPage";
 import WebsitePage from "./pages/WebsitePage";
 import PublicWebsite from "./pages/PublicWebsite";
 import AgentCelebrationPage from "./pages/AgentCelebrationPage";
+import ChecklistsPage from "./pages/ChecklistsPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -194,6 +195,17 @@ function AgentOnlyRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   if (user?.role && user.role !== "agent") {
+    navigate("/");
+    return null;
+  }
+  return <>{children}</>;
+}
+
+function AgentOrAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const role = (user as any)?.role;
+  if (role && role !== "agent" && role !== "admin") {
     navigate("/");
     return null;
   }
@@ -471,6 +483,7 @@ function Router() {
           <Route path="/tasks" component={TasksPage} />
           <Route path="/my-tasks" component={MyTasksPage} />
           <Route path="/tasks/:id" component={TaskDetailPage} />
+          <Route path="/checklists">{() => <AgentOrAdminRoute><ChecklistsPage /></AgentOrAdminRoute>}</Route>
           <Route path="/pto">{() => <PtoEmployeeRoute><PtoPage /></PtoEmployeeRoute>}</Route>
           <Route path="/pto/approvals">{() => <PtoApprovalsRoute><PtoManagerQueuePage /></PtoApprovalsRoute>}</Route>
           <Route path="/pto/admin">{() => <PtoAdministrationRoute><PtoAdministrationPage /></PtoAdministrationRoute>}</Route>

@@ -1776,6 +1776,267 @@ export const listings = mysqlTable("listings", {
 export type Listing = typeof listings.$inferSelect;
 export type InsertListing = typeof listings.$inferInsert;
 
+// ─── Agent Transaction & Listing Checklists ──────────────────────────────────
+// Templates remain mutable, while every application copies the complete
+// actionable state needed to remain independent of later template edits.
+export const agentChecklistTemplates = mysqlTable(
+  "agent_checklist_templates",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    ownerUserId: int("ownerUserId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    targetType: mysqlEnum("targetType", ["transaction", "listing"]).notNull(),
+    transactionTypeFilter: mysqlEnum("transactionTypeFilter", [
+      "buyer",
+      "seller",
+      "dual",
+      "any",
+    ])
+      .default("any")
+      .notNull(),
+    automaticDefaultEvent: mysqlEnum("automaticDefaultEvent", [
+      "none",
+      "on_create",
+      "on_under_contract",
+    ])
+      .default("none")
+      .notNull(),
+    archivedAt: timestamp("archivedAt"),
+    archivedByUserId: int("archivedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("agent_checklist_templates_owner_archived_idx").on(
+      table.ownerUserId,
+      table.archivedAt
+    ),
+    index("agent_checklist_templates_auto_match_idx").on(
+      table.ownerUserId,
+      table.targetType,
+      table.automaticDefaultEvent,
+      table.archivedAt
+    ),
+  ]
+);
+export type AgentChecklistTemplate = typeof agentChecklistTemplates.$inferSelect;
+export type InsertAgentChecklistTemplate = typeof agentChecklistTemplates.$inferInsert;
+
+export const agentChecklistTemplateItems = mysqlTable(
+  "agent_checklist_template_items",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    templateId: int("templateId")
+      .notNull()
+      .references(() => agentChecklistTemplates.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 500 }).notNull(),
+    notes: text("notes"),
+    sectionName: varchar("sectionName", { length: 255 })
+      .default("General")
+      .notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    dueAnchor: mysqlEnum("dueAnchor", [
+      "target_created",
+      "under_contract",
+      "closing",
+      "listing_live",
+    ]),
+    dueOffsetDays: int("dueOffsetDays").default(0).notNull(),
+    assignmentType: mysqlEnum("assignmentType", [
+      "none",
+      "owner",
+      "specific",
+    ])
+      .default("none")
+      .notNull(),
+    assignedUserId: int("assignedUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("agent_checklist_template_items_order_idx").on(
+      table.templateId,
+      table.sortOrder,
+      table.id
+    ),
+    index("agent_checklist_template_items_assignee_idx").on(table.assignedUserId),
+  ]
+);
+export type AgentChecklistTemplateItem = typeof agentChecklistTemplateItems.$inferSelect;
+export type InsertAgentChecklistTemplateItem = typeof agentChecklistTemplateItems.$inferInsert;
+
+export const agentChecklistTemplateShares = mysqlTable(
+  "agent_checklist_template_shares",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    templateId: int("templateId")
+      .notNull()
+      .references(() => agentChecklistTemplates.id, { onDelete: "cascade" }),
+    sharedWithUserId: int("sharedWithUserId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sharedByUserId: int("sharedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("agent_checklist_template_shares_unique").on(
+      table.templateId,
+      table.sharedWithUserId
+    ),
+    index("agent_checklist_template_shares_user_idx").on(
+      table.sharedWithUserId,
+      table.templateId
+    ),
+  ]
+);
+export type AgentChecklistTemplateShare = typeof agentChecklistTemplateShares.$inferSelect;
+
+export const agentChecklistApplications = mysqlTable(
+  "agent_checklist_applications",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    templateId: int("templateId").references(() => agentChecklistTemplates.id, {
+      onDelete: "set null",
+    }),
+    transactionId: int("transactionId").references(() => transactions.id, {
+      onDelete: "cascade",
+    }),
+    listingId: int("listingId").references(() => listings.id, {
+      onDelete: "cascade",
+    }),
+    targetType: mysqlEnum("targetType", ["transaction", "listing"]).notNull(),
+    source: mysqlEnum("source", ["auto", "manual"]).notNull(),
+    autoKey: varchar("autoKey", { length: 255 }),
+    templateNameSnapshot: varchar("templateNameSnapshot", { length: 255 }).notNull(),
+    templateDescriptionSnapshot: text("templateDescriptionSnapshot"),
+    templateOwnerUserIdSnapshot: int("templateOwnerUserIdSnapshot").notNull(),
+    templateTargetTypeSnapshot: mysqlEnum("templateTargetTypeSnapshot", [
+      "transaction",
+      "listing",
+    ]).notNull(),
+    templateTransactionTypeFilterSnapshot: mysqlEnum(
+      "templateTransactionTypeFilterSnapshot",
+      ["buyer", "seller", "dual", "any"]
+    ).notNull(),
+    templateAutomaticDefaultEventSnapshot: mysqlEnum(
+      "templateAutomaticDefaultEventSnapshot",
+      ["none", "on_create", "on_under_contract"]
+    ).notNull(),
+    targetAgentUserIdSnapshot: int("targetAgentUserIdSnapshot"),
+    appliedByUserId: int("appliedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    removedAt: timestamp("removedAt"),
+    removedByUserId: int("removedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    check(
+      "agent_checklist_applications_exact_target_chk",
+      sql`((${table.transactionId} IS NOT NULL AND ${table.listingId} IS NULL AND ${table.targetType} = 'transaction') OR (${table.transactionId} IS NULL AND ${table.listingId} IS NOT NULL AND ${table.targetType} = 'listing'))`
+    ),
+    uniqueIndex("agent_checklist_applications_autoKey_unique").on(table.autoKey),
+    index("agent_checklist_applications_transaction_idx").on(
+      table.transactionId,
+      table.removedAt,
+      table.createdAt
+    ),
+    index("agent_checklist_applications_listing_idx").on(
+      table.listingId,
+      table.removedAt,
+      table.createdAt
+    ),
+    index("agent_checklist_applications_template_idx").on(table.templateId),
+  ]
+);
+export type AgentChecklistApplication = typeof agentChecklistApplications.$inferSelect;
+export type InsertAgentChecklistApplication = typeof agentChecklistApplications.$inferInsert;
+
+export const agentChecklistApplicationItems = mysqlTable(
+  "agent_checklist_application_items",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    applicationId: int("applicationId")
+      .notNull()
+      .references(() => agentChecklistApplications.id, { onDelete: "cascade" }),
+    templateItemId: int("templateItemId").references(
+      () => agentChecklistTemplateItems.id,
+      { onDelete: "set null" }
+    ),
+    title: varchar("title", { length: 500 }).notNull(),
+    notes: text("notes"),
+    sectionName: varchar("sectionName", { length: 255 })
+      .default("General")
+      .notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    dueAnchorSnapshot: mysqlEnum("dueAnchorSnapshot", [
+      "target_created",
+      "under_contract",
+      "closing",
+      "listing_live",
+    ]),
+    dueOffsetDaysSnapshot: int("dueOffsetDaysSnapshot").default(0).notNull(),
+    assignmentTypeSnapshot: mysqlEnum("assignmentTypeSnapshot", [
+      "none",
+      "owner",
+      "specific",
+    ])
+      .default("none")
+      .notNull(),
+    configuredAssignedUserIdSnapshot: int("configuredAssignedUserIdSnapshot"),
+    dueDate: timestamp("dueDate"),
+    dueDateManuallyOverridden: boolean("dueDateManuallyOverridden")
+      .default(false)
+      .notNull(),
+    assignedUserId: int("assignedUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    completed: boolean("completed").default(false).notNull(),
+    completedAt: timestamp("completedAt"),
+    completedByUserId: int("completedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    removedAt: timestamp("removedAt"),
+    removedByUserId: int("removedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("agent_checklist_application_items_order_idx").on(
+      table.applicationId,
+      table.removedAt,
+      table.sortOrder,
+      table.id
+    ),
+    index("agent_checklist_application_items_assignee_due_idx").on(
+      table.assignedUserId,
+      table.completed,
+      table.dueDate
+    ),
+    index("agent_checklist_application_items_template_item_idx").on(
+      table.templateItemId
+    ),
+  ]
+);
+export type AgentChecklistApplicationItem =
+  typeof agentChecklistApplicationItems.$inferSelect;
+export type InsertAgentChecklistApplicationItem =
+  typeof agentChecklistApplicationItems.$inferInsert;
+
 // ─── Smart Plans ─────────────────────────────────────────────────────────────
 export const smartPlans = mysqlTable("smart_plans", {
   id: int("id").autoincrement().primaryKey(),

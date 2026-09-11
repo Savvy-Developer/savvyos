@@ -5,6 +5,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb, createListing, createTransaction, logActivity, updateListing, updateTransaction } from "../db";
 import { canAdminUsePermission, type PermissionKey } from "./permissions";
 import { normalizeOptionalUsPhone } from "@shared/phone";
+import { applyAutomaticChecklists } from "../checklistService";
 import {
   contacts,
   listings,
@@ -28,6 +29,23 @@ const REFERRAL_TYPES = ["buyer", "seller", "buyer_seller", "other"] as const;
 const PAYMENT_STATUSES = ["not_yet_due", "due", "invoiced", "processing", "paid", "disputed", "written_off"] as const;
 const EVENT_TYPES = ["note", "referral_agent_update", "call", "email", "follow_up", "important_date"] as const;
 const AGREEMENT_STATUSES = ["not_created", "sent", "awaiting_signature", "executed", "expired", "superseded"] as const;
+
+async function applyReferralConversionChecklistsSafely(params: {
+  targetType: "transaction" | "listing";
+  targetId: number;
+  event: "on_create" | "on_under_contract";
+  actorUserId: number;
+  eventAt?: Date;
+}): Promise<void> {
+  try {
+    await applyAutomaticChecklists(params);
+  } catch (error) {
+    console.error("[Checklists] Referral conversion automation failed without blocking conversion", {
+      ...params,
+      error,
+    });
+  }
+}
 
 const defaultStatusOptions = [
   ["referral_sent", "Referral Sent", "active", 10],
@@ -771,6 +789,7 @@ export const referralsRouter = router({
     await assertReferralAccess(ctx, "canEditReferrals");
     const { db, referral } = await getReferralOrThrow(input.referralId);
     const transactionNumber = `REF-${Date.now()}`;
+    const contractDate = asDate(input.contractDate) ?? new Date();
     const txId = await createTransaction({
       transactionNumber,
       agentId: referral.relationshipOwnerId ?? ctx.user.id,
@@ -780,7 +799,7 @@ export const referralsRouter = router({
       status: "under_contract",
       propertyId: input.propertyId ?? referral.propertyId ?? null,
       purchasePrice: amount(input.purchasePrice),
-      contractDate: asDate(input.contractDate) ?? new Date(),
+      contractDate,
       closingDate: asDate(input.closingDate),
       grossCommissionIncome: amount(input.grossCommissionIncome),
       commissionRate: amount(input.commissionRate),
@@ -792,6 +811,8 @@ export const referralsRouter = router({
       savvyReferralPct: referral.savvyReferralPct,
       referralMarket: referral.market,
     } as any);
+    await applyReferralConversionChecklistsSafely({ targetType: "transaction", targetId: txId, event: "on_create", actorUserId: ctx.user.id });
+    await applyReferralConversionChecklistsSafely({ targetType: "transaction", targetId: txId, event: "on_under_contract", actorUserId: ctx.user.id });
     await db.insert(referralTransactionLinks).values({ referralId: referral.id, transactionId: txId }).onDuplicateKeyUpdate({ set: { transactionId: txId } });
     await syncReferralPaymentForTransaction(txId, ctx.user.id);
     await db.update(referrals).set({ statusKey: "under_contract", statusCategory: "active", underContractAt: new Date() }).where(eq(referrals.id, referral.id));
@@ -821,6 +842,7 @@ export const referralsRouter = router({
       savvyReferralPct: referral.savvyReferralPct,
       referralMarket: referral.market,
     } as any);
+    await applyReferralConversionChecklistsSafely({ targetType: "listing", targetId: listingId, event: "on_create", actorUserId: ctx.user.id });
     await db.insert(referralListingLinks).values({ referralId: referral.id, listingId }).onDuplicateKeyUpdate({ set: { listingId } });
     await db.update(referrals).set({ statusKey: "listing_signed", statusCategory: "active" }).where(eq(referrals.id, referral.id));
     await db.insert(referralEvents).values({ referralId: referral.id, eventType: "status_change", title: `Converted to outside referral listing #${listingId}`, previousStatusKey: referral.statusKey, newStatusKey: "listing_signed", occurredAt: new Date(), enteredById: ctx.user.id });

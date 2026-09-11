@@ -132,6 +132,7 @@ function buildAgentNav(
       path: "/tasks",
       badge: myOverdueTasks > 0 ? myOverdueTasks : undefined,
     },
+    { icon: CheckSquare, label: "My Checklists", path: "/checklists" },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
     { icon: Users, label: "Agent Directory", path: "/agent-directory" },
   ];
@@ -506,6 +507,7 @@ function buildAdminNav(
       label: "Work",
       items: [
         { icon: Activity, label: "Pulse", path: "/pulse" },
+        { icon: CheckSquare, label: "My Checklists", path: "/checklists" },
         { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Briefcase, label: "Job Board", path: "/job-board" },
         {

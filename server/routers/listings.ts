@@ -24,6 +24,49 @@ import { linkReferralTransaction } from "./referrals";
 import { properties as propertiesTable, users, listings as listingsTable, contacts as contactsTable, transactions as transactionsTable, contactProperties } from "../../drizzle/schema";
 import { eq, or, and } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
+import { applyAutomaticChecklists, recalculateChecklistDueDates } from "../checklistService";
+
+async function applyListingChecklistsSafely(
+  listingId: number,
+  event: "on_create" | "on_under_contract",
+  actorUserId: number,
+  eventAt?: Date
+): Promise<void> {
+  try {
+    await applyAutomaticChecklists({
+      targetType: "listing",
+      targetId: listingId,
+      event,
+      eventAt,
+      actorUserId,
+    });
+  } catch (error) {
+    console.error("[Checklists] Listing automation failed without blocking the listing", {
+      listingId,
+      event,
+      error,
+    });
+  }
+}
+
+async function applyConvertedTransactionChecklistsSafely(
+  transactionId: number,
+  actorUserId: number
+): Promise<void> {
+  try {
+    await applyAutomaticChecklists({
+      targetType: "transaction",
+      targetId: transactionId,
+      event: "on_create",
+      actorUserId,
+    });
+  } catch (error) {
+    console.error("[Checklists] Converted transaction automation failed without blocking conversion", {
+      transactionId,
+      error,
+    });
+  }
+}
 
 export const listingsRouter = router({
   list: protectedProcedure
@@ -135,6 +178,10 @@ export const listingsRouter = router({
         mlsNumber: input.mlsNumber ?? null,
         notes: input.notes ?? null,
       } as any);
+      await applyListingChecklistsSafely(id, "on_create", ctx.user.id);
+      if (input.listingStatus === "under_contract") {
+        await applyListingChecklistsSafely(id, "on_under_contract", ctx.user.id, new Date());
+      }
       // Enrich activity log with names of all involved parties
       let lstContactName = "Unknown Contact";
       let lstAgentName = "Unknown Agent";
@@ -243,6 +290,24 @@ export const listingsRouter = router({
         expirationDate: expirationDate ? expirationDate.slice(0, 10) : undefined,
         terminationDate: terminationDate ? terminationDate.slice(0, 10) : undefined,
       } as any);
+      if (listDate !== undefined) {
+        await recalculateChecklistDueDates({
+          targetType: "listing",
+          targetId: input.id,
+          anchors: ["listing_live"],
+        }).catch(error => {
+          console.error("[Checklists] Listing due-date recalculation failed", {
+            listingId: input.id,
+            error,
+          });
+        });
+      }
+      if (
+        oldListing?.listing.listingStatus !== "under_contract" &&
+        input.data.listingStatus === "under_contract"
+      ) {
+        await applyListingChecklistsSafely(input.id, "on_under_contract", ctx.user.id, new Date());
+      }
       // Build changes diff
       const changes: Record<string, { from: any; to: any }> = {};
       const old = oldListing?.listing;
@@ -482,12 +547,15 @@ export const listingsRouter = router({
           savvyReferralPct: (listingData.listing as any).savvyReferralPct ?? null,
           referralMarket: (listingData.listing as any).referralMarket ?? null,
         } as any);
+        await applyConvertedTransactionChecklistsSafely(sellerTxId, ctx.user.id);
+        await applyConvertedTransactionChecklistsSafely(buyerTxId, ctx.user.id);
 
         // Carry over listing documents to the seller-side transaction
         const docCount = await carryOverDocs(sellerTxId);
 
         // Keep the listing lifecycle aligned with the newly created transaction.
         await updateListing(input.listingId, { listingStatus: "under_contract", convertedTransactionId: sellerTxId } as any);
+        await applyListingChecklistsSafely(input.listingId, "on_under_contract", ctx.user.id, new Date());
         if ((listingData.listing as any).referralId) {
           await linkReferralTransaction((listingData.listing as any).referralId, sellerTxId, ctx.user.id);
           await linkReferralTransaction((listingData.listing as any).referralId, buyerTxId, ctx.user.id);
@@ -515,11 +583,13 @@ export const listingsRouter = router({
         listingId: input.listingId,
         sellerContactId: input.primaryContactId,
       } as any);
+      await applyConvertedTransactionChecklistsSafely(txId, ctx.user.id);
 
       // Carry over listing documents to the new transaction
       const docCount = await carryOverDocs(txId);
 
       await updateListing(input.listingId, { listingStatus: "under_contract", convertedTransactionId: txId } as any);
+      await applyListingChecklistsSafely(input.listingId, "on_under_contract", ctx.user.id, new Date());
       if ((listingData.listing as any).referralId) {
         await linkReferralTransaction((listingData.listing as any).referralId, txId, ctx.user.id);
       }
@@ -689,6 +759,10 @@ export const listingsRouter = router({
             mlsNumber: row.mlsNumber?.trim() || null,
             notes: row.notes?.trim() || null,
           } as any);
+          await applyListingChecklistsSafely(id, "on_create", ctx.user.id);
+          if (normalizedStatus === "under_contract") {
+            await applyListingChecklistsSafely(id, "on_under_contract", ctx.user.id, new Date());
+          }
           await logActivity({ userId: ctx.user.id, action: "listing_created", entityType: "listing", entityId: id, details: { label, source: "bulk_upload" } });
           results.push({ row: rowNum, status: "created", label });
           created++;

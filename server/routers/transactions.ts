@@ -34,9 +34,10 @@ import { getDb } from "../db";
 import { isValidExpMemoNumber, normalizeExpMemoNumber } from "../expMemoNumber";
 import { canAdministerSettledPayouts, setPayoutStatus } from "../payoutStatusWorkflow";
 import { PAYOUT_STATUSES, resolvePayoutStatus } from "@shared/payoutStatus";
-import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources } from "../../drizzle/schema";
+import { transactionPayoutItems, transactions, listings, contacts, properties, communications, activityLog, users, transactionNotes, transactionDocuments, commissionExceptions, groupMembers, groups, markets, leadSources, agentChecklistApplications } from "../../drizzle/schema";
 import { buildTransactionCsv, buildTransactionExportFilterSummary, TRANSACTION_EXPORT_COLUMNS } from "../transactionExport";
 import { eq, and, sql, desc, aliasedTable, or, inArray, ne } from "drizzle-orm";
+import { applyAutomaticChecklists, recalculateChecklistDueDates } from "../checklistService";
 
 const wholePercentageSchema = z.coerce
   .number({ error: "Percentage must be a number from 0 to 100." })
@@ -80,6 +81,29 @@ async function syncIsaOutcomeAttributionSafely(transactionId: number): Promise<v
     await syncIsaOutcomeAttribution(transactionId);
   } catch (error) {
     console.error("[ISA Attribution] Failed to sync transaction outcome:", { transactionId, error });
+  }
+}
+
+async function applyTransactionChecklistsSafely(
+  transactionId: number,
+  event: "on_create" | "on_under_contract",
+  actorUserId: number,
+  eventAt?: Date
+): Promise<void> {
+  try {
+    await applyAutomaticChecklists({
+      targetType: "transaction",
+      targetId: transactionId,
+      event,
+      eventAt,
+      actorUserId,
+    });
+  } catch (error) {
+    console.error("[Checklists] Transaction automation failed without blocking the transaction", {
+      transactionId,
+      event,
+      error,
+    });
   }
 }
 
@@ -306,6 +330,8 @@ export const transactionsRouter = router({
         closingDate: input.closingDate ? new Date(input.closingDate) : null,
       } as any);
       await syncIsaOutcomeAttributionSafely(id);
+      await applyTransactionChecklistsSafely(id, "on_create", ctx.user.id);
+      await applyTransactionChecklistsSafely(id, "on_under_contract", ctx.user.id);
 
       // Enrich activity log with names of all involved parties
       let txContactName = "Unknown Contact";
@@ -475,6 +501,22 @@ export const transactionsRouter = router({
       await updateTransaction(input.id, updateData as any);
       await syncIsaOutcomeAttributionSafely(input.id);
 
+      const changedChecklistAnchors: Array<"under_contract" | "closing"> = [];
+      if (contractDate !== undefined) changedChecklistAnchors.push("under_contract");
+      if (closingDate !== undefined) changedChecklistAnchors.push("closing");
+      if (changedChecklistAnchors.length > 0) {
+        await recalculateChecklistDueDates({
+          targetType: "transaction",
+          targetId: input.id,
+          anchors: changedChecklistAnchors,
+        }).catch(error => {
+          console.error("[Checklists] Transaction due-date recalculation failed", {
+            transactionId: input.id,
+            error,
+          });
+        });
+      }
+
       // Fetch transaction for context (used in emails and logging)
       const txForEmail = await getTransactionById(input.id);
       const txContext = txForEmail ? {
@@ -487,6 +529,9 @@ export const transactionsRouter = router({
       const statusChanged = !!input.data.status && input.data.status !== before?.status;
       if (statusChanged && txForEmail && (input.data.status === "under_contract" || input.data.status === "closed")) {
         await triggerSmartPlansForTransactionStatus(txForEmail.transaction, input.data.status);
+      }
+      if (statusChanged && input.data.status === "under_contract") {
+        await applyTransactionChecklistsSafely(input.id, "on_under_contract", ctx.user.id);
       }
 
       // Automation: transaction closed → check payout integrity and request client feedback.
@@ -1510,6 +1555,10 @@ export const transactionsRouter = router({
           notes: row.notes?.trim() ?? null,
         } as any);
         await syncIsaOutcomeAttributionSafely(txId);
+        await applyTransactionChecklistsSafely(txId, "on_create", ctx.user.id);
+        if (txStatus === "under_contract") {
+          await applyTransactionChecklistsSafely(txId, "on_under_contract", ctx.user.id);
+        }
 
         // ── 12. Auto-generate commission payouts ──────────────────────────────
         if (gci && gci > 0) {
@@ -1686,6 +1735,7 @@ export const transactionsRouter = router({
       await db.delete(transactionDocuments).where(eq(transactionDocuments.transactionId, input.id));
       await db.delete(transactionNotes).where(eq(transactionNotes.transactionId, input.id));
       await db.delete(commissionExceptions).where(eq(commissionExceptions.transactionId, input.id));
+      await db.delete(agentChecklistApplications).where(eq(agentChecklistApplications.transactionId, input.id));
       await db.delete(communications).where(eq(communications.relatedTransactionId, input.id));
       await db.delete(activityLog).where(and(eq(activityLog.entityType, "transaction"), eq(activityLog.entityId, input.id)));
       // Clear listing reference if this transaction came from a listing conversion

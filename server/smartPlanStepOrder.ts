@@ -15,6 +15,17 @@ export function compareSmartPlanStepsByTiming<T extends TimedSmartPlanStep>(a: T
   return aTiming - bTiming || a.stepOrder - b.stepOrder || a.id - b.id;
 }
 
+/** Smart Plan delays are absolute offsets from enrollment, not cumulative waits. */
+export function smartPlanStepScheduledAt(
+  enrolledAt: Date | string,
+  step: Pick<TimedSmartPlanStep, "delayDays" | "delayHours">
+): Date {
+  const scheduledAt = new Date(enrolledAt);
+  scheduledAt.setUTCDate(scheduledAt.getUTCDate() + step.delayDays);
+  scheduledAt.setUTCHours(scheduledAt.getUTCHours() + step.delayHours);
+  return scheduledAt;
+}
+
 export function describeStepDelay(delayDays: number, delayHours: number): string {
   if (!delayDays && !delayHours) return "Immediately";
   const parts: string[] = [];

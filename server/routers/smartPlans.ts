@@ -50,7 +50,7 @@ import {
   isValidSmartPlanSendWindow,
   normaliseSmartPlanSendWindow,
 } from "../smartPlanScheduling";
-import { compareSmartPlanStepsByTiming } from "../smartPlanStepOrder";
+import { compareSmartPlanStepsByTiming, smartPlanStepScheduledAt } from "../smartPlanStepOrder";
 import {
   analyzeSmartPlanPerformance,
   renderSmartPlanAnalysisEmail,
@@ -60,6 +60,43 @@ import { sendTransactionalEmail } from "../_core/resendEmail";
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 const smartPlanTriggerSchema = z.enum(SMART_PLAN_TRIGGER_TYPES);
+
+async function rescheduleActivePlanEnrollments(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  planId: number
+): Promise<void> {
+  const [steps, enrollments] = await Promise.all([
+    db
+      .select()
+      .from(smartPlanSteps)
+      .where(eq(smartPlanSteps.planId, planId))
+      .orderBy(asc(smartPlanSteps.stepOrder)),
+    db
+      .select({
+        id: smartPlanEnrollments.id,
+        currentStepIndex: smartPlanEnrollments.currentStepIndex,
+        enrolledAt: smartPlanEnrollments.enrolledAt,
+      })
+      .from(smartPlanEnrollments)
+      .where(
+        and(
+          eq(smartPlanEnrollments.planId, planId),
+          eq(smartPlanEnrollments.status, "active"),
+          isNull(smartPlanEnrollments.archivedAt)
+        )
+      ),
+  ]);
+  for (const enrollment of enrollments) {
+    const currentStep = steps[enrollment.currentStepIndex];
+    if (!currentStep) continue;
+    await db
+      .update(smartPlanEnrollments)
+      .set({
+        nextStepAt: smartPlanStepScheduledAt(enrollment.enrolledAt, currentStep),
+      })
+      .where(eq(smartPlanEnrollments.id, enrollment.id));
+  }
+}
 
 const calendarDateInput = z
   .string()
@@ -1227,10 +1264,10 @@ export const smartPlansRouter = router({
           steps: z.array(
             z.object({
               id: z.number().optional(),
-              stepOrder: z.number(),
+              stepOrder: z.number().int(),
               channel: z.enum(["email", "sms"]),
-              delayDays: z.number().min(0).default(0),
-              delayHours: z.number().min(0).max(23).default(0),
+              delayDays: z.number().int().min(0).default(0),
+              delayHours: z.number().int().min(0).max(23).default(0),
               subject: z.string().optional().nullable(),
               body: z.string().min(1),
               businessHoursOnly: z.boolean().default(false),
@@ -1263,6 +1300,23 @@ export const smartPlansRouter = router({
           throw new TRPCError({ code: "FORBIDDEN" });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [liveEnrollment] = await db
+          .select({ id: smartPlanEnrollments.id })
+          .from(smartPlanEnrollments)
+          .where(
+            and(
+              eq(smartPlanEnrollments.planId, input.planId),
+              inArray(smartPlanEnrollments.status, ["active", "paused"]),
+              isNull(smartPlanEnrollments.archivedAt)
+            )
+          )
+          .limit(1);
+        if (liveEnrollment) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Bulk step replacement is unavailable while this plan has active or paused enrollments. Edit steps individually instead.",
+          });
+        }
         await db
           .delete(smartPlanSteps)
           .where(eq(smartPlanSteps.planId, input.planId));
@@ -1296,8 +1350,8 @@ export const smartPlansRouter = router({
         z.object({
           planId: z.number(),
           channel: z.enum(["email", "sms"]),
-          delayDays: z.number().min(0).default(0),
-          delayHours: z.number().min(0).max(23).default(0),
+          delayDays: z.number().int().min(0).default(0),
+          delayHours: z.number().int().min(0).max(23).default(0),
           subject: z.string().optional().nullable(),
           body: z.string().min(1),
           businessHoursOnly: z.boolean().default(false),
@@ -1389,8 +1443,8 @@ export const smartPlansRouter = router({
         z.object({
           stepId: z.number(),
           channel: z.enum(["email", "sms"]).optional(),
-          delayDays: z.number().min(0).optional(),
-          delayHours: z.number().min(0).max(23).optional(),
+          delayDays: z.number().int().min(0).optional(),
+          delayHours: z.number().int().min(0).max(23).optional(),
           subject: z.string().optional().nullable(),
           body: z.string().min(1).optional(),
           businessHoursOnly: z.boolean().optional(),
@@ -1408,13 +1462,13 @@ export const smartPlansRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         const { stepId, ...data } = input;
+        const [existing] = await db
+          .select()
+          .from(smartPlanSteps)
+          .where(eq(smartPlanSteps.id, stepId))
+          .limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
         if (data.sendWindowEnabled) {
-          const [existing] = await db
-            .select()
-            .from(smartPlanSteps)
-            .where(eq(smartPlanSteps.id, stepId))
-            .limit(1);
-          if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
           if (
             data.sendDays?.length === 0 ||
             !isValidSmartPlanSendWindow(
@@ -1437,13 +1491,20 @@ export const smartPlansRouter = router({
           .update(smartPlanSteps)
           .set(data)
           .where(eq(smartPlanSteps.id, stepId));
-        const [updatedStep] = await db
-          .select({ planId: smartPlanSteps.planId })
+        await orderPlanStepsByTiming(db, existing.planId);
+        await rescheduleActivePlanEnrollments(db, existing.planId);
+        const [persistedStep] = await db
+          .select({
+            id: smartPlanSteps.id,
+            stepOrder: smartPlanSteps.stepOrder,
+            delayDays: smartPlanSteps.delayDays,
+            delayHours: smartPlanSteps.delayHours,
+          })
           .from(smartPlanSteps)
           .where(eq(smartPlanSteps.id, stepId))
           .limit(1);
-        if (updatedStep) await orderPlanStepsByTiming(db, updatedStep.planId);
-        return { success: true };
+        if (!persistedStep) throw new TRPCError({ code: "NOT_FOUND" });
+        return { success: true, step: persistedStep };
       }),
 
     // Delete a single step and reorder remaining
@@ -1454,6 +1515,28 @@ export const smartPlansRouter = router({
           throw new TRPCError({ code: "FORBIDDEN" });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const beforeSteps = await db
+          .select()
+          .from(smartPlanSteps)
+          .where(eq(smartPlanSteps.planId, input.planId))
+          .orderBy(asc(smartPlanSteps.stepOrder));
+        const deletedIndex = beforeSteps.findIndex(step => step.id === input.stepId);
+        if (deletedIndex === -1) throw new TRPCError({ code: "NOT_FOUND" });
+        const liveEnrollments = await db
+          .select({
+            id: smartPlanEnrollments.id,
+            currentStepIndex: smartPlanEnrollments.currentStepIndex,
+            enrolledAt: smartPlanEnrollments.enrolledAt,
+            status: smartPlanEnrollments.status,
+          })
+          .from(smartPlanEnrollments)
+          .where(
+            and(
+              eq(smartPlanEnrollments.planId, input.planId),
+              inArray(smartPlanEnrollments.status, ["active", "paused"]),
+              isNull(smartPlanEnrollments.archivedAt)
+            )
+          );
         await db
           .delete(smartPlanSteps)
           .where(eq(smartPlanSteps.id, input.stepId));
@@ -1468,6 +1551,36 @@ export const smartPlansRouter = router({
             .update(smartPlanSteps)
             .set({ stepOrder: i })
             .where(eq(smartPlanSteps.id, remaining[i].id));
+        }
+        for (const enrollment of liveEnrollments) {
+          if (enrollment.currentStepIndex < deletedIndex) continue;
+          const currentStepIndex =
+            enrollment.currentStepIndex > deletedIndex
+              ? enrollment.currentStepIndex - 1
+              : deletedIndex;
+          const currentStep = remaining[currentStepIndex];
+          if (!currentStep) {
+            await db
+              .update(smartPlanEnrollments)
+              .set({
+                currentStepIndex: remaining.length,
+                status: "completed",
+                completedAt: new Date(),
+                nextStepAt: null,
+              })
+              .where(eq(smartPlanEnrollments.id, enrollment.id));
+            continue;
+          }
+          await db
+            .update(smartPlanEnrollments)
+            .set({
+              currentStepIndex,
+              nextStepAt:
+                enrollment.status === "active"
+                  ? smartPlanStepScheduledAt(enrollment.enrolledAt, currentStep)
+                  : null,
+            })
+            .where(eq(smartPlanEnrollments.id, enrollment.id));
         }
         return { success: true };
       }),
@@ -1495,6 +1608,28 @@ export const smartPlansRouter = router({
         if (idx === -1) throw new TRPCError({ code: "NOT_FOUND" });
         const swapIdx = input.direction === "up" ? idx - 1 : idx + 1;
         if (swapIdx < 0 || swapIdx >= steps.length) return { success: true };
+        const currentDelayHours = steps[idx].delayDays * 24 + steps[idx].delayHours;
+        const swapDelayHours = steps[swapIdx].delayDays * 24 + steps[swapIdx].delayHours;
+        if (currentDelayHours !== swapDelayHours) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Steps are ordered automatically by wait time. Only steps with the same wait can be reordered.",
+          });
+        }
+        const liveEnrollments = await db
+          .select({
+            id: smartPlanEnrollments.id,
+            currentStepIndex: smartPlanEnrollments.currentStepIndex,
+          })
+          .from(smartPlanEnrollments)
+          .where(
+            and(
+              eq(smartPlanEnrollments.planId, input.planId),
+              inArray(smartPlanEnrollments.status, ["active", "paused"]),
+              isNull(smartPlanEnrollments.archivedAt)
+            )
+          );
+        const previousIds = steps.map(step => step.id);
         // Swap stepOrder values
         const aOrder = steps[idx].stepOrder;
         const bOrder = steps[swapIdx].stepOrder;
@@ -1506,9 +1641,24 @@ export const smartPlansRouter = router({
           .update(smartPlanSteps)
           .set({ stepOrder: aOrder })
           .where(eq(smartPlanSteps.id, steps[swapIdx].id));
-        // Timing remains the primary order; a manual move can only establish
-        // the sequence between two steps that have the same wait time.
-        await orderPlanStepsByTiming(db, input.planId);
+        const nextIds = [...previousIds];
+        [nextIds[idx], nextIds[swapIdx]] = [nextIds[swapIdx], nextIds[idx]];
+        const nextIndexById = new Map(nextIds.map((id, index) => [id, index]));
+        for (const enrollment of liveEnrollments) {
+          const pendingStepId = previousIds[enrollment.currentStepIndex];
+          const currentStepIndex = pendingStepId
+            ? nextIndexById.get(pendingStepId)
+            : undefined;
+          if (
+            currentStepIndex !== undefined &&
+            currentStepIndex !== enrollment.currentStepIndex
+          ) {
+            await db
+              .update(smartPlanEnrollments)
+              .set({ currentStepIndex })
+              .where(eq(smartPlanEnrollments.id, enrollment.id));
+          }
+        }
         return { success: true };
       }),
   }),

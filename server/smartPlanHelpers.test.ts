@@ -11,7 +11,7 @@ import {
   LEGACY_BUSINESS_HOURS_WINDOW,
   nextSmartPlanSendWindowStart,
 } from "./smartPlanScheduling";
-import { compareSmartPlanStepsByTiming } from "./smartPlanStepOrder";
+import { compareSmartPlanStepsByTiming, describeStepDelay, smartPlanStepScheduledAt } from "./smartPlanStepOrder";
 import { capabilitiesForPasswordShare, normalizePasswordShareGrant, sharedAccessLabel } from "./passwordListSharing";
 
 describe("Offer Sheet referral property extraction", () => {
@@ -137,6 +137,39 @@ describe("Smart Plan timing order", () => {
       { id: 33, stepOrder: 3, delayDays: 2, delayHours: 0 },
     ];
     expect([...steps].sort(compareSmartPlanStepsByTiming).map((step) => step.id)).toEqual([30, 40, 31, 32, 33]);
+  });
+
+  it("preserves a one-hour delay on the same immutable step ID when its visible position changes", () => {
+    const editedStep = { id: 31, stepOrder: 1, delayDays: 0, delayHours: 1 };
+    const steps = [
+      { id: 30, stepOrder: 0, delayDays: 0, delayHours: 0 },
+      editedStep,
+      { id: 32, stepOrder: 2, delayDays: 0, delayHours: 0 },
+    ];
+
+    const ordered = [...steps].sort(compareSmartPlanStepsByTiming);
+    const persistedEditedStep = ordered.find(step => step.id === editedStep.id);
+
+    expect(ordered.map(step => step.id)).toEqual([30, 32, 31]);
+    expect(persistedEditedStep).toMatchObject({
+      id: 31,
+      delayDays: 0,
+      delayHours: 1,
+    });
+    expect(describeStepDelay(0, 1)).toBe("1 hour");
+  });
+
+  it("schedules every step as an absolute offset from enrollment", () => {
+    const enrolledAt = new Date("2026-09-11T12:00:00.000Z");
+    expect(
+      smartPlanStepScheduledAt(enrolledAt, { delayDays: 0, delayHours: 0 })
+    ).toEqual(new Date("2026-09-11T12:00:00.000Z"));
+    expect(
+      smartPlanStepScheduledAt(enrolledAt, { delayDays: 0, delayHours: 1 })
+    ).toEqual(new Date("2026-09-11T13:00:00.000Z"));
+    expect(
+      smartPlanStepScheduledAt(enrolledAt, { delayDays: 1, delayHours: 0 })
+    ).toEqual(new Date("2026-09-12T12:00:00.000Z"));
   });
 });
 
