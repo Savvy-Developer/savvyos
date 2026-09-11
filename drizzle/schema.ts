@@ -3307,6 +3307,40 @@ export const marketIntelligenceProfiles = mysqlTable(
 export type MarketIntelligenceProfile =
   typeof marketIntelligenceProfiles.$inferSelect;
 
+// A Market Match fit profile is a conservative, machine-readable projection of
+// the living Market AI profile. It is intentionally separate from the agent
+// profile so the public quiz can score only consistent, evidence-supported
+// dimensions without treating narrative prose as a scoring rubric.
+export const marketMatchFitProfiles = mysqlTable(
+  "market_match_fit_profiles",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    marketProfileId: int("marketProfileId")
+      .notNull()
+      .references(() => marketProfiles.id, { onDelete: "cascade" }),
+    profileJson: json("profileJson").$type<Record<string, unknown>>(),
+    sourceIntelligenceHash: varchar("sourceIntelligenceHash", { length: 64 }),
+    status: mysqlEnum("status", ["ready", "refreshing", "failed"])
+      .notNull()
+      .default("refreshing"),
+    model: varchar("model", { length: 128 }),
+    generatedAt: timestamp("generatedAt"),
+    errorMessage: text("errorMessage"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("market_match_fit_profile_market_unique").on(
+      table.marketProfileId
+    ),
+    index("market_match_fit_profile_status_updated_idx").on(
+      table.status,
+      table.updatedAt
+    ),
+  ]
+);
+export type MarketMatchFitProfile = typeof marketMatchFitProfiles.$inferSelect;
+
 // ─── Agent Market Profile Feedback ──────────────────────────────────────────
 // A snapshot of each material profile update is sent to every assigned agent.
 // Feedback is retained beside that snapshot and added as a source before the

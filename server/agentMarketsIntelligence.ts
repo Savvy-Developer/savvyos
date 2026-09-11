@@ -19,6 +19,7 @@ import {
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { notifyAssignedAgentsOfMarketProfileUpdate } from "./agentMarketProfileFeedback";
+import { refreshMarketMatchFitProfile } from "./marketMatchFitProfiles";
 
 export type MarketRefreshReason = "manual" | "source_added" | "scheduled";
 
@@ -462,6 +463,9 @@ export async function refreshMarketIntelligence(
       generatedAt,
       errorMessage: null,
     }).where(eq(marketIntelligenceProfiles.marketProfileId, marketProfileId));
+    // Public Market Match consumes a separate, conservative fit profile. Refresh
+    // it from the newly saved Market AI profile without slowing the core refresh.
+    void refreshMarketMatchFitProfile(marketProfileId).catch(error => console.error(`[AgentMarkets] Could not refresh Market Match fit profile for market ${marketProfileId}:`, error));
     // A newly created profile is an initial backfill, not an update agents
     // requested. Only notify when a previously generated profile materially
     // changes, avoiding a one-time bulk send as existing markets are adopted.

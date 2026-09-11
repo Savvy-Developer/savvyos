@@ -13,6 +13,7 @@ import {
   marketMatchQuizBookings,
   marketMatchQuizConnectionRequests,
   marketMatchQuizEvents,
+  marketMatchFitProfiles,
   marketMatchQuizLenderRequests,
   marketMatchQuizLenders,
   marketMatchQuizMarketSettings,
@@ -31,6 +32,12 @@ import { invokeLLM } from "./_core/llm";
 import { ENV } from "./_core/env";
 import { sendTransactionalEmail } from "./_core/resendEmail";
 import { enrollContactInPlan } from "./smartPlanScheduler";
+import {
+  MARKET_MATCH_FIT_PROFILE_VERSION,
+  type MarketMatchFitProfile,
+  normalizeMarketMatchFitProfile,
+  refreshDueMarketMatchFitProfiles,
+} from "./marketMatchFitProfiles";
 
 export const QUIZ_MODEL = process.env.MARKET_MATCH_QUIZ_MODEL || "gpt-5-mini";
 export const QUIZ_ACCESS_STORAGE_KEY = "savvy-market-match-access";
@@ -80,7 +87,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     helper: "Choose one goal to guide your short-term-rental market ranking first.",
     type: "single",
     required: true,
-    showWhen: { questionId: "investmentGoals", values: ["cash_flow", "tax_strategy", "appreciation", "value_add", "lifestyle", "portfolio", "not_sure"] },
+    showWhen: { questionId: "investmentGoals", values: ["cash_flow", "tax_strategy", "appreciation", "value_add", "lifestyle", "portfolio"] },
     options: [
       { value: "cash_flow", label: "Cash flow" },
       { value: "tax_strategy", label: "Tax strategy" },
@@ -182,6 +189,22 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     label: "Which STR markets or locations are you considering, and what is a firm restriction versus a preference?",
     helper: "A city, state, region, drive-time limit, or airport preference works. If you are open to STR market guidance, use the Not sure yet button below.",
     type: "text",
+  },
+  {
+    id: "destinationStyle",
+    section: "property",
+    label: "What kind of STR destination best fits this investment?",
+    helper: "Select every setting you would seriously consider. This helps distinguish beach, mountain, lake, urban, and other STR demand patterns.",
+    type: "multi",
+    options: [
+      { value: "beach", label: "Beach or coastal" },
+      { value: "mountain", label: "Mountain or outdoor" },
+      { value: "lake", label: "Lake or waterfront" },
+      { value: "urban", label: "City or entertainment destination" },
+      { value: "suburban", label: "Suburban or near-city" },
+      { value: "rural", label: "Rural or secluded" },
+      { value: "open", label: "I am open to guidance" },
+    ],
   },
   {
     id: "guestExperience",
@@ -302,6 +325,7 @@ function buyBoxFromAnswers(answers: Record<string, unknown>) {
     propertyTypes,
     bedrooms: text(answers.bedrooms, 80) || "Not provided",
     guestExperience: Array.isArray(answers.guestExperience) ? answers.guestExperience.map(v => text(v, 80)).filter(Boolean) : [],
+    destinationStyle: Array.isArray(answers.destinationStyle) ? answers.destinationStyle.map(v => text(v, 80)).filter(Boolean) : [],
     locationPreference: text(answers.locationPreference, 500) || "Open to guidance",
     geographyFlexibility: text(answers.geographyFlexibility, 80) || "Not provided",
     financing: text(answers.financing, 80) || "Not provided",
@@ -339,13 +363,14 @@ const RESPONSE_LABELS: Record<string, string> = {
   cash: "paying with cash", preapproved: "pre-approved or working with a lender", exploring: "still exploring different lenders",
   specific: "a specific location in mind", regional: "a region in mind", open: "open to the right market",
   couples: "couples' getaways", families: "family vacations", groups: "group trips", luxury: "premium or luxury stays",
+  mountain: "mountain or outdoor", lake: "lake or waterfront", urban: "city or entertainment destination", suburban: "suburban or near-city", rural: "rural or secluded", entertainment: "entertainment destination",
   single_family: "a single-family home", condo: "a condo", townhome: "a townhome", cabin: "a cabin or mountain home", beach: "a beach property",
   turnkey: "turnkey or light-refresh work", development: "development", self_manage: "self-managing", property_manager: "hiring a property manager", hybrid: "a mix of self-management and professional management",
   "0_3": "purchase within 0–3 months", "3_6": "purchase within 3–6 months", "6_12": "purchase within 6–12 months", "12_plus": "purchase more than 12 months out",
 };
 
 const RESPONSE_FIELD_LABELS: Record<string, string> = {
-  investmentGoals: "Investment goals", primaryGoal: "Primary investment goal", timeline: "Purchase timeline", experience: "STR experience", budget: "Target purchase price", cashAvailable: "Cash for down payment and closing", setupBudget: "Additional setup budget", financing: "Financing status", approvedAmount: "Approved or discussed loan amount", lenderOpenness: "Open to lender options", geographyFlexibility: "Location flexibility", locationPreference: "Markets or location constraints", guestExperience: "Target guest experience", propertyType: "Property preferences", projectAppetite: "Project appetite", managementPreference: "Management plan", personalUse: "Personal use and travel needs", freeformWin: "What makes this a win", freeformPreferences: "Other needs or dealbreakers",
+  investmentGoals: "Investment goals", primaryGoal: "Primary investment goal", timeline: "Purchase timeline", experience: "STR experience", budget: "Target purchase price", cashAvailable: "Cash for down payment and closing", setupBudget: "Additional setup budget", financing: "Financing status", approvedAmount: "Approved or discussed loan amount", lenderOpenness: "Open to lender options", geographyFlexibility: "Location flexibility", locationPreference: "Markets or location constraints", destinationStyle: "Destination setting", guestExperience: "Target guest experience", propertyType: "Property preferences", projectAppetite: "Project appetite", managementPreference: "Management plan", personalUse: "Personal use and travel needs", freeformWin: "What makes this a win", freeformPreferences: "Other needs or dealbreakers",
 };
 
 function responseLabel(value: unknown): string {
@@ -418,22 +443,13 @@ async function getInvestorBrief(input: { db: NonNullable<Awaited<ReturnType<type
   return brief;
 }
 
-function profileText(profile: unknown): string {
-  const source = safeJson(profile, {} as Record<string, unknown>);
-  const buyBox = safeJson(source.buyBox, {} as Record<string, unknown>);
-  const flatten = (value: unknown): string[] => Array.isArray(value) ? value.map(v => text(v, 400)) : [text(value, 1_000)];
-  return [
-    ...flatten(source.executiveSummary), ...flatten(source.bestFitInvestors), ...flatten(source.notIdealFor),
-    ...flatten(buyBox.purchasePriceGuidance), ...flatten(buyBox.propertyTypes), ...flatten(buyBox.locations),
-    ...flatten(buyBox.propertyCharacteristics), ...flatten(source.marketDynamics), ...flatten(source.agentGuidance),
-  ].join(" ").toLowerCase().replace(/[-/]+/g, " ");
-}
-
-function marketTradeoff(profile: unknown): string {
+function marketTradeoff(profile: unknown, fit?: MarketMatchFitProfile | null): string {
+  const evidenceGap = fit?.gaps?.map(item => text(item, 500)).find(Boolean);
+  if (evidenceGap) return evidenceGap;
   const source = safeJson(profile, {} as Record<string, unknown>);
   const raw = source.notIdealFor ?? source.agentGuidance ?? source.marketDynamics;
   const candidate = Array.isArray(raw) ? raw.map(item => text(item, 400)).find(Boolean) : text(raw, 500);
-  return candidate || "Validate local operating guidance, current inventory, and the tradeoffs that matter most for your strategy.";
+  return candidate || "Validate local STR operating guidance, current inventory, and the tradeoffs that matter most for your strategy.";
 }
 
 function guidanceRange(profile: unknown): { min: number; max: number } | null {
@@ -451,10 +467,6 @@ function guidanceRange(profile: unknown): { min: number; max: number } | null {
   return null;
 }
 
-function includesOne(textValue: string, terms: string[]) {
-  return terms.some(term => textValue.includes(term));
-}
-
 type LocationConstraint = {
   requestedRegions: string[];
   requestedStates: string[];
@@ -463,10 +475,7 @@ type LocationConstraint = {
 };
 
 const STATE_ABBREVIATIONS: Record<string, string[]> = {
-  AL: ["alabama"], AZ: ["arizona"], CA: ["california"], CO: ["colorado"], FL: ["florida"], GA: ["georgia"], IL: ["illinois"], IN: ["indiana"],
-  IA: ["iowa"], KS: ["kansas"], KY: ["kentucky"], MI: ["michigan"], MN: ["minnesota"], MO: ["missouri", "missourri"], MT: ["montana"], NC: ["north carolina"],
-  NE: ["nebraska"], NJ: ["new jersey"], NY: ["new york"], OH: ["ohio"], OK: ["oklahoma"], OR: ["oregon"], PA: ["pennsylvania"], SC: ["south carolina"],
-  SD: ["south dakota"], TN: ["tennessee"], TX: ["texas"], UT: ["utah"], VA: ["virginia"], WA: ["washington"], WI: ["wisconsin"], WV: ["west virginia"],
+  AL: ["alabama"], AK: ["alaska"], AZ: ["arizona"], AR: ["arkansas"], CA: ["california"], CO: ["colorado"], CT: ["connecticut"], DE: ["delaware"], FL: ["florida"], GA: ["georgia"], HI: ["hawaii"], ID: ["idaho"], IL: ["illinois"], IN: ["indiana"], IA: ["iowa"], KS: ["kansas"], KY: ["kentucky"], LA: ["louisiana"], ME: ["maine"], MD: ["maryland"], MA: ["massachusetts"], MI: ["michigan"], MN: ["minnesota"], MS: ["mississippi"], MO: ["missouri", "missourri"], MT: ["montana"], NE: ["nebraska"], NV: ["nevada"], NH: ["new hampshire"], NJ: ["new jersey"], NM: ["new mexico"], NY: ["new york"], NC: ["north carolina"], ND: ["north dakota"], OH: ["ohio"], OK: ["oklahoma"], OR: ["oregon"], PA: ["pennsylvania"], RI: ["rhode island"], SC: ["south carolina"], SD: ["south dakota"], TN: ["tennessee"], TX: ["texas"], UT: ["utah"], VT: ["vermont"], VA: ["virginia"], WA: ["washington"], WV: ["west virginia"], WI: ["wisconsin"], WY: ["wyoming"],
 };
 
 const REGION_STATES: Record<string, { aliases: string[]; states: string[] }> = {
@@ -480,6 +489,10 @@ const REGION_STATES: Record<string, { aliases: string[]; states: string[] }> = {
 
 function normalizedLocation(value: unknown) {
   return text(value, 2_000).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function hasLocationTerm(value: string, term: string) {
+  return new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(value);
 }
 
 function locationConstraintFromAnswers(answers: Record<string, unknown>): LocationConstraint {
@@ -498,7 +511,7 @@ function locationConstraintFromAnswers(answers: Record<string, unknown>): Locati
     }))
     .map(([region]) => region);
   const requestedStates = Object.entries(STATE_ABBREVIATIONS)
-    .filter(([abbreviation, names]) => names.some(name => locationText.includes(name)) || new RegExp(`\\b${abbreviation}\\b`).test(rawLocation))
+    .filter(([abbreviation, names]) => names.some(name => hasLocationTerm(locationText, name)) || new RegExp(`\\b${abbreviation}\\b`).test(rawLocation))
     .map(([abbreviation]) => abbreviation);
   return { requestedRegions, requestedStates, locationText, isConstrained: requestedRegions.length > 0 || requestedStates.length > 0 };
 }
@@ -507,8 +520,12 @@ function candidateStateCodes(candidate: { name: string; state: string; region: s
   const candidateText = normalizedLocation(`${candidate.name} ${candidate.state} ${candidate.region ?? ""}`);
   const candidateRawText = `${candidate.name} ${candidate.state} ${candidate.region ?? ""}`.toUpperCase();
   const direct = text(candidate.state, 10).toUpperCase();
+  // A canonical state is authoritative. This avoids treating descriptive
+  // fragments such as "NE FL" as the Nebraska abbreviation while still
+  // allowing N/A-state legacy records to be resolved from their market name.
+  if (STATE_ABBREVIATIONS[direct]) return [direct];
   return Object.entries(STATE_ABBREVIATIONS)
-    .filter(([abbreviation, names]) => abbreviation === direct || names.some(name => candidateText.includes(name)) || new RegExp(`\\b${abbreviation}\\b`).test(candidateRawText))
+    .filter(([abbreviation, names]) => names.some(name => hasLocationTerm(candidateText, name)) || new RegExp(`\\b${abbreviation}\\b`).test(candidateRawText))
     .map(([abbreviation]) => abbreviation);
 }
 
@@ -526,46 +543,129 @@ function describedLocationConstraint(constraint: LocationConstraint) {
   return [...regions, ...states].join(" or ");
 }
 
-const goalTerms: Record<string, string[]> = {
-  cash_flow: ["cash flow", "rental income", "income"],
-  tax_strategy: ["tax", "cost segregation", "depreciation"],
-  appreciation: ["appreciation", "equity", "long-term growth", "growth"],
-  value_add: ["value add", "renovation", "rehab", "improve"],
-  lifestyle: ["lifestyle", "personal use", "second home", "vacation"],
-  portfolio: ["portfolio", "investment"],
-  first_str: ["first", "short-term rental", "str"],
-};
+function answerValues(value: unknown) {
+  return Array.isArray(value) ? value.map(item => text(item, 80)).filter(Boolean) : [text(value, 80)].filter(Boolean);
+}
+
+function overlap(left: string[], right: string[]) {
+  const rightValues = new Set(right.filter(value => value && value !== "open" && value !== "not_sure"));
+  return left.filter(value => rightValues.has(value));
+}
+
+function containsNamedMarketLocation(input: { name: string; state: string; region: string | null; fitProfile?: unknown }, answers: Record<string, unknown>) {
+  const location = normalizedLocation(`${text(answers.locationPreference, 2_000)} ${safeJson(answers.inferredPreferences, {} as Record<string, unknown>).summary ?? ""}`);
+  if (!location || /\b(open to guidance|not sure yet|no preference|anywhere|open to the right market)\b/.test(location)) return false;
+  // Use only the controlled Market Profile identity, never model-generated
+  // aliases. A profile may discuss broad regions (for example, Midwest) in
+  // evidence; those are not a valid claim that this specific market is there.
+  const aliases = [input.name, input.state, input.region ?? ""].map(normalizedLocation).filter(value => value.length >= 3);
+  return aliases.some(alias => location.includes(alias));
+}
 
 function scoreMarket(input: {
-  name: string; state: string; region: string | null; profile: unknown; priorityWeight: number; answers: Record<string, unknown>;
+  name: string; state: string; region: string | null; profile: unknown; fitProfile?: unknown; priorityWeight: number; answers: Record<string, unknown>;
 }) {
   const box = buyBoxFromAnswers(input.answers);
-  const evidence = profileText(input.profile);
-  const haystack = `${input.name} ${input.state} ${input.region ?? ""} ${evidence}`.toLowerCase();
+  const fit = normalizeMarketMatchFitProfile(input.fitProfile);
   const reasons: string[] = [];
-  let hasGroundedEvidence = false;
-  let score = 1 + Math.max(-3, Math.min(3, input.priorityWeight));
+  const matchedDimensions = new Set<string>();
   const locationConstraint = locationConstraintFromAnswers(input.answers);
   const matchesLocationConstraint = candidateMatchesLocationConstraint(input, locationConstraint);
-  const inferredLocation = box.inferredPreferences.filter(item => item.field === "locationPreference").map(item => item.value).join(" ").toLowerCase();
-  const location = `${box.locationPreference} ${inferredLocation}`.toLowerCase();
-  const directLocationMatch = Boolean(location && location !== "open to guidance" && (location.includes(input.name.toLowerCase()) || location.includes(input.state.toLowerCase()) || (input.region && location.includes(input.region.toLowerCase()))));
+  const directLocationMatch = containsNamedMarketLocation(input, input.answers);
+  let score = 0;
+
+  if (!fit.readyForMatching) return { score, reasons, qualified: false, fit, matchedDimensions: [], matchesLocationConstraint, directLocationMatch, locationConstraint, budgetCompatible: false };
   if (directLocationMatch) {
-    score += 8; reasons.push("Matches your stated location preference"); hasGroundedEvidence = true;
+    score += 28; reasons.push("Matches a named STR market or location you shared"); matchedDimensions.add("location");
   } else if (locationConstraint.isConstrained && matchesLocationConstraint) {
-    score += 8; reasons.push(`Matches your stated ${describedLocationConstraint(locationConstraint)} location preference`); hasGroundedEvidence = true;
-  } else if (box.geographyFlexibility === "open") { score += 2; reasons.push("You are open to markets that fit your criteria"); }
+    score += 24; reasons.push(`Matches your stated ${describedLocationConstraint(locationConstraint)} location preference`); matchedDimensions.add("location");
+  } else if (box.geographyFlexibility === "open") {
+    score += 2;
+  }
+
   const budgetAnswer = safeJson(input.answers.budget, {} as { min?: unknown; max?: unknown });
   const userMin = numericAmount(budgetAnswer.min) || 0;
   const userMax = numericAmount(budgetAnswer.max) || Number.POSITIVE_INFINITY;
-  const range = guidanceRange(input.profile);
-  if (range && userMin <= range.max && userMax >= range.min) { score += 5; reasons.push("Fits the purchase range you shared"); hasGroundedEvidence = true; }
-  const matchedGoals = box.investmentGoals.filter(goal => includesOne(evidence, goalTerms[goal] ?? []));
-  if (matchedGoals.length) { score += Math.min(6, matchedGoals.length * 2); reasons.push(matchedGoals.length === 1 ? "Aligned with your primary investment goal" : "Aligned with several investment goals"); hasGroundedEvidence = true; }
-  const preferenceText = `${box.propertyTypes.join(" ")} ${box.freeformPreferences} ${box.inferredPreferences.map(item => item.value).join(" ")}`.toLowerCase();
-  if (preferenceText && ["cabin", "beach", "condo", "townhome", "single family"].some(term => preferenceText.includes(term) && haystack.includes(term))) { score += 2; reasons.push("Property preferences align with current market guidance"); hasGroundedEvidence = true; }
-  if (!reasons.length) reasons.push("Best current fit based on your stated criteria");
-  return { score, reasons, qualified: hasGroundedEvidence, matchesLocationConstraint, directLocationMatch, locationConstraint };
+  const price = fit.priceGuidance;
+  const budgetCompatible = !price.min || !price.max || (userMin <= price.max && userMax >= price.min);
+  if (price.min && price.max && budgetCompatible) {
+    score += 16; reasons.push("Fits the supported STR purchase-price guidance"); matchedDimensions.add("budget");
+  }
+
+  const goals = answerValues(box.investmentGoals);
+  const matchedGoals = overlap(goals, fit.investorGoals);
+  if (matchedGoals.length) {
+    const primaryAligned = box.primaryGoal && fit.investorGoals.includes(box.primaryGoal as any);
+    score += Math.min(16, matchedGoals.length * 5 + (primaryAligned ? 4 : 0));
+    reasons.push(primaryAligned ? "Aligned with your primary STR investment objective" : "Aligned with your stated STR investment objectives");
+    matchedDimensions.add("goals");
+  }
+
+  const styles = answerValues(box.destinationStyle);
+  const matchedStyles = overlap(styles, fit.destinationStyles);
+  if (matchedStyles.length) {
+    score += Math.min(12, matchedStyles.length * 5); reasons.push("Matches the STR destination setting you prefer"); matchedDimensions.add("destination");
+  }
+
+  const matchedGuests = overlap(answerValues(box.guestExperience), fit.guestSegments);
+  if (matchedGuests.length) {
+    score += Math.min(10, matchedGuests.length * 4); reasons.push("Supports the guest experience you want to create"); matchedDimensions.add("guest");
+  }
+
+  const matchedProperties = overlap(answerValues(box.propertyTypes), fit.propertyTypes);
+  if (matchedProperties.length) {
+    score += Math.min(10, matchedProperties.length * 4); reasons.push("Matches your STR property preference"); matchedDimensions.add("property");
+  }
+
+  const project = text(box.projectAppetite, 80);
+  if (project && project !== "not_sure" && fit.projectAppetite.includes(project as any)) {
+    score += 7; reasons.push("Fits your preferred STR execution path"); matchedDimensions.add("project");
+  }
+  const management = text(box.managementPreference, 80);
+  if (management && management !== "not_sure" && fit.managementFit.includes(management as any)) {
+    score += 6; reasons.push("Fits your planned management approach"); matchedDimensions.add("management");
+  }
+
+  const personalUseText = normalizedLocation(box.personalUse);
+  if (personalUseText && !/\b(no|none|not important|does not matter)\b/.test(personalUseText)) {
+    const wantsAirport = /\b(airport|fly|flight)\b/.test(personalUseText);
+    const wantsDrive = /\b(drive|driving|road trip|hours away)\b/.test(personalUseText);
+    const wantsPersonalUse = /\b(personal use|use it|my stays|vacation)\b/.test(personalUseText);
+    const accessMatches = (wantsAirport && fit.accessPreferences.includes("airport_access")) || (wantsDrive && fit.accessPreferences.includes("drive_to")) || (wantsPersonalUse && fit.accessPreferences.includes("personal_use"));
+    if (accessMatches) { score += 4; reasons.push("Supports your travel or personal-use preference"); matchedDimensions.add("access"); }
+  }
+
+  const disclosedDiscriminators = [
+    ...answerValues(box.destinationStyle).filter(value => value !== "open"),
+    ...answerValues(box.guestExperience),
+    ...answerValues(box.propertyTypes),
+    text(box.projectAppetite, 80) === "not_sure" ? "" : text(box.projectAppetite, 80),
+    text(box.managementPreference, 80) === "not_sure" ? "" : text(box.managementPreference, 80),
+  ].filter(Boolean);
+  // When someone gives concrete STR preferences, a generic budget/goal match
+  // is not sufficient. Require an additional independent dimension so the
+  // shortlist reflects their stated operating and property strategy.
+  const minimumDimensions = disclosedDiscriminators.length ? 3 : 2;
+  const qualified = budgetCompatible && matchedDimensions.size >= minimumDimensions && (matchedDimensions.has("location") || matchedDimensions.has("budget") || matchedDimensions.has("goals"));
+  return { score, reasons, qualified, fit, matchedDimensions: Array.from(matchedDimensions), matchesLocationConstraint, directLocationMatch, locationConstraint, budgetCompatible };
+}
+
+function normalizedMarketIdentity(value: unknown) {
+  return text(value, 240).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function marketOverlapKey(candidate: { name: string; fitProfile?: unknown }) {
+  const fit = normalizeMarketMatchFitProfile(candidate.fitProfile);
+  return normalizedMarketIdentity(fit.overlapGroup) || normalizedMarketIdentity(candidate.name);
+}
+
+function hasOverlappingMarket(selected: Array<{ candidate: { name: string; fitProfile?: unknown } }>, candidate: { name: string; fitProfile?: unknown }) {
+  const key = marketOverlapKey(candidate);
+  return selected.some(item => marketOverlapKey(item.candidate) === key);
+}
+
+function stableMatchTieBreaker(seed: string, marketId: number) {
+  return stableNumber(`${seed}:${marketId}`);
 }
 
 async function ensureQuizDefaults() {
@@ -576,6 +676,8 @@ async function ensureQuizDefaults() {
   if (!controlId) {
     const [result] = await db.insert(marketMatchQuizVariants).values({ name: "Control", description: "Default concise market-match flow.", hypothesis: "Baseline questionnaire for comparison.", status: "published", trafficAllocation: 100, isControl: true, questionConfig: DEFAULT_QUIZ_QUESTIONS as any });
     controlId = Number((result as any).insertId);
+  } else if (isPreFitProfileQuestionConfig(control?.questionConfig) || isPreMobileStrBundledQuestionConfig(control?.questionConfig) || isPriorBundledQuestionConfig(control?.questionConfig)) {
+    await db.update(marketMatchQuizVariants).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any }).where(eq(marketMatchQuizVariants.id, controlId));
   }
   const [plan] = await db.select().from(smartPlans).where(inArray(smartPlans.name, ["Market Match - Finish Your Match", "Market Match — Finish Your Match"])).limit(1);
   let planId = plan?.id;
@@ -602,7 +704,7 @@ export async function getQuizSettings() {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   let [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
-  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig) || isPreMobileStrBundledQuestionConfig(settings.questionConfig))) {
+  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig) || isPreMobileStrBundledQuestionConfig(settings.questionConfig) || isPreFitProfileQuestionConfig(settings.questionConfig))) {
     await db.update(marketMatchQuizSettings).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any, updatedAt: now() }).where(eq(marketMatchQuizSettings.id, 1));
     [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
   }
@@ -650,6 +752,17 @@ function isPreMobileStrBundledQuestionConfig(config: unknown) {
     && rows[0]?.label === "What goals matter for this investment?"
     && rows[4]?.id === "budget"
     && rows[4]?.label === "What purchase range feels comfortable?";
+}
+
+/** Upgrades the exact prior bundled flow while preserving administrator edits. */
+function isPreFitProfileQuestionConfig(config: unknown) {
+  if (!Array.isArray(config) || config.length !== 19) return false;
+  const rows = config as Array<Record<string, unknown>>;
+  return rows[0]?.id === "investmentGoals"
+    && rows[1]?.id === "primaryGoal"
+    && rows[11]?.id === "locationPreference"
+    && rows[12]?.id === "guestExperience"
+    && rows[18]?.id === "freeformPreferences";
 }
 
 async function pickVariant(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
@@ -830,9 +943,11 @@ async function publicCandidates(db: NonNullable<Awaited<ReturnType<typeof getDb>
   const rows = await db.select({
     id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, region: marketProfiles.region,
     status: marketProfiles.status, profile: marketIntelligenceProfiles.profileJson, intelligenceStatus: marketIntelligenceProfiles.status, intelligenceGeneratedAt: marketIntelligenceProfiles.generatedAt,
+    fitProfile: marketMatchFitProfiles.profileJson, fitProfileStatus: marketMatchFitProfiles.status, fitProfileGeneratedAt: marketMatchFitProfiles.generatedAt,
     enabled: marketMatchQuizMarketSettings.isEnabled, priorityWeight: marketMatchQuizMarketSettings.priorityWeight, connectionCap: marketMatchQuizMarketSettings.connectionCap,
   }).from(marketProfiles)
     .leftJoin(marketIntelligenceProfiles, eq(marketIntelligenceProfiles.marketProfileId, marketProfiles.id))
+    .leftJoin(marketMatchFitProfiles, eq(marketMatchFitProfiles.marketProfileId, marketProfiles.id))
     .leftJoin(marketMatchQuizMarketSettings, eq(marketMatchQuizMarketSettings.marketProfileId, marketProfiles.id))
     .where(eq(marketProfiles.status, "active"));
   return rows.filter(row => row.enabled !== false);
@@ -905,10 +1020,12 @@ async function eligibleAgentsForMarket(db: NonNullable<Awaited<ReturnType<typeof
 }
 
 const MARKET_MATCH_QUALITY_SCENARIOS = [
-  { id: "west-or-midwest", name: "West Coast or Midwest", locationPreference: "West Coast or Midwest", geographyFlexibility: "regional", permittedStates: ["CA", "OR", "WA", "IL", "IN", "IA", "KS", "MI", "MN", "MO", "NE", "ND", "OH", "SD", "WI"], expectNoMatch: false },
-  { id: "west-coast-only", name: "West Coast only", locationPreference: "West Coast only", geographyFlexibility: "regional", permittedStates: ["CA", "OR", "WA"], expectNoMatch: true },
-  { id: "arizona-only", name: "Phoenix, Arizona", locationPreference: "Phoenix, Arizona", geographyFlexibility: "specific", permittedStates: ["AZ"], expectNoMatch: false },
-  { id: "southeast-only", name: "Southeast only", locationPreference: "Southeast", geographyFlexibility: "regional", permittedStates: ["AL", "AR", "FL", "GA", "KY", "LA", "MS", "NC", "SC", "TN", "VA", "WV"], expectNoMatch: false },
+  { id: "west-or-midwest", name: "West Coast or Midwest", locationPreference: "West Coast or Midwest", geographyFlexibility: "regional", permittedStates: ["CA", "OR", "WA", "IL", "IN", "IA", "KS", "MI", "MN", "MO", "NE", "ND", "OH", "SD", "WI"], expectNoMatch: false, minDimensions: 2 },
+  { id: "west-coast-only", name: "West Coast only", locationPreference: "West Coast only", geographyFlexibility: "regional", permittedStates: ["CA", "OR", "WA"], expectNoMatch: true, minDimensions: 0 },
+  { id: "arizona-only", name: "Phoenix, Arizona", locationPreference: "Phoenix, Arizona", geographyFlexibility: "specific", permittedStates: ["AZ"], expectNoMatch: false, minDimensions: 2 },
+  { id: "southeast-only", name: "Southeast only", locationPreference: "Southeast", geographyFlexibility: "regional", permittedStates: ["AL", "AR", "FL", "GA", "KY", "LA", "MS", "NC", "SC", "TN", "VA", "WV"], expectNoMatch: false, minDimensions: 2 },
+  { id: "mountain-family-cashflow", name: "Mountain family STR with cash flow", locationPreference: "Open to guidance", geographyFlexibility: "open", permittedStates: [], expectNoMatch: false, minDimensions: 4, answers: { primaryGoal: "cash_flow", investmentGoals: ["cash_flow"], destinationStyle: ["mountain"], guestExperience: ["families", "groups"], propertyType: ["cabin"], projectAppetite: "turnkey", managementPreference: "property_manager" } },
+  { id: "beach-lifestyle", name: "Beach lifestyle STR", locationPreference: "Open to guidance", geographyFlexibility: "open", permittedStates: [], expectNoMatch: false, minDimensions: 4, answers: { primaryGoal: "lifestyle", investmentGoals: ["lifestyle"], destinationStyle: ["beach"], guestExperience: ["families"], propertyType: ["beach"], projectAppetite: "turnkey", managementPreference: "property_manager" } },
 ] as const;
 
 /** Runs non-mutating regression checks against the live Market AI and agent inventory. */
@@ -921,22 +1038,29 @@ export async function runMarketMatchQualityChecks() {
     const answers: Record<string, unknown> = {
       investmentGoals: ["cash_flow"], primaryGoal: "cash_flow", budget: { min: "400000", max: "800000" },
       geographyFlexibility: scenario.geographyFlexibility, locationPreference: scenario.locationPreference,
+      ...((scenario as any).answers ?? {}),
     };
     const constraint = locationConstraintFromAnswers(answers);
     const eligible = candidates
       .map(candidate => ({ candidate, ...scoreMarket({ ...candidate, priorityWeight: candidate.priorityWeight ?? 0, answers }) }))
-      .filter(item => item.qualified && (!constraint.isConstrained || item.matchesLocationConstraint))
-      .sort((left, right) => right.score - left.score || left.candidate.name.localeCompare(right.candidate.name));
-    const matches = [] as Array<{ marketName: string; state: string; region: string | null; stateCodes: string[] }>;
+      .filter(item => item.qualified && (!constraint.isConstrained || item.matchesLocationConstraint || item.directLocationMatch))
+      .sort((left, right) => right.score - left.score || right.matchedDimensions.length - left.matchedDimensions.length || Number(right.fit.evidenceConfidence === "high") - Number(left.fit.evidenceConfidence === "high") || left.candidate.id - right.candidate.id);
+    const matches = [] as Array<{ marketName: string; state: string; region: string | null; stateCodes: string[]; dimensions: string[] }>;
+    const selectedCandidates = [] as Array<{ candidate: typeof candidates[number] }>;
     for (const item of eligible) {
       if (matches.length >= 3) break;
+      if (hasOverlappingMarket(selectedCandidates, item.candidate)) continue;
       if (!(await eligibleAgentsForMarket(db, item.candidate.id, 0))[0]) continue;
-      matches.push({ marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, stateCodes: candidateStateCodes(item.candidate) });
+      selectedCandidates.push({ candidate: item.candidate });
+      matches.push({ marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, stateCodes: candidateStateCodes(item.candidate), dimensions: item.matchedDimensions });
     }
     const permittedStates = scenario.permittedStates as readonly string[];
-    const outOfRegion = matches.filter(match => !match.stateCodes.some(state => permittedStates.includes(state)));
+    const outOfRegion = permittedStates.length
+      ? matches.filter(match => !match.stateCodes.some(state => permittedStates.includes(state)))
+      : [];
     const expectedNoMatchSatisfied = !scenario.expectNoMatch || matches.length === 0;
-    const passed = outOfRegion.length === 0 && expectedNoMatchSatisfied;
+    const weakMatches = matches.filter(match => match.dimensions.length < scenario.minDimensions);
+    const passed = outOfRegion.length === 0 && expectedNoMatchSatisfied && weakMatches.length === 0;
     checks.push({
       id: scenario.id,
       name: scenario.name,
@@ -947,6 +1071,7 @@ export async function runMarketMatchQualityChecks() {
       issues: [
         ...(outOfRegion.length ? [`Outside stated geography: ${outOfRegion.map(match => `${match.marketName}, ${match.state}`).join("; ")}`] : []),
         ...(!expectedNoMatchSatisfied ? ["Expected no match because no currently participating West Coast market is available."] : []),
+        ...(weakMatches.length ? [`Insufficient independent fit dimensions: ${weakMatches.map(match => `${match.marketName} (${match.dimensions.join(", ") || "none"})`).join("; ")}`] : []),
       ],
     });
   }
@@ -1032,28 +1157,33 @@ export async function generateQuizResults(browserToken: string) {
   const answers = safeJson(session.answers, {} as Record<string, unknown>);
   const candidates = await publicCandidates(db);
   const locationConstraint = locationConstraintFromAnswers(answers);
-  const scored = candidates.map(candidate => ({ candidate, ...scoreMarket({ ...candidate, priorityWeight: candidate.priorityWeight ?? 0, answers }) })).sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name));
+  const scored = candidates
+    .map(candidate => ({ candidate, ...scoreMarket({ ...candidate, priorityWeight: candidate.priorityWeight ?? 0, answers }) }))
+    .sort((left, right) => right.score - left.score || right.matchedDimensions.length - left.matchedDimensions.length || Number(right.fit.evidenceConfidence === "high") - Number(left.fit.evidenceConfidence === "high") || stableMatchTieBreaker(String(session.id), left.candidate.id) - stableMatchTieBreaker(String(session.id), right.candidate.id));
   const hasNamedLocationMatch = scored.some(item => item.directLocationMatch);
   const mustHonorLocation = locationConstraint.isConstrained || hasNamedLocationMatch;
   const selected = [] as Array<Record<string, unknown>>;
+  const selectedCandidates = [] as Array<{ candidate: typeof candidates[number] }>;
   for (const item of scored) {
     if (selected.length >= settings.maxRecommendedMarkets) break;
     if (mustHonorLocation && !item.matchesLocationConstraint && !item.directLocationMatch) continue;
     if (!item.qualified) continue;
+    if (hasOverlappingMarket(selectedCandidates, item.candidate)) continue;
     const agent = (await eligibleAgentsForMarket(db, item.candidate.id, session.contactId))[0];
     if (!agent) continue;
-    selected.push({ rank: selected.length + 1, marketId: item.candidate.id, marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, agent: { id: agent.agentId, name: agent.name, bookingLink: normalizeBookingUrl(agent.bookingLink), profilePhotoUrl: agent.profilePhotoUrl, existingRelationship: agent.existingRelationship }, reasons: item.reasons, tradeoff: marketTradeoff(item.candidate.profile), confidence: item.reasons.length >= 2 ? "high" : "medium", profileStatus: item.candidate.intelligenceStatus ?? "unavailable" });
+    selectedCandidates.push({ candidate: item.candidate });
+    selected.push({ rank: selected.length + 1, marketId: item.candidate.id, marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, agent: { id: agent.agentId, name: agent.name, bookingLink: normalizeBookingUrl(agent.bookingLink), profilePhotoUrl: agent.profilePhotoUrl, existingRelationship: agent.existingRelationship }, reasons: item.reasons, tradeoff: marketTradeoff(item.candidate.profile, item.fit), confidence: item.fit.evidenceConfidence === "high" && item.matchedDimensions.length >= 3 ? "high" : "medium", profileStatus: item.candidate.intelligenceStatus ?? "unavailable", fitProfileVersion: item.fit.version, matchDimensions: item.matchedDimensions });
   }
   const constrainedCandidates = mustHonorLocation ? scored.filter(item => item.matchesLocationConstraint || item.directLocationMatch) : scored;
   const noFitReason = selected.length ? null
     : !candidates.length ? "No public Market Match markets are currently enabled."
-    : locationConstraint.isConstrained && !constrainedCandidates.length ? `We do not currently have a participating Savvy STR market in the ${describedLocationConstraint(locationConstraint)} area you selected. We did not substitute markets outside that location preference. A Savvy team member can review your request.`
-    : "We do not have an eligible Savvy agent available for the active markets that currently fit your preferences. A Savvy team member can review your request.";
+    : locationConstraint.isConstrained && !constrainedCandidates.some(item => item.qualified) ? `We do not currently have a participating Savvy STR market with enough current fit evidence in the ${describedLocationConstraint(locationConstraint)} area you selected. We did not substitute markets outside that location preference. A Savvy team member can review your request.`
+    : "We do not have a participating Savvy STR market with enough current evidence to make a reliable recommendation from the criteria you shared. A Savvy team member can review your request.";
   const buyBox = buyBoxFromAnswers(answers);
   const investorBrief = await getInvestorBrief({ db, session, answers });
   const [result] = await db.insert(marketMatchQuizResultSnapshots).values({ sessionId: session.id, buyBox, matches: selected, noFitReason, eligibilityContext: { activeMarketsConsidered: candidates.length, locationConstraint: locationConstraint.isConstrained ? { requested: describedLocationConstraint(locationConstraint), candidatesConsidered: constrainedCandidates.length } : null, matchCount: selected.length, generatedAt: now().toISOString() } });
   await db.update(marketMatchQuizSessions).set({ status: "completed", currentStep: "results", lastActiveAt: now(), completedAt: session.completedAt ?? now() }).where(eq(marketMatchQuizSessions.id, session.id));
-  await db.insert(marketMatchQuizEvents).values({ sessionId: session.id, contactId: session.contactId, eventType: "results_generated", metadata: { resultSnapshotId: Number((result as any).insertId), matchCount: selected.length, noFit: Boolean(noFitReason) } });
+  await db.insert(marketMatchQuizEvents).values({ sessionId: session.id, contactId: session.contactId, eventType: "results_generated", metadata: { resultSnapshotId: Number((result as any).insertId), matchCount: selected.length, noFit: Boolean(noFitReason), matchingVersion: MARKET_MATCH_FIT_PROFILE_VERSION, qualifiedCandidates: scored.filter(item => item.qualified).length } });
   await writeMarketMatchContactNote({ db, session, answers, investorBrief, matches: selected, noFitReason });
   void logActivity({ userId: null, action: "market_match_results_generated", entityType: "contact", entityId: session.contactId, relatedContactId: session.contactId, details: { sessionId: session.id, investorBrief, marketCount: selected.length, markets: selected.map(match => match.marketName), noFitReason } });
   await sendQuizResultsEmail({ db, session, buyBox, investorBrief, matches: selected, noFitReason });
@@ -1197,7 +1327,7 @@ export async function quizAdminBootstrap() {
   const { db } = await ensureQuizDefaults();
   const [settings, markets, variants, lenders, sources, plan, funnel, variantFunnel] = await Promise.all([
     getQuizSettings(),
-    db.select({ id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, region: marketProfiles.region, status: marketProfiles.status, marketEnabled: marketMatchQuizMarketSettings.isEnabled, priorityWeight: marketMatchQuizMarketSettings.priorityWeight, connectionCap: marketMatchQuizMarketSettings.connectionCap }).from(marketProfiles).leftJoin(marketMatchQuizMarketSettings, eq(marketMatchQuizMarketSettings.marketProfileId, marketProfiles.id)).orderBy(asc(marketProfiles.name)),
+    db.select({ id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, region: marketProfiles.region, status: marketProfiles.status, marketEnabled: marketMatchQuizMarketSettings.isEnabled, priorityWeight: marketMatchQuizMarketSettings.priorityWeight, connectionCap: marketMatchQuizMarketSettings.connectionCap, intelligenceStatus: marketIntelligenceProfiles.status, fitProfileStatus: marketMatchFitProfiles.status, fitProfileGeneratedAt: marketMatchFitProfiles.generatedAt }).from(marketProfiles).leftJoin(marketMatchQuizMarketSettings, eq(marketMatchQuizMarketSettings.marketProfileId, marketProfiles.id)).leftJoin(marketIntelligenceProfiles, eq(marketIntelligenceProfiles.marketProfileId, marketProfiles.id)).leftJoin(marketMatchFitProfiles, eq(marketMatchFitProfiles.marketProfileId, marketProfiles.id)).orderBy(asc(marketProfiles.name)),
     db.select().from(marketMatchQuizVariants).orderBy(desc(marketMatchQuizVariants.isControl), asc(marketMatchQuizVariants.id)),
     db.select().from(marketMatchQuizLenders).orderBy(asc(marketMatchQuizLenders.name)),
     db.select({ id: leadSources.id, name: leadSources.name }).from(leadSources).orderBy(asc(leadSources.name)),
@@ -1412,4 +1542,4 @@ export async function recommendQuizExperiment() {
   };
 }
 
-export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl, locationConstraintFromAnswers, candidateMatchesLocationConstraint, candidateStateCodes };
+export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl, locationConstraintFromAnswers, candidateMatchesLocationConstraint, candidateStateCodes, marketOverlapKey, hasOverlappingMarket };

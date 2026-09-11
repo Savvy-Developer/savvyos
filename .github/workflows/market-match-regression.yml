@@ -6,8 +6,11 @@ on:
       - "client/src/pages/PublicMarketMatchQuizPage.tsx"
       - "client/src/pages/MarketMatchQuizAdminPage.tsx"
       - "server/marketMatchQuiz.ts"
+      - "server/marketMatchFitProfiles.ts"
       - "server/routers/marketMatchQuiz.ts"
       - "server/marketMatchQuiz.test.ts"
+      - "server/marketMatchFitProfiles.test.ts"
+      - "drizzle/20260910_market_match_fit_profiles.sql"
       - ".github/workflows/market-match-regression.yml"
   push:
     branches:
@@ -16,8 +19,11 @@ on:
       - "client/src/pages/PublicMarketMatchQuizPage.tsx"
       - "client/src/pages/MarketMatchQuizAdminPage.tsx"
       - "server/marketMatchQuiz.ts"
+      - "server/marketMatchFitProfiles.ts"
       - "server/routers/marketMatchQuiz.ts"
       - "server/marketMatchQuiz.test.ts"
+      - "server/marketMatchFitProfiles.test.ts"
+      - "drizzle/20260910_market_match_fit_profiles.sql"
       - ".github/workflows/market-match-regression.yml"
 
 permissions:
@@ -42,4 +48,4 @@ jobs:
       - name: Check TypeScript
         run: pnpm exec tsc --noEmit
       - name: Run Market Match regression suite
-        run: pnpm exec vitest run server/marketMatchQuiz.test.ts server/marketMatch.test.ts server/marketMatchSettings.test.ts
+        run: pnpm exec vitest run server/marketMatchFitProfiles.test.ts server/marketMatchQuiz.test.ts server/marketMatch.test.ts server/marketMatchSettings.test.ts

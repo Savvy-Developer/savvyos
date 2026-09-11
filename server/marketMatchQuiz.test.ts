@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { __testables__, DEFAULT_QUIZ_QUESTIONS } from "./marketMatchQuiz";
 
+function fitProfile(overrides: Record<string, unknown> = {}) {
+  return {
+    version: "v1",
+    evidenceConfidence: "medium",
+    readyForMatching: true,
+    priceGuidance: { min: 300000, max: 700000, evidence: "Observed STR purchases between $300,000 and $700,000." },
+    investorGoals: ["cash_flow", "lifestyle"],
+    experienceFit: ["first_str", "some"],
+    destinationStyles: ["mountain"],
+    guestSegments: ["families", "groups"],
+    propertyTypes: ["cabin"],
+    projectAppetite: ["turnkey", "value_add"],
+    managementFit: ["property_manager", "hybrid"],
+    accessPreferences: ["drive_to", "personal_use"],
+    operatingConsiderations: ["seasonality"],
+    locationAliases: ["Smokies", "Tennessee"],
+    overlapGroup: "",
+    evidence: [{ field: "priceGuidance", quote: "Observed STR purchases between $300,000 and $700,000." }],
+    gaps: ["Confirm property-level STR regulations."],
+    ...overrides,
+  };
+}
+
 describe("Market Match quiz helpers", () => {
   it("builds a transparent buy box from explicit answers", () => {
     const box = __testables__.buyBoxFromAnswers({
@@ -32,7 +55,28 @@ describe("Market Match quiz helpers", () => {
     expect(box.purchaseRange).toBe("$400,000 – $600,000");
     expect(DEFAULT_QUIZ_QUESTIONS[0]).toMatchObject({ id: "investmentGoals", type: "multi", required: true });
     expect(DEFAULT_QUIZ_QUESTIONS[1]).toMatchObject({ id: "primaryGoal", type: "single", required: true });
+    expect(DEFAULT_QUIZ_QUESTIONS.find(question => question.id === "destinationStyle")?.type).toBe("multi");
     expect(DEFAULT_QUIZ_QUESTIONS.find(question => question.id === "experience")?.options?.map(option => option.value)).not.toContain("not_sure");
+  });
+
+  it("does not use alphabetic market names to overcome a materially better fit", () => {
+    const answers = { budget: { min: "450000", max: "650000" }, primaryGoal: "lifestyle", investmentGoals: ["lifestyle"], destinationStyle: ["beach"], guestExperience: ["families"], geographyFlexibility: "open", locationPreference: "Not sure yet" };
+    const alphabeticalButWeak = __testables__.scoreMarket({
+      name: "Asheville", state: "NC", region: "Western NC", profile: {}, priorityWeight: 0,
+      fitProfile: fitProfile({ investorGoals: ["cash_flow"], destinationStyles: ["mountain"], guestSegments: ["couples"], propertyTypes: [] }), answers,
+    });
+    const strongerFit = __testables__.scoreMarket({
+      name: "Zeta Coast", state: "FL", region: "Coast", profile: {}, priorityWeight: 0,
+      fitProfile: fitProfile({ investorGoals: ["lifestyle"], destinationStyles: ["beach"], guestSegments: ["families"], propertyTypes: ["beach"] }), answers,
+    });
+    expect(strongerFit.qualified).toBe(true);
+    expect(strongerFit.score).toBeGreaterThan(alphabeticalButWeak.score);
+  });
+
+  it("suppresses markets in the same established overlap group", () => {
+    const selected = [{ candidate: { name: "Northeast Florida", fitProfile: fitProfile({ overlapGroup: "northeast florida coast" }) } }];
+    expect(__testables__.hasOverlappingMarket(selected, { name: "St. Augustine", fitProfile: fitProfile({ overlapGroup: "northeast florida coast" }) })).toBe(true);
+    expect(__testables__.hasOverlappingMarket(selected, { name: "Smokies", fitProfile: fitProfile({ overlapGroup: "smokies" }) })).toBe(false);
   });
 
   it("turns submitted criteria into a readable investor brief without combining cash and setup funds", () => {
@@ -60,47 +104,54 @@ describe("Market Match quiz helpers", () => {
     ]);
   });
 
-  it("rewards qualified market evidence without inventing a guarantee", () => {
+  it("rewards explicit, structured Market AI fit evidence without inventing a guarantee", () => {
     const scored = __testables__.scoreMarket({
       name: "Smoky Mountains",
       state: "Tennessee",
       region: "Southeast",
       priorityWeight: 0,
-      profile: {
-        bestFitInvestors: ["Buyers seeking rental income and personal-use flexibility"],
-        buyBox: { purchasePriceGuidance: "Observed purchases between $300,000 and $700,000", propertyTypes: ["cabin"] },
-      },
-      answers: { budget: { min: "400000", max: "600000" }, investmentGoals: ["cash_flow", "lifestyle"], propertyType: ["cabin"], locationPreference: "Tennessee", geographyFlexibility: "regional" },
+      profile: {}, fitProfile: fitProfile(),
+      answers: { budget: { min: "400000", max: "600000" }, primaryGoal: "cash_flow", investmentGoals: ["cash_flow", "lifestyle"], destinationStyle: ["mountain"], propertyType: ["cabin"], locationPreference: "Tennessee", geographyFlexibility: "regional" },
     });
-    expect(scored.score).toBeGreaterThan(1);
+    expect(scored.score).toBeGreaterThan(30);
     expect(scored.qualified).toBe(true);
-    expect(scored.reasons).toContain("Fits the purchase range you shared");
-    expect(scored.reasons).toContain("Aligned with several investment goals");
+    expect(scored.reasons).toContain("Fits the supported STR purchase-price guidance");
+    expect(scored.reasons).toContain("Aligned with your primary STR investment objective");
   });
 
   it("does not allow a stated West Coast or Midwest constraint to fall back to an unrelated market", () => {
     const answers = { budget: { min: "400000", max: "800000" }, investmentGoals: ["cash_flow"], geographyFlexibility: "regional", locationPreference: "West Coast or Midwest" };
     const unrelated = __testables__.scoreMarket({
       name: "Asheville", state: "NC", region: "Western NC", priorityWeight: 0,
-      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } }, answers,
+      profile: {}, fitProfile: fitProfile(), answers,
     });
     const midwest = __testables__.scoreMarket({
       name: "Indianapolis", state: "IN", region: "Midwestern", priorityWeight: 0,
-      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } }, answers,
+      profile: {}, fitProfile: fitProfile(), answers,
     });
     const floridaWestCoast = __testables__.scoreMarket({
       name: "Bradenton/Sarasota", state: "FL", region: "Central West Coast FL", priorityWeight: 0,
-      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } }, answers,
+      profile: {}, fitProfile: fitProfile(), answers,
     });
     expect(unrelated.matchesLocationConstraint).toBe(false);
     expect(midwest.matchesLocationConstraint).toBe(true);
     expect(floridaWestCoast.matchesLocationConstraint).toBe(false);
+    const northeastFlorida = __testables__.scoreMarket({
+      name: "NE FL - St. Augustine", state: "FL", region: "Northeast and Central FL", priorityWeight: 0,
+      profile: {}, fitProfile: fitProfile(), answers,
+    });
+    expect(northeastFlorida.matchesLocationConstraint).toBe(false);
+    const northwestArkansas = __testables__.scoreMarket({
+      name: "Northwest Arkansas", state: "N/A", region: null, priorityWeight: 0,
+      profile: {}, fitProfile: fitProfile(), answers,
+    });
+    expect(northwestArkansas.matchesLocationConstraint).toBe(false);
   });
 
   it("recognizes a named state in a market record even when the state field is unavailable", () => {
     const scored = __testables__.scoreMarket({
       name: "Phoenix, Arizona", state: "N/A", region: null, priorityWeight: 0,
-      profile: { bestFitInvestors: ["Buyers seeking rental income"], buyBox: { purchasePriceGuidance: "Observed purchases between $400,000 and $800,000" } },
+      profile: {}, fitProfile: fitProfile({ locationAliases: ["Phoenix", "Arizona"] }),
       answers: { budget: { min: "400000", max: "800000" }, investmentGoals: ["cash_flow"], geographyFlexibility: "specific", locationPreference: "Phoenix, Arizona" },
     });
     expect(scored.matchesLocationConstraint).toBe(true);
@@ -110,7 +161,7 @@ describe("Market Match quiz helpers", () => {
     expect(__testables__.questionsFromConfig([{ id: "broken" }])).toEqual(DEFAULT_QUIZ_QUESTIONS);
   });
 
-  it("marks a market without profile or preference evidence as unqualified", () => {
+  it("marks a market without a fit profile as unqualified", () => {
     const scored = __testables__.scoreMarket({
       name: "Example Market", state: "Example State", region: null, priorityWeight: 0,
       profile: {}, answers: { geographyFlexibility: "open" },
