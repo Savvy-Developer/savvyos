@@ -676,7 +676,7 @@ async function ensureQuizDefaults() {
   if (!controlId) {
     const [result] = await db.insert(marketMatchQuizVariants).values({ name: "Control", description: "Default concise market-match flow.", hypothesis: "Baseline questionnaire for comparison.", status: "published", trafficAllocation: 100, isControl: true, questionConfig: DEFAULT_QUIZ_QUESTIONS as any });
     controlId = Number((result as any).insertId);
-  } else if (isPreFitProfileQuestionConfig(control?.questionConfig) || isPreMobileStrBundledQuestionConfig(control?.questionConfig) || isPriorBundledQuestionConfig(control?.questionConfig)) {
+  } else if (isPreFitProfileQuestionConfig(control?.questionConfig) || isPreMobileStrBundledQuestionConfig(control?.questionConfig) || isPriorBundledQuestionConfig(control?.questionConfig) || isPrePrimaryGoalBranchingGuard(control?.questionConfig)) {
     await db.update(marketMatchQuizVariants).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any }).where(eq(marketMatchQuizVariants.id, controlId));
   }
   const [plan] = await db.select().from(smartPlans).where(inArray(smartPlans.name, ["Market Match - Finish Your Match", "Market Match — Finish Your Match"])).limit(1);
@@ -704,7 +704,7 @@ export async function getQuizSettings() {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   let [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
-  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig) || isPreMobileStrBundledQuestionConfig(settings.questionConfig) || isPreFitProfileQuestionConfig(settings.questionConfig))) {
+  if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig) || isPreMobileStrBundledQuestionConfig(settings.questionConfig) || isPreFitProfileQuestionConfig(settings.questionConfig) || isPrePrimaryGoalBranchingGuard(settings.questionConfig))) {
     await db.update(marketMatchQuizSettings).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any, updatedAt: now() }).where(eq(marketMatchQuizSettings.id, 1));
     [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
   }
@@ -763,6 +763,19 @@ function isPreFitProfileQuestionConfig(config: unknown) {
     && rows[11]?.id === "locationPreference"
     && rows[12]?.id === "guestExperience"
     && rows[18]?.id === "freeformPreferences";
+}
+
+/** Upgrades only the exact bundle that could show an empty primary-goal screen. */
+function isPrePrimaryGoalBranchingGuard(config: unknown) {
+  if (!Array.isArray(config) || config.length !== 20) return false;
+  const rows = config as Array<Record<string, any>>;
+  const showWhen = rows[1]?.showWhen;
+  return rows[0]?.id === "investmentGoals"
+    && rows[1]?.id === "primaryGoal"
+    && rows[12]?.id === "destinationStyle"
+    && rows[18]?.id === "freeformWin"
+    && Array.isArray(showWhen?.values)
+    && showWhen.values.includes("not_sure");
 }
 
 async function pickVariant(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
