@@ -35,11 +35,34 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { renderArticleMarkdown } from "@/lib/articleMarkdown";
 
 const BASE = "/newsite";
 const LOGO =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663374872019/RGtcxHR8RPxZsqyxZLCcuq/savvy-logo_c97e2154.png";
 const path = (suffix = "") => `${BASE}${suffix}`;
+/**
+ * Blog posts and case studies are authored as markdown in the Website Studio.
+ * Bodies written before that was true are plain text, which is valid markdown,
+ * so they keep rendering as paragraphs without a migration.
+ *
+ * Raw HTML in the source is escaped rather than rendered. Authors are admins,
+ * but "the author is trusted" is a weak reason to run arbitrary markup on a
+ * public page, and a WYSIWYG never needs to emit raw HTML anyway.
+ */
+function ArticleBody({ markdown, className }: { markdown: string; className?: string }) {
+  const html = useMemo(() => renderArticleMarkdown(markdown), [markdown]);
+  if (!html) return null;
+  return (
+    <div
+      className={className}
+      // Safe: the source had its angle brackets escaped above, so this is only
+      // the markup marked itself generated.
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 const money = (value: unknown) =>
   value == null || value === ""
     ? "—"
@@ -1606,23 +1629,8 @@ function CaseStudyDetailPage({ slug }: { slug: string }) {
                   </div>
                 ))}
             </div>
-            <div className="prose prose-slate mt-8 max-w-none">
-              {String(item.body || "")
-                .split(/\n\s*\n/)
-                .map((paragraph: string, index: number) =>
-                  index % 2 === 0 && paragraph.length < 80 ? (
-                    <h2
-                      key={index}
-                      className="mt-8 text-2xl font-bold text-[#05314a]"
-                    >
-                      {paragraph}
-                    </h2>
-                  ) : (
-                    <p key={index} className="mt-4 leading-8 text-slate-650">
-                      {paragraph}
-                    </p>
-                  )
-                )}
+            <div className="prose prose-slate mt-8 max-w-none prose-headings:text-[#05314a] prose-a:text-cyan-700">
+              <ArticleBody markdown={item.body || ""} />
             </div>
           </div>
           <aside>
@@ -1749,13 +1757,10 @@ function ResourceDetailPage({ slug }: { slug: string }) {
           />
         </div>
         <div className="mx-auto max-w-3xl px-5 py-16">
-          {String(item.body || "")
-            .split(/\n\s*\n/)
-            .map((paragraph: string, index: number) => (
-              <p key={index} className="mt-5 text-lg leading-8 text-slate-700">
-                {paragraph}
-              </p>
-            ))}
+          <ArticleBody
+            markdown={item.body || ""}
+            className="prose prose-lg prose-slate max-w-none prose-headings:text-[#05314a] prose-a:text-cyan-700"
+          />
           <div className="mt-12 rounded-2xl bg-[#05314a] p-8 text-white">
             <h2 className="text-3xl font-bold">Put the insight to work.</h2>
             <p className="mt-3 text-cyan-50">

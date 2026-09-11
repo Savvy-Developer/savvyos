@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowUpRight,
@@ -12,7 +12,6 @@ import {
   Mail,
   Pencil,
   Plus,
-  Search,
   Settings2,
   Sparkles,
   Trash2,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import WebsiteRichTextEditor from "@/components/WebsiteRichTextEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,8 +52,6 @@ import { Textarea } from "@/components/ui/textarea";
 const PUBLIC_PREVIEW_URL = "https://home.savvy-agents.com/newsite/";
 type TabKey =
   | "overview"
-  | "properties"
-  | "agents"
   | "case-studies"
   | "blog"
   | "leads"
@@ -62,8 +60,6 @@ type Status = "draft" | "published" | "archived";
 
 const tabs: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: "overview", label: "Overview", icon: Globe2 },
-  { key: "properties", label: "Properties", icon: Building2 },
-  { key: "agents", label: "Agents", icon: UserRound },
   { key: "case-studies", label: "Case Studies", icon: Sparkles },
   { key: "blog", label: "Blog", icon: BookOpen },
   { key: "leads", label: "Leads", icon: Mail },
@@ -225,726 +221,6 @@ function MediaUpload({ onUploaded }: { onUploaded: (url: string) => void }) {
   );
 }
 
-const blankProperty = {
-  address: "",
-  city: "",
-  state: "",
-  zip: "",
-  beds: "",
-  baths: "",
-  sqft: "",
-  listPrice: "",
-  propertyType: "vacation_rental",
-  slug: "",
-  status: "draft" as Status,
-  sourceUrl: "",
-  sourceProformaId: "",
-  assignedAgentId: "",
-  headline: "",
-  summary: "",
-  heroImageUrl: "",
-  galleryImageUrls: "",
-  featureTags: "",
-  investmentHighlights: "",
-  projectedRevenue: "",
-  cashOnCash: "",
-  capRate: "",
-  occupancyRate: "",
-  averageDailyRate: "",
-  regulationSummary: "",
-  callToActionText: "Request the full investment analysis",
-  metaTitle: "",
-  metaDescription: "",
-  isFeatured: false,
-  sortOrder: "0",
-  propertyId: undefined as number | undefined,
-};
-
-function PropertyEditor({
-  initial,
-  agents,
-  onClose,
-}: {
-  initial?: any;
-  agents: any[];
-  onClose: () => void;
-}) {
-  const utils = trpc.useUtils();
-  const [draft, setDraft] = useState<any>(
-    initial
-      ? {
-          ...blankProperty,
-          ...initial,
-          propertyId: initial.propertyId,
-          beds: initial.beds ?? "",
-          baths: initial.baths ?? "",
-          sqft: initial.sqft ?? "",
-          listPrice: initial.listPrice ?? "",
-          sourceProformaId: initial.sourceProformaId
-            ? String(initial.sourceProformaId)
-            : "",
-          assignedAgentId: initial.assignedAgentId
-            ? String(initial.assignedAgentId)
-            : "",
-          galleryImageUrls: joinLines(initial.galleryImageUrls),
-          featureTags: joinLines(initial.featureTags),
-          investmentHighlights: joinLines(initial.investmentHighlights),
-          projectedRevenue: initial.projectedRevenue ?? "",
-          cashOnCash:
-            initial.cashOnCash == null
-              ? ""
-              : String(Number(initial.cashOnCash) * 100),
-          capRate:
-            initial.capRate == null
-              ? ""
-              : String(Number(initial.capRate) * 100),
-          occupancyRate:
-            initial.occupancyRate == null
-              ? ""
-              : String(Number(initial.occupancyRate) * 100),
-          averageDailyRate: initial.averageDailyRate ?? "",
-          sortOrder: String(initial.sortOrder ?? 0),
-        }
-      : { ...blankProperty }
-  );
-  const [propertySearch, setPropertySearch] = useState("");
-  const [zillowUrl, setZillowUrl] = useState(initial?.sourceUrl || "");
-  const search = trpc.website.searchSourceProperties.useQuery(
-    { search: propertySearch },
-    { enabled: propertySearch.length >= 2 && !draft.propertyId }
-  );
-  const proformas = trpc.website.propertyProformas.useQuery(
-    { propertyId: Number(draft.propertyId || 0) },
-    { enabled: !!draft.propertyId }
-  );
-  const importZillow = trpc.website.importZillow.useMutation({
-    onSuccess: data => {
-      setDraft((prior: any) => ({
-        ...prior,
-        ...data,
-        listPrice: data.listPrice ?? prior.listPrice,
-        beds: data.beds ?? prior.beds,
-        baths: data.baths ?? prior.baths,
-        sqft: data.sqft ?? prior.sqft,
-        heroImageUrl: data.heroImageUrl || prior.heroImageUrl,
-        galleryImageUrls: data.heroImageUrl
-          ? data.heroImageUrl
-          : prior.galleryImageUrls,
-        slug: data.slug || prior.slug,
-        sourceUrl: data.sourceUrl,
-        importedData: data.importedData,
-      }));
-      toast.success(
-        "Public Zillow metadata imported. Review every field before publishing."
-      );
-    },
-    onError: error => toast.error(error.message),
-  });
-  const save = trpc.website.saveProperty.useMutation({
-    onSuccess: async result => {
-      await utils.website.adminOverview.invalidate();
-      toast.success("Website property saved.");
-      // The SavvyOS property record owns the physical facts. If the form tried
-      // to change one that was already filled in, the save kept the SavvyOS
-      // value, so say so rather than letting the edit disappear quietly.
-      if (result?.ignoredFields?.length) {
-        toast.info(
-          `Kept the SavvyOS values for ${result.ignoredFields
-            .map(fieldLabel)
-            .join(", ")}. Edit the property record to change those.`
-        );
-      }
-      onClose();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const set = (key: string, value: any) =>
-    setDraft((prior: any) => ({ ...prior, [key]: value }));
-  const submit = () =>
-    save.mutate({
-      ...(initial?.id ? { id: initial.id } : {}),
-      ...(draft.propertyId ? { propertyId: Number(draft.propertyId) } : {}),
-      address: draft.address,
-      city: draft.city || null,
-      state: draft.state || null,
-      zip: draft.zip || null,
-      beds: numberOrNull(String(draft.beds)),
-      baths: numberOrNull(String(draft.baths)),
-      sqft: numberOrNull(String(draft.sqft)),
-      listPrice: numberOrNull(String(draft.listPrice)),
-      propertyType: draft.propertyType || null,
-      slug:
-        draft.slug || slugify(`${draft.address}-${draft.city}-${draft.state}`),
-      status: draft.status,
-      sourceUrl: draft.sourceUrl || null,
-      sourceProformaId: draft.sourceProformaId
-        ? Number(draft.sourceProformaId)
-        : null,
-      assignedAgentId: draft.assignedAgentId
-        ? Number(draft.assignedAgentId)
-        : null,
-      headline: draft.headline || null,
-      summary: draft.summary || null,
-      heroImageUrl: draft.heroImageUrl || null,
-      galleryImageUrls: splitLines(draft.galleryImageUrls),
-      featureTags: splitLines(draft.featureTags),
-      investmentHighlights: splitLines(draft.investmentHighlights),
-      projectedRevenue: numberOrNull(String(draft.projectedRevenue)),
-      cashOnCash:
-        draft.cashOnCash === "" ? null : Number(draft.cashOnCash) / 100,
-      capRate: draft.capRate === "" ? null : Number(draft.capRate) / 100,
-      occupancyRate:
-        draft.occupancyRate === "" ? null : Number(draft.occupancyRate) / 100,
-      averageDailyRate: numberOrNull(String(draft.averageDailyRate)),
-      regulationSummary: draft.regulationSummary || null,
-      callToActionText: draft.callToActionText,
-      metaTitle: draft.metaTitle || null,
-      metaDescription: draft.metaDescription || null,
-      isFeatured: !!draft.isFeatured,
-      sortOrder: Number(draft.sortOrder || 0),
-      importedData: draft.importedData || null,
-    } as any);
-  return (
-    <Dialog open onOpenChange={open => !open && onClose()}>
-      <DialogContent className="max-h-[94vh] max-w-5xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {initial ? "Edit website property" : "Add website property"}
-          </DialogTitle>
-          <DialogDescription>
-            Pick one of your SavvyOS properties to publish. The property
-            record stays the source of truth for the address and the numbers,
-            and this page adds the public headline, summary and investor
-            intelligence on top.
-          </DialogDescription>
-        </DialogHeader>
-        {!initial && (
-          <div className="relative rounded-xl border border-cyan-200 bg-cyan-50 p-4">
-            <Field
-              label="Connect an existing SavvyOS property"
-              value={propertySearch}
-              onChange={setPropertySearch}
-              placeholder="Search address or city"
-            />
-            {search.data?.length ? (
-              <div className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-md border bg-white shadow-xl">
-                {search.data.map((item: any) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="block w-full border-b px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    onClick={() => {
-                      setDraft((prior: any) => ({
-                        ...prior,
-                        ...item,
-                        propertyId: item.id,
-                        slug:
-                          prior.slug ||
-                          slugify(`${item.address}-${item.city}-${item.state}`),
-                      }));
-                      setPropertySearch(
-                        `${item.address}, ${item.city || ""} ${item.state || ""}`
-                      );
-                    }}
-                  >
-                    {item.address}
-                    {item.city ? `, ${item.city}, ${item.state || ""}` : ""}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        )}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="font-semibold text-slate-700">
-            Not in SavvyOS yet? Import from Zillow
-          </p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={zillowUrl}
-              onChange={event => setZillowUrl(event.target.value)}
-              placeholder="https://www.zillow.com/homedetails/..."
-            />
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!zillowUrl || importZillow.isPending}
-              onClick={() => importZillow.mutate({ url: zillowUrl })}
-            >
-              {importZillow.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="mr-2 h-4 w-4" />
-              )}
-              Import Zillow
-            </Button>
-          </div>
-          <p className="mt-2 text-xs text-slate-600">
-            The importer reads public metadata only. Confirm facts and media
-            rights before publishing.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-4">
-          <div className="md:col-span-2">
-            <Field
-              label="Street address"
-              value={draft.address}
-              onChange={value => {
-                set("address", value);
-                if (!draft.slug) set("slug", slugify(value));
-              }}
-            />
-          </div>
-          <Field
-            label="City"
-            value={draft.city || ""}
-            onChange={value => set("city", value)}
-          />
-          <Field
-            label="State"
-            value={draft.state || ""}
-            onChange={value => set("state", value)}
-          />
-          <Field
-            label="ZIP"
-            value={draft.zip || ""}
-            onChange={value => set("zip", value)}
-          />
-          <Field
-            label="Beds"
-            value={String(draft.beds ?? "")}
-            onChange={value => set("beds", value)}
-            type="number"
-          />
-          <Field
-            label="Baths"
-            value={String(draft.baths ?? "")}
-            onChange={value => set("baths", value)}
-            type="number"
-          />
-          <Field
-            label="Square feet"
-            value={String(draft.sqft ?? "")}
-            onChange={value => set("sqft", value)}
-            type="number"
-          />
-          <Field
-            label="List price"
-            value={String(draft.listPrice ?? "")}
-            onChange={value => set("listPrice", value)}
-          />
-          <div>
-            <Label>Property type</Label>
-            <Select
-              value={draft.propertyType}
-              onValueChange={value => set("propertyType", value)}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[
-                  "vacation_rental",
-                  "single_family",
-                  "multi_family",
-                  "condo",
-                  "townhouse",
-                  "cabin",
-                  "commercial",
-                  "land",
-                  "other",
-                ].map(value => (
-                  <SelectItem key={value} value={value}>
-                    {value.replaceAll("_", " ")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-2">
-            <Field
-              label="Public slug"
-              value={draft.slug}
-              onChange={value => set("slug", slugify(value))}
-            />
-          </div>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Public headline"
-            value={draft.headline || ""}
-            onChange={value => set("headline", value)}
-          />
-          <div>
-            <Label>Assigned Savvy agent</Label>
-            <Select
-              value={draft.assignedAgentId || "none"}
-              onValueChange={value =>
-                set("assignedAgentId", value === "none" ? "" : value)
-              }
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder="Select agent" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No agent</SelectItem>
-                {agents.map((agent: any) => (
-                  <SelectItem key={agent.id} value={String(agent.id)}>
-                    {agent.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-2">
-            <Area
-              label="Public summary"
-              value={draft.summary || ""}
-              onChange={value => set("summary", value)}
-            />
-          </div>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <Field
-              label="Hero image URL"
-              value={draft.heroImageUrl || ""}
-              onChange={value => set("heroImageUrl", value)}
-            />
-            <div className="mt-2">
-              <MediaUpload
-                onUploaded={url => {
-                  set("heroImageUrl", url);
-                  set(
-                    "galleryImageUrls",
-                    [url, ...splitLines(draft.galleryImageUrls)]
-                      .filter(
-                        (value, index, all) => all.indexOf(value) === index
-                      )
-                      .join("\n")
-                  );
-                }}
-              />
-            </div>
-          </div>
-          <Area
-            label="Gallery image URLs — one per line"
-            value={draft.galleryImageUrls || ""}
-            onChange={value => set("galleryImageUrls", value)}
-            rows={5}
-          />
-          <Area
-            label="Feature tags — one per line"
-            value={draft.featureTags || ""}
-            onChange={value => set("featureTags", value)}
-          />
-          <Area
-            label="Investment highlights — one per line"
-            value={draft.investmentHighlights || ""}
-            onChange={value => set("investmentHighlights", value)}
-          />
-        </div>
-        {draft.propertyId && (
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="font-semibold">Reuse property intelligence</p>
-            <p className="mb-3 text-xs text-slate-500">
-              Choose a saved pro-forma to copy its revenue, cash-on-cash return,
-              and cap rate on save.
-            </p>
-            <Select
-              value={draft.sourceProformaId || "none"}
-              onValueChange={value =>
-                set("sourceProformaId", value === "none" ? "" : value)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a pro-forma" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Manual website metrics</SelectItem>
-                {(proformas.data || []).map((item: any) => (
-                  <SelectItem key={item.id} value={String(item.id)}>
-                    {item.title} ·{" "}
-                    {item.grossRevenue
-                      ? `$${Number(item.grossRevenue).toLocaleString()} revenue`
-                      : "No revenue"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <div className="grid gap-4 md:grid-cols-5">
-          <Field
-            label="Projected annual revenue"
-            value={String(draft.projectedRevenue ?? "")}
-            onChange={value => set("projectedRevenue", value)}
-          />
-          <Field
-            label="Cash-on-cash %"
-            value={String(draft.cashOnCash ?? "")}
-            onChange={value => set("cashOnCash", value)}
-          />
-          <Field
-            label="Cap rate %"
-            value={String(draft.capRate ?? "")}
-            onChange={value => set("capRate", value)}
-          />
-          <Field
-            label="Occupancy %"
-            value={String(draft.occupancyRate ?? "")}
-            onChange={value => set("occupancyRate", value)}
-          />
-          <Field
-            label="Average daily rate"
-            value={String(draft.averageDailyRate ?? "")}
-            onChange={value => set("averageDailyRate", value)}
-          />
-        </div>
-        <Area
-          label="Regulation and diligence summary"
-          value={draft.regulationSummary || ""}
-          onChange={value => set("regulationSummary", value)}
-        />
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Meta title"
-            value={draft.metaTitle || ""}
-            onChange={value => set("metaTitle", value)}
-          />
-          <Field
-            label="CTA label"
-            value={draft.callToActionText}
-            onChange={value => set("callToActionText", value)}
-          />
-          <div className="md:col-span-2">
-            <Area
-              label="Meta description"
-              value={draft.metaDescription || ""}
-              onChange={value => set("metaDescription", value)}
-            />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-          <div className="flex items-center gap-5">
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={draft.status}
-                onValueChange={value => set("status", value)}
-              >
-                <SelectTrigger className="mt-1 w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="published">Published</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <label className="flex items-center gap-2 pt-5 text-sm font-medium">
-              <Switch
-                checked={draft.isFeatured}
-                onCheckedChange={value => set("isFeatured", value)}
-              />
-              Feature on homepage
-            </label>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              disabled={!draft.address || save.isPending}
-              onClick={submit}
-            >
-              {save.isPending ? "Saving…" : "Save property"}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AgentEditor({
-  initial,
-  sourceAgents,
-  onClose,
-}: {
-  initial?: any;
-  sourceAgents: any[];
-  onClose: () => void;
-}) {
-  const utils = trpc.useUtils();
-  const [draft, setDraft] = useState<any>(
-    initial
-      ? {
-          ...initial,
-          userId: String(initial.userId),
-          markets: joinLines(initial.markets),
-          specialties: joinLines(initial.specialties),
-        }
-      : {
-          userId: "",
-          slug: "",
-          headline: "",
-          shortBio: "",
-          markets: "",
-          specialties: "",
-          imageUrl: "",
-          publicEmail: "",
-          publicPhone: "",
-          bookingUrl: "",
-          status: "draft",
-          isFeatured: false,
-          sortOrder: 0,
-        }
-  );
-  const save = trpc.website.saveAgent.useMutation({
-    onSuccess: async () => {
-      await utils.website.adminOverview.invalidate();
-      toast.success("Website agent profile saved.");
-      onClose();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const source = sourceAgents.find(
-    item => String(item.id) === String(draft.userId)
-  );
-  const set = (key: string, value: any) =>
-    setDraft((prior: any) => ({ ...prior, [key]: value }));
-  return (
-    <Dialog open onOpenChange={open => !open && onClose()}>
-      <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {initial ? "Edit public agent profile" : "Add public agent profile"}
-          </DialogTitle>
-          <DialogDescription>
-            Pick an existing SavvyOS agent to feature on the website. Their
-            name, contact details, and bio come from their SavvyOS profile;
-            you only add the website positioning and market expertise here.
-          </DialogDescription>
-        </DialogHeader>
-        <div>
-          <Label>SavvyOS agent</Label>
-          <Select
-            value={String(draft.userId)}
-            disabled={!!initial}
-            onValueChange={value => {
-              const agent = sourceAgents.find(
-                item => String(item.id) === value
-              );
-              setDraft((prior: any) => ({
-                ...prior,
-                userId: value,
-                slug: slugify(agent?.name || ""),
-                shortBio: agent?.bio || "",
-                imageUrl: agent?.imageUrl || "",
-                publicEmail: agent?.email || "",
-                publicPhone: agent?.phone || "",
-                bookingUrl: agent?.bookingUrl || "",
-              }));
-            }}
-          >
-            <SelectTrigger className="mt-1">
-              <SelectValue placeholder="Choose a SavvyOS agent" />
-            </SelectTrigger>
-            <SelectContent>
-              {sourceAgents.map((agent: any) => (
-                <SelectItem key={agent.id} value={String(agent.id)}>
-                  {agent.name} · {agent.email}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Public slug"
-            value={draft.slug}
-            onChange={value => set("slug", slugify(value))}
-          />
-          <Field
-            label="Positioning headline"
-            value={draft.headline || ""}
-            onChange={value => set("headline", value)}
-          />
-        </div>
-        <Area
-          label="Public bio"
-          value={draft.shortBio || ""}
-          onChange={value => set("shortBio", value)}
-          rows={8}
-        />
-        <div className="grid gap-4 md:grid-cols-2">
-          <Area
-            label="Markets — one per line"
-            value={draft.markets || ""}
-            onChange={value => set("markets", value)}
-          />
-          <Area
-            label="Specialties — one per line"
-            value={draft.specialties || ""}
-            onChange={value => set("specialties", value)}
-          />
-          <Field
-            label="Headshot URL"
-            value={draft.imageUrl || ""}
-            onChange={value => set("imageUrl", value)}
-          />
-          <div className="flex items-end">
-            <MediaUpload onUploaded={url => set("imageUrl", url)} />
-          </div>
-          <Field
-            label="Public email"
-            value={draft.publicEmail || ""}
-            onChange={value => set("publicEmail", value)}
-          />
-          <Field
-            label="Public phone"
-            value={draft.publicPhone || ""}
-            onChange={value => set("publicPhone", value)}
-          />
-          <div className="md:col-span-2">
-            <Field
-              label="Booking URL"
-              value={draft.bookingUrl || ""}
-              onChange={value => set("bookingUrl", value)}
-            />
-          </div>
-        </div>
-        <EditorFooter
-          draft={draft}
-          set={set}
-          pending={save.isPending}
-          onClose={onClose}
-          onSave={() =>
-            save.mutate({
-              ...(initial?.id ? { id: initial.id } : {}),
-              userId: Number(draft.userId),
-              slug: draft.slug,
-              headline: draft.headline || null,
-              shortBio: draft.shortBio || null,
-              markets: splitLines(draft.markets),
-              specialties: splitLines(draft.specialties),
-              imageUrl: draft.imageUrl || null,
-              publicEmail: draft.publicEmail || null,
-              publicPhone: draft.publicPhone || null,
-              bookingUrl: draft.bookingUrl || null,
-              status: draft.status,
-              isFeatured: !!draft.isFeatured,
-              sortOrder: Number(draft.sortOrder || 0),
-            } as any)
-          }
-        />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function ContentEditor({
   kind,
   initial,
@@ -1081,12 +357,17 @@ function ContentEditor({
           value={draft.excerpt || ""}
           onChange={value => set("excerpt", value)}
         />
-        <Area
-          label="Article / story body"
-          value={draft.body || ""}
-          onChange={value => set("body", value)}
-          rows={14}
-        />
+        <div>
+          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Article / story body
+          </Label>
+          <div className="mt-1">
+            <WebsiteRichTextEditor
+              value={draft.body || ""}
+              onChange={value => set("body", value)}
+            />
+          </div>
+        </div>
         <div className="grid gap-4 md:grid-cols-2">
           <Field
             label="Cover image URL"
@@ -1408,13 +689,12 @@ function SettingsEditor({ settings }: { settings: any }) {
 }
 
 export default function WebsitePage() {
-  useLocation();
   const [tab, setTab] = useState<TabKey>("overview");
   const [editor, setEditor] = useState<{
-    type: "property" | "agent" | "case" | "post";
+    type: "case" | "post";
     initial?: any;
   } | null>(null);
-  const appliedShortcut = useRef(false);
+  const [, navigate] = useLocation();
   const shortcutParams = new URLSearchParams(
     typeof window !== "undefined" ? window.location.search : ""
   );
@@ -1423,30 +703,8 @@ export default function WebsitePage() {
   )
     ? Number(shortcutParams.get("propertyId"))
     : 0;
-  const shortcutProperty = trpc.properties.get.useQuery(
-    { id: shortcutPropertyId },
-    { enabled: shortcutPropertyId > 0 }
-  );
   const overview = trpc.website.adminOverview.useQuery();
   const pageUtils = trpc.useUtils();
-  const unpublish = trpc.website.unpublishProperty.useMutation({
-    onSuccess: async () => {
-      await pageUtils.website.adminOverview.invalidate();
-      toast.success("Removed from the website. The property record is unchanged.");
-    },
-    onError: error => toast.error(error.message),
-  });
-  // Deleting only ever removes the public listing, so a plain confirm is enough.
-  const removeProperty = (item: any) => {
-    const label = item.address || "this property";
-    if (
-      window.confirm(
-        `Remove ${label} from the public website?\n\nThe SavvyOS property record, its transactions and its listings are not affected.`
-      )
-    ) {
-      unpublish.mutate({ id: item.id });
-    }
-  };
   const permissions = trpc.permissions.getMyPermissions.useQuery();
   const can = (key: string) =>
     (permissions.data as Record<string, boolean> | undefined)?.[key] === true;
@@ -1473,24 +731,26 @@ export default function WebsitePage() {
     }),
     [data]
   );
+  // Properties and agents are no longer edited here: a property's public
+  // listing lives on the property, and an agent's public profile on the agent.
+  // Old links into those tabs are forwarded rather than left on a dead tab.
   useEffect(() => {
-    const requestedTab = shortcutParams.get("tab") as TabKey | null;
-    if (requestedTab && tabs.some(item => item.key === requestedTab))
-      setTab(requestedTab);
-    if (shortcutParams.get("create") !== "1" || appliedShortcut.current) return;
-    if (shortcutPropertyId > 0 && !shortcutProperty.data) return;
-    setTab("properties");
-    if (shortcutProperty.data) {
-      const { id: propertyId, ...canonicalProperty } = shortcutProperty.data;
-      setEditor({
-        type: "property",
-        initial: { ...canonicalProperty, propertyId, websiteShortcut: true },
-      });
-    } else {
-      setEditor({ type: "property" });
+    const requestedTab = shortcutParams.get("tab");
+    if (requestedTab === "properties") {
+      navigate(
+        shortcutPropertyId > 0
+          ? `/properties/${shortcutPropertyId}?tab=website`
+          : "/properties"
+      );
+      return;
     }
-    appliedShortcut.current = true;
-  }, [shortcutProperty.data, shortcutPropertyId]);
+    if (requestedTab === "agents") {
+      navigate("/agents");
+      return;
+    }
+    if (requestedTab && tabs.some(item => item.key === requestedTab))
+      setTab(requestedTab as TabKey);
+  }, [shortcutPropertyId]);
   if (overview.isLoading)
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -1500,15 +760,11 @@ export default function WebsitePage() {
   if (overview.error) return <EmptyState>{overview.error.message}</EmptyState>;
   const sourceAgents = data?.sourceAgents || [];
   const actionForTab =
-    tab === "properties" && can("canManageWebsiteProperties")
-      ? () => setEditor({ type: "property" })
-      : tab === "agents" && can("canManageWebsiteAgents")
-        ? () => setEditor({ type: "agent" })
-        : tab === "case-studies" && can("canManageWebsiteCaseStudies")
-          ? () => setEditor({ type: "case" })
-          : tab === "blog" && can("canManageWebsiteBlog")
-            ? () => setEditor({ type: "post" })
-            : null;
+    tab === "case-studies" && can("canManageWebsiteCaseStudies")
+      ? () => setEditor({ type: "case" })
+      : tab === "blog" && can("canManageWebsiteBlog")
+        ? () => setEditor({ type: "post" })
+        : null;
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
       <div className="overflow-hidden rounded-2xl bg-gradient-to-r from-[#05314a] via-[#07546b] to-[#10c0df] p-6 text-white shadow-lg sm:p-8">
@@ -1554,13 +810,7 @@ export default function WebsitePage() {
         <div className="flex justify-end">
           <Button onClick={actionForTab}>
             <Plus className="mr-2 h-4 w-4" />
-            {tab === "properties"
-              ? "Publish a SavvyOS property"
-              : tab === "agents"
-                ? "Feature a SavvyOS agent"
-                : tab === "case-studies"
-                  ? "Create case study"
-                  : "Create blog post"}
+            {tab === "case-studies" ? "Create case study" : "Create blog post"}
           </Button>
         </div>
       )}
@@ -1568,13 +818,17 @@ export default function WebsitePage() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {[
-              ["Live properties", counts.liveProperties, Building2],
-              ["Live agents", counts.liveAgents, UserRound],
-              ["Case studies", counts.liveStories, Sparkles],
-              ["Blog posts", counts.livePosts, BookOpen],
-              ["New inquiries", counts.newLeads, Mail],
-            ].map(([label, value, Icon]: any) => (
-              <Card key={label}>
+              ["Live properties", counts.liveProperties, Building2, "/properties"],
+              ["Live agents", counts.liveAgents, UserRound, "/agents"],
+              ["Case studies", counts.liveStories, Sparkles, null],
+              ["Blog posts", counts.livePosts, BookOpen, null],
+              ["New inquiries", counts.newLeads, Mail, null],
+            ].map(([label, value, Icon, href]: any) => (
+              <Card
+                key={label}
+                className={href ? "cursor-pointer transition hover:border-cyan-400" : undefined}
+                onClick={href ? () => navigate(href) : undefined}
+              >
                 <CardContent className="flex items-center gap-4 p-5">
                   <div className="rounded-xl bg-cyan-50 p-3 text-cyan-700">
                     <Icon className="h-5 w-5" />
@@ -1599,10 +853,11 @@ export default function WebsitePage() {
             <CardContent className="grid gap-3 md:grid-cols-3">
               <div className="rounded-xl border p-4">
                 <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                <p className="mt-3 font-semibold">Shared property graph</p>
+                <p className="mt-3 font-semibold">Edited where the record lives</p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Create a transaction, listing, or public website page from one
-                  property record.
+                  A property's public listing is on the property page, under
+                  Website. An agent's public profile is on their agent page.
+                  There is no second list to keep in step.
                 </p>
               </div>
               <div className="rounded-xl border p-4">
@@ -1624,37 +879,6 @@ export default function WebsitePage() {
             </CardContent>
           </Card>
         </>
-      )}
-      {tab === "properties" && (
-        <RecordTable
-          items={data?.properties || []}
-          columns={["address", "city", "listPrice", "assignedAgentName"]}
-          onEdit={item => setEditor({ type: "property", initial: item })}
-          preview={item => `${PUBLIC_PREVIEW_URL}properties/${item.slug}`}
-          title="SavvyOS properties on the website"
-          description="Every row is one of your SavvyOS properties. This page controls how it appears publicly, not the property record itself."
-          sourceHref={item =>
-            item.propertyId ? `/properties/${item.propertyId}` : null
-          }
-          sourceLabel="Property record"
-          onDelete={
-            can("canManageWebsiteProperties")
-              ? item => removeProperty(item)
-              : undefined
-          }
-        />
-      )}
-      {tab === "agents" && (
-        <RecordTable
-          items={data?.agents || []}
-          columns={["name", "headline"]}
-          onEdit={item => setEditor({ type: "agent", initial: item })}
-          preview={item => `${PUBLIC_PREVIEW_URL}agents/${item.slug}`}
-          title="SavvyOS agents on the website"
-          description="Every row is one of your SavvyOS agents. This page controls their public profile, not their agent record."
-          sourceHref={item => (item.userId ? `/agents/${item.userId}` : null)}
-          sourceLabel="Agent record"
-        />
       )}
       {tab === "case-studies" && (
         <RecordTable
@@ -1726,20 +950,6 @@ export default function WebsitePage() {
         </Card>
       )}
       {tab === "settings" && <SettingsEditor settings={data?.settings} />}
-      {editor?.type === "property" && (
-        <PropertyEditor
-          initial={editor.initial}
-          agents={sourceAgents}
-          onClose={() => setEditor(null)}
-        />
-      )}
-      {editor?.type === "agent" && (
-        <AgentEditor
-          initial={editor.initial}
-          sourceAgents={sourceAgents}
-          onClose={() => setEditor(null)}
-        />
-      )}
       {editor?.type === "case" && (
         <ContentEditor
           kind="case"

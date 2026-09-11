@@ -65,11 +65,13 @@ import {
   GitMerge,
   Search,
   Shield,
+  Globe2,
 } from "lucide-react";
 import { formatPhone, isValidEmail, isValidPhone } from "@/lib/inputFormatters";
 import { formatEmail } from "@/lib/format";
 import { format } from "date-fns";
 import UserExtendedProfileTab from "@/components/UserExtendedProfileTab";
+import AgentWebsiteTab from "@/components/website/AgentWebsiteTab";
 import UserCoachingDashboard from "@/components/UserCoachingDashboard";
 import { safeFormat } from "@/lib/safeFormat";
 import { toast } from "sonner";
@@ -427,6 +429,10 @@ export default function AgentProfilePage() {
 
   const agentData = agent as any;
   const isProtectedAccount = agentData?.email === "tyler@savvy.realty";
+  // An agent edits their own public profile; an admin edits anyone's. The
+  // server enforces the same rule, this only decides whether the tab shows.
+  const canEditWebsiteProfile =
+    agentData?.role === "agent" && (isAdmin || currentUser?.id === agentId);
   const isSelf = currentUser?.id === agentId;
   const marketName = agentData.marketProfileId
     ? (markets as any[]).find((m) => m.id === agentData.marketProfileId)?.name
@@ -824,9 +830,7 @@ export default function AgentProfilePage() {
                     {websitePresence.profile ? "Publish" : "Add to website"}
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => navigate("/website?tab=agents")}>
-                  Edit in studio
-                </Button>
+
               </div>
             )}
           </CardContent>
@@ -886,6 +890,12 @@ export default function AgentProfilePage() {
             <TabsTrigger value="extended-profile" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
               <ClipboardList className="h-4 w-4 mr-1.5 shrink-0" />
               Extended Profile
+            </TabsTrigger>
+          )}
+          {canEditWebsiteProfile && (
+            <TabsTrigger value="website-profile" className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary data-[state=active]:shadow-none">
+              <Globe2 className="h-4 w-4 mr-1.5 shrink-0" />
+              Website Profile
             </TabsTrigger>
           )}
         </TabsList>
@@ -1476,6 +1486,14 @@ export default function AgentProfilePage() {
               userId={agentId}
               userRole={agentData.role as "agent" | "admin" | "isa"}
             />
+          </TabsContent>
+        )}
+
+        {/* Website Profile Tab. Replaces the Website Studio's Agents list, so
+            the public profile is edited on the agent record it belongs to. */}
+        {canEditWebsiteProfile && (
+          <TabsContent value="website-profile" className="mt-4">
+            <AgentWebsiteTab agentId={agentId} agentName={agentData.name} />
           </TabsContent>
         )}
       </Tabs>

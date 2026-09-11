@@ -302,6 +302,30 @@ async function requirePropertyPublishAccess(ctx: any, db: any, propertyId: numbe
   });
 }
 
+/**
+ * Who may edit an agent's public profile. Admins keep the permission-based
+ * route; an agent may always edit their own, which is the point of moving the
+ * profile onto the agent page.
+ */
+async function requireAgentProfileAccess(ctx: any, userId: number) {
+  if (ctx.user?.role === "admin") {
+    await requireWebsitePermission(ctx, "canManageWebsiteAgents");
+    return;
+  }
+  if (ctx.user?.id === userId) return;
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "You can only edit your own website profile.",
+  });
+}
+
+async function canEditAgentProfile(ctx: any, userId: number) {
+  if (ctx.user?.role === "admin") {
+    return canAdminUsePermission(ctx.user, "canManageWebsiteAgents");
+  }
+  return ctx.user?.id === userId;
+}
+
 const propertyInput = z.object({
   id: z.number().int().positive().optional(),
   propertyId: z.number().int().positive().optional(),
@@ -355,6 +379,84 @@ const propertyInput = z.object({
   isFeatured: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
   importedData: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+/**
+ * Which investor numbers to store when a pro-forma is attached.
+ *
+ * The rule is "blank inherits, typed wins": a field the author left empty is
+ * filled from the pro-forma, and a number they actually entered is kept even
+ * when it disagrees with the pro-forma. Without this an author could not
+ * override a single figure without detaching the pro-forma entirely.
+ *
+ * Values come back as strings because that is how decimals are stored.
+ */
+export function proformaMetrics(
+  entered: {
+    projectedRevenue?: number | null;
+    cashOnCash?: number | null;
+    capRate?: number | null;
+  },
+  proforma: {
+    grossRevenue: string | null;
+    cashOnCash: string | null;
+    capRate: string | null;
+  } | null
+): { projectedRevenue: string | null; cashOnCash: string | null; capRate: string | null } {
+  const asText = (value: number | null | undefined) =>
+    value == null ? null : String(value);
+  if (!proforma) {
+    return {
+      projectedRevenue: asText(entered.projectedRevenue),
+      cashOnCash: asText(entered.cashOnCash),
+      capRate: asText(entered.capRate),
+    };
+  }
+  return {
+    projectedRevenue:
+      entered.projectedRevenue == null
+        ? proforma.grossRevenue
+        : asText(entered.projectedRevenue),
+    cashOnCash:
+      entered.cashOnCash == null ? proforma.cashOnCash : asText(entered.cashOnCash),
+    capRate: entered.capRate == null ? proforma.capRate : asText(entered.capRate),
+  };
+}
+
+/**
+ * The website-only half of a property. The SavvyOS property record owns the
+ * address, beds, baths and price, so none of those appear here: this is the
+ * public presentation layer that used to live in the Website Studio's
+ * Properties tab, now edited on the property itself.
+ */
+const propertyWebsiteContentInput = z.object({
+  propertyId: z.number().int().positive(),
+  slug: z.string().trim().min(3).max(255).optional(),
+  status: statusSchema.default("draft"),
+  sourceProformaId: z.number().int().positive().nullable().optional(),
+  assignedAgentId: z.number().int().positive().nullable().optional(),
+  headline: nullableText,
+  summary: nullableText,
+  heroImageUrl: nullableText,
+  galleryImageUrls: stringList,
+  featureTags: stringList,
+  investmentHighlights: stringList,
+  projectedRevenue: nullableNumber,
+  cashOnCash: nullableNumber,
+  capRate: nullableNumber,
+  occupancyRate: nullableNumber,
+  averageDailyRate: nullableNumber,
+  regulationSummary: nullableText,
+  callToActionText: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .default("Request the full investment analysis"),
+  metaTitle: nullableText,
+  metaDescription: nullableText,
+  isFeatured: z.boolean().default(false),
+  sortOrder: z.number().int().default(0),
 });
 
 const agentInput = z.object({
@@ -1269,9 +1371,11 @@ export const websiteRouter = router({
   propertyProformas: protectedProcedure
     .input(z.object({ propertyId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
-      await requireWebsitePermission(ctx, "canManageWebsiteProperties");
       const db = await getDb();
       if (!db) return [];
+      // Same gate as publishing: an agent picking a pro-forma for a property
+      // they own does not need a studio permission.
+      await requirePropertyPublishAccess(ctx, db, input.propertyId);
       return db
         .select({
           id: proformas.id,
@@ -1719,6 +1823,279 @@ export const websiteRouter = router({
       }
       await db.delete(websiteProperties).where(eq(websiteProperties.id, input.id));
       return { removedPropertyId: existing.propertyId };
+    }),
+
+  /**
+   * Everything the Website tab on a property page needs, in one call: the
+   * website row if the property is already on the site, whether this user may
+   * edit it, and the pro-formas and agents the form offers.
+   */
+  propertyWebsiteContent: protectedProcedure
+    .input(z.object({ propertyId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { canEdit: false, website: null, proformas: [], agents: [] };
+      let canEdit = false;
+      if (ctx.user?.role === "admin") {
+        canEdit = await canAdminUsePermission(ctx.user, "canManageWebsiteProperties");
+      } else if (ctx.user?.role === "agent") {
+        canEdit = await agentOwnsProperty(db, ctx.user.id, input.propertyId);
+      }
+      const [website] = await db
+        .select()
+        .from(websiteProperties)
+        .where(eq(websiteProperties.propertyId, input.propertyId))
+        .limit(1);
+      if (!canEdit) return { canEdit, website: website ?? null, proformas: [], agents: [] };
+      const proformaRows = await db
+        .select({
+          id: proformas.id,
+          title: proformas.title,
+          grossRevenue: proformas.grossRevenue,
+          cashOnCash: proformas.cashOnCash,
+          capRate: proformas.capRate,
+        })
+        .from(proformas)
+        .where(eq(proformas.propertyId, input.propertyId))
+        .orderBy(desc(proformas.updatedAt));
+      const agentRows = await db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
+        .orderBy(users.name);
+      return { canEdit, website: website ?? null, proformas: proformaRows, agents: agentRows };
+    }),
+
+  /**
+   * Save the public presentation of a property from the property page. Uses the
+   * same access rule as publishing, so an agent can write the website copy for
+   * a property they own without any studio permission. It never touches the
+   * SavvyOS property record, which is why there is no address here to reconcile.
+   */
+  savePropertyWebsiteContent: protectedProcedure
+    .input(propertyWebsiteContentInput)
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await requirePropertyPublishAccess(ctx, db, input.propertyId);
+
+      const [property] = await db
+        .select({ id: properties.id, address: properties.address, city: properties.city })
+        .from(properties)
+        .where(eq(properties.id, input.propertyId))
+        .limit(1);
+      if (!property) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found" });
+
+      let metrics: Record<string, string | null> = proformaMetrics(input, null);
+      if (input.sourceProformaId) {
+        const [selected] = await db
+          .select({
+            grossRevenue: proformas.grossRevenue,
+            cashOnCash: proformas.cashOnCash,
+            capRate: proformas.capRate,
+          })
+          .from(proformas)
+          .where(
+            and(
+              eq(proformas.id, input.sourceProformaId),
+              eq(proformas.propertyId, input.propertyId)
+            )
+          )
+          .limit(1);
+        if (!selected) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The selected pro-forma does not belong to this property.",
+          });
+        }
+        metrics = proformaMetrics(input, selected);
+      }
+
+      const [existing] = await db
+        .select({
+          id: websiteProperties.id,
+          slug: websiteProperties.slug,
+          status: websiteProperties.status,
+          publishedAt: websiteProperties.publishedAt,
+        })
+        .from(websiteProperties)
+        .where(eq(websiteProperties.propertyId, input.propertyId))
+        .limit(1);
+
+      // The publish date is stamped when a listing first goes live and then
+      // left alone. Re-stamping it on every save would make a listing from
+      // March look brand new every time someone fixed a typo.
+      const publishedAt =
+        input.status === "published"
+          ? (existing?.publishedAt ?? new Date())
+          : (existing?.publishedAt ?? null);
+
+      const data = {
+        status: input.status,
+        sourceProformaId: input.sourceProformaId || null,
+        assignedAgentId: input.assignedAgentId || null,
+        headline: input.headline || null,
+        summary: input.summary || null,
+        heroImageUrl: input.heroImageUrl || null,
+        galleryImageUrls: input.galleryImageUrls,
+        featureTags: input.featureTags,
+        investmentHighlights: input.investmentHighlights,
+        occupancyRate: asDecimal(input.occupancyRate),
+        averageDailyRate: asDecimal(input.averageDailyRate),
+        regulationSummary: input.regulationSummary || null,
+        callToActionText: input.callToActionText,
+        metaTitle: input.metaTitle || null,
+        metaDescription: input.metaDescription || null,
+        isFeatured: input.isFeatured,
+        sortOrder: input.sortOrder,
+        publishedAt,
+        updatedById: ctx.user.id,
+        ...metrics,
+      };
+
+      if (existing) {
+        // The slug is part of a live URL. Only change it when the form actually
+        // sent a different one, and make sure it stays unique.
+        const nextSlug =
+          input.slug && cleanSlug(input.slug) !== existing.slug
+            ? await uniqueSlug(db, websiteProperties, cleanSlug(input.slug))
+            : existing.slug;
+        await db
+          .update(websiteProperties)
+          .set({ ...data, slug: nextSlug })
+          .where(eq(websiteProperties.id, existing.id));
+        await logActivity({
+          userId: ctx.user.id,
+          action: "website_property_updated",
+          entityType: "property",
+          entityId: input.propertyId,
+          details: { slug: nextSlug, status: input.status, previousStatus: existing.status },
+        });
+        return { id: existing.id, slug: nextSlug, created: false };
+      }
+
+      const base = cleanSlug(
+        input.slug ||
+          [property.address, property.city].filter(Boolean).join(" ") ||
+          `property-${property.id}`
+      );
+      const slug = await uniqueSlug(db, websiteProperties, base);
+      const result = await db.insert(websiteProperties).values({
+        ...data,
+        propertyId: input.propertyId,
+        slug,
+        assignedAgentId:
+          input.assignedAgentId ?? (ctx.user.role === "agent" ? ctx.user.id : null),
+        createdById: ctx.user.id,
+      });
+      await logActivity({
+        userId: ctx.user.id,
+        action: "website_property_published",
+        entityType: "property",
+        entityId: input.propertyId,
+        details: { slug, status: input.status },
+      });
+      return { id: Number((result as any)[0]?.insertId), slug, created: true };
+    }),
+
+  /** The agent's own website profile, for the Website tab on their page. */
+  agentWebsiteProfile: protectedProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { canEdit: false, profile: null, user: null };
+      const canEdit = await canEditAgentProfile(ctx, input.userId);
+      const [profile] = await db
+        .select()
+        .from(websiteAgentProfiles)
+        .where(eq(websiteAgentProfiles.userId, input.userId))
+        .limit(1);
+      const [user] = await db
+        .select({ id: users.id, name: users.name, email: users.email, phone: users.phone })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1);
+      return {
+        canEdit,
+        profile: profile ? withNormalizedBooking(profile) : null,
+        user: user ?? null,
+      };
+    }),
+
+  /** Save an agent's public profile from their agent page. */
+  saveAgentWebsiteProfile: protectedProcedure
+    .input(agentInput.partial({ slug: true }))
+    .mutation(async ({ input, ctx }) => {
+      await requireAgentProfileAccess(ctx, input.userId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [user] = await db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
+
+      const [existing] = await db
+        .select({
+          id: websiteAgentProfiles.id,
+          slug: websiteAgentProfiles.slug,
+          publishedAt: websiteAgentProfiles.publishedAt,
+        })
+        .from(websiteAgentProfiles)
+        .where(eq(websiteAgentProfiles.userId, input.userId))
+        .limit(1);
+
+      // Same rule as a property: first publish stamps the date, later saves
+      // leave it alone.
+      const publishedAt =
+        input.status === "published"
+          ? (existing?.publishedAt ?? new Date())
+          : (existing?.publishedAt ?? null);
+
+      const data = {
+        headline: input.headline || null,
+        shortBio: input.shortBio || null,
+        markets: input.markets,
+        specialties: input.specialties,
+        imageUrl: input.imageUrl || null,
+        publicEmail: input.publicEmail || null,
+        publicPhone: input.publicPhone || null,
+        // Stored normalized, so a link typed as "calendly.com/x" is still a
+        // working link on the public page rather than a relative path.
+        bookingUrl: normalizeBookingUrl(input.bookingUrl),
+        status: input.status,
+        isFeatured: input.isFeatured,
+        sortOrder: input.sortOrder,
+        publishedAt,
+        updatedById: ctx.user.id,
+      };
+
+      if (existing) {
+        const nextSlug =
+          input.slug && cleanSlug(input.slug) !== existing.slug
+            ? await uniqueSlug(db, websiteAgentProfiles, cleanSlug(input.slug))
+            : existing.slug;
+        await db
+          .update(websiteAgentProfiles)
+          .set({ ...data, slug: nextSlug })
+          .where(eq(websiteAgentProfiles.id, existing.id));
+        return { id: existing.id, slug: nextSlug, created: false };
+      }
+
+      const slug = await uniqueSlug(
+        db,
+        websiteAgentProfiles,
+        cleanSlug(input.slug || user.name || `agent-${user.id}`)
+      );
+      const result = await db.insert(websiteAgentProfiles).values({
+        ...data,
+        userId: input.userId,
+        slug,
+        createdById: ctx.user.id,
+      });
+      return { id: Number((result as any)[0]?.insertId), slug, created: true };
     }),
 
   propertyPublishState: protectedProcedure
