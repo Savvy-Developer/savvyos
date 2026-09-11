@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __fitProfileTestables__, fitRefreshFailureStatus } from "./marketMatchFitProfiles";
+import { __fitProfileTestables__, fitRefreshFailureStatus, fitRefreshStartStatus } from "./marketMatchFitProfiles";
 
 describe("Market Match fit profile normalization", () => {
   it("keeps only allowed, evidence-backed matching tags", () => {
@@ -40,5 +40,10 @@ describe("Market Match fit profile normalization", () => {
   it("retains a last validated fit profile when a later model response fails", () => {
     expect(fitRefreshFailureStatus({ readyForMatching: true })).toBe("ready");
     expect(fitRefreshFailureStatus(null)).toBe("failed");
+  });
+
+  it("keeps a validated fit profile eligible during replacement extraction", () => {
+    expect(fitRefreshStartStatus({ readyForMatching: true })).toBe("ready");
+    expect(fitRefreshStartStatus(null)).toBe("refreshing");
   });
 });

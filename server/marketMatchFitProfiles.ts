@@ -16,6 +16,11 @@ export function fitRefreshFailureStatus(previousProfile: unknown): "ready" | "fa
   return previousProfile && typeof previousProfile === "object" ? "ready" : "failed";
 }
 
+/** Avoids removing a last validated fit profile while its replacement is generated. */
+export function fitRefreshStartStatus(previousProfile: unknown): "ready" | "refreshing" {
+  return previousProfile && typeof previousProfile === "object" ? "ready" : "refreshing";
+}
+
 const GOALS = ["cash_flow", "tax_strategy", "appreciation", "value_add", "lifestyle", "portfolio"] as const;
 const EXPERIENCE = ["first_str", "some", "portfolio"] as const;
 const DESTINATION_STYLES = ["beach", "mountain", "lake", "urban", "suburban", "rural", "entertainment"] as const;
@@ -148,7 +153,31 @@ export async function refreshMarketMatchFitProfile(marketProfileId: number): Pro
   const sourceIntelligenceHash = hash(market.intelligence);
   const [existing] = await db.select({ sourceIntelligenceHash: marketMatchFitProfiles.sourceIntelligenceHash, status: marketMatchFitProfiles.status, profileJson: marketMatchFitProfiles.profileJson }).from(marketMatchFitProfiles).where(eq(marketMatchFitProfiles.marketProfileId, marketProfileId)).limit(1);
   if (existing?.status === "ready" && existing.sourceIntelligenceHash === sourceIntelligenceHash && existing.profileJson) return { status: "ready", profile: normalizeMarketMatchFitProfile(existing.profileJson) };
-  await db.insert(marketMatchFitProfiles).values({ marketProfileId, sourceIntelligenceHash, status: "refreshing", model: MARKET_MATCH_FIT_MODEL, errorMessage: null }).onDuplicateKeyUpdate({ set: { sourceIntelligenceHash, status: "refreshing", model: MARKET_MATCH_FIT_MODEL, errorMessage: null, updatedAt: new Date() } });
+  // Keep the prior profile and its source hash live until the replacement has
+  // passed normalization. A stale-but-validated profile is materially better
+  // than withdrawing the market during a background refresh.
+  if (existing?.profileJson) {
+    await db.update(marketMatchFitProfiles).set({
+      status: fitRefreshStartStatus(existing.profileJson),
+      model: MARKET_MATCH_FIT_MODEL,
+      errorMessage: null,
+      updatedAt: new Date(),
+    }).where(eq(marketMatchFitProfiles.marketProfileId, marketProfileId));
+  } else {
+    await db.insert(marketMatchFitProfiles).values({
+      marketProfileId,
+      sourceIntelligenceHash,
+      status: "refreshing",
+      model: MARKET_MATCH_FIT_MODEL,
+      errorMessage: null,
+    }).onDuplicateKeyUpdate({ set: {
+      sourceIntelligenceHash,
+      status: "refreshing",
+      model: MARKET_MATCH_FIT_MODEL,
+      errorMessage: null,
+      updatedAt: new Date(),
+    } });
+  }
   try {
     const response = await invokeLLM({
       model: MARKET_MATCH_FIT_MODEL,
