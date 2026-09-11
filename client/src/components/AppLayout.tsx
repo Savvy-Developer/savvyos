@@ -348,6 +348,7 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewAdminApprovals: "/approvals",
   canViewAgentMarkets: "/agent-markets",
   canViewAgentCelebrations: "/agent-celebrations",
+  canViewRecruiting: "/recruiting",
   canViewMarketMatchQuiz: "/admin/market-match-quiz",
   canViewOrgChart: "/org-chart",
   canViewRolesResponsibilities: "/roles-responsibilities",
@@ -482,6 +483,7 @@ function buildAdminNav(
       label: "Agent Success Team",
       items: [
         { icon: Map, label: "Agent Markets", path: "/agent-markets" },
+        { icon: Users, label: "Recruiting", path: "/recruiting" },
         {
           icon: PartyPopper,
           label: "Agent Celebration",

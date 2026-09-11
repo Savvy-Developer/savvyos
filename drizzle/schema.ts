@@ -687,6 +687,194 @@ export const appointmentEvents = mysqlTable(
 );
 export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
 
+// ─── Recruiting ───────────────────────────────────────────────────────────────
+// Recruiting lives outside the client CRM by design. A recruit is not a contact,
+// agent, user, or agent connection until an administrator deliberately moves them
+// into the separate Savvy agent/onboarding workflow.
+export const recruitingStages = mysqlTable(
+  "recruiting_stages",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 80 }).notNull().unique(),
+    name: varchar("name", { length: 120 }).notNull(),
+    position: int("position").notNull().default(0),
+    isActive: boolean("isActive").notNull().default(true),
+    isClosed: boolean("isClosed").notNull().default(false),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("recruiting_stages_position_idx").on(table.position)]
+);
+export type RecruitingStage = typeof recruitingStages.$inferSelect;
+
+export const recruits = mysqlTable(
+  "recruits",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    firstName: varchar("firstName", { length: 128 }).notNull(),
+    lastName: varchar("lastName", { length: 128 }).notNull(),
+    email: varchar("email", { length: 320 }),
+    phone: varchar("phone", { length: 32 }),
+    currentBrokerage: varchar("currentBrokerage", { length: 255 }),
+    websiteUrl: varchar("websiteUrl", { length: 1024 }),
+    socialLinks: json("socialLinks").$type<Record<string, string>>(),
+    primaryMarketId: int("primaryMarketId").references(() => marketProfiles.id, {
+      onDelete: "set null",
+    }),
+    primaryMarketText: varchar("primaryMarketText", { length: 255 }),
+    additionalMarkets: json("additionalMarkets").$type<string[]>(),
+    state: varchar("state", { length: 64 }),
+    yearsInRealEstate: int("yearsInRealEstate"),
+    shortTermRentalExperience: text("shortTermRentalExperience"),
+    transactionCount: int("transactionCount"),
+    salesVolume: decimal("salesVolume", { precision: 16, scale: 2 }),
+    productionPeriod: varchar("productionPeriod", { length: 80 }),
+    ownerId: int("ownerId").notNull().references(() => users.id),
+    source: varchar("source", { length: 255 }),
+    stageId: int("stageId").notNull().references(() => recruitingStages.id),
+    lastContactAt: timestamp("lastContactAt"),
+    nextAction: varchar("nextAction", { length: 500 }),
+    nextFollowUpAt: timestamp("nextFollowUpAt"),
+    goals: text("goals"),
+    motivations: text("motivations"),
+    objections: text("objections"),
+    context: text("context"),
+    isArchived: boolean("isArchived").notNull().default(false),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("recruits_email_idx").on(table.email),
+    index("recruits_phone_idx").on(table.phone),
+    index("recruits_owner_stage_idx").on(table.ownerId, table.stageId),
+    index("recruits_follow_up_idx").on(table.nextFollowUpAt),
+    index("recruits_market_idx").on(table.primaryMarketId),
+  ]
+);
+export type Recruit = typeof recruits.$inferSelect;
+
+// Recruiting history is append-only. Pinned entries remain part of the
+// chronological activity record and are simply surfaced at the top of a profile.
+export const recruitingActivities = mysqlTable(
+  "recruiting_activities",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    recruitId: int("recruitId").notNull().references(() => recruits.id, { onDelete: "cascade" }),
+    type: mysqlEnum("type", [
+      "note",
+      "call",
+      "email",
+      "text",
+      "meeting",
+      "booking",
+      "appointment_scheduled",
+      "appointment_rescheduled",
+      "appointment_canceled",
+      "appointment_completed",
+      "appointment_no_show",
+      "task_created",
+      "task_completed",
+      "stage_changed",
+      "ai_summary",
+    ]).notNull(),
+    body: text("body").notNull(),
+    outcome: varchar("outcome", { length: 1_000 }),
+    occurredAt: timestamp("occurredAt").notNull(),
+    enteredById: int("enteredById").references(() => users.id, { onDelete: "set null" }),
+    isPinned: boolean("isPinned").notNull().default(false),
+    pinnedAt: timestamp("pinnedAt"),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("recruiting_activities_recruit_occurred_idx").on(table.recruitId, table.occurredAt),
+    index("recruiting_activities_recruit_pinned_idx").on(table.recruitId, table.isPinned),
+  ]
+);
+export type RecruitingActivity = typeof recruitingActivities.$inferSelect;
+
+// These follow-ups are deliberately separate from CRM tasks and project work.
+export const recruitingTasks = mysqlTable(
+  "recruiting_tasks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    recruitId: int("recruitId").notNull().references(() => recruits.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 500 }).notNull(),
+    notes: text("notes"),
+    assignedToId: int("assignedToId").notNull().references(() => users.id),
+    dueDate: date("dueDate").notNull(),
+    completedAt: timestamp("completedAt"),
+    completedById: int("completedById").references(() => users.id, { onDelete: "set null" }),
+    createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("recruiting_tasks_assignee_due_idx").on(table.assignedToId, table.dueDate),
+    index("recruiting_tasks_recruit_due_idx").on(table.recruitId, table.dueDate),
+  ]
+);
+export type RecruitingTask = typeof recruitingTasks.$inferSelect;
+
+// Recruiting appointments reuse the shared Google Calendar service, but stay
+// isolated from sales agent connections and CRM appointment automations.
+export const recruitingAppointments = mysqlTable(
+  "recruiting_appointments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    recruitId: int("recruitId").notNull().references(() => recruits.id, { onDelete: "cascade" }),
+    hostUserId: int("hostUserId").notNull().references(() => users.id),
+    scheduledByUserId: int("scheduledByUserId").references(() => users.id, { onDelete: "set null" }),
+    source: mysqlEnum("source", ["public_trish", "admin"]).notNull(),
+    status: mysqlEnum("status", ["pending", "scheduled", "canceled", "completed", "no_show"])
+      .notNull()
+      .default("pending"),
+    title: varchar("title", { length: 255 }).notNull(),
+    startAt: timestamp("startAt").notNull(),
+    endAt: timestamp("endAt").notNull(),
+    timezone: varchar("timezone", { length: 64 }).notNull().default("America/New_York"),
+    visitorTimezone: varchar("visitorTimezone", { length: 64 }),
+    location: varchar("location", { length: 512 }),
+    visitorMessage: text("visitorMessage"),
+    externalCalendarEventId: varchar("externalCalendarEventId", { length: 512 }),
+    externalCalendarEventUrl: text("externalCalendarEventUrl"),
+    invitationDeliveryStatus: mysqlEnum("invitationDeliveryStatus", ["not_needed", "sent", "failed"])
+      .notNull()
+      .default("not_needed"),
+    invitationDeliveryError: text("invitationDeliveryError"),
+    canceledAt: timestamp("canceledAt"),
+    cancellationReason: varchar("cancellationReason", { length: 1_000 }),
+    completedAt: timestamp("completedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("recruiting_appointments_host_start_unique").on(table.hostUserId, table.startAt),
+    index("recruiting_appointments_recruit_start_idx").on(table.recruitId, table.startAt),
+    index("recruiting_appointments_host_status_start_idx").on(table.hostUserId, table.status, table.startAt),
+  ]
+);
+export type RecruitingAppointment = typeof recruitingAppointments.$inferSelect;
+
+export const recruitingCalendarSettings = mysqlTable(
+  "recruiting_calendar_settings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+    meetingDurationMinutes: int("meetingDurationMinutes").notNull().default(30),
+    timezone: varchar("timezone", { length: 64 }).notNull().default("America/New_York"),
+    workingHours: json("workingHours").$type<Record<string, { enabled: boolean; start: string; end: string }>>(),
+    bufferBeforeMinutes: int("bufferBeforeMinutes").notNull().default(15),
+    bufferAfterMinutes: int("bufferAfterMinutes").notNull().default(15),
+    minimumNoticeHours: int("minimumNoticeHours").notNull().default(24),
+    conflictCalendarIds: json("conflictCalendarIds").$type<string[]>(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  }
+);
+export type RecruitingCalendarSettings = typeof recruitingCalendarSettings.$inferSelect;
+
 // ─── Properties ───────────────────────────────────────────────────────────────
 export const properties = mysqlTable(
   "properties",
@@ -5929,6 +6117,7 @@ export const adminPermissions = mysqlTable("admin_permissions", {
   canViewAgentCelebrations: boolean("canViewAgentCelebrations")
     .default(true)
     .notNull(),
+  canViewRecruiting: boolean("canViewRecruiting").default(true).notNull(),
   canViewOrgChart: boolean("canViewOrgChart").default(true).notNull(),
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities")
     .default(true)

@@ -156,6 +156,9 @@ import WebsitePage from "./pages/WebsitePage";
 import PublicWebsite from "./pages/PublicWebsite";
 import AgentCelebrationPage from "./pages/AgentCelebrationPage";
 import ChecklistsPage from "./pages/ChecklistsPage";
+import PublicTrishRecruitingPage from "./pages/PublicTrishRecruitingPage";
+import RecruitingPage from "./pages/RecruitingPage";
+import RecruitDetailPage from "./pages/RecruitDetailPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -297,6 +300,16 @@ function AgentCelebrationsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentCelebrations) return <NotFound />;
+  return <>{children}</>;
+}
+
+function RecruitingRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewRecruiting) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -461,6 +474,8 @@ function Router() {
           <Route path="/market-match/:id">{() => <AdminOrIsaRoute><MarketMatchCallPage /></AdminOrIsaRoute>}</Route>
           <Route path="/admin/market-match-quiz">{() => <MarketMatchQuizRoute><MarketMatchQuizAdminPage /></MarketMatchQuizRoute>}</Route>
           <Route path="/agent-celebrations">{() => <AgentCelebrationsRoute><AgentCelebrationPage /></AgentCelebrationsRoute>}</Route>
+          <Route path="/recruiting/:id">{({ id }: any) => <RecruitingRoute><RecruitDetailPage id={id} /></RecruitingRoute>}</Route>
+          <Route path="/recruiting">{() => <RecruitingRoute><RecruitingPage /></RecruitingRoute>}</Route>
           <Route path="/transactions" component={TransactionsPage} />
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>
@@ -596,8 +611,10 @@ function Router() {
 }
 
 function App() {
-  const isPublicLandingHost = typeof window !== "undefined" && window.location.hostname.toLowerCase() === (import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  const publicLandingHost = (import.meta.env.VITE_PUBLIC_LANDING_PAGE_HOST || "home.savvy-agents.com").toLowerCase();
+  const isPublicLandingHost = typeof window !== "undefined" && [publicLandingHost, `www.${publicLandingHost}`].includes(window.location.hostname.toLowerCase());
   const isMarketMatchPublicPath = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "") === "/marketmatch";
+  const isTrishRecruitingPath = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "") === "/trish";
   const isPublicWebsitePath = typeof window !== "undefined" && (window.location.pathname === "/newsite" || window.location.pathname.startsWith("/newsite/"));
   return (
     <ErrorBoundary>
@@ -605,7 +622,7 @@ function App() {
         <TooltipProvider>
           <Toaster richColors position="top-right" />
           {/* Public routes — no auth required */}
-          {isPublicWebsitePath ? <PublicWebsite /> : isPublicLandingHost ? (isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
+          {isPublicWebsitePath ? <PublicWebsite /> : isPublicLandingHost ? (isTrishRecruitingPath ? <PublicTrishRecruitingPage /> : isMarketMatchPublicPath ? <PublicMarketMatchQuizPage /> : <PublicLandingPage />) : <Switch>
             <Route path="/partner-lead" component={PartnerLeadForm} />
             <Route path="/partner-portal" component={PartnerPortalPage} />
             <Route path="/review" component={PublicReviewPage} />

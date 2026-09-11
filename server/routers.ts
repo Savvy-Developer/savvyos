@@ -84,6 +84,7 @@ import { eventsRouter } from "./routers/events";
 import { websiteRouter } from "./routers/website";
 import { agentCelebrationsRouter } from "./routers/agentCelebrations";
 import { checklistsRouter } from "./routers/checklists";
+import { recruitingRouter } from "./routers/recruiting";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -318,6 +319,7 @@ export const appRouter = router({
   marketProfileSurvey: marketProfileSurveyRouter,
   marketProfileFeedback: marketProfileFeedbackRouter,
   agentCelebrations: agentCelebrationsRouter,
+  recruiting: recruitingRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

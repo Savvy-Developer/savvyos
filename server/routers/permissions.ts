@@ -81,6 +81,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   // Agent Success Team
   { key: "canViewAgentMarkets",           label: "Agent Markets",              group: "Agent Success Team" },
   { key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" },
+  { key: "canViewRecruiting",             label: "Recruiting",                 group: "Agent Success Team" },
   { key: "canViewReviews",                label: "Reviews",                    group: "Agent Success Team" },
   { key: "canViewCoachingHub",            label: "Coaching Hub",               group: "Agent Success Team" },
   { key: "canViewLeadershipDashboard",    label: "Leadership Dashboard",       group: "Agent Success Team" },

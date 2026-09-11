@@ -9,6 +9,7 @@ const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.events.freebusy",
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 ].join(" ");
 const APP_URL = (process.env.SAVVYOS_APP_URL ?? "https://os.savvy-agents.com").replace(/\/$/, "");
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -332,9 +333,13 @@ export async function googleCalendarAvailability(input: {
   timeMin: Date;
   timeMax: Date;
   timezone: string;
+  calendarIds?: string[];
 }): Promise<Array<{ start: string; end: string }>> {
   const { connection, accessToken } = await googleAccessToken(input.userId);
-  const calendarId = connection.calendarId || "primary";
+  const calendarIds = Array.from(new Set(
+    (input.calendarIds?.length ? input.calendarIds : [connection.calendarId || "primary"])
+      .filter((value): value is string => Boolean(value?.trim()))
+  ));
   const result = await googleApi<{ calendars?: Record<string, { busy?: Array<{ start: string; end: string }> }> }>(
     accessToken,
     "/freeBusy",
@@ -344,11 +349,24 @@ export async function googleCalendarAvailability(input: {
         timeMin: input.timeMin.toISOString(),
         timeMax: input.timeMax.toISOString(),
         timeZone: input.timezone,
-        items: [{ id: calendarId }],
+        items: calendarIds.map(id => ({ id })),
       }),
     }
   );
-  return result.calendars?.[calendarId]?.busy ?? [];
+  return calendarIds.flatMap(id => result.calendars?.[id]?.busy ?? []);
+}
+
+/** Lists calendars the connected user can choose for recruiting conflict checks. */
+export async function listGoogleCalendars(userId: number): Promise<Array<{ id: string; summary: string; primary: boolean }>> {
+  const { accessToken } = await googleAccessToken(userId);
+  const result = await googleApi<{ items?: Array<{ id?: string; summary?: string; primary?: boolean; selected?: boolean; accessRole?: string }> }>(
+    accessToken,
+    "/users/me/calendarList?minAccessRole=reader"
+  );
+  return (result.items ?? [])
+    .filter(item => item.id && item.accessRole !== "none")
+    .map(item => ({ id: item.id!, summary: item.summary || item.id!, primary: Boolean(item.primary) }))
+    .sort((left, right) => Number(right.primary) - Number(left.primary) || left.summary.localeCompare(right.summary));
 }
 
 export type CalendarEventInput = {
