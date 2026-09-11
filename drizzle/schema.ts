@@ -1103,7 +1103,7 @@ export const agentCelebrationEvents = mysqlTable(
   "agent_celebration_events",
   {
     id: int("id").autoincrement().primaryKey(),
-    eventKey: varchar("eventKey", { length: 255 }).notNull().unique(),
+    eventKey: varchar("eventKey", { length: 255 }).notNull(),
     agentId: int("agentId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -1118,6 +1118,10 @@ export const agentCelebrationEvents = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
+    uniqueIndex("agent_celebration_events_event_admin_unique").on(
+      table.eventKey,
+      table.celebratedById
+    ),
     index("agent_celebration_events_agent_date_idx").on(
       table.agentId,
       table.eventOccurredAt

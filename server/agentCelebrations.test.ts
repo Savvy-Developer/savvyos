@@ -170,9 +170,14 @@ describe("buildCelebrationFeed", () => {
         event => event.key === "team_leader:under_contract:week:2026-08-31:2"
       )
     ).toBe(true);
+    expect(events.map(event => new Date(event.occurredAt).getTime())).toEqual(
+      events
+        .map(event => new Date(event.occurredAt).getTime())
+        .sort((left, right) => right - left)
+    );
   });
 
-  it("respects recognition opt-outs and preserves celebrated state", () => {
+  it("respects recognition opt-outs and preserves multiple named celebration tags", () => {
     const optedOutAgents = [
       {
         ...agents[0],
@@ -190,6 +195,15 @@ describe("buildCelebrationFeed", () => {
           eventKey: "largest_closing:1:2",
           celebratedAt: "2026-09-09T18:00:00.000Z",
           celebratedById: 99,
+          celebratedByName: "Casey Coach",
+          celebratedByPhotoUrl: "https://example.com/casey.jpg",
+        },
+        {
+          eventKey: "largest_closing:1:2",
+          celebratedAt: "2026-09-10T13:00:00.000Z",
+          celebratedById: 100,
+          celebratedByName: "Taylor Team Lead",
+          celebratedByPhotoUrl: null,
         },
       ],
       now,
@@ -201,8 +215,18 @@ describe("buildCelebrationFeed", () => {
     expect(
       events.find(event => event.key === "largest_closing:1:2")
     ).toMatchObject({
-      celebratedAt: "2026-09-09T18:00:00.000Z",
-      celebratedById: 99,
+      celebrations: [
+        {
+          adminId: 100,
+          adminName: "Taylor Team Lead",
+          celebratedAt: "2026-09-10T13:00:00.000Z",
+        },
+        {
+          adminId: 99,
+          adminName: "Casey Coach",
+          celebratedAt: "2026-09-09T18:00:00.000Z",
+        },
+      ],
     });
   });
 });

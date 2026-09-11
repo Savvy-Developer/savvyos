@@ -46,8 +46,14 @@ const celebrationEventSchema = z.object({
   valueLabel: z.string().max(255).nullable(),
   relatedUrl: z.string().min(1).max(512),
   priority: z.number().int().min(0).max(100),
-  celebratedAt: z.string().datetime().nullable(),
-  celebratedById: z.number().int().positive().nullable(),
+  celebrations: z.array(
+    z.object({
+      adminId: z.number().int().positive(),
+      adminName: z.string().min(1).max(255),
+      profilePhotoUrl: z.string().nullable(),
+      celebratedAt: z.string().datetime(),
+    })
+  ),
 });
 
 export const agentCelebrationsRouter = router({
@@ -74,8 +80,8 @@ export const agentCelebrationsRouter = router({
 
   reopen: celebrationProcedure
     .input(z.object({ eventKey: z.string().min(1).max(255) }))
-    .mutation(async ({ input }) => {
-      await reopenAgentCelebration(input.eventKey);
+    .mutation(async ({ input, ctx }) => {
+      await reopenAgentCelebration(input.eventKey, ctx.user.id);
       return { success: true } as const;
     }),
 });

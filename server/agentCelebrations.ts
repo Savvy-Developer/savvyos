@@ -19,6 +19,13 @@ export type CelebrationCategory =
   | "goal";
 export type CelebrationTimeframe = "recent" | "today" | "upcoming";
 
+export type CelebrationAcknowledgement = {
+  adminId: number;
+  adminName: string;
+  profilePhotoUrl: string | null;
+  celebratedAt: string;
+};
+
 export type CelebrationEvent = {
   key: string;
   agentId: number;
@@ -36,8 +43,7 @@ export type CelebrationEvent = {
   valueLabel: string | null;
   relatedUrl: string;
   priority: number;
-  celebratedAt: string | null;
-  celebratedById: number | null;
+  celebrations: CelebrationAcknowledgement[];
 };
 
 type AgentInput = {
@@ -89,6 +95,8 @@ type AcknowledgementInput = {
   eventKey: string;
   celebratedAt: Date | string;
   celebratedById: number;
+  celebratedByName: string | null;
+  celebratedByPhotoUrl: string | null;
 };
 
 type BuildCelebrationFeedInput = {
@@ -265,12 +273,7 @@ function recordPeriodEvents(
   agentsById: Map<number, AgentInput>,
   period: "week" | "month",
   inWindow: (date: Date) => boolean,
-  create: (
-    event: Omit<
-      CelebrationEvent,
-      "timeframe" | "celebratedAt" | "celebratedById"
-    >
-  ) => void
+  create: (event: Omit<CelebrationEvent, "timeframe" | "celebrations">) => void
 ): void {
   const byAgent = new Map<
     number,
@@ -366,12 +369,7 @@ function addTeamLeaderEvents(params: {
   period: "week" | "month";
   from: Date;
   to: Date;
-  create: (
-    event: Omit<
-      CelebrationEvent,
-      "timeframe" | "celebratedAt" | "celebratedById"
-    >
-  ) => void;
+  create: (event: Omit<CelebrationEvent, "timeframe" | "celebrations">) => void;
 }): void {
   const summaries = new Map<number, PeriodSummary>();
   for (const transaction of params.transactions) {
@@ -452,28 +450,34 @@ export function buildCelebrationFeed(
   const windowStart = shiftUtcDays(today, -input.daysBack);
   const windowEnd = endOfUtcDay(shiftUtcDays(today, input.daysForward));
   const agentsById = new Map(input.agents.map(agent => [agent.id, agent]));
-  const acknowledgements = new Map(
-    input.acknowledgements.map(row => [row.eventKey, row])
-  );
+  const acknowledgements = new Map<string, AcknowledgementInput[]>();
+  for (const acknowledgement of input.acknowledgements) {
+    const rows = acknowledgements.get(acknowledgement.eventKey) ?? [];
+    rows.push(acknowledgement);
+    acknowledgements.set(acknowledgement.eventKey, rows);
+  }
   const events = new Map<string, CelebrationEvent>();
 
   const inWindow = (date: Date) => date >= windowStart && date <= windowEnd;
   const create = (
-    event: Omit<
-      CelebrationEvent,
-      "timeframe" | "celebratedAt" | "celebratedById"
-    >
+    event: Omit<CelebrationEvent, "timeframe" | "celebrations">
   ) => {
     const eventDate = asDate(event.occurredAt);
     if (!eventDate || !inWindow(eventDate) || events.has(event.key)) return;
-    const acknowledged = acknowledgements.get(event.key);
+    const acknowledged = acknowledgements.get(event.key) ?? [];
     events.set(event.key, {
       ...event,
       timeframe: timeframeFor(eventDate, today),
-      celebratedAt: acknowledged
-        ? (asDate(acknowledged.celebratedAt)?.toISOString() ?? null)
-        : null,
-      celebratedById: acknowledged?.celebratedById ?? null,
+      celebrations: acknowledged
+        .map(row => ({
+          adminId: row.celebratedById,
+          adminName: row.celebratedByName ?? "Admin",
+          profilePhotoUrl: row.celebratedByPhotoUrl,
+          celebratedAt:
+            asDate(row.celebratedAt)?.toISOString() ??
+            new Date(0).toISOString(),
+        }))
+        .sort((a, b) => b.celebratedAt.localeCompare(a.celebratedAt)),
     });
   };
 
@@ -870,16 +874,13 @@ export function buildCelebrationFeed(
   });
 
   return Array.from(events.values()).sort((a, b) => {
-    if (Boolean(a.celebratedAt) !== Boolean(b.celebratedAt))
-      return a.celebratedAt ? 1 : -1;
-    if (a.timeframe === "today" && b.timeframe !== "today") return -1;
-    if (b.timeframe === "today" && a.timeframe !== "today") return 1;
-    if (a.priority !== b.priority) return b.priority - a.priority;
     const aDate = asDate(a.occurredAt)?.getTime() ?? 0;
     const bDate = asDate(b.occurredAt)?.getTime() ?? 0;
-    if (a.timeframe === "upcoming" && b.timeframe === "upcoming")
-      return aDate - bDate;
-    return bDate - aDate;
+    return (
+      bDate - aDate ||
+      b.priority - a.priority ||
+      a.agentName.localeCompare(b.agentName)
+    );
   });
 }
 
@@ -981,8 +982,12 @@ export async function getAgentCelebrationFeed(options: {
           eventKey: agentCelebrationEvents.eventKey,
           celebratedAt: agentCelebrationEvents.celebratedAt,
           celebratedById: agentCelebrationEvents.celebratedById,
+          celebratedByName: users.name,
+          celebratedByPhotoUrl: userProfiles.profilePhotoUrl,
         })
-        .from(agentCelebrationEvents),
+        .from(agentCelebrationEvents)
+        .innerJoin(users, eq(users.id, agentCelebrationEvents.celebratedById))
+        .leftJoin(userProfiles, eq(userProfiles.userId, users.id)),
     ]);
 
   const events = buildCelebrationFeed({
@@ -999,16 +1004,10 @@ export async function getAgentCelebrationFeed(options: {
     generatedAt: now.toISOString(),
     events,
     summary: {
-      readyNow: events.filter(
-        event => !event.celebratedAt && event.timeframe !== "upcoming"
-      ).length,
-      today: events.filter(
-        event => !event.celebratedAt && event.timeframe === "today"
-      ).length,
-      comingUp: events.filter(
-        event => !event.celebratedAt && event.timeframe === "upcoming"
-      ).length,
-      celebrated: events.filter(event => Boolean(event.celebratedAt)).length,
+      readyNow: events.filter(event => event.timeframe !== "upcoming").length,
+      today: events.filter(event => event.timeframe === "today").length,
+      comingUp: events.filter(event => event.timeframe === "upcoming").length,
+      celebrated: events.filter(event => event.celebrations.length > 0).length,
     },
   };
 }
@@ -1038,7 +1037,6 @@ export async function markAgentCelebration(params: {
     })
     .onDuplicateKeyUpdate({
       set: {
-        celebratedById: params.celebratedById,
         celebratedAt: new Date(),
         eventSnapshot: {
           title: params.event.title,
@@ -1051,10 +1049,18 @@ export async function markAgentCelebration(params: {
     });
 }
 
-export async function reopenAgentCelebration(eventKey: string): Promise<void> {
+export async function reopenAgentCelebration(
+  eventKey: string,
+  celebratedById: number
+): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   await db
     .delete(agentCelebrationEvents)
-    .where(eq(agentCelebrationEvents.eventKey, eventKey));
+    .where(
+      and(
+        eq(agentCelebrationEvents.eventKey, eventKey),
+        eq(agentCelebrationEvents.celebratedById, celebratedById)
+      )
+    );
 }
