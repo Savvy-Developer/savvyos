@@ -55,6 +55,11 @@ export function refreshFailureProfileStatus(previousProfile: unknown): "ready" |
   return previousProfile && typeof previousProfile === "object" ? "ready" : "failed";
 }
 
+/** Avoids withdrawing a last validated profile while its replacement is generated. */
+export function refreshStartProfileStatus(previousProfile: unknown): "ready" | "refreshing" {
+  return previousProfile && typeof previousProfile === "object" ? "ready" : "refreshing";
+}
+
 const MARKET_PROFILE_SCHEMA = {
   name: "agent_market_intelligence_profile",
   strict: true,
@@ -437,12 +442,13 @@ export async function refreshMarketIntelligence(
     const previousProfile = existingProfile?.profileJson as Record<string, unknown> | null | undefined;
     lastKnownGoodProfile = previousProfile ?? null;
 
+    const refreshStatus = refreshStartProfileStatus(previousProfile);
     await db.insert(marketIntelligenceProfiles).values({
       marketProfileId,
-      status: "refreshing",
+      status: refreshStatus,
       refreshReason: reason,
       errorMessage: null,
-    }).onDuplicateKeyUpdate({ set: { status: "refreshing", refreshReason: reason, errorMessage: null, updatedAt: new Date() } });
+    }).onDuplicateKeyUpdate({ set: { status: refreshStatus, refreshReason: reason, errorMessage: null, updatedAt: new Date() } });
 
     const response = await invokeLLM({
       model: MODEL,
