@@ -22,6 +22,7 @@ import {
   marketMatchQuizSettings,
   marketMatchQuizVariants,
   marketProfiles,
+  marketZipCodes,
   smartPlanSteps,
   smartPlans,
   userProfiles,
@@ -187,7 +188,7 @@ export const DEFAULT_QUIZ_QUESTIONS: QuizQuestion[] = [
     id: "locationPreference",
     section: "geography",
     label: "Which STR markets or locations are you considering, and what is a firm restriction versus a preference?",
-    helper: "A city, state, region, drive-time limit, or airport preference works. If you are open to STR market guidance, use the Not sure yet button below.",
+    helper: "A market name, five-digit ZIP, city, state, region, drive-time limit, or airport preference works. A ZIP is matched only to its assigned Savvy STR market. If you are open to guidance, use Not sure yet below.",
     type: "text",
   },
   {
@@ -470,6 +471,7 @@ function guidanceRange(profile: unknown): { min: number; max: number } | null {
 type LocationConstraint = {
   requestedRegions: string[];
   requestedStates: string[];
+  requestedZipCodes: string[];
   locationText: string;
   isConstrained: boolean;
 };
@@ -500,8 +502,9 @@ function locationConstraintFromAnswers(answers: Record<string, unknown>): Locati
   const inferred = box.inferredPreferences.filter(item => item.field === "locationPreference").map(item => item.value).join(" ");
   const rawLocation = text(`${box.locationPreference} ${inferred}`, 2_000);
   const locationText = normalizedLocation(rawLocation);
+  const requestedZipCodes = Array.from(new Set(rawLocation.match(/\b\d{5}(?:-\d{4})?\b/g)?.map(value => value.slice(0, 5)) ?? []));
   if (!locationText || /\b(open to guidance|not sure yet|no preference|anywhere|open to the right market)\b/.test(locationText)) {
-    return { requestedRegions: [], requestedStates: [], locationText, isConstrained: false };
+    return { requestedRegions: [], requestedStates: [], requestedZipCodes, locationText, isConstrained: requestedZipCodes.length > 0 };
   }
   const requestedRegions = Object.entries(REGION_STATES)
     .filter(([region, rule]) => rule.aliases.some(alias => {
@@ -513,7 +516,7 @@ function locationConstraintFromAnswers(answers: Record<string, unknown>): Locati
   const requestedStates = Object.entries(STATE_ABBREVIATIONS)
     .filter(([abbreviation, names]) => names.some(name => hasLocationTerm(locationText, name)) || new RegExp(`\\b${abbreviation}\\b`).test(rawLocation))
     .map(([abbreviation]) => abbreviation);
-  return { requestedRegions, requestedStates, locationText, isConstrained: requestedRegions.length > 0 || requestedStates.length > 0 };
+  return { requestedRegions, requestedStates, requestedZipCodes, locationText, isConstrained: requestedRegions.length > 0 || requestedStates.length > 0 || requestedZipCodes.length > 0 };
 }
 
 function candidateStateCodes(candidate: { name: string; state: string; region: string | null }) {
@@ -529,8 +532,13 @@ function candidateStateCodes(candidate: { name: string; state: string; region: s
     .map(([abbreviation]) => abbreviation);
 }
 
-function candidateMatchesLocationConstraint(candidate: { name: string; state: string; region: string | null }, constraint: LocationConstraint) {
+function candidateMatchesLocationConstraint(candidate: { name: string; state: string; region: string | null; zipCodes?: string[] }, constraint: LocationConstraint) {
   if (!constraint.isConstrained) return true;
+  const matchesZip = constraint.requestedZipCodes.some(zipCode => candidate.zipCodes?.includes(zipCode));
+  if (matchesZip) return true;
+  // ZIP-specific searches should return only the exclusive territory owner,
+  // never a broad state or regional substitute.
+  if (constraint.requestedZipCodes.length) return false;
   const states = candidateStateCodes(candidate);
   const matchesRegion = constraint.requestedRegions.some(region => states.some(state => REGION_STATES[region]?.states.includes(state)));
   const matchesState = constraint.requestedStates.some(state => states.includes(state));
@@ -540,7 +548,8 @@ function candidateMatchesLocationConstraint(candidate: { name: string; state: st
 function describedLocationConstraint(constraint: LocationConstraint) {
   const regions = constraint.requestedRegions.map(region => REGION_STATES[region].aliases[0].replace(/\b\w/g, character => character.toUpperCase()));
   const states = constraint.requestedStates.map(state => STATE_ABBREVIATIONS[state]?.[0].replace(/\b\w/g, character => character.toUpperCase()) ?? state);
-  return [...regions, ...states].join(" or ");
+  const zipCodes = constraint.requestedZipCodes.map(zipCode => `ZIP ${zipCode}`);
+  return [...zipCodes, ...regions, ...states].join(" or ");
 }
 
 function answerValues(value: unknown) {
@@ -563,7 +572,7 @@ function containsNamedMarketLocation(input: { name: string; state: string; regio
 }
 
 function scoreMarket(input: {
-  name: string; state: string; region: string | null; profile: unknown; fitProfile?: unknown; priorityWeight: number; answers: Record<string, unknown>;
+  name: string; state: string; region: string | null; zipCodes?: string[]; profile: unknown; fitProfile?: unknown; priorityWeight: number; answers: Record<string, unknown>;
 }) {
   const box = buyBoxFromAnswers(input.answers);
   const fit = normalizeMarketMatchFitProfile(input.fitProfile);
@@ -575,7 +584,10 @@ function scoreMarket(input: {
   let score = 0;
 
   if (!fit.readyForMatching) return { score, reasons, qualified: false, fit, matchedDimensions: [], matchesLocationConstraint, directLocationMatch, locationConstraint, budgetCompatible: false };
-  if (directLocationMatch) {
+  const exactZipMatch = locationConstraint.requestedZipCodes.some(zipCode => input.zipCodes?.includes(zipCode));
+  if (exactZipMatch) {
+    score += 36; reasons.push("Owns the exact ZIP territory you shared"); matchedDimensions.add("location");
+  } else if (directLocationMatch) {
     score += 28; reasons.push("Matches a named STR market or location you shared"); matchedDimensions.add("location");
   } else if (locationConstraint.isConstrained && matchesLocationConstraint) {
     score += 24; reasons.push(`Matches your stated ${describedLocationConstraint(locationConstraint)} location preference`); matchedDimensions.add("location");
@@ -684,6 +696,8 @@ async function ensureQuizDefaults() {
     controlId = Number((result as any).insertId);
   } else if (isPreFitProfileQuestionConfig(control?.questionConfig) || isPreMobileStrBundledQuestionConfig(control?.questionConfig) || isPriorBundledQuestionConfig(control?.questionConfig) || isPrePrimaryGoalBranchingGuard(control?.questionConfig)) {
     await db.update(marketMatchQuizVariants).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any }).where(eq(marketMatchQuizVariants.id, controlId));
+  } else if (isPreZipLocationGuidanceQuestionConfig(control?.questionConfig)) {
+    await db.update(marketMatchQuizVariants).set({ questionConfig: upgradeZipLocationQuestionGuidance(control!.questionConfig) as any }).where(eq(marketMatchQuizVariants.id, controlId));
   }
   const [plan] = await db.select().from(smartPlans).where(inArray(smartPlans.name, ["Market Match - Finish Your Match", "Market Match — Finish Your Match"])).limit(1);
   let planId = plan?.id;
@@ -712,6 +726,10 @@ export async function getQuizSettings() {
   let [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
   if (settings && (!Array.isArray(settings.questionConfig) || isLegacyDefaultQuestionConfig(settings.questionConfig) || isPriorBundledQuestionConfig(settings.questionConfig) || isPreMobileStrBundledQuestionConfig(settings.questionConfig) || isPreFitProfileQuestionConfig(settings.questionConfig) || isPrePrimaryGoalBranchingGuard(settings.questionConfig))) {
     await db.update(marketMatchQuizSettings).set({ questionConfig: DEFAULT_QUIZ_QUESTIONS as any, updatedAt: now() }).where(eq(marketMatchQuizSettings.id, 1));
+    [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
+  }
+  if (settings && isPreZipLocationGuidanceQuestionConfig(settings.questionConfig)) {
+    await db.update(marketMatchQuizSettings).set({ questionConfig: upgradeZipLocationQuestionGuidance(settings.questionConfig) as any, updatedAt: now() }).where(eq(marketMatchQuizSettings.id, 1));
     [settings] = await db.select().from(marketMatchQuizSettings).where(eq(marketMatchQuizSettings.id, 1)).limit(1);
   }
   const originalSubtitle = "Tell us a little about your investment goals. We will show you markets aligned to your stated preferences and connect you with the appropriate Savvy STR professional when you ask us to.";
@@ -782,6 +800,20 @@ function isPrePrimaryGoalBranchingGuard(config: unknown) {
     && rows[18]?.id === "freeformWin"
     && Array.isArray(showWhen?.values)
     && showWhen.values.includes("not_sure");
+}
+
+/** Updates only the prior default helper copy after exclusive ZIP matching was introduced. */
+function isPreZipLocationGuidanceQuestionConfig(config: unknown) {
+  if (!Array.isArray(config)) return false;
+  const locationQuestion = (config as Array<Record<string, unknown>>).find(question => question?.id === "locationPreference");
+  return locationQuestion?.helper === "A city, state, region, drive-time limit, or airport preference works. If you are open to STR market guidance, use the Not sure yet button below.";
+}
+
+function upgradeZipLocationQuestionGuidance(config: unknown) {
+  if (!Array.isArray(config)) return DEFAULT_QUIZ_QUESTIONS;
+  return config.map(question => question && typeof question === "object" && (question as any).id === "locationPreference"
+    ? { ...(question as Record<string, unknown>), helper: "A market name, five-digit ZIP, city, state, region, drive-time limit, or airport preference works. A ZIP is matched only to its assigned Savvy STR market. If you are open to guidance, use Not sure yet below." }
+    : question);
 }
 
 async function pickVariant(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
@@ -959,20 +991,31 @@ export async function saveQuizAnswer(input: { browserToken: string; questionId: 
 }
 
 async function publicCandidates(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
-  const rows = await db.select({
+  const [rows, territoryRows] = await Promise.all([
+    db.select({
     id: marketProfiles.id, name: marketProfiles.name, state: marketProfiles.state, region: marketProfiles.region,
     status: marketProfiles.status, profile: marketIntelligenceProfiles.profileJson, intelligenceStatus: marketIntelligenceProfiles.status, intelligenceGeneratedAt: marketIntelligenceProfiles.generatedAt,
     fitProfile: marketMatchFitProfiles.profileJson, fitProfileStatus: marketMatchFitProfiles.status, fitProfileGeneratedAt: marketMatchFitProfiles.generatedAt,
     enabled: marketMatchQuizMarketSettings.isEnabled, priorityWeight: marketMatchQuizMarketSettings.priorityWeight, connectionCap: marketMatchQuizMarketSettings.connectionCap,
-  }).from(marketProfiles)
+    }).from(marketProfiles)
     .leftJoin(marketIntelligenceProfiles, eq(marketIntelligenceProfiles.marketProfileId, marketProfiles.id))
     .leftJoin(marketMatchFitProfiles, eq(marketMatchFitProfiles.marketProfileId, marketProfiles.id))
     .leftJoin(marketMatchQuizMarketSettings, eq(marketMatchQuizMarketSettings.marketProfileId, marketProfiles.id))
-    .where(eq(marketProfiles.status, "active"));
+    .where(eq(marketProfiles.status, "active")),
+    db.select({ marketId: marketZipCodes.marketProfileId, zipCode: marketZipCodes.zipCode }).from(marketZipCodes),
+  ]);
+  const zipCodesByMarket = new Map<number, string[]>();
+  for (const territory of territoryRows) {
+    const zipCodes = zipCodesByMarket.get(territory.marketId) ?? [];
+    zipCodes.push(territory.zipCode);
+    zipCodesByMarket.set(territory.marketId, zipCodes);
+  }
   // A normalized fit profile is only valid while its source Market AI profile
   // is currently ready. Do not surface a retained fit profile after the source
   // profile fails or is refreshing; that would serve stale market guidance.
-  return rows.filter(row => row.enabled !== false && isCurrentPublicMarketEvidence(row));
+  return rows
+    .map(row => ({ ...row, zipCodes: zipCodesByMarket.get(row.id) ?? [] }))
+    .filter(row => row.enabled !== false && isCurrentPublicMarketEvidence(row));
 }
 
 function isCurrentPublicMarketEvidence(candidate: { intelligenceStatus: string | null; fitProfileStatus: string | null }) {

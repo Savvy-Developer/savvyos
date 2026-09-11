@@ -79,6 +79,7 @@ const MANUALLY_LOGGED_PATHS = new Set([
   "agentMarkets.deleteSource",
   "agentMarkets.upsertAssignment",
   "agentMarkets.removeAssignment",
+  "agentMarkets.replaceZipAssignments",
   // users (already logged)
   "users.uploadDocument",
   "users.updateEmailSignatureForUser",

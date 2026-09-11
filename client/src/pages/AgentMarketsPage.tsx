@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MarketZipTerritoryManager } from "@/components/MarketZipTerritoryManager";
 import { toast } from "sonner";
 import { AlertCircle, ArrowLeft, Bot, CheckCircle2, ChevronRight, CircleAlert, FileText, Loader2, Mail, MapPinned, Plus, RefreshCw, Trash2, Upload, Users } from "lucide-react";
 
@@ -86,7 +87,7 @@ function SectionList({ title, items, empty }: { title: string; items?: string[];
 }
 
 export default function AgentMarketsPage() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data: markets = [], isLoading: marketsLoading } = trpc.agentMarkets.list.useQuery();
   const { data: assignableAgents = [] } = trpc.agentMarkets.listAssignableAgents.useQuery();
@@ -101,11 +102,19 @@ export default function AgentMarketsPage() {
   const [assignmentAvailable, setAssignmentAvailable] = useState(true);
   const [assignmentNotes, setAssignmentNotes] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const requestedMarketId = useMemo(() => {
+    const candidate = Number(new URLSearchParams(location.split("?", 2)[1] ?? "").get("marketId"));
+    return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+  }, [location]);
 
   useEffect(() => {
+    if (requestedMarketId && markets.some((market: any) => market.id === requestedMarketId) && requestedMarketId !== selectedId) {
+      setSelectedId(requestedMarketId);
+      return;
+    }
     if (!selectedId && markets.length) setSelectedId(markets[0].id);
     if (selectedId && !markets.some((market: any) => market.id === selectedId)) setSelectedId(markets[0]?.id ?? null);
-  }, [markets, selectedId]);
+  }, [markets, requestedMarketId, selectedId]);
 
   const selectedMarket = useMemo(() => markets.find((market: any) => market.id === selectedId) ?? null, [markets, selectedId]);
   const detail = trpc.agentMarkets.get.useQuery({ marketId: selectedId ?? 0 }, {
@@ -219,7 +228,7 @@ export default function AgentMarketsPage() {
 
       <div className="grid items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
         <Card className="lg:sticky lg:top-4"><CardHeader className="pb-3"><CardTitle className="text-base">Markets</CardTitle><CardDescription>{markets.length} market{markets.length === 1 ? "" : "s"} in SavvyOS</CardDescription></CardHeader><CardContent className="space-y-1">
-          {markets.map((market: any) => <button key={market.id} type="button" onClick={() => setSelectedId(market.id)} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors ${selectedId === market.id ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+          {markets.map((market: any) => <button key={market.id} type="button" onClick={() => { setSelectedId(market.id); navigate(`/agent-markets?marketId=${market.id}`); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors ${selectedId === market.id ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
             <MapPinned className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{market.name}</span><span className={`block text-xs ${selectedId === market.id ? "text-primary-foreground/75" : "text-muted-foreground"}`}>{market.state} · {market.agentCount} agent{market.agentCount === 1 ? "" : "s"}</span><span className={`mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${selectedId === market.id ? "bg-primary-foreground/15 text-primary-foreground" : "bg-emerald-50 text-emerald-700"}`}>{market.surveyResponseCount}/{market.surveyInvitedCount} survey responses</span></span><ChevronRight className="h-4 w-4 shrink-0" />
           </button>)}
           {!markets.length && <p className="px-3 py-8 text-center text-sm text-muted-foreground">Create the first market to begin.</p>}
@@ -237,6 +246,8 @@ export default function AgentMarketsPage() {
 
             <div className="grid gap-6 xl:grid-cols-2"><Card><CardHeader className="pb-3"><CardTitle className="text-base">Evidence feeding this profile</CardTitle><CardDescription>{detail.data?.liveEvidence?.evidenceSnapshot || "Live CRM evidence will appear when agents are assigned."}</CardDescription></CardHeader><CardContent><div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">{[["Assigned agents", sourceCounts.assignedAgents], ["Research sources", sourceCounts.manualSources], ["Transactions", sourceCounts.transactions], ["Connected contacts", sourceCounts.connectedContacts], ["Call transcripts", sourceCounts.callTranscripts], ["Agent task notes", sourceCounts.agentTaskNotes], ["Website behaviors", sourceCounts.websiteBehaviors], ["Email behaviors", sourceCounts.emailBehaviors]].map(([label, value]) => <div className="rounded-md border bg-muted/20 p-3" key={String(label)}><p className="text-xl font-bold">{Number(value ?? 0).toLocaleString()}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div><p className="mt-4 text-xs leading-5 text-muted-foreground">Profiles are generated from bounded, current evidence. Individual contact identities, addresses, email addresses, and phone numbers are not retained in the generated market profile.</p></CardContent></Card>
               <Card><CardHeader className="pb-3"><CardTitle className="text-base">Market details</CardTitle><CardDescription>Keep the market’s reporting identity and annual goal accurate. Investment fit fields are intentionally replaced by the living profile above.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="market-name">Market name</Label><Input id="market-name" className="mt-1" value={marketForm.name} onChange={event => setMarketForm(form => ({ ...form, name: event.target.value }))} /></div><div><Label htmlFor="market-state">State</Label><Input id="market-state" className="mt-1" value={marketForm.state} onChange={event => setMarketForm(form => ({ ...form, state: event.target.value }))} /></div><div><Label htmlFor="market-region">Region (optional)</Label><Input id="market-region" className="mt-1" value={marketForm.region} onChange={event => setMarketForm(form => ({ ...form, region: event.target.value }))} /></div><div><Label htmlFor="market-goal">Annual GCI goal</Label><Input id="market-goal" type="number" min="0" className="mt-1" placeholder="e.g. 500000" value={marketForm.annualGciGoal} onChange={event => setMarketForm(form => ({ ...form, annualGciGoal: event.target.value }))} /></div></div><div><Label>Market status</Label><Select value={marketForm.status} onValueChange={(value: MarketForm["status"]) => setMarketForm(form => ({ ...form, status: value }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="recruiting">Recruiting</SelectItem><SelectItem value="paused">Paused</SelectItem><SelectItem value="future">Future</SelectItem></SelectContent></Select></div><div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"><span className="text-sm">Current annual goal</span><span className="text-sm font-semibold">{amount(selectedMarket.annualGciGoal)}</span></div><Button className="w-full" variant="outline" onClick={saveMarketDetails} disabled={updateMarket.isPending}>{updateMarket.isPending ? "Saving…" : "Save market details"}</Button></CardContent></Card></div>
+
+            <MarketZipTerritoryManager marketId={selectedMarket.id} marketName={selectedMarket.name} zipCodes={detail.data?.zipCodes ?? []} onSaved={async () => { await Promise.all([utils.agentMarkets.list.invalidate(), detail.refetch()]); }} />
 
             <Card><CardHeader className="pb-3"><CardTitle className="text-base">Research sources</CardTitle><CardDescription>Upload PDFs, Word documents, spreadsheets, CSVs, JSON, text files, and other supporting material—or paste research and call transcripts directly. Text-ready sources are included at the next refresh.</CardDescription></CardHeader><CardContent className="space-y-3">{detail.data?.sources?.length ? detail.data.sources.map((source: any) => <div key={source.id} className="flex items-center gap-3 rounded-lg border p-3"><FileText className="h-5 w-5 shrink-0 text-primary" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-sm font-semibold">{source.title}</p><Badge variant="outline" className={source.extractionStatus === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{source.sourceType === "note" ? "Research note" : source.extractionStatus === "ready" ? "Text ingested" : "Stored—text unavailable"}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{source.fileName || "Freeform research"} · {source.contentLength.toLocaleString()} characters · Updated {relativeTime(source.updatedAt)}</p></div>{source.fileUrl && <a className="text-xs font-medium text-primary hover:underline" href={source.fileUrl} target="_blank" rel="noreferrer">Open</a>}<Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => deleteSource.mutate({ sourceId: source.id })} disabled={deleteSource.isPending} aria-label={`Remove ${source.title}`}><Trash2 className="h-4 w-4" /></Button></div>) : <p className="rounded-md border border-dashed p-5 text-center text-sm text-muted-foreground">No direct research added yet. Use a research note for call transcripts, takeaways, and researched data.</p>}</CardContent></Card>
 

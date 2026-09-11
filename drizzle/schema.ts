@@ -3445,6 +3445,34 @@ export const marketProfiles = mysqlTable("market_profiles", {
 export type MarketProfile = typeof marketProfiles.$inferSelect;
 export type InsertMarketProfile = typeof marketProfiles.$inferInsert;
 
+// ─── Exclusive Market ZIP Territories ───────────────────────────────────────
+// USPS ZIP Codes are operationally distinct from Census ZCTAs. SavvyOS keeps a
+// five-digit USPS ZIP assignment as the canonical coverage key; the map uses
+// the corresponding Census ZCTA only as a visual selection aid.
+export const marketZipCodes = mysqlTable(
+  "market_zip_codes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    marketProfileId: int("marketProfileId")
+      .notNull()
+      .references(() => marketProfiles.id, { onDelete: "cascade" }),
+    zipCode: varchar("zipCode", { length: 5 }).notNull(),
+    createdById: int("createdById").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    // This index is the final database-level guarantee that one ZIP can belong
+    // to one and only one Agent Market, even with simultaneous administrators.
+    uniqueIndex("market_zip_codes_zip_unique").on(table.zipCode),
+    index("market_zip_codes_market_idx").on(table.marketProfileId),
+  ]
+);
+export type MarketZipCode = typeof marketZipCodes.$inferSelect;
+export type InsertMarketZipCode = typeof marketZipCodes.$inferInsert;
+
 // ─── Market Profile Survey ───────────────────────────────────────────────────
 // Each active agent receives one restart-safe invitation. The invitation stores
 // an opaque issuance fingerprint, while the actual survey link is a one-click

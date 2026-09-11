@@ -176,6 +176,22 @@ describe("Market Match quiz helpers", () => {
     expect(northwestArkansas.matchesLocationConstraint).toBe(false);
   });
 
+  it("honors an explicit ZIP only for its exclusive Market territory owner", () => {
+    const answers = { budget: { min: "400000", max: "800000" }, investmentGoals: ["cash_flow"], geographyFlexibility: "specific", locationPreference: "I am looking near 28801" };
+    const owner = __testables__.scoreMarket({
+      name: "Asheville", state: "NC", region: "Western NC", zipCodes: ["28801", "28803"], priorityWeight: 0,
+      profile: {}, fitProfile: fitProfile(), answers,
+    });
+    const sameStateButNotOwner = __testables__.scoreMarket({
+      name: "Charlotte", state: "NC", region: "Piedmont", zipCodes: ["28202"], priorityWeight: 0,
+      profile: {}, fitProfile: fitProfile(), answers,
+    });
+    expect(__testables__.locationConstraintFromAnswers(answers).requestedZipCodes).toEqual(["28801"]);
+    expect(owner.matchesLocationConstraint).toBe(true);
+    expect(owner.reasons).toContain("Owns the exact ZIP territory you shared");
+    expect(sameStateButNotOwner.matchesLocationConstraint).toBe(false);
+  });
+
   it("recognizes a named state in a market record even when the state field is unavailable", () => {
     const scored = __testables__.scoreMarket({
       name: "Phoenix, Arizona", state: "N/A", region: null, priorityWeight: 0,

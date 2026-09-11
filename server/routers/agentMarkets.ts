@@ -8,6 +8,7 @@ import {
   marketProfileSources,
   marketProfileSurveyInvitations,
   marketProfiles,
+  marketZipCodes,
   users,
 } from "../../drizzle/schema";
 import {
@@ -23,6 +24,8 @@ import { canAdminUsePermission } from "./permissions";
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 const MAX_TEXT_CHARS = 120_000;
+const ZIP_CODE_PATTERN = /^\d{5}$/;
+const CENSUS_ZCTA_QUERY_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_Census2020/MapServer/84/query";
 const EXTRACTABLE_TEXT_TYPES = new Set([
   "text/plain",
   "text/markdown",
@@ -60,6 +63,79 @@ function safeFileName(value: string): string {
 
 function sourceTitle(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim().slice(0, 512) || "Uploaded market source";
+}
+
+function normalizeZipCode(value: unknown): string | null {
+  const zipCode = String(value ?? "").trim();
+  return ZIP_CODE_PATTERN.test(zipCode) ? zipCode : null;
+}
+
+function normalizeZipCodes(values: unknown[]): { zipCodes: string[]; invalid: string[] } {
+  const invalid: string[] = [];
+  const zipCodes = Array.from(new Set(values.map(value => {
+    const normalized = normalizeZipCode(value);
+    if (!normalized && String(value ?? "").trim()) invalid.push(String(value).trim());
+    return normalized;
+  }).filter((value): value is string => Boolean(value))));
+  return { zipCodes, invalid };
+}
+
+type ZipBoundaryFeature = {
+  type: "Feature";
+  properties: { zipCode: string; name: string; centroid: [number, number] | null };
+  geometry: { type: "Polygon" | "MultiPolygon"; coordinates: unknown };
+};
+
+function zipBoundaryFeature(payload: any, expectedZipCode?: string): ZipBoundaryFeature | null {
+  const feature = payload?.features?.[0];
+  const zipCode = normalizeZipCode(feature?.properties?.ZCTA5) ?? expectedZipCode ?? null;
+  if (!zipCode || !feature?.geometry || !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) return null;
+  const latitude = Number(feature?.properties?.CENTLAT);
+  const longitude = Number(feature?.properties?.CENTLON);
+  return {
+    type: "Feature",
+    properties: {
+      zipCode,
+      name: String(feature?.properties?.NAME || `ZIP ${zipCode}`),
+      centroid: Number.isFinite(latitude) && Number.isFinite(longitude) ? [longitude, latitude] : null,
+    },
+    geometry: { type: feature.geometry.type, coordinates: feature.geometry.coordinates },
+  };
+}
+
+async function censusZipBoundary(zipCode: string): Promise<ZipBoundaryFeature | null> {
+  const query = new URLSearchParams({
+    where: `ZCTA5='${zipCode}'`,
+    outFields: "ZCTA5,NAME,CENTLAT,CENTLON",
+    returnGeometry: "true",
+    f: "geojson",
+  });
+  const response = await fetch(`${CENSUS_ZCTA_QUERY_URL}?${query.toString()}`, {
+    headers: { Accept: "application/geo+json, application/json" },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`Census ZIP boundary lookup failed (${response.status}).`);
+  return zipBoundaryFeature(await response.json(), zipCode);
+}
+
+async function censusZipBoundaryAtPoint(latitude: number, longitude: number): Promise<ZipBoundaryFeature | null> {
+  const query = new URLSearchParams({
+    where: "1=1",
+    geometry: JSON.stringify({ x: longitude, y: latitude, spatialReference: { wkid: 4326 } }),
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    outFields: "ZCTA5,NAME,CENTLAT,CENTLON",
+    returnGeometry: "true",
+    outSR: "4326",
+    f: "geojson",
+  });
+  const response = await fetch(`${CENSUS_ZCTA_QUERY_URL}?${query.toString()}`, {
+    headers: { Accept: "application/geo+json, application/json" },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`Census ZIP map lookup failed (${response.status}).`);
+  return zipBoundaryFeature(await response.json());
 }
 
 async function extractTextFromUpload(buffer: Buffer, mimeType: string, fileName: string): Promise<{ content: string | null; status: "ready" | "failed" }> {
@@ -141,12 +217,21 @@ async function getMarketDetail(marketId: number) {
     .where(eq(marketAgentAssignments.marketProfileId, marketId))
     .orderBy(asc(users.name));
 
+  const zipCodes = await db.select({
+    id: marketZipCodes.id,
+    zipCode: marketZipCodes.zipCode,
+    createdAt: marketZipCodes.createdAt,
+  }).from(marketZipCodes)
+    .where(eq(marketZipCodes.marketProfileId, marketId))
+    .orderBy(asc(marketZipCodes.zipCode));
+
   const draft = await collectMarketProfileDraft(marketId);
   return {
     market,
     intelligence: intelligence ?? null,
     sources: sourceRows.map(row => ({ ...row, contentLength: Number(row.contentLength ?? 0) })),
     assignments,
+    zipCodes,
     liveEvidence: draft ? { evidenceSnapshot: draft.evidenceSnapshot, sourceSnapshot: draft.sourceSnapshot } : null,
   };
 }
@@ -273,6 +358,98 @@ export const agentMarketsRouter = router({
       .from(users)
       .where(and(eq(users.role, "agent"), eq(users.isActive, true)))
       .orderBy(asc(users.name));
+  }),
+
+  checkZipAssignments: adminProcedure.input(z.object({
+    zipCodes: z.array(z.string().max(40)).max(600),
+    excludeMarketId: z.number().int().positive().optional(),
+  })).query(async ({ input }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    const { zipCodes, invalid } = normalizeZipCodes(input.zipCodes);
+    const assignments = zipCodes.length
+      ? await db.select({ zipCode: marketZipCodes.zipCode, marketId: marketProfiles.id, marketName: marketProfiles.name, state: marketProfiles.state })
+        .from(marketZipCodes)
+        .innerJoin(marketProfiles, eq(marketZipCodes.marketProfileId, marketProfiles.id))
+        .where(inArray(marketZipCodes.zipCode, zipCodes))
+      : [];
+    return {
+      zipCodes,
+      invalid,
+      conflicts: assignments
+        .filter(assignment => assignment.marketId !== input.excludeMarketId)
+        .sort((left, right) => left.zipCode.localeCompare(right.zipCode)),
+    };
+  }),
+
+  replaceZipAssignments: adminProcedure.input(z.object({
+    marketId: z.number().int().positive(),
+    zipCodes: z.array(z.string().max(40)).max(600),
+  })).mutation(async ({ input, ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable." });
+    const { zipCodes, invalid } = normalizeZipCodes(input.zipCodes);
+    if (invalid.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Enter valid five-digit ZIP codes only. Invalid values: ${invalid.slice(0, 8).join(", ")}${invalid.length > 8 ? "…" : ""}` });
+    const [market] = await db.select({ id: marketProfiles.id, name: marketProfiles.name }).from(marketProfiles).where(eq(marketProfiles.id, input.marketId)).limit(1);
+    if (!market) throw new TRPCError({ code: "NOT_FOUND", message: "Market not found." });
+    try {
+      await db.transaction(async tx => {
+        const conflicts = zipCodes.length
+          ? await tx.select({ zipCode: marketZipCodes.zipCode, marketId: marketProfiles.id, marketName: marketProfiles.name, state: marketProfiles.state })
+            .from(marketZipCodes)
+            .innerJoin(marketProfiles, eq(marketZipCodes.marketProfileId, marketProfiles.id))
+            .where(inArray(marketZipCodes.zipCode, zipCodes))
+          : [];
+        const claimedByAnotherMarket = conflicts.filter(conflict => conflict.marketId !== input.marketId);
+        if (claimedByAnotherMarket.length) {
+          const first = claimedByAnotherMarket[0];
+          throw new TRPCError({ code: "CONFLICT", message: `ZIP ${first.zipCode} is already assigned to ${first.marketName}${first.state ? `, ${first.state}` : ""}.` });
+        }
+        await tx.delete(marketZipCodes).where(eq(marketZipCodes.marketProfileId, input.marketId));
+        if (zipCodes.length) await tx.insert(marketZipCodes).values(zipCodes.map(zipCode => ({ marketProfileId: input.marketId, zipCode, createdById: ctx.user.id })));
+      });
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      const message = error instanceof Error ? error.message : "ZIP territory could not be saved.";
+      // MySQL's unique index remains the concurrency guard if a second admin
+      // saves the same ZIP between the conflict lookup and insert.
+      if (/duplicate|unique|market_zip_codes_zip_unique/i.test(message)) throw new TRPCError({ code: "CONFLICT", message: "One or more ZIP codes were just assigned to another market. Refresh and review the conflict link before saving again." });
+      throw error;
+    }
+    void refreshMarketIntelligence(input.marketId, "manual");
+    void logActivity({ userId: ctx.user.id, action: "agent_market_zip_territory_updated", entityType: "market", entityId: input.marketId, details: { marketName: market.name, zipCount: zipCodes.length, zipCodes } });
+    return { success: true, zipCodes };
+  }),
+
+  zipBoundary: adminProcedure.input(z.object({ zipCode: z.string().regex(ZIP_CODE_PATTERN, "Enter a five-digit ZIP code.") }))
+    .query(async ({ input }) => {
+      try {
+        return { boundary: await censusZipBoundary(input.zipCode) };
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: error instanceof Error ? error.message : "ZIP boundary lookup failed." });
+      }
+    }),
+
+  zipBoundaries: adminProcedure.input(z.object({ zipCodes: z.array(z.string().regex(ZIP_CODE_PATTERN)).min(1).max(120) }))
+    .query(async ({ input }) => {
+      const boundaries: ZipBoundaryFeature[] = [];
+      const zipCodes = Array.from(new Set(input.zipCodes));
+      for (let index = 0; index < zipCodes.length; index += 4) {
+        const batch = await Promise.all(zipCodes.slice(index, index + 4).map(zipCode => censusZipBoundary(zipCode).catch(() => null)));
+        boundaries.push(...batch.filter((boundary): boundary is ZipBoundaryFeature => Boolean(boundary)));
+      }
+      return { boundaries, unavailableZipCodes: zipCodes.filter(zipCode => !boundaries.some(boundary => boundary.properties.zipCode === zipCode)) };
+    }),
+
+  zipBoundaryAtPoint: adminProcedure.input(z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+  })).query(async ({ input }) => {
+    try {
+      return { boundary: await censusZipBoundaryAtPoint(input.latitude, input.longitude) };
+    } catch (error) {
+      throw new TRPCError({ code: "BAD_GATEWAY", message: error instanceof Error ? error.message : "ZIP map lookup failed." });
+    }
   }),
 
   create: adminProcedure.input(z.object({
