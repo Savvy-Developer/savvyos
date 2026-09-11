@@ -154,6 +154,7 @@ import MarketProfileSurveyPage from "./pages/MarketProfileSurveyPage";
 import EventsPage from "./pages/EventsPage";
 import WebsitePage from "./pages/WebsitePage";
 import PublicWebsite from "./pages/PublicWebsite";
+import AgentCelebrationPage from "./pages/AgentCelebrationPage";
 
 const IS_DEV = import.meta.env.VITE_DEV_LOGIN_ENABLED === "true";
 
@@ -274,6 +275,26 @@ function AgentMarketsRoute({ children }: { children: React.ReactNode }) {
   if (!isAdmin) return <NotFound />;
   if (isLoading) return <div className="min-h-[40vh]" />;
   if (!(permissions as any)?.canViewAgentMarkets) return <NotFound />;
+  return <>{children}</>;
+}
+
+function AgentCelebrationsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewAgentCelebrations) return <NotFound />;
+  return <>{children}</>;
+}
+
+function MarketMatchQuizRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isAdmin = (user as any)?.role === "admin";
+  const { data: permissions, isLoading } = trpc.permissions.getMyPermissions.useQuery(undefined, { enabled: isAdmin });
+  if (!isAdmin) return <NotFound />;
+  if (isLoading) return <div className="min-h-[40vh]" />;
+  if (!(permissions as any)?.canViewMarketMatchQuiz) return <NotFound />;
   return <>{children}</>;
 }
 
@@ -426,7 +447,8 @@ function Router() {
           <Route path="/contacts">{() => <NonAgentRoute><ContactsPage /></NonAgentRoute>}</Route>
           <Route path="/contacts/:id">{() => <NonAgentRoute><ContactDetail /></NonAgentRoute>}</Route>
           <Route path="/market-match/:id">{() => <AdminOrIsaRoute><MarketMatchCallPage /></AdminOrIsaRoute>}</Route>
-          <Route path="/admin/market-match-quiz">{() => <AgentMarketsRoute><MarketMatchQuizAdminPage /></AgentMarketsRoute>}</Route>
+          <Route path="/admin/market-match-quiz">{() => <MarketMatchQuizRoute><MarketMatchQuizAdminPage /></MarketMatchQuizRoute>}</Route>
+          <Route path="/agent-celebrations">{() => <AgentCelebrationsRoute><AgentCelebrationPage /></AgentCelebrationsRoute>}</Route>
           <Route path="/transactions" component={TransactionsPage} />
           <Route path="/transactions/:id" component={TransactionDetail} />
           <Route path="/reviews">{() => <ReviewsRoute><ReviewsPage /></ReviewsRoute>}</Route>

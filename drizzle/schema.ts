@@ -1095,6 +1095,39 @@ export const reviews = mysqlTable(
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = typeof reviews.$inferInsert;
 
+// ─── Agent Celebration Acknowledgements ──────────────────────────────────────
+// Celebration opportunities are calculated from source-of-truth profile,
+// transaction, goal, and review data. A row is written only after an admin marks
+// an opportunity celebrated so the running feed remains actionable and auditable.
+export const agentCelebrationEvents = mysqlTable(
+  "agent_celebration_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventKey: varchar("eventKey", { length: 255 }).notNull().unique(),
+    agentId: int("agentId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    celebrationType: varchar("celebrationType", { length: 64 }).notNull(),
+    eventOccurredAt: timestamp("eventOccurredAt").notNull(),
+    celebratedById: int("celebratedById")
+      .notNull()
+      .references(() => users.id),
+    celebratedAt: timestamp("celebratedAt").defaultNow().notNull(),
+    eventSnapshot: json("eventSnapshot").$type<Record<string, unknown>>(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("agent_celebration_events_agent_date_idx").on(
+      table.agentId,
+      table.eventOccurredAt
+    ),
+    index("agent_celebration_events_celebrated_at_idx").on(table.celebratedAt),
+  ]
+);
+export type AgentCelebrationEvent = typeof agentCelebrationEvents.$inferSelect;
+export type InsertAgentCelebrationEvent = typeof agentCelebrationEvents.$inferInsert;
+
 // ─── ISA Transaction Outcome Attribution ──────────────────────────────────────
 // Snapshots the ISA who receives downstream transaction credit. This is kept
 // separate from activity metrics so contact reassignment and date filters cannot
@@ -5600,6 +5633,9 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .default(true)
     .notNull(),
   canViewAgentMarkets: boolean("canViewAgentMarkets").default(true).notNull(),
+  canViewAgentCelebrations: boolean("canViewAgentCelebrations")
+    .default(true)
+    .notNull(),
   canViewOrgChart: boolean("canViewOrgChart").default(true).notNull(),
   canViewRolesResponsibilities: boolean("canViewRolesResponsibilities")
     .default(true)
@@ -5613,6 +5649,9 @@ export const adminPermissions = mysqlTable("admin_permissions", {
     .default(true)
     .notNull(),
   canViewVendorLists: boolean("canViewVendorLists").default(true).notNull(),
+  canViewMarketMatchQuiz: boolean("canViewMarketMatchQuiz")
+    .default(true)
+    .notNull(),
   // Every admin sidebar entry must have a matching Super Permissions flag.
   canViewWebinars: boolean("canViewWebinars").default(true).notNull(),
   canViewEvents: boolean("canViewEvents").default(true).notNull(),

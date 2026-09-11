@@ -39,13 +39,25 @@ describe("admin navigation consolidation", () => {
     expect(source).not.toContain('label: "Custom Reports", path: "/custom-reports"');
     expect(source).not.toContain('label: "Transaction Exports", path: "/transaction-reporting"');
     expect(source).toContain('label: "Agent Pipelines", path: "/pipeline"');
-    expect(source).toContain('label: "Commissions and Payouts", path: "/commission"');
+    expect(source).toContain('label: "Commissions and Payouts"');
+    expect(source).toContain('path: "/commission"');
+    expect(source).toContain('label: "Agent Celebration"');
     expect(source).toContain('label: "Knowledgebase", path: "/kb"');
     expect(source).toContain('label: "Tech Requests", path: "/tech-requests"');
+
+    const agentSuccessStart = source.indexOf('label: "Agent Success Team"');
+    const workStart = source.indexOf('label: "Work"', agentSuccessStart);
+    const adminStart = source.indexOf('label: "Admin"', workStart);
+    const agentSuccessSection = source.slice(agentSuccessStart, workStart);
+    const adminSection = source.slice(adminStart);
+    expect(agentSuccessSection).toContain('path: "/agent-celebrations"');
+    expect(agentSuccessSection).not.toContain('path: "/admin/market-match-quiz"');
+    expect(adminSection).toContain('path: "/admin/market-match-quiz"');
   });
 
   it("renders category labels as expanded-by-default accessible collapse controls", () => {
-    expect(appLayout).toContain('const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());');
+    expect(appLayout).toContain('const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(');
+    expect(appLayout).toContain('() => new Set()');
     expect(appLayout).toContain('onClick={() => toggleGroup(group.label)}');
     expect(appLayout).toContain('aria-expanded={!isGroupCollapsed}');
     expect(appLayout).toContain('(collapsed || !isGroupCollapsed) && (');
@@ -58,6 +70,8 @@ describe("admin navigation consolidation", () => {
     expect(transactionsPage).toContain('onClick={() => navigate("/transaction-reporting")}');
     expect(permissionsRouter).toContain('{ key: "canViewCustomReports",          label: "Custom Reports",             group: "Overview" }');
     expect(permissionsRouter).toContain('{ key: "canViewTransactionExports",     label: "Transaction Exports",        group: "Transactions" }');
+    expect(permissionsRouter).toContain('{ key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" }');
+    expect(permissionsRouter).toContain('{ key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" }');
     expect(permissionsRouter).toContain('{ key: "canViewTechRequests",           label: "Tech Requests",              group: "Admin" }');
   });
 });

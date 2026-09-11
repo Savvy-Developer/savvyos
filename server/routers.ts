@@ -82,6 +82,7 @@ import { appointmentsRouter } from "./routers/appointments";
 import { calendarConnectionsRouter } from "./routers/calendarConnections";
 import { eventsRouter } from "./routers/events";
 import { websiteRouter } from "./routers/website";
+import { agentCelebrationsRouter } from "./routers/agentCelebrations";
 
 // Shared test email payload builder
 function buildTestEmailPayloads(ctx2: { recipientEmail: string; recipientName: string }) {
@@ -314,6 +315,7 @@ export const appRouter = router({
   affiliateLinks: affiliateLinksRouter,
   marketProfileSurvey: marketProfileSurveyRouter,
   marketProfileFeedback: marketProfileFeedbackRouter,
+  agentCelebrations: agentCelebrationsRouter,
 
   // ─── Admin: Email Notification Settings ───────────────────────────────────
   emailNotifications: router({

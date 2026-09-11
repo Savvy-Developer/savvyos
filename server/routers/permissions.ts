@@ -80,6 +80,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canAdministerTransactions",      label: "Transactions Admin",         group: "Transactions Admin" },
   // Agent Success Team
   { key: "canViewAgentMarkets",           label: "Agent Markets",              group: "Agent Success Team" },
+  { key: "canViewAgentCelebrations",      label: "Agent Celebration",          group: "Agent Success Team" },
   { key: "canViewReviews",                label: "Reviews",                    group: "Agent Success Team" },
   { key: "canViewCoachingHub",            label: "Coaching Hub",               group: "Agent Success Team" },
   { key: "canViewLeadershipDashboard",    label: "Leadership Dashboard",       group: "Agent Success Team" },
@@ -119,6 +120,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   { key: "canViewAdminApprovals",         label: "Admin Approvals",            group: "Approvals" },
   // Admin
   { key: "canViewUsers",                  label: "Users",                      group: "Admin" },
+  { key: "canViewMarketMatchQuiz",        label: "Market Match Quiz",          group: "Admin" },
   { key: "canViewAffiliateLinks",         label: "Affiliate Links",            group: "Admin" },
   { key: "canViewLeadSources",            label: "Lead Sources",               group: "Admin" },
   { key: "canViewActivityLog",            label: "Activity Log",               group: "Admin" },

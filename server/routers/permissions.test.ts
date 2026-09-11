@@ -118,6 +118,13 @@ describe("Transactions Admin permission", () => {
   });
 });
 
+describe("Agent Celebration and Market Match permissions", () => {
+  it("registers each navigation destination in the requested Super Permissions group", () => {
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewAgentCelebrations", label: "Agent Celebration", group: "Agent Success Team" });
+    expect(ADMIN_NAV_PERMISSIONS).toContainEqual({ key: "canViewMarketMatchQuiz", label: "Market Match Quiz", group: "Admin" });
+  });
+});
+
 describe("Website Studio permissions", () => {
   it("registers the Website Studio navigation link and all Website controls in one group", () => {
     const websitePermissions = ADMIN_NAV_PERMISSIONS.filter(permission => permission.group === "Website");

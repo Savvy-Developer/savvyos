@@ -82,6 +82,7 @@ import {
   Search,
   Sparkles,
   Globe2,
+  PartyPopper,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -345,6 +346,8 @@ const PERM_PATH_MAP: Record<string, string> = {
   canViewUsers: "/users",
   canViewAdminApprovals: "/approvals",
   canViewAgentMarkets: "/agent-markets",
+  canViewAgentCelebrations: "/agent-celebrations",
+  canViewMarketMatchQuiz: "/admin/market-match-quiz",
   canViewOrgChart: "/org-chart",
   canViewRolesResponsibilities: "/roles-responsibilities",
   canViewFeedback: "/feedback",
@@ -479,9 +482,9 @@ function buildAdminNav(
       items: [
         { icon: Map, label: "Agent Markets", path: "/agent-markets" },
         {
-          icon: Sparkles,
-          label: "Market Match Quiz",
-          path: "/admin/market-match-quiz",
+          icon: PartyPopper,
+          label: "Agent Celebration",
+          path: "/agent-celebrations",
         },
         { icon: Star, label: "Reviews", path: "/reviews" },
         { icon: GraduationCap, label: "Coaching Hub", path: "/coaching" },
@@ -568,6 +571,11 @@ function buildAdminNav(
       label: "Admin",
       items: [
         { icon: UserCheck, label: "Users", path: "/users" },
+        {
+          icon: Sparkles,
+          label: "Market Match Quiz",
+          path: "/admin/market-match-quiz",
+        },
         { icon: Link2, label: "Affiliate Links", path: "/affiliate-links" },
         {
           icon: CalendarDays,

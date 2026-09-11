@@ -37,8 +37,8 @@ const publicError = (error: unknown) => {
 
 const quizAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Market Match Quiz administration is available to administrators only." });
-  const allowed = await canAdminUsePermission(ctx.user, "canViewAgentMarkets");
-  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "Agent Markets permission is required." });
+  const allowed = await canAdminUsePermission(ctx.user, "canViewMarketMatchQuiz");
+  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "Market Match Quiz permission is required." });
   return next({ ctx });
 });
 
