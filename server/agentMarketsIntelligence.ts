@@ -50,6 +50,11 @@ const WEBSITE_ACTIONS = [
 ];
 const refreshesInFlight = new Set<number>();
 
+/** Keeps a prior completed Market AI profile usable when a refresh itself fails. */
+export function refreshFailureProfileStatus(previousProfile: unknown): "ready" | "failed" {
+  return previousProfile && typeof previousProfile === "object" ? "ready" : "failed";
+}
+
 const MARKET_PROFILE_SCHEMA = {
   name: "agent_market_intelligence_profile",
   strict: true,
@@ -415,6 +420,11 @@ export async function refreshMarketIntelligence(
     throw new Error("Database unavailable");
   }
 
+  // Retain the last complete profile if a later refresh times out. A temporary
+  // provider failure must not erase a market's last validated guidance or
+  // remove an agent-covered market from Market Match. The failed refresh stays
+  // visible in errorMessage and will retry on the next scheduled pass.
+  let lastKnownGoodProfile: Record<string, unknown> | null = null;
   try {
     const draft = await collectMarketProfileDraft(marketProfileId);
     if (!draft) throw new Error("Market not found");
@@ -425,6 +435,7 @@ export async function refreshMarketIntelligence(
       .where(eq(marketIntelligenceProfiles.marketProfileId, marketProfileId))
       .limit(1);
     const previousProfile = existingProfile?.profileJson as Record<string, unknown> | null | undefined;
+    lastKnownGoodProfile = previousProfile ?? null;
 
     await db.insert(marketIntelligenceProfiles).values({
       marketProfileId,
@@ -447,6 +458,12 @@ export async function refreshMarketIntelligence(
       ],
       response_format: { type: "json_schema", json_schema: MARKET_PROFILE_SCHEMA },
       maxTokens: 5000,
+      // Market evidence packs can be substantially larger than a normal
+      // interactive prompt. Use the maximum supported window and all resilient
+      // attempts so a transient slow model response does not withdraw a valid
+      // agent-covered market from public Market Match.
+      timeoutMs: 120_000,
+      maxAttempts: 3,
     } as any);
     const content = messageContent(response);
     if (!content) throw new Error("The intelligence model returned no profile");
@@ -479,12 +496,18 @@ export async function refreshMarketIntelligence(
     return { status: "ready", generatedAt };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Profile refresh failed";
+    const nextStatus = refreshFailureProfileStatus(lastKnownGoodProfile);
     await db.insert(marketIntelligenceProfiles).values({
       marketProfileId,
-      status: "failed",
+      status: nextStatus,
       refreshReason: reason,
       errorMessage: short(errorMessage, 1000),
-    }).onDuplicateKeyUpdate({ set: { status: "failed", refreshReason: reason, errorMessage: short(errorMessage, 1000), updatedAt: new Date() } });
+    }).onDuplicateKeyUpdate({ set: {
+      status: nextStatus,
+      refreshReason: reason,
+      errorMessage: short(errorMessage, 1000),
+      updatedAt: new Date(),
+    } });
     console.error(`[AgentMarkets] Refresh failed for market ${marketProfileId}:`, errorMessage);
     return { status: "failed", errorMessage: short(errorMessage, 1000) };
   } finally {
