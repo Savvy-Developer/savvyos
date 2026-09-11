@@ -11,6 +11,11 @@ import { getDb } from "./db";
 export const MARKET_MATCH_FIT_PROFILE_VERSION = "v1";
 export const MARKET_MATCH_FIT_MODEL = process.env.MARKET_MATCH_FIT_PROFILE_MODEL || "gpt-5-mini";
 
+/** Preserve the last validated fit profile when a later extraction is transiently unavailable. */
+export function fitRefreshFailureStatus(previousProfile: unknown): "ready" | "failed" {
+  return previousProfile && typeof previousProfile === "object" ? "ready" : "failed";
+}
+
 const GOALS = ["cash_flow", "tax_strategy", "appreciation", "value_add", "lifestyle", "portfolio"] as const;
 const EXPERIENCE = ["first_str", "some", "portfolio"] as const;
 const DESTINATION_STYLES = ["beach", "mountain", "lake", "urban", "suburban", "rural", "entertainment"] as const;
@@ -147,7 +152,10 @@ export async function refreshMarketMatchFitProfile(marketProfileId: number): Pro
   try {
     const response = await invokeLLM({
       model: MARKET_MATCH_FIT_MODEL,
-      maxTokens: 1_400,
+      // A strict fit profile can include multiple evidence quotes. The previous
+      // 1,400-token ceiling could terminate valid structured responses before
+      // content was returned, unnecessarily withholding the market.
+      maxTokens: 3_000,
       timeoutMs: 120_000,
       maxAttempts: 3,
       response_format: { type: "json_schema", json_schema: FIT_PROFILE_SCHEMA },
@@ -164,7 +172,10 @@ export async function refreshMarketMatchFitProfile(marketProfileId: number): Pro
     return { status: "ready", profile };
   } catch (error) {
     const errorMessage = clean(error instanceof Error ? error.message : error, 1_000);
-    await db.update(marketMatchFitProfiles).set({ status: "failed", errorMessage }).where(eq(marketMatchFitProfiles.marketProfileId, marketProfileId));
+    await db.update(marketMatchFitProfiles).set({
+      status: fitRefreshFailureStatus(existing?.profileJson),
+      errorMessage,
+    }).where(eq(marketMatchFitProfiles.marketProfileId, marketProfileId));
     return { status: "failed", errorMessage };
   }
 }

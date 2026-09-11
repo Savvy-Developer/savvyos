@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __fitProfileTestables__ } from "./marketMatchFitProfiles";
+import { __fitProfileTestables__, fitRefreshFailureStatus } from "./marketMatchFitProfiles";
 
 describe("Market Match fit profile normalization", () => {
   it("keeps only allowed, evidence-backed matching tags", () => {
@@ -35,5 +35,10 @@ describe("Market Match fit profile normalization", () => {
       investorGoals: [], experienceFit: [], destinationStyles: [], guestSegments: [], propertyTypes: [], projectAppetite: [], managementFit: [], accessPreferences: [], operatingConsiderations: [], locationAliases: [], overlapGroup: "", evidence: [{ field: "gap", quote: "More evidence needed" }], gaps: ["Research needed"],
     });
     expect(profile.readyForMatching).toBe(false);
+  });
+
+  it("retains a last validated fit profile when a later model response fails", () => {
+    expect(fitRefreshFailureStatus({ readyForMatching: true })).toBe("ready");
+    expect(fitRefreshFailureStatus(null)).toBe("failed");
   });
 });
