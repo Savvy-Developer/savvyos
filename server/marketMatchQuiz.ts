@@ -602,9 +602,10 @@ function scoreMarket(input: {
   }
 
   const styles = answerValues(box.destinationStyle);
+  const explicitDestinationStyles = styles.filter(value => value && value !== "open" && value !== "not_sure");
   const matchedStyles = overlap(styles, fit.destinationStyles);
   if (matchedStyles.length) {
-    score += Math.min(12, matchedStyles.length * 5); reasons.push("Matches the STR destination setting you prefer"); matchedDimensions.add("destination");
+    score += Math.min(20, matchedStyles.length * 8); reasons.push("Matches the STR destination setting you prefer"); matchedDimensions.add("destination");
   }
 
   const matchedGuests = overlap(answerValues(box.guestExperience), fit.guestSegments);
@@ -646,7 +647,12 @@ function scoreMarket(input: {
   // is not sufficient. Require an additional independent dimension so the
   // shortlist reflects their stated operating and property strategy.
   const minimumDimensions = disclosedDiscriminators.length ? 3 : 2;
-  const qualified = budgetCompatible && matchedDimensions.size >= minimumDimensions && (matchedDimensions.has("location") || matchedDimensions.has("budget") || matchedDimensions.has("goals"));
+  // An investor who explicitly selected a destination type is asking for a
+  // substantive market characteristic, not a soft preference. Require that
+  // evidence before a market can be recommended; only open-to-guidance users
+  // may receive a result without a destination-style alignment.
+  const honorsExplicitDestination = !explicitDestinationStyles.length || matchedDimensions.has("destination");
+  const qualified = budgetCompatible && honorsExplicitDestination && matchedDimensions.size >= minimumDimensions && (matchedDimensions.has("location") || matchedDimensions.has("budget") || matchedDimensions.has("goals"));
   return { score, reasons, qualified, fit, matchedDimensions: Array.from(matchedDimensions), matchesLocationConstraint, directLocationMatch, locationConstraint, budgetCompatible };
 }
 
@@ -963,7 +969,14 @@ async function publicCandidates(db: NonNullable<Awaited<ReturnType<typeof getDb>
     .leftJoin(marketMatchFitProfiles, eq(marketMatchFitProfiles.marketProfileId, marketProfiles.id))
     .leftJoin(marketMatchQuizMarketSettings, eq(marketMatchQuizMarketSettings.marketProfileId, marketProfiles.id))
     .where(eq(marketProfiles.status, "active"));
-  return rows.filter(row => row.enabled !== false);
+  // A normalized fit profile is only valid while its source Market AI profile
+  // is currently ready. Do not surface a retained fit profile after the source
+  // profile fails or is refreshing; that would serve stale market guidance.
+  return rows.filter(row => row.enabled !== false && isCurrentPublicMarketEvidence(row));
+}
+
+function isCurrentPublicMarketEvidence(candidate: { intelligenceStatus: string | null; fitProfileStatus: string | null }) {
+  return candidate.intelligenceStatus === "ready" && candidate.fitProfileStatus === "ready";
 }
 
 function stableNumber(value: string) {
@@ -1039,6 +1052,8 @@ const MARKET_MATCH_QUALITY_SCENARIOS = [
   { id: "southeast-only", name: "Southeast only", locationPreference: "Southeast", geographyFlexibility: "regional", permittedStates: ["AL", "AR", "FL", "GA", "KY", "LA", "MS", "NC", "SC", "TN", "VA", "WV"], expectNoMatch: false, minDimensions: 2 },
   { id: "mountain-family-cashflow", name: "Mountain family STR with cash flow", locationPreference: "Open to guidance", geographyFlexibility: "open", permittedStates: [], expectNoMatch: false, minDimensions: 4, answers: { primaryGoal: "cash_flow", investmentGoals: ["cash_flow"], destinationStyle: ["mountain"], guestExperience: ["families", "groups"], propertyType: ["cabin"], projectAppetite: "turnkey", managementPreference: "property_manager" } },
   { id: "beach-lifestyle", name: "Beach lifestyle STR", locationPreference: "Open to guidance", geographyFlexibility: "open", permittedStates: [], expectNoMatch: false, minDimensions: 4, answers: { primaryGoal: "lifestyle", investmentGoals: ["lifestyle"], destinationStyle: ["beach"], guestExperience: ["families"], propertyType: ["beach"], projectAppetite: "turnkey", managementPreference: "property_manager" } },
+  { id: "lake-family-portfolio", name: "Lake family portfolio STR", locationPreference: "Open to guidance", geographyFlexibility: "open", permittedStates: [], expectNoMatch: false, minDimensions: 4, requireDestination: true, answers: { primaryGoal: "portfolio", investmentGoals: ["cash_flow", "portfolio"], destinationStyle: ["lake"], guestExperience: ["families", "groups"], propertyType: ["single_family", "cabin"], projectAppetite: "turnkey", managementPreference: "hybrid" } },
+  { id: "urban-appreciation", name: "Urban appreciation STR", locationPreference: "Open to guidance", geographyFlexibility: "open", permittedStates: [], expectNoMatch: false, minDimensions: 4, requireDestination: true, answers: { primaryGoal: "appreciation", investmentGoals: ["appreciation", "cash_flow"], destinationStyle: ["urban"], guestExperience: ["couples", "groups"], propertyType: ["condo", "townhome"], projectAppetite: "turnkey", managementPreference: "property_manager" } },
 ] as const;
 
 /** Runs non-mutating regression checks against the live Market AI and agent inventory. */
@@ -1073,7 +1088,8 @@ export async function runMarketMatchQualityChecks() {
       : [];
     const expectedNoMatchSatisfied = !scenario.expectNoMatch || matches.length === 0;
     const weakMatches = matches.filter(match => match.dimensions.length < scenario.minDimensions);
-    const passed = outOfRegion.length === 0 && expectedNoMatchSatisfied && weakMatches.length === 0;
+    const missingDestination = (scenario as any).requireDestination ? matches.filter(match => !match.dimensions.includes("destination")) : [];
+    const passed = outOfRegion.length === 0 && expectedNoMatchSatisfied && weakMatches.length === 0 && missingDestination.length === 0;
     checks.push({
       id: scenario.id,
       name: scenario.name,
@@ -1085,6 +1101,7 @@ export async function runMarketMatchQualityChecks() {
         ...(outOfRegion.length ? [`Outside stated geography: ${outOfRegion.map(match => `${match.marketName}, ${match.state}`).join("; ")}`] : []),
         ...(!expectedNoMatchSatisfied ? ["Expected no match because no currently participating West Coast market is available."] : []),
         ...(weakMatches.length ? [`Insufficient independent fit dimensions: ${weakMatches.map(match => `${match.marketName} (${match.dimensions.join(", ") || "none"})`).join("; ")}`] : []),
+        ...(missingDestination.length ? [`Did not honor the explicit destination style: ${missingDestination.map(match => `${match.marketName} (${match.dimensions.join(", ") || "none"})`).join("; ")}`] : []),
       ],
     });
   }
@@ -1170,6 +1187,7 @@ export async function generateQuizResults(browserToken: string) {
   const answers = safeJson(session.answers, {} as Record<string, unknown>);
   const candidates = await publicCandidates(db);
   const locationConstraint = locationConstraintFromAnswers(answers);
+  const explicitDestinationStyles = answerValues(buyBoxFromAnswers(answers).destinationStyle).filter(value => value && value !== "open" && value !== "not_sure");
   const scored = candidates
     .map(candidate => ({ candidate, ...scoreMarket({ ...candidate, priorityWeight: candidate.priorityWeight ?? 0, answers }) }))
     .sort((left, right) => right.score - left.score || right.matchedDimensions.length - left.matchedDimensions.length || Number(right.fit.evidenceConfidence === "high") - Number(left.fit.evidenceConfidence === "high") || stableMatchTieBreaker(String(session.id), left.candidate.id) - stableMatchTieBreaker(String(session.id), right.candidate.id));
@@ -1188,9 +1206,12 @@ export async function generateQuizResults(browserToken: string) {
     selected.push({ rank: selected.length + 1, marketId: item.candidate.id, marketName: item.candidate.name, state: item.candidate.state, region: item.candidate.region, agent: { id: agent.agentId, name: agent.name, bookingLink: normalizeBookingUrl(agent.bookingLink), profilePhotoUrl: agent.profilePhotoUrl, existingRelationship: agent.existingRelationship }, reasons: item.reasons, tradeoff: marketTradeoff(item.candidate.profile, item.fit), confidence: item.fit.evidenceConfidence === "high" && item.matchedDimensions.length >= 3 ? "high" : "medium", profileStatus: item.candidate.intelligenceStatus ?? "unavailable", fitProfileVersion: item.fit.version, matchDimensions: item.matchedDimensions });
   }
   const constrainedCandidates = mustHonorLocation ? scored.filter(item => item.matchesLocationConstraint || item.directLocationMatch) : scored;
+  const hasDestinationEvidence = scored.some(item => item.budgetCompatible && item.matchedDimensions.includes("destination"));
+  const selectedDestinationLabel = explicitDestinationStyles.map(value => value.replace(/_/g, " ")).join(" or ");
   const noFitReason = selected.length ? null
     : !candidates.length ? "No public Market Match markets are currently enabled."
     : locationConstraint.isConstrained && !constrainedCandidates.some(item => item.qualified) ? `We do not currently have a participating Savvy STR market with enough current fit evidence in the ${describedLocationConstraint(locationConstraint)} area you selected. We did not substitute markets outside that location preference. A Savvy team member can review your request.`
+    : explicitDestinationStyles.length && !hasDestinationEvidence ? `We do not currently have a participating Savvy STR market with enough current fit evidence for the ${selectedDestinationLabel} destination style you selected. We did not substitute a different destination type. A Savvy team member can review your request.`
     : "We do not have a participating Savvy STR market with enough current evidence to make a reliable recommendation from the criteria you shared. A Savvy team member can review your request.";
   const buyBox = buyBoxFromAnswers(answers);
   const investorBrief = await getInvestorBrief({ db, session, answers });
@@ -1555,4 +1576,4 @@ export async function recommendQuizExperiment() {
   };
 }
 
-export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl, locationConstraintFromAnswers, candidateMatchesLocationConstraint, candidateStateCodes, marketOverlapKey, hasOverlappingMarket };
+export const __testables__ = { buyBoxFromAnswers, deterministicInvestorBrief, investorAnswerRows, scoreMarket, guidanceRange, questionsFromConfig, appendTracking, tokenHash, marketFactText, factForMarket, marketTradeoff, marketResultsEmailDetails, publicMarketMatchUrl, locationConstraintFromAnswers, candidateMatchesLocationConstraint, candidateStateCodes, marketOverlapKey, hasOverlappingMarket, isCurrentPublicMarketEvidence };

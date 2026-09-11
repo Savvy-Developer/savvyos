@@ -73,6 +73,34 @@ describe("Market Match quiz helpers", () => {
     expect(strongerFit.score).toBeGreaterThan(alphabeticalButWeak.score);
   });
 
+  it("requires a selected STR destination style rather than substituting a different setting", () => {
+    const answers = {
+      budget: { min: "450000", max: "650000" }, primaryGoal: "appreciation", investmentGoals: ["appreciation"],
+      destinationStyle: ["urban"], guestExperience: ["couples"], propertyType: ["condo"],
+      geographyFlexibility: "open", locationPreference: "Open to guidance", projectAppetite: "turnkey", managementPreference: "property_manager",
+    };
+    const wrongSetting = __testables__.scoreMarket({
+      name: "Mountain Retreat", state: "CO", region: "Mountain", profile: {}, priorityWeight: 0,
+      fitProfile: fitProfile({ investorGoals: ["appreciation"], destinationStyles: ["mountain"], guestSegments: ["couples"], propertyTypes: ["condo"] }), answers,
+    });
+    const urbanSetting = __testables__.scoreMarket({
+      name: "City Stay", state: "IL", region: "Urban", profile: {}, priorityWeight: 0,
+      fitProfile: fitProfile({ investorGoals: ["appreciation"], destinationStyles: ["urban"], guestSegments: ["couples"], propertyTypes: ["condo"] }), answers,
+    });
+    expect(wrongSetting.matchedDimensions).not.toContain("destination");
+    expect(wrongSetting.qualified).toBe(false);
+    expect(urbanSetting.matchedDimensions).toContain("destination");
+    expect(urbanSetting.qualified).toBe(true);
+    expect(urbanSetting.score).toBeGreaterThan(wrongSetting.score);
+  });
+
+  it("withholds retained fit profiles when their underlying Market AI evidence is not current", () => {
+    expect(__testables__.isCurrentPublicMarketEvidence({ intelligenceStatus: "ready", fitProfileStatus: "ready" })).toBe(true);
+    expect(__testables__.isCurrentPublicMarketEvidence({ intelligenceStatus: "failed", fitProfileStatus: "ready" })).toBe(false);
+    expect(__testables__.isCurrentPublicMarketEvidence({ intelligenceStatus: "refreshing", fitProfileStatus: "ready" })).toBe(false);
+    expect(__testables__.isCurrentPublicMarketEvidence({ intelligenceStatus: "ready", fitProfileStatus: "failed" })).toBe(false);
+  });
+
   it("suppresses markets in the same established overlap group", () => {
     const selected = [{ candidate: { name: "Northeast Florida", fitProfile: fitProfile({ overlapGroup: "northeast florida coast" }) } }];
     expect(__testables__.hasOverlappingMarket(selected, { name: "St. Augustine", fitProfile: fitProfile({ overlapGroup: "northeast florida coast" }) })).toBe(true);
