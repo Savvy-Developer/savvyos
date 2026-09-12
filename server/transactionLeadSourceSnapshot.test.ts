@@ -34,5 +34,7 @@ describe("transaction lead-source snapshots", () => {
     expect(workspace()).toContain('quoteColumn("t", "transactionLeadSourceId")');
     expect(workspace()).toContain("t.\\`transactionLeadSourceId\\` AS sourceId");
     expect(weeklyLeadReport()).toContain("leadSourceId: transactions.transactionLeadSourceId");
+    expect(weeklyLeadReport()).toContain("const excludeReferralTransactions");
+    expect(intelligence()).toContain("t.\\`referralId\\` IS NULL");
   });
 });

@@ -108,6 +108,10 @@ function combineWhere(clauses: Array<SQL | undefined>): SQL {
 
 function commonClauses(filters: TransactionIntelligenceFilters): Array<SQL | undefined> {
   return [
+    sql`t.\`referralId\` IS NULL AND NOT EXISTS (
+      SELECT 1 FROM \`referral_transaction_links\` rtl
+      WHERE rtl.\`transactionId\` = t.\`id\`
+    )`,
     filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined,
     filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
     filters.leadSourceId ? sql`t.\`transactionLeadSourceId\` = ${filters.leadSourceId}` : undefined,

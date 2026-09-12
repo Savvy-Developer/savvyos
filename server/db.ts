@@ -69,6 +69,13 @@ export async function getDb() {
   return _db;
 }
 
+function excludeReferralTransactions() {
+  return sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+    SELECT 1 FROM \`referral_transaction_links\` rtl
+    WHERE rtl.\`transactionId\` = ${transactions.id}
+  )`;
+}
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
@@ -2221,7 +2228,11 @@ export async function getLeadSourceFunnel(dateFrom?: Date, dateTo?: Date, agentI
   const contactRows: Array<{ leadSourceId: number | null; sourceName: string | null; parentId: number | null; contactCount: number }> = await (contactQuery as any).where(where).groupBy(contacts.leadSourceId, leadSources.name, leadSources.parentId);
 
   // Closed transactions per lead source
-  const closedConditions: any[] = [eq(transactions.primaryContactId, contacts.id), eq(transactions.status, "closed")];
+  const closedConditions: any[] = [
+    eq(transactions.primaryContactId, contacts.id),
+    eq(transactions.status, "closed"),
+    excludeReferralTransactions(),
+  ];
   if (agentId) closedConditions.push(eq(transactions.agentId, agentId));
   const closedRows = await db
     .select({
@@ -2880,7 +2891,7 @@ export async function getLeadSourceROI(filters?: { dateFrom?: Date; dateTo?: Dat
     (contactCountQuery as any) = (contactCountQuery as any).innerJoin(agentConnections, and(eq(agentConnections.contactId, contacts.id), eq(agentConnections.agentId, filters.agentId)));
   }
   const contactCounts: Array<{ leadSourceId: number | null; count: number }> = await (contactCountQuery as any).groupBy(contacts.leadSourceId);
-  const txConds: any[] = [eq(transactions.status, "closed" as any)];
+  const txConds: any[] = [eq(transactions.status, "closed" as any), excludeReferralTransactions()];
   if (filters?.dateFrom) txConds.push(gte(transactions.closingDate, filters.dateFrom));
   if (filters?.dateTo) txConds.push(lte(transactions.closingDate, filters.dateTo));
   if (filters?.agentId) txConds.push(eq(transactions.agentId, filters.agentId));
@@ -3031,12 +3042,12 @@ export async function getAiInsightsData() {
     gci: sql<number>`COALESCE(SUM(grossCommissionIncome), 0)`,
     closings: sql<number>`COUNT(*)`,
     volume: sql<number>`COALESCE(SUM(purchasePrice), 0)`,
-  }).from(transactions).where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, thirtyDaysAgo)));
+  }).from(transactions).where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, thirtyDaysAgo), excludeReferralTransactions()));
   const [prior30] = await db.select({
     gci: sql<number>`COALESCE(SUM(grossCommissionIncome), 0)`,
     closings: sql<number>`COUNT(*)`,
     volume: sql<number>`COALESCE(SUM(purchasePrice), 0)`,
-  }).from(transactions).where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, sixtyDaysAgo), lte(transactions.closingDate, thirtyDaysAgo)));
+  }).from(transactions).where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, sixtyDaysAgo), lte(transactions.closingDate, thirtyDaysAgo), excludeReferralTransactions()));
   const [stalledCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(agentConnections)
     .where(and(sql`pipelineStatus IN ('active_client', 'under_contract')`, sql`DATEDIFF(NOW(), ${connectionAgingTimestamp}) >= 14`));
   const [overdueFollowUps] = await db.select({ count: sql<number>`COUNT(*)` }).from(agentConnections)
@@ -3048,7 +3059,7 @@ export async function getAiInsightsData() {
     gci: sql<number>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
   }).from(transactions)
     .innerJoin(users, eq(transactions.agentId, users.id))
-    .where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, thirtyDaysAgo)))
+    .where(and(eq(transactions.status, "closed" as any), gte(transactions.closingDate, thirtyDaysAgo), excludeReferralTransactions()))
     .groupBy(transactions.agentId, users.name)
     .orderBy(sql`COALESCE(SUM(${transactions.grossCommissionIncome}), 0) DESC`);
   const sourceStats = await db.select({
@@ -3058,7 +3069,7 @@ export async function getAiInsightsData() {
     closed: sql<number>`COUNT(DISTINCT ${transactions.id})`,
   }).from(leadSources)
     .leftJoin(contacts, eq(contacts.leadSourceId, leadSources.id))
-    .leftJoin(transactions, and(eq(transactions.transactionLeadSourceId, leadSources.id), eq(transactions.status, "closed" as any)))
+    .leftJoin(transactions, and(eq(transactions.transactionLeadSourceId, leadSources.id), eq(transactions.status, "closed" as any), excludeReferralTransactions()))
     .groupBy(leadSources.id, leadSources.name)
     .orderBy(sql`COUNT(DISTINCT ${transactions.id}) DESC`)
     .limit(10);
@@ -3508,7 +3519,7 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
   const db = await getDb();
   if (!db) return null;
 
-  const conditions = [];
+  const conditions: any[] = [excludeReferralTransactions()];
   if (filters.agentId) conditions.push(eq(transactions.agentId, filters.agentId));
   if (filters.status) conditions.push(eq(transactions.status, filters.status as any));
   if (filters.search) {

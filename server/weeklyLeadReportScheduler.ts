@@ -17,6 +17,10 @@ const APP_URL = "https://os.savvy-agents.com";
 const TEST_RECIPIENT_EMAIL = "tyler@savvy.realty";
 const REPORT_KEY = "weekly_lead_report";
 const STALE_RUN_MS = 60 * 60 * 1000;
+const excludeReferralTransactions = () => sql`${transactions.referralId} IS NULL AND NOT EXISTS (
+  SELECT 1 FROM \`referral_transaction_links\` rtl
+  WHERE rtl.\`transactionId\` = ${transactions.id}
+)`;
 const LIVE_RECIPIENTS = [
   { name: "Marcus", email: "marcusclay@savvy.realty" },
   { name: "Amy Rollins", email: "amyrollins@savvy.realty" },
@@ -331,17 +335,17 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
       .groupBy(contacts.leadSourceId),
     db.select({ leadSourceId: transactions.transactionLeadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome, contractDate: transactions.contractDate, status: transactions.status })
       .from(transactions)
-      .where(and(gte(transactions.createdAt, start), lt(transactions.createdAt, end))),
+      .where(and(gte(transactions.createdAt, start), lt(transactions.createdAt, end), excludeReferralTransactions())),
     db.select({ leadSourceId: transactions.transactionLeadSourceId, purchasePrice: transactions.purchasePrice })
       .from(transactions)
-      .where(and(isNotNull(transactions.contractDate), gte(transactions.contractDate, start), lt(transactions.contractDate, end))),
+      .where(and(isNotNull(transactions.contractDate), gte(transactions.contractDate, start), lt(transactions.contractDate, end), excludeReferralTransactions())),
     db.select({ leadSourceId: transactions.transactionLeadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome })
       .from(transactions)
-      .where(and(eq(transactions.status, "closed"), isNotNull(transactions.closingDate), gte(transactions.closingDate, start), lt(transactions.closingDate, end))),
+      .where(and(eq(transactions.status, "closed"), isNotNull(transactions.closingDate), gte(transactions.closingDate, start), lt(transactions.closingDate, end), excludeReferralTransactions())),
     db.select({ leadSourceId: transactions.transactionLeadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, volume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)` })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
-      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end)))
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end), excludeReferralTransactions()))
       .groupBy(transactions.transactionLeadSourceId),
     db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})` })
       .from(agentConnections)
@@ -351,12 +355,12 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
     db.select({ leadSourceId: transactions.transactionLeadSourceId, count: sql<number>`COUNT(DISTINCT ${transactions.id})` })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
-      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), isNotNull(transactions.contractDate), lt(transactions.contractDate, end)))
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), isNotNull(transactions.contractDate), lt(transactions.contractDate, end), excludeReferralTransactions()))
       .groupBy(transactions.transactionLeadSourceId),
     db.select({ leadSourceId: transactions.transactionLeadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, volume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)` })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
-      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end)))
+      .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end), excludeReferralTransactions()))
       .groupBy(transactions.transactionLeadSourceId),
     db.select({ isaStatus: contacts.isaStatus, doNotContact: contacts.doNotContact, count: sql<number>`COUNT(*)` })
       .from(contacts)
