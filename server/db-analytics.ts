@@ -1037,26 +1037,46 @@ export async function getLeadSourceAnalyticsReport(opts?: {
     ))
     .groupBy(transactions.transactionLeadSourceId);
 
-  const gciMap = new Map(gciRows.map((r) => [r.leadSourceId, r]));
+  const sourceRows = await db
+    .select({
+      id: leadSources.id,
+      name: leadSources.name,
+      sourceType: leadSources.campaignType,
+      parentId: leadSources.parentId,
+      clickCount: leadSources.clickCount,
+      submissionCount: leadSources.submissionCount,
+    })
+    .from(leadSources)
+    .where(parentId ? eq(leadSources.parentId, parentId) : undefined);
 
-  return rows.map((r) => {
-    const gci = gciMap.get(r.leadSourceId);
+  const gciMap = new Map(gciRows.map((r) => [r.leadSourceId, r]));
+  const contactMap = new Map(rows.map((r) => [r.leadSourceId, r]));
+  const sourceMap = new Map(sourceRows.map((r) => [r.id, r]));
+  const sourceIds = Array.from(new Set([
+    ...rows.map((r) => r.leadSourceId),
+    ...gciRows.map((r) => r.leadSourceId),
+  ])).filter((id) => id === null ? !parentId : sourceMap.has(id));
+
+  return sourceIds.map((leadSourceId) => {
+    const contact = contactMap.get(leadSourceId);
+    const source = leadSourceId === null ? null : sourceMap.get(leadSourceId);
+    const gci = gciMap.get(leadSourceId);
     const totalGci = Number(gci?.totalGci ?? 0);
-    const totalContacts = Number(r.totalContacts);
+    const totalContacts = Number(contact?.totalContacts ?? 0);
     return {
-      leadSourceId: r.leadSourceId,
-      sourceName: r.sourceName ?? "Unknown / No Source",
-      sourceType: r.sourceType ?? "general",
-      parentId: r.parentId,
-      clickCount: r.clickCount ?? 0,
-      submissionCount: r.submissionCount ?? 0,
+      leadSourceId,
+      sourceName: contact?.sourceName ?? source?.name ?? "Unknown / No Source",
+      sourceType: contact?.sourceType ?? source?.sourceType ?? "general",
+      parentId: contact?.parentId ?? source?.parentId ?? null,
+      clickCount: contact?.clickCount ?? source?.clickCount ?? 0,
+      submissionCount: contact?.submissionCount ?? source?.submissionCount ?? 0,
       totalContacts,
-      activeContacts: Number(r.activeClients),
+      activeContacts: Number(contact?.activeClients ?? 0),
       closings: Number(gci?.closings ?? 0),
       totalGci,
       gciPerContact: totalContacts > 0 ? Math.round(totalGci / totalContacts) : 0,
       conversionRate: totalContacts > 0
-        ? Math.round((Number(r.closed) / totalContacts) * 100) : 0,
+        ? Math.round((Number(contact?.closed ?? 0) / totalContacts) * 100) : 0,
     };
   });
 }

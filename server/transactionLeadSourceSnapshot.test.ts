@@ -7,6 +7,8 @@ const database = () => readFileSync("server/db.ts", "utf-8");
 const reporting = () => readFileSync("server/analytics/reportingSuite.ts", "utf-8");
 const intelligence = () => readFileSync("server/analytics/transactionIntelligence.ts", "utf-8");
 const transactionsRouter = () => readFileSync("server/routers/transactions.ts", "utf-8");
+const workspace = () => readFileSync("server/analytics/workspace.ts", "utf-8");
+const weeklyLeadReport = () => readFileSync("server/weeklyLeadReportScheduler.ts", "utf-8");
 
 describe("transaction lead-source snapshots", () => {
   it("stores an immutable lead-source reference on every transaction", () => {
@@ -25,8 +27,12 @@ describe("transaction lead-source snapshots", () => {
     const source = database();
     expect(source).toContain("inArray(transactions.transactionLeadSourceId, leadSourceIds)");
     expect(source).toContain("eq(transactions.transactionLeadSourceId, leadSourceId)");
+    expect(source).toContain("const historicalSources = historicalSourceIds");
     expect(reporting()).toContain("t.\\`transactionLeadSourceId\\`");
     expect(intelligence()).toContain("t.\\`transactionLeadSourceId\\`");
     expect(transactionsRouter()).toContain("eq(transactions.transactionLeadSourceId, leadSources.id)");
+    expect(workspace()).toContain('quoteColumn("t", "transactionLeadSourceId")');
+    expect(workspace()).toContain("t.\\`transactionLeadSourceId\\` AS sourceId");
+    expect(weeklyLeadReport()).toContain("leadSourceId: transactions.transactionLeadSourceId");
   });
 });

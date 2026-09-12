@@ -270,7 +270,7 @@ function transactionScopeClauses(filters: AnalyticsFilters, scope: AnalyticsScop
     numericListClause("t", "agentId", scope.agentIds),
     scope.isaId ? sql`${quoteColumn("c", "assignedIsaId")} = ${scope.isaId}` : undefined,
     filters.marketProfileId ? sql`${quoteColumn("u", "marketProfileId")} = ${filters.marketProfileId}` : undefined,
-    filters.leadSourceId ? sql`${quoteColumn("c", "leadSourceId")} = ${filters.leadSourceId}` : undefined,
+    filters.leadSourceId ? sql`${quoteColumn("t", "transactionLeadSourceId")} = ${filters.leadSourceId}` : undefined,
   ];
 }
 
@@ -435,14 +435,14 @@ async function getTransactions(filters: AnalyticsFilters, scope: AnalyticsScope)
       c.\`id\` AS contactId,
       CONCAT(c.\`firstName\`, ' ', c.\`lastName\`) AS contactName,
       ls.\`id\` AS sourceId,
-      COALESCE(ls.\`name\`, c.\`campaignSource\`, c.\`leadSourceType\`, 'Unattributed') AS sourceName,
+      COALESCE(ls.\`name\`, 'Unattributed') AS sourceName,
       COALESCE(pay.\`companyDollars\`, 0) AS companyDollars,
       COALESCE(pay.\`agentDollars\`, 0) AS agentDollars,
       COALESCE(pay.\`referralDollars\`, 0) AS referralDollars
     FROM \`transactions\` t
     INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
     INNER JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
-    LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = c.\`leadSourceId\`
+    LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = t.\`transactionLeadSourceId\`
     LEFT JOIN (
       SELECT
         \`transactionId\`,
@@ -683,7 +683,7 @@ async function getSources(filters: AnalyticsFilters, scope: AnalyticsScope) {
       GROUP BY c.\`leadSourceId\`
     ) leads ON leads.sourceId = source.\`id\`
     LEFT JOIN (
-      SELECT c.\`leadSourceId\` AS sourceId,
+      SELECT t.\`transactionLeadSourceId\` AS sourceId,
         COUNT(DISTINCT t.\`id\`) AS closings,
         SUM(t.\`grossCommissionIncome\`) AS gci,
         SUM(t.\`purchasePrice\`) AS volume,
@@ -693,7 +693,7 @@ async function getSources(filters: AnalyticsFilters, scope: AnalyticsScope) {
       INNER JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
       ${transactionFilter}
       AND t.\`status\` = 'closed'
-      GROUP BY c.\`leadSourceId\`
+      GROUP BY t.\`transactionLeadSourceId\`
     ) closed ON closed.sourceId = source.\`id\`
     WHERE source.\`isActive\` = 1
       AND (COALESCE(leads.\`leadCount\`, 0) > 0 OR COALESCE(closed.\`closings\`, 0) > 0)

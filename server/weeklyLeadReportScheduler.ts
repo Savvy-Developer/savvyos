@@ -329,38 +329,35 @@ export async function buildWeeklyLeadReport(asOf = new Date()): Promise<WeeklyLe
       .innerJoin(contacts, eq(communications.relatedContactId, contacts.id))
       .where(and(gte(communications.communicatedAt, start), lt(communications.communicatedAt, end)))
       .groupBy(contacts.leadSourceId),
-    db.select({ leadSourceId: contacts.leadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome, contractDate: transactions.contractDate, status: transactions.status })
+    db.select({ leadSourceId: transactions.transactionLeadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome, contractDate: transactions.contractDate, status: transactions.status })
       .from(transactions)
-      .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(gte(transactions.createdAt, start), lt(transactions.createdAt, end))),
-    db.select({ leadSourceId: contacts.leadSourceId, purchasePrice: transactions.purchasePrice })
+    db.select({ leadSourceId: transactions.transactionLeadSourceId, purchasePrice: transactions.purchasePrice })
       .from(transactions)
-      .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(isNotNull(transactions.contractDate), gte(transactions.contractDate, start), lt(transactions.contractDate, end))),
-    db.select({ leadSourceId: contacts.leadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome })
+    db.select({ leadSourceId: transactions.transactionLeadSourceId, purchasePrice: transactions.purchasePrice, grossCommissionIncome: transactions.grossCommissionIncome })
       .from(transactions)
-      .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(eq(transactions.status, "closed"), isNotNull(transactions.closingDate), gte(transactions.closingDate, start), lt(transactions.closingDate, end))),
-    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, volume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)` })
+    db.select({ leadSourceId: transactions.transactionLeadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, volume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)` })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, rolling90Start), lt(contacts.createdAt, end), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end)))
-      .groupBy(contacts.leadSourceId),
+      .groupBy(transactions.transactionLeadSourceId),
     db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${agentConnections.contactId})` })
       .from(agentConnections)
       .innerJoin(contacts, eq(agentConnections.contactId, contacts.id))
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), eq(agentConnections.appointmentSet, true), lt(sql<Date>`COALESCE(${agentConnections.appointmentSetAt}, ${agentConnections.createdAt})`, end)))
       .groupBy(contacts.leadSourceId),
-    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${transactions.id})` })
+    db.select({ leadSourceId: transactions.transactionLeadSourceId, count: sql<number>`COUNT(DISTINCT ${transactions.id})` })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), isNotNull(transactions.contractDate), lt(transactions.contractDate, end)))
-      .groupBy(contacts.leadSourceId),
-    db.select({ leadSourceId: contacts.leadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, volume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)` })
+      .groupBy(transactions.transactionLeadSourceId),
+    db.select({ leadSourceId: transactions.transactionLeadSourceId, count: sql<number>`COUNT(DISTINCT ${contacts.id})`, volume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)` })
       .from(transactions)
       .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
       .where(and(isNull(contacts.archivedAt), gte(contacts.createdAt, cohortStart), lt(contacts.createdAt, cohortEnd), eq(transactions.status, "closed"), isNotNull(transactions.closingDate), lt(transactions.closingDate, end)))
-      .groupBy(contacts.leadSourceId),
+      .groupBy(transactions.transactionLeadSourceId),
     db.select({ isaStatus: contacts.isaStatus, doNotContact: contacts.doNotContact, count: sql<number>`COUNT(*)` })
       .from(contacts)
       .where(isNull(contacts.archivedAt))
@@ -529,7 +526,7 @@ export function renderWeeklyLeadReport(report: WeeklyLeadReport): string {
     ${signals(report)}
     <div style="margin:18px 0 0;font-size:11px;line-height:1.55;color:#4B5563;background:#F9FAFB;border-left:3px solid #7C3AED;border-radius:6px;padding:10px 12px;"><strong style="color:#111827;">CRM activity:</strong> ${formatInteger(report.dataEntry.transactionRecordsAdded)} transaction records were added this week, including ${formatInteger(report.dataEntry.historicalTransactionsAdded)} historical deals newly captured in SavvyOS.</div>
     <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:24px 0 0;"><tr><td style="background:#0fc0df;border-radius:7px;"><a href="${APP_URL}/analytics/lead-cohorts" style="display:inline-block;padding:12px 22px;font-size:13px;font-weight:700;color:#0A0A0A;text-decoration:none;">Open Lead Analytics</a></td></tr></table>
-    <div style="margin-top:16px;font-size:10px;line-height:1.45;color:#6B7280;">Appointments are shown only for fresh leads because historical appointment capture is incomplete. Source yield therefore uses the more reliable close conversion and closed volume measures. Source attribution follows the lead source on the primary transaction contact.</div>`;
+    <div style="margin-top:16px;font-size:10px;line-height:1.45;color:#6B7280;">Appointments are shown only for fresh leads because historical appointment capture is incomplete. Source yield therefore uses the more reliable close conversion and closed volume measures. Transaction attribution is locked when the transaction is created and does not change with later contact edits.</div>`;
 }
 
 /**

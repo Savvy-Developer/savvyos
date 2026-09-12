@@ -2233,6 +2233,16 @@ export async function getLeadSourceFunnel(dateFrom?: Date, dateTo?: Date, agentI
     .innerJoin(transactions, and(...closedConditions))
     .groupBy(transactions.transactionLeadSourceId);
 
+  const historicalSourceIds = closedRows
+    .map((row) => row.leadSourceId)
+    .filter((id): id is number => id !== null);
+  const historicalSources = historicalSourceIds.length
+    ? await db
+      .select({ id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId })
+      .from(leadSources)
+      .where(inArray(leadSources.id, historicalSourceIds))
+    : [];
+
   // Active pipeline per lead source
   const activeConditions: any[] = [eq(agentConnections.contactId, contacts.id), sql`${agentConnections.pipelineStatus} IN ('active_client','under_contract')`];
   if (agentId) activeConditions.push(eq(agentConnections.agentId, agentId));
@@ -2247,19 +2257,30 @@ export async function getLeadSourceFunnel(dateFrom?: Date, dateTo?: Date, agentI
 
   const closedMap = new Map(closedRows.map(r => [r.leadSourceId, r]));
   const activeMap = new Map(activeRows.map(r => [r.leadSourceId, r]));
+  const contactMap = new Map(contactRows.map(r => [r.leadSourceId, r]));
+  const historicalSourceMap = new Map(historicalSources.map(r => [r.id, r]));
+  const sourceIds = Array.from(new Set([
+    ...contactRows.map(r => r.leadSourceId),
+    ...closedRows.map(r => r.leadSourceId),
+  ]));
 
-  return contactRows.map(r => ({
-    leadSourceId: r.leadSourceId,
-    sourceName: r.sourceName ?? "Unknown",
-    parentId: r.parentId,
-    contactCount: Number(r.contactCount),
-    activeCount: Number(activeMap.get(r.leadSourceId)?.activeCount ?? 0),
-    closedCount: Number(closedMap.get(r.leadSourceId)?.closedCount ?? 0),
-    totalGci: Number(closedMap.get(r.leadSourceId)?.totalGci ?? 0),
-    conversionRate: r.contactCount > 0
-      ? Math.round((Number(closedMap.get(r.leadSourceId)?.closedCount ?? 0) / Number(r.contactCount)) * 1000) / 10
+  return sourceIds.map(leadSourceId => {
+    const contact = contactMap.get(leadSourceId);
+    const source = leadSourceId === null ? null : historicalSourceMap.get(leadSourceId);
+    const contactCount = Number(contact?.contactCount ?? 0);
+    return {
+    leadSourceId,
+    sourceName: contact?.sourceName ?? source?.name ?? "Unknown",
+    parentId: contact?.parentId ?? source?.parentId ?? null,
+    contactCount,
+    activeCount: Number(activeMap.get(leadSourceId)?.activeCount ?? 0),
+    closedCount: Number(closedMap.get(leadSourceId)?.closedCount ?? 0),
+    totalGci: Number(closedMap.get(leadSourceId)?.totalGci ?? 0),
+    conversionRate: contactCount > 0
+      ? Math.round((Number(closedMap.get(leadSourceId)?.closedCount ?? 0) / contactCount) * 1000) / 10
       : 0,
-  }));
+    };
+  });
 }
 
 /** Agent production: GCI, closed deals, avg days to close, pipeline count per agent with month trend */
