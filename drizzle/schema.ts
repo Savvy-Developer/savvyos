@@ -1142,6 +1142,12 @@ export const transactions = mysqlTable("transactions", {
   primaryContactId: int("primaryContactId")
     .notNull()
     .references(() => contacts.id),
+  // Immutable attribution snapshot. This is set from the primary contact only
+  // when the transaction is created and is never changed by contact edits.
+  transactionLeadSourceId: int("transactionLeadSourceId").references(
+    () => leadSources.id,
+    { onDelete: "set null" }
+  ),
   propertyId: int("propertyId").references(() => properties.id),
   transactionType: mysqlEnum("transactionType", [
     "buyer",

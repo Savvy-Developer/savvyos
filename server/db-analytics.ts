@@ -1024,19 +1024,18 @@ export async function getLeadSourceAnalyticsReport(opts?: {
   // Fetch GCI from closed transactions per lead source
   const gciRows = await db
     .select({
-      leadSourceId: contacts.leadSourceId,
+      leadSourceId: transactions.transactionLeadSourceId,
       totalGci: sql<string>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
       closings: sql<number>`COUNT(DISTINCT ${transactions.id})`,
     })
     .from(transactions)
-    .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
     .where(and(
       excludeReferralTransactions(),
       eq(transactions.status, "closed"),
       dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
       dateTo ? lte(transactions.closingDate, dateTo) : undefined,
     ))
-    .groupBy(contacts.leadSourceId);
+    .groupBy(transactions.transactionLeadSourceId);
 
   const gciMap = new Map(gciRows.map((r) => [r.leadSourceId, r]));
 
@@ -1436,7 +1435,7 @@ export async function getMasterMetrics(opts?: {
     dateFrom ? gte(transactions.closingDate, dateFrom) : undefined,
     dateTo ? lte(transactions.closingDate, dateTo) : undefined,
     agentIds ? inArray(transactions.agentId, agentIds) : undefined,
-    leadSourceId ? eq(contacts.leadSourceId, leadSourceId) : undefined,
+    leadSourceId ? eq(transactions.transactionLeadSourceId, leadSourceId) : undefined,
   );
 
   const rows = await db
@@ -1459,7 +1458,7 @@ export async function getMasterMetrics(opts?: {
     .leftJoin(users, eq(transactions.agentId, users.id))
     .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
     .leftJoin(properties, eq(transactions.propertyId, properties.id))
-    .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+    .leftJoin(leadSources, eq(transactions.transactionLeadSourceId, leadSources.id))
     .where(txWhere)
     .orderBy(
       (() => {

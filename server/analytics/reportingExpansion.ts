@@ -202,13 +202,7 @@ function transactionScope(filters: ExpansionFilters, opts: { closedOnly?: boolea
       WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
     filters.marketProfileId ? agentInMarket(sql`t.\`agentId\``, filters.marketProfileId) : undefined,
-    (filters.leadSourceIds?.length ? sql`EXISTS (
-      SELECT 1 FROM \`contacts\` source_contact
-      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})
-    )` : filters.leadSourceId ? sql`EXISTS (
-      SELECT 1 FROM \`contacts\` source_contact
-      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` = ${filters.leadSourceId}
-    )` : undefined),
+    (filters.leadSourceIds?.length ? sql`t.\`transactionLeadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`t.\`transactionLeadSourceId\` = ${filters.leadSourceId}` : undefined),
     status && status !== "all" ? sql`t.\`status\` = ${status}` : undefined,
     filters.transactionType && filters.transactionType !== "all" ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
     opts.applyDate === false ? undefined : sql`t.\`closingDate\` IS NOT NULL`,
@@ -747,13 +741,7 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
       WHERE gm.\`userId\` = t.\`agentId\` AND g.\`leaderId\` = ${filters.groupLeaderId}
     )` : undefined,
     filters.marketProfileId ? agentInMarket(sql`t.\`agentId\``, filters.marketProfileId) : undefined,
-    (filters.leadSourceIds?.length ? sql`EXISTS (
-      SELECT 1 FROM \`contacts\` source_contact
-      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})
-    )` : filters.leadSourceId ? sql`EXISTS (
-      SELECT 1 FROM \`contacts\` source_contact
-      WHERE source_contact.id = t.\`primaryContactId\` AND source_contact.\`leadSourceId\` = ${filters.leadSourceId}
-    )` : undefined),
+    (filters.leadSourceIds?.length ? sql`t.\`transactionLeadSourceId\` IN (${sql.join(filters.leadSourceIds.map((id) => sql`${id}`), sql`, `)})` : filters.leadSourceId ? sql`t.\`transactionLeadSourceId\` = ${filters.leadSourceId}` : undefined),
     sql`t.\`status\` = 'under_contract'`,
   ]);
   const [summaryRows, sourceRows, revenueRows, ucRows, appointmentRows, monthlyRows, closedMonthlyRows] = await Promise.all([
@@ -782,7 +770,7 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
     `),
     runRows<Row>(sql`
       SELECT
-        COALESCE(c.\`leadSourceId\`, 0) AS sourceId,
+        COALESCE(t.\`transactionLeadSourceId\`, 0) AS sourceId,
         COALESCE(ls.\`name\`, 'Unknown / No source') AS sourceName,
         COALESCE(ls.\`campaignType\`, 'unclassified') AS campaignType,
         COUNT(DISTINCT t.id) AS closings,
@@ -791,19 +779,19 @@ export async function getLeadSourcesReportingData(filters: ExpansionFilters = {}
         COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS savvyNet
       FROM \`transactions\` t
       INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
-      LEFT JOIN \`lead_sources\` ls ON ls.id = c.\`leadSourceId\`
+      LEFT JOIN \`lead_sources\` ls ON ls.id = t.\`transactionLeadSourceId\`
       ${PAYOUT_JOIN}
       ${closedTransactionsWhere}
-      GROUP BY c.\`leadSourceId\`, ls.\`name\`, ls.\`campaignType\`
+      GROUP BY t.\`transactionLeadSourceId\`, ls.\`name\`, ls.\`campaignType\`
     `),
     runRows<Row>(sql`
       SELECT
-        COALESCE(c.\`leadSourceId\`, 0) AS sourceId,
+        COALESCE(t.\`transactionLeadSourceId\`, 0) AS sourceId,
         COUNT(DISTINCT t.id) AS underContract
       FROM \`transactions\` t
       INNER JOIN \`contacts\` c ON c.id = t.\`primaryContactId\`
       ${ucTransactionsWhere}
-      GROUP BY c.\`leadSourceId\`
+      GROUP BY t.\`transactionLeadSourceId\`
     `),
     runRows<Row>(sql`
       SELECT

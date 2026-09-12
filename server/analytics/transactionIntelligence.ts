@@ -110,7 +110,7 @@ function commonClauses(filters: TransactionIntelligenceFilters): Array<SQL | und
   return [
     filters.agentId ? sql`t.\`agentId\` = ${filters.agentId}` : undefined,
     filters.marketProfileId ? sql`u.\`marketProfileId\` = ${filters.marketProfileId}` : undefined,
-    filters.leadSourceId ? sql`c.\`leadSourceId\` = ${filters.leadSourceId}` : undefined,
+    filters.leadSourceId ? sql`t.\`transactionLeadSourceId\` = ${filters.leadSourceId}` : undefined,
     filters.transactionType ? sql`t.\`transactionType\` = ${filters.transactionType}` : undefined,
   ];
 }
@@ -137,7 +137,7 @@ function baseFrom(where: SQL): SQL {
     FROM \`transactions\` t
     LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
     LEFT JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
-    LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = c.\`leadSourceId\`
+    LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = t.\`transactionLeadSourceId\`
     ${PayoutJoin}
     ${where}
   `;
@@ -165,7 +165,7 @@ function aggregateSelect(): SQL {
     COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) - COALESCE(SUM(COALESCE(pi.totalPayouts, 0)), 0) AS unallocatedGci,
     SUM(CASE WHEN t.\`purchasePrice\` IS NULL THEN 1 ELSE 0 END) AS missingPriceCount,
     SUM(CASE WHEN t.\`grossCommissionIncome\` IS NULL THEN 1 ELSE 0 END) AS missingGciCount,
-    SUM(CASE WHEN c.\`leadSourceId\` IS NULL THEN 1 ELSE 0 END) AS missingLeadSourceCount,
+    SUM(CASE WHEN t.\`transactionLeadSourceId\` IS NULL THEN 1 ELSE 0 END) AS missingLeadSourceCount,
     SUM(CASE WHEN t.\`payoutIntegrityFlag\` = 1 THEN 1 ELSE 0 END) AS payoutIntegrityCount
   `;
 }
@@ -303,14 +303,14 @@ export async function getTransactionIntelligenceReport(filters: TransactionIntel
     runRows<Row>(sql`
       SELECT
         COALESCE(ls.\`name\`, 'Unattributed') AS sourceName,
-        c.\`leadSourceId\` AS leadSourceId,
+        t.\`transactionLeadSourceId\` AS leadSourceId,
         COUNT(*) AS closedUnits,
         COALESCE(SUM(COALESCE(t.\`purchasePrice\`, 0)), 0) AS closedVolume,
         COALESCE(SUM(COALESCE(t.\`grossCommissionIncome\`, 0)), 0) AS gci,
         COALESCE(SUM(COALESCE(pi.savvyNet, 0)), 0) AS recordedSavvyNet,
         AVG(t.\`purchasePrice\`) AS averagePurchasePrice
       ${baseFrom(closedWhere)}
-      GROUP BY c.\`leadSourceId\`, ls.\`name\`
+      GROUP BY t.\`transactionLeadSourceId\`, ls.\`name\`
       ORDER BY closedVolume DESC, closedUnits DESC
       LIMIT 12
     `),
@@ -337,7 +337,7 @@ export async function getTransactionIntelligenceReport(filters: TransactionIntel
       LEFT JOIN \`users\` u ON u.\`id\` = t.\`agentId\`
       LEFT JOIN \`contacts\` c ON c.\`id\` = t.\`primaryContactId\`
       LEFT JOIN \`properties\` p ON p.\`id\` = t.\`propertyId\`
-      LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = c.\`leadSourceId\`
+      LEFT JOIN \`lead_sources\` ls ON ls.\`id\` = t.\`transactionLeadSourceId\`
       LEFT JOIN \`market_profiles\` m ON m.\`id\` = u.\`marketProfileId\`
       ${PayoutJoin}
       ${closedWhere}

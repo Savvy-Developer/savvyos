@@ -619,6 +619,13 @@ export default function TransactionDetail() {
   const agent = txData?.agent;
   const property = txData?.property;
   const buyerContact = txData?.buyerContact;
+  const transactionLeadSource = txData?.transactionLeadSource;
+  const transactionLeadSourceParent = txData?.transactionLeadSourceParent;
+  const transactionLeadSourceLabel = transactionLeadSource?.name
+    ? (transactionLeadSourceParent?.name
+      ? `${transactionLeadSourceParent.name} › ${transactionLeadSource.name}`
+      : transactionLeadSource.name)
+    : null;
 
   const totalPct = (payouts?.items ?? []).reduce((s, { payout: p }) => s + Number(p.percentage), 0);
 
@@ -975,6 +982,7 @@ export default function TransactionDetail() {
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><TransactionStatusBadge status={tx.status} /></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="capitalize">{tx.transactionType}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Agent</span><span>{agent?.name ?? "—"}</span></div>
+                <div className="flex justify-between gap-4"><span className="text-muted-foreground">Transaction Lead Source</span><span className="text-right">{transactionLeadSourceLabel ?? "No source recorded"}</span></div>
                 {tx.purchasePrice && <div className="flex justify-between"><span className="text-muted-foreground">Purchase Price</span><span className="font-semibold">${Number(tx.purchasePrice).toLocaleString()}</span></div>}
                 {tx.grossCommissionIncome && <div className="flex justify-between"><span className="text-muted-foreground">GCI</span><span className="font-semibold text-emerald-700">${Number(tx.grossCommissionIncome).toLocaleString()}</span></div>}
                 {displayCommissionRate && <div className="flex justify-between"><span className="text-muted-foreground">Commission Rate</span><span>{displayCommissionRate}%</span></div>}

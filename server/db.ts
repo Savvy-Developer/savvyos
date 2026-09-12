@@ -1019,9 +1019,9 @@ export async function getTransactions(agentId?: number, status?: string, search?
   if (flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
   if (flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
   if (flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
-  if (leadSourceIds?.length) conditions.push(inArray(contacts.leadSourceId, leadSourceIds));
-  else if (leadSourceId === -1) conditions.push(isNull(contacts.leadSourceId));
-  else if (leadSourceId) conditions.push(eq(contacts.leadSourceId, leadSourceId));
+  if (leadSourceIds?.length) conditions.push(inArray(transactions.transactionLeadSourceId, leadSourceIds));
+  else if (leadSourceId === -1) conditions.push(isNull(transactions.transactionLeadSourceId));
+  else if (leadSourceId) conditions.push(eq(transactions.transactionLeadSourceId, leadSourceId));
   if (transactionType) conditions.push(eq(transactions.transactionType, transactionType as any));
   if (groupLeaderId) conditions.push(includeLeaderStats ? sql`(
     ${transactions.agentId} = ${groupLeaderId}
@@ -1075,7 +1075,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
         .leftJoin(users, eq(transactions.agentId, users.id))
         .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
         .leftJoin(properties, eq(transactions.propertyId, properties.id))
-        .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+        .leftJoin(leadSources, eq(transactions.transactionLeadSourceId, leadSources.id))
         .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
         .where(where)
         .orderBy((() => {
@@ -1164,8 +1164,8 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
   if (filters.flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
   if (filters.flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
-  if (filters.leadSourceIds?.length) conditions.push(inArray(contacts.leadSourceId, filters.leadSourceIds));
-  else if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
+  if (filters.leadSourceIds?.length) conditions.push(inArray(transactions.transactionLeadSourceId, filters.leadSourceIds));
+  else if (filters.leadSourceId) conditions.push(eq(transactions.transactionLeadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
   if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
     ${transactions.agentId} = ${filters.groupLeaderId}
@@ -1242,7 +1242,7 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
     .leftJoin(users, eq(transactions.agentId, users.id))
     .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
     .leftJoin(properties, eq(transactions.propertyId, properties.id))
-    .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+    .leftJoin(leadSources, eq(transactions.transactionLeadSourceId, leadSources.id))
     .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
     .where(where)
     .orderBy(orderBy);
@@ -1279,13 +1279,24 @@ export async function getTransactionById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
   const buyerContacts = aliasedTable(contacts, "buyerContacts");
+  const transactionLeadSourceParents = aliasedTable(leadSources, "transactionLeadSourceParents");
   const result = await db
-    .select({ transaction: transactions, agent: users, contact: contacts, property: properties, buyerContact: buyerContacts })
+    .select({
+      transaction: transactions,
+      agent: users,
+      contact: contacts,
+      property: properties,
+      buyerContact: buyerContacts,
+      transactionLeadSource: { id: leadSources.id, name: leadSources.name, parentId: leadSources.parentId },
+      transactionLeadSourceParent: { id: transactionLeadSourceParents.id, name: transactionLeadSourceParents.name },
+    })
     .from(transactions)
     .leftJoin(users, eq(transactions.agentId, users.id))
     .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
     .leftJoin(properties, eq(transactions.propertyId, properties.id))
     .leftJoin(buyerContacts, eq(transactions.buyerContactId, buyerContacts.id))
+    .leftJoin(leadSources, eq(transactions.transactionLeadSourceId, leadSources.id))
+    .leftJoin(transactionLeadSourceParents, eq(leadSources.parentId, transactionLeadSourceParents.id))
     .where(eq(transactions.id, id))
     .limit(1);
   return result[0];
@@ -1294,7 +1305,17 @@ export async function getTransactionById(id: number) {
 export async function createTransaction(data: typeof transactions.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const [result] = await db.insert(transactions).values(data);
+  const [primaryContact] = await db
+    .select({ leadSourceId: contacts.leadSourceId })
+    .from(contacts)
+    .where(eq(contacts.id, data.primaryContactId))
+    .limit(1);
+  const [result] = await db.insert(transactions).values({
+    ...data,
+    // Capture the contact's current source once. Later contact edits must not
+    // rewrite historical transaction attribution.
+    transactionLeadSourceId: primaryContact?.leadSourceId ?? null,
+  });
   const transactionId = (result as any).insertId as number;
   await ensureTeamAgentConnections({
     agentId: data.agentId,
@@ -2204,13 +2225,13 @@ export async function getLeadSourceFunnel(dateFrom?: Date, dateTo?: Date, agentI
   if (agentId) closedConditions.push(eq(transactions.agentId, agentId));
   const closedRows = await db
     .select({
-      leadSourceId: contacts.leadSourceId,
+      leadSourceId: transactions.transactionLeadSourceId,
       closedCount: sql<number>`COUNT(DISTINCT ${transactions.id})`,
       totalGci: sql<number>`SUM(${transactions.grossCommissionIncome})`,
     })
     .from(contacts)
     .innerJoin(transactions, and(...closedConditions))
-    .groupBy(contacts.leadSourceId);
+    .groupBy(transactions.transactionLeadSourceId);
 
   // Active pipeline per lead source
   const activeConditions: any[] = [eq(agentConnections.contactId, contacts.id), sql`${agentConnections.pipelineStatus} IN ('active_client','under_contract')`];
@@ -2843,14 +2864,13 @@ export async function getLeadSourceROI(filters?: { dateFrom?: Date; dateTo?: Dat
   if (filters?.dateTo) txConds.push(lte(transactions.closingDate, filters.dateTo));
   if (filters?.agentId) txConds.push(eq(transactions.agentId, filters.agentId));
   const txBySource = await db.select({
-    leadSourceId: contacts.leadSourceId,
+    leadSourceId: transactions.transactionLeadSourceId,
     closedCount: sql<number>`COUNT(*)`,
     totalGci: sql<number>`COALESCE(SUM(${transactions.grossCommissionIncome}), 0)`,
     totalVolume: sql<number>`COALESCE(SUM(${transactions.purchasePrice}), 0)`,
   }).from(transactions)
-    .innerJoin(contacts, eq(transactions.primaryContactId, contacts.id))
     .where(and(...txConds))
-    .groupBy(contacts.leadSourceId);
+    .groupBy(transactions.transactionLeadSourceId);
   const contactMap = new Map(contactCounts.map((c: { leadSourceId: number | null; count: number }) => [c.leadSourceId, Number(c.count)]));
   const txMap = new Map(txBySource.map(t => [t.leadSourceId, t]));
   return allSources.map(src => {
@@ -3011,14 +3031,14 @@ export async function getAiInsightsData() {
     .groupBy(transactions.agentId, users.name)
     .orderBy(sql`COALESCE(SUM(${transactions.grossCommissionIncome}), 0) DESC`);
   const sourceStats = await db.select({
-    sourceId: contacts.leadSourceId,
+    sourceId: leadSources.id,
     sourceName: leadSources.name,
     leads: sql<number>`COUNT(DISTINCT ${contacts.id})`,
     closed: sql<number>`COUNT(DISTINCT ${transactions.id})`,
-  }).from(contacts)
-    .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
-    .leftJoin(transactions, and(eq(transactions.primaryContactId, contacts.id), eq(transactions.status, "closed" as any)))
-    .groupBy(contacts.leadSourceId, leadSources.name)
+  }).from(leadSources)
+    .leftJoin(contacts, eq(contacts.leadSourceId, leadSources.id))
+    .leftJoin(transactions, and(eq(transactions.transactionLeadSourceId, leadSources.id), eq(transactions.status, "closed" as any)))
+    .groupBy(leadSources.id, leadSources.name)
     .orderBy(sql`COUNT(DISTINCT ${transactions.id}) DESC`)
     .limit(10);
   const pct = (curr: number, prev: number) => prev > 0 ? ((curr - prev) / prev) * 100 : (curr > 0 ? 100 : 0);
@@ -3496,7 +3516,7 @@ export async function getTransactionStats(filters: TransactionExportFilters) {
   if (filters.flagNoClosingDate) conditions.push(sql`${transactions.closingDate} IS NULL`);
   if (filters.flagPastClosingDate) conditions.push(sql`${transactions.closingDate} < NOW() AND ${transactions.status} NOT IN ('closed', 'terminated')`);
   if (filters.flagPayoutIntegrity) conditions.push(eq(transactions.payoutIntegrityFlag, true));
-  if (filters.leadSourceId) conditions.push(eq(contacts.leadSourceId, filters.leadSourceId));
+  if (filters.leadSourceId) conditions.push(eq(transactions.transactionLeadSourceId, filters.leadSourceId));
   if (filters.transactionType) conditions.push(eq(transactions.transactionType, filters.transactionType as any));
   if (filters.groupLeaderId) conditions.push(filters.includeLeaderStats ? sql`(
     ${transactions.agentId} = ${filters.groupLeaderId}

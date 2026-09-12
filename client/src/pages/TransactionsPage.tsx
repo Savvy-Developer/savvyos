@@ -1318,7 +1318,7 @@ export default function TransactionsPage() {
                   { id: "contact", label: "Contact" },
                   { id: "property", label: "Property" },
                   { id: "agent", label: "Agent" },
-                  { id: "lead_source", label: "Lead Source" },
+                  { id: "lead_source", label: "Transaction Lead Source" },
                   { id: "type", label: "Type" },
                   { id: "price", label: "Price" },
                   { id: "gci", label: "GCI" },
@@ -1356,7 +1356,7 @@ export default function TransactionsPage() {
                   {visibleColumns.includes("contact") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("contact")}>Contact<SortIcon col="contact" /></th>}
                   {visibleColumns.includes("property") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("property")}>Property<SortIcon col="property" /></th>}
                   {visibleColumns.includes("agent") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("agent")}>Agent<SortIcon col="agent" /></th>}
-                  {visibleColumns.includes("lead_source") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("lead_source")}>Lead Source<SortIcon col="lead_source" /></th>}
+                  {visibleColumns.includes("lead_source") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("lead_source")}>Transaction Lead Source<SortIcon col="lead_source" /></th>}
                   {visibleColumns.includes("type") && <th className="text-left py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("type")}>Type<SortIcon col="type" /></th>}
                   {visibleColumns.includes("price") && <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("price")}>Price<SortIcon col="price" /></th>}
                   {visibleColumns.includes("gci") && <th className="text-right py-3 px-4 text-muted-foreground font-medium cursor-pointer hover:text-foreground select-none" onClick={() => handleColumnSort("gci")}>GCI<SortIcon col="gci" /></th>}

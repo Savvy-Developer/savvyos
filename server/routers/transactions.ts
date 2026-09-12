@@ -203,7 +203,7 @@ export const transactionsRouter = router({
         .leftJoin(users, eq(transactions.agentId, users.id))
         .leftJoin(contacts, eq(transactions.primaryContactId, contacts.id))
         .leftJoin(properties, eq(transactions.propertyId, properties.id))
-        .leftJoin(leadSources, eq(contacts.leadSourceId, leadSources.id))
+        .leftJoin(leadSources, eq(transactions.transactionLeadSourceId, leadSources.id))
         .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
         .where(
           or(
