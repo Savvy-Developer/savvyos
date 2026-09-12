@@ -17,12 +17,18 @@ import {
   pmNoteReads,
   pmTaskCommentReads,
   pmPersonalTodos,
+  pulseActivityLog,
+  pulseMeetings,
+  pulseTodoAcknowledgements,
+  pulseWorkItems,
+  pulseWorkItemStatusNotes,
   users,
 } from "../../drizzle/schema";
 import { and, eq, desc, asc, isNull, sql, inArray } from "drizzle-orm";
 import { sendTransactionalEmail } from "../_core/resendEmail";
 import { invokeLLM } from "../_core/llm";
 import { collectTaskFamilyIds, normalizeProjectTodoLayout, type ProjectTodoLayoutItem } from "../pmTodoSections";
+import { visible_meeting_ids } from "../pulse/access";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
@@ -35,10 +41,9 @@ const FULL_PROJECT_VISIBILITY_EMAILS = new Set([
   "athens@savvy.realty",
 ]);
 
-function assertPmAccess(ctx: { user: { role: string; email?: string | null } }) {
-  if (ctx.user.role !== "admin" && ctx.user.email !== OWNER_EMAIL) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Project management is admin-only." });
-  }
+function assertPmAccess(_ctx: { user: { role: string; email?: string | null } }) {
+  // Projects is the shared work surface. Record-level access below still limits
+  // users to projects they own, collaborate on, or have assigned work inside.
 }
 
 function canViewAllProjects(user: { email?: string | null }) {
@@ -59,7 +64,13 @@ async function assertProjectAccess(
       eq(pmProjectCollaborators.userId, user.id),
     ))
     .limit(1);
-  if (!membership) {
+  if (membership) return;
+  const [assignedTask] = await db
+    .select({ id: pmTasks.id })
+    .from(pmTasks)
+    .where(and(eq(pmTasks.projectId, projectId), eq(pmTasks.ownerId, user.id)))
+    .limit(1);
+  if (!assignedTask) {
     throw new TRPCError({ code: "FORBIDDEN", message: "You are not a collaborator on this project." });
   }
 }
@@ -68,11 +79,22 @@ async function getAccessibleProjectIds(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   userId: number,
 ) {
-  const memberships = await db
-    .select({ projectId: pmProjectCollaborators.projectId })
-    .from(pmProjectCollaborators)
-    .where(eq(pmProjectCollaborators.userId, userId));
-  return memberships.map((membership) => membership.projectId);
+  const [memberships, assignedTasks, ownedProjects] = await Promise.all([
+    db.select({ projectId: pmProjectCollaborators.projectId })
+      .from(pmProjectCollaborators)
+      .where(eq(pmProjectCollaborators.userId, userId)),
+    db.select({ projectId: pmTasks.projectId })
+      .from(pmTasks)
+      .where(eq(pmTasks.ownerId, userId)),
+    db.select({ id: pmProjects.id })
+      .from(pmProjects)
+      .where(eq(pmProjects.ownerId, userId)),
+  ]);
+  return Array.from(new Set([
+    ...memberships.map((membership) => membership.projectId),
+    ...assignedTasks.map((task) => task.projectId),
+    ...ownedProjects.map((project) => project.id),
+  ]));
 }
 
 function isPersonalTodoManager(user: { email?: string | null }) {
@@ -140,6 +162,10 @@ export const pmRouter = router({
             isOngoing: pmProjects.isOngoing,
             priority: pmProjects.priority,
             status: pmProjects.status,
+            isRock: pmProjects.isRock,
+            rockQuarter: pmProjects.rockQuarter,
+            definitionOfDone: pmProjects.definitionOfDone,
+            rockStatus: pmProjects.rockStatus,
             sortOrder: pmProjects.sortOrder,
             archivedAt: pmProjects.archivedAt,
             createdAt: pmProjects.createdAt,
@@ -216,6 +242,10 @@ export const pmRouter = router({
             isOngoing: pmProjects.isOngoing,
             priority: pmProjects.priority,
             status: pmProjects.status,
+            isRock: pmProjects.isRock,
+            rockQuarter: pmProjects.rockQuarter,
+            definitionOfDone: pmProjects.definitionOfDone,
+            rockStatus: pmProjects.rockStatus,
             sortOrder: pmProjects.sortOrder,
             archivedAt: pmProjects.archivedAt,
             createdAt: pmProjects.createdAt,
@@ -308,6 +338,10 @@ export const pmRouter = router({
         dueDate: z.date().nullable().optional(),
         isOngoing: z.boolean().default(false),
         priority: z.enum(["high", "medium", "low"]).default("medium"),
+        isRock: z.boolean().default(false),
+        rockQuarter: z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.").optional().nullable(),
+        definitionOfDone: z.string().trim().max(8_000).optional().nullable(),
+        rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).default("on_track"),
         collaboratorIds: z.array(z.number()).optional().default([]),
       }).superRefine((input, refinement) => {
         if (!input.isOngoing && !input.dueDate) {
@@ -315,6 +349,12 @@ export const pmRouter = router({
         }
         if (input.isOngoing && input.dueDate) {
           refinement.addIssue({ code: "custom", path: ["dueDate"], message: "Ongoing projects cannot also have a due date." });
+        }
+        if (input.isRock && !input.rockQuarter) {
+          refinement.addIssue({ code: "custom", path: ["rockQuarter"], message: "Every Rock needs a quarter." });
+        }
+        if (input.isRock && !input.definitionOfDone?.trim()) {
+          refinement.addIssue({ code: "custom", path: ["definitionOfDone"], message: "Every Rock needs a definition of done." });
         }
       }))
       .mutation(async ({ ctx, input }) => {
@@ -331,6 +371,10 @@ export const pmRouter = router({
           isOngoing: input.isOngoing,
           priority: input.priority,
           status: "not_started",
+          isRock: input.isRock,
+          rockQuarter: input.isRock ? input.rockQuarter ?? null : null,
+          definitionOfDone: input.isRock ? input.definitionOfDone?.trim() ?? null : null,
+          rockStatus: input.isRock ? input.rockStatus : "on_track",
         });
         const projectId = result.insertId;
         const collaboratorIds = Array.from(new Set([...input.collaboratorIds, input.ownerId, ctx.user.id]));
@@ -352,6 +396,10 @@ export const pmRouter = router({
         isOngoing: z.boolean().optional(),
         priority: z.enum(["high", "medium", "low"]).optional(),
         status: z.enum(["not_started", "in_progress", "at_risk", "completed"]).optional(),
+        isRock: z.boolean().optional(),
+        rockQuarter: z.string().trim().regex(/^Q[1-4]\s\d{4}$/, "Use a quarter such as Q3 2026.").nullable().optional(),
+        definitionOfDone: z.string().trim().max(8_000).nullable().optional(),
+        rockStatus: z.enum(["on_track", "at_risk", "off_track", "done", "dropped"]).optional(),
         collaboratorIds: z.array(z.number()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -362,7 +410,7 @@ export const pmRouter = router({
         await assertProjectAccess(db, input.id, ctx.user);
 
         const [existingProject] = await db
-          .select({ ownerId: pmProjects.ownerId, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing })
+          .select({ ownerId: pmProjects.ownerId, dueDate: pmProjects.dueDate, isOngoing: pmProjects.isOngoing, isRock: pmProjects.isRock, rockQuarter: pmProjects.rockQuarter, definitionOfDone: pmProjects.definitionOfDone })
           .from(pmProjects)
           .where(eq(pmProjects.id, input.id))
           .limit(1);
@@ -377,11 +425,25 @@ export const pmRouter = router({
         if (!finalIsOngoing && !finalDueDate) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "A due date is required unless the project is ongoing." });
         }
+        const finalIsRock = input.isRock ?? existingProject.isRock;
+        const finalRockQuarter = input.rockQuarter === undefined ? existingProject.rockQuarter : input.rockQuarter;
+        const finalDefinitionOfDone = input.definitionOfDone === undefined ? existingProject.definitionOfDone : input.definitionOfDone;
+        if (finalIsRock && !finalRockQuarter) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs a quarter." });
+        }
+        if (finalIsRock && !finalDefinitionOfDone?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock needs a definition of done." });
+        }
 
         const { id, collaboratorIds, ...fields } = input;
         const updateFields = { ...fields };
         if (input.isOngoing === true) updateFields.dueDate = null;
         if (input.dueDate !== undefined && input.dueDate !== null) updateFields.isOngoing = false;
+        if (input.isRock === false) {
+          updateFields.rockQuarter = null;
+          updateFields.definitionOfDone = null;
+          updateFields.rockStatus = "on_track";
+        }
         if (Object.keys(updateFields).length > 0) {
           await db.update(pmProjects).set(updateFields).where(eq(pmProjects.id, id));
         }
@@ -429,6 +491,134 @@ export const pmRouter = router({
           await assertProjectAccess(db, item.id, ctx.user);
           await db.update(pmProjects).set({ sortOrder: item.sortOrder }).where(eq(pmProjects.id, item.id));
         }
+        return { success: true };
+      }),
+  }),
+
+  // ── L10 To-Dos ────────────────────────────────────────────────────────────
+  // This is a protected, synthetic Project. It does not duplicate Pulse rows:
+  // every record still belongs to its original L10 meeting.
+  l10Todos: router({
+    listMine: protectedProcedure.query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+      if (!visibleMeetingIds.length) return [];
+      return db
+        .select({
+          id: pulseWorkItems.id,
+          title: pulseWorkItems.title,
+          description: pulseWorkItems.description,
+          status: pulseWorkItems.status,
+          dueDate: pulseWorkItems.dueDate,
+          priorityLevel: pulseWorkItems.priorityLevel,
+          meetingId: pulseWorkItems.meetingId,
+          meetingName: pulseMeetings.name,
+          assignedById: pulseWorkItems.createdById,
+          assignedByName: users.name,
+          completedAt: pulseWorkItems.completedAt,
+          requiresL10Acknowledgement: pulseWorkItems.requiresL10Acknowledgement,
+        })
+        .from(pulseWorkItems)
+        .innerJoin(pulseMeetings, eq(pulseWorkItems.meetingId, pulseMeetings.id))
+        .leftJoin(users, eq(pulseWorkItems.createdById, users.id))
+        .where(and(
+          eq(pulseWorkItems.type, "todo"),
+          eq(pulseWorkItems.assigneeId, ctx.user.id),
+          inArray(pulseWorkItems.meetingId, visibleMeetingIds),
+          isNull(pulseWorkItems.deletedAt),
+        ))
+        .orderBy(
+          asc(pulseWorkItems.status),
+          asc(pulseWorkItems.dueDate),
+          desc(pulseWorkItems.createdAt),
+        );
+    }),
+
+    resolve: protectedProcedure
+      .input(z.object({ workItemId: z.string().uuid(), resolution: z.string().trim().min(1).max(8_000) }))
+      .mutation(async ({ ctx, input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [item] = await db.select().from(pulseWorkItems).where(and(
+          eq(pulseWorkItems.id, input.workItemId),
+          eq(pulseWorkItems.type, "todo"),
+          isNull(pulseWorkItems.deletedAt),
+        )).limit(1);
+        if (!item?.meetingId) throw new TRPCError({ code: "NOT_FOUND", message: "This L10 To-Do is no longer available." });
+        const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+        if (!visibleMeetingIds.includes(item.meetingId) || item.assigneeId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned person can resolve this L10 To-Do." });
+        }
+        if (item.status === "completed" && item.requiresL10Acknowledgement) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This resolution is already waiting for L10 acknowledgement." });
+        }
+        const now = new Date();
+        await db.transaction(async (tx) => {
+          await tx.update(pulseWorkItems).set({
+            status: "completed",
+            completedAt: now,
+            completedById: ctx.user.id,
+            requiresL10Acknowledgement: true,
+          }).where(eq(pulseWorkItems.id, item.id));
+          await tx.insert(pulseWorkItemStatusNotes).values({
+            id: crypto.randomUUID(),
+            workItemId: item.id,
+            fromStatus: item.status,
+            toStatus: "completed",
+            note: input.resolution,
+            personId: ctx.user.id,
+          });
+          await tx.insert(pulseActivityLog).values({
+            id: crypto.randomUUID(),
+            personId: ctx.user.id,
+            entityType: "work_item",
+            entityId: item.id,
+            action: "resolved_in_projects",
+            fieldChanged: "status",
+            oldValue: item.status,
+            newValue: { status: "completed", resolution: input.resolution, awaitingAcknowledgement: true },
+          });
+        });
+        return { success: true };
+      }),
+
+    acknowledge: protectedProcedure
+      .input(z.object({ workItemId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [item] = await db.select().from(pulseWorkItems).where(and(
+          eq(pulseWorkItems.id, input.workItemId),
+          eq(pulseWorkItems.type, "todo"),
+          isNull(pulseWorkItems.deletedAt),
+        )).limit(1);
+        if (!item?.meetingId) throw new TRPCError({ code: "NOT_FOUND", message: "This L10 To-Do is no longer available." });
+        const visibleMeetingIds = await visible_meeting_ids(db, ctx.user.id);
+        if (!visibleMeetingIds.includes(item.meetingId)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "This L10 To-Do is not in an available meeting." });
+        }
+        if (item.status !== "completed" || !item.requiresL10Acknowledgement) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This To-Do is not waiting for acknowledgement." });
+        }
+        await db.transaction(async (tx) => {
+          await tx.insert(pulseTodoAcknowledgements).values({
+            id: crypto.randomUUID(),
+            workItemId: item.id,
+            acknowledgedById: ctx.user.id,
+          });
+          await tx.update(pulseWorkItems).set({ requiresL10Acknowledgement: false }).where(eq(pulseWorkItems.id, item.id));
+          await tx.insert(pulseActivityLog).values({
+            id: crypto.randomUUID(),
+            personId: ctx.user.id,
+            entityType: "work_item",
+            entityId: item.id,
+            action: "resolution_acknowledged",
+            fieldChanged: "requiresL10Acknowledgement",
+            oldValue: true,
+            newValue: false,
+          });
+        });
         return { success: true };
       }),
   }),

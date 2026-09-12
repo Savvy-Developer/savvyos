@@ -21,7 +21,7 @@ import {
   ArrowLeft, Plus, Check, CheckCircle2, Circle, CornerDownRight, History, MessageCircle, Pencil, AlertTriangle, TrendingUp,
   Clock, Calendar, User, Edit2, Trash2, MessageSquare, Sparkles,
   ChevronDown, ChevronUp, Save, X, MoreHorizontal, Activity,
-  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical,
+  BarChart3, FileText, Users, StickyNote, Eye, EyeOff, UserPlus, UserMinus, ListChecks, GripVertical, Flag,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -459,6 +459,10 @@ export default function ProjectDetailPage() {
       isOngoing: project.isOngoing || !project.dueDate,
       priority: project.priority,
       status: project.status,
+      isRock: Boolean(project.isRock),
+      rockQuarter: project.rockQuarter ?? `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
+      definitionOfDone: project.definitionOfDone ?? "",
+      rockStatus: project.rockStatus ?? "on_track",
     });
     setEditingProject(true);
   }
@@ -475,6 +479,10 @@ export default function ProjectDetailPage() {
       isOngoing: editForm.isOngoing,
       priority: editForm.priority,
       status: editForm.status,
+      isRock: editForm.isRock,
+      rockQuarter: editForm.isRock ? editForm.rockQuarter : null,
+      definitionOfDone: editForm.isRock ? editForm.definitionOfDone : null,
+      rockStatus: editForm.isRock ? editForm.rockStatus : undefined,
     });
   }
 
@@ -615,6 +623,10 @@ export default function ProjectDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="sm:col-span-2 rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
+                <div className="flex items-center gap-2"><Checkbox id="edit-project-rock" checked={editForm.isRock} onCheckedChange={checked => setEditForm((f: any) => ({ ...f, isRock: checked === true }))} /><Label htmlFor="edit-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label></div>
+                {editForm.isRock ? <div className="mt-3 grid gap-3 sm:grid-cols-3"><div><Label>Quarter *</Label><Input value={editForm.rockQuarter} onChange={event => setEditForm((f: any) => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label>Rock Status</Label><Select value={editForm.rockStatus} onValueChange={value => setEditForm((f: any) => ({ ...f, rockStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_track">On Track</SelectItem><SelectItem value="at_risk">At Risk</SelectItem><SelectItem value="off_track">Off Track</SelectItem><SelectItem value="done">Done</SelectItem><SelectItem value="dropped">Dropped</SelectItem></SelectContent></Select></div><div className="sm:col-span-1"><Label>Definition of Done *</Label><Input value={editForm.definitionOfDone} onChange={event => setEditForm((f: any) => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div> : null}
+              </div>
               <div>
                 <Label>Owner</Label>
                 <SearchableSelect
@@ -659,6 +671,7 @@ export default function ProjectDetailPage() {
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <span className={`w-2.5 h-2.5 rounded-full ${priorityCfg.dot}`} />
                   <h1 className="text-xl font-bold text-foreground">{project.title}</h1>
+                  {project.isRock ? <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-primary"><Flag className="h-3.5 w-3.5" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.color}`}>
                     {statusCfg.icon} {statusCfg.label}
                   </span>
@@ -701,6 +714,8 @@ export default function ProjectDetailPage() {
                 {project.isOngoing || !project.dueDate ? "Ongoing" : `Due ${format(new Date(project.dueDate), "MMM d, yyyy")}`}
               </span>
             </div>
+
+            {project.isRock && project.definitionOfDone ? <div className="mb-4 rounded-md border border-primary/20 bg-primary/[0.025] px-3 py-2"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Definition of Done</p><p className="mt-1 text-sm">{project.definitionOfDone}</p></div> : null}
 
             {/* Progress */}
             <div>

@@ -16,7 +16,7 @@ import { format, isPast, isToday, addDays } from "date-fns";
 import {
   Plus, LayoutList, LayoutGrid, Search,
   CheckCircle2, Clock, TrendingUp, AlertTriangle, ChevronRight, Calendar,
-  User, Layers, MoreHorizontal, Archive, Trash2,
+  User, Layers, MoreHorizontal, Archive, Trash2, Flag, ClipboardList,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -44,6 +44,10 @@ interface Project {
   taskTotal: number;
   taskCompleted: number;
   latestUpdate: { updateStatus: UpdateStatus; progressPct: number; createdAt: Date } | null;
+  isRock: boolean;
+  rockQuarter: string | null;
+  definitionOfDone: string | null;
+  rockStatus: "on_track" | "at_risk" | "off_track" | "done" | "dropped";
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -82,6 +86,19 @@ function getDueDateLabel(date: Date | null, isOngoing: boolean) {
   if (isToday(date)) return { label: "Due today", cls: "text-amber-600 font-medium" };
   if (date <= addDays(new Date(), 7)) return { label: format(date, "MMM d"), cls: "text-amber-600" };
   return { label: format(date, "MMM d, yyyy"), cls: "text-muted-foreground" };
+}
+
+function L10TodosProjectCard() {
+  const [, navigate] = useLocation();
+  const { data: todos = [] } = trpc.pm.l10Todos.listMine.useQuery();
+  const openCount = (todos as any[]).filter((todo: any) => todo.status !== "completed").length;
+  const awaitingCount = (todos as any[]).filter((todo: any) => todo.requiresL10Acknowledgement).length;
+  return <button type="button" onClick={() => navigate("/projects/l10-todos")} className="mb-6 flex w-full items-center gap-4 rounded-lg border border-primary/30 bg-primary/[0.035] p-4 text-left transition-colors hover:bg-primary/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><ClipboardList className="h-5 w-5" /></span>
+    <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><span className="font-semibold">L10 Todos</span><span className="rounded-full border border-primary/20 bg-background px-2 py-0.5 text-[11px] font-semibold text-primary">Default project</span>{awaitingCount ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">{awaitingCount} awaiting acknowledgement</span> : null}</span><span className="mt-1 block text-sm text-muted-foreground">Your assigned L10 commitments and their original meeting context. This protected live list cannot be deleted or added to.</span></span>
+    <span className="hidden shrink-0 text-right sm:block"><span className="block text-lg font-semibold text-primary">{openCount}</span><span className="text-xs text-muted-foreground">open To-Dos</span></span>
+    <ChevronRight className="h-5 w-5 shrink-0 text-primary" />
+  </button>;
 }
 
 // ─── Department Combobox ──────────────────────────────────────────────────────
@@ -204,6 +221,7 @@ function ProjectCard({ project, onArchive }: { project: Project; onArchive: (id:
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className={`w-2 h-2 rounded-full shrink-0 ${priorityCfg.dot}`} title={`${priorityCfg.label} priority`} />
+            {project.isRock ? <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
             <h3 className="font-semibold text-foreground text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors">
               {project.title}
             </h3>
@@ -307,12 +325,19 @@ function CreateProjectDialog({
     dueDate: "",
     isOngoing: false,
     priority: "medium" as Priority,
+    isRock: false,
+    rockQuarter: `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`,
+    definitionOfDone: "",
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title || !form.description || !form.department || !form.ownerId || (!form.isOngoing && !form.dueDate)) {
       toast.error("Please fill in all required fields, including a due date unless the project is ongoing");
+      return;
+    }
+    if (form.isRock && (!form.rockQuarter || !form.definitionOfDone.trim())) {
+      toast.error("Every Rock needs a quarter and a definition of done");
       return;
     }
     create.mutate({
@@ -323,6 +348,9 @@ function CreateProjectDialog({
       dueDate: form.isOngoing ? null : new Date(form.dueDate),
       isOngoing: form.isOngoing,
       priority: form.priority,
+      isRock: form.isRock,
+      rockQuarter: form.isRock ? form.rockQuarter : null,
+      definitionOfDone: form.isRock ? form.definitionOfDone.trim() : null,
     });
   }
 
@@ -340,6 +368,14 @@ function CreateProjectDialog({
           <div>
             <Label htmlFor="description">Description *</Label>
             <Textarea id="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="What is this project about?" rows={3} />
+          </div>
+          <div className="rounded-lg border border-primary/20 bg-primary/[0.025] p-3">
+            <div className="flex items-center gap-2">
+              <Checkbox id="create-project-rock" checked={form.isRock} onCheckedChange={checked => setForm(f => ({ ...f, isRock: checked === true }))} />
+              <Label htmlFor="create-project-rock" className="cursor-pointer font-medium"><Flag className="mr-1 inline h-3.5 w-3.5 text-primary" />This project is a Rock</Label>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Rocks are quarterly priorities. They use this same project, its todos, updates, and activity.</p>
+            {form.isRock ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><div><Label htmlFor="rock-quarter">Quarter *</Label><Input id="rock-quarter" value={form.rockQuarter} onChange={event => setForm(f => ({ ...f, rockQuarter: event.target.value }))} placeholder="Q3 2026" /></div><div><Label htmlFor="rock-done">Definition of Done *</Label><Input id="rock-done" value={form.definitionOfDone} onChange={event => setForm(f => ({ ...f, definitionOfDone: event.target.value }))} placeholder="What proves this is complete?" /></div></div> : null}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -540,6 +576,8 @@ export default function ProjectsPage() {
           </div>
         }
       />
+
+      <L10TodosProjectCard />
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -850,6 +888,7 @@ function ProjectListRow({ project, onArchive }: { project: Project; onArchive: (
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors truncate">{project.title}</span>
+          {project.isRock ? <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary"><Flag className="h-3 w-3" />Rock{project.rockQuarter ? ` · ${project.rockQuarter}` : ""}</span> : null}
           <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">{project.department}</span>
         </div>
         <p className="text-xs text-muted-foreground truncate mt-0.5">{project.description}</p>

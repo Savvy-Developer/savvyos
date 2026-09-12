@@ -19,6 +19,7 @@ import {
   pulseWorkItemStatusNotes,
   pulseWorkItemAttachments,
   pulseWorkItems,
+  pulseTodoAcknowledgements,
   users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -313,7 +314,8 @@ export const pulseWorkItemsRouter = router({
       if (item.type !== "todo" && item.type !== "issue") throw new TRPCError({ code: "BAD_REQUEST", message: "Only To-Dos and Issues can be reopened." });
       if (item.status !== "completed") return { success: true, unchanged: true };
       await db.transaction(async (tx: any) => {
-        await tx.update(pulseWorkItems).set({ status: "not_started", completedAt: null, completedById: null }).where(eq(pulseWorkItems.id, item.id));
+        await tx.update(pulseWorkItems).set({ status: "not_started", completedAt: null, completedById: null, requiresL10Acknowledgement: false }).where(eq(pulseWorkItems.id, item.id));
+        if (item.type === "todo") await tx.delete(pulseTodoAcknowledgements).where(eq(pulseTodoAcknowledgements.workItemId, item.id));
         await tx.insert(pulseWorkItemStatusNotes).values({ id: uuid(), workItemId: item.id, fromStatus: "completed", toStatus: "not_started", note: input.reason, personId: ctx.user.id });
         await writeActivity(tx, ctx.user.id, "work_item", item.id, "reopened", "status", "completed", { status: "not_started", reason: input.reason });
       });

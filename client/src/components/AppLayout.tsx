@@ -133,6 +133,7 @@ function buildAgentNav(
       badge: myOverdueTasks > 0 ? myOverdueTasks : undefined,
     },
     { icon: CheckSquare, label: "My Checklists", path: "/checklists" },
+    { icon: Layers, label: "Projects", path: "/projects" },
     { icon: Network, label: "Org Chart", path: "/org-chart" },
     { icon: Users, label: "Agent Directory", path: "/agent-directory" },
   ];
@@ -240,7 +241,10 @@ function buildAgentSupportNav(): NavGroup[] {
     },
     {
       label: "Operations",
-      items: [{ icon: CalendarDays, label: "My PTO", path: "/pto" }],
+      items: [
+        { icon: Layers, label: "Projects", path: "/projects" },
+        { icon: CalendarDays, label: "My PTO", path: "/pto" },
+      ],
     },
     {
       label: "Resources",
@@ -304,6 +308,7 @@ function buildIsaNav(
           path: "/tasks",
           badge: myOverdueTasks > 0 ? myOverdueTasks : undefined,
         },
+        { icon: Layers, label: "Projects", path: "/projects" },
         { icon: Network, label: "Org Chart", path: "/org-chart" },
         { icon: Users, label: "Agent Directory", path: "/agent-directory" },
       ],

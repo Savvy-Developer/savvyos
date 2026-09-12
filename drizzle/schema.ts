@@ -4535,6 +4535,11 @@ export const pmProjects = mysqlTable("pm_projects", {
   isOngoing: boolean("isOngoing").notNull().default(false),
   priority: varchar("priority", { length: 16 }).notNull().default("medium"), // high | medium | low
   status: varchar("status", { length: 32 }).notNull().default("not_started"), // not_started | in_progress | at_risk | completed
+  // A Rock is a governed Project, never a parallel project-management record.
+  isRock: boolean("isRock").notNull().default(false),
+  rockQuarter: varchar("rockQuarter", { length: 16 }),
+  definitionOfDone: text("definitionOfDone"),
+  rockStatus: mysqlEnum("rockStatus", ["on_track", "at_risk", "off_track", "done", "dropped"]).notNull().default("on_track"),
   sortOrder: int("sortOrder").notNull().default(0),
   archivedAt: timestamp("archivedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -9103,6 +9108,9 @@ export const pulseWorkItems = mysqlTable(
     percentSource: mysqlEnum("percentSource", ["manual", "from_milestones"])
       .default("manual")
       .notNull(),
+    // A Project-resolved L10 To-Do remains visible to its L10 until a participant
+    // acknowledges the documented resolution.
+    requiresL10Acknowledgement: boolean("requiresL10Acknowledgement").default(false).notNull(),
     origin: mysqlEnum("origin", [
       "manual",
       "cascaded",
@@ -9181,6 +9189,26 @@ export const pulseWorkItems = mysqlTable(
   ]
 );
 export type PulseWorkItem = typeof pulseWorkItems.$inferSelect;
+
+/** One acknowledgement finalizes a Project-resolved L10 To-Do in its home meeting. */
+export const pulseTodoAcknowledgements = mysqlTable(
+  "pulse_todo_acknowledgements",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    workItemId: varchar("workItemId", { length: 36 })
+      .notNull()
+      .references(() => pulseWorkItems.id, { onDelete: "cascade" }),
+    acknowledgedById: int("acknowledgedById")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    acknowledgedAt: timestamp("acknowledgedAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("pulse_todo_acknowledgements_item_unique").on(table.workItemId),
+    index("pulse_todo_acknowledgements_person_idx").on(table.acknowledgedById, table.acknowledgedAt),
+  ]
+);
+export type PulseTodoAcknowledgement = typeof pulseTodoAcknowledgements.$inferSelect;
 
 /** Document metadata for Pulse items; file content remains in the existing SavvyOS S3 storage path. */
 export const pulseWorkItemAttachments = mysqlTable(
