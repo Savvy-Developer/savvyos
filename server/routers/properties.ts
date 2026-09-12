@@ -217,6 +217,8 @@ export const propertiesRouter = router({
       }),
     }))
     .mutation(async ({ input, ctx }) => {
+      const existing = await getPropertyById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Property not found" });
       // If address fields changed, recalculate normalizedAddress and apply capitalization
       const updateData: any = { ...input.data };
       if (updateData.listPrice) updateData.listPrice = updateData.listPrice.replace(/[^0-9.]/g, "");
@@ -227,16 +229,43 @@ export const propertiesRouter = router({
       if (updateData.state) updateData.state = normalizeState(updateData.state);
       if (updateData.zip) updateData.zip = updateData.zip.trim();
 
-      if (input.data.address !== undefined || input.data.city !== undefined || input.data.state !== undefined || input.data.zip !== undefined) {
-        const existing = await getPropertyById(input.id);
+      const isAddressEdit = input.data.address !== undefined || input.data.city !== undefined || input.data.state !== undefined || input.data.zip !== undefined;
+      if (isAddressEdit) {
         const addr = updateData.address ?? existing?.address ?? "";
         const city = updateData.city !== undefined ? updateData.city : existing?.city;
         const state = updateData.state !== undefined ? updateData.state : existing?.state;
         const zip = updateData.zip !== undefined ? updateData.zip : existing?.zip;
         updateData.normalizedAddress = buildNormalizedKey(addr, city, state, zip);
       }
-      await updateProperty(input.id, updateData);
-      await logActivity({ userId: ctx.user.id, action: "property_updated", entityType: "property", entityId: input.id });
+      try {
+        await updateProperty(input.id, updateData);
+      } catch (error) {
+        if (error instanceof DuplicatePropertyError) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: JSON.stringify({
+              type: "DUPLICATE_PROPERTY",
+              existingId: error.existingProperty.id,
+              existingAddress: [error.existingProperty.address, error.existingProperty.city, error.existingProperty.state, error.existingProperty.zip].filter(Boolean).join(", "),
+            }),
+          });
+        }
+        throw error;
+      }
+      await logActivity({
+        userId: ctx.user.id,
+        action: "property_updated",
+        entityType: "property",
+        entityId: input.id,
+        details: {
+          source: "manual_property_edit",
+          changedFields: Object.keys(updateData),
+          ...(isAddressEdit ? {
+            beforeAddress: { address: existing.address, city: existing.city, state: existing.state, zip: existing.zip, normalizedAddress: existing.normalizedAddress },
+            afterAddress: { address: updateData.address ?? existing.address, city: updateData.city !== undefined ? updateData.city : existing.city, state: updateData.state !== undefined ? updateData.state : existing.state, zip: updateData.zip !== undefined ? updateData.zip : existing.zip, normalizedAddress: updateData.normalizedAddress },
+          } : {}),
+        },
+      });
       return { success: true };
     }),
 

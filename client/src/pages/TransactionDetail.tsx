@@ -643,7 +643,7 @@ export default function TransactionDetail() {
       primaryContactId: String(tx.primaryContactId ?? ""),
       primaryContactName: contact ? `${contact.firstName} ${contact.lastName}` : "",
       propertyId: tx.propertyId ? String(tx.propertyId) : "",
-      propertyName: property ? `${property.address}${property.city ? `, ${property.city}` : ""}` : "",
+      propertyName: tx.propertyAddressSnapshot || (property ? `${property.address}${property.city ? `, ${property.city}` : ""}` : ""),
       purchasePrice: tx.purchasePrice ? Number(tx.purchasePrice).toLocaleString("en-US") : "",
       grossCommissionIncome: tx.grossCommissionIncome ? Number(tx.grossCommissionIncome).toLocaleString("en-US") : "",
       commissionRate: displayCommissionRate ?? "",
@@ -875,7 +875,7 @@ export default function TransactionDetail() {
 
       <PageHeader
         title={`${contact?.firstName ?? ""} ${contact?.lastName ?? ""}`.trim() || "Transaction"}
-        subtitle={property?.address ? [formatStreet(property.address), formatCityStateZip(property.city, property.state, property.zip)].filter(Boolean).join(" · ") : "No property linked"}
+        subtitle={tx.propertyAddressSnapshot || (property?.address ? [formatStreet(property.address), formatCityStateZip(property.city, property.state, property.zip)].filter(Boolean).join(" · ") : "No property linked")}
         actions={
           <div className="flex gap-2">
             {isAdmin && (

@@ -913,7 +913,9 @@ export const properties = mysqlTable(
     addedByUserIdx: index("idx_properties_addedByUserId").on(
       table.addedByUserId
     ),
-    normalizedAddressUnique: uniqueIndex("properties_normalizedAddress_unique").on(
+    // Address identity is unit-aware and may contain valid historical collisions pending review.
+    // Application-level duplicate checks prevent new duplicates without rewriting or deleting history.
+    normalizedAddressIdx: index("idx_properties_normalizedAddress").on(
       table.normalizedAddress
     ),
   })
@@ -1149,6 +1151,9 @@ export const transactions = mysqlTable("transactions", {
     { onDelete: "set null" }
   ),
   propertyId: int("propertyId").references(() => properties.id),
+  // Captures the address at the time the transaction was created or deliberately relinked.
+  // Historical reporting must not inherit a later property-address edit.
+  propertyAddressSnapshot: varchar("propertyAddressSnapshot", { length: 768 }),
   transactionType: mysqlEnum("transactionType", [
     "buyer",
     "seller",

@@ -1108,7 +1108,7 @@ export async function getTransactions(agentId?: number, status?: string, search?
     })(),
   ]);
   return {
-    rows,
+    rows: rows.map(withTransactionPropertyAddressSnapshot),
     total: Number(countResult[0]?.count ?? 0),
     totals: {
       purchasePrice: Number(countResult[0]?.totalPurchasePrice ?? 0),
@@ -1217,7 +1217,7 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
     default: orderBy = direction(transactions.closingDate); break;
   }
 
-  return db
+  const rows = await db
     .select({
       transaction: transactions,
       savvyNet: sql<string>`COALESCE((SELECT SUM(CAST(pi.amount AS DECIMAL(12,2))) FROM transaction_payout_items pi WHERE pi.transactionId = ${transactions.id} AND pi.payeeType = 'savvy_str_agents'), 0)`,
@@ -1253,6 +1253,7 @@ export async function getTransactionsForExport(filters: TransactionExportFilters
     .leftJoin(txParentLS, eq(leadSources.parentId, txParentLS.id))
     .where(where)
     .orderBy(orderBy);
+  return rows.map(withTransactionPropertyAddressSnapshot);
 }
 
 export async function createTransactionExportHistory(data: typeof transactionExports.$inferInsert) {
@@ -1306,7 +1307,31 @@ export async function getTransactionById(id: number) {
     .leftJoin(transactionLeadSourceParents, eq(leadSources.parentId, transactionLeadSourceParents.id))
     .where(eq(transactions.id, id))
     .limit(1);
-  return result[0];
+  return result[0] ? withTransactionPropertyAddressSnapshot(result[0]) : undefined;
+}
+
+function withTransactionPropertyAddressSnapshot<T extends { transaction: { propertyAddressSnapshot?: string | null }; property: Record<string, unknown> | null }>(row: T): T {
+  const snapshot = row.transaction.propertyAddressSnapshot?.trim();
+  if (!snapshot || !row.property) return row;
+  return { ...row, property: { ...row.property, address: snapshot } } as T;
+}
+
+function formatPropertyAddressSnapshot(property: { address: string; city: string | null; state: string | null; zip: string | null }): string {
+  const locality = [property.city, property.state].filter(Boolean).join(", ");
+  return [property.address, locality, property.zip].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+}
+
+async function getPropertyAddressSnapshot(propertyId: number | null | undefined): Promise<string | null> {
+  if (!propertyId) return null;
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [property] = await db
+    .select({ address: properties.address, city: properties.city, state: properties.state, zip: properties.zip })
+    .from(properties)
+    .where(eq(properties.id, propertyId))
+    .limit(1);
+  if (!property) throw new Error("Property not found");
+  return formatPropertyAddressSnapshot(property);
 }
 
 export async function createTransaction(data: typeof transactions.$inferInsert) {
@@ -1317,11 +1342,13 @@ export async function createTransaction(data: typeof transactions.$inferInsert) 
     .from(contacts)
     .where(eq(contacts.id, data.primaryContactId))
     .limit(1);
+  const propertyAddressSnapshot = data.propertyAddressSnapshot ?? await getPropertyAddressSnapshot(data.propertyId);
   const [result] = await db.insert(transactions).values({
     ...data,
     // Capture the contact's current source once. Later contact edits must not
     // rewrite historical transaction attribution.
     transactionLeadSourceId: primaryContact?.leadSourceId ?? null,
+    propertyAddressSnapshot,
   });
   const transactionId = (result as any).insertId as number;
   await ensureTeamAgentConnections({
@@ -1335,7 +1362,11 @@ export async function createTransaction(data: typeof transactions.$inferInsert) 
 export async function updateTransaction(id: number, data: Partial<typeof transactions.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(transactions).set(data).where(eq(transactions.id, id));
+  const isPropertyRelink = Object.prototype.hasOwnProperty.call(data, "propertyId");
+  const propertyAddressSnapshot = isPropertyRelink
+    ? await getPropertyAddressSnapshot(data.propertyId)
+    : data.propertyAddressSnapshot;
+  await db.update(transactions).set({ ...data, ...(isPropertyRelink ? { propertyAddressSnapshot } : {}) }).where(eq(transactions.id, id));
   const [transaction] = await db
     .select({
       agentId: transactions.agentId,
