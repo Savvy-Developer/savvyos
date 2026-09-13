@@ -20,7 +20,12 @@ import {
 
 const DAILY_SENDER_LIMIT = 250;
 const MAX_BATCH_RECIPIENTS = 250;
-const SEND_CONCURRENCY = 5;
+// Resend applies a 10 request/second ceiling to the whole team, rather than to
+// a single API key. One paced worker keeps Pipeline sends below that limit and
+// leaves headroom for Smart Plans and other operational mail.
+const SEND_CONCURRENCY = 1;
+const RESEND_MIN_REQUEST_INTERVAL_MS = 150;
+const MAX_RESEND_RATE_LIMIT_RETRIES = 3;
 const OUTREACH_FROM_ADDRESS = process.env.PIPELINE_EMAIL_FROM ?? "Savvy STR Agents <hello@savvy-agents.com>";
 const RESEND_EMAIL_ENDPOINT = "https://api.resend.com/emails";
 const ELIGIBLE_PIPELINE_STATUSES = new Set([
@@ -32,6 +37,7 @@ const ELIGIBLE_PIPELINE_STATUSES = new Set([
 ]);
 const TEMPLATE_ROLES = ["admin", "agent", "isa"] as const;
 type TemplateRole = (typeof TEMPLATE_ROLES)[number];
+let nextResendRequestAt = 0;
 
 type PipelineRecipient = {
   connection: typeof agentConnections.$inferSelect;
@@ -150,7 +156,34 @@ function buildOutboundText(bodyHtml: string, signatureHtml: string): string {
   return `${stripHtml(bodyHtml)}${signatureText ? `\n\n${signatureText}` : ""}\n\n---\nYou are receiving this email because you are a contact of Savvy STR Agents.\nTo unsubscribe, visit: {{{RESEND_UNSUBSCRIBE_URL}}}`;
 }
 
-async function sendViaResend(params: {
+function pause(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** Reserve a shared in-process slot before issuing another Pipeline email request. */
+async function waitForResendRequestSlot(): Promise<void> {
+  const now = Date.now();
+  const waitMs = Math.max(0, nextResendRequestAt - now);
+  if (waitMs > 0) await pause(waitMs);
+  nextResendRequestAt = Math.max(nextResendRequestAt, Date.now()) + RESEND_MIN_REQUEST_INTERVAL_MS;
+}
+
+/** Prefer Resend's explicit retry window, then fall back to a short capped backoff. */
+export function resendRateLimitRetryDelayMs(headers: Pick<Headers, "get">, retryAttempt: number): number {
+  const retryAfterValue = headers.get("retry-after");
+  const retryAfterSeconds = retryAfterValue === null ? Number.NaN : Number(retryAfterValue);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.max(100, Math.ceil(retryAfterSeconds * 1_000));
+  }
+  const resetValue = headers.get("ratelimit-reset");
+  const resetSeconds = resetValue === null ? Number.NaN : Number(resetValue);
+  if (Number.isFinite(resetSeconds) && resetSeconds >= 0) {
+    return Math.max(100, Math.ceil(resetSeconds * 1_000));
+  }
+  return Math.min(5_000, 500 * 2 ** retryAttempt);
+}
+
+export async function sendViaResend(params: {
   to: string;
   replyTo: string;
   subject: string;
@@ -162,33 +195,41 @@ async function sendViaResend(params: {
   }
 
   try {
-    const response = await fetch(RESEND_EMAIL_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${ENV.resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: OUTREACH_FROM_ADDRESS,
-        to: [params.to],
-        reply_to: params.replyTo,
-        subject: params.subject,
-        html: params.html,
-        text: params.text,
+    for (let attempt = 0; attempt <= MAX_RESEND_RATE_LIMIT_RETRIES; attempt++) {
+      await waitForResendRequestSlot();
+      const response = await fetch(RESEND_EMAIL_ENDPOINT, {
+        method: "POST",
         headers: {
-          "List-Unsubscribe": "<{{{RESEND_UNSUBSCRIBE_URL}}}>",
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          Authorization: `Bearer ${ENV.resendApiKey}`,
+          "Content-Type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          from: OUTREACH_FROM_ADDRESS,
+          to: [params.to],
+          reply_to: params.replyTo,
+          subject: params.subject,
+          html: params.html,
+          text: params.text,
+          headers: {
+            "List-Unsubscribe": "<{{{RESEND_UNSUBSCRIBE_URL}}}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          },
+        }),
+      });
 
-    if (!response.ok) {
-      const detail = await response.text();
-      return { success: false, error: `Resend rejected the email (${response.status}): ${detail.slice(0, 500)}` };
+      if (response.status === 429 && attempt < MAX_RESEND_RATE_LIMIT_RETRIES) {
+        await pause(resendRateLimitRetryDelayMs(response.headers, attempt));
+        continue;
+      }
+      if (!response.ok) {
+        const detail = await response.text();
+        return { success: false, error: `Resend rejected the email (${response.status}): ${detail.slice(0, 500)}` };
+      }
+
+      const data = (await response.json()) as { id?: string };
+      return { success: true, messageId: data.id };
     }
-
-    const data = (await response.json()) as { id?: string };
-    return { success: true, messageId: data.id };
+    return { success: false, error: "Resend rate limit retry attempts were exhausted" };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
