@@ -180,7 +180,9 @@ export function getSwoogoConfigurationStatus() {
     apiConfigured: configured(),
     webhookConfigured: Boolean(process.env.SWOOGO_WEBHOOK_TOKEN?.trim()),
     webhookHeader,
-    countedSourceAutomationEnabled: false,
+    countedSourceAutomationEnabled: Boolean(
+      configured() && process.env.SWOOGO_WEBHOOK_TOKEN?.trim()
+    ),
     token: {
       hasToken: Boolean(state.accessToken),
       expiresAt: state.expiresAt

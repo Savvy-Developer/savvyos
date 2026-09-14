@@ -9,8 +9,9 @@ import { queueSwoogoRecountVerification } from "./routers/events";
 /**
  * Swoogo supports custom HTTP headers but does not sign webhook payloads. The
  * endpoint verifies the configured static secret, replies before database work,
- * and queues a debounced source-verification record. Headcount aggregation is
- * deliberately not enabled until the source/de-duplication decision is made.
+ * and queues a debounced full recount. Only components deliberately mapped as
+ * "Swoogo: <registration type>" are updated; manual components are never
+ * overwritten by provider deliveries.
  */
 export function registerSwoogoEventsWebhook(app: Express) {
   app.post("/api/webhooks/swoogo", (req: Request, res: Response) => {

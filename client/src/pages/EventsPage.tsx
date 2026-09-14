@@ -125,15 +125,6 @@ const ASK_STAGE_OPTIONS = [
   ["partner", "Cost share"],
   ["speaker", "Speaker"],
 ] as const;
-const HEADCOUNT_SOURCES = [
-  "Swoogo: Agent",
-  "Swoogo: Speaker",
-  "Swoogo: Sponsor",
-  "Swoogo: Staff",
-  "Swoogo: Guest",
-  "Manual",
-  "Organizer",
-];
 
 function asNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -150,6 +141,76 @@ function money(value: unknown) {
         currency: "USD",
         maximumFractionDigits: 2,
       }).format(parsed);
+}
+
+function eventHeadcount(event: EventRecord) {
+  const components = event.components ?? [];
+  const missing = components.filter(
+    (component: any) => asNumber(component.count) === null
+  ).length;
+  const componentTotal =
+    components.length && missing === 0
+      ? components.reduce(
+          (sum: number, component: any) =>
+            sum + (asNumber(component.count) ?? 0),
+          0
+        )
+      : null;
+  const working = asNumber(event.workingHeadcount);
+  return {
+    count: working ?? componentTotal,
+    source:
+      working !== null
+        ? "Working headcount"
+        : componentTotal !== null
+          ? "Sum of components"
+          : components.length
+            ? `${missing} component${missing === 1 ? "" : "s"} uncounted`
+            : "No components yet",
+    missing,
+  };
+}
+
+function eventSponsorMetrics(event: EventRecord, sponsors: SponsorRecord[]) {
+  const asks = sponsors.flatMap(sponsor =>
+    (sponsor.asks ?? [])
+      .filter((ask: any) => Number(ask.eventId) === Number(event.id))
+      .map((ask: any) => ({ sponsor, ask }))
+  );
+  const bookedStages = new Set(["signed", "invoiced"]);
+  const activeStages = new Set(["target", "proposed", "verbal"]);
+  const booked = asks
+    .filter(({ ask }) => bookedStages.has(ask.stage))
+    .reduce((sum, { ask }) => sum + (asNumber(ask.amount) ?? 0), 0);
+  const active = asks
+    .filter(({ ask }) => activeStages.has(ask.stage))
+    .reduce((sum, { ask }) => sum + (asNumber(ask.amount) ?? 0), 0);
+  return {
+    booked,
+    active,
+    activeCount: asks.filter(({ ask }) => activeStages.has(ask.stage)).length,
+    bookedCount: asks.filter(({ ask }) => bookedStages.has(ask.stage)).length,
+  };
+}
+
+function eventFinancials(event: EventRecord, sponsors: SponsorRecord[]) {
+  const sponsor = eventSponsorMetrics(event, sponsors);
+  // Older event rows stored booked sponsorship as one manual total, while new
+  // records can derive it from the sponsor ledger. Use the higher figure as a
+  // non-additive bridge so the same sponsor dollars are never double counted.
+  const sponsorIncome = Math.max(
+    sponsor.booked,
+    asNumber(event.revenueBooked) ?? 0
+  );
+  const revenue = sponsorIncome;
+  const expenses = asNumber(event.committedCost) ?? 0;
+  return {
+    ...sponsor,
+    sponsorIncome,
+    revenue,
+    expenses,
+    profitLoss: revenue - expenses,
+  };
 }
 
 function dateValue(value: unknown) {
@@ -579,16 +640,20 @@ function HeadcountCard({
                 />
               </p>
               <div className="mt-2">
-                <InlineSelect
+                <InlineText
                   value={component.sourceType}
-                  options={HEADCOUNT_SOURCES.map(
-                    source => [source, source] as const
-                  )}
-                  onSave={sourceType =>
-                    updateComponent(component, { sourceType })
-                  }
+                  onSave={sourceType => {
+                    if (sourceType) updateComponent(component, { sourceType });
+                  }}
+                  placeholder="Manual"
                   ariaLabel={`${component.label} source`}
+                  className="text-xs text-muted-foreground"
                 />
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Use{" "}
+                  <span className="font-medium">Swoogo: Registration type</span>{" "}
+                  to let verified webhooks refresh this component.
+                </p>
               </div>
             </div>
           ))}
@@ -2259,6 +2324,380 @@ function SponsorGrid({
   );
 }
 
+function EventOperationsRecord({
+  event,
+  sponsors,
+  openProfile,
+  openEdit,
+  updateEvent,
+  updateComponent,
+  deleteComponent,
+  addComponent,
+}: {
+  event: EventRecord;
+  sponsors: SponsorRecord[];
+  openProfile: (event: EventRecord) => void;
+  openEdit: (event: EventRecord) => void;
+  updateEvent: (patch: any) => void;
+  updateComponent: (component: any, patch: any) => void;
+  deleteComponent: (component: any) => void;
+  addComponent: (eventId: number) => void;
+}) {
+  const tier = TIER_DETAILS[Number(event.tier)] ?? TIER_DETAILS[4];
+  const financials = eventFinancials(event, sponsors);
+  const headcount = eventHeadcount(event);
+  const pAndLTone =
+    financials.profitLoss < 0 ? "text-rose-700" : "text-emerald-700";
+  return (
+    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="flex flex-col gap-4 border-b bg-slate-50/70 p-4 lg:flex-row lg:items-start lg:justify-between">
+        <button
+          type="button"
+          onClick={() => openProfile(event)}
+          className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`h-2.5 w-2.5 rounded-sm ${tierClass(Number(event.tier))}`}
+            />
+            <h2 className="break-words text-lg font-semibold hover:underline">
+              {event.name}
+            </h2>
+            <Badge variant="outline" className={tier.badgeClass}>
+              {tier.label}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-slate-200 bg-white text-slate-700"
+            >
+              {event.status}
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {dateValue(event.startDate)
+              ? event.endDate &&
+                String(event.endDate).slice(0, 10) !==
+                  String(event.startDate).slice(0, 10)
+                ? `${dateLabel(event.startDate)} – ${dateLabel(event.endDate)}`
+                : dateLabel(event.startDate)
+              : "Timeline not confirmed"}
+            {event.city ? ` · ${event.city}` : ""}
+          </p>
+        </button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openProfile(event)}
+          >
+            Open record
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => openEdit(event)}>
+            <Pencil className="mr-1.5 h-4 w-4" />
+            Edit
+          </Button>
+        </div>
+      </div>
+      <div className="grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-5">
+        <div className="min-w-0 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Total sponsor income
+          </p>
+          <p className="mt-1 text-xl font-semibold tabular-nums">
+            {money(financials.sponsorIncome)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {financials.bookedCount
+              ? `${financials.bookedCount} signed or invoiced ask${financials.bookedCount === 1 ? "" : "s"}`
+              : "No signed or invoiced asks"}
+          </p>
+        </div>
+        <div className="min-w-0 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Active sponsorships selling
+          </p>
+          <p className="mt-1 text-xl font-semibold tabular-nums">
+            {money(financials.active)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {financials.activeCount
+              ? `${financials.activeCount} active ask${financials.activeCount === 1 ? "" : "s"}`
+              : "No active asks"}
+          </p>
+        </div>
+        <div className="min-w-0 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Headcount
+          </p>
+          <p
+            className={`mt-1 text-xl font-semibold tabular-nums ${headcount.count === null ? "text-amber-700" : ""}`}
+          >
+            {headcount.count === null ? "Not counted" : headcount.count}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {headcount.source}
+          </p>
+        </div>
+        <div className="min-w-0 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Committed expense
+          </p>
+          <p className="mt-1 text-xl font-semibold tabular-nums">
+            {money(financials.expenses)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Current contractual or planned cost
+          </p>
+        </div>
+        <div className="min-w-0 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Current P/L
+          </p>
+          <p className={`mt-1 text-xl font-semibold tabular-nums ${pAndLTone}`}>
+            {money(financials.profitLoss)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Booked revenue less committed expense
+          </p>
+        </div>
+      </div>
+      <div className="border-t bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold">
+              Custom headcount components
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Dyl can name and count any component manually. Set the source to
+              <span className="font-medium"> Swoogo: Registration type</span> to
+              refresh only that component through verified Swoogo webhooks.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => addComponent(event.id)}
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add component
+          </Button>
+        </div>
+        <HeadcountCard
+          event={event}
+          updateEvent={updateEvent}
+          updateComponent={updateComponent}
+          deleteComponent={deleteComponent}
+          addComponent={addComponent}
+        />
+      </div>
+    </section>
+  );
+}
+
+function EventsHub({
+  events,
+  sponsors,
+  openProfile,
+  openEdit,
+  updateEvent,
+  updateComponent,
+  deleteComponent,
+  addComponent,
+  createEvent,
+}: {
+  events: EventRecord[];
+  sponsors: SponsorRecord[];
+  openProfile: (event: EventRecord) => void;
+  openEdit: (event: EventRecord) => void;
+  updateEvent: (event: EventRecord, patch: any) => void;
+  updateComponent: (component: any, patch: any) => void;
+  deleteComponent: (component: any) => void;
+  addComponent: (eventId: number) => void;
+  createEvent: () => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <section className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Event records</h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Every event is its own financial and operating record. Sponsor
+            income and active asks are calculated from the sponsor ledger; costs
+            and P/L stay tied to the event itself.
+          </p>
+        </div>
+        <Button onClick={createEvent}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          Add event
+        </Button>
+      </section>
+      {events.length ? (
+        events.map(event => (
+          <EventOperationsRecord
+            key={event.id}
+            event={event}
+            sponsors={sponsors}
+            openProfile={openProfile}
+            openEdit={openEdit}
+            updateEvent={patch => updateEvent(event, patch)}
+            updateComponent={updateComponent}
+            deleteComponent={deleteComponent}
+            addComponent={addComponent}
+          />
+        ))
+      ) : (
+        <Card className="border-dashed">
+          <CardContent className="p-8 text-center">
+            <p className="font-medium">No event records yet.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Add the first event to start tracking sponsorship, cost, and
+              components.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function EventsOverview({
+  events,
+  sponsors,
+  openProfile,
+}: {
+  events: EventRecord[];
+  sponsors: SponsorRecord[];
+  openProfile: (event: EventRecord) => void;
+}) {
+  const rollup = events.reduce(
+    (totals, event) => {
+      const financials = eventFinancials(event, sponsors);
+      return {
+        revenue: totals.revenue + financials.revenue,
+        expenses: totals.expenses + financials.expenses,
+        sponsorIncome: totals.sponsorIncome + financials.sponsorIncome,
+        activeSelling: totals.activeSelling + financials.active,
+      };
+    },
+    { revenue: 0, expenses: 0, sponsorIncome: 0, activeSelling: 0 }
+  );
+  const profitLoss = rollup.revenue - rollup.expenses;
+  const externalCommitments = events
+    .filter(event => Number(event.tier) === 3)
+    .reduce((sum, event) => sum + (asNumber(event.committedCost) ?? 0), 0);
+
+  return (
+    <div className="space-y-6">
+      <section className="grid overflow-hidden rounded-xl border bg-border sm:grid-cols-2 xl:grid-cols-5">
+        <Metric
+          value={money(rollup.sponsorIncome)}
+          label="Aggregate sponsor income"
+          detail="Signed, invoiced, or legacy booked sponsor revenue."
+        />
+        <Metric
+          value={money(rollup.expenses)}
+          label="Aggregate committed expense"
+          detail="Contracted or planned costs across the portfolio."
+          tone={rollup.expenses ? "warning" : "default"}
+        />
+        <Metric
+          value={money(profitLoss)}
+          label="Portfolio P/L"
+          detail="Booked revenue less committed expense."
+          tone={profitLoss < 0 ? "danger" : "default"}
+        />
+        <Metric
+          value={money(rollup.activeSelling)}
+          label="Active sponsorships selling"
+          detail="Target, proposed, and verbal asks still in play."
+        />
+        <Metric
+          value={money(externalCommitments)}
+          label="Outstanding commitments to other events"
+          detail="Tier 3 commitments to external events, including the $105,000 current baseline."
+          tone={externalCommitments ? "warning" : "default"}
+        />
+      </section>
+
+      <section>
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold">Event financials</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Revenue, expense, and P/L are visible event by event. Open a record
+            to manage the underlying sponsors, obligations, and components.
+          </p>
+        </div>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-sm">
+              <thead className="bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-100">
+                <tr>
+                  <th className="px-4 py-3">Event</th>
+                  <th className="px-4 py-3 text-right">Sponsor income</th>
+                  <th className="px-4 py-3 text-right">Active selling</th>
+                  <th className="px-4 py-3 text-right">Booked revenue</th>
+                  <th className="px-4 py-3 text-right">Committed expense</th>
+                  <th className="px-4 py-3 text-right">P/L</th>
+                  <th className="px-4 py-3">Headcount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map(event => {
+                  const financials = eventFinancials(event, sponsors);
+                  const headcount = eventHeadcount(event);
+                  return (
+                    <tr
+                      key={event.id}
+                      className="border-b last:border-b-0 hover:bg-slate-50"
+                    >
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => openProfile(event)}
+                          className="flex min-w-0 items-center gap-2 text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                        >
+                          <span
+                            className={`h-2.5 w-2.5 shrink-0 rounded-sm ${tierClass(Number(event.tier))}`}
+                          />
+                          <span className="max-w-64 truncate">
+                            {event.name}
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                        {money(financials.sponsorIncome)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {money(financials.active)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {money(financials.revenue)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {money(financials.expenses)}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right font-semibold tabular-nums ${financials.profitLoss < 0 ? "text-rose-700" : "text-emerald-700"}`}
+                      >
+                        {money(financials.profitLoss)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {headcount.count === null
+                          ? headcount.source
+                          : `${headcount.count} · ${headcount.source}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
 function EventsTable({
   events,
   updateEvent,
@@ -2274,10 +2713,11 @@ function EventsTable({
     <section>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Portfolio position</h2>
-          <p className="text-sm text-muted-foreground">
-            Tier describes operating responsibility—not priority—and never
-            supplies a revenue-share default.
+          <h2 className="text-xl font-semibold">Portfolio position</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Portfolio-wide event administration. Tier describes operating
+            responsibility, not priority, and never supplies a revenue-share
+            default.
           </p>
         </div>
         <Button size="sm" onClick={createEvent}>
@@ -2506,13 +2946,13 @@ function DataModel() {
       ))}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Automation boundary</CardTitle>
+          <CardTitle className="text-base">Swoogo component boundary</CardTitle>
           <CardDescription>
-            Webhook delivery and source-verification records are ready.
-            Automated headcount aggregation remains intentionally disabled until
-            the organization confirms whether speakers and sponsors also hold
-            registrant records, the exact Swoogo type IDs/names, and
-            de-duplication ownership.
+            Swoogo webhooks trigger a full recount only for components whose
+            source is explicitly mapped as{" "}
+            <code>Swoogo: Registration type</code>. Manual and Organizer
+            components are never overwritten, and unknown registration types
+            remain visible in integration activity for correction.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -2568,26 +3008,25 @@ function IntegrationSettings({
             }
           />
           <StatusItem
-            label="Headcount automation"
-            good={false}
-            goodText=""
-            waitingText="Deliberately paused pending source-model confirmation"
+            label="Mapped component sync"
+            good={integration?.countedSourceAutomationEnabled}
+            goodText="Ready for mapped components"
+            waitingText="Requires both Swoogo API credentials and a webhook token"
           />
         </div>
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-cyan-200 bg-cyan-50">
           <CardContent className="flex gap-3 p-4">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" />
             <div>
-              <p className="font-medium text-amber-900">
-                Source model confirmation is required
+              <p className="font-medium text-cyan-950">
+                Map only the components Swoogo should own
               </p>
-              <p className="mt-1 text-sm text-amber-800">
-                Swoogo can send registrant, speaker, and sponsor webhooks.
-                Before counting, confirm which sources represent unique people
-                and how cross-source duplicates are resolved. Until then,
-                webhook deliveries are acknowledged, debounced, and stored as
-                verification activity only—no Manual or Organizer component can
-                be overwritten.
+              <p className="mt-1 text-sm text-cyan-900">
+                Name a component however Dyl needs it, then set its source to
+                <code> Swoogo: Registration type</code>, using the exact
+                registration type in Swoogo. A verified webhook triggers a full
+                recount for those mapped components only. Manual and Organizer
+                counts never change from provider deliveries.
               </p>
             </div>
           </CardContent>
@@ -2620,9 +3059,19 @@ function IntegrationSettings({
                       <td className="px-3 py-2">
                         <Badge
                           variant="outline"
-                          className="border-amber-200 bg-amber-50 text-amber-700"
+                          className={
+                            activity.status === "processed"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : activity.status === "failed"
+                                ? "border-rose-200 bg-rose-50 text-rose-700"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                          }
                         >
-                          Awaiting confirmation
+                          {activity.status === "processed"
+                            ? "Synced"
+                            : activity.status === "failed"
+                              ? "Needs attention"
+                              : "Awaiting sync"}
                         </Badge>
                       </td>
                     </tr>
@@ -2756,27 +3205,6 @@ export default function EventsPage() {
     );
   const overview = data as Overview;
   const events = overview?.events ?? [];
-  const operatingEvents = events.filter((event: any) =>
-    [1, 2].includes(Number(event.tier))
-  );
-  const sponsorshipBooked = operatingEvents.reduce(
-    (sum: number, event: any) => sum + (asNumber(event.revenueBooked) ?? 0),
-    0
-  );
-  const sponsorshipTarget = operatingEvents.reduce(
-    (sum: number, event: any) => sum + (asNumber(event.revenueTarget) ?? 0),
-    0
-  );
-  const sponsorOthers = events
-    .filter((event: any) => Number(event.tier) === 3)
-    .reduce(
-      (sum: number, event: any) => sum + (asNumber(event.committedCost) ?? 0),
-      0
-    );
-  const missingShare = events.filter(
-    (event: any) =>
-      Number(event.tier) === 2 && asNumber(event.savvyRevenueShare) === null
-  ).length;
   const nextObligation = events
     .flatMap((event: any) =>
       (event.obligations ?? []).map((obligation: any) => ({
@@ -2902,15 +3330,16 @@ export default function EventsPage() {
             <div className="mb-2 flex items-center gap-2 text-cyan-100">
               <CalendarDays className="h-5 w-5" />
               <span className="text-sm font-medium">
-                Master tier operations control
+                Events financial + operations control
               </span>
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">
               Savvy Events Console
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-cyan-50/80">
-              One portfolio record per event, whether Savvy executes, manages,
-              sponsors, attends, or is still evaluating it.
+              One financial and operating record per event. Track revenue,
+              expense, sponsorship, components, and commitments without losing
+              the tier view.
             </p>
           </div>
           <div className="border-l-2 border-cyan-400 pl-4">
@@ -2964,18 +3393,26 @@ export default function EventsPage() {
           </Button>
         </div>
       </div>
-      <Tabs defaultValue="radar" className="space-y-6">
+      <Tabs defaultValue="overview" className="space-y-6">
         <TabsList className="h-auto w-full justify-start overflow-x-auto">
-          <TabsTrigger value="radar">
-            <AlertTriangle className="mr-1.5 h-4 w-4" />
-            Radar
+          <TabsTrigger value="overview">
+            <CircleDollarSign className="mr-1.5 h-4 w-4" />
+            Events overview
           </TabsTrigger>
-          <TabsTrigger value="timeline">
-            <Clock3 className="mr-1.5 h-4 w-4" />
-            Timeline{" "}
+          <TabsTrigger value="records">
+            <CalendarDays className="mr-1.5 h-4 w-4" />
+            Event records{" "}
             <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs">
               {events.length}
             </span>
+          </TabsTrigger>
+          <TabsTrigger value="portfolio">
+            <ExternalLink className="mr-1.5 h-4 w-4" />
+            Portfolio position
+          </TabsTrigger>
+          <TabsTrigger value="timeline">
+            <Clock3 className="mr-1.5 h-4 w-4" />
+            Timeline
           </TabsTrigger>
           <TabsTrigger value="sponsors">
             <UsersRound className="mr-1.5 h-4 w-4" />
@@ -2984,24 +3421,48 @@ export default function EventsPage() {
               {overview?.sponsors?.length ?? 0}
             </span>
           </TabsTrigger>
-          <TabsTrigger value="events">
-            <CircleDollarSign className="mr-1.5 h-4 w-4" />
-            Events
+          <TabsTrigger value="radar">
+            <AlertTriangle className="mr-1.5 h-4 w-4" />
+            Radar
           </TabsTrigger>
           <TabsTrigger value="model">
             <ExternalLink className="mr-1.5 h-4 w-4" />
             Data model
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="radar">
-          <Radar
+        <TabsContent value="overview">
+          <EventsOverview
             events={events}
-            alerts={overview?.alerts ?? []}
-            updateObligation={updateObligation}
-            deleteObligation={deleteObligation}
-            addObligation={eventId =>
-              createObligation.mutate({ eventId, title: "New obligation" })
+            sponsors={overview?.sponsors ?? []}
+            openProfile={event => setProfileEventId(event.id)}
+          />
+        </TabsContent>
+        <TabsContent value="records">
+          <EventsHub
+            events={events}
+            sponsors={overview?.sponsors ?? []}
+            openProfile={event => setProfileEventId(event.id)}
+            openEdit={openEditEvent}
+            updateEvent={updateEvent}
+            updateComponent={updateComponent}
+            deleteComponent={deleteComponent}
+            addComponent={eventId =>
+              createComponent.mutate({
+                eventId,
+                label: "New component",
+                sourceType: "Manual",
+                count: null,
+              })
             }
+            createEvent={openCreateEvent}
+          />
+        </TabsContent>
+        <TabsContent value="portfolio">
+          <EventsTable
+            events={events}
+            updateEvent={updateEvent}
+            deleteEvent={deleteEvent}
+            createEvent={openCreateEvent}
           />
         </TabsContent>
         <TabsContent value="timeline">
@@ -3046,86 +3507,15 @@ export default function EventsPage() {
             }
           />
         </TabsContent>
-        <TabsContent value="events" className="space-y-6">
-          <div className="grid overflow-hidden rounded-xl border bg-border md:grid-cols-4">
-            <Metric
-              value={money(sponsorshipBooked)}
-              label="Sponsorship booked"
-              detail="Signed or invoiced only. Verbal commitments excluded."
-            />
-            <Metric
-              value={money(sponsorshipTarget)}
-              label="Sponsorship at sellout"
-              detail="Across events Savvy executes or manages."
-            />
-            <Metric
-              value={money(sponsorOthers)}
-              label="Committed to sponsor others"
-              detail="Every Tier 3 commitment, contracted."
-            />
-            <Metric
-              value={missingShare}
-              label="Tier 2 events with no share set"
-              detail="Blank on purpose. A partner agreement sets it, not the tier."
-              tone={missingShare ? "warning" : "default"}
-            />
-          </div>
-          <div className="space-y-5">
-            {events
-              .filter((event: any) => (event.components ?? []).length > 0)
-              .map((event: any) => (
-                <HeadcountCard
-                  key={event.id}
-                  event={event}
-                  updateEvent={patch => updateEvent(event, patch)}
-                  updateComponent={updateComponent}
-                  deleteComponent={deleteComponent}
-                  addComponent={eventId =>
-                    createComponent.mutate({
-                      eventId,
-                      label: "New component",
-                      sourceType: "Manual",
-                      count: null,
-                    })
-                  }
-                />
-              ))}
-            {events
-              .filter((event: any) => (event.components ?? []).length === 0)
-              .map((event: any) => (
-                <Card key={event.id} className="border-dashed">
-                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div>
-                      <p className="font-medium">{event.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        No headcount components. Add them only if Savvy carries
-                        a guarantee or needs a source-based count.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        createComponent.mutate({
-                          eventId: event.id,
-                          label: "New component",
-                          sourceType: "Manual",
-                          count: null,
-                        })
-                      }
-                    >
-                      <Plus className="mr-1.5 h-4 w-4" />
-                      Add headcount
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-          </div>
-          <EventsTable
+        <TabsContent value="radar">
+          <Radar
             events={events}
-            updateEvent={updateEvent}
-            deleteEvent={deleteEvent}
-            createEvent={openCreateEvent}
+            alerts={overview?.alerts ?? []}
+            updateObligation={updateObligation}
+            deleteObligation={deleteObligation}
+            addObligation={eventId =>
+              createObligation.mutate({ eventId, title: "New obligation" })
+            }
           />
         </TabsContent>
         <TabsContent value="model">

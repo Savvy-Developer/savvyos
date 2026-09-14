@@ -14,7 +14,8 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { getSwoogoConfigurationStatus } from "../swoogoEvents";
+import { getSwoogoConfigurationStatus, swoogoGet } from "../swoogoEvents";
+import { normalizeSwoogoType } from "../eventsLogic";
 import { canAdminUsePermission } from "./permissions";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
@@ -699,16 +700,14 @@ async function ensureSeedData(db: any) {
     const eventId = Number(result[0].insertId);
     eventIds.set(seed.key, eventId);
     if ("components" in seed && seed.components) {
-      await db
-        .insert(eventHeadcountComponents)
-        .values(
-          seed.components.map(([label, count, sourceType]) => ({
-            eventId,
-            label,
-            count,
-            sourceType,
-          }))
-        );
+      await db.insert(eventHeadcountComponents).values(
+        seed.components.map(([label, count, sourceType]) => ({
+          eventId,
+          label,
+          count,
+          sourceType,
+        }))
+      );
     }
   }
 
@@ -1003,10 +1002,10 @@ const RECOUNT_DEBOUNCE_MS = Math.max(
 );
 
 /**
- * This is deliberately a verification-only recount queue. It preserves
- * acknowledge-first/debounced webhook semantics and retains a durable activity
- * record, but does not aggregate sources or overwrite components until Dustin
- * confirms whether speakers and sponsors also have registrant records.
+ * Swoogo components are opt-in. A component only participates when its source
+ * is named "Swoogo: <exact registration type>". Manual and Organizer sources
+ * remain untouched. A webhook is acknowledged before this recount begins,
+ * preserving Swoogo's retry behavior without allowing duplicate increments.
  */
 export async function queueSwoogoRecountVerification(input: {
   providerEventId: string;
@@ -1020,38 +1019,217 @@ export async function queueSwoogoRecountVerification(input: {
     key,
     setTimeout(() => {
       pendingRecounts.delete(key);
-      void recordSwoogoVerification(input);
+      void syncSwoogoComponents({
+        providerEventId: input.providerEventId,
+        eventType: input.eventType,
+        payload: input.payload,
+      });
     }, RECOUNT_DEBOUNCE_MS)
   );
 }
 
-async function recordSwoogoVerification(input: {
+function swoogoComponentType(sourceType: string | null | undefined) {
+  const match = /^swoogo\s*:\s*(.+)$/i.exec(sourceType?.trim() ?? "");
+  return match?.[1]?.trim() || null;
+}
+
+function collectionItems(response: Record<string, unknown>) {
+  return Array.isArray(response.items) ? response.items : [];
+}
+
+function pageCount(response: Record<string, unknown>) {
+  const meta = response._meta as Record<string, unknown> | undefined;
+  const value = Number(meta?.pageCount ?? 1);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+async function listSwoogoCollection(
+  path: string,
+  params: Record<string, string | number>
+) {
+  const items: Record<string, unknown>[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const response = await swoogoGet(path, {
+      ...params,
+      page,
+      "per-page": 1000,
+    });
+    items.push(
+      ...collectionItems(response).filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object"
+      )
+    );
+    if (page >= pageCount(response)) break;
+  }
+  return items;
+}
+
+function isCountableRegistrant(registrant: Record<string, unknown>) {
+  const status = String(registrant.registration_status ?? "")
+    .trim()
+    .toLocaleLowerCase();
+  return [
+    "confirmed",
+    "registered",
+    "approved",
+    "attended",
+    "checked_in",
+  ].includes(status);
+}
+
+export async function syncSwoogoComponents(input: {
   providerEventId: string;
   eventType: string;
   payload: Record<string, unknown>;
 }) {
+  let eventId: number | null = null;
   try {
     const db = await database();
     const [event] = await db
-      .select({ id: eventPortfolio.id })
+      .select()
       .from(eventPortfolio)
       .where(eq(eventPortfolio.swoogoEventId, input.providerEventId))
       .limit(1);
+    eventId = event?.id ?? null;
+    if (!event) {
+      await db.insert(eventSwoogoSyncActivity).values({
+        eventId: null,
+        providerEventId: input.providerEventId,
+        eventType: input.eventType,
+        status: "failed",
+        payload: input.payload,
+        processedAt: new Date(),
+        errorMessage: "No SavvyOS event is mapped to this Swoogo event ID.",
+      });
+      return { updated: 0, skipped: 0, reason: "Event mapping not found." };
+    }
+
+    const components = await db
+      .select()
+      .from(eventHeadcountComponents)
+      .where(eq(eventHeadcountComponents.eventId, event.id));
+    const mappedComponents = components
+      .map(component => ({
+        component,
+        registrationType: swoogoComponentType(component.sourceType),
+      }))
+      .filter(
+        (
+          entry
+        ): entry is {
+          component: (typeof components)[number];
+          registrationType: string;
+        } => Boolean(entry.registrationType)
+      );
+    if (!mappedComponents.length) {
+      await db.insert(eventSwoogoSyncActivity).values({
+        eventId: event.id,
+        providerEventId: input.providerEventId,
+        eventType: input.eventType,
+        status: "processed",
+        payload: input.payload,
+        processedAt: new Date(),
+        errorMessage:
+          "No components are mapped to a Swoogo registration type. Use the source format: Swoogo: <registration type>.",
+      });
+      return { updated: 0, skipped: 0, reason: "No Swoogo-mapped components." };
+    }
+
+    const [registrationTypes, registrants] = await Promise.all([
+      listSwoogoCollection("/reg-types", {
+        event_id: input.providerEventId,
+        fields: "id,name,public_short_name,admin_short_name",
+      }),
+      listSwoogoCollection("/registrants", {
+        event_id: input.providerEventId,
+        fields: "id,reg_type_id,registration_status",
+      }),
+    ]);
+    const typeByName = new Map<string, Record<string, unknown>>();
+    for (const registrationType of registrationTypes) {
+      for (const name of [
+        registrationType.name,
+        registrationType.public_short_name,
+        registrationType.admin_short_name,
+      ]) {
+        if (typeof name === "string" && name.trim()) {
+          typeByName.set(normalizeSwoogoType(name), registrationType);
+        }
+      }
+    }
+    const countsByTypeId = new Map<string, number>();
+    for (const registrant of registrants) {
+      if (!isCountableRegistrant(registrant)) continue;
+      const typeId = String(registrant.reg_type_id ?? "").trim();
+      if (typeId)
+        countsByTypeId.set(typeId, (countsByTypeId.get(typeId) ?? 0) + 1);
+    }
+
+    let updated = 0;
+    const unmatched: string[] = [];
+    for (const { component, registrationType } of mappedComponents) {
+      const matchedType = typeByName.get(normalizeSwoogoType(registrationType));
+      const typeId =
+        matchedType?.id === null || matchedType?.id === undefined
+          ? null
+          : String(matchedType.id);
+      if (!typeId) {
+        unmatched.push(`${component.label} → ${registrationType}`);
+        continue;
+      }
+      await db
+        .update(eventHeadcountComponents)
+        .set({
+          count: countsByTypeId.get(typeId) ?? 0,
+          lastSyncedAt: new Date(),
+          version: sql`${eventHeadcountComponents.version} + 1`,
+        })
+        .where(
+          and(
+            eq(eventHeadcountComponents.id, component.id),
+            eq(eventHeadcountComponents.sourceType, component.sourceType)
+          )
+        );
+      updated += 1;
+    }
     await db.insert(eventSwoogoSyncActivity).values({
-      eventId: event?.id ?? null,
+      eventId: event.id,
       providerEventId: input.providerEventId,
       eventType: input.eventType,
-      status: "awaiting_source_confirmation",
+      status: "processed",
       payload: input.payload,
+      processedAt: new Date(),
+      errorMessage: unmatched.length
+        ? `No registration type matched: ${unmatched.join(", ")}.`
+        : null,
     });
     console.info(
-      `[Events/Swoogo] Debounced source verification recorded for provider event ${input.providerEventId}.`
+      `[Events/Swoogo] Synced ${updated} mapped component(s) for provider event ${input.providerEventId}.`
     );
+    return { updated, skipped: unmatched.length, reason: null };
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Swoogo component sync failed.";
+    try {
+      const db = await database();
+      await db.insert(eventSwoogoSyncActivity).values({
+        eventId,
+        providerEventId: input.providerEventId,
+        eventType: input.eventType,
+        status: "failed",
+        payload: input.payload,
+        processedAt: new Date(),
+        errorMessage: message,
+      });
+    } catch {
+      // Preserve the original provider-sync error even when activity logging is unavailable.
+    }
     console.error(
-      "[Events/Swoogo] Could not record source verification:",
-      error instanceof Error ? error.message : error
+      "[Events/Swoogo] Could not synchronize mapped components:",
+      message
     );
+    throw error;
   }
 }
 
@@ -1237,14 +1415,12 @@ export const eventsRouter = router({
     .mutation(async ({ input, ctx }) => {
       await requireEventsAccess(ctx.user);
       const db = await database();
-      const [result] = await db
-        .insert(eventObligations)
-        .values({
-          ...input,
-          dueDate: sqlDate(input.dueDate),
-          amountAtRisk:
-            input.amountAtRisk === null ? null : String(input.amountAtRisk),
-        });
+      const [result] = await db.insert(eventObligations).values({
+        ...input,
+        dueDate: sqlDate(input.dueDate),
+        amountAtRisk:
+          input.amountAtRisk === null ? null : String(input.amountAtRisk),
+      });
       return { id: Number(result.insertId), version: 1 };
     }),
 
@@ -1419,12 +1595,10 @@ export const eventsRouter = router({
           .where(eq(eventSponsorAsks.id, existing[0].id));
         return { id: existing[0].id, version: existing[0].version + 1 };
       }
-      const [result] = await db
-        .insert(eventSponsorAsks)
-        .values({
-          ...input,
-          amount: input.amount === null ? null : String(input.amount),
-        });
+      const [result] = await db.insert(eventSponsorAsks).values({
+        ...input,
+        amount: input.amount === null ? null : String(input.amount),
+      });
       return { id: Number(result.insertId), version: 1 };
     }),
 
