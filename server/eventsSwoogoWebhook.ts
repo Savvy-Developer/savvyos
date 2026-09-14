@@ -4,10 +4,7 @@ import {
   resolveSwoogoWebhookType,
   staticWebhookTokenMatches,
 } from "./eventsLogic";
-import {
-  queueSwoogoRecountVerification,
-  recordSwoogoOfflinePayment,
-} from "./routers/events";
+import { queueSwoogoRecountVerification } from "./routers/events";
 
 /**
  * Swoogo supports custom HTTP headers but does not sign webhook payloads. The
@@ -56,16 +53,6 @@ export function registerSwoogoEventsWebhook(app: Express) {
       }).catch(error =>
         console.error(
           "[Events/Swoogo] Verification queue failed:",
-          error instanceof Error ? error.message : error
-        )
-      );
-      recordSwoogoOfflinePayment({
-        providerEventId,
-        eventType,
-        payload: req.body as Record<string, unknown>,
-      }).catch(error =>
-        console.error(
-          "[Events/Swoogo] Payment intake failed:",
           error instanceof Error ? error.message : error
         )
       );
