@@ -227,7 +227,7 @@ async function getRocks(db: any, targetMeetingId: string) {
   ]);
   const projectIds = projectRockRows.map((row: any) => row.project.id);
   const [milestoneRows, taskCounts] = projectIds.length ? await Promise.all([
-    db.select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, sortOrder: pmTodoSections.sortOrder })
+    db.select({ id: pmTodoSections.id, projectId: pmTodoSections.projectId, title: pmTodoSections.title, dueDate: pmTodoSections.dueDate, sortOrder: pmTodoSections.sortOrder })
       .from(pmTodoSections)
       .where(inArray(pmTodoSections.projectId, projectIds))
       .orderBy(asc(pmTodoSections.sortOrder), asc(pmTodoSections.id)),
@@ -240,7 +240,7 @@ async function getRocks(db: any, targetMeetingId: string) {
   const milestonesByProject = new Map<number, any[]>();
   (milestoneRows as any[]).forEach((section: any) => {
     const count = countsBySection.get(`${section.projectId}:${section.id}`);
-    const milestone = { id: section.id, title: section.title, total: Number(count?.total ?? 0), completed: Number(count?.completed ?? 0) };
+    const milestone = { id: section.id, title: section.title, dueDate: section.dueDate, total: Number(count?.total ?? 0), completed: Number(count?.completed ?? 0) };
     milestonesByProject.set(section.projectId, [...(milestonesByProject.get(section.projectId) ?? []), milestone]);
   });
   const seen = new Set<string>();

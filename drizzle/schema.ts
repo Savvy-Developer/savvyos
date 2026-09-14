@@ -4592,6 +4592,7 @@ export const pmTodoSections = mysqlTable(
       .notNull()
       .references(() => pmProjects.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 128 }).notNull(),
+    dueDate: timestamp("dueDate"),
     sortOrder: int("sortOrder").notNull().default(0),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

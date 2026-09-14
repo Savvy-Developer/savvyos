@@ -34,10 +34,15 @@ import { hasPulseCapability } from "../pulse/authorization";
 
 const OWNER_EMAIL = "tyler@savvy.realty";
 const ROCK_MILESTONE_LIMIT = 20;
-const rockMilestoneSchema = z.string().trim().min(1, "A milestone needs a title.").max(128, "Milestone titles can be at most 128 characters.");
+const rockMilestoneSchema = z.object({
+  title: z.string().trim().min(1, "A milestone needs a title.").max(128, "Milestone titles can be at most 128 characters."),
+  dueDate: z.coerce.date(),
+});
 
-function hasDuplicateMilestoneTitles(milestones: string[]) {
-  const titles = milestones.map((title) => title.trim().toLocaleLowerCase());
+type RockMilestoneInput = z.infer<typeof rockMilestoneSchema>;
+
+function hasDuplicateMilestoneTitles(milestones: RockMilestoneInput[]) {
+  const titles = milestones.map((milestone) => milestone.title.trim().toLocaleLowerCase());
   return new Set(titles).size !== titles.length;
 }
 
@@ -448,9 +453,10 @@ export const pmRouter = router({
             collaboratorIds.map(userId => ({ projectId: newProjectId, userId }))
           );
           if (input.isRock) {
-            await transaction.insert(pmTodoSections).values(input.rockMilestones.map((title, sortOrder) => ({
+            await transaction.insert(pmTodoSections).values(input.rockMilestones.map((milestone, sortOrder) => ({
               projectId: newProjectId,
-              title: title.trim(),
+              title: milestone.title.trim(),
+              dueDate: milestone.dueDate,
               sortOrder,
             })));
             if (routedMeetingIds.length) {
@@ -528,6 +534,14 @@ export const pmRouter = router({
         if (becomingRock && hasDuplicateMilestoneTitles(rockMilestones)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Rock milestones must have unique titles." });
         }
+        if (becomingRock) {
+          const existingSections = await db.select({ id: pmTodoSections.id, dueDate: pmTodoSections.dueDate })
+            .from(pmTodoSections)
+            .where(eq(pmTodoSections.projectId, input.id));
+          if (existingSections.some((section) => !section.dueDate)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Add a due date to every existing section before converting this project into a Rock." });
+          }
+        }
         if (!finalIsRock && input.routedMeetingIds?.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Only Rocks can be routed to Pulse meetings." });
         }
@@ -554,9 +568,10 @@ export const pmRouter = router({
               const [sectionOrder] = await transaction.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
                 .from(pmTodoSections)
                 .where(eq(pmTodoSections.projectId, id));
-              await transaction.insert(pmTodoSections).values(rockMilestones.map((title, index) => ({
+              await transaction.insert(pmTodoSections).values(rockMilestones.map((milestone, index) => ({
                 projectId: id,
-                title: title.trim(),
+                title: milestone.title.trim(),
+                dueDate: milestone.dueDate,
                 sortOrder: Number(sectionOrder?.maxSortOrder ?? -1) + index + 1,
               })));
             }
@@ -759,12 +774,18 @@ export const pmRouter = router({
       .input(z.object({
         projectId: z.number(),
         title: z.string().trim().min(1).max(128),
+        dueDate: z.coerce.date().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
         await assertProjectAccess(db, input.projectId, ctx.user);
+        const [project] = await db.select({ isRock: pmProjects.isRock }).from(pmProjects).where(eq(pmProjects.id, input.projectId)).limit(1);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        if (project.isRock && !input.dueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock milestone section needs a due date." });
+        }
 
         const [[sectionOrder], [taskOrder]] = await Promise.all([
           db.select({ maxSortOrder: sql<number>`coalesce(max(${pmTodoSections.sortOrder}), -1)` })
@@ -777,6 +798,7 @@ export const pmRouter = router({
         const [result] = await db.insert(pmTodoSections).values({
           projectId: input.projectId,
           title: input.title,
+          dueDate: input.dueDate ?? null,
           sortOrder: Math.max(Number(sectionOrder?.maxSortOrder ?? -1), Number(taskOrder?.maxSortOrder ?? -1)) + 1,
         });
         await logActivity(input.projectId, ctx.user.id, "section_created", `Created todo section "${input.title}"`);
@@ -784,17 +806,33 @@ export const pmRouter = router({
       }),
 
     update: protectedProcedure
-      .input(z.object({ id: z.number(), title: z.string().trim().min(1).max(128) }))
+      .input(z.object({
+        id: z.number(),
+        title: z.string().trim().min(1).max(128).optional(),
+        dueDate: z.coerce.date().nullable().optional(),
+      }).refine((input) => input.title !== undefined || input.dueDate !== undefined, { message: "Provide a section title or due date to update." }))
       .mutation(async ({ ctx, input }) => {
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title })
+        const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title, dueDate: pmTodoSections.dueDate })
           .from(pmTodoSections).where(eq(pmTodoSections.id, input.id)).limit(1);
         if (!section) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, section.projectId, ctx.user);
-        await db.update(pmTodoSections).set({ title: input.title }).where(eq(pmTodoSections.id, input.id));
-        await logActivity(section.projectId, ctx.user.id, "section_updated", `Renamed todo section "${section.title}" to "${input.title}"`);
+        const [project] = await db.select({ isRock: pmProjects.isRock }).from(pmProjects).where(eq(pmProjects.id, section.projectId)).limit(1);
+        const finalDueDate = input.dueDate === undefined ? section.dueDate : input.dueDate;
+        if (project?.isRock && !finalDueDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Every Rock milestone section needs a due date." });
+        }
+        const updates: { title?: string; dueDate?: Date | null } = {};
+        if (input.title !== undefined) updates.title = input.title;
+        if (input.dueDate !== undefined) updates.dueDate = input.dueDate;
+        await db.update(pmTodoSections).set(updates).where(eq(pmTodoSections.id, input.id));
+        const details = [
+          input.title !== undefined && input.title !== section.title ? `Renamed section to "${input.title}"` : null,
+          input.dueDate !== undefined ? input.dueDate ? `Set section due date to ${input.dueDate.toISOString().slice(0, 10)}` : "Cleared section due date" : null,
+        ].filter(Boolean).join("; ");
+        if (details) await logActivity(section.projectId, ctx.user.id, "section_updated", details);
         return { success: true };
       }),
 

@@ -87,7 +87,7 @@ function ScorecardTab({ data, onChanged }: { data: any; onChanged: () => void })
 }
 
 function ProjectRockMilestoneSummary({ milestones }: { milestones: any[] }) {
-  return <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project milestone sections</p>{milestones.length ? <div className="mt-2 space-y-2">{milestones.map((milestone) => <div key={milestone.id} className="flex items-center justify-between gap-3 text-sm"><span className="truncate">{milestone.title}</span><span className="shrink-0 text-xs text-muted-foreground">{milestone.completed}/{milestone.total} to-dos</span></div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No milestone sections are available yet.</p>}</div>;
+  return <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project milestone sections</p>{milestones.length ? <div className="mt-2 space-y-2">{milestones.map((milestone) => <div key={milestone.id} className="flex items-center justify-between gap-3 text-sm"><span className="min-w-0 truncate">{milestone.title}</span><span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"><span>{milestone.dueDate ? `Due ${new Date(milestone.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "No due date"}</span><span>{milestone.completed}/{milestone.total} to-dos</span></span></div>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No milestone sections are available yet.</p>}</div>;
 }
 
 function RocksTab({ data, onChanged }: { data: any; onChanged: () => void }) {

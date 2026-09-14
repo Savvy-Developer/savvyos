@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useDroppable } from "@dnd-kit/core";
 import {
+  CalendarDays,
   Check,
   ChevronDown,
   GripVertical,
@@ -26,20 +27,22 @@ export function ProjectTodoSection({
   completedCount,
   displayCount,
   onAddTodo,
-  onRename,
+  onUpdate,
   onDelete,
+  isRock,
   dragHandle,
   acceptingTask,
   taskDragActive,
   children,
 }: {
-  section: { id: number; title: string };
+  section: { id: number; title: string; dueDate?: Date | string | null };
   todoCount: number;
   completedCount: number;
   displayCount: number;
   onAddTodo: () => void;
-  onRename: (title: string) => void;
+  onUpdate: (updates: { title: string; dueDate: Date | null }) => void;
   onDelete: () => void;
+  isRock: boolean;
   dragHandle: any;
   acceptingTask: boolean;
   taskDragActive: boolean;
@@ -48,6 +51,8 @@ export function ProjectTodoSection({
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(section.title);
+  const dueDateValue = section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "";
+  const [dueDate, setDueDate] = useState(dueDateValue);
   const headerDrop = useDroppable({
     id: `section-header-${section.id}`,
     data: { type: "section-header", sectionId: section.id },
@@ -59,18 +64,23 @@ export function ProjectTodoSection({
   }, [section.title]);
 
   useEffect(() => {
+    setDueDate(section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "");
+  }, [section.dueDate]);
+
+  useEffect(() => {
     if (acceptingTask) setExpanded(true);
   }, [acceptingTask]);
 
-  function saveTitle() {
+  function saveSection() {
     const normalizedTitle = title.trim();
-    if (!normalizedTitle) return;
-    onRename(normalizedTitle);
+    if (!normalizedTitle || (isRock && !dueDate)) return;
+    onUpdate({ title: normalizedTitle, dueDate: dueDate ? new Date(`${dueDate}T12:00:00`) : null });
     setEditing(false);
   }
 
   function cancelEditing() {
     setTitle(section.title);
+    setDueDate(section.dueDate ? new Date(section.dueDate).toISOString().slice(0, 10) : "");
     setEditing(false);
   }
 
@@ -100,12 +110,13 @@ export function ProjectTodoSection({
               value={title}
               onChange={event => setTitle(event.target.value)}
               onKeyDown={event => {
-                if (event.key === "Enter") saveTitle();
+                if (event.key === "Enter") saveSection();
                 if (event.key === "Escape") cancelEditing();
               }}
               className="h-7 max-w-sm bg-background text-sm font-semibold"
               autoFocus
             />
+            <Input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className="h-7 w-32 shrink-0 bg-background text-xs" aria-label="Section due date" required={isRock} />
             <Badge
               variant="secondary"
               className="shrink-0 text-[11px]"
@@ -131,6 +142,7 @@ export function ProjectTodoSection({
               <span className="truncate text-sm font-semibold">
                 {section.title}
               </span>
+              <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", dueDate ? "bg-muted text-muted-foreground" : isRock ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}><CalendarDays className="h-3 w-3" />{dueDate ? `Due ${new Date(`${dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : isRock ? "Due date required" : "No due date"}</span>
               <Badge
                 variant="secondary"
                 className="shrink-0 text-[11px]"
@@ -150,10 +162,10 @@ export function ProjectTodoSection({
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
-                onClick={saveTitle}
-                disabled={!title.trim()}
-                aria-label="Save section title"
-                title="Save section title"
+                onClick={saveSection}
+                disabled={!title.trim() || (isRock && !dueDate)}
+                aria-label="Save section"
+                title="Save section"
               >
                 <Check className="h-3.5 w-3.5" />
               </Button>
@@ -177,8 +189,8 @@ export function ProjectTodoSection({
                 variant="ghost"
                 className="h-7 w-7"
                 onClick={() => setEditing(true)}
-                aria-label={`Rename ${section.title}`}
-                title="Rename section"
+                aria-label={`Edit ${section.title}`}
+                title="Edit section"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>

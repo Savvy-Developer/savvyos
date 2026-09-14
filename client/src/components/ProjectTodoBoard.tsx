@@ -46,6 +46,7 @@ type TodoRow = {
 type SectionRow = {
   id: number;
   title: string;
+  dueDate?: Date | string | null;
   sortOrder: number;
   createdAt?: Date | string | null;
 };
@@ -398,11 +399,12 @@ function SortableSectionRow({
   completedCount,
   displayCount,
   onAddTodo,
-  onRename,
+  onUpdate,
   onDelete,
   children,
-    disabled,
-    acceptingTask,
+  isRock,
+  disabled,
+  acceptingTask,
     freezeDuringTaskDrag,
     taskDragActive,
 }: {
@@ -412,9 +414,10 @@ function SortableSectionRow({
   completedCount: number;
   displayCount: number;
   onAddTodo: () => void;
-  onRename: (title: string) => void;
+  onUpdate: (updates: { title: string; dueDate: Date | null }) => void;
   onDelete: () => void;
   children: ReactNode;
+  isRock: boolean;
   disabled: boolean;
   acceptingTask: boolean;
   freezeDuringTaskDrag: boolean;
@@ -445,8 +448,9 @@ function SortableSectionRow({
         completedCount={completedCount}
         displayCount={displayCount}
         onAddTodo={onAddTodo}
-        onRename={onRename}
+        onUpdate={onUpdate}
         onDelete={onDelete}
+        isRock={isRock}
         dragHandle={{
           setActivatorNodeRef: sortable.setActivatorNodeRef,
           attributes: sortable.attributes,
@@ -535,8 +539,9 @@ export function ProjectTodoBoard({
   showCompleted,
   renderTodo,
   onAddTodo,
-  onRenameSection,
+  onUpdateSection,
   onDeleteSection,
+  isRock,
   onLayoutChange,
   saving,
 }: {
@@ -545,10 +550,11 @@ export function ProjectTodoBoard({
   showCompleted: boolean;
   renderTodo: (todo: TodoRow, dragHandle?: any) => ReactNode;
   onAddTodo: (sectionId: number) => void;
-  onRenameSection: (sectionId: number, title: string) => void;
+  onUpdateSection: (sectionId: number, updates: { title: string; dueDate: Date | null }) => void;
   onDeleteSection: (section: SectionRow) => void;
   onLayoutChange: (layout: ProjectTodoLayoutItem[]) => Promise<unknown>;
   saving: boolean;
+  isRock: boolean;
 }) {
   const incomingLayout = useMemo(
     () => buildProjectTodoLayout(sections, todos),
@@ -693,9 +699,10 @@ export function ProjectTodoBoard({
         completedCount={sectionTodos.filter(todo => todo.completed).length}
         displayCount={visibleTaskIds.length}
         onAddTodo={() => onAddTodo(section.id)}
-        onRename={title => onRenameSection(section.id, title)}
-        onDelete={() => onDeleteSection(section)}
-        disabled={saving}
+          onUpdate={updates => onUpdateSection(section.id, updates)}
+          onDelete={() => onDeleteSection(section)}
+          isRock={isRock}
+          disabled={saving}
         acceptingTask={isTaskReadyForSection}
         freezeDuringTaskDrag={activeDrag?.type === "task"}
         taskDragActive={activeDrag?.type === "task"}
