@@ -1239,6 +1239,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           ...employmentFilteredNavGroups,
         ]
       : employmentFilteredNavGroups;
+  const pulseScopedNavGroups = isPulsePath
+    ? sidebarNavGroups.map((group) => ({ ...group, items: group.items.filter((item) => !item.path.startsWith("/pto")) })).filter((group) => group.items.length > 0)
+    : sidebarNavGroups;
   const rankedCommandItems = availableAdminNavItems.sort((left, right) => {
     const usageDifference =
       Number(adminPreferenceByPath.get(right.item.path)?.viewCount ?? 0) -
@@ -1272,7 +1275,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarWidth = collapsed ? "w-[56px]" : "w-[240px]";
 
   const navProps = {
-    navGroups: sidebarNavGroups,
+    navGroups: pulseScopedNavGroups,
     currentPath,
     collapsed,
     user: {
