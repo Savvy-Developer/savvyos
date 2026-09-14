@@ -395,6 +395,7 @@ function SortableSectionRow({
   children,
   disabled,
   acceptingTask,
+  freezeDuringTaskDrag,
 }: {
   section: SectionRow;
   taskIds: number[];
@@ -407,6 +408,7 @@ function SortableSectionRow({
   children: ReactNode;
   disabled: boolean;
   acceptingTask: boolean;
+  freezeDuringTaskDrag: boolean;
 }) {
   const sortable = useSortable({
     id: sectionSortableId(section.id),
@@ -417,8 +419,8 @@ function SortableSectionRow({
     disabled,
   });
   const style = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
+    transform: freezeDuringTaskDrag ? undefined : CSS.Transform.toString(sortable.transform),
+    transition: freezeDuringTaskDrag ? undefined : sortable.transition,
   };
 
   return (
@@ -497,10 +499,10 @@ function RootDropSlot({
   const droppable = useDroppable({
     id: `root-slot-${index}`,
     data: { type: "root-slot", index } satisfies ProjectTodoDragData,
-    disabled: !activeDrag || activeDrag.type === "container",
+    disabled: !activeDrag || activeDrag.type !== "section",
   });
 
-  if (!activeDrag || activeDrag.type === "container") return null;
+  if (!activeDrag || activeDrag.type !== "section") return null;
   return (
     <div
       ref={droppable.setNodeRef}
@@ -678,6 +680,7 @@ export function ProjectTodoBoard({
         onDelete={() => onDeleteSection(section)}
         disabled={saving}
         acceptingTask={isTaskReadyForSection}
+        freezeDuringTaskDrag={activeDrag?.type === "task"}
       >
         {visibleTaskIds.map(taskId => {
           const todo = todoById.get(taskId);
