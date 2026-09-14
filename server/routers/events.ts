@@ -3,11 +3,13 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   eventAlerts,
+  eventExpenses,
   eventExclusivityClaims,
   eventHeadcountComponents,
   eventObligations,
   eventPortfolio,
   eventSponsorAsks,
+  eventSponsorDeliverables,
   eventSponsors,
   eventSwoogoSyncActivity,
   eventUnaffiliatedContacts,
@@ -16,6 +18,10 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getSwoogoConfigurationStatus, swoogoGet } from "../swoogoEvents";
 import { normalizeSwoogoType } from "../eventsLogic";
+import {
+  ensureEventExpenseOpeningBalances,
+  recalculateEventCommittedExpense,
+} from "../eventsFinancials";
 import { canAdminUsePermission } from "./permissions";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
@@ -831,12 +837,15 @@ async function ensureSeedData(db: any) {
 
 async function overviewData(db: any) {
   await ensureSeedData(db);
+  await ensureEventExpenseOpeningBalances(db);
   const [
     events,
     components,
     obligations,
     sponsors,
     asks,
+    expenses,
+    deliverables,
     claims,
     unaffiliated,
     alerts,
@@ -856,6 +865,17 @@ async function overviewData(db: any) {
       .orderBy(asc(eventObligations.dueDate), asc(eventObligations.id)),
     db.select().from(eventSponsors).orderBy(asc(eventSponsors.companyName)),
     db.select().from(eventSponsorAsks),
+    db
+      .select()
+      .from(eventExpenses)
+      .orderBy(desc(eventExpenses.expenseDate), desc(eventExpenses.id)),
+    db
+      .select()
+      .from(eventSponsorDeliverables)
+      .orderBy(
+        asc(eventSponsorDeliverables.dueDate),
+        asc(eventSponsorDeliverables.id)
+      ),
     db
       .select()
       .from(eventExclusivityClaims)
@@ -893,6 +913,18 @@ async function overviewData(db: any) {
       ...(asksBySponsor.get(ask.sponsorId) ?? []),
       ask,
     ]);
+  const expensesByEvent = new Map<number, any[]>();
+  for (const expense of expenses)
+    expensesByEvent.set(expense.eventId, [
+      ...(expensesByEvent.get(expense.eventId) ?? []),
+      expense,
+    ]);
+  const deliverablesByAsk = new Map<number, any[]>();
+  for (const deliverable of deliverables)
+    deliverablesByAsk.set(deliverable.sponsorAskId, [
+      ...(deliverablesByAsk.get(deliverable.sponsorAskId) ?? []),
+      deliverable,
+    ]);
   const sponsorById = new Map(
     sponsors.map((sponsor: any) => [sponsor.id, sponsor])
   );
@@ -902,10 +934,14 @@ async function overviewData(db: any) {
       ...event,
       components: componentsByEvent.get(event.id) ?? [],
       obligations: obligationsByEvent.get(event.id) ?? [],
+      expenses: expensesByEvent.get(event.id) ?? [],
     })),
     sponsors: sponsors.map((sponsor: any) => ({
       ...sponsor,
-      asks: asksBySponsor.get(sponsor.id) ?? [],
+      asks: (asksBySponsor.get(sponsor.id) ?? []).map((ask: any) => ({
+        ...ask,
+        deliverables: deliverablesByAsk.get(ask.id) ?? [],
+      })),
     })),
     claims: claims.map((claim: any) => ({
       ...claim,
@@ -1668,6 +1704,209 @@ export const eventsRouter = router({
         );
       versionedUpdate(result);
       if (existing) await recalculateEventSponsorRevenue(db, existing.eventId);
+      return { success: true };
+    }),
+
+  createExpense: protectedProcedure
+    .input(
+      z.object({
+        eventId: z.number().int().positive(),
+        expenseDate: isoDate.nullable().default(null),
+        vendorName: nullableText(255).default(null),
+        description: z.string().trim().min(1).max(500),
+        category: z.string().trim().min(1).max(128).default("Other"),
+        amount: nullableMoney.default(null),
+        status: z
+          .enum(["planned", "invoiced", "paid", "reimbursed", "void"])
+          .default("planned"),
+        invoiceFileName: nullableText(500).default(null),
+        invoiceFileUrl: nullableText(20_000).default(null),
+        invoiceFileKey: nullableText(1024).default(null),
+        invoiceMimeType: nullableText(255).default(null),
+        categorizationNote: nullableText(500).default(null),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const [result] = await db.insert(eventExpenses).values({
+        ...input,
+        expenseDate: sqlDate(input.expenseDate),
+        amount: input.amount === null ? null : String(input.amount),
+      });
+      await recalculateEventCommittedExpense(db, input.eventId);
+      return { id: Number(result.insertId), version: 1 };
+    }),
+
+  updateExpense: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+        patch: z.object({
+          eventId: z.number().int().positive().optional(),
+          expenseDate: isoDate.nullable().optional(),
+          vendorName: nullableText(255).optional(),
+          description: z.string().trim().min(1).max(500).optional(),
+          category: z.string().trim().min(1).max(128).optional(),
+          amount: nullableMoney.optional(),
+          status: z
+            .enum(["planned", "invoiced", "paid", "reimbursed", "void"])
+            .optional(),
+          invoiceFileName: nullableText(500).optional(),
+          invoiceFileUrl: nullableText(20_000).optional(),
+          invoiceFileKey: nullableText(1024).optional(),
+          invoiceMimeType: nullableText(255).optional(),
+          categorizationNote: nullableText(500).optional(),
+        }),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const [existing] = await db
+        .select({ eventId: eventExpenses.eventId })
+        .from(eventExpenses)
+        .where(eq(eventExpenses.id, input.id))
+        .limit(1);
+      const patch: Record<string, any> = { ...input.patch };
+      if (input.patch.expenseDate !== undefined)
+        patch.expenseDate = sqlDate(input.patch.expenseDate);
+      if (input.patch.amount !== undefined)
+        patch.amount =
+          input.patch.amount === null ? null : String(input.patch.amount);
+      const result = await db
+        .update(eventExpenses)
+        .set({ ...patch, version: sql`${eventExpenses.version} + 1` })
+        .where(
+          and(
+            eq(eventExpenses.id, input.id),
+            eq(eventExpenses.version, input.version)
+          )
+        );
+      versionedUpdate(result);
+      if (existing) {
+        await recalculateEventCommittedExpense(db, existing.eventId);
+        if (
+          input.patch.eventId !== undefined &&
+          input.patch.eventId !== existing.eventId
+        )
+          await recalculateEventCommittedExpense(db, input.patch.eventId);
+      }
+      return { version: input.version + 1 };
+    }),
+
+  deleteExpense: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const [existing] = await db
+        .select({ eventId: eventExpenses.eventId })
+        .from(eventExpenses)
+        .where(eq(eventExpenses.id, input.id))
+        .limit(1);
+      const result = await db
+        .delete(eventExpenses)
+        .where(
+          and(
+            eq(eventExpenses.id, input.id),
+            eq(eventExpenses.version, input.version)
+          )
+        );
+      versionedUpdate(result);
+      if (existing)
+        await recalculateEventCommittedExpense(db, existing.eventId);
+      return { success: true };
+    }),
+
+  createDeliverable: protectedProcedure
+    .input(
+      z.object({
+        sponsorAskId: z.number().int().positive(),
+        title: z.string().trim().min(1).max(500),
+        description: nullableText(20_000).default(null),
+        status: z
+          .enum(["promised", "in_progress", "delivered", "waived"])
+          .default("promised"),
+        dueDate: isoDate.nullable().default(null),
+        ownerName: nullableText(255).default(null),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const [result] = await db.insert(eventSponsorDeliverables).values({
+        ...input,
+        dueDate: sqlDate(input.dueDate),
+        deliveredAt: input.status === "delivered" ? new Date() : null,
+      });
+      return { id: Number(result.insertId), version: 1 };
+    }),
+
+  updateDeliverable: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+        patch: z.object({
+          title: z.string().trim().min(1).max(500).optional(),
+          description: nullableText(20_000).optional(),
+          status: z
+            .enum(["promised", "in_progress", "delivered", "waived"])
+            .optional(),
+          dueDate: isoDate.nullable().optional(),
+          ownerName: nullableText(255).optional(),
+        }),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const patch: Record<string, any> = { ...input.patch };
+      if (input.patch.dueDate !== undefined)
+        patch.dueDate = sqlDate(input.patch.dueDate);
+      if (input.patch.status === "delivered") patch.deliveredAt = new Date();
+      const result = await db
+        .update(eventSponsorDeliverables)
+        .set({
+          ...patch,
+          version: sql`${eventSponsorDeliverables.version} + 1`,
+        })
+        .where(
+          and(
+            eq(eventSponsorDeliverables.id, input.id),
+            eq(eventSponsorDeliverables.version, input.version)
+          )
+        );
+      versionedUpdate(result);
+      return { version: input.version + 1 };
+    }),
+
+  deleteDeliverable: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        version: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireEventsAccess(ctx.user);
+      const db = await database();
+      const result = await db
+        .delete(eventSponsorDeliverables)
+        .where(
+          and(
+            eq(eventSponsorDeliverables.id, input.id),
+            eq(eventSponsorDeliverables.version, input.version)
+          )
+        );
+      versionedUpdate(result);
       return { success: true };
     }),
 

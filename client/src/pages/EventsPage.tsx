@@ -43,6 +43,7 @@ import {
   CircleDollarSign,
   Clock3,
   ExternalLink,
+  FileText,
   Loader2,
   Plus,
   Pencil,
@@ -50,6 +51,7 @@ import {
   Settings2,
   ShieldAlert,
   Trash2,
+  Upload,
   UsersRound,
 } from "lucide-react";
 
@@ -124,6 +126,19 @@ const ASK_STAGE_OPTIONS = [
   ["target", "Target"],
   ["partner", "Cost share"],
   ["speaker", "Speaker"],
+] as const;
+const EXPENSE_STATUS_OPTIONS = [
+  ["planned", "Planned"],
+  ["invoiced", "Invoiced"],
+  ["paid", "Paid"],
+  ["reimbursed", "Reimbursed"],
+  ["void", "Void"],
+] as const;
+const DELIVERABLE_STATUS_OPTIONS = [
+  ["promised", "Promised"],
+  ["in_progress", "In progress"],
+  ["delivered", "Delivered"],
+  ["waived", "Waived"],
 ] as const;
 
 function asNumber(value: unknown): number | null {
@@ -1116,6 +1131,7 @@ function EventProfileDialog({
                   <ProfileDatum
                     label="Committed cost"
                     value={money(event.committedCost)}
+                    detail={`${(event.expenses ?? []).length} expense ledger line${(event.expenses ?? []).length === 1 ? "" : "s"}`}
                   />
                   <ProfileDatum
                     label="Revenue share"
@@ -1250,6 +1266,12 @@ function EventProfileDialog({
                             </p>
                             <p className="break-words text-xs text-muted-foreground">
                               {sponsor.category || "Uncategorized"}
+                              {ask.sponsorshipTier
+                                ? ` · ${ask.sponsorshipTier}`
+                                : ""}
+                              {(ask.deliverables ?? []).length
+                                ? ` · ${(ask.deliverables ?? []).filter((deliverable: any) => deliverable.status === "delivered").length}/${(ask.deliverables ?? []).length} deliverables delivered`
+                                : " · No deliverables added"}
                             </p>
                           </div>
                           <div className="text-right">
@@ -1876,6 +1898,444 @@ function Radar({
   );
 }
 
+function expenseStatusClass(status: string | null | undefined) {
+  const classes: Record<string, string> = {
+    planned: "border-slate-200 bg-slate-50 text-slate-700",
+    invoiced: "border-amber-200 bg-amber-50 text-amber-700",
+    paid: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    reimbursed: "border-cyan-200 bg-cyan-50 text-cyan-700",
+    void: "border-slate-200 bg-slate-100 text-slate-500",
+  };
+  return classes[status ?? ""] ?? classes.planned;
+}
+
+function deliverableStatusClass(status: string | null | undefined) {
+  const classes: Record<string, string> = {
+    promised: "border-slate-200 bg-slate-50 text-slate-700",
+    in_progress: "border-amber-200 bg-amber-50 text-amber-700",
+    delivered: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    waived: "border-violet-200 bg-violet-50 text-violet-700",
+  };
+  return classes[status ?? ""] ?? classes.promised;
+}
+
+function DeliverableTracker({
+  ask,
+  createDeliverable,
+  updateDeliverable,
+  deleteDeliverable,
+}: {
+  ask: any;
+  createDeliverable: (input: any) => void;
+  updateDeliverable: (deliverable: any, patch: any) => void;
+  deleteDeliverable: (deliverable: any) => void;
+}) {
+  const deliverables = ask.deliverables ?? [];
+  const delivered = deliverables.filter(
+    (deliverable: any) => deliverable.status === "delivered"
+  ).length;
+  const outstanding = deliverables.filter(
+    (deliverable: any) => !["delivered", "waived"].includes(deliverable.status)
+  ).length;
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-3">
+        <div>
+          <p className="text-sm font-semibold">Sponsor deliverables</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {deliverables.length
+              ? `${delivered} delivered · ${outstanding} outstanding`
+              : "Add what was promised to this sponsor for this event."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            createDeliverable({
+              sponsorAskId: ask.id,
+              title: "New deliverable",
+              status: "promised",
+            })
+          }
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Add deliverable
+        </Button>
+      </div>
+      {deliverables.length ? (
+        <div className="divide-y">
+          {deliverables.map((deliverable: any) => (
+            <div
+              key={deliverable.id}
+              className="grid min-w-0 gap-3 p-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(120px,0.65fr)_minmax(110px,0.55fr)_minmax(0,0.7fr)_auto] lg:items-center"
+            >
+              <div className="min-w-0">
+                <InlineText
+                  value={deliverable.title}
+                  onSave={title => {
+                    if (title) updateDeliverable(deliverable, { title });
+                  }}
+                  ariaLabel="deliverable title"
+                  className="block max-w-full font-medium not-italic"
+                />
+                <InlineText
+                  value={deliverable.description}
+                  onSave={description =>
+                    updateDeliverable(deliverable, { description })
+                  }
+                  placeholder="Add details"
+                  ariaLabel={`${deliverable.title} details`}
+                  className="mt-1 block max-w-full text-xs not-italic"
+                />
+              </div>
+              <InlineSelect
+                value={deliverable.status}
+                options={DELIVERABLE_STATUS_OPTIONS}
+                onSave={status => updateDeliverable(deliverable, { status })}
+                ariaLabel={`${deliverable.title} status`}
+                className={`w-full border px-2 ${deliverableStatusClass(deliverable.status)}`}
+              />
+              <InlineDate
+                value={deliverable.dueDate}
+                onSave={dueDate => updateDeliverable(deliverable, { dueDate })}
+                placeholder="No due date"
+                ariaLabel={`${deliverable.title} due date`}
+              />
+              <InlineText
+                value={deliverable.ownerName}
+                onSave={ownerName =>
+                  updateDeliverable(deliverable, { ownerName })
+                }
+                placeholder="Assign owner"
+                ariaLabel={`${deliverable.title} owner`}
+                className="block max-w-full not-italic"
+              />
+              <DeleteButton
+                label={deliverable.title}
+                onDelete={() => deleteDeliverable(deliverable)}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExpenseTracker({
+  events,
+  createExpense,
+  updateExpense,
+  deleteExpense,
+  uploadInvoice,
+}: {
+  events: EventRecord[];
+  createExpense: (input: any) => void;
+  updateExpense: (expense: any, patch: any) => void;
+  deleteExpense: (expense: any) => void;
+  uploadInvoice: (eventId: number, file: File) => Promise<void>;
+}) {
+  const [scope, setScope] = useState("all");
+  const [entryEventId, setEntryEventId] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!events.length) return;
+    const valid = events.some(event => String(event.id) === entryEventId);
+    if (!valid) setEntryEventId(String(events[0].id));
+  }, [events, entryEventId]);
+
+  const eventById = new Map(events.map(event => [Number(event.id), event]));
+  const rows = events
+    .flatMap(event =>
+      (event.expenses ?? []).map((expense: any) => ({ event, expense }))
+    )
+    .filter(
+      ({ event }) => scope === "all" || String(event.id) === String(scope)
+    );
+  const activeExpenses = rows.filter(
+    ({ expense }) => expense.status !== "void"
+  );
+  const total = activeExpenses.reduce(
+    (sum, { expense }) => sum + (asNumber(expense.amount) ?? 0),
+    0
+  );
+  const paid = rows
+    .filter(({ expense }) => ["paid", "reimbursed"].includes(expense.status))
+    .reduce((sum, { expense }) => sum + (asNumber(expense.amount) ?? 0), 0);
+  const invoiceCount = rows.filter(
+    ({ expense }) => expense.invoiceFileUrl
+  ).length;
+  const targetEvent = eventById.get(Number(entryEventId));
+  const scopeLabel =
+    scope === "all"
+      ? "Portfolio-level expense ledger"
+      : (eventById.get(Number(scope))?.name ?? "Event expense ledger");
+
+  const handleInvoice = async (file: File) => {
+    if (!targetEvent) {
+      toast.error("Select the event that owns this invoice first.");
+      return;
+    }
+    setIsUploading(true);
+    try {
+      await uploadInvoice(targetEvent.id, file);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <section className="flex flex-col gap-4 rounded-xl border bg-slate-50/70 p-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Expenses</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {scopeLabel}. Every line is tied to a single event, while portfolio
+            view rolls the full event ledger together.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:w-[520px]">
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              View ledger
+            </span>
+            <Select
+              value={scope}
+              onValueChange={value => {
+                setScope(value);
+                if (value !== "all") setEntryEventId(value);
+              }}
+            >
+              <SelectTrigger aria-label="Expense ledger view">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All events</SelectItem>
+                {events.map(event => (
+                  <SelectItem key={event.id} value={String(event.id)}>
+                    {event.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              Add invoice or expense to
+            </span>
+            <Select value={entryEventId} onValueChange={setEntryEventId}>
+              <SelectTrigger aria-label="Event for new expense">
+                <SelectValue placeholder="Select event" />
+              </SelectTrigger>
+              <SelectContent>
+                {events.map(event => (
+                  <SelectItem key={event.id} value={String(event.id)}>
+                    {event.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        </div>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric
+          label="Expenses in view"
+          value={money(total)}
+          detail={`${activeExpenses.length} active line${activeExpenses.length === 1 ? "" : "s"}`}
+        />
+        <Metric
+          label="Paid or reimbursed"
+          value={money(paid)}
+          detail="Cash status from the expense ledger"
+        />
+        <Metric
+          label="Open or invoiced"
+          value={money(Math.max(total - paid, 0))}
+          detail="Planned or invoiced spend"
+        />
+        <Metric
+          label="Attached invoices"
+          value={String(invoiceCount)}
+          detail="Stored against event expenses"
+        />
+      </section>
+
+      <section className="flex flex-wrap justify-end gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png,image/webp"
+          onChange={event => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void handleInvoice(file);
+          }}
+        />
+        <Button
+          variant="outline"
+          disabled={!targetEvent || isUploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="mr-1.5 h-4 w-4" />
+          {isUploading ? "Uploading invoice…" : "Upload invoice"}
+        </Button>
+        <Button
+          disabled={!targetEvent}
+          onClick={() => {
+            if (!targetEvent) return;
+            createExpense({
+              eventId: targetEvent.id,
+              description: "New expense",
+              category: "Other",
+              status: "planned",
+            });
+          }}
+        >
+          <Plus className="mr-1.5 h-4 w-4" />
+          Add expense
+        </Button>
+      </section>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-sm">
+            <thead className="bg-slate-950 text-left text-xs uppercase tracking-wide text-slate-100">
+              <tr>
+                {scope === "all" ? <th className="px-3 py-3">Event</th> : null}
+                <th className="px-3 py-3">Date</th>
+                <th className="px-3 py-3">Vendor</th>
+                <th className="px-3 py-3">Expense</th>
+                <th className="px-3 py-3">Category</th>
+                <th className="px-3 py-3 text-right">Amount</th>
+                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">Invoice</th>
+                <th className="w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? (
+                rows.map(({ event, expense }) => (
+                  <tr key={expense.id} className="border-b align-top">
+                    {scope === "all" ? (
+                      <td className="max-w-48 px-3 py-3 font-medium">
+                        <span className="block break-words">{event.name}</span>
+                      </td>
+                    ) : null}
+                    <td className="px-3 py-3">
+                      <InlineDate
+                        value={expense.expenseDate}
+                        onSave={expenseDate =>
+                          updateExpense(expense, { expenseDate })
+                        }
+                        ariaLabel={`${expense.description} expense date`}
+                      />
+                    </td>
+                    <td className="max-w-44 px-3 py-3">
+                      <InlineText
+                        value={expense.vendorName}
+                        onSave={vendorName =>
+                          updateExpense(expense, { vendorName })
+                        }
+                        placeholder="Add vendor"
+                        ariaLabel={`${expense.description} vendor`}
+                        className="block max-w-full break-words not-italic"
+                      />
+                    </td>
+                    <td className="max-w-56 px-3 py-3">
+                      <InlineText
+                        value={expense.description}
+                        onSave={description => {
+                          if (description)
+                            updateExpense(expense, { description });
+                        }}
+                        ariaLabel="expense description"
+                        className="block max-w-full break-words font-medium not-italic"
+                      />
+                      {expense.categorizationNote ? (
+                        <p className="mt-1 max-w-56 text-xs leading-relaxed text-muted-foreground">
+                          {expense.categorizationNote}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="max-w-44 px-3 py-3">
+                      <InlineText
+                        value={expense.category}
+                        onSave={category => {
+                          if (category) updateExpense(expense, { category });
+                        }}
+                        ariaLabel={`${expense.description} category`}
+                        className="block max-w-full break-words not-italic"
+                      />
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <InlineNumber
+                        value={expense.amount}
+                        onSave={amount => updateExpense(expense, { amount })}
+                        prefix="$"
+                        placeholder="Set amount"
+                        ariaLabel={`${expense.description} amount`}
+                      />
+                    </td>
+                    <td className="px-3 py-3">
+                      <InlineSelect
+                        value={expense.status}
+                        options={EXPENSE_STATUS_OPTIONS}
+                        onSave={status => updateExpense(expense, { status })}
+                        ariaLabel={`${expense.description} status`}
+                        className={`border px-2 ${expenseStatusClass(expense.status)}`}
+                      />
+                    </td>
+                    <td className="px-3 py-3">
+                      {expense.invoiceFileUrl ? (
+                        <a
+                          href={expense.invoiceFileUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded text-cyan-700 hover:underline"
+                        >
+                          <FileText className="h-4 w-4" />
+                          <span className="max-w-32 truncate">
+                            {expense.invoiceFileName || "Open invoice"}
+                          </span>
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground">No file</span>
+                      )}
+                    </td>
+                    <td>
+                      <DeleteButton
+                        label={expense.description}
+                        onDelete={() => deleteExpense(expense)}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={scope === "all" ? 9 : 8}
+                    className="px-4 py-12 text-center text-sm text-muted-foreground"
+                  >
+                    No expenses in this view. Add a line or upload an invoice to
+                    begin the ledger.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 type SponsorCartItem = {
   eventId: number;
   sponsorshipTier: string;
@@ -1891,6 +2351,9 @@ function SponsorProfileDialog({
   deleteSponsor,
   upsertAsk,
   deleteAsk,
+  createDeliverable,
+  updateDeliverable,
+  deleteDeliverable,
 }: {
   sponsor: SponsorRecord | null;
   events: EventRecord[];
@@ -1904,6 +2367,9 @@ function SponsorProfileDialog({
     patch: any
   ) => void;
   deleteAsk: (ask: any) => void;
+  createDeliverable: (input: any) => void;
+  updateDeliverable: (deliverable: any, patch: any) => void;
+  deleteDeliverable: (deliverable: any) => void;
 }) {
   const [statusTab, setStatusTab] = useState("proposed");
   const [cart, setCart] = useState<SponsorCartItem[]>([]);
@@ -2041,6 +2507,12 @@ function SponsorProfileDialog({
             />
           </label>
         </div>
+        <DeliverableTracker
+          ask={ask}
+          createDeliverable={createDeliverable}
+          updateDeliverable={updateDeliverable}
+          deleteDeliverable={deleteDeliverable}
+        />
       </div>
     );
   };
@@ -2321,6 +2793,9 @@ function SponsorGrid({
   deleteSponsor,
   upsertAsk,
   deleteAsk,
+  createDeliverable,
+  updateDeliverable,
+  deleteDeliverable,
   createSponsor,
   updateClaim,
   deleteClaim,
@@ -2337,6 +2812,9 @@ function SponsorGrid({
   deleteSponsor: (sponsor: any) => void;
   upsertAsk: (sponsor: any, event: any, ask: any, patch: any) => void;
   deleteAsk: (ask: any) => void;
+  createDeliverable: (input: any) => void;
+  updateDeliverable: (deliverable: any, patch: any) => void;
+  deleteDeliverable: (deliverable: any) => void;
   createSponsor: () => void;
   updateClaim: (claim: any, patch: any) => void;
   deleteClaim: (claim: any) => void;
@@ -2641,6 +3119,9 @@ function SponsorGrid({
         deleteSponsor={deleteSponsor}
         upsertAsk={upsertAsk}
         deleteAsk={deleteAsk}
+        createDeliverable={createDeliverable}
+        updateDeliverable={updateDeliverable}
+        deleteDeliverable={deleteDeliverable}
       />
     </div>
   );
@@ -3496,6 +3977,18 @@ export default function EventsPage() {
     trpc.events.upsertSponsorAsk.useMutation(mutationOptions);
   const deleteAskMutation =
     trpc.events.deleteSponsorAsk.useMutation(mutationOptions);
+  const createExpenseMutation =
+    trpc.events.createExpense.useMutation(mutationOptions);
+  const updateExpenseMutation =
+    trpc.events.updateExpense.useMutation(mutationOptions);
+  const deleteExpenseMutation =
+    trpc.events.deleteExpense.useMutation(mutationOptions);
+  const createDeliverableMutation =
+    trpc.events.createDeliverable.useMutation(mutationOptions);
+  const updateDeliverableMutation =
+    trpc.events.updateDeliverable.useMutation(mutationOptions);
+  const deleteDeliverableMutation =
+    trpc.events.deleteDeliverable.useMutation(mutationOptions);
   const createClaimMutation =
     trpc.events.createClaim.useMutation(mutationOptions);
   const updateClaimMutation =
@@ -3632,6 +4125,39 @@ export default function EventsPage() {
     });
   const deleteAsk = (ask: any) =>
     deleteAskMutation.mutate({ id: ask.id, version: ask.version });
+  const updateExpense = (expense: any, patch: any) =>
+    updateExpenseMutation.mutate({
+      id: expense.id,
+      version: expense.version,
+      patch,
+    });
+  const deleteExpense = (expense: any) =>
+    deleteExpenseMutation.mutate({ id: expense.id, version: expense.version });
+  const updateDeliverable = (deliverable: any, patch: any) =>
+    updateDeliverableMutation.mutate({
+      id: deliverable.id,
+      version: deliverable.version,
+      patch,
+    });
+  const deleteDeliverable = (deliverable: any) =>
+    deleteDeliverableMutation.mutate({
+      id: deliverable.id,
+      version: deliverable.version,
+    });
+  const uploadEventInvoice = async (eventId: number, file: File) => {
+    const form = new FormData();
+    form.append("eventId", String(eventId));
+    form.append("file", file);
+    const response = await fetch("/api/events/upload-invoice", {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error ?? "Invoice upload failed.");
+    toast.success("Invoice uploaded and added to the event expense ledger.");
+    refresh();
+  };
   const updateClaim = (claim: any, patch: any) =>
     updateClaimMutation.mutate({ id: claim.id, version: claim.version, patch });
   const deleteClaim = (claim: any) =>
@@ -3740,6 +4266,10 @@ export default function EventsPage() {
             <Clock3 className="mr-1.5 h-4 w-4" />
             Timeline
           </TabsTrigger>
+          <TabsTrigger value="expenses">
+            <FileText className="mr-1.5 h-4 w-4" />
+            Expenses
+          </TabsTrigger>
           <TabsTrigger value="sponsors">
             <UsersRound className="mr-1.5 h-4 w-4" />
             Sponsors{" "}
@@ -3800,6 +4330,22 @@ export default function EventsPage() {
             onOpen={event => setProfileEventId(event.id)}
           />
         </TabsContent>
+        <TabsContent value="expenses">
+          <ExpenseTracker
+            events={events}
+            createExpense={input => createExpenseMutation.mutate(input)}
+            updateExpense={updateExpense}
+            deleteExpense={deleteExpense}
+            uploadInvoice={async (eventId, file) => {
+              try {
+                await uploadEventInvoice(eventId, file);
+              } catch (error: any) {
+                toast.error(error.message ?? "Invoice upload failed.");
+                throw error;
+              }
+            }}
+          />
+        </TabsContent>
         <TabsContent value="sponsors">
           <SponsorGrid
             events={events}
@@ -3810,6 +4356,9 @@ export default function EventsPage() {
             deleteSponsor={deleteSponsor}
             upsertAsk={upsertAsk}
             deleteAsk={deleteAsk}
+            createDeliverable={input => createDeliverableMutation.mutate(input)}
+            updateDeliverable={updateDeliverable}
+            deleteDeliverable={deleteDeliverable}
             createSponsor={() =>
               createSponsorMutation.mutate({ companyName: "New sponsor" })
             }

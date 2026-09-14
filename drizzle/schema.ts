@@ -6369,6 +6369,65 @@ export const eventSponsorAsks = mysqlTable(
 export type EventSponsorAsk = typeof eventSponsorAsks.$inferSelect;
 export type InsertEventSponsorAsk = typeof eventSponsorAsks.$inferInsert;
 
+export const eventExpenses = mysqlTable(
+  "event_expenses",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    eventId: int("eventId")
+      .notNull()
+      .references(() => eventPortfolio.id, { onDelete: "cascade" }),
+    expenseDate: date("expenseDate"),
+    vendorName: varchar("vendorName", { length: 255 }),
+    description: varchar("description", { length: 500 }).notNull(),
+    category: varchar("category", { length: 128 }).notNull().default("Other"),
+    amount: decimal("amount", { precision: 15, scale: 2 }),
+    status: mysqlEnum("status", ["planned", "invoiced", "paid", "reimbursed", "void"])
+      .notNull()
+      .default("planned"),
+    invoiceFileName: varchar("invoiceFileName", { length: 500 }),
+    invoiceFileUrl: text("invoiceFileUrl"),
+    invoiceFileKey: varchar("invoiceFileKey", { length: 1024 }),
+    invoiceMimeType: varchar("invoiceMimeType", { length: 255 }),
+    categorizationNote: varchar("categorizationNote", { length: 500 }),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("event_expenses_event_date_idx").on(table.eventId, table.expenseDate),
+    index("event_expenses_status_idx").on(table.status),
+  ]
+);
+export type EventExpense = typeof eventExpenses.$inferSelect;
+export type InsertEventExpense = typeof eventExpenses.$inferInsert;
+
+export const eventSponsorDeliverables = mysqlTable(
+  "event_sponsor_deliverables",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sponsorAskId: int("sponsorAskId")
+      .notNull()
+      .references(() => eventSponsorAsks.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 500 }).notNull(),
+    description: text("description"),
+    status: mysqlEnum("status", ["promised", "in_progress", "delivered", "waived"])
+      .notNull()
+      .default("promised"),
+    dueDate: date("dueDate"),
+    deliveredAt: timestamp("deliveredAt"),
+    ownerName: varchar("ownerName", { length: 255 }),
+    version: int("version").notNull().default(1),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    index("event_sponsor_deliverables_ask_idx").on(table.sponsorAskId),
+    index("event_sponsor_deliverables_status_idx").on(table.status),
+  ]
+);
+export type EventSponsorDeliverable = typeof eventSponsorDeliverables.$inferSelect;
+export type InsertEventSponsorDeliverable = typeof eventSponsorDeliverables.$inferInsert;
+
 export const eventExclusivityClaims = mysqlTable(
   "event_exclusivity_claims",
   {
