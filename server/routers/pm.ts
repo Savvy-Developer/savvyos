@@ -829,7 +829,7 @@ export const pmRouter = router({
         assertPmAccess(ctx);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId })
+        const [task] = await db.select({ projectId: pmTasks.projectId, parentTaskId: pmTasks.parentTaskId, sectionId: pmTasks.sectionId, title: pmTasks.title })
           .from(pmTasks).where(eq(pmTasks.id, input.id)).limit(1);
         if (!task) throw new TRPCError({ code: "NOT_FOUND" });
         await assertProjectAccess(db, task.projectId, ctx.user);
@@ -840,16 +840,19 @@ export const pmRouter = router({
         };
         let familyIds: number[] | null = null;
         let destinationSortOrder: number | null = null;
+        let destinationSectionTitle: string | null = null;
+        const sectionChanged = sectionId !== undefined && sectionId !== task.sectionId;
         if (sectionId !== undefined) {
           if (task.parentTaskId !== null) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Move the parent todo to move its sub-todos between sections." });
           }
           if (sectionId !== null) {
-            const [section] = await db.select({ projectId: pmTodoSections.projectId })
+            const [section] = await db.select({ projectId: pmTodoSections.projectId, title: pmTodoSections.title })
               .from(pmTodoSections).where(eq(pmTodoSections.id, sectionId)).limit(1);
             if (!section || section.projectId !== task.projectId) {
               throw new TRPCError({ code: "BAD_REQUEST", message: "The selected section must belong to this project." });
             }
+            destinationSectionTitle = section.title;
           }
           const projectTasks = await db.select({ id: pmTasks.id, parentTaskId: pmTasks.parentTaskId })
             .from(pmTasks).where(eq(pmTasks.projectId, task.projectId));
@@ -885,7 +888,7 @@ export const pmRouter = router({
             await transaction.update(pmTasks).set({ sortOrder: destinationSortOrder }).where(eq(pmTasks.id, id));
           }
         });
-        await logActivity(task.projectId, ctx.user.id, "task_updated", "Updated todo", id);
+        await logActivity(task.projectId, ctx.user.id, sectionChanged ? "task_moved" : "task_updated", sectionChanged ? `Moved todo "${task.title}" to ${destinationSectionTitle ? `section "${destinationSectionTitle}"` : "the main To-Do list"}` : "Updated todo", id);
         return { success: true };
       }),
 
