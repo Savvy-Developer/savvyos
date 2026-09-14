@@ -181,6 +181,8 @@ const SEED_EVENTS = [
     headcountGuarantee: 60,
     headcountGuaranteeVendor: "Tin Kitchen",
     workingHeadcount: 68,
+    headcountNote:
+      "Tin Kitchen requires a 60-person minimum; current working count is 68.",
     notes:
       "Ishita signed at 50,000, CSA invoiced at 5,000. Pricing by Mira 2,500 is proposed and is not counted.",
     components: [
@@ -751,6 +753,7 @@ async function ensureSeedData(db: any) {
           : null,
       workingHeadcount:
         "workingHeadcount" in seed ? seed.workingHeadcount : null,
+      headcountNote: "headcountNote" in seed ? seed.headcountNote : null,
       notes: seed.notes,
     });
     const eventId = Number(result[0].insertId);
@@ -1031,6 +1034,7 @@ const eventPatchSchema = z.object({
     .max(1_000_000)
     .nullable()
     .optional(),
+  headcountNote: nullableText(20_000).optional(),
   notes: nullableText(20_000).optional(),
 });
 
@@ -1058,6 +1062,7 @@ function patchEventForDatabase(patch: z.infer<typeof eventPatchSchema>) {
         "registrationPlatform",
         "swoogoEventId",
         "headcountGuaranteeVendor",
+        "headcountNote",
         "notes",
       ].includes(key)
     ) {

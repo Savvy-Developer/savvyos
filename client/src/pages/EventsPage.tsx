@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   format,
-  isValid,
-  parseISO,
   startOfMonth,
   addMonths,
   differenceInCalendarDays,
@@ -176,6 +174,7 @@ function money(value: unknown) {
     : new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: "USD",
+        minimumFractionDigits: Number.isInteger(parsed) ? 0 : 2,
         maximumFractionDigits: 2,
       }).format(parsed);
 }
@@ -249,13 +248,26 @@ function eventFinancials(event: EventRecord, sponsors: SponsorRecord[]) {
   };
 }
 
-function dateValue(value: unknown) {
+/** Date columns are calendar dates, not UTC instants. Rebuild at local noon so
+ * browser time zones cannot roll an event or deadline backward one day. */
+function dateKey(value: unknown): string | null {
   if (!value) return null;
-  const parsed =
-    typeof value === "string"
-      ? parseISO(value.slice(0, 10))
-      : new Date(value as string);
-  return isValid(parsed) ? parsed : null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value));
+  return match?.[1] ?? null;
+}
+
+function dateValue(value: unknown) {
+  const key = dateKey(value);
+  if (!key) return null;
+  const [year, month, day] = key.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day, 12, 0, 0, 0);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function dateLabel(value: unknown, includeYear = true) {
@@ -441,7 +453,10 @@ function InlineNumber({
   const text =
     numeric === null
       ? placeholder
-      : `${prefix}${numeric.toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
+      : `${prefix}${numeric.toLocaleString("en-US", {
+          minimumFractionDigits: Number.isInteger(numeric) ? 0 : 2,
+          maximumFractionDigits: 2,
+        })}${suffix}`;
   return (
     <button
       type="button"
@@ -465,7 +480,7 @@ function InlineDate({
   placeholder?: string;
   ariaLabel: string;
 }) {
-  const iso = value ? String(value).slice(0, 10) : "";
+  const iso = dateKey(value) ?? "";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(iso);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -640,8 +655,8 @@ function HeadcountCard({
         <CardTitle className="text-base">{event.name} headcount</CardTitle>
         <CardDescription>
           <InlineText
-            value={event.notes}
-            onSave={notes => updateEvent({ notes })}
+            value={event.headcountNote}
+            onSave={headcountNote => updateEvent({ headcountNote })}
             multiline
             ariaLabel={`${event.name} headcount note`}
             placeholder="Add the headcount context"
@@ -755,6 +770,7 @@ type EventDraft = {
   city: string;
   venue: string;
   workingHeadcount: string;
+  headcountNote: string;
   notes: string;
 };
 
@@ -763,8 +779,8 @@ function eventToDraft(event?: EventRecord | null): EventDraft {
     name: event?.name ?? "",
     tier: String(event?.tier ?? 2),
     status: event?.status ?? "Idea",
-    startDate: event?.startDate ? String(event.startDate).slice(0, 10) : "",
-    endDate: event?.endDate ? String(event.endDate).slice(0, 10) : "",
+    startDate: dateKey(event?.startDate) ?? "",
+    endDate: dateKey(event?.endDate) ?? "",
     counterpart: event?.counterpart ?? "",
     ownerName: event?.ownerName ?? "",
     city: event?.city ?? "",
@@ -773,6 +789,7 @@ function eventToDraft(event?: EventRecord | null): EventDraft {
       event?.workingHeadcount === null || event?.workingHeadcount === undefined
         ? ""
         : String(event.workingHeadcount),
+    headcountNote: event?.headcountNote ?? "",
     notes: event?.notes ?? "",
   };
 }
@@ -832,6 +849,7 @@ function EventEditorDialog({
       city: draft.city.trim() || null,
       venue: draft.venue.trim() || null,
       workingHeadcount: parsedHeadcount,
+      headcountNote: draft.headcountNote.trim() || null,
       notes: draft.notes.trim() || null,
     });
   };
@@ -964,6 +982,17 @@ function EventEditorDialog({
               />
             </label>
             <label className="space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium">Headcount context</span>
+              <Textarea
+                value={draft.headcountNote}
+                onChange={item =>
+                  updateDraft("headcountNote", item.target.value)
+                }
+                placeholder="Minimum, assumptions, or booking constraints"
+                className="min-h-20 bg-background"
+              />
+            </label>
+            <label className="space-y-1.5 sm:col-span-2">
               <span className="text-sm font-medium">Operational notes</span>
               <Textarea
                 value={draft.notes}
@@ -1061,9 +1090,7 @@ function EventProfileDialog({
   const sponsorForPayment = (payment: any) =>
     sponsors.find(sponsor => Number(sponsor.id) === Number(payment.sponsorId));
   const eventDate = dateValue(event.startDate)
-    ? event.endDate &&
-      String(event.endDate).slice(0, 10) !==
-        String(event.startDate).slice(0, 10)
+    ? event.endDate && dateKey(event.endDate) !== dateKey(event.startDate)
       ? `${dateLabel(event.startDate)} – ${dateLabel(event.endDate)}`
       : dateLabel(event.startDate)
     : "No confirmed timeline";
@@ -1740,12 +1767,45 @@ function Radar({
       event,
     }))
   );
-  const upcoming = obligations
-    .filter(obligation => (daysUntil(obligation.dueDate) ?? -1) >= 0)
-    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
-  const undatedOrPast = obligations.filter(
-    obligation => (daysUntil(obligation.dueDate) ?? -1) < 0
-  );
+  const datedObligations = obligations.map(obligation => ({
+    ...obligation,
+    daysRemaining: daysUntil(obligation.dueDate),
+  }));
+  const upcoming = datedObligations
+    .filter(item => item.daysRemaining !== null && item.daysRemaining >= 0)
+    .sort(
+      (a, b) =>
+        a.daysRemaining! - b.daysRemaining! ||
+        (dateKey(a.dueDate) ?? "").localeCompare(dateKey(b.dueDate) ?? "")
+    );
+  const past = datedObligations
+    .filter(item => item.daysRemaining !== null && item.daysRemaining < 0)
+    .sort(
+      (a, b) =>
+        b.daysRemaining! - a.daysRemaining! ||
+        (dateKey(b.dueDate) ?? "").localeCompare(dateKey(a.dueDate) ?? "")
+    );
+  const undated = datedObligations.filter(item => item.daysRemaining === null);
+  const deadlineGroups = [
+    {
+      key: "upcoming",
+      label: "Upcoming",
+      detail: "Sorted by nearest date",
+      items: upcoming,
+    },
+    {
+      key: "past",
+      label: "Past due",
+      detail: "Needs re-dating, completion, or escalation",
+      items: past,
+    },
+    {
+      key: "undated",
+      label: "No date",
+      detail: "Cannot enter the deadline queue until dated",
+      items: undated,
+    },
+  ];
   const months = Array.from({ length: 6 }, (_, index) =>
     addMonths(startOfMonth(new Date()), index)
   );
@@ -1879,96 +1939,127 @@ function Radar({
         </div>
         <Card>
           <CardContent className="divide-y p-0">
-            {[...upcoming, ...undatedOrPast].map(item => (
-              <div
-                key={item.id}
-                className={`grid gap-3 border-l-4 p-4 md:grid-cols-[120px_minmax(0,1fr)_180px_40px] ${deadlineTone(item.dueDate)}`}
-              >
-                <div>
-                  <InlineDate
-                    value={item.dueDate}
-                    onSave={dueDate => updateObligation(item, { dueDate })}
-                    ariaLabel={`${item.title} due date`}
-                  />
+            {deadlineGroups.map((group, groupIndex) => (
+              <div key={group.key} className={groupIndex ? "border-t" : ""}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-slate-50 px-4 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                    {group.label}{" "}
+                    <span className="ml-1 text-muted-foreground">
+                      ({group.items.length})
+                    </span>
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    {daysUntil(item.dueDate) === null
-                      ? "Undated"
-                      : daysUntil(item.dueDate)! < 0
-                        ? `${Math.abs(daysUntil(item.dueDate)!)} days ago`
-                        : `${daysUntil(item.dueDate)} days`}
+                    {group.detail}
                   </p>
                 </div>
-                <div>
-                  <p className="font-medium">
-                    <InlineText
-                      value={item.title}
-                      onSave={title => {
-                        if (title) updateObligation(item, { title });
-                      }}
-                      ariaLabel="obligation title"
-                    />
+                {group.items.length ? (
+                  group.items.map(item => (
+                    <div
+                      key={item.id}
+                      className={`grid gap-3 border-l-4 p-4 md:grid-cols-[120px_minmax(0,1fr)_180px_40px] ${deadlineTone(item.dueDate)}`}
+                    >
+                      <div>
+                        <InlineDate
+                          value={item.dueDate}
+                          onSave={dueDate =>
+                            updateObligation(item, { dueDate })
+                          }
+                          ariaLabel={`${item.title} due date`}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {item.daysRemaining === null
+                            ? "Undated"
+                            : item.daysRemaining < 0
+                              ? `${Math.abs(item.daysRemaining)} days ago`
+                              : `${item.daysRemaining} days`}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-medium">
+                          <InlineText
+                            value={item.title}
+                            onSave={title => {
+                              if (title) updateObligation(item, { title });
+                            }}
+                            ariaLabel="obligation title"
+                          />
+                        </p>
+                        <div className="mt-1">
+                          <InlineSelect
+                            value={item.eventId}
+                            options={eventOptions}
+                            onSave={eventId =>
+                              updateObligation(item, {
+                                eventId: Number(eventId),
+                              })
+                            }
+                            ariaLabel="obligation event"
+                          />
+                        </div>
+                        <div className="mt-1">
+                          <InlineText
+                            value={item.consequence}
+                            onSave={consequence =>
+                              updateObligation(item, { consequence })
+                            }
+                            multiline
+                            ariaLabel={`${item.title} consequence`}
+                            placeholder="Describe the consequence"
+                          />
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">
+                          <InlineNumber
+                            value={item.amountAtRisk}
+                            onSave={amountAtRisk =>
+                              updateObligation(item, { amountAtRisk })
+                            }
+                            prefix="$"
+                            ariaLabel={`${item.title} amount at risk`}
+                          />
+                        </p>
+                        <p className="mt-1 text-xs">
+                          <InlineText
+                            value={item.amountNote}
+                            onSave={amountNote =>
+                              updateObligation(item, { amountNote })
+                            }
+                            ariaLabel={`${item.title} amount label`}
+                            placeholder="Add amount label"
+                          />
+                        </p>
+                        <div className="mt-2">
+                          <InlineSelect
+                            value={item.isPayable ? "yes" : "no"}
+                            options={[
+                              ["yes", "Payable"],
+                              ["no", "Not payable"],
+                            ]}
+                            onSave={value =>
+                              updateObligation(item, {
+                                isPayable: value === "yes",
+                              })
+                            }
+                            ariaLabel={`${item.title} payment status`}
+                          />
+                        </div>
+                      </div>
+                      <DeleteButton
+                        label={item.title}
+                        onDelete={() => deleteObligation(item)}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <p className="px-4 py-5 text-sm text-muted-foreground">
+                    {group.key === "upcoming"
+                      ? "No upcoming dated obligations."
+                      : group.key === "past"
+                        ? "No past-due obligations."
+                        : "Every obligation has a date."}
                   </p>
-                  <div className="mt-1">
-                    <InlineSelect
-                      value={item.eventId}
-                      options={eventOptions}
-                      onSave={eventId =>
-                        updateObligation(item, { eventId: Number(eventId) })
-                      }
-                      ariaLabel="obligation event"
-                    />
-                  </div>
-                  <div className="mt-1">
-                    <InlineText
-                      value={item.consequence}
-                      onSave={consequence =>
-                        updateObligation(item, { consequence })
-                      }
-                      multiline
-                      ariaLabel={`${item.title} consequence`}
-                      placeholder="Describe the consequence"
-                    />
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold">
-                    <InlineNumber
-                      value={item.amountAtRisk}
-                      onSave={amountAtRisk =>
-                        updateObligation(item, { amountAtRisk })
-                      }
-                      prefix="$"
-                      ariaLabel={`${item.title} amount at risk`}
-                    />
-                  </p>
-                  <p className="mt-1 text-xs">
-                    <InlineText
-                      value={item.amountNote}
-                      onSave={amountNote =>
-                        updateObligation(item, { amountNote })
-                      }
-                      ariaLabel={`${item.title} amount label`}
-                      placeholder="Add amount label"
-                    />
-                  </p>
-                  <div className="mt-2">
-                    <InlineSelect
-                      value={item.isPayable ? "yes" : "no"}
-                      options={[
-                        ["yes", "Payable"],
-                        ["no", "Not payable"],
-                      ]}
-                      onSave={value =>
-                        updateObligation(item, { isPayable: value === "yes" })
-                      }
-                      ariaLabel={`${item.title} payment status`}
-                    />
-                  </div>
-                </div>
-                <DeleteButton
-                  label={item.title}
-                  onDelete={() => deleteObligation(item)}
-                />
+                )}
               </div>
             ))}
           </CardContent>
@@ -3308,12 +3399,13 @@ function SponsorGrid({
                       </td>
                       <td className="max-w-64 px-3 py-3">
                         {roster.length ? (
-                          roster.map(sponsor => (
+                          roster.map((sponsor, index) => (
                             <span
                               key={sponsor.id}
                               className={`mr-1 ${sponsor.companyName === claimedName ? "font-semibold text-cyan-800" : conflict ? "font-medium text-rose-700" : ""}`}
                             >
                               {sponsor.companyName}
+                              {index < roster.length - 1 ? ", " : ""}
                             </span>
                           ))
                         ) : (
@@ -3487,8 +3579,7 @@ function EventOperationsRecord({
           <p className="mt-1 text-sm text-muted-foreground">
             {dateValue(event.startDate)
               ? event.endDate &&
-                String(event.endDate).slice(0, 10) !==
-                  String(event.startDate).slice(0, 10)
+                dateKey(event.endDate) !== dateKey(event.startDate)
                 ? `${dateLabel(event.startDate)} – ${dateLabel(event.endDate)}`
                 : dateLabel(event.startDate)
               : "Timeline not confirmed"}
@@ -4351,8 +4442,11 @@ export default function EventsPage() {
       }))
     )
     .filter((obligation: any) => (daysUntil(obligation.dueDate) ?? -1) >= 0)
-    .sort((a: any, b: any) =>
-      String(a.dueDate).localeCompare(String(b.dueDate))
+    .sort(
+      (a: any, b: any) =>
+        (daysUntil(a.dueDate) ?? Number.MAX_SAFE_INTEGER) -
+          (daysUntil(b.dueDate) ?? Number.MAX_SAFE_INTEGER) ||
+        (dateKey(a.dueDate) ?? "").localeCompare(dateKey(b.dueDate) ?? "")
     )[0];
 
   const updateEvent = (event: any, patch: any) =>

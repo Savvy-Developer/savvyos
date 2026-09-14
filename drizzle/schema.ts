@@ -6245,6 +6245,7 @@ export const eventPortfolio = mysqlTable(
       length: 255,
     }),
     workingHeadcount: int("workingHeadcount"),
+    headcountNote: text("headcountNote"),
     notes: text("notes"),
     version: int("version").notNull().default(1),
     createdById: int("createdById").references(() => users.id, {
